@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "status": "illustrative",
+  "programId": "cognitive-science-ab-demo",
+  "catalogYear": "demo",
+  "name": "Cognitive Science",
+  "degree": "A.B.",
+  "totalCredits": 120,
+  "requirements": [
+    {
+      "id": "foundations",
+      "label": "Major foundations",
+      "rule": {
+        "type": "min_credits",
+        "credits": 12,
+        "from": {
+          "type": "course_set",
+          "courseIds": ["arti-3550", "psyc-1101", "ling-2100"]
+        }
+      }
+    },
+    {
+      "id": "computation",
+      "label": "Computation",
+      "rule": {
+        "type": "all_of",
+        "rules": [
+          { "type": "course", "courseId": "csci-1301" },
+          { "type": "course", "courseId": "csci-1302" },
+          {
+            "type": "min_credits",
+            "credits": 10,
+            "from": { "type": "tag", "value": "computation" }
+          }
+        ]
+      }
+    }
+  ],
+  "provenance": {
+    "source": "Illustrative prototype only",
+    "reviewedBy": null,
+    "capturedAt": null
+  }
+}
