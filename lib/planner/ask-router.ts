@@ -138,6 +138,8 @@ export type LocalShape =
   | 'load'
   | 'prereq'
   | 'requirements'
+  /** What is in a column: the plainest question a board can be asked. */
+  | 'roster'
   /** Two candidates and no way to choose. The bar renders the ask-back. */
   | 'clarify';
 
@@ -189,6 +191,23 @@ function local(shape: LocalShape, text: string, sources: Source[], grounded = tr
   };
 }
 
+/**
+ * "1 hour", "2 hours". The same helper components/planner/words.ts gives the
+ * components, repeated here because lib may not import from components.
+ *
+ * Every count in this file goes through it. Writing the "s" inline is how
+ * "Degree Requirements, 1 hours" and "1 course rows on that page" reached
+ * students, and both of those were inline ternaries that simply had no ternary.
+ */
+function plural(n: number, word: string, many?: string): string {
+  return n === 1 ? word : (many ?? `${word}s`);
+}
+
+/** "1 hour", "49 hours". Named so it cannot shadow a local called hours. */
+function hoursWord(n: number): string {
+  return `${n} ${plural(n, 'hour')}`;
+}
+
 /** "a, b and c". Never an Oxford comma; the product's copy does not use one. */
 function joinList(items: string[]): string {
   if (items.length === 0) return '';
@@ -226,8 +245,9 @@ const DAY_WORDS: Record<string, string> = {
 function dayWords(days: string | null): string | null {
   const d = (days ?? '').trim();
   if (!d || d.toLowerCase() === 'n.a.') return null;
-  if (!/^[MTWRFS]+$/.test(d)) return d;
-  return joinList([...d].map((c) => DAY_WORDS[c] ?? c));
+  const letters = d.match(/[MTWRFS]/g);
+  if (!letters || letters.length !== d.length) return d;
+  return joinList(letters.map((c) => DAY_WORDS[c] ?? c));
 }
 
 /** "9:00AM" and "10:50AM" -> "9:00AM to 10:50AM". Times are printed as published. */
@@ -427,6 +447,53 @@ const SECTION_SHAPE_WITH_COURSE =
  */
 const LOAD_SHAPE =
   /\b(too (hard|much|heavy|light|many)|workload|course ?load|overload\w*|balanced|manageable|doable|survive)\b|\b(hard|heavy|light|tough|brutal|rough|packed|easy|busy)\b[^?]{0,25}\b(term|semester|schedule|spring|fall|summer|year|load)\b|\b(term|semester|schedule|spring|fall|summer|load)\b[^?]{0,25}\b(hard|hardest|heavy|heaviest|light|lightest|tough|toughest|brutal|rough|packed|easy|easiest|busy|busiest|worst)\b|\b(hardest|toughest|easiest|worst)\b[^?]{0,25}\b(of\s+)?(my|these|this|the)\b|\b(my|these|this)\b[^?]{0,25}\b(hardest|toughest|easiest|worst)\b|\b(hardest|toughest|easiest|worst)\b[^?]{0,30}\b(class|classes|course|courses|term|semester|spring|fall|summer|winter)\b/i;
+
+/**
+ * "What am I taking?" The plainest question a board can be asked, and it was
+ * the one question nothing answered.
+ *
+ * Measured: "What am I taking in fall 2027?", "What is my schedule in spring
+ * 2028?" and "Is CS 464 offered in fall 2026?" each came back with "I cannot
+ * reach Illinois's published pages from this build" against a board that plainly
+ * held those terms. The term resolver was already right; there was simply no
+ * route asking it anything. Reading a column out loud needs no grade data, no
+ * section data and no upstream at all.
+ */
+const ROSTER_SHAPE =
+  /\bwhat am i (taking|enrolled in|signed up for|registered for)\b|\bwhat (classes|courses) (am i|do i|will i|are on)\b|\bwhat (is|'?s) (my|on my) (schedule|board|plan)\b|\bwhat'?s on my (board|plan|schedule)\b|\bwhat (does|do) my (schedule|board|plan) (look like|hold|have)\b|\bshow me my (schedule|board|plan)\b|\bwhat do i have (in|on|that)\b|\bwhat am i in\b/i;
+
+/**
+ * A weekday or a clock, which turns a roster question into a section question
+ * the board cannot answer.
+ *
+ * "What am I taking on Tuesday" is about meeting times, and the board holds
+ * courses rather than sections: CS 225 alone runs 44 of them at different
+ * hours. Answering it with the term's course list would answer a different
+ * question, so these fall through to the section branch, which says so.
+ */
+const WEEKDAY_OR_CLOCK =
+  /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun|morning|afternoon|evening|at \d|o'?clock)\b/i;
+
+/**
+ * Wording that looks like a roster question and is not one.
+ *
+ * "What classes do I still need?" is a degree-progress question and
+ * "what am I taking that is hardest" is a ranking. Both match the roster
+ * shapes above, and both have a better answer further down the router.
+ */
+const NOT_A_ROSTER =
+  /\b(need|needs|needed|left|remaining|still|missing|short|require\w*|prereq\w*|hardest|toughest|easiest|heaviest|lightest|busiest|worst)\b/i;
+
+/**
+ * "Is CS 464 offered in fall 2026?"
+ *
+ * Illinois publishes no offering pattern anywhere in the catalog, and one
+ * crawled term is not evidence that a course skips another one. So this route
+ * exists to say exactly what is known: whether the one schedule this build
+ * holds lists the course, and that it is one term out of several.
+ */
+const OFFERED_SHAPE =
+  /\b(offered|offering|offer)\b|\b(is|are|does|do|will) [^?]{0,30}\b(run|runs|running|taught|available|happening)\b|\bdo they (offer|run|teach)\b/i;
 
 /**
  * A superlative aimed at the columns rather than at the cards in them.
@@ -1164,6 +1231,146 @@ function answerFirstClass(ctx: AskContext, term: ResolvedTerm | null, raw: strin
   return local('section', lines.join('\n\n'), url ? [sourceOf(1, `${schedule.label} Schedule`, url)] : []);
 }
 
+/** The catalog's own index, which is where every credit hour here came from. */
+const CATALOG_URL = 'https://catalog.illinois.edu/courses-of-instruction/';
+
+/**
+ * Whether the schedule this build holds lists a course, and nothing more.
+ *
+ * Illinois publishes no offering pattern in the catalog. One crawled term is
+ * not evidence that a course skips another one, so the only honest answer names
+ * the term it can speak for and says that it is the only one. When the student
+ * names the term the crawl covers, answerSection already writes exactly that,
+ * both ways round, so this only handles the case where they named a different
+ * one.
+ */
+function answerOffered(code: string, raw: string, ctx: AskContext): Routed {
+  const term = ctx.data.sectionTerm;
+  if (!term) {
+    return local(
+      'section',
+      `No class schedule is loaded, so I cannot say which terms ${code} runs in. Illinois publishes no offering pattern in the course catalog either.`,
+      [],
+      false,
+    );
+  }
+
+  const seasonMatch = SEASON_WORD.exec(raw);
+  const asked = seasonMatch ? seasonMatch[1].toLowerCase().replace('autumn', 'fall') : null;
+  const askedYear = YEAR_WORD.exec(raw)?.[1] ?? null;
+  const sameSeason = !asked || asked === String(term.term).toLowerCase();
+  const sameYear = !askedYear || askedYear === String(term.year);
+  if (sameSeason && sameYear) return answerSection(code, raw, ctx);
+
+  const wanted = asked && askedYear
+    ? `${seasonTitle(asked)} ${askedYear}`
+    : asked
+      ? `a ${seasonTitle(asked)} term`
+      : `${askedYear}`;
+  const rows = ctx.sectionRows.get(code) ?? [];
+  const known = rows.length > 0
+    ? `In ${term.label} it has ${rows.length} ${plural(rows.length, 'section')}.`
+    : crawledSubjects(ctx).has(splitCode(code)[0])
+      ? `The ${term.label} schedule does not list it.`
+      : `The ${term.label} schedule for ${splitCode(code)[0]} has not been read here yet.`;
+
+  const url = scheduleTermUrl(ctx);
+  return local(
+    'section',
+    `${term.label} is the only class schedule I have, so I cannot tell you whether ${code} runs in ${wanted}. Illinois publishes no offering pattern in the course catalog, so nothing here can work it out either. ${known} Check the schedule page for the term you want.`,
+    url ? [sourceOf(1, `${term.label} Schedule`, url)] : [],
+    false,
+  );
+}
+
+/**
+ * What is in a column, read back plainly.
+ *
+ * "What am I taking in fall 2027?" needs no grade data, no section data and no
+ * upstream, and it was the one question the router had no route for: it fell
+ * all the way through to an engine that cannot see a board and came back saying
+ * it could not reach Illinois's pages. The board is right here.
+ */
+function answerRoster(ctx: AskContext, term: ResolvedTerm | null, raw: string): Routed {
+  const terms = uniqueTerms(ctx);
+  if (terms.length === 0) {
+    return local('roster', 'Nothing is on the board yet, so there is nothing to read back.', [], false);
+  }
+
+  const sources = [sourceOf(1, 'Courses of Instruction, Illinois catalog', CATALOG_URL)];
+  const lines: string[] = [];
+
+  // A weekday or a time turns this into a question about sections, and a board
+  // holds courses: CS 225 alone runs 44 sections at different hours. Said
+  // first, so nobody reads the list below as a day's timetable.
+  if (WEEKDAY_OR_CLOCK.test(raw)) {
+    lines.push(
+      'The board holds courses, not sections, so it cannot say which of them meets on a given day or at a given hour. Ask about one course by code and I will list when each of its sections meets.',
+    );
+  }
+
+  // No single column, and the student named none: read the whole board back
+  // rather than picking one for them.
+  if (!term) {
+    const shown = terms.slice(0, 12);
+    lines.push(
+      `${ctx.planned.length} ${plural(ctx.planned.length, 'course')} across ${terms.length} ${plural(terms.length, 'term')}, ${boardSpan(terms)}.`,
+    );
+    lines.push(
+      shown
+        .map((row) => {
+          const codes = coursesInTerm(ctx, row.termId).map((c) => normCode(c.code));
+          return `${row.termLabel}: ${codes.length > 0 ? joinList(codes) : 'nothing yet'}.`;
+        })
+        .join('\n'),
+    );
+    if (terms.length > shown.length) {
+      lines.push(`${terms.length - shown.length} more ${plural(terms.length - shown.length, 'term')} after those.`);
+    }
+    lines.push('Ask about one term by name and I will list it with titles and credit hours.');
+    return local('roster', lines.join('\n\n'), sources);
+  }
+
+  const courses = coursesInTerm(ctx, term.termId);
+  if (courses.length === 0) {
+    return local('roster', `${term.label} is empty. Nothing is in it yet.`, [], false);
+  }
+
+  const codes = courses.map((c) => normCode(c.code));
+  const credits = termCreditRange(
+    codes.map((code) => ctx.data.byCode.get(code) ?? { id: code, code }),
+    ctx.data.facts,
+  );
+  const creditText = credits.variable
+    ? `${credits.min} to ${credits.max} credits`
+    : `${credits.min} ${plural(credits.min, 'credit')}`;
+  const unknownText = credits.unknown > 0
+    ? `, plus ${credits.unknown} whose credit hours the catalog does not list`
+    : '';
+  lines.push(`${term.label}: ${courses.length} ${plural(courses.length, 'course')}, ${creditText}${unknownText}.`);
+
+  lines.push(
+    courses
+      .map((course) => {
+        const code = normCode(course.code);
+        const range = ctx.data.facts.get(code)?.creditRange;
+        const title = ctx.data.byCode.get(code)?.title ?? course.title;
+        const credit = range ? creditLabel(range).toLowerCase() : null;
+        return `${code}, ${title}${credit ? `. ${credit}` : ''}.`;
+      })
+      .join('\n'),
+  );
+
+  const schedule = ctx.data.sectionTerm;
+  if (schedule) {
+    lines.push(
+      `Ask about any of them by code and I will give you its ${schedule.label} sections, rooms and meeting times.`,
+    );
+  }
+
+  return local('roster', lines.join('\n\n'), sources);
+}
+
 // ---------------------------------------------------------------------------
 // Local answer 2: how heavy a term is
 // ---------------------------------------------------------------------------
@@ -1181,7 +1388,7 @@ function gradeDetail(row: GradeRow | undefined): string {
   if (row.gpa !== null) bits.push(`${row.gpa.toFixed(2)} average GPA`);
   if (row.dfPct !== null) bits.push(`${row.dfPct}% D or F`);
   if (row.withdrawPct !== null) bits.push(`${row.withdrawPct}% withdrew`);
-  if (row.n < THIN_SAMPLE) bits.push(`only ${row.n} grades`);
+  if (row.n < THIN_SAMPLE) bits.push(`only ${row.n} ${plural(row.n, 'grade')}`);
   return bits.join(', ');
 }
 
@@ -1198,7 +1405,10 @@ function answerLoad(ctx: AskContext, term: ResolvedTerm): Routed {
     if (range?.known) creditsByCode.set(code, range.credits);
   }
 
-  const load = termLoad(codes, ctx.data.grades, { bands: ctx.data.bands, creditsByCode });
+  // Cross-listed history included, so this term weighs the same courses the
+  // cards in it weigh. See gradesForCodes.
+  const { grades, borrowed } = gradesForCodes(codes, ctx);
+  const load = termLoad(codes, grades, { bands: ctx.data.bands, creditsByCode });
   const credits = termCreditRange(
     codes.map((code) => ctx.data.byCode.get(code) ?? { id: code, code }),
     ctx.data.facts,
@@ -1207,10 +1417,10 @@ function answerLoad(ctx: AskContext, term: ResolvedTerm): Routed {
   const lines: string[] = [];
   const creditText = credits.variable
     ? `${credits.min} to ${credits.max} credits`
-    : `${credits.min} credit${credits.min === 1 ? '' : 's'}`;
+    : `${credits.min} ${plural(credits.min, 'credit')}`;
   const unknownText = credits.unknown > 0 ? `, plus ${credits.unknown} whose credit hours the catalog does not list` : '';
   lines.push(
-    `${term.label}: ${courses.length} course${courses.length === 1 ? '' : 's'}, ${creditText}${unknownText}.`,
+    `${term.label}: ${courses.length} ${plural(courses.length, 'course')}, ${creditText}${unknownText}.`,
   );
 
   if (load.avgDifficulty === null) {
@@ -1227,7 +1437,7 @@ function answerLoad(ctx: AskContext, term: ResolvedTerm): Routed {
 
   if (load.hard.length > 0) {
     const named = load.hard.slice(0, 3).map((code) => {
-      const detail = gradeDetail(ctx.data.grades.get(code));
+      const detail = gradeDetail(grades.get(code));
       return detail ? `${code} (${detail})` : code;
     });
     lines.push(
@@ -1239,11 +1449,14 @@ function answerLoad(ctx: AskContext, term: ResolvedTerm): Routed {
 
   const unweighed = codes.length - load.weighed;
   if (unweighed > 0) {
-    const missing = codes.filter((code) => !ctx.data.grades.has(code));
+    const missing = codes.filter((code) => !grades.has(code));
     lines.push(
       `${load.weighed} of ${codes.length} were weighed. No grade history for ${joinWithMore(missing.slice(0, 4), missing.length - Math.min(missing.length, 4))}, so ${missing.length === 1 ? 'it is' : 'they are'} not in that average.`,
     );
   }
+
+  const twins = borrowedLine(borrowed);
+  if (twins) lines.push(twins);
 
   lines.push(
     `${gradeHistoryLine(ctx)} The spread between instructors inside one course is usually wider than the gap between courses.`,
@@ -1260,10 +1473,14 @@ function answerHardest(ctx: AskContext, term: ResolvedTerm | null, easiest: bool
     return local('load', `Nothing is on ${where} yet.`, [], false);
   }
 
+  // The same twin-aware lookup the card and the term weight use. Ranking off
+  // ctx.data.grades directly is what dropped CS 468 out of a ranking its own
+  // card had just given a difficulty for.
+  const { grades, borrowed } = gradesForCodes(pool.map((c) => normCode(c.code)), ctx);
   const scored = pool
     .map((course) => {
       const code = normCode(course.code);
-      const row = ctx.data.grades.get(code);
+      const row = grades.get(code);
       const label = difficultyLabel(row, ctx.data.bands);
       return { course, code, row, difficulty: label.kind === 'band' ? label.difficulty : null };
     })
@@ -1274,7 +1491,7 @@ function answerHardest(ctx: AskContext, term: ResolvedTerm | null, easiest: bool
   if (scored.length === 0) {
     return local(
       'load',
-      `None of the ${pool.length} course${pool.length === 1 ? '' : 's'} on ${where} has a grade row, so I cannot rank them.`,
+      `None of the ${pool.length} ${plural(pool.length, 'course')} on ${where} has a grade row, so I cannot rank them.`,
       [sourceOf(1, DAIR.title, DAIR.url)],
       false,
     );
@@ -1298,13 +1515,16 @@ function answerHardest(ctx: AskContext, term: ResolvedTerm | null, easiest: bool
 
   if (unscored > 0) {
     lines.push(
-      `${unscored} course${unscored === 1 ? '' : 's'} on it ${unscored === 1 ? 'has' : 'have'} no grade row, so ${unscored === 1 ? 'it is' : 'they are'} not in that ranking.`,
+      `${unscored} ${plural(unscored, 'course')} on it ${unscored === 1 ? 'has' : 'have'} no grade row, so ${unscored === 1 ? 'it is' : 'they are'} not in that ranking.`,
     );
   }
 
   if (top.row && top.row.n < THIN_SAMPLE) {
-    lines.push(`That top row is built on ${top.row.n} grades, which is a small sample.`);
+    lines.push(`That top row is built on ${top.row.n} ${plural(top.row.n, 'grade')}, which is a small sample.`);
   }
+
+  const twins = borrowedLine(borrowed);
+  if (twins) lines.push(twins);
 
   lines.push(gradeHistoryLine(ctx));
   return local('load', lines.join('\n\n'), [sourceOf(1, DAIR.title, DAIR.url)]);
@@ -1327,6 +1547,7 @@ function answerHardestTerm(ctx: AskContext, easiest: boolean): Routed {
   // know anyway, and calling it the hardest of one term would be silly.
   if (terms.length === 1) return answerLoad(ctx, termOf(terms[0], 'only'));
 
+  const allBorrowed: Array<{ code: string; from: string }> = [];
   const weighed = terms.map((row) => {
     const codes = coursesInTerm(ctx, row.termId).map((c) => normCode(c.code));
     const creditsByCode = new Map<string, number>();
@@ -1334,10 +1555,14 @@ function answerHardestTerm(ctx: AskContext, easiest: boolean): Routed {
       const range = ctx.data.facts.get(code)?.creditRange;
       if (range?.known) creditsByCode.set(code, range.credits);
     }
+    // Twin-aware, the same as the single-term weight. Two surfaces weighing the
+    // same column off different grade maps is how they came to disagree.
+    const { grades, borrowed } = gradesForCodes(codes, ctx);
+    allBorrowed.push(...borrowed);
     return {
       row,
       courses: codes.length,
-      load: termLoad(codes, ctx.data.grades, { bands: ctx.data.bands, creditsByCode }),
+      load: termLoad(codes, grades, { bands: ctx.data.bands, creditsByCode }),
     };
   });
 
@@ -1353,7 +1578,7 @@ function answerHardestTerm(ctx: AskContext, easiest: boolean): Routed {
   if (ranked.length === 0) {
     return local(
       'load',
-      `No course on your ${terms.length} terms has a grade row, so there is nothing to rank them by. Credit hours are all I can count here.`,
+      `No course on your ${terms.length} ${plural(terms.length, 'term')} has a grade row, so there is nothing to rank them by. Credit hours are all I can count here.`,
       sources,
       false,
     );
@@ -1396,6 +1621,9 @@ function answerHardestTerm(ctx: AskContext, easiest: boolean): Routed {
       `${joinList(silent.map((t) => t.row.termLabel))} ${silent.length === 1 ? 'has' : 'have'} no course with a grade row, so ${silent.length === 1 ? 'it is' : 'they are'} not in that ranking.`,
     );
   }
+
+  const twins = borrowedLine(allBorrowed);
+  if (twins) lines.push(twins);
 
   lines.push(
     `${gradeHistoryLine(ctx)} A term average is only as good as the courses under it, and courses with no grade row are not in one.`,
@@ -1663,7 +1891,7 @@ function answerOrder(ctx: AskContext): Routed {
 
   const lines: string[] = [];
   lines.push(
-    `${ctx.planned.length} courses across ${uniqueTerms(ctx).length} terms. ${checked} of them publish a prerequisite.`,
+    `${ctx.planned.length} ${plural(ctx.planned.length, 'course')} across ${uniqueTerms(ctx).length} ${plural(uniqueTerms(ctx).length, 'term')}. ${checked} of them ${checked === 1 ? 'publishes' : 'publish'} a prerequisite.`,
   );
   if (problems.length === 0) {
     // Narrower wording when something is still open. "Nothing runs before
@@ -1719,10 +1947,10 @@ function shortDescription(text: string, limit = 260): string | null {
  */
 function twinGradeRow(
   code: string,
-  facts: CourseFacts,
   ctx: AskContext,
 ): { code: string; row: GradeRow; difficulty: number } | null {
-  const twins = [...(facts.equivalents ?? []), ...(ctx.data.equivalents.get(code) ?? [])];
+  const facts = ctx.data.facts.get(code);
+  const twins = [...(facts?.equivalents ?? []), ...(ctx.data.equivalents.get(code) ?? [])];
   for (const raw of twins) {
     const twin = normCode(raw);
     if (twin === code) continue;
@@ -1731,6 +1959,59 @@ function twinGradeRow(
     if (row && label.kind === 'band') return { code: twin, row, difficulty: label.difficulty };
   }
   return null;
+}
+
+/**
+ * One grade row per code, with cross-listed history put back under the code the
+ * student is actually looking at.
+ *
+ * This exists because the same course was affirmed on one surface and denied on
+ * three. CS 468's card read "Average GPA 3.78, 82% A grades" and named ADV 492
+ * as the row it came from, and in the same session "how heavy is spring 2029"
+ * said "No grade history for CS 468" and "which of my classes is hardest" left
+ * it out of the ranking, because those two read ctx.data.grades directly and
+ * ctx.data.grades has no CS 468. 503 undergraduate courses are in that
+ * position. Every difficulty surface goes through this now, so they cannot
+ * disagree again.
+ *
+ * The borrowed row is stored under the BOARD's code, not the registrar's, so
+ * nothing downstream prints "ADV 492" for a card that says CS 468. Which code
+ * the numbers were filed under is returned separately, and every caller says it
+ * out loud: a student must never think Illinois published these under the code
+ * in front of them.
+ */
+function gradesForCodes(
+  codes: string[],
+  ctx: AskContext,
+): { grades: Map<string, GradeRow>; borrowed: Array<{ code: string; from: string }> } {
+  const grades = new Map<string, GradeRow>();
+  const borrowed: Array<{ code: string; from: string }> = [];
+  for (const code of codes) {
+    if (grades.has(code)) continue;
+    const own = ctx.data.grades.get(code);
+    if (own) {
+      grades.set(code, own);
+      continue;
+    }
+    const twin = twinGradeRow(code, ctx);
+    if (!twin) continue;
+    grades.set(code, { ...twin.row, code });
+    borrowed.push({ code, from: twin.code });
+  }
+  return { grades, borrowed };
+}
+
+/** The sentence that has to ship with any number read off a twin's row. */
+function borrowedLine(borrowed: Array<{ code: string; from: string }>): string | null {
+  if (borrowed.length === 0) return null;
+  const pairs = borrowed.slice(0, 4).map((b) => `${b.code} under ${b.from}`);
+  const rest = borrowed.length - pairs.length;
+  const one = borrowed.length === 1;
+  return `Illinois files a class taught under two codes under one of them, so ${
+    one ? 'one of these has' : `${borrowed.length} of these have`
+  } no grade row of ${one ? 'its' : 'their'} own: ${joinWithMore(pairs, rest)}. ${
+    one ? 'That row is' : 'Those rows are'
+  } the same class and ${one ? 'is' : 'are'} what is counted here.`;
 }
 
 /**
@@ -1798,14 +2079,14 @@ function answerCourse(code: string, raw: string, ctx: AskContext): Routed {
   const summary = ctx.data.sections.get(code);
   const term = ctx.data.sectionTerm;
   if (summary && term) {
-    lines.push(`${summary.total} section${summary.total === 1 ? '' : 's'} in ${term.label}. ${buildingSentence(summary)}`);
+    lines.push(`${summary.total} ${plural(summary.total, 'section')} in ${term.label}. ${buildingSentence(summary)}`);
     const url = scheduleUrlFor(ctx, code);
     if (url) sources.push(sourceOf(sources.length + 1, `${term.label} Schedule, ${code}`, url));
   }
 
   const row = ctx.data.grades.get(code);
   const label = difficultyLabel(row, ctx.data.bands);
-  const borrowed = row ? null : twinGradeRow(code, facts, ctx);
+  const borrowed = row ? null : twinGradeRow(code, ctx);
   if (row && label.kind === 'band') {
     const detail = gradeDetail(row);
     lines.push(`Grade history: ${detail || `difficulty ${label.difficulty} out of 100`}. ${gradeHistoryLine(ctx)}`);
@@ -1833,6 +2114,30 @@ function answerCourse(code: string, raw: string, ctx: AskContext): Routed {
 
 const SELF_SERVICE =
   'This is the published requirement list measured against your board. The degree audit in Student Self-Service is the record that counts.';
+
+/**
+ * An area's heading, or null when the catalog page prints none.
+ *
+ * programs.json reports label null with labelKnown false for 358 of the 1,155
+ * areas, because those parts of a degree page really are unheaded, and
+ * RequirementArea types label as a string, so the null arrives through a type
+ * saying it cannot. Interpolating it printed the four characters "null" as a
+ * heading to students on two degrees: "null: 32 of 49 hours." The same nulls
+ * went through Array.join, which renders null as nothing at all, so a list of
+ * three areas came out as "Degree Requirements,  and null".
+ *
+ * Nothing here invents a name. An invented name is a fact about the university
+ * the university never published, and the placeholder this replaced,
+ * "Requirements 3", was exactly that and was read as the catalog's own words.
+ */
+function areaName(area: { label: string | null }): string | null {
+  const label = String(area.label ?? '').trim();
+  // The last two are defensive rather than observed: no area in this crawl
+  // carries them, and a crawl that ever stringified a missing heading would
+  // put the same four characters back on the screen.
+  if (!label || label === 'null' || label === 'undefined') return null;
+  return label;
+}
 
 function answerRequirements(ctx: AskContext): Routed {
   const program = ctx.program;
@@ -1863,37 +2168,105 @@ function answerRequirements(ctx: AskContext): Routed {
   const lines: string[] = [];
   lines.push(
     done.length === 0
-      ? `${program.name}. None of its ${progress.length} requirement areas is complete on your board yet.`
-      : `${program.name}. ${done.length} of ${progress.length} requirement areas are complete on your board.`,
+      ? `${program.name}. None of its ${progress.length} requirement ${plural(progress.length, 'area')} is complete on your board yet.`
+      : `${program.name}. ${done.length} of ${progress.length} requirement ${plural(progress.length, 'area')} ${done.length === 1 ? 'is' : 'are'} complete on your board.`,
   );
 
+  // Headed areas are listed by their heading. Unheaded ones are counted, never
+  // named, and never dropped: they hold real hours off the same page.
+  const openNamed = open.filter((p) => areaName(p.area) !== null);
+  const openBlank = open.filter((p) => areaName(p.area) === null);
+
   if (open.length > 0) {
-    lines.push(
-      open
-        .slice(0, 5)
-        .map((p) => `${p.area.label}: ${p.earned} of ${p.area.hours} hours.`)
-        .join('\n'),
-    );
-    if (open.length > 5) lines.push(`${open.length - 5} more area${open.length - 5 === 1 ? ' is' : 's are'} still open.`);
+    if (openNamed.length > 0) {
+      lines.push(
+        openNamed
+          .slice(0, 5)
+          .map((p) => `${areaName(p.area)}: ${p.earned} of ${hoursWord(p.area.hours)}.`)
+          .join('\n'),
+      );
+      if (openNamed.length > 5) {
+        const rest = openNamed.length - 5;
+        lines.push(`${rest} more headed ${plural(rest, 'area')} ${rest === 1 ? 'is' : 'are'} still open.`);
+      }
+    }
+    if (openBlank.length > 0) {
+      const each = openBlank.slice(0, 3).map((p) => `${p.earned} of ${hoursWord(p.area.hours)}`);
+      const rest = openBlank.length - each.length;
+      // "and 2 more" after a list of hour figures reads as two more hours.
+      // These are areas, and the sentence says so.
+      const listed = rest > 0 ? `${each.join(', ')} and ${rest} more like that` : joinList(each);
+      lines.push(
+        openBlank.length === 1
+          ? `One more part of that page is still open and carries no heading, so I cannot tell you what it is called: ${each[0]}.`
+          : `${openBlank.length} more parts of that page are still open and carry no heading, so I cannot tell you what they are called: ${listed}.`,
+      );
+    }
   } else {
     lines.push('Every area with published hours is covered.');
   }
 
   if (unmeasured.length > 0) {
-    lines.push(
-      `${unmeasured.length} area${unmeasured.length === 1 ? '' : 's'} on that page publish no hour total, so I cannot measure ${unmeasured.length === 1 ? 'it' : 'them'}: ${joinList(unmeasured.slice(0, 3).map((p) => p.area.label))}.`,
-    );
+    const namedBlank = unmeasured.filter((p) => areaName(p.area) === null).length;
+    const namedHeads = unmeasured
+      .filter((p) => areaName(p.area) !== null)
+      .map((p) => areaName(p.area) as string);
+    const parts = [
+      `${unmeasured.length} ${plural(unmeasured.length, 'area')} on that page ${
+        unmeasured.length === 1 ? 'publishes' : 'publish'
+      } no hour total, so I cannot measure ${unmeasured.length === 1 ? 'it' : 'them'}.`,
+    ];
+    if (namedHeads.length > 0) {
+      const shown = namedHeads.slice(0, 3);
+      const list = joinWithMore(shown, namedHeads.length - shown.length);
+      // "2 areas publish no hour total. 2 are headed X and Y" counts the same
+      // two twice. When they all have a heading the count is already said.
+      const lead =
+        namedBlank === 0
+          ? namedHeads.length === 1
+            ? 'It is headed'
+            : 'They are headed'
+          : namedHeads.length === 1
+            ? 'One is headed'
+            : `${namedHeads.length} are headed`;
+      parts.push(`${lead} ${list}.`);
+    }
+    if (namedBlank > 0) {
+      parts.push(
+        namedHeads.length > 0
+          ? `The other ${namedBlank === 1 ? 'one carries' : `${namedBlank} carry`} no heading.`
+          : `${namedBlank === 1 ? 'It carries' : 'They carry'} no heading.`,
+      );
+    }
+    lines.push(parts.join(' '));
+
     // Hours against no target read as nothing at all, and general education is
     // usually one of these areas. The hours are still real and still on the
     // board, so they are named rather than left at a bare "cannot measure".
     const earnedHere = unmeasured.filter((p) => p.earned > 0);
     if (earnedHere.length > 0) {
-      lines.push(
-        `Your board still has hours in ${earnedHere.length === 1 ? 'one of those' : 'those'}: ${earnedHere
-          .slice(0, 3)
-          .map((p) => `${p.area.label}, ${p.earned} hours`)
-          .join('; ')}.`,
-      );
+      const withHeads = earnedHere.filter((p) => areaName(p.area) !== null);
+      const withoutHeads = earnedHere.filter((p) => areaName(p.area) === null);
+      const said: string[] = [];
+      if (withHeads.length > 0) {
+        said.push(
+          `Your board still has hours in ${withHeads.length === 1 ? 'one of those' : 'those'}: ${withHeads
+            .slice(0, 3)
+            .map((p) => `${areaName(p.area)}, ${hoursWord(p.earned)}`)
+            .join('; ')}.`,
+        );
+      }
+      if (withoutHeads.length > 0) {
+        // A total rather than a list of hour figures. "4 hours, 3 hours and 3
+        // more" reads as three more hours, and these are areas.
+        const together = withoutHeads.reduce((sum, p) => sum + p.earned, 0);
+        said.push(
+          withoutHeads.length === 1
+            ? `${withHeads.length > 0 ? 'One more of them carries' : 'One of those carries'} no heading and holds ${hoursWord(withoutHeads[0].earned)}.`
+            : `${withHeads.length > 0 ? `${withoutHeads.length} more of them carry` : `${withoutHeads.length} of those carry`} no heading and hold ${hoursWord(together)} between them.`,
+        );
+      }
+      lines.push(said.join(' '));
     }
   }
 
@@ -1906,20 +2279,30 @@ function answerRequirements(ctx: AskContext): Routed {
   // education group holds a whole campus category, hundreds of courses that are
   // not rows on this degree page, and counting those would make the sentence
   // below a false claim about the page.
-  const zeroRows = program.areas.reduce(
-    (sum, area) =>
-      sum +
-      area.groups
-        .filter((g) => !g.broad)
-        .reduce((n, g) => n + g.courses.filter((c) => !c.credits).length, 0),
-    0,
-  );
-  if (zeroRows > 0) {
-    lines.push(`${zeroRows} course rows on that page carry no credit hours, so these totals count low, never high.`);
+  //
+  // Counted as distinct course codes rather than as printed lines. A degree
+  // page repeats one course across several lists, and "50 course rows" both
+  // over-counted the courses and said "rows", which is a word out of this
+  // repository rather than out of a student's vocabulary.
+  const zeroCredit = new Set<string>();
+  for (const area of program.areas) {
+    for (const group of area.groups) {
+      if (group.broad) continue;
+      for (const course of group.courses) {
+        if (!course.credits) zeroCredit.add(normCode(course.code));
+      }
+    }
+  }
+  if (zeroCredit.size > 0) {
+    lines.push(
+      zeroCredit.size === 1
+        ? 'One course on that page is listed with no credit hours, so these totals count low, never high.'
+        : `${zeroCredit.size} courses on that page are listed with no credit hours, so these totals count low, never high.`,
+    );
   }
 
   if (program.totalCredits !== null) {
-    lines.push(`The degree total is ${program.totalCredits} hours.`);
+    lines.push(`The degree total is ${hoursWord(program.totalCredits)}.`);
   }
 
   lines.push(SELF_SERVICE);
@@ -2012,18 +2395,30 @@ function boardSpan(terms: PlannedCourse[]): string {
  * resolver returned null, and told students with a full board that they had no
  * plan. A resolver that cannot read a question knows nothing about the board.
  */
-function answerTermMiss(ctx: AskContext, miss: TermMiss): Routed {
+function answerTermMiss(
+  ctx: AskContext,
+  miss: TermMiss,
+  /**
+   * What the router was going to do with the column, in the product's own
+   * words. A roster question that came back "Ask about one of those and I will
+   * weigh it" would offer something the student did not ask for.
+   */
+  opts: { shape?: LocalShape; verb?: string; noun?: string } = {},
+): Routed {
   const terms = uniqueTerms(ctx);
+  const shape = opts.shape ?? 'load';
+  const verb = opts.verb ?? 'weigh it';
+  const noun = opts.noun ?? 'no term to weigh';
 
   if (miss.reason === 'empty-board' || terms.length === 0) {
-    return local('load', 'Nothing is on the board yet, so there is no term to weigh.', [], false);
+    return local(shape, `Nothing is on the board yet, so there is ${noun}.`, [], false);
   }
 
   if (miss.reason === 'not-on-board') {
-    const count = `${ctx.planned.length} course${ctx.planned.length === 1 ? '' : 's'} across ${terms.length} term${terms.length === 1 ? '' : 's'}`;
+    const count = `${ctx.planned.length} ${plural(ctx.planned.length, 'course')} across ${terms.length} ${plural(terms.length, 'term')}`;
     return local(
-      'load',
-      `Your board has no ${miss.asked ?? 'term like that'}. It runs ${boardSpan(terms)}, ${count}. Ask about one of those and I will weigh it.`,
+      shape,
+      `Your board has no ${miss.asked ?? 'term like that'}. It runs ${boardSpan(terms)}, ${count}. Ask about one of those and I will ${verb}.`,
       [],
       false,
     );
@@ -2031,8 +2426,8 @@ function answerTermMiss(ctx: AskContext, miss: TermMiss): Routed {
 
   if (miss.reason === 'past-end') {
     return local(
-      'load',
-      `${miss.asked} is the last term on your board, so there is nothing after it yet. Add a term and I will weigh it.`,
+      shape,
+      `${miss.asked} is the last term on your board, so there is nothing after it yet. Add a term and I will ${verb}.`,
       [],
       false,
     );
@@ -2106,7 +2501,33 @@ function routeOne(raw: string, ctx: AskContext): Routed {
     return { kind: 'upstream', shape: 'general', question: rewriteForUpstream(raw, null) };
   }
 
-  // 2. Grade history for one named course, before the load detector can take
+  // 2. Whether a named course runs in a named term. Illinois publishes no
+  //    offering pattern, and one crawled schedule is not evidence about any
+  //    other term, so this answers with the term it can speak for and says so.
+  //    Upstream held none of this and declined all three phrasings of it.
+  if (course && !course.unknown && OFFERED_SHAPE.test(raw)) {
+    return answerOffered(course.code, raw, ctx);
+  }
+  if (course?.unknown && OFFERED_SHAPE.test(raw)) {
+    return { kind: 'upstream', shape: 'general', question: rewriteForUpstream(raw, course) };
+  }
+
+  // 3. What is on the board, read back. The plainest thing a board can be asked
+  //    and the one thing upstream structurally cannot see.
+  if (ROSTER_SHAPE.test(raw) && !NOT_A_ROSTER.test(raw)) {
+    if (!term && miss && (miss.reason === 'not-on-board' || miss.reason === 'past-end')) {
+      return answerTermMiss(ctx, miss, {
+        shape: 'roster',
+        verb: 'read it back',
+        noun: 'nothing to read back',
+      });
+    }
+    // A term the student named out loud wins. A column that merely happens to
+    // be in view does not: "what am I taking" with no term means the board.
+    return answerRoster(ctx, termNamed && term ? term : null, raw);
+  }
+
+  // 4. Grade history for one named course, before the load detector can take
   //    it. "Is CS 225 hard" is TRU's; "is my spring hard" is ours, and the only
   //    difference is whether the question is about a course or about a column.
   //
@@ -2119,7 +2540,7 @@ function routeOne(raw: string, ctx: AskContext): Routed {
     return { kind: 'upstream', shape: 'grade', question: rewriteForUpstream(raw, course) };
   }
 
-  // 3. How heavy a term is. Needs a board reference or a term the student named
+  // 5. How heavy a term is. Needs a board reference or a term the student named
   //    out loud, otherwise it is a question about the university's hardest
   //    courses, which TRU answers deterministically.
   //
@@ -2154,11 +2575,11 @@ function routeOne(raw: string, ctx: AskContext): Routed {
     return answerLoad(ctx, term);
   }
 
-  // 4. The board's own order, before the single-course prerequisite shape,
+  // 6. The board's own order, before the single-course prerequisite shape,
   //    which owns the phrase "the right order" as well.
   if (ORDER_SHAPE.test(raw)) return answerOrder(ctx);
 
-  // 5. Ordering for one course. The catalog's parsed groups plus its own
+  // 7. Ordering for one course. The catalog's parsed groups plus its own
   //    sentence, verbatim, because the parser drops "Permission of department"
   //    and that is a real prerequisite.
   if (
@@ -2179,23 +2600,23 @@ function routeOne(raw: string, ctx: AskContext): Routed {
     return { kind: 'upstream', shape: 'general', question: rewriteForUpstream(raw, null) };
   }
 
-  // 6. Degree progress, measured rather than described.
+  // 8. Degree progress, measured rather than described.
   if (REQUIREMENT_SHAPE.test(raw) && (selfScoped || PROGRESS_WORD.test(raw))) {
     return answerRequirements(ctx);
   }
 
-  // 7. A grade question that named a course but also carried a board word.
+  // 9. A grade question that named a course but also carried a board word.
   if (GRADE_SHAPE.test(raw) && course) {
     return { kind: 'upstream', shape: 'grade', question: rewriteForUpstream(raw, course) };
   }
 
-  // 8. What a course is. Last of the local shapes because its wording is the
+  // 10. What a course is. Last of the local shapes because its wording is the
   //    broadest, so everything more specific gets first refusal.
   if (COURSE_SHAPE.test(raw) && course && !course.unknown) {
     return answerCourse(course.code, raw, ctx);
   }
 
-  // 9. Everything else is a genuine university question, which is what TRU is
+  // 11. Everything else is a genuine university question, which is what TRU is
   //    good at. It goes as a short self-contained sentence and nothing else.
   return {
     kind: 'upstream',

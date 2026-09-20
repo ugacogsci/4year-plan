@@ -1177,6 +1177,59 @@ export function parsePrerequisites(
         produced[0].priorLearning = priorLearningClause(seg, known, self);
       }
 
+      /**
+       * Step 5b. A comma list whose final connective is "or" is a menu, even
+       * when the thing after the "or" is not a course.
+       *
+       * "ATMS 301, ATMS 302, ATMS 303, or consent of instructor" means take ONE
+       * of the three. The parser split it into three ANDed groups because the
+       * final "or" attaches to "consent of instructor", so no course code ever
+       * sat next to an "or" and the comma list read as conjunctive. 72 courses
+       * were affected, and the worst of them, ACE 300's "MATH 220, MATH 221,
+       * MATH 234, or equivalent", demanded all three calculus courses that the
+       * catalog says cannot be taken together for credit.
+       *
+       * The discriminator is the final connective, not the final item.
+       * "ATMS 201, MATH 241 and PHYS 211" ends in "and" and stays a list of
+       * three, which is what it is.
+       */
+      const ESCAPE_TAIL = /,\s*or\s+(?!\s*[A-Z]{2,4}\s?\d{3}\b)[^,;]*$/i;
+      const orMenu =
+        produced.length > 1 &&
+        ESCAPE_TAIL.test(seg) &&
+        produced.every((g) => g.any.length === 1) &&
+        !/\band\b/i.test(seg.replace(ESCAPE_TAIL, ''));
+
+      if (orMenu) {
+        const merged: PrereqGroup = {
+          any: produced.flatMap((g) => g.any),
+          concurrent: produced.every((g) => g.concurrent),
+          confidence: 'high',
+          shape: 'one-of',
+          source: seg.trim(),
+          priorLearning: produced.find((g) => g.priorLearning)?.priorLearning ?? null,
+        };
+        groups.length = before;
+        groups.push(merged);
+        continue;
+      }
+
+      /**
+       * A segment mixing "and" with a comma list and an escape tail is a shape
+       * this parser cannot settle. "ANSC 221, IB 100, or equivalent, and
+       * CHEM 102" is one-of-two ANDed with a third; "MCB 354 and BIOC 455, or
+       * consent of instructor" is two ANDed with an escape. They read the same
+       * to a regex. Both stay parsed, because the courses named are right
+       * either way, but the confidence drops so the product hedges rather than
+       * telling a student to take three courses when the catalog wants two.
+       */
+      const ESCAPE_ANYWHERE = /\bor\s+(consent|permission|approval|equivalents?|instructor|departmental)\b/i;
+      const mixedEscape =
+        produced.length > 2 &&
+        ESCAPE_ANYWHERE.test(seg) &&
+        /\band\b/i.test(seg.replace(ESCAPE_ANYWHERE, ''));
+      if (mixedEscape) for (const g of produced) g.confidence = 'low';
+
       // Step 6, the two shapes we can read but cannot be sure of.
       const bareComma =
         produced.length > 1 && !/\band\b/i.test(seg) && !/\bor\b/i.test(seg);

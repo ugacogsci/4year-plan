@@ -389,7 +389,17 @@ export interface UnsatisfiedRequirement {
     | 'hours-short'
     | 'did-not-fit'
     /** A pool filled, but a sentence about HOW it may be filled did not hold. */
-    | 'constraint-unmet';
+    | 'constraint-unmet'
+    /**
+     * The course that would fill this is one the catalog says will not count
+     * alongside something the student already has or the plan already books.
+     *
+     * Its own reason rather than 'did-not-fit', because the two send a student
+     * to different places. "Did not fit" is about room in a schedule and the
+     * answer is another term. This one is about credit, and the answer is an
+     * advisor.
+     */
+    | 'excluded';
   message: string;
   url: string;
 }
@@ -616,6 +626,152 @@ function distinctParts(summary: PlanSectionSummary): string[] {
   return [...seen.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([id, range]) => (range ? `${id} (${range})` : id));
+}
+
+// ---------------------------------------------------------------------------
+// "Credit is not given for both X and Y".
+// ---------------------------------------------------------------------------
+
+/**
+ * The catalog's exclusion sentences, mirrored so every lookup works both ways.
+ *
+ * The shipped file states each sentence once, on the course whose own catalog
+ * description carries it. So ACE 300 names ECON 302 and ECON 302 has no row at
+ * all, and MATH 115 names MATH 220 while MATH 220 names only MATH 221 and MATH
+ * 234. Reading one direction is how both halves of a pair kept reaching the
+ * same plan. Mirroring every pair once, here, makes every check downstream the
+ * same check.
+ *
+ * Cross-listings are deliberately not folded in. 34 of these pairs ARE a
+ * cross-listing, the catalog's way of saying the two listings are one course,
+ * and expanding through equivalents would make each of those courses exclude
+ * itself and drop out of every plan.
+ */
+function buildConflicts(exclusions: Map<string, string[]> | undefined): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  if (!exclusions) return out;
+  const link = (a: string, b: string): void => {
+    const set = out.get(a);
+    if (set) set.add(b);
+    else out.set(a, new Set([b]));
+  };
+  for (const [rawA, list] of exclusions) {
+    const a = normaliseCode(rawA);
+    for (const rawB of list) {
+      const b = normaliseCode(rawB);
+      if (a === b) continue;
+      link(a, b);
+      link(b, a);
+    }
+  }
+  return out;
+}
+
+/**
+ * The course already counted that stops this one counting, or null.
+ *
+ * Deterministic on ties, so the same student gets the same plan twice.
+ * Exemptions are not held credit and never appear in the sets passed here:
+ * exclusion is a rule about credit, and an exemption earns none.
+ */
+function conflictWith(
+  code: string,
+  conflicts: Map<string, Set<string>>,
+  held: Array<Set<string> | Map<string, unknown>>,
+): string | null {
+  const others = conflicts.get(code);
+  if (!others || others.size === 0) return null;
+  let first: string | null = null;
+  for (const other of others) {
+    if (!held.some((set) => set.has(other))) continue;
+    if (first === null || other < first) first = other;
+  }
+  return first;
+}
+
+/**
+ * A prerequisite group nothing in this plan can ever satisfy, because every way
+ * of satisfying it is a course the catalog says will not count alongside one
+ * already in hand.
+ *
+ * ECON 302 parses to four ANDed groups, [ECON 102], [MATH 220], [MATH 221] and
+ * [MATH 234], out of the sentence "ECON 102 or equivalent. MATH 220, MATH 221,
+ * MATH 234 or equivalent." Those three calculus courses exclude one another, so
+ * no student who ever lived has held all three. Booking all three is how the
+ * old plan "satisfied" it. Refusing to book the twins and then reporting ECON
+ * 302 as short of MATH 221 would be just as wrong, and would send a student
+ * after a course whose credit they cannot have.
+ *
+ * So a group in this state is left out of `missing` and the plan says, in
+ * `notes`, which course closed it and that an advisor has to confirm it. That
+ * sentence is the whole point: nothing here claims Illinois accepts one course
+ * for the other, only that this plan could not book both and stopped.
+ */
+function groupClosedByExclusion(
+  group: PlanPrereqGroup,
+  conflicts: Map<string, Set<string>>,
+  held: Array<Set<string> | Map<string, unknown>>,
+  equivalents: Map<string, string[]>,
+): string | null {
+  if (group.any.length === 0) return null;
+  let blocker: string | null = null;
+  for (const raw of group.any) {
+    let here: string | null = null;
+    for (const alt of expandEquivalents(normaliseCode(raw), equivalents)) {
+      const hit = conflictWith(alt, conflicts, held);
+      if (hit !== null && (here === null || hit < here)) here = hit;
+    }
+    // One alternative the exclusion rule leaves open is a group the student can
+    // still satisfy the ordinary way.
+    if (here === null) return null;
+    if (blocker === null || here < blocker) blocker = here;
+  }
+  return blocker;
+}
+
+/** The plain fact, in the same words the review list uses for it. */
+function notBoth(a: string, b: string): string {
+  return `${a} and ${b} do not both count toward graduation.`;
+}
+
+/**
+ * The school's prerequisite matcher, with groups the exclusion rule has closed
+ * taken out of `missing`.
+ *
+ * Shared by generatePlan and validatePlan so the board the engine builds and
+ * the review list a student reads cannot disagree about the same course.
+ *
+ * The course being checked counts as held against its own prerequisites, and
+ * that is not a trick: MATH 220's parsed prerequisite names MATH 115, and MATH
+ * 115's catalog line says credit is not given for both. Booking the prep course
+ * and then not counting it is not something this plan can express, so it books
+ * nothing and says so in a note. Without that the plan refuses to place MATH
+ * 220 at all, and an Agricultural and Consumer Economics degree loses half its
+ * major behind one unreadable ALEKS sentence.
+ */
+function exclusionAwareMatcher(
+  base: PrereqMatcher,
+  conflicts: Map<string, Set<string>>,
+  prereqs: Map<string, PlanPrereq> | undefined,
+  equivalents: Map<string, string[]>,
+  alsoHeld: Array<Set<string> | Map<string, unknown>>,
+): PrereqMatcher {
+  if (conflicts.size === 0) return base;
+  // Specs arrive as objects out of the same map every caller reads, so identity
+  // is enough to name the course a sentence belongs to.
+  const codeOfSpec = new Map<PlanPrereq, string>();
+  for (const [code, spec] of prereqs ?? []) codeOfSpec.set(spec, code);
+
+  return (spec, earlier, sameTerm, equiv) => {
+    const result = base(spec, earlier, sameTerm, equiv);
+    if (result.missing.length === 0) return result;
+    const self = spec ? codeOfSpec.get(spec) : undefined;
+    const held = [...alsoHeld, earlier, sameTerm, new Set(self === undefined ? [] : [self])];
+    const missing = result.missing.filter(
+      (group) => groupClosedByExclusion(group, conflicts, held, equivalents) === null,
+    );
+    return missing.length === result.missing.length ? result : { ...result, missing };
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1181,8 +1337,13 @@ interface PoolContext {
   order: (a: string, b: string) => number;
   /** False when a course's prerequisite chain cannot fit before graduation. */
   reachable: (code: string) => boolean;
-  /** "Credit is not given for both X and Y", by code. */
-  excludes: (code: string) => string[];
+  /**
+   * "Credit is not given for both X and Y": the course that stops this one, or
+   * null. It looks at what the student walked in with and at what the rest of
+   * the plan has already booked, not only at this pool. A pool that checked
+   * itself alone is how MATH 225 reached a plan that already required MATH 257.
+   */
+  conflict: (code: string, insidePool: Set<string>) => string | null;
 }
 
 interface PoolFill {
@@ -1192,6 +1353,12 @@ interface PoolFill {
   /** Rows the page lists, and how many of them this catalog snapshot has. */
   listed: number;
   available: number;
+  /**
+   * Courses on this list the plan left alone because their credit would not
+   * count. They are kept out of `alternatives` as well: offering a student a
+   * swap they cannot take is the same wrong answer in a friendlier place.
+   */
+  excluded: Array<{ code: string; by: string }>;
   constraints: Array<{ text: string; n: number; met: boolean; from: string | null; picked: string[] }>;
 }
 
@@ -1238,9 +1405,14 @@ function fillPool(slot: PlanSlot, pool: PoolContext): PoolFill {
   const picked: string[] = [];
   const held = new Set<string>(free);
   const remaining = new Set(candidates);
+  const excluded = new Map<string, string>();
 
-  const blocked = (code: string): boolean =>
-    pool.excludes(code).some((other) => held.has(other));
+  const blocked = (code: string): boolean => {
+    const by = pool.conflict(code, held);
+    if (by === null) return false;
+    if (!excluded.has(code)) excluded.set(code, by);
+    return true;
+  };
 
   const take = (code: string): void => {
     remaining.delete(code);
@@ -1317,6 +1489,7 @@ function fillPool(slot: PlanSlot, pool: PoolContext): PoolFill {
     alternatives: openBy(pool.order),
     listed: slot.options.length,
     available,
+    excluded: [...excluded.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([code, by]) => ({ code, by })),
     // Reported from what the pool ended up holding, not from what the loop
     // above reached for. The free top-up can land inside a list a constraint
     // cares about, and calling that constraint unmet would send a student to
@@ -1486,8 +1659,9 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
 
   const equivalents = ctx.equivalents ?? new Map<string, string[]>();
   const grades = ctx.grades ?? new Map<string, GradeRow>();
-  const match = ctx.prereqCheck ?? defaultPrereqMatcher;
+  const baseMatch = ctx.prereqCheck ?? defaultPrereqMatcher;
   const byCode = new Map(ctx.courses.map((c) => [normaliseCode(c.code), c]));
+  const conflicts = buildConflicts(ctx.exclusions);
 
   const notes: string[] = [];
   const unsatisfied: UnsatisfiedRequirement[] = [];
@@ -1543,6 +1717,40 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   const satisfiedByPriorCredit: GeneratedPlan['satisfiedByPriorCredit'] = [];
   let droppedRowsWithoutCatalog = 0;
   let sharedListings = 0;
+
+  /**
+   * Twins the degree's own rows settled before any row was filled. See the
+   * block that fills it, further down, for why the order rows come off a
+   * catalog page is the wrong way to decide which of two courses a plan books.
+   */
+  const suppressedBy = new Map<string, string>();
+
+  /**
+   * The one exclusion test every path that books a course goes through.
+   *
+   * There were three of these before, on three of the seven paths, each looking
+   * at a different slice of the plan. The pool looked only inside itself, the
+   * gen-ed filler only at its own category, the requirement chooser and the
+   * prerequisite closure not at all, and the review list said "these do not
+   * both count" about a pair the engine had just chosen on purpose. This is the
+   * whole board: prior credit, everything already booked, whatever the slot
+   * running right now is holding, and the twins settled up front.
+   *
+   * `earned` and not `satisfiedForPrereq`, because exemption earns no hours and
+   * an exclusion is a rule about hours.
+   */
+  const conflictFor = (code: string, insideSlot?: Set<string>): string | null =>
+    conflictWith(code, conflicts, insideSlot ? [earned, chosen, insideSlot] : [earned, chosen]) ??
+    suppressedBy.get(code) ??
+    null;
+
+  /**
+   * Prior credit and the board so far, never the whole plan. A course whose
+   * only excuse for skipping a prerequisite is a twin two years further down
+   * the board is a course in the wrong term, and passing `chosen` here let CHEM
+   * 105 sit in a first-year fall on the strength of a CHEM 204 in year four.
+   */
+  const match = exclusionAwareMatcher(baseMatch, conflicts, ctx.prereqs, equivalents, [earned]);
 
   /**
    * The term list, built before the courses are chosen rather than after.
@@ -1674,6 +1882,99 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   };
 
   /**
+   * How many courses in this catalog name a course as a prerequisite.
+   *
+   * Only ever read where an exclusion forces a choice between two courses, as
+   * the tiebreak that keeps the most doors open.
+   */
+  const dependents = new Map<string, number>();
+  if (conflicts.size > 0) {
+    for (const spec of ctx.prereqs?.values() ?? []) {
+      if (!spec.parsed) continue;
+      const counted = new Set<string>();
+      for (const group of spec.groups) {
+        if (group.confidence === 'low') continue;
+        for (const raw of group.any) {
+          const alt = normaliseCode(raw);
+          if (counted.has(alt)) continue;
+          counted.add(alt);
+          dependents.set(alt, (dependents.get(alt) ?? 0) + 1);
+        }
+      }
+    }
+  }
+
+  /**
+   * The order to try courses in when two of them exclude each other.
+   *
+   * Credit in hand first, then the course more of the catalog is built on, then
+   * the plain ranker. A total order, so the same student gets the same plan
+   * twice, and only ever consulted where an exclusion forces a choice.
+   */
+  const twinPreference = (a: string, b: string): number => {
+    const held = (earned.has(b) ? 1 : 0) - (earned.has(a) ? 1 : 0);
+    if (held !== 0) return held;
+    const depended = (dependents.get(b) ?? 0) - (dependents.get(a) ?? 0);
+    if (depended !== 0) return depended;
+    return compareRank(rank(a), rank(b), a, b);
+  };
+
+  /** True when two of these courses cannot both count, so the choice matters. */
+  const holdsTwins = (codes: string[]): boolean =>
+    codes.some((a, i) => codes.slice(i + 1).some((b) => conflicts.get(a)?.has(b) === true));
+
+  /**
+   * Which of two rows the degree cannot have both of, decided before either is
+   * booked.
+   *
+   * A page that reads "CHEM 202 or CHEM 102" parses into two rows of a take-all
+   * block, and the catalog then says credit is not given for both. Booking both
+   * was the bug. Refusing the second one is right, but WHICH one came second
+   * was decided by the order the rows came off the page, and that put a
+   * Chemical Engineering student in Accelerated Chemistry and stranded every
+   * course on the same page that names General Chemistry: the plan fell from
+   * 133 credits to 79 and lost most of its own major.
+   *
+   * So the choice is made here, over the whole degree at once. Credit already
+   * in hand wins, which is the rule about never booking the twin of a course
+   * the student has. After that the course more of this catalog is built on
+   * wins: 31 courses name CHEM 102 and 7 name CHEM 202, and the one that keeps
+   * more doors open is the better half of a coin toss. It is an ordering
+   * preference, like the catalog-number tiebreak above, and nothing in the
+   * report presents it as a rule Illinois has.
+   *
+   * Greedy rather than pair by pair, because these sets are not always cliques:
+   * MATH 115 excludes MATH 220 and MATH 221 and says nothing about MATH 234.
+   *
+   * Take-all rows only. A pool is already a choice and can simply pick its next
+   * candidate; a take-all row is the page saying this course, and that is where
+   * a misread "or" turns into two demands that cannot both be met.
+   */
+  if (conflicts.size > 0) {
+    const demanded: string[] = [];
+    const seen = new Set<string>();
+    for (const requirement of input.requirements) {
+      if (requirement.rule.kind !== 'all') continue;
+      for (const slot of slotsFor(requirement, ctx)) {
+        for (const option of slot.options) {
+          const pick = option.find((code) => earned.has(code))
+            ?? best(option.filter((code) => byCode.has(code)));
+          if (!pick || seen.has(pick)) continue;
+          seen.add(pick);
+          demanded.push(pick);
+        }
+      }
+    }
+
+    const kept: string[] = [];
+    for (const code of demanded.slice().sort(twinPreference)) {
+      const beaten = kept.find((other) => conflicts.get(code)?.has(other));
+      if (beaten === undefined) kept.push(code);
+      else suppressedBy.set(code, beaten);
+    }
+  }
+
+  /**
    * The degree's own requirements first, then general education.
    *
    * Order is not cosmetic here. Illinois says "Some Gen Ed requirements may be
@@ -1766,7 +2067,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
           creditsOf,
           order: poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()])),
           reachable: (code) => (rankDepth.get(code) ?? 0) < terms.length,
-          excludes: (code) => (ctx.exclusions?.get(code) ?? []).map(normaliseCode),
+          conflict: (code, insidePool) => conflictFor(code, insidePool),
         });
         poolFills.push({ slot, fill });
         free.push(...fill.free);
@@ -1827,7 +2128,12 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
             countIt(shared, 'shared');
             continue;
           }
-          const pick = best(known);
+          // The page's own "fulfilled by MATH 220 or MATH 221" is a choice, and
+          // one of the two can be a course the student's credit already rules
+          // out. Book an open one rather than the best one, and say nothing
+          // when another alternative covered it: a swap that worked is not news.
+          const open = known.filter((code) => conflictFor(code, held) === null);
+          const pick = best(open);
           if (pick) countIt(pick, 'picked');
         }
 
@@ -1864,9 +2170,10 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
             if (met()) break;
             // "Credit is not given for both X and Y" applies here like anywhere
             // else: two courses that exclude each other are one course of credit.
-            if ((ctx.exclusions?.get(code) ?? []).some((other) => held.has(normaliseCode(other)))) {
-              continue;
-            }
+            // This used to read only this category's own held set, so a gen-ed
+            // filler could hand a student the twin of a course the major had
+            // already booked, or of one they walked in with.
+            if (conflictFor(code, held) !== null) continue;
             countIt(code, 'picked');
           }
         }
@@ -1897,16 +2204,22 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
           .filter((code) => !chosen.has(code) || earned.has(code))
           .sort((a, b) => compareRank(rank(a), rank(b), a, b));
         let have = 0;
+        const heldHere = new Set<string>();
         for (const code of ordered) {
           if (have >= slot.hoursTarget) break;
           const course = byCode.get(code);
           if (!course) continue;
           if (earned.has(code)) {
             free.push(code);
+            heldHere.add(code);
             have += course.credits;
             continue;
           }
+          // An hours block draws on a whole gen-ed category, so a course whose
+          // credit the catalog rules out is simply skipped for the next one.
+          if (conflictFor(code, heldHere) !== null) continue;
           picked.push(code);
+          heldHere.add(code);
           have += course.credits;
         }
         if (have < slot.hoursTarget) {
@@ -1928,24 +2241,49 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) => compareRank(rank(a.code), rank(b.code), a.code, b.code));
 
+        /**
+         * Credit in hand is spent before anything is booked.
+         *
+         * Rank order alone put MATH 220 ahead of a MATH 234 the student already
+         * had, booked the one and then counted the other free, and the plan held
+         * both halves of a pair the catalog says do not both count. Taking the
+         * held courses first means the twin is never the one that gets booked.
+         */
+        const heldHere = new Set<string>();
+        const excludedHere: Array<{ code: string; by: string }> = [];
         let filled = 0;
         for (const entry of scored) {
+          if (!earned.has(entry.code)) continue;
           if (filled >= want) break;
-          if (earned.has(entry.code)) {
-            free.push(entry.code);
-            filled += 1;
-            continue;
-          }
+          free.push(entry.code);
+          heldHere.add(entry.code);
+          filled += 1;
+        }
+
+        for (const entry of scored) {
+          if (filled >= want) break;
+          if (earned.has(entry.code)) continue;
           if (!byCode.has(entry.code)) {
             droppedRowsWithoutCatalog += 1;
             continue;
           }
           if (entry.shared) {
             sharedListings += 1;
+            heldHere.add(entry.code);
             filled += 1;
             continue;
           }
+          // The course the degree page lists here is one the catalog says will
+          // not count alongside something already counted. Left out and
+          // reported: booking it would put hours in the headline that the
+          // registrar will not award.
+          const by = conflictFor(entry.code, heldHere);
+          if (by !== null) {
+            excludedHere.push({ code: entry.code, by });
+            continue;
+          }
           picked.push(entry.code);
+          heldHere.add(entry.code);
           filled += 1;
         }
 
@@ -1953,7 +2291,29 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
         // codes inside it are alternatives, so a slot counts as available
         // when any one of its alternatives is in the catalog.
         const known = slot.options.filter((alts) => alts.some((code) => byCode.has(code))).length;
-        if (filled < want) {
+        if (filled < want && excludedHere.length > 0) {
+          /**
+           * The shortfall the student can do something about, said plainly.
+           *
+           * "Did not fit before your last term" would be a lie here and a
+           * costly one: it points at the schedule, and the schedule is fine.
+           * What happened is that the catalog will not pay twice for the same
+           * material, so the course is named, the course that blocks it is
+           * named, and the student is sent to the one person who can settle it.
+           */
+          const lines = excludedHere
+            .slice()
+            .sort((a, b) => a.code.localeCompare(b.code))
+            .map(({ code, by }) => `${notBoth(code, by)} ${earned.has(by) ? `You already have ${by}.` : `This plan books ${by}.`}`);
+          unsatisfied.push({
+            requirementId: slot.requirementId,
+            areaLabel: slot.areaLabel,
+            label: slot.label,
+            reason: 'excluded',
+            message: `${lines.join(' ')} Ask your advisor what to put here instead.`,
+            url: slot.url,
+          });
+        } else if (filled < want) {
           unsatisfied.push({
             requirementId: slot.requirementId,
             areaLabel: slot.areaLabel,
@@ -2009,6 +2369,8 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   // priorLearningChecks below for the one that put MATH 112 in every plan.
   const addedPrerequisites: Array<{ code: string; requiredBy: string }> = [];
   const unresolvedPrereqs: Array<{ code: string; needs: string }> = [];
+  /** Prerequisite groups no course can fill any more, because of an exclusion. */
+  const closedPrereqs: Array<{ code: string; needs: string; alternatives: string[]; by: string }> = [];
   const priorLearningChecks: PriorLearningCheck[] = [];
 
   /**
@@ -2100,11 +2462,44 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
           continue;
         }
 
-        const pick = best(alternatives.filter((alt) => byCode.has(alt)));
-        if (!pick) {
+        const inCatalog = alternatives.filter((alt) => byCode.has(alt));
+        if (inCatalog.length === 0) {
           unresolvedPrereqs.push({ code, needs: group.any.join(' or ') });
           continue;
         }
+
+        /**
+         * A prerequisite the catalog will not pay for is not one to book.
+         *
+         * MATH 220's parsed prerequisite names MATH 115, and MATH 115's own
+         * catalog line says credit is not given for both. ECON 302 parses to
+         * three ANDed calculus groups that exclude one another. Booking them is
+         * how a plan came to hold MATH 115, MATH 220, MATH 221 and MATH 234 at
+         * once, four courses of which at most one ever counts.
+         *
+         * Reported only where the whole group is shut, which is the same test
+         * the placement matcher makes. A group with a way left that this
+         * snapshot happens not to carry is left to the not-placed list, so the
+         * two never say different things about one course.
+         */
+        const open = inCatalog.filter((alt) => conflictFor(alt) === null);
+        if (open.length === 0) {
+          const blocker = groupClosedByExclusion(group, conflicts, [earned, chosen], equivalents);
+          if (blocker !== null) {
+            closedPrereqs.push({ code, needs: group.any.join(' or '), alternatives: [...group.any], by: blocker });
+          }
+          continue;
+        }
+
+        /**
+         * "CHEM 104 or CHEM 204" is a choice between two courses the catalog
+         * will not pay for twice, and the one this adds decides which half of
+         * the chemistry sequence the rest of the plan can reach. The plain
+         * ranker took CHEM 204 and stranded the ten courses on the Chemical
+         * Engineering page that name CHEM 104. Only consulted when the group
+         * really does hold a pair like that.
+         */
+        const pick = holdsTwins(open) ? open.slice().sort(twinPreference)[0] : (best(open) ?? open[0]);
         chosen.set(pick, { requirementId: null, label: `Prerequisite for ${code}` });
         addedPrerequisites.push({ code: pick, requiredBy: code });
         queue.push(pick);
@@ -2122,6 +2517,28 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   for (const check of priorLearningChecks) notes.push(check.message);
   for (const item of unresolvedPrereqs.slice(0, 3)) {
     notes.push(`${item.code} lists ${item.needs} as a prerequisite, and ${unresolvedPrereqs.length === 1 ? 'that is' : 'those are'} not in the catalog snapshot.`);
+  }
+  /**
+   * Every one of these, because each is a step in the plan nobody has checked.
+   *
+   * The sentence stops where the data stops. It says what the catalog says, it
+   * says what this plan did, and it does not say that Illinois takes the one
+   * course for the other, which is the part only an advisor knows.
+   */
+  {
+    const seen = new Set<string>();
+    for (const item of closedPrereqs) {
+      const key = `${item.code}|${item.needs}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const single = item.alternatives.length === 1;
+      const source = earned.has(item.by) ? `You have ${item.by}` : `This plan books ${item.by}`;
+      notes.push(
+        single
+          ? `${item.code} lists ${item.needs} as a prerequisite. ${notBoth(item.needs, item.by)} ${source}, so nothing was booked for it. Ask your advisor whether that clears.`
+          : `${item.code} lists ${item.needs} as a prerequisite. ${source}, and none of those count alongside it. Nothing was booked for it. Ask your advisor whether that clears.`,
+      );
+    }
   }
 
   // --- can the chains fit at all? -----------------------------------------
@@ -2355,14 +2772,35 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
     // whole co-requisite set. Calling that a prerequisite problem sends the
     // student looking for a course they do not need to take first.
     const concurrentOnly = missing.length > 0 && missing.every((group) => group.concurrent);
+    /**
+     * Where a prerequisite the plan cannot supply is one the credit rule shut.
+     *
+     * ACCY 201 needs ECON 102 and ECON 103, one of them alongside it. An
+     * Agricultural and Consumer Economics plan books ACE 100, ECON 102 does not
+     * count next to it, and the row read "no term had room for them together".
+     * The schedule was never the problem, and pointing at it is the kind of
+     * wrong answer that costs a student a semester.
+     */
+    const shut = new Map<string, string>();
+    for (const group of missing) {
+      for (const raw of group.any) {
+        const alt = normaliseCode(raw);
+        if (shut.has(alt)) continue;
+        const by = conflictFor(alt);
+        if (by !== null) shut.set(alt, by);
+      }
+    }
+    const credit = shut.size === 0
+      ? ''
+      : ` ${[...shut.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([alt, by]) => notBoth(alt, by)).join(' ')}`;
     notPlaced.push({
       code,
       title: byCode.get(code)?.title ?? code,
       reason: missing.length > 0 && !concurrentOnly ? 'prereq-unmet' : 'no-room',
       message: concurrentOnly
-        ? `${code} has to be taken alongside ${missing.map((g) => g.any.join(' or ')).join(' and ')}, and no term had room for them together.`
+        ? `${code} has to be taken alongside ${missing.map((g) => g.any.join(' or ')).join(' and ')}, and no term had room for them together.${credit}`
         : missing.length > 0
-          ? `${code} still needs ${missing.map((g) => g.any.join(' or ')).join(', and ')}.${escape}`
+          ? `${code} still needs ${missing.map((g) => g.any.join(' or ')).join(', and ')}.${escape}${credit}`
           : `${code} did not fit in ${terms.length} terms at up to ${credits.max} credits.`,
       requirementId: chosen.get(code)?.requirementId ?? null,
     });
@@ -2412,6 +2850,11 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   });
 
   const poolRequirements = new Set(pools.map((p) => p.requirementId));
+  /** Courses each pool could not use, because their credit would not count. */
+  const poolExcluded = new Map<string, Array<{ code: string; by: string }>>();
+  for (const { slot, fill } of poolFills) {
+    if (fill.excluded.length > 0) poolExcluded.set(slot.requirementId, fill.excluded);
+  }
 
   for (const pool of pools) {
     const shortHours = pool.hoursTarget !== null && pool.hours < pool.hoursTarget;
@@ -2434,12 +2877,27 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
         pool.hoursTarget !== null ? `${pool.hours} hours` : null,
         pool.countTarget !== null ? `${pool.count} courses` : null,
       ].filter(Boolean).join(' and ');
+      /**
+       * Why the list came up short, when part of the answer is the credit rule.
+       *
+       * A pool of a hundred electives is normally short because of terms, and
+       * the sentence about the snapshot is the right one. When a course on the
+       * list was passed over because its credit would not count, that is a
+       * different answer and the student cannot work it out from the numbers.
+       */
+      const blockedHere = poolExcluded.get(pool.requirementId) ?? [];
+      const said = blockedHere.map((row) => notBoth(row.code, row.by)).join(' ');
+      const credit = blockedHere.length === 0
+        ? ''
+        : blockedHere.length === 1
+          ? ` One course on this list is not in the plan because its credit would not count. ${said}`
+          : ` ${blockedHere.length} courses on this list are not in the plan because their credit would not count. ${said}`;
       unsatisfied.push({
         requirementId: pool.requirementId,
         areaLabel: pool.areaLabel,
         label: pool.label,
-        reason: 'hours-short',
-        message: `${wanted} from this list, ${got} in the plan. ${pool.available} of the ${pool.listed} listed courses are in the catalog snapshot.`,
+        reason: blockedHere.length > 0 ? 'excluded' : 'hours-short',
+        message: `${wanted} from this list, ${got} in the plan. ${pool.available} of the ${pool.listed} listed courses are in the catalog snapshot.${credit}`,
         url: pool.url,
       });
     }
@@ -2678,7 +3136,17 @@ export function validatePlan(
   const issues: PlanIssue[] = [];
   const equivalents = ctx.equivalents ?? new Map<string, string[]>();
   const grades = ctx.grades ?? new Map<string, GradeRow>();
-  const match = ctx.prereqCheck ?? defaultPrereqMatcher;
+  const baseMatch = ctx.prereqCheck ?? defaultPrereqMatcher;
+  const conflicts = buildConflicts(ctx.exclusions);
+  /**
+   * The same relaxation generatePlan makes, out of the same function.
+   *
+   * A group whose every course the catalog excludes has no course left that
+   * could satisfy it. Printing "ECON 302 needs MATH 221 in an earlier term"
+   * over a board holding MATH 220 sends a student after four credits the
+   * registrar will not award them.
+   */
+  const match = exclusionAwareMatcher(baseMatch, conflicts, ctx.prereqs, equivalents, []);
   const published = ctx.offeringPublished ?? new Set<string>();
   const maxCredits = options?.maxTermCredits ?? 18;
   const maxHard = options?.maxHardCourses ?? DEFAULT_MAX_HARD;
@@ -2886,7 +3354,16 @@ export function validatePlan(
               // story, and it is not: nobody has checked this course.
               ? 'Prerequisites the catalog does not list here'
               : "Prerequisite, in the catalog's words",
-            message: spec.text,
+            /**
+             * The code, then the sentence. The row used to be the sentence
+             * alone: a Computer Science review list carried "An adequate ALEKS
+             * placement score ... and either one year of high school calculus
+             * or a minimum score of 2 on the AB Calculus AP exam" with nothing
+             * saying it belonged to MATH 221. The sentence was right and
+             * unreadable, because a student cannot act on a rule without
+             * knowing which course it gates.
+             */
+            message: `${code}: ${spec.text}`,
             termId: term.id,
             courseId,
           });

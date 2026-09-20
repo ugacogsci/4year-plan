@@ -1,6 +1,6 @@
 {
   "school": "illinois",
-  "fetchedAt": "2026-09-20T17:50:41.337Z",
+  "fetchedAt": "2026-09-20T19:31:54.768Z",
   "sources": {
     "catalog": {
       "source": "catalog.illinois.edu/courses-of-instruction",
@@ -45,7 +45,7 @@
     "catalogCourses": 9440,
     "undergraduateCourses": 6110,
     "withParsedPrereq": 2383,
-    "withLowConfidencePrereq": 34,
+    "withLowConfidencePrereq": 56,
     "withPrereqTextOnly": 1362,
     "withPrereqNoteOnly": 51,
     "withStandingRequirement": 419,
@@ -279,12 +279,12 @@
   ],
   "artifacts": {
     "index.json": {
-      "raw": 1164495,
-      "gzip": 189647
+      "raw": 1161597,
+      "gzip": 189084
     },
     "prereqs.json": {
-      "raw": 1231861,
-      "gzip": 100535
+      "raw": 1225924,
+      "gzip": 100650
     },
     "grades.json": {
       "raw": 281487,

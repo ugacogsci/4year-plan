@@ -1182,7 +1182,19 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
         onAddCourse={addCourse}
       />
 
-      <AskBar school={school} buildContext={askContext} />
+      {/**
+        * Keyed on the degree, so changing it starts the bar over.
+        *
+        * The panel holds the last answer in component state, and state survives
+        * a prop change. Switching from Community Health back to Computer
+        * Science left the Community Health graduation answer on screen,
+        * measured against a degree the student had just left, with the old
+        * degree's name in the first line. A key is the whole fix: React
+        * discards the instance, the panel closes, the suggestion chips are
+        * rebuilt from the new board, and an answer still in flight from the old
+        * degree resolves into an unmounted component and is dropped.
+        */}
+      <AskBar key={programId ?? 'no-degree'} school={school} buildContext={askContext} />
     </main>
   );
 }
@@ -1230,11 +1242,13 @@ function withCourseCodes(message: string): string {
 function studentWording(note: string): string {
   const rows = note.match(/^(\d+) of (\d+) program course rows have no credits\.$/);
   if (rows) {
-    return `Illinois degree pages leave the credit hours blank on ${Number(rows[1]).toLocaleString()} of the ${Number(rows[2]).toLocaleString()} course lines they print, so a total built from them can come out low.`;
+    const total = Number(rows[2]);
+    return `Illinois degree pages leave the credit hours blank on ${Number(rows[1]).toLocaleString()} of the ${total.toLocaleString()} course ${plural(total, 'line')} they print, so a total built from them can come out low.`;
   }
   const positions = note.match(/^(\d+) indexed courses have no map position\.$/);
   if (positions) {
-    return `${Number(positions[1]).toLocaleString()} courses are missing from the map. They are still in the plan and in search.`;
+    const n = Number(positions[1]);
+    return `${n.toLocaleString()} ${plural(n, 'course')} ${n === 1 ? 'is' : 'are'} missing from the map. ${n === 1 ? 'It is' : 'They are'} still in the plan and in search.`;
   }
   if (note === 'No program course row carries credits in this crawl, so requirement hours cannot be summed.') {
     return 'No course on the degree pages has credit hours printed in this copy of the catalog, so no requirement can be added up.';
@@ -1250,11 +1264,13 @@ function studentWording(note: string): string {
   }
   const subjects = note.match(/^Skipped (\d+) subject shards whose prefix is not a safe filename\.$/);
   if (subjects) {
-    return `${subjects[1]} subjects are missing from this copy of the catalog, so their courses have no page here.`;
+    const n = Number(subjects[1]);
+    return `${n} ${plural(n, 'subject')} ${n === 1 ? 'is' : 'are'} missing from this copy of the catalog, so ${n === 1 ? 'its' : 'their'} courses have no page here.`;
   }
   const programs = note.match(/^Skipped (\d+) program files whose id is not a safe path\.$/);
   if (programs) {
-    return `${programs[1]} degrees are missing from this copy of the catalog and cannot be planned here.`;
+    const n = Number(programs[1]);
+    return `${n} ${plural(n, 'degree')} ${n === 1 ? 'is' : 'are'} missing from this copy of the catalog and cannot be planned here.`;
   }
   const file = note.match(/^illinois-([a-z]+)\.json is (.+)\.$/);
   if (file) {

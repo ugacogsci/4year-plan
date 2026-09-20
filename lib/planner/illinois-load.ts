@@ -139,6 +139,12 @@ export interface IllinoisIndexCourse extends IllinoisCourse {
   /** Registrar difficulty, 0 to 100. Absent means no grade history for this course. */
   difficulty?: number;
   /**
+   * The cross-listed code the registrar actually filed these grades under, when
+   * it is not this course's own. CS 468's history is on file as ADV 492; it is
+   * the same class under two codes. Present on 503 rows.
+   */
+  gradeFrom?: string;
+  /**
    * False on every index row, because index.json carries no descriptions.
    * course.description is '' here and must not render as a course with nothing
    * to say about itself. loadIllinoisCourseDetail fills it in.
@@ -477,7 +483,29 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
       byCode: new Map(rows.map((c) => [normCode(c.code), c])),
       prereqs: prereqs.ok ? new Map(Object.entries(prereqs.value)) : null,
       exclusions: exclusions.ok ? new Map(Object.entries(exclusions.value)) : null,
-      grades: grades.ok ? new Map(grades.value.map((row) => [normCode(row.code), row])) : null,
+      /**
+       * Keyed by every code the row answers for, not only the one the registrar
+       * filed it under.
+       *
+       * 503 courses carry their grade history under a cross-listed twin, and
+       * index.json records that in gradeFrom. Keying this map by the row's own
+       * code alone meant grades.get("CS 468") was undefined while the card two
+       * inches away showed ADV 492's real 3.78 average. The plan then counted
+       * CS 468 as "no grade data" when weighing a term, so the product denied
+       * history it was displaying and printed two different numbers for the
+       * same semester.
+       */
+      grades: grades.ok
+        ? (() => {
+            const byCode = new Map(grades.value.map((row) => [normCode(row.code), row]));
+            for (const course of rows) {
+              if (!course.gradeFrom) continue;
+              const source = byCode.get(normCode(course.gradeFrom));
+              if (source) byCode.set(normCode(course.code), source);
+            }
+            return byCode;
+          })()
+        : null,
       /**
        * The term is stamped back onto every row here rather than stored once
        * per course. A whole SectionSummary is what buildingLine, partOfTermLine

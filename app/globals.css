@@ -381,22 +381,35 @@ button:disabled {
   color: #eef3fa;
 }
 
+/* The single column is written out as minmax(0, 1fr), not left to `auto`.
+
+   An auto track is floored at the min-content size of what is in it, and
+   min-content runs all the way down through the nested grids to the label,
+   which is white-space:nowrap and so has no min-content smaller than the whole
+   heading. text-overflow only draws the ellipsis; it never shrinks the box. So
+   "Orientation and Professional Development" made its row 344px wide inside a
+   248px rail with overflow-x hidden, and the "3/3" on the right sat at 358 and
+   was not on the screen at all. The rail is 248px wide from 1100px up, narrower
+   below it and a 260px drawer at 768, and the figures were clipped at every one
+   of those: the label decides the width, so the window never came into it.
+
+   min-width:0 alone does not fix it. It lets the row shrink if something asks
+   it to, and nothing was: the track above it was still sized to min-content.
+   The 0 floor here is what asks. */
 .requirement-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   margin: 4px 0 0;
 }
 
-/* min-width:0 on both, because a grid item's automatic minimum size is
-   min-content. Without it the longest requirement label sets the row's width,
-   the row grows past the 248px rail, and the hours count on the right is
-   pushed out of the clipped box entirely. */
 .requirement-list > * {
   min-width: 0;
 }
 
 .requirement-row {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
   min-width: 0;
 }
@@ -406,6 +419,7 @@ button:disabled {
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
   font-size: var(--fs-micro);
   color: var(--ink-dim);
 }
@@ -416,6 +430,14 @@ button:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink-mid);
+}
+
+/* The figure never gives way and never wraps. "21 hr" wrapped to two lines at
+   248px before the track above was fixed, which is a number split across a line
+   break for no reason. */
+.requirement-row > div > span:last-child {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* Said where a heading would be, for the 358 areas the catalog page leaves
