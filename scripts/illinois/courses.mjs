@@ -163,16 +163,45 @@ function resolveCrossListings(all) {
     // own description keeps it.
     if (!c.prereqCodes.length && canon.prereqCodes.length) c.prereqCodes = [...canon.prereqCodes];
     if (!c.prereqText && canon.prereqText) c.prereqText = canon.prereqText;
+    if (!c.prereqNote && canon.prereqNote) c.prereqNote = canon.prereqNote;
     if (!c.genEd.length && canon.genEd.length) c.genEd = [...canon.genEd];
     if (c.credits == null && canon.credits != null) { c.credits = canon.credits; c.creditsMax = canon.creditsMax; }
     if (POINTER.test(c.description)) {
       c.pointerText = c.description;              // keep what the catalog literally says
-      c.description = canon.description;
+      // The canonical entry's own text opens with its cross-list sentence, and
+      // that sentence names the pointer. Copying it verbatim onto the pointer
+      // made 701 undergraduate courses say "Same as CS 407" on the CS 407 page.
+      // The relationship is already in `canonical` and `sameAs` as data, so the
+      // sentence comes out of the prose and the UI can state it correctly.
+      // Unanchored: the sentence is usually in the middle, after the real
+      // description and before the credit-hours line. Anchoring it to the ends
+      // left 431 of the 935 self-references in place.
+      c.description = canon.description
+        .replace(/\s*\bSame as [^.]*\.\s*/gi, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
       c.descriptionFrom = canon.code;             // so the UI can say where it came from
     }
     resolved++;
   }
   return { resolved, dangling };
+}
+
+/**
+ * Some courses have prerequisites and no "Prerequisite:" clause.
+ *
+ * 51 undergraduate special-topics courses say it in the description instead:
+ * "See Class Schedule or departmental course information for topics and
+ * prerequisites." With no clause to parse, the product rendered the affirmative
+ * "The catalog lists no prerequisite for this course", which is false and is
+ * the second time this exact class of false statement has been caught here.
+ * Absence of a parse is not absence of a requirement, so the sentence is kept
+ * and the UI has something true to say.
+ */
+function prereqNoteIn(description) {
+  if (!/\bprerequisit/i.test(description)) return '';
+  const m = description.match(/[^.]*\bprerequisit[^.]*\./i);
+  return m ? m[0].trim() : '';
 }
 
 /** Courses that never carry a real prerequisite chain and clutter a plan. */
@@ -205,6 +234,8 @@ function parseSubject(subject, html) {
       credits, creditsMax,
       description: descOnly,
       prereqCodes, prereqText,
+      // Only when there is no clause to parse; otherwise the clause is the answer.
+      prereqNote: prereqText ? '' : prereqNoteIn(description),
       genEd,
       sameAs: [...new Set([...block.matchAll(/Same as\s*<a[^>]*P=([A-Z]{2,4})(?:%20|\+)(\d{3})/gi)].map((m) => `${m[1]} ${m[2]}`))],
       noise: NOISE.test(head[3]),
@@ -245,4 +276,4 @@ writeFileSync('public/illinois-catalog.json', JSON.stringify({
   fetchedAt: new Date().toISOString(),
   courses: all,
 }));
-console.log(`\n${all.length} courses, ${all.filter((c) => c.prereqCodes.length).length} with prerequisites, ${all.filter((c) => c.genEd.length).length} with gen ed, ${all.filter((c) => c.canonical).length} cross-listed`);
+console.log(`\n${all.length} courses, ${all.filter((c) => c.prereqCodes.length).length} with prerequisites, ${all.filter((c) => c.genEd.length).length} with gen ed, ${all.filter((c) => c.canonical).length} cross-listed, ${all.filter((c) => !c.prereqText && c.prereqNote).length} with a prerequisite note but no clause`);

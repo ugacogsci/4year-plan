@@ -68,7 +68,14 @@ function splitRoom(s) {
   // "AUD Foellinger Auditorium" is the auditorium itself. Leaving them attached
   // invents buildings that do not exist, and 257 of the 437 "buildings" in the
   // first pass were artifacts of this kind plus the placeholders above.
-  const m = t.match(/^((?:ARR|AUD|ARENA|LAB|RM|STU)|[0-9][0-9A-Za-z-]*)\s+(.+)$/i);
+  // A room token is anything carrying a digit, with or without a letter prefix
+  // ("1404", "B226", "L440", "E-080", "G18"), optionally slash-joined when one
+  // section uses several rooms ("G3/G7/G8A"), plus the word designators the
+  // registrar uses. Requiring a leading digit left 23 strings like
+  // "B226 Newmark Civil Engineering Bldg" and "G18 Literatures, Cultures, &
+  // Ling" counted as buildings in their own right, which also double-counted
+  // the real building sitting next to them.
+  const m = t.match(/^((?:[A-Z]{0,3}-?[0-9][0-9A-Za-z-]*)(?:\/[0-9A-Za-z-]+)*|ARR|AUD|ARENA|LAB|RM|STU|THEAT)\s+(.+)$/i);
   const building = (m ? m[2] : t).trim();
   if (NO_ROOM.test(building)) return { room: null, building: null };
   const room = m ? m[1] : null;

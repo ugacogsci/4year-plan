@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -138,7 +139,13 @@ export function CourseCard({
           <MoreHorizontal />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuLabel>{course.code}</DropdownMenuLabel>
+          {/* The label has to sit inside a Group. DropdownMenuLabel is Base
+              UI's Menu.GroupLabel, which throws "MenuGroupContext is missing"
+              with no Group ancestor, and a throw in a menu unmounts the whole
+              app. Clicking this button on any card took the page down. */}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>{course.code}</DropdownMenuLabel>
+          </DropdownMenuGroup>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <MoveRight /> Move to

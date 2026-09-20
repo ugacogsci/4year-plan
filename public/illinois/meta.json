@@ -1,10 +1,10 @@
 {
   "school": "illinois",
-  "fetchedAt": "2026-09-20T06:03:01.686Z",
+  "fetchedAt": "2026-09-20T06:58:11.328Z",
   "sources": {
     "catalog": {
       "source": "catalog.illinois.edu/courses-of-instruction",
-      "fetchedAt": "2026-09-20T04:36:57.712Z",
+      "fetchedAt": "2026-09-20T06:58:08.184Z",
       "courses": 9440
     },
     "programs": {
@@ -286,8 +286,8 @@
       "gzip": 34063
     },
     "sections.json": {
-      "raw": 1559398,
-      "gzip": 121570
+      "raw": 1554557,
+      "gzip": 120579
     },
     "programs.json": {
       "raw": 104779,
