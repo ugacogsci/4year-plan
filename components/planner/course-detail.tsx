@@ -12,7 +12,8 @@
 
 import { clusterColor } from './cluster-color';
 import { useCourseDetail } from './illinois-source';
-import { DEADLINE_DISCLAIMER } from '@/lib/planner/autoplan';
+import { plural } from './words';
+import { DEADLINE_DISCLAIMER, DEFAULT_STANDING_HOURS } from '@/lib/planner/autoplan';
 import {
   difficultyLabel,
   partOfTermLine,
@@ -51,13 +52,54 @@ const DAY_WORDS: Record<string, string> = {
   S: 'Sat',
 };
 
+/** The class standings the catalog names, written the way a student says them. */
+const STANDING_ARTICLE: Record<string, string> = {
+  freshman: 'a freshman',
+  sophomore: 'a sophomore',
+  junior: 'a junior',
+  senior: 'a senior',
+};
+
+/** How Illinois writes "this section has no weekly day pattern" in the day cell. */
+const NO_DAYS = 'n.a.';
+/** How Illinois writes "the meeting time is settled with the instructor". */
+const ARRANGED = 'ARRANGED';
+
 /** "MWF" -> "Mon Wed Fri". Anything that is not a clean run is printed as-is,
  *  because the scraper concatenates two meetings into one cell often enough
  *  that expanding a mangled cell would show a meeting pattern that does not exist. */
-function days(pattern: string | null): string {
-  if (!pattern) return 'Days not listed';
-  if (!/^[MTWRFS]+$/.test(pattern)) return pattern;
-  return pattern.split('').map((d) => DAY_WORDS[d] ?? d).join(' ');
+function days(pattern: string | null): string | null {
+  const value = (pattern ?? '').trim();
+  /**
+   * 2,752 of the 12,832 Fall 2026 sections carry the literal string "n.a." in
+   * the day cell, which is the schedule saying there is no weekly pattern, not
+   * a pattern. Printing it gave lines like "SHS 222 C01 (Online) n.a. ARRANGED",
+   * which reads as a day of the week nobody has heard of. illinois-data drops
+   * the same value when it summarises; this drops it too.
+   */
+  if (!value || value.toLowerCase() === NO_DAYS) return null;
+  if (!/^[MTWRFS]+$/.test(value)) return value;
+  return value.split('').map((d) => DAY_WORDS[d] ?? d).join(' ');
+}
+
+/**
+ * When a section meets, in one phrase, or nothing at all.
+ *
+ * Illinois writes ARRANGED in the start-time cell for a section whose time is
+ * settled with the instructor. That is a real fact about the section and worth
+ * saying, but it is a time, not a clock reading, so it does not get an "and
+ * ends at" after it. 100 sections pair it with a real day pattern and 2,752
+ * have no day pattern at all.
+ */
+function when(section: RawSection): string {
+  const pattern = days(section.days);
+  const arranged = (section.start ?? '').trim().toUpperCase() === ARRANGED;
+  const clock = arranged
+    ? 'time arranged with the instructor'
+    : [section.start, section.end].filter(Boolean).join(' to ');
+  const parts = [pattern, clock].filter(Boolean);
+  if (parts.length === 0) return 'Days and times not listed';
+  return parts.join(' ');
 }
 
 function where(section: RawSection): string {
@@ -108,7 +150,7 @@ export function CourseDetail({
       </div>
       <h4>{course.title}</h4>
 
-      {loading && <p className="course-description quiet">Reading the catalog row.</p>}
+      {loading && <p className="course-description quiet">Reading the catalog page.</p>}
       {!loading && detail?.course?.description && (
         <p className="course-description">{detail.course.description}</p>
       )}
@@ -140,16 +182,50 @@ export function CourseDetail({
       <section className="inspector-block">
         <h5>What it needs first</h5>
         {!core?.prereqs && <p className="quiet">Prerequisites have not loaded.</p>}
+        {/**
+          * Said only when the catalog page really is silent.
+          *
+          * Every course on this board that has a prerequisite line, or a
+          * sentence saying its prerequisites live in the class schedule, has an
+          * entry here, so an absent entry is an absent line on the page rather
+          * than a line nobody could parse. The description is named anyway,
+          * because three Illinois pages put an enrolment restriction there and
+          * nowhere else.
+          */}
         {core?.prereqs && !spec && (
-          <p className="quiet">The catalog lists no prerequisite for this course.</p>
+          <p className="quiet">
+            The catalog page for this course lists nothing that has to come first. Read the
+            description above as well, in case it names one.
+          </p>
         )}
         {spec && (
           <>
+            {/* The catalog's own sentence. For the 51 courses whose page says
+                the prerequisites are published elsewhere, this IS that
+                sentence, which is why it prints before anything else. */}
             <p>{spec.text}</p>
-            {!spec.parsed && (
+            {spec.standing && (
               <p className="quiet">
-                That sentence could not be read as a list of courses, so nothing here
-                checks it for you.
+                You need to be {STANDING_ARTICLE[spec.standing]}, which Illinois counts as{' '}
+                {DEFAULT_STANDING_HOURS[spec.standing]} earned hours. The plan holds this course
+                back until you get there.
+              </p>
+            )}
+            {spec.note && (
+              <p className="quiet">
+                The course list itself does not name the prerequisites, so nothing here can check
+                them. Look up the section you want in the class schedule.
+              </p>
+            )}
+            {/* Half true for the 419 courses with a class standing: the standing
+                IS checked even when the course list around it could not be read.
+                Saying nothing is checked would send a student to verify work the
+                plan already did. */}
+            {!spec.parsed && !spec.note && (
+              <p className="quiet">
+                {spec.standing
+                  ? 'Apart from the class standing, that sentence could not be read as a list of courses, so nothing here checks the rest of it for you.'
+                  : 'That sentence could not be read as a list of courses, so nothing here checks it for you.'}
               </p>
             )}
           </>
@@ -168,8 +244,8 @@ export function CourseDetail({
               {grade.withdrawPct !== null && `, ${grade.withdrawPct}% withdrew`}.
             </p>
             <p className="quiet">
-              {grade.n.toLocaleString()} students across {grade.sections}{' '}
-              {grade.sections === 1 ? 'section' : 'sections'}.
+              {grade.n.toLocaleString()} {plural(grade.n, 'student')} across {grade.sections}{' '}
+              {plural(grade.sections, 'section')}.
               {grade.thin && ` Fewer than ${THIN_SAMPLE} students, so read it loosely.`}
             </p>
             {detail?.instructors && detail.instructors.length > 0 && (
@@ -180,7 +256,7 @@ export function CourseDetail({
                   .slice(0, 4)
                   .map(
                     (i) =>
-                      `${i.name} ${i.gpa} GPA over ${i.sections} section${i.sections === 1 ? '' : 's'}`,
+                      `${i.name} ${i.gpa} GPA over ${i.sections} ${plural(i.sections, 'section')}`,
                   )
                   .join('. ')}
                 .
@@ -202,24 +278,24 @@ export function CourseDetail({
         {sections && (
           <>
             <p>
-              {sections.total} section{sections.total === 1 ? '' : 's'} in {sections.termLabel}.
+              {sections.total} {plural(sections.total, 'section')} in {sections.termLabel}.
             </p>
             {rows.slice(0, 5).map((row) => (
               <p key={row.crn} className="quiet">
                 {row.section ?? row.crn} {row.type ? `(${row.type}) ` : ''}
-                {days(row.days)}
-                {row.start && ` ${row.start}`}
-                {row.end && ` to ${row.end}`}, {where(row)}
+                {when(row)}, {where(row)}
                 {row.instructors.length > 0 && `, ${row.instructors.join(', ')}`}
                 {row.partOfTerm && `. Part of term ${row.partOfTerm}`}
                 {prettyDateRange(row.dateRange) && `, ${prettyDateRange(row.dateRange)}`}.
               </p>
             ))}
             {rows.length > 5 && (
-              <p className="quiet">And {rows.length - 5} more sections.</p>
+              <p className="quiet">
+                And {rows.length - 5} more {plural(rows.length - 5, 'section')}.
+              </p>
             )}
             {rows.length === 0 && !loading && (
-              <p className="quiet">Section rows for this subject have not loaded.</p>
+              <p className="quiet">The schedule for this subject has not loaded.</p>
             )}
             <p className="quiet">{partOfTermLine(sections)}</p>
             <p className="quiet">{DEADLINE_DISCLAIMER}</p>

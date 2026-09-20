@@ -83,6 +83,35 @@ export type PlanRule =
       label: string;
     }
   | { kind: 'hours'; hours: number; genEd: string[] | null; label: string }
+  /**
+   * One general education category, sized in hours or in courses or both.
+   *
+   * Separate from 'hours' because a category the catalog sizes in COURSES
+   * cannot be filled by hours without deciding what a course is worth, and
+   * because `fulfilledBy` carries the degree page's own statement that its
+   * required courses already cover this category. Filling such a category from
+   * scratch is how a plan books six hours of science a student is already
+   * taking under another heading.
+   */
+  | {
+      kind: 'gened';
+      genEd: string[];
+      hours: number | null;
+      courses: number | null;
+      fulfilledBy: string[][];
+      /**
+       * A name shared by categories that may not use the same course.
+       *
+       * Illinois lets one course count for a Cultural Studies category and a
+       * Humanities category and a major requirement all at once, but never for
+       * two Cultural Studies categories. The school states that rule, so the
+       * school's adapter names the groups and this engine only honours them.
+       */
+      exclusiveGroup: string;
+      sizeFromCampus: boolean;
+      text: string;
+      label: string;
+    }
   | { kind: 'unparsed'; text: string };
 
 export interface PlanRequirement {
@@ -106,13 +135,52 @@ export interface PlanPrereqGroup {
   source: string;
 }
 
+/** A university's own classification of an undergraduate by hours earned. */
+export type PlanStanding = 'freshman' | 'sophomore' | 'junior' | 'senior';
+
 export interface PlanPrereq {
   groups: PlanPrereqGroup[];
   escape: 'consent' | 'standing' | 'either' | null;
   text: string;
   parsed: boolean;
   confidence: 'high' | 'low' | 'none';
+  /**
+   * The catalog saying this course has prerequisites that it does not list
+   * here, normally a pointer to the class schedule. Empty when there is none.
+   *
+   * A surface reading an empty `text` as "no prerequisite" is the reason this
+   * exists: 51 Illinois undergraduate rows, CS 498 among them, carry a note and
+   * no clause, and telling a student they have nothing to take first is a false
+   * statement about the university.
+   */
+  note?: string;
+  /**
+   * The lowest class standing the catalog requires, or null.
+   *
+   * Not the same as `escape: 'standing'`, which offers standing INSTEAD of the
+   * courses. This one is a floor: below it the course cannot be taken at all.
+   */
+  standing?: PlanStanding | null;
+  /** The catalog's own words for the standing clause, so an error can quote it. */
+  standingText?: string;
 }
+
+/**
+ * Earned hours each class standing starts at.
+ *
+ * Injected rather than assumed so a school with different thresholds can supply
+ * its own. The default is Illinois's, from the Student Code § 3-302
+ * (https://studentcode.illinois.edu/article3/part3/3-302): freshman 0-29.9
+ * hours, sophomore 30-59.9, junior 60-89.9, senior 90 or more.
+ */
+export type StandingThresholds = Record<PlanStanding, number>;
+
+export const DEFAULT_STANDING_HOURS: StandingThresholds = {
+  freshman: 0,
+  sophomore: 30,
+  junior: 60,
+  senior: 90,
+};
 
 export interface PlanCreditRange {
   credits: number;
@@ -240,6 +308,12 @@ export interface AutoplanInput {
   horizon: Horizon;
   preferences?: PlanPreferences;
   programId?: string;
+  /**
+   * Earned hours each class standing starts at. Defaults to Illinois's, from
+   * the Student Code § 3-302. A school with different thresholds passes its own
+   * rather than having this engine assume anybody's.
+   */
+  standingHours?: StandingThresholds;
 }
 
 // ---------------------------------------------------------------------------
@@ -336,7 +410,13 @@ export interface PoolReport {
 export interface NotPlaced {
   code: string;
   title: string;
-  reason: 'chain-too-long' | 'no-room' | 'prereq-unmet' | 'offering-conflict';
+  reason:
+    | 'chain-too-long'
+    | 'no-room'
+    | 'prereq-unmet'
+    | 'offering-conflict'
+    /** The catalog requires a class standing the plan never reaches in time. */
+    | 'standing-unmet';
   message: string;
   requirementId: string | null;
 }
@@ -363,6 +443,17 @@ export interface GeneratedPlan {
   credits: {
     planned: CreditTotal;
     prior: number;
+    /**
+     * Everything that counts toward the degree: what the student already has
+     * plus what this plan schedules.
+     *
+     * This is the headline number and `planned` is not. A transfer student with
+     * RHET 105, MATH 221, MATH 231, CS 124 and PHYS 211 in hand was shown "68
+     * to 71 cr of 128" while the same screen said "Already taken 5 courses" and
+     * counted those five in the requirement bars. Eighteen hours the app had in
+     * its own data were missing from the one number the student reads.
+     */
+    total: CreditTotal;
     degreeTotal: number | null;
     /** Hours the catalog counts that this plan does not name, normally free electives. */
     unaccounted: number | null;
@@ -747,6 +838,30 @@ export function describeCreditTotal(total: CreditTotal): string {
   return `${core}, plus ${total.unknown} ${noun} no credit hours listed in the catalog`;
 }
 
+/**
+ * The one sentence a student should read about where they are in the degree.
+ *
+ * It names both halves on purpose. A screen that says "68 to 71 cr of 128"
+ * while also saying "Already taken 5 courses" is telling somebody they are
+ * further behind than the app's own data says, and the five courses they
+ * mentioned are what makes the difference. Written for a student: no jargon,
+ * no field names, and the hours they already hold said out loud.
+ */
+export function describeCreditProgress(
+  credits: GeneratedPlan['credits'],
+  /**
+   * The degree's published total, from the catalog page. Not credits.degreeTotal,
+   * which is only what these requirement blocks add up to and is smaller than the
+   * degree whenever a page leaves a credit cell empty.
+   */
+  degreeTotal: number | null,
+): string {
+  const total = describeCreditTotal(credits.total);
+  const head = degreeTotal === null ? total : `${total} of the ${degreeTotal} this degree takes`;
+  if (credits.prior <= 0) return head;
+  return `${head}. ${credits.prior} of those you already have, ${describeCreditTotal(credits.planned)} are in the plan.`;
+}
+
 // ---------------------------------------------------------------------------
 // Requirement slots.
 // ---------------------------------------------------------------------------
@@ -756,11 +871,18 @@ interface PlanSlot {
   requirementId: string;
   areaLabel: string;
   label: string;
-  kind: 'all' | 'choose' | 'hours' | 'pool';
+  kind: 'all' | 'choose' | 'hours' | 'pool' | 'gened';
   /** One entry per interchangeable set. "CS 210 or CS 211" is one entry with two codes. */
   options: string[][];
   picks: number | null;
   hoursTarget: number | null;
+  /**
+   * Gen-ed only: the courses the degree page says already cover this category,
+   * in the page's own order, each entry one slot with its alternatives folded in.
+   */
+  fulfilledBy?: string[][];
+  /** Gen-ed only: categories sharing this name may not share a course. */
+  exclusiveGroup?: string;
   /** Pools only: the named lists inside the pool, and the rules over them. */
   lists?: PlanPoolList[];
   constraints?: PlanPoolConstraint[];
@@ -816,6 +938,34 @@ function slotsFor(requirement: PlanRequirement, ctx: PlanningContext): PlanSlot[
       lists: rule.lists,
       constraints: rule.constraints,
       note: requirement.note,
+    }];
+  }
+
+  if (rule.kind === 'gened') {
+    /**
+     * A category is filled from the catalog's own gen-ed tagging.
+     *
+     * 935 Illinois courses carry at least one published category string, and a
+     * course carrying this category's string is a course that counts for it.
+     * That is the catalog's statement, not this planner's guess, which is why
+     * a category whose strings we do not have is reported instead of filled.
+     */
+    if (rule.genEd.length === 0) return [];
+    const wanted = new Set(rule.genEd);
+    const eligible = ctx.courses
+      .filter((course) => course.tags.some((tag) => wanted.has(tag)))
+      .map((course) => normaliseCode(course.code))
+      .sort();
+    return [{
+      ...base,
+      key: `${requirement.id}#gened`,
+      kind: 'gened' as const,
+      options: eligible.map((code) => [code]),
+      picks: rule.courses,
+      hoursTarget: rule.hours,
+      fulfilledBy: rule.fulfilledBy.map((option) => option.map(normaliseCode)),
+      exclusiveGroup: rule.exclusiveGroup,
+      note: rule.text,
     }];
   }
 
@@ -1317,6 +1467,15 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   const rank = makeRanker(ctx, byCode, rankDepth, policy);
 
   const chosen = new Map<string, { requirementId: string | null; label: string }>();
+  /**
+   * Courses already spent inside one exclusive gen-ed group.
+   *
+   * Illinois allows one course to count for a Cultural Studies category and a
+   * Humanities category at the same time, and for a major requirement as well,
+   * but not for two Cultural Studies categories. Keyed by group so the rule is
+   * the school's, not this engine's.
+   */
+  const genEdSpent = new Map<string, Set<string>>();
   const satisfiedByPriorCredit: GeneratedPlan['satisfiedByPriorCredit'] = [];
   let droppedRowsWithoutCatalog = 0;
   let sharedListings = 0;
@@ -1336,6 +1495,18 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
     if (range) return range.known ? (range.min ?? range.credits) : 0;
     return byCode.get(code)?.credits ?? 0;
   };
+
+  /**
+   * Hours the student walks in with, counted once and used twice.
+   *
+   * Once for class standing, which is measured in earned hours and so has to
+   * know about transfer credit before the first term is placed, and once for
+   * the headline total at the end. They were two separate sums before and the
+   * standing check would have missed a transfer student's 18 hours entirely.
+   */
+  const priorCreditTotal =
+    [...earned].reduce((sum, code) => sum + (byCode.get(code)?.credits ?? 0), 0) +
+    input.prior.unmatchedCredits;
 
   /** Every pool, kept so the report can be written against the placed board. */
   const poolFills: Array<{ slot: PlanSlot; fill: PoolFill }> = [];
@@ -1379,6 +1550,46 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
     return (a: string, b: string): number => compareRank(score(a), score(b), a, b);
   };
 
+  /**
+   * How a general education category chooses among its approved courses.
+   *
+   * Two things the plain ranker does not know about, both of which produced a
+   * wrong plan for Composition I.
+   *
+   * A course that is only half of a sequence cannot satisfy a category on its
+   * own. The catalog says so in prose this parser does not read, but it also
+   * says so in the prerequisite data: CMN 112 requires CMN 111, RHET 102
+   * requires RHET 101, ESL 112 requires ESL 111, and each of those pairs is one
+   * requirement taken over two terms. So a candidate that is a prerequisite of
+   * another candidate in the same category, or has one as a prerequisite, goes
+   * last. The two Composition I courses that stand alone, RHET 105 and ESL 115,
+   * are what is left.
+   *
+   * After that the plain ranker decides, and the last tiebreak is how many
+   * sections the university actually ran in the crawled term. It is a fact this
+   * app already has and it separates RHET 105, with 94 sections, from a course
+   * with nine that ties it on everything else.
+   */
+  const genEdSequenceMembers = (codes: string[]): Set<string> => {
+    const inCategory = new Set(codes);
+    const sequence = new Set<string>();
+    for (const code of codes) {
+      const spec = ctx.prereqs?.get(code);
+      if (!spec?.parsed) continue;
+      for (const group of spec.groups) {
+        for (const raw of group.any) {
+          const need = normaliseCode(raw);
+          if (!inCategory.has(need) || need === code) continue;
+          sequence.add(code);
+          sequence.add(need);
+        }
+      }
+    }
+    return sequence;
+  };
+
+  const sectionCount = (code: string): number => ctx.sections?.get(code)?.total ?? 0;
+
   const best = (codes: string[]): string | null =>
     codes.length === 0 ? null : codes.slice().sort((a, b) => compareRank(rank(a), rank(b), a, b))[0];
 
@@ -1398,7 +1609,27 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
     return taken ? { code: taken, shared: true } : null;
   };
 
-  for (const requirement of input.requirements) {
+  /**
+   * The degree's own requirements first, then general education.
+   *
+   * Order is not cosmetic here. Illinois says "Some Gen Ed requirements may be
+   * met by courses required and/or electives in a major", and a category can
+   * only notice that if the major has already chosen its courses. Run the other
+   * way round, the gen-ed block picks two fresh humanities courses, the major
+   * then picks its own, and the plan books six hours the student did not owe.
+   *
+   * It also settles the one case where a page's "fulfilled by" clause offers a
+   * choice: Computer Science says quantitative reasoning is fulfilled by "MATH
+   * 220 or MATH 221", and with the major already placed the answer is whichever
+   * of the two the degree actually requires, rather than a coin toss that puts
+   * both calculus courses in one plan.
+   */
+  const orderedRequirements = [
+    ...input.requirements.filter((r) => r.rule.kind !== 'gened'),
+    ...input.requirements.filter((r) => r.rule.kind === 'gened'),
+  ];
+
+  for (const requirement of orderedRequirements) {
     if (requirement.rule.kind === 'unparsed') {
       unsatisfied.push({
         requirementId: requirement.id,
@@ -1408,6 +1639,20 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
         // The catalog's own words, never a summary of them. A paraphrase of a
         // requirement is the kind of invented fact this project treats as a defect.
         message: `The catalog says: ${requirement.rule.text}`,
+        url: requirement.url,
+      });
+      continue;
+    }
+
+    if (requirement.rule.kind === 'gened' && requirement.rule.genEd.length === 0) {
+      unsatisfied.push({
+        requirementId: requirement.id,
+        areaLabel: requirement.areaLabel,
+        label: requirement.label || requirement.areaLabel,
+        reason: 'no-course-data',
+        // The catalog's own words for the category, then the plain fact that
+        // nothing in the course data is marked as counting for it.
+        message: `${requirement.rule.text} No course in the catalog is marked as counting for this.`,
         url: requirement.url,
       });
       continue;
@@ -1462,6 +1707,126 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
         poolFills.push({ slot, fill });
         free.push(...fill.free);
         picked.push(...fill.picked);
+      } else if (slot.kind === 'gened') {
+        /**
+         * One general education category, filled in the order the catalog puts
+         * its own evidence in.
+         *
+         * 1. The courses this degree page itself names as fulfilling the
+         *    category. They are somewhere else in the same degree, so counting
+         *    them is what stops the plan booking six more hours of science on
+         *    top of the physics the student already has to take.
+         * 2. Courses already in the plan that carry the category. Illinois says
+         *    "Some Gen Ed requirements may be met by courses required and/or
+         *    electives in a major", and a course counted here is counted once:
+         *    it is already in the plan and adds no second set of hours.
+         * 3. Anything else in the catalog that carries the category.
+         *
+         * It stops the moment both of the catalog's numbers are met, and a
+         * number the catalog did not give is met by definition rather than
+         * filled in with a guess.
+         */
+        const wantHours = slot.hoursTarget;
+        const wantCourses = slot.picks;
+        const spent = genEdSpent.get(slot.exclusiveGroup ?? 'core') ?? new Set<string>();
+        genEdSpent.set(slot.exclusiveGroup ?? 'core', spent);
+
+        let haveHours = 0;
+        let haveCourses = 0;
+        const held = new Set<string>();
+        const met = (): boolean =>
+          (wantHours === null || haveHours >= wantHours) &&
+          (wantCourses === null || haveCourses >= wantCourses);
+
+        const countIt = (code: string, as: 'free' | 'picked' | 'shared'): void => {
+          if (held.has(code)) return;
+          held.add(code);
+          spent.add(code);
+          haveCourses += 1;
+          haveHours += creditsOf(code);
+          if (as === 'free') free.push(code);
+          else if (as === 'picked') picked.push(code);
+          else sharedListings += 1;
+        };
+
+        for (const option of slot.fulfilledBy ?? []) {
+          if (met()) break;
+          const known = option.filter((code) => byCode.has(code) && !spent.has(code));
+          if (known.length === 0) continue;
+          const already = known.find((code) => earned.has(code));
+          if (already) {
+            countIt(already, 'free');
+            continue;
+          }
+          const shared = known.find((code) => chosen.has(code));
+          if (shared) {
+            countIt(shared, 'shared');
+            continue;
+          }
+          const pick = best(known);
+          if (pick) countIt(pick, 'picked');
+        }
+
+        for (const option of slot.options) {
+          if (met()) break;
+          const code = option[0];
+          if (spent.has(code)) continue;
+          if (earned.has(code)) countIt(code, 'free');
+          else if (chosen.has(code)) countIt(code, 'shared');
+        }
+
+        if (!met()) {
+          const all = slot.options.map((option) => option[0]);
+          const sequence = genEdSequenceMembers(all);
+          const genEdOrder = (a: string, b: string): number => {
+            const half = (sequence.has(a) ? 1 : 0) - (sequence.has(b) ? 1 : 0);
+            if (half !== 0) return half;
+            const ranked = compareRank(rank(a), rank(b), '', '');
+            if (ranked !== 0) return ranked;
+            const offered = sectionCount(b) - sectionCount(a);
+            if (offered !== 0) return offered;
+            return a.localeCompare(b);
+          };
+          const open = all
+            .filter(
+              (code) =>
+                !spent.has(code) &&
+                !chosen.has(code) &&
+                byCode.has(code) &&
+                (rankDepth.get(code) ?? 0) < terms.length,
+            )
+            .sort(genEdOrder);
+          for (const code of open) {
+            if (met()) break;
+            // "Credit is not given for both X and Y" applies here like anywhere
+            // else: two courses that exclude each other are one course of credit.
+            if ((ctx.exclusions?.get(code) ?? []).some((other) => held.has(normaliseCode(other)))) {
+              continue;
+            }
+            countIt(code, 'picked');
+          }
+        }
+
+        if (!met()) {
+          const wanted = [
+            wantHours !== null ? `${wantHours} hours` : null,
+            wantCourses !== null ? `${wantCourses} course${wantCourses === 1 ? '' : 's'}` : null,
+          ].filter(Boolean).join(' and ');
+          const got = [
+            wantHours !== null ? `${haveHours} hours` : null,
+            wantCourses !== null ? `${haveCourses}` : null,
+          ].filter(Boolean).join(' and ');
+          unsatisfied.push({
+            requirementId: slot.requirementId,
+            areaLabel: slot.areaLabel,
+            label: slot.label,
+            reason: slot.options.length === 0 ? 'no-candidates' : 'hours-short',
+            message: slot.options.length === 0
+              ? `${wanted}. No course in the catalog carries this category.`
+              : `${wanted} needed, ${got} in the plan. ${slot.options.length} courses in the catalog carry this category.`,
+            url: slot.url,
+          });
+        }
       } else if (slot.kind === 'hours' && slot.hoursTarget !== null) {
         const ordered = slot.options
           .map((option) => option[0])
@@ -1651,6 +2016,36 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
     return d !== null && d !== undefined && d >= hardCut;
   };
 
+  /**
+   * Hours the student has when a term begins: everything they walked in with
+   * plus everything the plan has already placed before it.
+   *
+   * This is what class standing is measured in. Running it as a term-by-term
+   * total rather than recomputing from the whole plan matters because a course
+   * that needs senior standing has to be after 90 hours of THIS plan, not after
+   * 90 hours that arrive two terms later.
+   */
+  const standingHours = input.standingHours ?? DEFAULT_STANDING_HOURS;
+  let hoursBefore = priorCreditTotal;
+
+  /**
+   * Whether a term is late enough for a course's class standing requirement.
+   *
+   * Illinois states these in prose with no course code in them, so the
+   * prerequisite matcher never sees them: CS 492 Senior Project I says "For
+   * Computer Science majors with senior standing." Before this the course was
+   * placed in a first-year fall and the review list reported no problem at all.
+   *
+   * The thresholds are the university's, not this planner's. Illinois's are in
+   * the Student Code § 3-302: sophomore at 30 earned hours, junior at 60,
+   * senior at 90.
+   */
+  const standingMet = (code: string, earnedSoFar: number): boolean => {
+    const needs = ctx.prereqs?.get(code)?.standing;
+    if (!needs) return true;
+    return earnedSoFar >= (standingHours[needs] ?? 0);
+  };
+
   // Unblock the longest chains first, then the shallowest courses, then the
   // lowest catalog number, then the slot ranking. Every step is a total order
   // ending in the course code, so the same inputs always give the same plan.
@@ -1694,6 +2089,16 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
       // spring slot on the strength of one crawled fall would be inventing
       // the very fact the data does not have.
       if (published.has(code) && course.offeredIn.length && !course.offeredIn.includes(term.season)) return false;
+      /**
+       * Class standing, unlike the hardest-band guard below, is never relaxed.
+       *
+       * It is a registration rule the university enforces, not a preference:
+       * a student with 40 hours cannot register for a course that requires
+       * senior standing, whatever the plan says. A course that never clears it
+       * is reported in notPlaced with the catalog's own sentence rather than
+       * being quietly squeezed into the last term.
+       */
+      if (!standingMet(code, hoursBefore)) return false;
       // The hardest-band guard is relaxed in the final term rather than
       // dropping the course, because a course that never gets placed costs
       // a student a semester and a heavy last term costs them a hard spring.
@@ -1750,11 +2155,34 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
     placed.set(term.id, here);
     termNotes.set(term.id, noteList);
     for (const code of here) for (const equiv of expandEquivalents(code, equivalents)) earlier.add(equiv);
+    // The next term starts with this term's hours banked, which is what moves
+    // a student from junior to senior standing part way through a plan.
+    hoursBefore += termCredits.min;
   }
 
   for (const code of [...remaining].sort()) {
     const spec = ctx.prereqs?.get(code);
     const { missing } = match(spec, earlier, new Set(), equivalents);
+
+    /**
+     * Standing is reported before anything else, because it is the reason.
+     *
+     * A senior capstone in a plan that never reaches 90 hours would otherwise
+     * be filed as "did not fit in 8 terms at up to 18 credits", which sends a
+     * student looking for room in a schedule when the real answer is that they
+     * are not a senior yet. The catalog's own sentence is quoted so they can
+     * check it.
+     */
+    if (spec?.standing && !standingMet(code, hoursBefore)) {
+      notPlaced.push({
+        code,
+        title: byCode.get(code)?.title ?? code,
+        reason: 'standing-unmet',
+        message: `${code} needs ${spec.standing} standing, which is ${standingHours[spec.standing]} earned hours. This plan reaches ${Math.round(hoursBefore)}. The catalog says: ${spec.standingText || spec.text}`,
+        requirementId: chosen.get(code)?.requirementId ?? null,
+      });
+      continue;
+    }
     // The escape is named, never used. The planner does not get to decide that
     // a student has consent of the instructor, so a course that only clears on
     // consent stays out of the plan and the student is told why.
@@ -1927,8 +2355,18 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
 
   const placedCodes = plannedTerms.flatMap((t) => t.codes);
   const plannedCredits = planCreditRange(placedCodes, ctx);
-  const priorCredits = [...earned].reduce((sum, code) => sum + (byCode.get(code)?.credits ?? 0), 0)
-    + input.prior.unmatchedCredits;
+  const priorCredits = priorCreditTotal;
+  /**
+   * Prior credit is a settled number, so it widens neither end of the range.
+   * Only the plan's own variable-credit courses do that, and `unknown` stays
+   * the plan's because a course already taken has a grade and therefore hours.
+   */
+  const totalCredits: CreditTotal = {
+    min: plannedCredits.min + priorCredits,
+    max: plannedCredits.max + priorCredits,
+    variable: plannedCredits.variable,
+    unknown: plannedCredits.unknown,
+  };
 
   const degreeTotal = input.requirements.reduce<number | null>((total, requirement) => {
     if (requirement.hours === null) return total;
@@ -1999,7 +2437,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
     notPlaced,
     addedPrerequisites,
     satisfiedByPriorCredit,
-    credits: { planned: plannedCredits, prior: priorCredits, degreeTotal, unaccounted },
+    credits: { planned: plannedCredits, prior: priorCredits, total: totalCredits, degreeTotal, unaccounted },
     offering: { unknown: offeringUnknown, seenOnlyInSnapshot, message: offeringMessage },
     notes,
     partsOfTerm,
@@ -2015,6 +2453,16 @@ export interface ValidateOptions {
   maxTermCredits?: number;
   maxHardCourses?: number;
   hardDifficulty?: number | null;
+  /** Earned hours each class standing starts at. Defaults to Illinois's. */
+  standingHours?: StandingThresholds;
+  /**
+   * Hours the student walked in with, for the class standing check.
+   *
+   * Without it a transfer student's own plan reports their senior capstone as
+   * out of reach, because the check would count only the terms on the board and
+   * none of the 30 hours they arrived with.
+   */
+  priorCredits?: number;
 }
 
 /**
@@ -2074,6 +2522,21 @@ export function validatePlan(
   }
 
   const seenCodes = new Map<string, string>();
+  const standingHours = options?.standingHours ?? DEFAULT_STANDING_HOURS;
+  /**
+   * Hours banked before the term being checked.
+   *
+   * Seeded from what the student walked in with, then grown term by term, so
+   * the answer to "is this person a senior yet" is the same one the registrar
+   * would give at the moment they try to register.
+   */
+  let hoursBefore = options?.priorCredits ?? 0;
+  for (const courseId of plan.completedCourseIds) {
+    const code = codeOf(courseId);
+    if (code && options?.priorCredits === undefined) {
+      hoursBefore += ctx.creditRanges?.get(code)?.min ?? byId.get(courseId)?.credits ?? 0;
+    }
+  }
 
   for (const term of plan.terms) {
     const codes: string[] = [];
@@ -2209,11 +2672,36 @@ export function validatePlan(
           issues.push({
             id: `ap-prereq-text-${term.id}-${courseId}`,
             severity: 'info',
-            title: "Prerequisite, in the catalog's words",
+            title: spec.note
+              // The catalog is saying the requirement exists somewhere it did
+              // not print. "In the catalog's words" would read as the whole
+              // story, and it is not: nobody has checked this course.
+              ? 'Prerequisites the catalog does not list here'
+              : "Prerequisite, in the catalog's words",
             message: spec.text,
             termId: term.id,
             courseId,
           });
+        }
+        /**
+         * Class standing, checked against the hours banked before this term.
+         *
+         * An error rather than a warning because it is a registration rule, not
+         * a preference: a student with 40 hours cannot enrol in a course the
+         * catalog restricts to seniors, however the plan is arranged.
+         */
+        if (spec.standing) {
+          const needed = standingHours[spec.standing] ?? 0;
+          if (hoursBefore < needed) {
+            issues.push({
+              id: `ap-standing-${term.id}-${courseId}`,
+              severity: 'error',
+              title: 'Class standing not reached',
+              message: `${code} needs ${spec.standing} standing, which is ${needed} earned hours, and this plan has ${Math.round(hoursBefore)} before ${term.label}. The catalog says: ${spec.standingText || spec.text}`,
+              termId: term.id,
+              courseId,
+            });
+          }
         }
       }
 
@@ -2273,6 +2761,7 @@ export function validatePlan(
     }
 
     for (const code of codes) for (const equiv of expandEquivalents(code, equivalents)) earlier.add(equiv);
+    hoursBefore += termCredits.min;
   }
 
   return issues;

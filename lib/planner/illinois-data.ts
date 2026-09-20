@@ -98,6 +98,19 @@ export interface RawIllinoisCourse {
   description: string;
   prereqCodes: string[];
   prereqText: string;
+  /**
+   * The catalog's own sentence for a course whose prerequisites are real but
+   * stated only in prose, with no clause a parser can read: "See Class Schedule
+   * or departmental course information for topics and prerequisites." 51
+   * undergraduate rows have one, CS 498 among them, and every one of them used
+   * to reach the surfaces as a course with no prerequisite sentence at all. A
+   * planner that then says "The catalog lists no prerequisite for this course"
+   * has made a false statement about the university.
+   *
+   * Optional because a catalog crawled before courses.mjs emitted it has no
+   * such field, and an older file must still load rather than throw.
+   */
+  prereqNote?: string;
   genEd: string[];
   sameAs: string[];
   noise: boolean;
@@ -246,6 +259,28 @@ export interface PrereqGroup {
   source: string;
 }
 
+/** Illinois's own undergraduate classifications, lowest first. */
+export type ClassStanding = 'freshman' | 'sophomore' | 'junior' | 'senior';
+
+/**
+ * Earned hours each classification starts at.
+ *
+ * Student Code § 3-302, Classification of Undergraduate Students:
+ * freshman 0-29.9 hours, sophomore 30-59.9, junior 60-89.9, senior 90 or more.
+ * https://studentcode.illinois.edu/article3/part3/3-302
+ *
+ * These are Illinois's numbers, not this project's. A capstone that says
+ * "senior standing" is a capstone a student cannot register for below 90 hours,
+ * and a plan that puts it in a first-year fall is a plan that cannot be
+ * followed.
+ */
+export const STANDING_HOURS: Record<ClassStanding, number> = {
+  freshman: 0,
+  sophomore: 30,
+  junior: 60,
+  senior: 90,
+};
+
 export interface PrereqSpec {
   /** ANDed together. */
   groups: PrereqGroup[];
@@ -254,6 +289,27 @@ export interface PrereqSpec {
   text: string;
   parsed: boolean;
   confidence: 'high' | 'low' | 'none';
+  /**
+   * A prose statement that this course has prerequisites which the catalog does
+   * not list here. Empty when there is none.
+   *
+   * Separate from `text` because the two mean opposite things to a reader.
+   * `text` is a requirement we tried to parse; `note` is the catalog telling us
+   * the requirement lives somewhere we did not crawl. A surface that treats an
+   * empty `text` as "no prerequisite" is the bug this field exists to stop.
+   */
+  note: string;
+  /**
+   * The lowest class standing the catalog requires, or null when it names none.
+   *
+   * Requirement, not escape. `escape: 'standing'` is the other shape, where
+   * standing is offered INSTEAD of a course ("CS 101 or senior standing"), and
+   * the two must not be confused: one blocks a first-year student, the other
+   * lets a senior past a course.
+   */
+  standing: ClassStanding | null;
+  /** The catalog's own words for the standing clause, so an error can quote it. */
+  standingText: string;
 }
 
 export interface CourseFacts {
@@ -339,6 +395,14 @@ export interface CoverageReport {
   withParsedPrereq: number;
   withLowConfidencePrereq: number;
   withPrereqTextOnly: number;
+  /**
+   * Courses whose only prerequisite evidence is a prose note, normally "See
+   * Class Schedule ... for topics and prerequisites". They have prerequisites
+   * and no surface may say otherwise.
+   */
+  withPrereqNoteOnly: number;
+  /** Courses whose catalog sentence names a class standing the student must have. */
+  withStandingRequirement: number;
   withGrades: number;
   withoutGrades: number;
   orphanGradeRows: number;
@@ -360,6 +424,16 @@ export interface CoverageReport {
   poolGroups: number;
   /** Degree totals too small to be a degree, so reported as unknown instead. */
   implausibleProgramTotals: number;
+  /** Programs whose page carries a campus general education table. */
+  programsWithGenEd: number;
+  /** General education categories read across every program. */
+  genEdCategories: number;
+  /**
+   * Categories sized from the campus table rather than from a degree page.
+   * Only Composition I and Advanced Composition reach this, because no degree
+   * page states hours for either. See GENED_CAMPUS_SIZE for the source.
+   */
+  genEdCategoriesFromCampus: number;
 }
 
 /**
@@ -426,6 +500,42 @@ export type RequirementRule =
       label: string;
     }
   | { kind: 'hours'; hours: number; genEd: string[] | null; label: string }
+  /**
+   * One campus general education category, as the degree page states it.
+   *
+   * Its own kind rather than another 'hours' block for two reasons the planner
+   * has to act on. A category can be sized in COURSES rather than hours
+   * ("Cultural Studies: Non-Western Cultures (1 course)") and filling that with
+   * hours means guessing what a course is worth. And a category can carry the
+   * page's own "fulfilled by" list, which says the degree's own required
+   * courses already cover it: without that, the planner books six more hours of
+   * science on top of the physics a Computer Science student is already taking.
+   */
+  | {
+      kind: 'gened';
+      /** The catalog's published gen-ed strings a course must carry to count. */
+      genEd: string[];
+      hours: number | null;
+      courses: number | null;
+      /** Codes the page names as already covering this category, "or" folded in. */
+      fulfilledBy: string[][];
+      /**
+       * Categories that may not share a course with each other.
+       *
+       * The campus General Education page says of Cultural Studies: "These
+       * courses may fulfill other curricular requirements, but no single course
+       * can fulfill multiple Cultural Studies categories." So one course can
+       * count for both Cultural Studies and Humanities, and for a major
+       * requirement as well, but never for two Cultural Studies categories.
+       * https://gened.illinois.edu/requirements/
+       */
+      exclusiveGroup: string;
+      /** True when the size came from the campus table rather than this page. */
+      sizeFromCampus: boolean;
+      /** The page's own words for this category, verbatim. */
+      text: string;
+      label: string;
+    }
   | { kind: 'unparsed'; text: string };
 
 export interface CourseChoice {
@@ -767,6 +877,125 @@ function parentheticals(seg: string): string[] {
   return out;
 }
 
+const STANDING_RANK: ClassStanding[] = ['freshman', 'sophomore', 'junior', 'senior'];
+const STANDING_WORD = /\b(freshman|sophomore|junior|senior)\b/gi;
+/** "standing", "class standing", "academic standing", "standing or higher". */
+const STANDING_HEAD = /\b(?:class\s+|academic\s+|year\s+)?standing\b/gi;
+/** "Graduate or ", "Graduate Student or ": a list of standings, not an escape. */
+const STANDING_LIST_LEAD =
+  /\b(?:graduate|undergraduate|freshman|sophomore|junior|senior|students?)\s+or\s*$/i;
+
+/**
+ * The class standing a catalog sentence requires, or null.
+ *
+ * Illinois states these in prose with no course code in them, which is why the
+ * clause parser above never sees them: CS 492 says "For Computer Science majors
+ * with senior standing." and CS 497 says "For majors only; junior or senior
+ * standing required." Neither produces a prerequisite group, so before this
+ * existed a senior capstone could be placed in a freshman's first term and the
+ * review list reported nothing wrong.
+ *
+ * The LOWEST standing named is the answer, because a list is a floor: "Restricted
+ * to Sophomore, Junior or Senior standing" is satisfied at sophomore, and reading
+ * it as senior would hold a course back two years the catalog never asked for.
+ *
+ * Three sentences are deliberately NOT read as a requirement:
+ *   - "... or senior standing", where standing substitutes for the courses
+ *     before it. That is an escape, which `escape` already carries, and
+ *     treating it as a floor would bar a student who has the courses.
+ *   - "graduate standing", which is not an undergraduate classification.
+ *   - anything the advisory test matches, because "junior standing is
+ *     recommended" is not a rule.
+ */
+export function parseStanding(text: string): { standing: ClassStanding | null; source: string } {
+  let best: { rank: number; source: string } | null = null;
+
+  /**
+   * Sentence by sentence, because an advisory word in one sentence says nothing
+   * about the next one.
+   *
+   * ACE 445 reads "ACE 349 or FIN 230 is recommended. Restricted to students
+   * with junior standing." Testing a fixed window of characters before the word
+   * "standing" reached back into the previous sentence, found "recommended",
+   * and threw away a restriction the catalog states plainly.
+   */
+  for (const sentence of splitSentences(text)) {
+    if (ADVISORY.test(sentence)) continue;
+    STANDING_HEAD.lastIndex = 0;
+    let head: RegExpExecArray | null;
+
+    while ((head = STANDING_HEAD.exec(sentence)) !== null) {
+      const before = sentence.slice(0, head.index);
+      STANDING_WORD.lastIndex = 0;
+      const words = [...before.matchAll(STANDING_WORD)];
+      if (words.length === 0) continue;
+
+      const runStart = words[0].index ?? 0;
+      const lead = before.slice(0, runStart);
+      /**
+       * "or" in front of the run makes standing an alternative to whatever came
+       * before it rather than a floor under it: "CS 101 or senior standing"
+       * lets a student past CS 101, and enforcing senior there would bar
+       * somebody who has the course.
+       *
+       * Unless the thing before the "or" is itself a classification. "Graduate
+       * or senior standing" and "Graduate Student or Senior Standing Required"
+       * are one list of acceptable standings, and for an undergraduate the
+       * answer is senior.
+       */
+      if (/\bor\s*$/i.test(lead) && !STANDING_LIST_LEAD.test(lead)) continue;
+
+      for (const word of words) {
+        const rank = STANDING_RANK.indexOf(word[1].toLowerCase() as ClassStanding);
+        if (rank < 0) continue;
+        // The whole sentence, not the clause. A student who is told a course
+        // needs senior standing should see the catalog's own words for it,
+        // and a fragment like "senior standing" is not a quote of anything.
+        if (!best || rank < best.rank) best = { rank, source: sentence.trim() };
+      }
+    }
+  }
+
+  // Freshman standing is everybody from their first day, so it is never a
+  // condition a plan has to wait for.
+  if (!best || best.rank <= 0) return { standing: null, source: '' };
+  return { standing: STANDING_RANK[best.rank], source: best.source };
+}
+
+/**
+ * A spec for a course whose prerequisites exist only as prose.
+ *
+ * 51 undergraduate rows say some version of "See Class Schedule or departmental
+ * course information for topics and prerequisites" and list nothing. They are
+ * not courses without prerequisites, and the difference matters: CS 498 reached
+ * the surfaces with no spec at all and a card told students the catalog lists no
+ * prerequisite for it. Absence of a parse is not evidence of absence of a
+ * requirement.
+ */
+export function prereqNoteSpec(note: string): PrereqSpec {
+  const text = note.trim();
+  return {
+    groups: [],
+    escape: null,
+    /**
+     * The note goes in `text` as well, on purpose.
+     *
+     * `text` is "the catalog's own prerequisite sentence", and this IS that
+     * sentence; it just has no clause in it. Every surface that already prints
+     * `text` and falls back to "the catalog lists no prerequisite" therefore
+     * starts telling the truth about these 51 courses without being touched.
+     * `note` stays separate so a caller that wants to know WHY there is no
+     * parse can tell this apart from a sentence the parser merely failed on.
+     */
+    text,
+    parsed: false,
+    confidence: 'none',
+    note: text,
+    standing: null,
+    standingText: '',
+  };
+}
+
 export function parsePrerequisites(
   prereqText: string,
   selfCode: string,
@@ -795,7 +1024,21 @@ export function parsePrerequisites(
       const segCodes = codesIn(seg, known, self);
 
       if (ESC_CONSENT.test(seg)) noteEscape('consent');
-      else if (ESC_STANDING.test(seg) && /\bor\b/i.test(seg)) noteEscape('standing');
+      /**
+       * An "or" inside a standing LIST is not an escape.
+       *
+       * CS 497's "For majors only; junior or senior standing required." was
+       * read as offering standing instead of the courses, because the segment
+       * has the word "or" in it. The or is between junior and senior. When the
+       * segment states a standing requirement of its own, that is what it is.
+       */
+      else if (
+        ESC_STANDING.test(seg) &&
+        /\bor\b/i.test(seg) &&
+        parseStanding(seg).standing === null
+      ) {
+        noteEscape('standing');
+      }
 
       if (segCodes.length === 0) continue;
       // This is what removes the 76 advisory-only courses and the recommended
@@ -893,12 +1136,16 @@ export function parsePrerequisites(
   }
 
   const parsed = deduped.length > 0;
+  const standing = parseStanding(text);
   return {
     groups: deduped,
     escape,
     text,
     parsed,
     confidence: !parsed ? 'none' : deduped.some((g) => g.confidence === 'low') ? 'low' : 'high',
+    note: '',
+    standing: standing.standing,
+    standingText: standing.source,
   };
 }
 
@@ -1034,7 +1281,20 @@ export function adaptIllinoisCatalog(
     if (seen.has(id)) continue;
     seen.add(id);
 
-    const prereq = raw.prereqText ? parsePrerequisites(raw.prereqText, code, known) : null;
+    /**
+     * A course with a prose-only prerequisite note still gets a spec.
+     *
+     * The two fields never both appear in the crawl today, and the order here
+     * says which wins if they ever do: a readable clause is better evidence
+     * than a pointer to the Class Schedule. Null is reserved for a row that
+     * says nothing at all about prerequisites, which is the only case where a
+     * surface may say the catalog lists none.
+     */
+    const prereq = raw.prereqText
+      ? parsePrerequisites(raw.prereqText, code, known)
+      : raw.prereqNote
+        ? prereqNoteSpec(raw.prereqNote)
+        : null;
     const fact: CourseFacts = {
       code,
       creditRange: creditRange(raw),
@@ -1526,13 +1786,305 @@ const GENED_MAP: Record<string, string[]> = {
 };
 
 export function genEdForLabel(label: string): string[] | null {
-  const key = label
+  const key = genEdKey(label);
+  return GENED_MAP[key] ?? null;
+}
+
+/**
+ * One spelling for a category that Illinois writes several ways.
+ *
+ * The same requirement is printed as "Humanities & the Arts" on one degree page
+ * and "Humanities and the Arts" on another, with and without a trailing colon
+ * and with its hours in brackets. Keying on the raw string means a category is
+ * read on 222 pages and missed on 5.
+ */
+function genEdKey(label: string): string {
+  return label
     .toLowerCase()
     .replace(/\(\s*\d+\s*(?:hours?|courses?)\s*\)/g, '')
+    .replace(/\s+and\s+/g, ' & ')
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/[:.]$/, '');
-  return GENED_MAP[key] ?? null;
+}
+
+/**
+ * How many hours or courses each campus category takes when a degree page
+ * states no number of its own.
+ *
+ * WHERE THESE COME FROM, because they are not this project's numbers and they
+ * are not all in the crawled corpus:
+ *
+ *   The degree pages in public/illinois-programs.json state most of them
+ *   themselves, and where they do the page always wins over this table: 222 of
+ *   the 227 gen-ed areas print "Humanities & the Arts (6 hours)", 224 print
+ *   "Cultural Studies: Non-Western Cultures (1 course)", 219 print
+ *   "Quantitative Reasoning (2 courses, at least one course must be
+ *   Quantitative Reasoning I)".
+ *
+ *   No degree page states a number for Composition I or Advanced Composition,
+ *   and neither does catalog.illinois.edu/general-information/degree-general-
+ *   education-requirements/, which lists the seven categories and no hours. The
+ *   numbers below come from the campus General Education requirements table
+ *   published by the Office of the Provost at https://gened.illinois.edu/
+ *   requirements/ , read 20 September 2026, which gives Composition I as 4 to 6
+ *   hours and Advanced Composition as 3 to 4 hours.
+ *
+ * The LOW end of each published range is used. It is the least the campus
+ * requires, and booking the high end would put hours in a student's plan that
+ * nobody asked them to take.
+ */
+const GENED_CAMPUS_SIZE: Record<string, { hours: number | null; courses: number | null }> = {
+  'composition i': { hours: 4, courses: null },
+  'advanced composition': { hours: 3, courses: null },
+  'humanities & the arts': { hours: 6, courses: null },
+  'natural sciences & technology': { hours: 6, courses: null },
+  'social & behavioral sciences': { hours: 6, courses: null },
+  'quantitative reasoning': { hours: null, courses: 2 },
+  'cultural studies: non-western cultures': { hours: null, courses: 1 },
+  'cultural studies: us minority cultures': { hours: null, courses: 1 },
+  'cultural studies: western/comparative cultures': { hours: null, courses: 1 },
+};
+
+/** Where GENED_CAMPUS_SIZE's two unpublished numbers came from, for display. */
+export const GENED_CAMPUS_SOURCE =
+  'Composition I and Advanced Composition hours come from the campus General Education requirements at gened.illinois.edu/requirements. Every other number here is printed on this degree page.';
+
+/**
+ * One gen-ed category as a degree page states it.
+ *
+ * `hours` and `courses` are both nullable and both can be set. The page writes
+ * "(6 hours)" for some categories and "(1 course)" for others, and filling in
+ * the one it did not write, by assuming a course is three hours, is how a plan
+ * ends up claiming a number the catalog never published.
+ */
+export interface GenEdCategoryRule {
+  /** The page's own heading for the category, e.g. "Humanities & the Arts". */
+  label: string;
+  /** The catalog's published gen-ed strings this category accepts. */
+  genEd: string[];
+  hours: number | null;
+  courses: number | null;
+  /** True when hours or courses came from GENED_CAMPUS_SIZE rather than the page. */
+  sizeFromCampus: boolean;
+  /** Course codes the page names as already fulfilling this category. */
+  fulfilledBy: string[][];
+  /** True when the page says the named courses plus another approved course fulfil it. */
+  partial: boolean;
+  /** The page's own words for this category, verbatim, so nothing is paraphrased. */
+  text: string;
+}
+
+/**
+ * Every spelling of every campus category heading, longest first.
+ *
+ * Two reasons for both halves. Illinois prints the same category as "Humanities
+ * & the Arts" on 222 degree pages and "Humanities and the Arts" on 5, so the
+ * ampersand spellings alone would read the category on most pages and miss it
+ * on the rest. And longest first matters because "Advanced Composition" ends in
+ * a word that also opens "Composition I": scanning the short heading first would
+ * cut the paragraph in the wrong place.
+ */
+/**
+ * Spellings the ampersand rule below does not reach, counted off the corpus.
+ *
+ * 17 pages write "U.S. Minority", one writes "U.S. Minorities", and three write
+ * "Social & Behavior Sciences". Each of those is a real degree whose gen-ed
+ * table would otherwise be read one category short.
+ */
+const GENED_ALIASES: Record<string, string[]> = {
+  'cultural studies: us minority cultures': [
+    'cultural studies: u.s. minority cultures',
+    'cultural studies: u.s. minorities cultures',
+  ],
+  'social & behavioral sciences': ['social & behavior sciences'],
+};
+
+const GENED_HEADINGS: Array<{ phrase: string; key: string }> = Object.keys(GENED_MAP)
+  .flatMap((key) => [key, ...(GENED_ALIASES[key] ?? [])])
+  .flatMap((phrase) => {
+    const key = Object.keys(GENED_MAP).find(
+      (k) => k === phrase || (GENED_ALIASES[k] ?? []).includes(phrase),
+    ) as string;
+    const spelled = phrase.replace(/ & /g, ' and ');
+    return spelled === phrase
+      ? [{ phrase, key }]
+      : [{ phrase, key }, { phrase: spelled, key }];
+  })
+  .sort((a, b) => b.phrase.length - a.phrase.length);
+
+/**
+ * Headings inside a gen-ed table that are not campus categories.
+ *
+ * They still end the category above them. The language requirement in
+ * particular is a real sentence the page prints right after Quantitative
+ * Reasoning, and letting it run on into that category's text would put its
+ * course codes into the fulfilment set.
+ */
+const GENED_OTHER_HEADINGS = ['language requirement', 'total hours', 'foreign language'];
+
+/**
+ * "fulfilled by CHEM 102", "(CHLH 304 fulfills requirement)", and the two
+ * misspellings the catalog actually contains, "fullfilled" and "Fulfilled".
+ */
+const FULFILLED = /\bfu(?:l|ll)fill?(?:ed|s|ing|ment)?\b/i;
+/** "and any other course approved as ...", "and one more course approved as ...". */
+const PARTIAL_FULFILMENT = /\b(?:any other|one more|another|one additional|other)\s+cours\w*/i;
+
+/**
+ * The gen-ed table of a degree page, read as one rule per campus category.
+ *
+ * WHY THIS EXISTS. Illinois gen ed is a campus requirement that every degree
+ * page restates, and the crawler flattens the whole table into a single note
+ * with no per-row label, so the group arrives here with no course rows, no
+ * hours cell and a paragraph in `note`. Before this, that paragraph fell
+ * through to the unparsed branch and the planner booked ZERO general education
+ * credit for all 227 programs that have a gen-ed area, which is why Computer
+ * Science came out at 88 of its 128 hours.
+ *
+ * WHAT IT WILL NOT DO. It never invents a size. A category the page states a
+ * number for gets that number; a category it does not gets the campus number
+ * from GENED_CAMPUS_SIZE, which is sourced in that table's comment; a heading
+ * this file has never seen is not a category and is left in the unparsed text
+ * for a human to read.
+ *
+ * FULFILLED BY. "Natural Sciences & Technology (6 hours) fulfilled by PHYS 211
+ * and PHYS 212" is the page saying this degree's own required courses already
+ * cover the category. Those codes are carried through so the planner can count
+ * them once rather than booking six more hours of science on top of the physics
+ * the student is already taking.
+ */
+export function genEdRulesFromText(text: string): GenEdCategoryRule[] {
+  const source = (text ?? '').replace(/\s+/g, ' ').trim();
+  if (!source) return [];
+  const lower = source.toLowerCase();
+
+  /**
+   * The first place each category is named, and nowhere else.
+   *
+   * Only the first occurrence is a heading. Computer Science writes
+   * "Quantitative Reasoning (2 courses, at least one course must be
+   * Quantitative Reasoning I) fulfilled by MATH 220 or MATH 221 ..." and the
+   * second mention is inside the first one's own sentence. Treating it as a
+   * heading cuts the category's text off before "fulfilled by", and the plan
+   * then books two more quantitative reasoning courses on top of the calculus
+   * the page has just said covers them.
+   */
+  const found: Array<{ at: number; length: number; key: string }> = [];
+  for (const { phrase, key } of GENED_HEADINGS) {
+    if (found.some((f) => f.key === key)) continue;
+    const at = lower.indexOf(phrase);
+    if (at < 0) continue;
+    // A heading that falls inside a longer heading already claimed is part of
+    // that one, not a category of its own.
+    if (found.some((f) => at >= f.at && at < f.at + f.length)) continue;
+    found.push({ at, length: phrase.length, key });
+  }
+  if (found.length === 0) return [];
+
+  const stops = found.map((f) => f.at);
+  for (const other of GENED_OTHER_HEADINGS) {
+    const at = lower.indexOf(other);
+    if (at >= 0) stops.push(at);
+  }
+  stops.sort((a, b) => a - b);
+  found.sort((a, b) => a.at - b.at);
+
+  const rules: GenEdCategoryRule[] = [];
+  for (const { at, length, key } of found) {
+    const end = stops.find((s) => s > at) ?? source.length;
+    const body = source.slice(at + length, end).trim();
+    const label = source.slice(at, at + length);
+
+    const hoursMatch = body.match(/^\(\s*(\d+)\s+hours?\b/i);
+    const coursesMatch = body.match(/^\(\s*(\d+)\s+cours\w*/i);
+    let hours = hoursMatch ? Number.parseInt(hoursMatch[1], 10) : null;
+    let courses = coursesMatch ? Number.parseInt(coursesMatch[1], 10) : null;
+    let sizeFromCampus = false;
+    if (hours === null && courses === null) {
+      const campus = GENED_CAMPUS_SIZE[key];
+      // A heading with no size on the page and none in the campus table is not
+      // something this can size. Left out, so it stays in the unparsed text a
+      // human reads rather than becoming a number nobody published.
+      if (!campus) continue;
+      hours = campus.hours;
+      courses = campus.courses;
+      sizeFromCampus = true;
+    }
+
+    /**
+     * Every course code in the category's own text, when that text says the
+     * category is fulfilled.
+     *
+     * Taken from the whole body rather than from after the word, because the
+     * page writes the fulfilment both ways round: "fulfilled by CHEM 102,
+     * CHEM 104, and MCB 100" and "(CHLH 304 fulfills requirement)". A gen-ed
+     * category's text names course codes for no other reason.
+     */
+    const fulfils = FULFILLED.test(body);
+    rules.push({
+      label,
+      genEd: GENED_MAP[key] ?? [],
+      hours,
+      courses,
+      sizeFromCampus,
+      fulfilledBy: fulfils ? fulfilledByOptions(body) : [],
+      partial: fulfils ? PARTIAL_FULFILMENT.test(body) : false,
+      text: `${label}${body ? ` ${body}` : ''}`.trim(),
+    });
+  }
+
+  return rules;
+}
+
+/**
+ * What is left of a gen-ed table once every campus category has been cut out.
+ *
+ * Almost always the language requirement, which is a real graduation rule the
+ * planner cannot check: whether a student owes it depends on their high school
+ * transcript. Returning it means the plan quotes the sentence instead of
+ * dropping it, and returning '' when nothing is left means no empty review row.
+ */
+function genEdLeftover(source: string, rules: GenEdCategoryRule[]): string {
+  let rest = source.replace(/\s+/g, ' ').trim();
+  for (const rule of rules) rest = rest.replace(rule.text, ' ');
+  rest = rest.replace(/\s+/g, ' ').trim();
+  // Punctuation and a stray bracket are not a requirement anybody can read.
+  return /[a-z]{4}/i.test(rest) ? rest : '';
+}
+
+/**
+ * The courses a "fulfilled by" clause names, grouped the way the page groups
+ * them.
+ *
+ * A semicolon is the page's top-level separator. Inside one of its segments,
+ * the presence of "or" anywhere makes the whole segment a menu: Animal Sciences
+ * writes "fulfilled by MATH 220 , MATH 221 , or MATH 234" and those three are
+ * one calculus slot, not three courses. A segment with no "or" is a list of
+ * separate courses: "fulfilled by PHYS 211 and PHYS 212" is both of them.
+ *
+ * Reading the first shape as three separate courses is what would put two
+ * alternative calculus courses in the same plan.
+ */
+function fulfilledByOptions(clause: string): string[][] {
+  const options: string[][] = [];
+  const codesOf = (part: string): string[] => {
+    CODE_RE.lastIndex = 0;
+    return [...part.matchAll(CODE_RE)].map((m) => `${m[1]} ${m[2]}`);
+  };
+
+  for (const segment of clause.split(/;/)) {
+    if (/\bor\b/i.test(segment)) {
+      const alternatives = codesOf(segment);
+      if (alternatives.length > 0) options.push(alternatives);
+      continue;
+    }
+    for (const piece of segment.split(/,|\band\b|&/i)) {
+      const codes = codesOf(piece);
+      if (codes.length > 0) options.push(codes);
+    }
+  }
+  return options;
 }
 
 /**
@@ -1649,6 +2201,14 @@ export interface AreaRuleBlock {
   rule: RequirementRule;
   /** Catalog rows this block consumed. */
   rows: number;
+  /**
+   * Set when one group yields more than one block, so the ids stay distinct.
+   *
+   * The gen-ed table is one group holding nine campus categories. Without this
+   * all nine would be `${program}::${area}::0` and a saved plan pointing at one
+   * of them would point at all of them.
+   */
+  idSuffix?: string;
 }
 
 export interface AreaRules {
@@ -1839,6 +2399,18 @@ export function requirementRulesForArea(
   for (const r of read) {
     if (consumed.has(r.index) || r.isTotal) continue;
 
+    /**
+     * The campus gen-ed table, read only for a group that has no course rows.
+     *
+     * A group with rows has its own courses and is a normal requirement, even
+     * when its comment happens to mention a gen-ed category. Reading the table
+     * out of that comment would replace a list of real courses with a category
+     * heading.
+     */
+    const genEdSource =
+      r.rows.length === 0 ? [r.label, r.group.note ?? ''].filter(Boolean).join(' ') : '';
+    const genEd = genEdSource ? genEdRulesFromText(genEdSource) : [];
+
     let rule: RequirementRule;
     if (r.rows.length > 0) {
       const choices = choicesFrom(r.rows, byCode);
@@ -1864,6 +2436,66 @@ export function requirementRulesForArea(
       // parse failure. The gen-ed tables are entirely rows like "Humanities &
       // the Arts (6 hours)" with no courses named.
       rule = { kind: 'hours', hours: r.ownHours, genEd: genEdForLabel(r.label), label: r.label };
+    } else if (genEd.length > 0) {
+      /**
+       * The campus general education table, one block per category.
+       *
+       * This is checked before the unparsed branch because that is where the
+       * whole table used to land: the crawler flattens it into one note with no
+       * per-row label, the group arrives with no rows and no hours, and the
+       * planner booked nothing at all for it across 227 degrees. The text of
+       * each category is still carried verbatim on its own block, so nothing
+       * that used to be quotable stopped being quotable.
+       */
+      for (const [ri, category] of genEd.entries()) {
+        blocks.push({
+          groupIndex: r.index,
+          idSuffix: `ge${ri}`,
+          label: category.label,
+          // Only hours the PAGE states count toward the degree total measured
+          // off these blocks, and only where the page has not just said the
+          // category is already covered. Counting either would add hours the
+          // degree does not have on top of courses it already counts.
+          hours: category.sizeFromCampus || category.fulfilledBy.length > 0 ? null : category.hours,
+          note: category.text,
+          rule: {
+            kind: 'gened',
+            genEd: category.genEd,
+            hours: category.hours,
+            courses: category.courses,
+            fulfilledBy: category.fulfilledBy,
+            exclusiveGroup: category.genEd.every((g) => g.startsWith('Cultural Studies'))
+              ? 'cultural-studies'
+              : 'core',
+            sizeFromCampus: category.sizeFromCampus,
+            text: category.text,
+            label: category.label,
+          },
+          rows: 0,
+        });
+      }
+      /**
+       * Whatever the table says that is not a campus category, still quoted.
+       *
+       * The language requirement is the one that matters: "Completion of the
+       * third semester or equivalent of a language other than English is
+       * required" is a real graduation requirement, it depends on what the
+       * student did in high school, and this planner has no way to check it.
+       * Dropping it silently would be the plan pretending it is not there.
+       */
+      const leftover = genEdLeftover(genEdSource, genEd);
+      if (leftover) {
+        blocks.push({
+          groupIndex: r.index,
+          idSuffix: 'ge-rest',
+          label: r.label,
+          hours: null,
+          note: r.group.note ?? '',
+          rule: { kind: 'unparsed', text: leftover },
+          rows: 0,
+        });
+      }
+      continue;
     } else {
       /**
        * Rendered verbatim, never summarised.
@@ -2073,6 +2705,9 @@ export function adaptIllinoisPrograms(
   droppedTotalRows: number;
   poolGroups: number;
   implausibleTotals: number;
+  programsWithGenEd: number;
+  genEdCategories: number;
+  genEdCategoriesFromCampus: number;
 } {
   const programs: ProgramRequirements[] = [];
   const defs: IllinoisProgramDefinition[] = [];
@@ -2081,6 +2716,9 @@ export function adaptIllinoisPrograms(
   let droppedTotalRows = 0;
   let poolGroups = 0;
   let implausibleTotals = 0;
+  let programsWithGenEd = 0;
+  let genEdCategories = 0;
+  let genEdCategoriesFromCampus = 0;
 
   for (const raw of file.programs ?? []) {
     if (!raw?.id) continue;
@@ -2111,8 +2749,9 @@ export function adaptIllinoisPrograms(
         programBlocks.push({
           // Still the group's own index, so a plan saved before pools existed
           // still points at the block it was saved against wherever the reading
-          // has not changed.
-          id: `${raw.id}::${ai}::${block.groupIndex}`,
+          // has not changed. The suffix is only present where one group yields
+          // several blocks, which today is the gen-ed table and nothing else.
+          id: `${raw.id}::${ai}::${block.groupIndex}${block.idSuffix ? `::${block.idSuffix}` : ''}`,
           areaId,
           areaLabel: area.label,
           label,
@@ -2160,6 +2799,13 @@ export function adaptIllinoisPrograms(
       totalCredits = null;
     }
 
+    const genEdHere = programBlocks.filter((b) => b.rule.kind === 'gened');
+    if (genEdHere.length > 0) programsWithGenEd += 1;
+    genEdCategories += genEdHere.length;
+    genEdCategoriesFromCampus += genEdHere.filter(
+      (b) => b.rule.kind === 'gened' && b.rule.sizeFromCampus,
+    ).length;
+
     blocks.set(raw.id, programBlocks);
     programs.push({
       id: raw.id,
@@ -2180,7 +2826,18 @@ export function adaptIllinoisPrograms(
     });
   }
 
-  return { programs, defs, blocks, dropped, droppedTotalRows, poolGroups, implausibleTotals };
+  return {
+    programs,
+    defs,
+    blocks,
+    dropped,
+    droppedTotalRows,
+    poolGroups,
+    implausibleTotals,
+    programsWithGenEd,
+    genEdCategories,
+    genEdCategoriesFromCampus,
+  };
 }
 
 /**
@@ -2240,6 +2897,24 @@ export function attachRequirementIds(
           const course = byAlias.get(normCode(code));
           if (course) add(course, block.areaId, role);
         }
+      }
+      continue;
+    }
+    if (block.rule.kind === 'gened') {
+      // The courses the page itself names as covering the category ARE required
+      // by this degree, and it says so. Everything else carrying the category
+      // is one of hundreds of ways to satisfy it, so it gets the area and no
+      // role, the same as the hours block below.
+      for (const option of block.rule.fulfilledBy) {
+        for (const code of option) {
+          const course = byAlias.get(normCode(code));
+          if (course) add(course, block.areaId, option.length === 1 ? 'required' : 'choice');
+        }
+      }
+      const wantedGenEd = new Set(block.rule.genEd);
+      for (const course of courses) {
+        const tags = facts.get(normCode(course.code))?.genEd ?? [];
+        if (tags.some((t) => wantedGenEd.has(t))) add(course, block.areaId);
       }
       continue;
     }
@@ -2345,6 +3020,9 @@ export function buildIllinoisData(input: {
         droppedTotalRows: 0,
         poolGroups: 0,
         implausibleTotals: 0,
+        programsWithGenEd: 0,
+        genEdCategories: 0,
+        genEdCategoriesFromCampus: 0,
       };
 
   for (const programBlocks of adaptedPrograms.blocks.values()) {
@@ -2355,6 +3033,8 @@ export function buildIllinoisData(input: {
   let withParsedPrereq = 0;
   let withLowConfidencePrereq = 0;
   let withPrereqTextOnly = 0;
+  let withPrereqNoteOnly = 0;
+  let withStandingRequirement = 0;
   let variableCredit = 0;
   let unknownCredit = 0;
   let withGrades = 0;
@@ -2363,9 +3043,14 @@ export function buildIllinoisData(input: {
   for (const course of courses) {
     const fact = facts.get(normCode(course.code));
     if (!fact) continue;
+    if (fact.prereq?.standing) withStandingRequirement += 1;
     if (fact.prereq?.parsed) {
       withParsedPrereq += 1;
       if (fact.prereq.confidence === 'low') withLowConfidencePrereq += 1;
+    } else if (fact.prereq && fact.prereq.note.length > 0) {
+      // Checked before the text branch because a note-only spec puts the note
+      // in `text` as well, so that every surface printing `text` shows it.
+      withPrereqNoteOnly += 1;
     } else if (fact.prereq && fact.prereq.text.length > 0) {
       withPrereqTextOnly += 1;
     }
@@ -2381,6 +3066,8 @@ export function buildIllinoisData(input: {
     withParsedPrereq,
     withLowConfidencePrereq,
     withPrereqTextOnly,
+    withPrereqNoteOnly,
+    withStandingRequirement,
     withGrades,
     withoutGrades: courses.length - withGrades,
     orphanGradeRows,
@@ -2394,6 +3081,9 @@ export function buildIllinoisData(input: {
     droppedTotalRows: adaptedPrograms.droppedTotalRows,
     poolGroups: adaptedPrograms.poolGroups,
     implausibleProgramTotals: adaptedPrograms.implausibleTotals,
+    programsWithGenEd: adaptedPrograms.programsWithGenEd,
+    genEdCategories: adaptedPrograms.genEdCategories,
+    genEdCategoriesFromCampus: adaptedPrograms.genEdCategoriesFromCampus,
   };
 
   return {

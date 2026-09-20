@@ -21,6 +21,7 @@
 
 import { Check, GripVertical, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { plural } from './words';
 import type { PoolReport } from '@/lib/planner/autoplan';
 import type { Course } from '@/lib/planner/types';
 
@@ -40,8 +41,8 @@ interface ElectivePoolsProps {
 /** "18 hours and 6 courses", or just the half the catalog stated. */
 function askedFor(pool: PoolReport): string {
   const parts: string[] = [];
-  if (pool.hoursTarget !== null) parts.push(`${pool.hoursTarget} hours`);
-  if (pool.countTarget !== null) parts.push(`${pool.countTarget} course${pool.countTarget === 1 ? '' : 's'}`);
+  if (pool.hoursTarget !== null) parts.push(`${pool.hoursTarget} ${plural(pool.hoursTarget, 'hour')}`);
+  if (pool.countTarget !== null) parts.push(`${pool.countTarget} ${plural(pool.countTarget, 'course')}`);
   // Both numbers absent is a real case: the page names a list and never says
   // how much of it to take. Saying so beats printing a zero.
   return parts.length ? `${parts.join(' and ')} from this list` : 'Some of this list. The catalog does not say how much.';
@@ -49,7 +50,7 @@ function askedFor(pool: PoolReport): string {
 
 function have(pool: PoolReport): string {
   const parts: string[] = [];
-  if (pool.hoursTarget !== null) parts.push(`${pool.hours} hours`);
+  if (pool.hoursTarget !== null) parts.push(`${pool.hours} ${plural(pool.hours, 'hour')}`);
   parts.push(`${pool.count} chosen`);
   return parts.join(', ');
 }
@@ -115,8 +116,8 @@ export function ElectivePools({
           )}
 
           <p className="pool-asked">
-            {pool.available} of the {pool.listed} courses the catalog lists here are in this
-            snapshot.
+            {pool.available} of the {pool.listed} {plural(pool.listed, 'course')} the catalog lists
+            here are in this snapshot.
             {pool.alternatives.length > 0
               ? ` ${dragUsable ? 'Drag one into a semester, or use Add.' : 'Use Add to swap one in.'}`
               : ''}

@@ -17,6 +17,12 @@ export function AppShell() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    /**
+     * Read once, on arrival, and never again. It cannot be derived during
+     * render: localStorage does not exist on the server, so a first client
+     * render that used it would not match the HTML the server sent.
+     */
+    // oxlint-disable-next-line react/react-compiler
     setAnswers(loadAnswers());
     setReady(true);
   }, []);

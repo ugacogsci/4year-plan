@@ -23,6 +23,11 @@ interface CourseExplorerProps {
   selectedCourseId: string | null;
   targetTermId: string;
   searchQuery: string;
+  /** How many courses in the WHOLE catalog match the query, not just the ones
+   *  drawn. Null when there is no query. The map draws at most 240 dots, so
+   *  "nothing matched" and "your match did not make the cut" look identical
+   *  on screen and need to be said apart. */
+  searchHits: number | null;
   open: boolean;
   /** False below 1100px, where the finder overlays the board and a drag has nowhere to land. */
   dragUsable: boolean;
@@ -43,6 +48,7 @@ export function CourseExplorer({
   selectedCourseId,
   targetTermId,
   searchQuery,
+  searchHits,
   open,
   dragUsable,
   onOpenChange,
@@ -256,8 +262,14 @@ export function CourseExplorer({
       </div>
 
       <p className="map-hint">
-        {visible.length.toLocaleString()} of {catalogSize.toLocaleString()} shown.{' '}
-        {dragUsable ? 'Drag a dot into a semester.' : 'Drag works on a wider screen. Use Add to here.'}
+        {searchHits === 0 ? (
+          <>No course matches that. Try a code like CS 225, or part of a title.</>
+        ) : (
+          <>
+            {visible.length.toLocaleString()} of {catalogSize.toLocaleString()} shown.{' '}
+            {dragUsable ? 'Drag a dot into a semester.' : 'Drag works on a wider screen. Use Add to here.'}
+          </>
+        )}
       </p>
 
       <div className="map-inspector" aria-live="polite">

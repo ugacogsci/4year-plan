@@ -4,6 +4,7 @@ import type { GradeRow, ProgramRequirements } from './scheduler';
 import { areaProgress, termLoad } from './scheduler';
 import { DEADLINE_DISCLAIMER } from './autoplan';
 import {
+  STANDING_HOURS,
   THIN_SAMPLE,
   creditLabel,
   difficultyLabel,
@@ -13,6 +14,7 @@ import {
   type CourseFacts,
   type IllinoisData,
   type PrereqGroup,
+  type PrereqSpec,
   type RawSection,
   type RawSectionFile,
   type SectionSummary,
@@ -416,9 +418,15 @@ const SECTION_SHAPE_WITH_COURSE =
  * How heavy a term is. TRU cannot see a board at all, and its hardest-courses
  * answerer would reply with the eight lowest-GPA courses at the whole
  * university, which is a confident answer to a question nobody asked.
+ *
+ * The last alternative reads a superlative against a plain noun, because "what
+ * is the easiest class in fall 2027" carried no possessive and so matched none
+ * of the others and went upstream. It cannot swallow "the hardest class at
+ * Illinois", because the caller still requires the question to point at the
+ * student or at a term before this detector is allowed to answer.
  */
 const LOAD_SHAPE =
-  /\b(too (hard|much|heavy|light|many)|workload|course ?load|overload\w*|balanced|manageable|doable|survive)\b|\b(hard|heavy|light|tough|brutal|rough|packed|easy|busy)\b[^?]{0,25}\b(term|semester|schedule|spring|fall|summer|year|load)\b|\b(term|semester|schedule|spring|fall|summer|load)\b[^?]{0,25}\b(hard|heavy|light|tough|brutal|rough|packed|easy|busy)\b|\b(hardest|toughest|easiest|worst)\b[^?]{0,25}\b(of\s+)?(my|these|this|the)\b|\b(my|these|this)\b[^?]{0,25}\b(hardest|toughest|easiest|worst)\b/i;
+  /\b(too (hard|much|heavy|light|many)|workload|course ?load|overload\w*|balanced|manageable|doable|survive)\b|\b(hard|heavy|light|tough|brutal|rough|packed|easy|busy)\b[^?]{0,25}\b(term|semester|schedule|spring|fall|summer|year|load)\b|\b(term|semester|schedule|spring|fall|summer|load)\b[^?]{0,25}\b(hard|heavy|light|tough|brutal|rough|packed|easy|busy)\b|\b(hardest|toughest|easiest|worst)\b[^?]{0,25}\b(of\s+)?(my|these|this|the)\b|\b(my|these|this)\b[^?]{0,25}\b(hardest|toughest|easiest|worst)\b|\b(hardest|toughest|easiest|worst)\b[^?]{0,30}\b(class|classes|course|courses|term|semester|spring|fall|summer|winter)\b/i;
 
 /**
  * Ordering. prereqCodes here are parsed from the registrar's own sentence and
@@ -427,7 +435,37 @@ const LOAD_SHAPE =
  * faculty biography pages on the same question.
  */
 const PREREQ_SHAPE =
-  /\bprereq\w*\b|\bpre.?requisite\w*\b|\bwhat do i need (before|first|to take)\b|\b(need|take|do) .{0,24}\bbefore\b|\bam i ready for\b|\bcan i take\b|\bunlocks?\b|\bopens? up\b|\bcomes? first\b|\bdo i need .{0,30}\bfirst\b/i;
+  /\bprereq\w*\b|\bpre.?requisite\w*\b|\bwhat do i need (before|first|to take)\b|\b(need|take|do) .{0,24}\bbefore\b|\bam i ready for\b|\bcan i take\b|\bunlocks?\b|\bopens? up\b|\bcomes? first\b|\bdo i need .{0,30}\bfirst\b|\bwhat (?:does|do|would) [^?]{0,30}\b(?:need|require)\s*(?:first|before (?:it|this|that)|to take|in order|\?|$)/i;
+
+/**
+ * Ordering words that are a prerequisite question only once a course is named.
+ *
+ * "What does CS 225 need first?" is the product's own suggested question and it
+ * went upstream, because PREREQ_SHAPE only knew "what do I need first". A bare
+ * "what do I need first" with no course is a question about orientation or
+ * paperwork and belongs upstream, so the course is what makes the difference,
+ * the same way SECTION_SHAPE_WITH_COURSE works.
+ */
+const PREREQ_SHAPE_WITH_COURSE =
+  /\bneeds? (first|before|to be taken)\b|\brequires?\b|\brequired (first|before)\b|\bcomes? before\b|\bbefore (it|this|that|i take)\b|\bwhat (?:do i|should i) take first\b|\bhave to take\b/i;
+
+/**
+ * Things a course can require that are not other courses.
+ *
+ * "What textbook does CS 225 require" matches the ordering wording above and
+ * would be answered with a list of prerequisite courses, which answers a
+ * question the student did not ask. The planner holds no textbook, fee or
+ * equipment data at all, so these go upstream.
+ */
+const NOT_A_PREREQ_OBJECT =
+  /\b(textbook|books?|laptop|computer|calculator|materials?|supplies|software|fees?|deposit|uniform|immunization|vaccine|clicker)\b/i;
+
+/**
+ * Registrar verbs. A question built from one of these, with no course named, is
+ * about the process rather than about the ordering of two courses.
+ */
+const REGISTRAR_ACTION =
+  /\b(drop|dropping|add|adding|withdraw\w*|swap|register|registering|registration|enroll\w*|sign up|waitlist|deadline|refund|petition|override|transcript|hold)\b/i;
 
 /**
  * Whether the board itself is in a legal order. Checked before the single
@@ -472,6 +510,18 @@ const GRADE_SHAPE =
   /\bhow hard\b|\bgrade distribution\b|\baverage gpa\b|\b(which|what|who|best|good)\b[^?]{0,30}\b(instructors?|professors?|prof|teacher)\b|\bwho taught\b|\beasy a'?s?\b|\bgpa booster\b|\bwithdrawal rate\b|\bhow many (people|students) (fail|drop|withdraw)\b|\bfail rate\b|\bcurved?\b|\bgrades? easier\b/i;
 
 /**
+ * Plain difficulty wording, which is a grade question once a course is named
+ * and no column is.
+ *
+ * GRADE_SHAPE carries "how hard" and nothing looser, so "is CS 225 too hard"
+ * fell through to the load detector, matched its "too hard" branch, and was
+ * answered with the weight of whatever column was open. Guarded by the caller
+ * on a named course and the absence of any term reference, because "is my
+ * spring too hard" is the same words about a different thing.
+ */
+const COURSE_DIFFICULTY_SHAPE = /\b(hard|tough|brutal|difficult|easy|rough|heavy|a lot of work)\b/i;
+
+/**
  * Whether the question is about this student rather than about the university.
  *
  * "What are the general education requirements at Illinois" is TRU's: it is a
@@ -480,6 +530,17 @@ const GRADE_SHAPE =
  * the pronoun is the only thing that separates them.
  */
 const SELF_SCOPE = /\b(i|i'm|im|i've|ive|my|mine|me|we|our)\b/i;
+
+/**
+ * The opposite: the question says out loud that it is about everybody else.
+ *
+ * "Is the fall semester busy for everyone" names a season, and naming a season
+ * is otherwise enough for the load detector to claim a question. It is a
+ * question about the university and it belongs upstream, so the phrase that
+ * says so is read rather than ignored.
+ */
+const WORLD_SCOPE =
+  /\bat (illinois|uiuc|u of i)\b|\bfor (everyone|everybody|most people|most students|students|freshmen|freshman)\b|\bin general\b|\bgenerally\b|\bon average\b/i;
 
 const BOARD_SCOPE =
   /\b(my|mine|these|this (term|semester|spring|fall|summer|year|schedule|plan)|next (term|semester|spring|fall|summer|year)|on my (board|plan|schedule))\b/i;
@@ -591,55 +652,207 @@ function substituteCode(raw: string, code: string): string {
 export interface ResolvedTerm {
   termId: string;
   label: string;
-  via: 'explicit' | 'focus' | 'only' | 'next' | 'first';
+  /**
+   * How the column was found. The caller uses this to tell a term the student
+   * pointed at from the column that merely happens to be in view, which is the
+   * difference between answering their question and answering a different one.
+   */
+  via: 'explicit' | 'focus' | 'only' | 'next' | 'ordinal' | 'last' | 'first';
+}
+
+/**
+ * Why no single column could be named.
+ *
+ * These are five different situations and they need five different sentences.
+ * Collapsing them into one is what produced "Nothing is on the board yet, so
+ * there is no term to weigh." for a student whose board held twenty one courses:
+ * the resolver had failed to work out which column "my summer" meant, and the
+ * answer reported that as the student having no plan. Not being able to read a
+ * question is never evidence about the student's own work.
+ */
+export type TermMissReason =
+  /** ctx.planned really is empty. The only case where emptiness may be claimed. */
+  | 'empty-board'
+  /** The student named a term the board does not run, "my summer" or "fall 2031". */
+  | 'not-on-board'
+  /** Several columns answer to what was named, "my spring" on a four year plan. */
+  | 'ambiguous'
+  /** "Next term" asked from the last column, which has nothing after it. */
+  | 'past-end'
+  /** No term reference at all, and more than one column to choose from. */
+  | 'unclear';
+
+export interface TermMiss {
+  reason: TermMissReason;
+  /**
+   * The term the student appeared to name, already written the way the answer
+   * should print it, so the reply can hand their own words back to them.
+   */
+  asked: string | null;
+  /** The columns worth listing in an ask-back. Empty when listing them helps nobody. */
+  candidates: PlannedCourse[];
 }
 
 const SEASON_WORD = /\b(spring|fall|autumn|summer|winter)\b/i;
+const YEAR_WORD = /\b(20\d{2})\b/;
 
-/** Which column the question is about, or null when the board cannot decide. */
+/** "my third semester". A board is ordered, so an ordinal names exactly one column. */
+const ORDINAL_TERM =
+  /\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\s+(?:term|semester)\b/i;
+
+const ORDINAL_NUMBER: Record<string, number> = {
+  first: 1,
+  '1st': 1,
+  second: 2,
+  '2nd': 2,
+  third: 3,
+  '3rd': 3,
+  fourth: 4,
+  '4th': 4,
+  fifth: 5,
+  '5th': 5,
+  sixth: 6,
+  '6th': 6,
+  seventh: 7,
+  '7th': 7,
+  eighth: 8,
+  '8th': 8,
+  ninth: 9,
+  '9th': 9,
+  tenth: 10,
+  '10th': 10,
+};
+
+/**
+ * "My last semester" and "my final term".
+ *
+ * A plan holds no past, so there is no earlier term for "last" to point at and
+ * the only reading left is the final column. The answer always prints the term
+ * label first, so a student who meant something else sees it immediately.
+ */
+const LAST_TERM = /\b(?:last|final)\s+(?:term|semester)\b/i;
+const NEXT_TERM = /\bnext\s+(?:term|semester)\b/i;
+const THIS_TERM = /\b(?:this|current)\s+(?:term|semester)\b/i;
+
+/**
+ * Whether the question points at a column at all.
+ *
+ * The load answer needs this, because "is this too hard" about CS 225 and "is
+ * my spring too hard" are different questions and the column in view is not
+ * what separates them. Without it, a difficulty question about one course was
+ * answered with the weight of whichever column happened to be open.
+ */
+export const TERM_REFERENCE = new RegExp(
+  [SEASON_WORD, YEAR_WORD, ORDINAL_TERM, LAST_TERM, NEXT_TERM, THIS_TERM].map((r) => r.source).join('|'),
+  'i',
+);
+
+/** "spring" -> "Spring", for printing a season back to the student. */
+function seasonTitle(season: string): string {
+  return season.charAt(0).toUpperCase() + season.slice(1);
+}
+
+function termOf(row: PlannedCourse, via: ResolvedTerm['via']): ResolvedTerm {
+  return { termId: row.termId, label: row.termLabel, via };
+}
+
+/**
+ * Which column the question is about.
+ *
+ * Returns three things rather than two. `term` is the column when there is
+ * exactly one. `candidates` is what an ask-back should list, kept for callers
+ * that only ever read those two. `miss` says WHY there is no column, which is
+ * the field that stops a failed resolution being reported to the student as an
+ * empty board.
+ */
 export function resolveTerm(
   raw: string,
   ctx: AskContext,
-): { term: ResolvedTerm | null; candidates: PlannedCourse[] } {
+): { term: ResolvedTerm | null; candidates: PlannedCourse[]; miss: TermMiss | null } {
   const terms = uniqueTerms(ctx);
-  if (terms.length === 0) return { term: null, candidates: [] };
+  const hit = (row: PlannedCourse, via: ResolvedTerm['via']) => ({
+    term: termOf(row, via),
+    candidates: [],
+    miss: null,
+  });
+  const missed = (reason: TermMissReason, asked: string | null, candidates: PlannedCourse[] = []) => ({
+    term: null,
+    candidates,
+    miss: { reason, asked, candidates },
+  });
 
-  const yearMatch = /\b(20\d{2})\b/.exec(raw);
+  if (terms.length === 0) return missed('empty-board', null);
+
+  const yearMatch = YEAR_WORD.exec(raw);
   const seasonMatch = SEASON_WORD.exec(raw);
   const season = seasonMatch ? seasonMatch[1].toLowerCase().replace('autumn', 'fall') : null;
 
-  if (season) {
-    let matches = terms.filter((t) => t.season.toLowerCase() === season);
+  if (season || yearMatch) {
+    let matches = terms;
+    if (season) matches = matches.filter((t) => t.season.toLowerCase() === season);
     if (yearMatch) matches = matches.filter((t) => String(t.year) === yearMatch[1]);
-    if (matches.length === 1) {
-      return { term: { termId: matches[0].termId, label: matches[0].termLabel, via: 'explicit' }, candidates: [] };
-    }
+
+    if (matches.length === 1) return hit(matches[0], 'explicit');
     if (matches.length > 1) {
-      // "My spring" on a four-year board names four columns. The one in view
+      // "My spring" on a four year board names four columns. The one in view
       // breaks the tie; otherwise the caller asks back rather than picking.
       const focused = matches.find((t) => t.termId === ctx.focusTermId);
-      if (focused) return { term: { termId: focused.termId, label: focused.termLabel, via: 'focus' }, candidates: [] };
-      return { term: null, candidates: matches };
+      if (focused) return hit(focused, 'focus');
+      return missed('ambiguous', null, matches);
     }
-    return { term: null, candidates: [] };
+
+    // Named a term the board does not run. This is the case that used to be
+    // reported as "nothing is on the board yet", which is a false statement
+    // about the student's own work whenever the board holds anything at all.
+    const asked =
+      season && yearMatch
+        ? `${seasonTitle(season)} ${yearMatch[1]}`
+        : season
+          ? `${seasonTitle(season)} term`
+          : `term in ${yearMatch![1]}`;
+    return missed('not-on-board', asked);
   }
 
-  if (/\bnext (term|semester)\b/i.test(raw)) {
+  if (ORDINAL_TERM.test(raw)) {
+    const word = ORDINAL_TERM.exec(raw)![1].toLowerCase();
+    const n = ORDINAL_NUMBER[word] ?? 0;
+    const row = terms[n - 1];
+    if (row) return hit(row, 'ordinal');
+    // Asking about the fifth term of a four term board. Saying which columns
+    // exist is more use than a list to choose from.
+    return missed('not-on-board', `${word} term`);
+  }
+
+  if (LAST_TERM.test(raw)) return hit(terms[terms.length - 1], 'last');
+
+  if (NEXT_TERM.test(raw)) {
     const from = terms.findIndex((t) => t.termId === ctx.focusTermId);
-    const next = terms[(from >= 0 ? from : -1) + 1];
-    if (next) return { term: { termId: next.termId, label: next.termLabel, via: 'next' }, candidates: [] };
+    // Asked from the final column there is no next one. Falling through to the
+    // column in view answered "next term" with the current term's weight and
+    // labelled it as if it were the next, which is the wrong term entirely.
+    if (from >= 0 && from + 1 >= terms.length) return missed('past-end', terms[from].termLabel);
+    const next = from >= 0 ? terms[from + 1] : terms[0];
+    if (next) return hit(next, 'next');
+  }
+
+  if (THIS_TERM.test(raw)) {
+    const focused = terms.find((t) => t.termId === ctx.focusTermId);
+    if (focused) return hit(focused, 'focus');
+    if (terms.length === 1) return hit(terms[0], 'only');
+    // Every column on a plan is still ahead of the student, so there is no
+    // "current" one to pick. Guessing the first would answer about a term they
+    // may not have meant.
+    return missed('unclear', null, terms);
   }
 
   if (ctx.focusTermId) {
     const focused = terms.find((t) => t.termId === ctx.focusTermId);
-    if (focused) return { term: { termId: focused.termId, label: focused.termLabel, via: 'focus' }, candidates: [] };
+    if (focused) return hit(focused, 'focus');
   }
 
-  if (terms.length === 1) {
-    return { term: { termId: terms[0].termId, label: terms[0].termLabel, via: 'only' }, candidates: [] };
-  }
+  if (terms.length === 1) return hit(terms[0], 'only');
 
-  return { term: null, candidates: terms };
+  return missed('unclear', null, terms);
 }
 
 /** One row per column, in board order. */
@@ -1039,6 +1252,20 @@ function groupsSentence(groups: PrereqGroup[]): string {
   return `${parts.slice(0, -1).join('; ')}; and ${parts[parts.length - 1]}`;
 }
 
+/**
+ * The class standing a course requires, said plainly and without a verdict.
+ *
+ * The verdict is deliberately missing. Standing is earned hours, and earned
+ * hours include transfer and test credit that the board does not carry, so
+ * counting the cards and announcing "you will be a junior by then" would be a
+ * fabricated fact about the student. The requirement and the threshold are both
+ * published, so both are printed, and the arithmetic is left to the student.
+ */
+function standingSentence(spec: PrereqSpec): string | null {
+  if (!spec.standing) return null;
+  return `It also needs ${spec.standing} standing, which Illinois counts from ${STANDING_HOURS[spec.standing]} earned hours. Your board does not say how many hours you have banked, so that part is yours to check.`;
+}
+
 function answerPrereq(code: string, ctx: AskContext): Routed {
   const facts: CourseFacts | undefined = ctx.data.facts.get(code);
   if (!facts) {
@@ -1054,10 +1281,23 @@ function answerPrereq(code: string, ctx: AskContext): Routed {
   const spec = facts.prereq;
 
   if (!spec || spec.groups.length === 0) {
-    const text = spec?.text
-      ? `The catalog lists no course prerequisite for ${code}. Its own sentence reads: "${spec.text}"`
-      : `The catalog lists no prerequisite for ${code}.`;
-    return local('prereq', text, catalogSource);
+    // A course with no parsed group can still have a real requirement. CS 497
+    // requires junior standing and CS 498 says the prerequisites are in the
+    // class schedule, and calling either of them "no prerequisite" is the
+    // false statement this branch exists to avoid.
+    const lines: string[] = [];
+    if (spec?.standing) {
+      const hours = STANDING_HOURS[spec.standing];
+      lines.push(
+        `${code} needs ${spec.standing} standing, which Illinois counts from ${hours} earned hours. Your board does not say how many hours you have banked, so that part is yours to check.`,
+      );
+    }
+    lines.push(
+      spec?.text
+        ? `The catalog lists no course prerequisite for ${code}. Its own sentence reads: "${spec.text}"`
+        : `The catalog lists no prerequisite for ${code}.`,
+    );
+    return local('prereq', lines.join('\n\n'), catalogSource);
   }
 
   // Everything scheduled before this course counts, plus anything completed.
@@ -1081,6 +1321,11 @@ function answerPrereq(code: string, ctx: AskContext): Routed {
 
   const lines: string[] = [];
   lines.push(`${code} needs ${groupsSentence(spec.groups)}.`);
+
+  // Said before the board is measured, so a student reading "as planned, Fall
+  // 2028 works" has already been told that the course also gates on standing.
+  const standing = standingSentence(spec);
+  if (standing) lines.push(standing);
 
   if (placed) {
     if (missing.length === 0 && uncertain.length === 0) {
@@ -1250,7 +1495,8 @@ function answerCourse(code: string, raw: string, ctx: AskContext): Routed {
   if (extras.length > 0) lines.push(extras.join(' '));
 
   if (facts.prereq && facts.prereq.groups.length > 0) {
-    lines.push(`Needs ${groupsSentence(facts.prereq.groups)}.`);
+    const standing = standingSentence(facts.prereq);
+    lines.push(`Needs ${groupsSentence(facts.prereq.groups)}.${standing ? ` ${standing}` : ''}`);
   } else if (facts.prereq?.text) {
     lines.push(`The catalog's own prerequisite sentence: "${facts.prereq.text}"`);
   } else {
@@ -1424,6 +1670,51 @@ function clarifyTerm(candidates: PlannedCourse[]): Routed {
   );
 }
 
+/** "Fall 2026 through Spring 2030", or the one label when there is only one. */
+function boardSpan(terms: PlannedCourse[]): string {
+  if (terms.length === 0) return '';
+  if (terms.length === 1) return terms[0].termLabel;
+  return `${terms[0].termLabel} through ${terms[terms.length - 1].termLabel}`;
+}
+
+/**
+ * What to say when the question is about a term and no single column answers.
+ *
+ * Every branch here is a different true sentence. The one that claims the board
+ * is empty is reached only when ctx.planned really is empty, which is the whole
+ * point of this function: the old code asserted emptiness the moment the
+ * resolver returned null, and told students with a full board that they had no
+ * plan. A resolver that cannot read a question knows nothing about the board.
+ */
+function answerTermMiss(ctx: AskContext, miss: TermMiss): Routed {
+  const terms = uniqueTerms(ctx);
+
+  if (miss.reason === 'empty-board' || terms.length === 0) {
+    return local('load', 'Nothing is on the board yet, so there is no term to weigh.', [], false);
+  }
+
+  if (miss.reason === 'not-on-board') {
+    const count = `${ctx.planned.length} course${ctx.planned.length === 1 ? '' : 's'} across ${terms.length} term${terms.length === 1 ? '' : 's'}`;
+    return local(
+      'load',
+      `Your board has no ${miss.asked ?? 'term like that'}. It runs ${boardSpan(terms)}, ${count}. Ask about one of those and I will weigh it.`,
+      [],
+      false,
+    );
+  }
+
+  if (miss.reason === 'past-end') {
+    return local(
+      'load',
+      `${miss.asked} is the last term on your board, so there is nothing after it yet. Add a term and I will weigh it.`,
+      [],
+      false,
+    );
+  }
+
+  return clarifyTerm(miss.candidates.length > 0 ? miss.candidates : terms);
+}
+
 /**
  * One question in, one side of the product out.
  *
@@ -1463,8 +1754,14 @@ export function routeQuestion(rawInput: string, ctx: AskContext): Routed {
 
 function routeOne(raw: string, ctx: AskContext): Routed {
   const course = resolveCourse(raw, ctx);
-  const { term, candidates } = resolveTerm(raw, ctx);
+  const { term, miss } = resolveTerm(raw, ctx);
   const selfScoped = SELF_SCOPE.test(raw) || BOARD_SCOPE.test(raw);
+  /**
+   * Whether the student pointed at a column, rather than one being in view.
+   * "Is CS 225 too hard" carries no term reference, and answering it with the
+   * weight of the open column answers a question nobody asked.
+   */
+  const termNamed = TERM_REFERENCE.test(raw);
 
   // 1. Sections. The planner holds building, room, days, times, CRN, instructor
   //    and part of term for the crawled term. TRU holds none of it.
@@ -1483,28 +1780,37 @@ function routeOne(raw: string, ctx: AskContext): Routed {
   // 2. Grade history for one named course, before the load detector can take
   //    it. "Is CS 225 hard" is TRU's; "is my spring hard" is ours, and the only
   //    difference is whether the question is about a course or about a column.
-  if (GRADE_SHAPE.test(raw) && course && !BOARD_SCOPE.test(raw)) {
+  //
+  //    The second test is the plain difficulty wording. "Is CS 225 too hard"
+  //    names a course and no column, and the load detector used to claim it and
+  //    answer with whichever term was open.
+  const courseDifficulty =
+    course && !termNamed && !selfScoped && COURSE_DIFFICULTY_SHAPE.test(raw);
+  if ((GRADE_SHAPE.test(raw) || courseDifficulty) && course && !BOARD_SCOPE.test(raw)) {
     return { kind: 'upstream', shape: 'grade', question: rewriteForUpstream(raw, course) };
   }
 
-  // 3. How heavy a term is. Needs a board reference, otherwise it is a question
-  //    about the university's hardest courses, which TRU answers deterministically.
-  if (LOAD_SHAPE.test(raw) && (selfScoped || term?.via === 'explicit')) {
+  // 3. How heavy a term is. Needs a board reference or a term the student named
+  //    out loud, otherwise it is a question about the university's hardest
+  //    courses, which TRU answers deterministically.
+  //
+  //    `termNamed` is here because a load question about a term the board does
+  //    not run still belongs on this side. "How heavy is fall 2031" went
+  //    upstream to an engine that cannot see a board at all, when the honest
+  //    answer, that the board does not run that term, is right here.
+  if (LOAD_SHAPE.test(raw) && (selfScoped || (termNamed && !WORLD_SCOPE.test(raw)))) {
     if (/\b(hardest|toughest|easiest|worst)\b/i.test(raw)) {
       const easiest = /\beasiest\b/i.test(raw);
       // The whole board unless the student named a column. "Which of my classes
       // is hardest" is a question about all of them, and silently narrowing it
       // to the column in view answers a question nobody asked.
       const named =
-        term && (term.via === 'explicit' || term.via === 'next' || /\bthis (term|semester)\b/i.test(raw))
+        term && (term.via === 'explicit' || term.via === 'next' || term.via === 'ordinal' || term.via === 'last' || /\bthis (term|semester)\b/i.test(raw))
           ? term
           : null;
       return answerHardest(ctx, named, easiest);
     }
-    if (!term) {
-      if (candidates.length > 1) return clarifyTerm(candidates);
-      return local('load', 'Nothing is on the board yet, so there is no term to weigh.', [], false);
-    }
+    if (!term) return answerTermMiss(ctx, miss ?? { reason: 'unclear', asked: null, candidates: [] });
     return answerLoad(ctx, term);
   }
 
@@ -1515,10 +1821,20 @@ function routeOne(raw: string, ctx: AskContext): Routed {
   // 5. Ordering for one course. The catalog's parsed groups plus its own
   //    sentence, verbatim, because the parser drops "Permission of department"
   //    and that is a real prerequisite.
-  if (PREREQ_SHAPE.test(raw)) {
+  if (
+    PREREQ_SHAPE.test(raw) ||
+    (course !== null && PREREQ_SHAPE_WITH_COURSE.test(raw) && !NOT_A_PREREQ_OBJECT.test(raw))
+  ) {
     if (course && !course.unknown) return answerPrereq(course.code, ctx);
     if (course?.unknown) return { kind: 'upstream', shape: 'general', question: rewriteForUpstream(raw, course) };
     if (REQUIREMENT_SHAPE.test(raw) && (selfScoped || PROGRESS_WORD.test(raw))) return answerRequirements(ctx);
+    // "How do I drop a class before the deadline" reads as an ordering question
+    // and names no course, so the ask-back offered a course picker to somebody
+    // asking about the registrar. Dropping, adding and deadlines are TRU's, and
+    // Illinois runs four parts of term with four sets of them.
+    if (REGISTRAR_ACTION.test(raw)) {
+      return { kind: 'upstream', shape: 'general', question: rewriteForUpstream(raw, null) };
+    }
     if (PRONOUN_SHAPE.test(raw) || selfScoped) return clarifyCourse();
     return { kind: 'upstream', shape: 'general', question: rewriteForUpstream(raw, null) };
   }

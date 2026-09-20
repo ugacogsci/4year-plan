@@ -82,6 +82,12 @@ export function earnedCredits(
  * A course counts once, against the first area that wants it. Without that a
  * single course satisfying two areas inflates a student's progress twice and
  * the plan says they are finished when they are not.
+ *
+ * The general education categories in autoplan follow the same rule for hours
+ * and a looser one for categories, because Illinois publishes the exception:
+ * one course may satisfy a Cultural Studies category and another category at
+ * the same time, but never two Cultural Studies categories. Its credits are
+ * still counted once, which is the part this function is about.
  */
 export function areaProgress(
   program: ProgramRequirements,

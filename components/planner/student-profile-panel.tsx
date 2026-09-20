@@ -30,6 +30,12 @@ interface RailProps {
   digest: string;
   onStartOver: () => void;
   plannedCredits: string;
+  /**
+   * The whole sentence about where the student is, shown only when they walked
+   * in with credit. "88 to 90 cr of 128" on its own is the right number and
+   * still leaves a transfer student guessing which half of it is theirs.
+   */
+  creditNote?: string | null;
   degreeTotal: number | null;
   priorCount: number;
   areas: AreaRow[];
@@ -60,6 +66,7 @@ export function StudentProfilePanel({
   digest,
   onStartOver,
   plannedCredits,
+  creditNote,
   degreeTotal,
   priorCount,
   areas,
@@ -100,6 +107,7 @@ export function StudentProfilePanel({
           <span>Already taken</span>
           <span>{priorCount} course{priorCount === 1 ? '' : 's'}</span>
         </div>
+        {creditNote && <p className="rail-credit-note">{creditNote}</p>}
       </div>
 
       {areas.length > 0 && (

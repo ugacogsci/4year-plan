@@ -209,7 +209,16 @@ for (const course of data.courses) {
   const code = normCode(course.code);
   const fact = data.facts.get(code);
   const pos = mapByCode.get(code);
-  const grade = data.grades.get(code);
+  // A cross-listed course's grade history is filed under whichever code the
+  // registrar reported, and it is the same of students either way. CS 468 was
+  // telling students "no grade history is published for this course" while the
+  // identical ADV 492 showed a 3.78 average from 114 grades. 501 undergraduate
+  // courses were in that position. The twin's row is used and the code it came
+  // from is recorded, so the surface can say whose numbers these are.
+  const twins = (data.equivalents.get(code) ?? []).filter((t) => t !== code);
+  const ownGrade = data.grades.get(code);
+  const twinCode = ownGrade ? null : twins.find((t) => data.grades.get(t));
+  const grade = ownGrade ?? (twinCode ? data.grades.get(twinCode) : undefined);
 
   const row = {
     id: course.id,
@@ -231,6 +240,10 @@ for (const course of data.courses) {
    * are written in the same run from the same rows, so they cannot disagree.
    */
   if (grade && typeof grade.difficulty === 'number') row.difficulty = grade.difficulty;
+  // When the numbers are the twin's, say so. They are the same class under two
+  // codes, so the figures are right, but a student looking at CS 468 should be
+  // able to see that the registrar filed them under ADV 492.
+  if (grade && twinCode) row.gradeFrom = twinCode;
   if (pos) {
     row.mapPosition = pos;
     positioned += 1;
@@ -279,10 +292,22 @@ const indexCodes = new Set(indexRows.map((r) => normCode(r.code)));
  * read is not something anyone can check.
  */
 const prereqs = {};
+let prereqNoteOnly = 0;
 for (const [code, fact] of data.facts) {
   if (!indexCodes.has(code)) continue;
   if (!fact.prereq) continue;
-  if (!fact.prereq.parsed && fact.prereq.text.length === 0) continue;
+  /**
+   * A spec with no groups and no sentence is still shipped when it carries a
+   * note.
+   *
+   * 51 undergraduate rows say some version of "See Class Schedule or
+   * departmental course information for topics and prerequisites" and list
+   * nothing parsable. Dropping them here is what let CS 498 reach the browser
+   * with no entry at all, and a missing entry is read as "the catalog lists no
+   * prerequisite for this course", which is a false statement about Illinois.
+   */
+  if (!fact.prereq.parsed && fact.prereq.text.length === 0 && !fact.prereq.note) continue;
+  if (!fact.prereq.parsed && fact.prereq.note) prereqNoteOnly += 1;
   prereqs[code] = fact.prereq;
 }
 write('prereqs.json', prereqs);
@@ -620,6 +645,10 @@ console.log(`  ${padL(coverage.catalogCourses, 6)} catalog courses, ${coverage.u
 console.log(`  ${padL(positioned, 6)} have a map position`);
 console.log(`  ${padL(coverage.withParsedPrereq, 6)} have a parsed prerequisite, ${coverage.withLowConfidencePrereq} of those low confidence`);
 console.log(`  ${padL(coverage.withPrereqTextOnly, 6)} have a prerequisite sentence the parser could not read`);
+console.log(
+  `  ${padL(coverage.withPrereqNoteOnly, 6)} say in prose that they have prerequisites and list none, ${prereqNoteOnly} of those shipped in prereqs.json`,
+);
+console.log(`  ${padL(coverage.withStandingRequirement, 6)} require a class standing before a student can register`);
 console.log(`  ${padL(coverage.withGrades, 6)} have grade history, ${coverage.withoutGrades} do not`);
 console.log(
   `  ${padL(sectionCount, 6)} have section data for ${coverage.sectionTerm ?? 'no term'}` +
@@ -628,6 +657,10 @@ console.log(
       : ' (no section file)'),
 );
 console.log(`  ${padL(coverage.programs, 6)} programs, ${coverage.programsWithCourses} with readable course rows`);
+console.log(
+  `  ${padL(coverage.programsWithGenEd, 6)} carry a campus general education table, ${coverage.genEdCategories} categories in all, ` +
+    `${coverage.genEdCategoriesFromCampus} of them sized from the campus table because no degree page states a number`,
+);
 console.log(
   `  ${padL(programCourseRows.length, 6)} program course rows, ${rowsWithCredits} with credits, ${rowsWithTitle} with a title of their own`,
 );

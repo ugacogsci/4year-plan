@@ -91,6 +91,13 @@ function splitRoom(s) {
  * zero sections for all 186 subjects, and the crawl reported success the whole
  * way. So the header row is read first and every cell is addressed by name.
  */
+/** Distinct values in order, joined. "CSP, CSP" is one section, not two. */
+const uniqueJoin = (xs) => [...new Set(xs.map((x) => String(x).trim()).filter(Boolean))].join(', ');
+
+/** "n.a." and "ARRANGED" are the registrar saying it is not scheduled, not a day or a time. */
+const NOT_SET = /^(n\.?a\.?|arr|arranged|tba|tbd|-)$/i;
+const orNull = (v) => (v && !NOT_SET.test(String(v).trim()) ? String(v).trim() : null);
+
 function headerIndex(html) {
   const thead = html.match(/<thead>([\s\S]*?)<\/thead>/);
   if (!thead) return null;
@@ -128,7 +135,7 @@ function parseCourse(html) {
       const where = splitRoom(text(locCells[i] ?? ''));
       const days = text(dayCells[i] ?? '') || null;
       if (!days && !where.building && !spans.length) continue;
-      meetings.push({ days, start: spans[0] ?? null, end: (spans[1] ?? '').replace(/^-/, '') || null, room: where.room, building: where.building });
+      meetings.push({ days: orNull(days), start: orNull(spans[0]), end: orNull((spans[1] ?? '').replace(/^-/, '')), room: where.room, building: where.building });
     }
     const first = meetings[0] ?? { days: null, start: null, end: null, room: null, building: null };
     const times = [first.start, first.end].filter(Boolean);
@@ -144,8 +151,13 @@ function parseCourse(html) {
 
     sections.push({
       crn,
-      type: text(cells[idx.type] ?? '').replace(/\s*\|\s*/g, '').replace(/\s+/g, ' ').trim() || null,
-      section: text(cells[idx.section] ?? '') || null,
+      // A section that meets twice repeats its type, its section code and its
+      // instructors once per meeting, so reading the whole cell produced
+      // "CSP CSP", "Discussion/Recitation Online" and an instructor list with
+      // every name twice. Each meeting is read on its own and the distinct
+      // values are joined.
+      type: uniqueJoin(perMeeting(cells[idx.type]).map((x) => text(x).replace(/\s*\|\s*/g, ''))) || null,
+      section: uniqueJoin(perMeeting(cells[idx.section]).map((x) => text(x))) || null,
       start: first.start,
       end: first.end,
       days: first.days,
@@ -154,7 +166,9 @@ function parseCourse(html) {
       /** Every meeting, because a section can meet in two rooms in one week and
        *  "usually in Siebel" is only honest if you can see all of them. */
       meetings,
-      instructors: text(cells[idx.instructor] ?? '').split(' | ').map((x) => x.trim()).filter(Boolean),
+      instructors: [...new Set(
+        perMeeting(cells[idx.instructor]).flatMap((x) => text(x).split(' | ')).map((x) => x.trim()).filter(Boolean),
+      )],
       partOfTerm: field('Part of Term'),
       dateRange: field('Date Range'),
       availability: field('Availability'),

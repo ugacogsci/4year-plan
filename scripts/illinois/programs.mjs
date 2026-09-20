@@ -132,8 +132,18 @@ function parseTables(html) {
     const before = parts[i - 1];
     const body = parts[i].split('</table>')[0];
 
-    const heads = [...before.matchAll(/<(h2|h3|h4|p)[^>]*>\s*(?:<strong>)?([^<]{3,90})(?:<\/strong>)?\s*<\/(?:h2|h3|h4|p)>/gi)];
-    const label = heads.length ? text(heads[heads.length - 1][2]) : `Requirements ${i}`;
+    // The old pattern required the heading to be plain text end to end, so any
+    // heading carrying a link, an <em> or a <span> did not match and the table
+    // fell back to "Requirements 3". 398 areas across 179 programs were showing
+    // that machine label to students in the progress rail. Nested markup is
+    // allowed now and stripped afterwards.
+    const heads = [...before.matchAll(/<(h2|h3|h4|p)[^>]*>([\s\S]{3,300}?)<\/(?:h2|h3|h4|p)>/gi)]
+      .map((m) => text(m[2]))
+      .filter((t) => t.length >= 3 && t.length <= 90 && /[a-z]/i.test(t));
+    const label = heads.length ? heads[heads.length - 1] : '';
+    // An area whose heading genuinely cannot be read has no name. Saying so
+    // lets the UI leave the row unlabelled instead of inventing one.
+    const labelKnown = label !== '';
 
     const groups = [];
     let current = { label: '', choose: null, courses: [], note: '' };
@@ -215,7 +225,7 @@ function parseTables(html) {
         : g.summedCredits > cap + 0.5 ? 'menu'
         : 'all';
     }
-    if (groups.length) areas.push({ label, hours: areaHours, hoursFrom, chooseCourses: areaProse.choose, groups });
+    if (groups.length) areas.push({ label: label || null, labelKnown, hours: areaHours, hoursFrom, chooseCourses: areaProse.choose, groups });
   }
   return areas;
 }

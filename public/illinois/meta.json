@@ -1,6 +1,6 @@
 {
   "school": "illinois",
-  "fetchedAt": "2026-09-20T06:58:11.328Z",
+  "fetchedAt": "2026-09-20T09:51:29.760Z",
   "sources": {
     "catalog": {
       "source": "catalog.illinois.edu/courses-of-instruction",
@@ -9,7 +9,7 @@
     },
     "programs": {
       "source": "https://catalog.illinois.edu/undergraduate/",
-      "fetchedAt": "2026-09-20T04:58:43.898Z",
+      "fetchedAt": "2026-09-20T09:51:00.811Z",
       "programs": 308
     },
     "grades": {
@@ -19,7 +19,7 @@
     },
     "sections": {
       "source": "https://courses.illinois.edu/schedule/2026/fall",
-      "fetchedAt": "2026-09-20T04:30:58.294Z",
+      "fetchedAt": "2026-09-20T09:46:21.953Z",
       "courses": 4452
     },
     "map": {
@@ -33,7 +33,7 @@
     "label": "Fall 2026",
     "year": 2026,
     "term": "fall",
-    "fetchedAt": "2026-09-20T04:30:58.294Z"
+    "fetchedAt": "2026-09-20T09:46:21.953Z"
   },
   "bands": {
     "typical": 9,
@@ -47,6 +47,8 @@
     "withParsedPrereq": 2383,
     "withLowConfidencePrereq": 34,
     "withPrereqTextOnly": 1362,
+    "withPrereqNoteOnly": 51,
+    "withStandingRequirement": 419,
     "withGrades": 2293,
     "withoutGrades": 3817,
     "orphanGradeRows": 104,
@@ -59,12 +61,15 @@
     "droppedProgramRows": 0,
     "droppedTotalRows": 245,
     "poolGroups": 378,
-    "implausibleProgramTotals": 0
+    "implausibleProgramTotals": 0,
+    "programsWithGenEd": 269,
+    "genEdCategories": 2380,
+    "genEdCategoriesFromCampus": 591
   },
   "counts": {
     "indexed": 6110,
     "positioned": 6110,
-    "withPrereqSpec": 3745,
+    "withPrereqSpec": 3796,
     "withGrades": 2293,
     "withSections": 3034,
     "programs": 308,
@@ -274,12 +279,12 @@
   ],
   "artifacts": {
     "index.json": {
-      "raw": 1145289,
-      "gzip": 185216
+      "raw": 1164495,
+      "gzip": 189647
     },
     "prereqs.json": {
-      "raw": 949379,
-      "gzip": 93585
+      "raw": 1154579,
+      "gzip": 99122
     },
     "grades.json": {
       "raw": 281487,
@@ -290,8 +295,8 @@
       "gzip": 120579
     },
     "programs.json": {
-      "raw": 104779,
-      "gzip": 10261
+      "raw": 104989,
+      "gzip": 10285
     }
   },
   "notes": [

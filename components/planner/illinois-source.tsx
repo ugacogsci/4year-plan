@@ -476,14 +476,6 @@ export function readHorizon(
   timeline: string,
   startTerm: { season: SemesterSeason; year: number },
 ): { startSeason: SemesterSeason; startYear: number; gradSeason: SemesterSeason; gradYear: number; stated: boolean } {
-  const fallback = {
-    startSeason: startTerm.season,
-    startYear: startTerm.year,
-    gradSeason: 'Spring' as SemesterSeason,
-    gradYear: startTerm.year + 4,
-    stated: false,
-  };
-
   const found: Array<{ season: SemesterSeason; year: number; cue: 'grad' | 'start' | null }> = [];
   for (const m of timeline.matchAll(SEASON_WORD)) {
     // The clause in front of the date is what says which end it is. 40
@@ -555,11 +547,7 @@ export function useCourseDetail(code: string | null): DetailState {
 
   useEffect(() => {
     wanted.current = code;
-    if (!code) {
-      setState({ code: null, loading: false, detail: null });
-      return;
-    }
-    setState({ code, loading: true, detail: null });
+    if (!code) return;
     void import('@/lib/planner/illinois-load').then(({ loadIllinoisCourseDetail }) =>
       loadIllinoisCourseDetail(code).then((detail) => {
         // A slow shard for a course the student has already clicked away from
@@ -570,5 +558,12 @@ export function useCourseDetail(code: string | null): DetailState {
     );
   }, [code]);
 
+  /**
+   * "Loading" is derived from the gap between the code asked for and the code
+   * in hand, not written into state when the fetch starts. Writing it would
+   * show the previous course's description for one frame under the new
+   * course's heading, and it is a synchronous setState inside an effect.
+   */
+  if (state.code !== code) return { code, loading: code !== null, detail: null };
   return state;
 }

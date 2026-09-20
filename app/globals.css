@@ -147,13 +147,36 @@ button:disabled {
    ─────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Five sizes, nothing under 11px. The page it replaced rendered
-     76% of its characters below 10px across 12 distinct sizes. */
-  --fs-micro: 11px;
-  --fs-body: 13px;
+  /* Five sizes and a 12px floor.
+     "Nothing under 11px" was true of the last pass and read as a fix,
+     but 74% of the characters on the screen then sat at exactly 11px:
+     smaller than the operating system's own body text and smaller
+     than this app's own form fields. Anything anybody reads as a
+     sentence is now 13px or more, and prose is 14px.
+
+     --fs-label is the one exception and is deliberately small. It is
+     only ever used on two-word uppercase headings with wide tracking
+     ("PICK FROM A LIST", "2029"), which are landmarks you find rather
+     than text you read, and which at 13px start to out-shout the
+     course names underneath them.
+
+     Raising these cannot lengthen the document: the frame is a
+     100dvh grid with overflow hidden and five regions that scroll
+     inside themselves. It costs a little scrolling in the rail. */
+  --fs-micro: 13px;
+  --fs-body: 14px;
+  /* Uppercase section labels and the year ruler, where the letterform
+     is a landmark rather than something anybody reads a sentence of. */
+  --fs-label: 12px;
   --fs-ui: 14px;
   --fs-head: 18px;
   --fs-title: 22px;
+  /* One semester column and the gap between two, as tokens.
+     The year ruler sits outside the board's scroller and has to lay out
+     exactly the same widths, so both read these rather than each hard-coding
+     260 and 12 and drifting apart the first time one of them changes. */
+  --col-w: 260px;
+  --col-gap: 12px;
   --line: #1d2838;
   --line-soft: #151f2c;
   --ink-dim: #8a99ad;
@@ -180,7 +203,7 @@ button:disabled {
 
 .eyebrow {
   margin: 0;
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #6f8098;
@@ -238,11 +261,16 @@ button:disabled {
   white-space: nowrap;
 }
 
+/* Never shrinks. It did, and at 768px the Plan button ran from 763 to 846 in
+   a 768 wide window with nothing to scroll: the menu holding Save, Download,
+   Load and Copy a link was half off the screen and its chevron was entirely
+   gone. The coverage line beside it is one sentence of statistics and is the
+   thing that should give way instead. */
 .header-actions {
   display: flex;
   align-items: center;
   gap: 7px;
-  min-width: 0;
+  flex: 0 0 auto;
   margin-left: auto;
 }
 
@@ -289,7 +317,7 @@ button:disabled {
 
 .profile-digest h3 {
   margin: 0 0 6px;
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #7b8da4;
@@ -303,10 +331,13 @@ button:disabled {
 }
 
 .profile-digest .again {
-  margin-top: 9px;
+  margin-top: 5px;
   background: none;
   border: 0;
-  padding: 0;
+  /* A 66x17 link is under the 24px target minimum. The padding is
+     vertical only, so the underline still sits under the words. */
+  padding: 4px 0;
+  min-height: 24px;
   font-size: var(--fs-micro);
   color: #7f93ab;
   cursor: pointer;
@@ -406,7 +437,7 @@ button:disabled {
 
 .pool-list-head {
   margin: 0 0 4px;
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #7b8da4;
@@ -549,7 +580,10 @@ button:disabled {
   gap: 4px;
   background: none;
   border: 0;
-  padding: 3px 4px;
+  /* min-height rather than more padding, so the row clears 24px without
+     making a hundred-course list twice as long as the rail. */
+  min-height: 24px;
+  padding: 2px 4px;
   border-radius: 4px;
   text-align: left;
   cursor: grab;
@@ -562,8 +596,8 @@ button:disabled {
 }
 
 .pool-option svg {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   flex: none;
   color: #56677e;
 }
@@ -581,13 +615,16 @@ button:disabled {
   color: var(--ink-dim);
 }
 
+/* 24px square, which is the WCAG 2.2 target-size minimum. It was 20 and it
+   is the button a student uses most in this panel: it is how a course gets
+   from the catalog's list onto the board. */
 .pool-add {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border: 1px solid var(--line-soft);
   border-radius: 4px;
   background: none;
@@ -596,8 +633,8 @@ button:disabled {
 }
 
 .pool-add svg {
-  width: 11px;
-  height: 11px;
+  width: 13px;
+  height: 13px;
 }
 
 .pool-add:hover:not(:disabled) {
@@ -686,8 +723,9 @@ button:disabled {
 .rail-note button {
   background: none;
   border: 0;
-  padding: 0;
-  margin-top: 5px;
+  padding: 4px 0;
+  min-height: 24px;
+  margin-top: 1px;
   color: #7fb4dd;
   font-size: var(--fs-micro);
   cursor: pointer;
@@ -851,8 +889,8 @@ button:disabled {
 
 .year-ruler-track {
   display: flex;
-  gap: 12px;
-  padding: 0 16px;
+  gap: var(--col-gap);
+  padding: 0 var(--board-pad, 16px);
   height: 100%;
   align-items: center;
   width: max-content;
@@ -860,7 +898,7 @@ button:disabled {
 
 .year-ruler-track > span {
   flex: 0 0 auto;
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #66788f;
@@ -873,8 +911,8 @@ button:disabled {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
-  gap: 12px;
-  padding: 12px 16px 16px;
+  gap: var(--col-gap);
+  padding: 12px var(--board-pad, 16px) 16px;
   overflow: auto;
   scroll-snap-type: x proximity;
   scrollbar-width: thin;
@@ -882,7 +920,7 @@ button:disabled {
 }
 
 .semester-column {
-  flex: 0 0 260px;
+  flex: 0 0 var(--col-w);
   min-width: 0;
   scroll-snap-align: start;
   display: flex;
@@ -952,7 +990,7 @@ button:disabled {
   align-items: center;
   gap: 6px;
   min-height: 52px;
-  padding: 7px 7px 7px 3px;
+  padding: 7px 7px 7px 0;
   border: 1px solid #1c2636;
   border-radius: 5px;
   background: #0b1320;
@@ -967,11 +1005,13 @@ button:disabled {
   background: #0e1a28;
 }
 
+/* 24px wide for the same reason as .pool-add, and it comes out of the
+   card's left padding rather than out of the course title. */
 .course-drag-handle {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  width: 16px;
+  width: 24px;
   height: 34px;
   border: 0;
   background: none;
@@ -1014,10 +1054,15 @@ button:disabled {
   min-width: 0;
 }
 
+/* A course code is one word. It was wrapping to "ENG / 100" in the narrower
+   columns the small breakpoint uses, which reads as two courses. The badge
+   beside it is the thing that gives way. */
 .course-card-code {
   font-size: var(--fs-ui);
   font-weight: 650;
   color: #eef3fa;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .course-required,
@@ -1026,8 +1071,11 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  min-width: 0;
+  overflow: hidden;
   font-size: var(--fs-micro);
   color: var(--ink-dim);
+  white-space: nowrap;
 }
 
 .course-required svg,
@@ -1109,7 +1157,7 @@ button:disabled {
 
 .finder-rail span {
   writing-mode: vertical-rl;
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1179,7 +1227,7 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 22px;
+  height: 24px;
   padding: 0 7px;
   border-radius: 4px;
   border: 1px solid #2b3648;
@@ -1311,6 +1359,19 @@ button:disabled {
   stroke-width: 0.12;
 }
 
+/* The one control on this screen under the 24px target minimum, and it stays
+   that way on purpose.
+
+   240 nodes share a stage about 360 by 400, which is roughly 25px of room
+   each. At 24px square the hit areas would tile and overlap, so in the dense
+   middle of the map a click would land on a neighbour rather than on the
+   course under the cursor: bigger targets, worse aim. The position is also the
+   information here, since it comes out of the sentence embedding, so it cannot
+   be spread out to make room.
+
+   Every course on the map is reachable at full size from the finder's own list
+   beside it, which is how WCAG 2.5.8 is satisfied: the same job is done by a
+   control on the same page that does meet the minimum. */
 .map-course-node {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -1445,7 +1506,7 @@ button:disabled {
 
 .inspector-block h5 {
   margin: 0 0 4px;
-  font-size: var(--fs-micro);
+  font-size: var(--fs-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #7b8da4;
@@ -1550,6 +1611,8 @@ button:disabled {
 .askbar-input {
   flex: 1 1 auto;
   min-width: 0;
+  /* The one text field on the main screen, and it was 21px tall. */
+  min-height: 24px;
   background: none;
   border: 0;
   outline: 0;
@@ -1804,6 +1867,24 @@ button:disabled {
       'head head'
       'board finder'
       'ask ask';
+    /* Three semesters instead of two on a 768 wide screen. The board still
+       scrolls sideways for the rest, but a plan you can only ever see a
+       quarter of at a time is a plan you cannot compare across.
+
+       The arithmetic, so the next person does not have to rediscover it: the
+       board gets the window minus the 44px finder rail, and it spends
+       2 x --board-pad on its own padding and 2 x --col-gap between three
+       columns. 768 - 44 - 20 - 16 leaves 688 for three columns, which is 229
+       each. 228 is that with a pixel of slack. */
+    --col-w: 228px;
+    --col-gap: 8px;
+    --board-pad: 10px;
+  }
+  /* The coverage line is one sentence of build statistics and it was pushing
+     the Plan menu off the right edge. It is in the "What is estimated?" panel
+     as well, so nothing is lost by dropping it here. */
+  .header-coverage {
+    display: none;
   }
   .rail {
     position: fixed;

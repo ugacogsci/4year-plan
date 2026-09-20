@@ -50,6 +50,14 @@ import type {
  *    an empty array, because a UI that cannot tell those apart will tell a
  *    student a course has no prerequisites when the truth is that nobody checked.
  *
+ *    The same rule one level down, inside prereqs.json. A course with no entry
+ *    there is a course the catalog says nothing about. A course WITH an entry
+ *    whose `note` is set has prerequisites the catalog states in prose and does
+ *    not list, normally "See Class Schedule ... for topics and prerequisites",
+ *    and 51 undergraduate courses are in that state. Its `text` carries the
+ *    same sentence, so anything already printing `text` tells the truth; what it
+ *    must not do is read the empty `groups` as "nothing to take first".
+ *
  * Browser only. These are relative URLs, which have no meaning in a Cloudflare
  * Worker fetch, and there is no fs at runtime there either. Call from an effect
  * or an event handler, never during a server render: on the server every loader

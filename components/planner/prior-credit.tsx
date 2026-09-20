@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { examCreditUrl, useExamCredit } from './exam-credit';
 import {
   applyExamCredit,
-  type ExamCreditEntry,
   type PriorExam,
   type School,
 } from '@/lib/planner/onboarding';
@@ -17,8 +17,9 @@ import {
  * them.
  *
  * Exam credit is resolved against the registrar's published equivalence tables
- * rather than guessed, so the student sees the actual courses UGA will grant
- * before they commit to anything.
+ * rather than guessed, so the student sees the actual courses their own school
+ * will grant before they commit to anything. A school with no published table
+ * gets no search box rather than one that can never find anything.
  */
 export function PriorCredit({
   school,
@@ -31,17 +32,16 @@ export function PriorCredit({
   transferText: string;
   onChange: (next: { exams: PriorExam[]; transferText: string }) => void;
 }) {
-  const [table, setTable] = useState<ExamCreditEntry[]>([]);
+  const loaded = useExamCredit(school);
+  const table = loaded.entries;
   const [query, setQuery] = useState('');
-
-  useEffect(() => {
-    setTable([]);
-    if (!school?.examCredit) return;   // only UGA is scraped so far
-    void fetch(school.examCredit)
-      .then((r) => (r.ok ? (r.json() as Promise<{ entries: ExamCreditEntry[] }>) : null))
-      .then((d) => d && setTable(d.entries))
-      .catch(() => { /* the step still works, it just cannot price the exams */ });
-  }, [school]);
+  /**
+   * Whether this school has a table at all, which is not the same as whether it
+   * has loaded. A school with no table gets no search box: an input that
+   * accepts typing and can never return a match is a control that lies about
+   * what it does, and Illinois shipped exactly that for months.
+   */
+  const hasTable = examCreditUrl(school) !== null;
 
   /** One row per exam, not per score, for the picker. */
   const examList = useMemo(() => {
@@ -66,6 +66,12 @@ export function PriorCredit({
 
   const result = useMemo(() => applyExamCredit(exams, table), [exams, table]);
 
+  /** Grants that name a subject and a level rather than a class. */
+  const electiveOnly = useMemo(
+    () => result.creditCourses.filter((code) => !/^[A-Z]{2,5} \d{3}$/.test(code)),
+    [result],
+  );
+
   function addExam(kind: string, exam: string) {
     const first = scoresFor(kind, exam).at(-1);
     onChange({
@@ -87,17 +93,25 @@ export function PriorCredit({
       <div className="prior-block">
         <span className="onb-q-label">Did you take any AP or IB exams?</span>
         <span className="onb-q-hint">
-          {table.length
-            ? `We check all ${table.length.toLocaleString()} published score equivalences, so you see the exact courses ${school?.short ?? 'your school'} grants.`
-            : `${school?.short ?? 'This school'}'s exam tables are not loaded yet. Add what you took and we will confirm the credit once they are.`}
+          {!hasTable
+            ? `${school?.short ?? 'This school'} has not published an exam table we can read, so there is nothing to search yet. Write what you took in the box below instead.`
+            : table.length
+              ? `We check all ${table.length.toLocaleString()} published score equivalences, so you see the exact courses ${school?.short ?? 'your school'} grants.`
+              : `Reading ${school?.short ?? 'your school'}'s exam tables.`}
         </span>
+        {/* The registrar publishes one table per entering year and says which.
+            A student holding a 5 on an exam whose credit changed last spring
+            has to know which year they are being shown. */}
+        {loaded.policy && <span className="onb-q-hint">{loaded.policy}</span>}
 
-        <input
-          className="prior-search"
-          value={query}
-          placeholder="Search an exam, e.g. Calculus, Biology, Psychology"
-          onChange={(e) => setQuery(e.target.value)}
-        />
+        {hasTable && (
+          <input
+            className="prior-search"
+            value={query}
+            placeholder="Search an exam, e.g. Calculus, Biology, Psychology"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        )}
         {matches.length > 0 && (
           <ul className="prior-matches">
             {matches.map((m) => (
@@ -142,13 +156,31 @@ export function PriorCredit({
 
         {result.credits > 0 && (
           <p className="prior-total">
-            <strong>{result.credits} credit hours</strong> toward your degree
+            <strong>
+              {result.credits} credit {result.credits === 1 ? 'hour' : 'hours'}
+            </strong>{' '}
+            toward your degree
             {result.creditCourses.length > 0 && <> &middot; {result.creditCourses.join(', ')}</>}
+            {/* Illinois writes elective credit as "HIST 1--", which is hours in
+                a subject rather than a named class. Printed as the registrar
+                wrote it, then explained, because a student who reads it as a
+                course code will go looking for a class that is not taught. */}
+            {electiveOnly.length > 0 && (
+              <>
+                <br />
+                <span className="prior-exempt">
+                  {electiveOnly.join(', ')} {electiveOnly.length === 1 ? 'is' : 'are'} elective
+                  credit in that subject rather than a particular class. The hours count, and your
+                  advisor decides where they land.
+                </span>
+              </>
+            )}
             {result.exemptCourses.length > 0 && (
               <>
                 <br />
                 <span className="prior-exempt">
-                  Exempt but no credit: {result.exemptCourses.join(', ')}. You skip these, they do not count toward 120.
+                  Exempt but no credit: {result.exemptCourses.join(', ')}. You skip these and they
+                  add no hours.
                 </span>
               </>
             )}
