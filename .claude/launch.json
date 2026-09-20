@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fouryear",
+      "runtimeExecutable": "./dev.sh",
+      "runtimeArgs": [],
+      "port": 3010
+    }
+  ]
+}

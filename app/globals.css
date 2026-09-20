@@ -1,0 +1,1962 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-canvas: var(--canvas);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-accent-blue: var(--accent-blue);
+  --color-blue-soft: var(--blue-soft);
+  --font-sans: var(--app-font-mono);
+  --font-heading: var(--app-font-serif);
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+}
+
+:root {
+  color-scheme: dark;
+  --background: #030711;
+  --foreground: #f3f5f8;
+  --card: #080e19;
+  --card-foreground: #f3f5f8;
+  --popover: #0c1320;
+  --popover-foreground: #f3f5f8;
+  --primary: #f4f6f8;
+  --primary-foreground: #050913;
+  --secondary: #151d2a;
+  --secondary-foreground: #eef2f6;
+  --muted: #101722;
+  --muted-foreground: #8995a8;
+  --accent: #142030;
+  --accent-foreground: #ffffff;
+  --destructive: #ff7080;
+  --border: #222d3d;
+  --input: #2a3546;
+  --ring: #75c8f5;
+  --canvas: #050a13;
+  --success: #67d7a1;
+  --warning: #e7bd60;
+  --warning-soft: #2b2316;
+  --accent-blue: #68c3ef;
+  --blue-soft: #102334;
+  --app-font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    monospace;
+  --app-font-serif: Georgia, 'Times New Roman', serif;
+}
+
+* {
+  border-color: var(--border);
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+  font-family: var(--app-font-mono);
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  letter-spacing: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+::selection {
+  background: #7dc9f5;
+  color: #02050b;
+}
+
+[data-slot='native-select-wrapper'] {
+  width: 100%;
+}
+
+[data-slot='native-select'] {
+  border-radius: 4px;
+  background: #080f1b;
+  color: var(--foreground);
+  font-size: var(--fs-ui);
+}
+
+[data-slot='progress-track'] {
+  height: 2px;
+  border-radius: 0;
+  background: #1c2635;
+}
+
+[data-slot='progress-indicator'] {
+  background: #e8edf2;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   THE PLANNER FRAME
+
+   One screen. The page itself never scrolls; four regions scroll
+   inside themselves.
+
+   This replaces a 1887px document surface that put the semester
+   board entirely below the fold, and that made the one thing the
+   user asked for impossible: the map stage ended at y=695 and the
+   first semester column began at y=1051, so the drag source and
+   every drop target were 1034px apart in a 950px viewport. There
+   was no scroll position that showed both. The map and the board
+   are now sibling columns of the same 100dvh grid, so a drag from
+   the map into a semester is a short sideways movement with no
+   scrolling at all.
+   ─────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Five sizes, nothing under 11px. The page it replaced rendered
+     76% of its characters below 10px across 12 distinct sizes. */
+  --fs-micro: 11px;
+  --fs-body: 13px;
+  --fs-ui: 14px;
+  --fs-head: 18px;
+  --fs-title: 22px;
+  --line: #1d2838;
+  --line-soft: #151f2c;
+  --ink-dim: #8a99ad;
+  --ink-mid: #b7c4d6;
+}
+
+.planner-app {
+  display: grid;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+  grid-template-columns: 248px minmax(0, 1fr) var(--finder-w, 44px);
+  grid-template-rows: 56px minmax(0, 1fr) 56px;
+  grid-template-areas:
+    'head head  head'
+    'rail board finder'
+    'ask  ask   ask';
+}
+
+.planner-app[data-finder='open'] {
+  --finder-w: 380px;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6f8098;
+}
+
+/* ── head ───────────────────────────────────────────────────── */
+
+.app-header {
+  grid-area: head;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 0 0 auto;
+  text-decoration: none;
+  color: inherit;
+}
+
+.brand img {
+  border-radius: 5px;
+}
+
+.brand strong {
+  display: block;
+  font-size: var(--fs-ui);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: #eef3fa;
+  white-space: nowrap;
+}
+
+.brand small {
+  display: block;
+  font-size: var(--fs-micro);
+  color: #6f8098;
+  white-space: nowrap;
+}
+
+.header-coverage {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-micro);
+  color: #6f8098;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+/* ── rail ───────────────────────────────────────────────────── */
+
+.rail {
+  grid-area: rail;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px 14px 18px;
+  border-right: 1px solid var(--line);
+  background: var(--card);
+  scrollbar-width: thin;
+  scrollbar-color: #2b3648 transparent;
+}
+
+.rail-school {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.rail-school strong {
+  font-size: var(--fs-head);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: #f0f4f9;
+  line-height: 1.2;
+}
+
+.rail-school span {
+  font-size: var(--fs-micro);
+  color: #6f8098;
+}
+
+.profile-digest {
+  background: #0b1220;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 12px;
+  margin-bottom: 14px;
+}
+
+.profile-digest h3 {
+  margin: 0 0 6px;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7b8da4;
+}
+
+.profile-digest p {
+  margin: 0;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--ink-mid);
+}
+
+.profile-digest .again {
+  margin-top: 9px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: var(--fs-micro);
+  color: #7f93ab;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.profile-digest .again:hover {
+  color: #dbe4f0;
+}
+
+.rail-progress {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+
+.rail-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: #1c2635;
+  overflow: hidden;
+}
+
+.rail-bar > i {
+  display: block;
+  height: 100%;
+  background: #7fb4dd;
+}
+
+.rail-progress-head {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: var(--fs-micro);
+  color: var(--ink-dim);
+}
+
+.rail-progress-head strong {
+  font-size: var(--fs-ui);
+  color: #eef3fa;
+}
+
+.requirement-list {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 0;
+}
+
+/* min-width:0 on both, because a grid item's automatic minimum size is
+   min-content. Without it the longest requirement label sets the row's width,
+   the row grows past the 248px rail, and the hours count on the right is
+   pushed out of the clipped box entirely. */
+.requirement-list > * {
+  min-width: 0;
+}
+
+.requirement-row {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.requirement-row > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--fs-micro);
+  color: var(--ink-dim);
+}
+
+.requirement-row > div > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-mid);
+}
+
+/* --------------------------------------------------------------------------
+   Elective pools: "take 18 hours from this list".
+
+   Lives in the rail under the area bars, because it answers the same question
+   they do (how far along am I) for the one kind of requirement a bar cannot
+   express: a target with a hundred ways to hit it. Each pool is a <details> so
+   a degree with a dozen of them does not push the preferences off the screen,
+   and the ones that are short open themselves.
+   -------------------------------------------------------------------------- */
+
+.pool-list {
+  display: grid;
+  gap: 2px;
+  margin: 14px 0 0;
+  min-width: 0;
+}
+
+.pool-list-head {
+  margin: 0 0 4px;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7b8da4;
+}
+
+.pool {
+  min-width: 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.pool > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--fs-micro);
+  min-width: 0;
+}
+
+.pool > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* min-width:0 plus the ellipsis, or a 40-word catalog heading sets the rail's
+   width and pushes the count out of the clipped box. Same reason as
+   .requirement-row above. */
+.pool-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-mid);
+}
+
+.pool-count {
+  flex: none;
+  color: var(--ink-dim);
+}
+
+.pool-count.is-short {
+  color: var(--warning);
+}
+
+.pool-asked,
+.pool-quote,
+.pool-rule {
+  margin: 0 0 6px;
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+
+/* The catalog's own sentence. Set apart so it reads as a quotation and not as
+   something the product wrote. Capped and scrolled rather than trimmed: the CS
+   technical elective rule is 120 words and would otherwise push the courses,
+   the constraints and the whole preferences panel off the rail, but cutting it
+   short would turn a quotation into a paraphrase. */
+.pool-quote {
+  border-left: 2px solid var(--line-soft);
+  padding-left: 8px;
+  color: var(--ink-mid);
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+.pool-rule > span {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #16202d;
+  color: #8fb39a;
+}
+
+.pool-rule.is-short > span {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.pool-courses {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.pool-courses > li {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font-size: var(--fs-micro);
+  color: var(--ink-mid);
+}
+
+.pool-courses svg {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  color: #8fb39a;
+}
+
+.pool-courses > li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-dim);
+}
+
+.pool-options {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  /* Capped and scrolled rather than sliced: a 523-course list is real, and
+     showing 20 of it with no way to reach the rest would hide the choice this
+     panel exists to offer. */
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.pool-options > li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pool-option {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 0;
+  padding: 3px 4px;
+  border-radius: 4px;
+  text-align: left;
+  cursor: grab;
+  font-size: var(--fs-micro);
+  color: var(--ink-mid);
+}
+
+.pool-option:hover {
+  background: #101a27;
+}
+
+.pool-option svg {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  color: #56677e;
+}
+
+.pool-option-code {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.pool-option-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-dim);
+}
+
+.pool-add {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  background: none;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+
+.pool-add svg {
+  width: 11px;
+  height: 11px;
+}
+
+.pool-add:hover:not(:disabled) {
+  color: #dbe4f0;
+  border-color: #2b3a4d;
+}
+
+.pool-add:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.rail-section {
+  border-top: 1px solid var(--line-soft);
+}
+
+.rail-section > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 11px 0;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7b8da4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rail-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.rail-section > summary::after {
+  content: '+';
+  font-size: 15px;
+  color: #56677e;
+}
+
+.rail-section[open] > summary::after {
+  content: '−';
+}
+
+.rail-section > summary:hover {
+  color: #cfdaea;
+}
+
+.rail-field {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 12px;
+}
+
+.rail-field > span {
+  font-size: var(--fs-micro);
+  color: var(--ink-dim);
+}
+
+.rail-field textarea,
+.rail-field input[type='number'] {
+  width: 100%;
+  background: #080f1b;
+  border: 1px solid #253042;
+  border-radius: 4px;
+  color: var(--foreground);
+  font-size: var(--fs-ui);
+  padding: 7px 9px;
+  resize: vertical;
+}
+
+.rail-field textarea:focus,
+.rail-field input:focus {
+  outline: 0;
+  border-color: #3c5f8c;
+}
+
+.rail-note {
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+  font-size: var(--fs-micro);
+  line-height: 1.55;
+  color: #6f8098;
+}
+
+.rail-note button {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-top: 5px;
+  color: #7fb4dd;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* ── board ──────────────────────────────────────────────────── */
+
+.board-region {
+  grid-area: board;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.board-bar {
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+
+.board-bar-facts {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--fs-body);
+  color: var(--ink-dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.board-bar-facts strong {
+  font-size: var(--fs-ui);
+  font-weight: 650;
+  color: #eef3fa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board-bar-facts span {
+  flex: 0 0 auto;
+}
+
+.review-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 5px;
+  border: 1px solid #2b3648;
+  background: #0d1725;
+  color: var(--ink-mid);
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+
+.review-chip:hover {
+  border-color: #3b4c66;
+  color: #eef3fa;
+}
+
+.review-chip.has-error {
+  border-color: #58303a;
+  color: #ff9ba6;
+}
+
+.review-chip.has-warning {
+  border-color: #4e4026;
+  color: #e7bd60;
+}
+
+.review-chip svg {
+  width: 13px;
+  height: 13px;
+}
+
+.health-popover {
+  display: grid;
+  gap: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.health-item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  padding: 7px 8px;
+  cursor: pointer;
+  color: var(--ink-mid);
+}
+
+.health-item:hover {
+  background: #142033;
+}
+
+.health-item > svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+}
+
+.health-item span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--fs-body);
+  line-height: 1.45;
+  color: #93a4bb;
+}
+
+.health-item strong {
+  font-size: var(--fs-body);
+  color: #eef3fa;
+}
+
+.health-error > svg {
+  color: var(--destructive);
+}
+
+.health-warning > svg {
+  color: var(--warning);
+}
+
+.health-info > svg {
+  color: #6f8098;
+}
+
+.health-empty {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: var(--fs-body);
+  color: var(--ink-dim);
+  padding: 6px 8px;
+}
+
+.year-ruler {
+  flex: 0 0 26px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.year-ruler-track {
+  display: flex;
+  gap: 12px;
+  padding: 0 16px;
+  height: 100%;
+  align-items: center;
+  width: max-content;
+}
+
+.year-ruler-track > span {
+  flex: 0 0 auto;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #66788f;
+  white-space: nowrap;
+  border-left: 1px solid #1a2433;
+  padding-left: 8px;
+}
+
+.plan-board {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px 16px;
+  overflow: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: #2b3648 transparent;
+}
+
+.semester-column {
+  flex: 0 0 260px;
+  min-width: 0;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  border-top: 2px solid #26354a;
+  border-radius: 4px;
+  background: #070d18;
+  outline: 2px dashed transparent;
+  outline-offset: -2px;
+}
+
+/* Live drop feedback. There was none before, so a student dragging a
+   node had no way to tell a valid target from the gap between two. */
+.semester-column[data-drop-active='true'] {
+  outline-color: var(--accent-blue);
+  background: rgba(98, 185, 234, 0.05);
+}
+
+.semester-heading {
+  /* Illinois runs several parts of term inside one semester and the
+     drop, refund, credit/no-credit and grade-replacement dates differ
+     for each. Never put a deadline here: it belongs in the course
+     inspector, listed per part of term. */
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 10px 7px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.semester-heading h3 {
+  margin: 0;
+  font-size: var(--fs-ui);
+  font-weight: 650;
+  color: #eef3fa;
+}
+
+.semester-credit-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: var(--fs-micro);
+  color: var(--ink-dim);
+}
+
+.semester-credit-count svg {
+  width: 12px;
+  height: 12px;
+}
+
+.semester-courses {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: #2b3648 transparent;
+}
+
+.course-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 52px;
+  padding: 7px 7px 7px 3px;
+  border: 1px solid #1c2636;
+  border-radius: 5px;
+  background: #0b1320;
+}
+
+.course-card:hover {
+  border-color: #2c3a4f;
+}
+
+.course-card-selected {
+  border-color: var(--accent-blue);
+  background: #0e1a28;
+}
+
+.course-drag-handle {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 34px;
+  border: 0;
+  background: none;
+  color: #4d5e74;
+  cursor: grab;
+}
+
+.course-drag-handle:hover,
+.course-drag-handle:focus-visible {
+  color: #9fb0c6;
+}
+
+.course-drag-handle:active {
+  cursor: grabbing;
+}
+
+.course-cluster-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+.course-card-body {
+  min-width: 0;
+  flex: 1 1 auto;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+}
+
+.course-card-code-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.course-card-code {
+  font-size: var(--fs-ui);
+  font-weight: 650;
+  color: #eef3fa;
+}
+
+.course-required,
+.course-elective,
+.course-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--fs-micro);
+  color: var(--ink-dim);
+}
+
+.course-required svg,
+.course-elective svg,
+.course-check svg {
+  width: 11px;
+  height: 11px;
+}
+
+.course-card-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--fs-body);
+  line-height: 1.35;
+  color: #93a4bb;
+}
+
+.course-card-credits {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-top: 2px;
+  font-size: var(--fs-micro);
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.semester-add-button {
+  justify-content: flex-start;
+  height: 34px;
+  font-size: var(--fs-body);
+  color: #7f93ab;
+}
+
+.board-empty {
+  margin: auto;
+  max-width: 34ch;
+  text-align: center;
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  color: var(--ink-dim);
+}
+
+/* ── finder ─────────────────────────────────────────────────── */
+
+.course-finder {
+  grid-area: finder;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  background: var(--card);
+}
+
+.finder-rail {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  background: none;
+  border: 0;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+
+.finder-rail:hover {
+  color: #eef3fa;
+  background: #0d1725;
+}
+
+.finder-rail svg {
+  width: 17px;
+  height: 17px;
+}
+
+.finder-rail span {
+  writing-mode: vertical-rl;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.finder-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+}
+
+.finder-head h2 {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--fs-head);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: #f0f4f9;
+}
+
+.finder-search {
+  flex: 0 0 auto;
+  padding: 0 12px 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.finder-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 36px;
+  background: #080f1b;
+  border: 1px solid #253042;
+  border-radius: 5px;
+  color: var(--foreground);
+  font-size: var(--fs-ui);
+  padding: 0 10px;
+}
+
+.finder-search input::placeholder {
+  color: #5a6b81;
+}
+
+.finder-search input:focus {
+  outline: 0;
+  border-color: #3c5f8c;
+}
+
+.finder-filters {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 12px 8px;
+  max-height: 58px;
+  overflow-y: auto;
+}
+
+.finder-count {
+  font-size: var(--fs-micro);
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.dept-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 4px;
+  border: 1px solid #2b3648;
+  background: #0d1725;
+  color: var(--ink-mid);
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+
+.dept-chip:hover {
+  border-color: #3b4c66;
+  color: #eef3fa;
+}
+
+.dept-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.finder-dept-search {
+  width: 100%;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid #253042;
+  border-radius: 5px;
+  background: #080f1b;
+  color: var(--foreground);
+  font-size: var(--fs-body);
+}
+
+.finder-dept-search:focus {
+  outline: 0;
+  border-color: #3c5f8c;
+}
+
+.finder-dept-list {
+  display: grid;
+  gap: 1px;
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #2b3648 transparent;
+}
+
+.finder-dept-list button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--ink-mid);
+  font-size: var(--fs-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.finder-dept-list button:hover {
+  background: #142033;
+  color: #eef3fa;
+}
+
+.finder-dept-list button.is-muted {
+  opacity: 0.45;
+}
+
+.finder-dept-list button > span:nth-child(2) {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finder-dept-list button > span:last-child {
+  color: #66788f;
+  font-size: var(--fs-micro);
+}
+
+.quiet {
+  color: #7d8ea4;
+}
+
+.inspector-add {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.map-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 240px;
+  max-height: 420px;
+  overflow: hidden;
+  margin: 0 12px;
+  border: 1px solid #16202e;
+  border-radius: 6px;
+}
+
+/* inset:0 rather than a min-height. The old rule kept min-height 500px
+   inside a 380px stage with overflow hidden, so 135 of 881 nodes sat
+   below the clip and could not be dragged at all. */
+.map-field {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #020710;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.map-paths {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.map-paths line {
+  stroke: rgba(120, 160, 200, 0.14);
+  stroke-width: 0.12;
+}
+
+.map-course-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: grab;
+}
+
+.map-course-node:active {
+  cursor: grabbing;
+}
+
+.map-node-core {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--node-color, #6f8098);
+  box-shadow: 0 0 0 1px rgba(3, 7, 17, 0.9);
+}
+
+.map-course-node:hover .map-node-core,
+.map-course-node:focus-visible .map-node-core {
+  width: 9px;
+  height: 9px;
+}
+
+.map-course-node.is-required .map-node-core {
+  box-shadow: 0 0 0 2px rgba(231, 189, 96, 0.75);
+}
+
+.map-course-node.is-planned .map-node-core {
+  width: 9px;
+  height: 9px;
+  box-shadow: 0 0 0 2px rgba(103, 215, 161, 0.85);
+}
+
+.map-course-node.is-selected .map-node-core {
+  width: 11px;
+  height: 11px;
+  box-shadow: 0 0 0 3px rgba(104, 195, 239, 0.9);
+}
+
+.map-course-node.is-search-muted {
+  opacity: 0.2;
+}
+
+.map-node-label {
+  position: absolute;
+  left: 13px;
+  top: -2px;
+  max-width: 140px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(3, 7, 17, 0.88);
+  font-size: var(--fs-micro);
+  color: #dbe4f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.map-hint {
+  flex: 0 0 auto;
+  padding: 6px 12px 0;
+  font-size: var(--fs-micro);
+  color: #66788f;
+}
+
+.map-inspector {
+  flex: 0 1 auto;
+  max-height: 46%;
+  overflow-y: auto;
+  padding: 10px 12px 14px;
+  margin-top: 8px;
+  border-top: 1px solid #202c3d;
+  scrollbar-width: thin;
+  scrollbar-color: #2b3648 transparent;
+}
+
+.inspector-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.inspector-heading p {
+  margin: 0;
+  font-size: var(--fs-micro);
+  color: var(--ink-dim);
+}
+
+.inspector-heading h3 {
+  margin: 0;
+  font-size: var(--fs-head);
+  font-weight: 650;
+  color: #f0f4f9;
+}
+
+.inspector-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.map-inspector > h4 {
+  margin: 0 0 6px;
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  color: #dbe4f0;
+  line-height: 1.35;
+}
+
+.course-description {
+  margin: 0 0 9px;
+  font-size: var(--fs-body);
+  line-height: 1.55;
+  color: #93a4bb;
+}
+
+.inspector-block {
+  margin: 0 0 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.inspector-block h5 {
+  margin: 0 0 4px;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7b8da4;
+}
+
+.inspector-block p {
+  margin: 0 0 4px;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--ink-mid);
+}
+
+.inspector-block p:last-child {
+  margin-bottom: 0;
+}
+
+.inspector-block .quiet {
+  color: #6f8098;
+}
+
+.course-facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.course-facts > div {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  font-size: var(--fs-body);
+}
+
+.course-facts dt {
+  color: var(--ink-dim);
+}
+
+.course-facts dd {
+  margin: 0;
+  text-align: right;
+  color: var(--ink-mid);
+}
+
+.inspector-add-button {
+  width: 100%;
+  min-height: 38px;
+  font-size: var(--fs-ui);
+  margin-top: 4px;
+}
+
+.inspector-empty {
+  display: grid;
+  gap: 6px;
+  place-items: center;
+  min-height: 96px;
+  text-align: center;
+  color: var(--ink-dim);
+}
+
+.inspector-empty h3 {
+  margin: 0;
+  font-size: var(--fs-ui);
+  color: #dbe4f0;
+}
+
+.inspector-empty p {
+  margin: 0;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+}
+
+/* ── ask ────────────────────────────────────────────────────── */
+
+.askbar-dock {
+  grid-area: ask;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-top: 1px solid var(--line);
+  background: var(--card);
+}
+
+.askbar {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 4px 0 12px;
+  border: 1px solid #253042;
+  border-radius: 6px;
+  background: #080f1b;
+}
+
+.askbar:focus-within {
+  border-color: #4f80c4;
+}
+
+.askbar-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: 0;
+  color: var(--foreground);
+  font-size: var(--fs-ui);
+}
+
+.askbar-input::placeholder {
+  color: #5a6b81;
+}
+
+.askbar-go {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: #1f4f80;
+  color: #eaf2fb;
+  font-size: var(--fs-body);
+}
+
+.askbar-go:hover {
+  filter: brightness(1.12);
+}
+
+.askbar-go:disabled {
+  opacity: 0.6;
+}
+
+/* Absolutely positioned inside a fixed-height grid row, so an open
+   answer cannot change the board's height, its horizontal scroll
+   offset, or any column's vertical scroll offset. */
+.askbar-panel {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 56px;
+  max-height: min(46vh, 420px);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--popover);
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.45);
+  z-index: 20;
+}
+
+.askbar-panel-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #0d1724;
+  position: sticky;
+  top: 0;
+}
+
+.askbar-q {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: #e8eef7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.askbar-close {
+  background: none;
+  border: 0;
+  color: #8496ad;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+
+.askbar-close:hover {
+  color: #e8eef7;
+}
+
+.askbar-body {
+  padding: 13px 14px 15px;
+}
+
+.askbar-thinking {
+  margin: 0;
+  font-size: var(--fs-body);
+  color: #7e8fa6;
+}
+
+.askbar-answer {
+  margin: 0;
+  font-size: var(--fs-ui);
+  line-height: 1.65;
+  color: #c8d4e4;
+  white-space: pre-wrap;
+}
+
+.askbar-sources {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 3px;
+}
+
+.askbar-sources a {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  text-decoration: none;
+  font-size: var(--fs-body);
+  color: #9fb0c6;
+  padding: 4px 0;
+}
+
+.askbar-sources a:hover {
+  color: #e8eef7;
+}
+
+.askbar-src-n {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  background: rgba(217, 72, 15, 0.16);
+  border: 1px solid rgba(217, 72, 15, 0.45);
+  color: #f08a5a;
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.askbar-src-t {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.askbar-src-h {
+  color: #5f708a;
+  white-space: nowrap;
+}
+
+.askbar-suggestions {
+  position: absolute;
+  left: 16px;
+  bottom: 52px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 32px);
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--popover);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+}
+
+.askbar-chip {
+  border: 1px solid #253042;
+  border-radius: 5px;
+  background: #0d1725;
+  color: #9fb0c6;
+  font-size: var(--fs-micro);
+  padding: 5px 9px;
+  cursor: pointer;
+}
+
+.askbar-chip:hover {
+  color: #eef3fa;
+  border-color: #35465e;
+}
+
+/* ── loading and empty frames ───────────────────────────────── */
+
+.planner-loading {
+  display: grid;
+  place-items: center;
+  height: 100dvh;
+  padding: 24px;
+  text-align: center;
+}
+
+.planner-loading > div {
+  display: grid;
+  gap: 8px;
+  max-width: 40ch;
+}
+
+.planner-loading h1 {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: #f0f4f9;
+}
+
+.planner-loading p {
+  margin: 0;
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  color: var(--ink-dim);
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── narrower screens ───────────────────────────────────────── */
+
+@media (max-width: 1240px) {
+  .planner-app[data-finder='open'] {
+    --finder-w: 320px;
+  }
+}
+
+/* Below 1100px the finder cannot be a column and drag has nowhere to
+   land, so the finder overlays and "Add to" becomes the only add path.
+   The head says so rather than leaving a broken gesture. */
+@media (max-width: 1100px) {
+  .planner-app {
+    grid-template-columns: 220px minmax(0, 1fr) 44px;
+  }
+  .planner-app[data-finder='open'] .course-finder {
+    position: fixed;
+    top: 56px;
+    right: 0;
+    bottom: 56px;
+    width: 340px;
+    z-index: 30;
+    box-shadow: -18px 0 40px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Below 900px the rail has no column, so it becomes an overlay the header's
+   Progress button opens. Hiding it outright would take the degree picker and
+   the progress bars away with no way back. */
+@media (max-width: 900px) {
+  .planner-app {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-areas:
+      'head head'
+      'board finder'
+      'ask ask';
+  }
+  .rail {
+    position: fixed;
+    top: 56px;
+    bottom: 56px;
+    left: 0;
+    width: 260px;
+    z-index: 30;
+    box-shadow: 18px 0 40px rgba(0, 0, 0, 0.5);
+    transform: translateX(-100%);
+    transition: transform 0.14s ease-out;
+  }
+  .planner-app[data-rail='open'] .rail {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail {
+    transition: none;
+  }
+}
+/* ───────────────────────────────────────────────────────────────
+   Onboarding. Three screens, one decision each.
+   ─────────────────────────────────────────────────────────────── */
+.onb {
+  --school: #6f8fb8;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 40px 24px;
+  background:
+    radial-gradient(70% 55% at 50% -8%, color-mix(in srgb, var(--school) 20%, transparent), transparent 70%),
+    #050a13;
+}
+.onb-inner { width: 100%; max-width: 680px; }
+
+.onb-steps { display: flex; gap: 26px; list-style: none; margin: 0 0 34px; padding: 0; justify-content: center; }
+.onb-steps li { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #58687e; }
+.onb-steps li.now { color: #e8eef7; }
+.onb-steps li.done { color: #7f93ab; }
+.onb-dot {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 700;
+  border: 1px solid #27323f; color: inherit;
+}
+.onb-steps li.now .onb-dot { background: var(--school); border-color: var(--school); color: #fff; }
+.onb-steps li.done .onb-dot { border-color: #3c6b52; color: #6fcf97; }
+
+.onb-step h1 {
+  font-size: clamp(26px, 4vw, 34px);
+  letter-spacing: -0.03em;
+  text-align: center;
+  margin: 0 0 10px;
+  color: #f2f6fb;
+}
+.onb-sub { text-align: center; color: #8496ad; font-size: 15px; line-height: 1.6; margin: 0 auto 30px; max-width: 46ch; }
+
+/* school picker */
+.onb-schools { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.onb-school {
+  --school: #6f8fb8;
+  display: grid; gap: 4px; justify-items: start;
+  padding: 18px 16px;
+  border: 1px solid #202b3a; border-radius: 14px;
+  background: #0b1220; cursor: pointer; text-align: left;
+  transition: border-color .14s, transform .08s, background .14s;
+}
+.onb-school:hover { border-color: var(--school); background: #0d1626; }
+.onb-school:active { transform: translateY(1px); }
+.onb-school-mark { width: 26px; height: 6px; border-radius: 3px; background: var(--school); margin-bottom: 6px; }
+.onb-school-name { font-size: 15.5px; font-weight: 650; color: #eaf0f8; }
+.onb-school-people { font-size: 12.5px; color: #6d7f96; }
+
+/* the three questions */
+.onb-questions { display: grid; gap: 20px; }
+.onb-q { display: grid; gap: 5px; }
+.onb-q-label { font-size: 15px; font-weight: 600; color: #e4ebf5; }
+.onb-q-hint { font-size: 12.5px; color: #6d7f96; margin-bottom: 4px; }
+.onb-q textarea {
+  width: 100%; resize: vertical;
+  background: #0b1220; color: #e4ebf5;
+  border: 1px solid #202b3a; border-radius: 11px;
+  padding: 12px 14px; font: inherit; font-size: 14.5px; line-height: 1.6;
+}
+.onb-q textarea::placeholder { color: #4d5c70; }
+.onb-q textarea:focus { outline: 0; border-color: var(--school); box-shadow: 0 0 0 3px color-mix(in srgb, var(--school) 22%, transparent); }
+
+.onb-actions { display: flex; align-items: center; gap: 14px; margin-top: 26px; }
+.onb-count { flex: 1; text-align: center; font-size: 12.5px; color: #6d7f96; }
+.onb-back, .onb-next {
+  border-radius: 10px; padding: 11px 20px; font-size: 14.5px; font-weight: 600; cursor: pointer; border: 1px solid transparent;
+}
+.onb-back { background: none; border-color: #263141; color: #9fb0c6; }
+.onb-back:hover { color: #e8eef7; border-color: #36455a; }
+.onb-next { background: var(--school); color: #fff; }
+.onb-next:hover { filter: brightness(1.08); }
+.onb-next:disabled { opacity: .45; cursor: default; filter: none; }
+.onb-skip { text-align: center; margin: 16px 0 0; }
+.onb-skip button { background: none; border: 0; color: #5d6e84; font-size: 13px; cursor: pointer; text-decoration: underline; }
+.onb-skip button:hover { color: #9fb0c6; }
+
+/* building */
+.onb-building { text-align: center; padding: 40px 0; }
+.onb-spinner {
+  width: 40px; height: 40px; margin: 0 auto 24px;
+  border: 3px solid #1b2536; border-top-color: var(--school);
+  border-radius: 50%; animation: onb-spin .85s linear infinite;
+}
+@keyframes onb-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .onb-spinner { animation-duration: 3s; } }
+/* ── prior credit step ── */
+.prior { display: grid; gap: 26px; }
+.prior-block { display: grid; gap: 5px; }
+.prior-search {
+  margin-top: 8px; width: 100%;
+  background: #0b1220; color: #e4ebf5;
+  border: 1px solid #202b3a; border-radius: 11px;
+  padding: 11px 14px; font: inherit; font-size: 14.5px;
+}
+.prior-search::placeholder { color: #4d5c70; }
+.prior-search:focus { outline: 0; border-color: var(--school); box-shadow: 0 0 0 3px color-mix(in srgb, var(--school) 22%, transparent); }
+
+.prior-matches { list-style: none; margin: 6px 0 0; padding: 4px; display: grid; gap: 2px; background: #0b1220; border: 1px solid #202b3a; border-radius: 11px; }
+.prior-matches button {
+  width: 100%; text-align: left; background: none; border: 0;
+  color: #cbd7e6; font-size: 14px; padding: 9px 11px; border-radius: 8px; cursor: pointer;
+}
+.prior-matches button:hover { background: #142033; color: #eef3fa; }
+
+.prior-chosen { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 7px; }
+.prior-chosen li {
+  display: flex; align-items: center; gap: 10px;
+  background: #0b1220; border: 1px solid #1d2838; border-radius: 10px; padding: 9px 11px;
+}
+.prior-name { flex: 1; font-size: 13.5px; color: #dbe4f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prior-kind {
+  font-size: 10px; font-weight: 700; letter-spacing: .05em;
+  background: color-mix(in srgb, var(--school) 22%, transparent);
+  color: #e8eef7; border-radius: 5px; padding: 2px 6px; margin-right: 6px;
+}
+.prior-chosen select {
+  background: #0d1828; color: #cbd7e6; border: 1px solid #253143;
+  border-radius: 8px; padding: 6px 9px; font: inherit; font-size: 12.5px; max-width: 320px;
+}
+.prior-remove { background: none; border: 0; color: #63748c; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 3px; }
+.prior-remove:hover { color: #e88175; }
+
+.prior-total {
+  margin: 14px 0 0; padding: 12px 14px;
+  background: color-mix(in srgb, var(--school) 12%, #0b1220);
+  border: 1px solid color-mix(in srgb, var(--school) 34%, transparent);
+  border-radius: 11px; font-size: 13.5px; color: #dbe4f0; line-height: 1.6;
+}
+.prior-exempt { color: #93a4bb; font-size: 12.5px; }

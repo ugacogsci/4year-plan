@@ -1,0 +1,24 @@
+# dependencies and build output
+node_modules/
+.next/
+dist/
+.vinext/
+.wrangler/
+tsconfig.tsbuildinfo
+
+# crawl and build logs
+logs/
+*.log
+
+# secrets
+.env
+.env.*
+!.env.example
+
+# Regenerable and large. 29MB of float64 sentence embeddings, rebuilt by
+# scripts/illinois/map.mjs in about 11 minutes, or read from this cache in
+# under a second. Keyed to the catalog snapshot so a stale one is never reused.
+data/illinois-embeddings.bin
+
+# Superseded crawl output, kept locally while the new shape settles.
+public/*.old.json

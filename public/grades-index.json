@@ -1,0 +1,25 @@
+{
+ "note": "UGA omitted on purpose: its Grade Distribution Report is a Power BI app behind a UGA login.",
+ "schools": {
+  "mizzou": {
+   "count": 1781,
+   "terms": "SP2024 through SS2026",
+   "source": "MU Grade Distribution Application, Office of the University Registrar"
+  },
+  "tamu": {
+   "count": 2946,
+   "terms": "Fall 2024 through Summer 2026",
+   "source": "Grade Distribution Reports, Texas A&M Office of the Registrar"
+  },
+  "vt": {
+   "count": 11510,
+   "terms": "2023-24 through 2025-26",
+   "source": "Course Grade Distributions, Virginia Tech University DataCommons"
+  },
+  "illinois": {
+   "count": 2968,
+   "terms": "Spring 2024 through Summer 2026",
+   "source": "Grade Distribution, University of Illinois DAIR"
+  }
+ }
+}
