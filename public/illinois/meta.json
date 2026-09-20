@@ -1,6 +1,6 @@
 {
   "school": "illinois",
-  "fetchedAt": "2026-09-20T19:31:54.768Z",
+  "fetchedAt": "2026-09-20T21:27:13.810Z",
   "sources": {
     "catalog": {
       "source": "catalog.illinois.edu/courses-of-instruction",
@@ -24,7 +24,7 @@
     },
     "map": {
       "method": "all-MiniLM-L6-v2 (384d) -> umap(k=15, min_dist=0.1) -> rank-normalised 4..96",
-      "builtAt": "2026-09-20T04:44:51.669Z",
+      "builtAt": "2026-09-20T21:16:48.914Z",
       "count": 9440
     }
   },
@@ -36,9 +36,9 @@
     "fetchedAt": "2026-09-20T12:33:30.079Z"
   },
   "bands": {
-    "typical": 9,
-    "harder": 26,
-    "hardest": 37
+    "typical": 10,
+    "harder": 28,
+    "hardest": 39
   },
   "gradeFootnote": "Grade Distribution, University of Illinois DAIR. Spring 2024 through Summer 2026. History, not a prediction.",
   "coverage": {

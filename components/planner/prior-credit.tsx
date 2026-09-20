@@ -72,11 +72,30 @@ export function PriorCredit({
     [result],
   );
 
+  /**
+   * An exam the student has named but not yet scored.
+   *
+   * applyExamCredit matches on the score, so an exam with no score matches no
+   * row and earns nothing anywhere in the product. That is the point: the
+   * credit has to wait for the student to say what they got.
+   */
+  const unscored = (e: PriorExam) => String(e.score).trim() === '';
+  const waiting = exams.filter(unscored).length;
+
+  /**
+   * Adding an exam records the exam and nothing else.
+   *
+   * This used to preselect a score, and the row it picked was the last one in
+   * the table, which is the top of the scale. Naming an exam and touching
+   * nothing granted a student the credit for a 5. The plan was then built on
+   * courses they may never have earned, and the student had no reason to
+   * doubt it, because the screen showed a total and named the classes.
+   * Nobody but the student knows their score, so the student states it.
+   */
   function addExam(kind: string, exam: string) {
-    const first = scoresFor(kind, exam).at(-1);
     onChange({
       transferText,
-      exams: [...exams, { kind, exam, level: first?.level ?? null, score: first?.score ?? 5 }],
+      exams: [...exams, { kind, exam, level: null, score: '' }],
     });
     setQuery('');
   }
@@ -127,14 +146,18 @@ export function PriorCredit({
         {exams.length > 0 && (
           <ul className="prior-chosen">
             {exams.map((e, i) => (
-              <li key={`${e.kind}|${e.exam}|${i}`}>
+              <li key={`${e.kind}|${e.exam}|${i}`} className={unscored(e) ? 'prior-unscored' : undefined}>
                 <span className="prior-name">
                   <span className="prior-kind">{e.kind}</span> {e.exam}
                 </span>
                 <select
+                  aria-label={`Your score on ${e.kind} ${e.exam}`}
                   value={`${e.level ?? ''}|${e.score}`}
                   onChange={(ev) => setScore(i, ev.target.value)}
                 >
+                  {/* Selected until the student chooses, and they can come back
+                      to it. No score means no credit, here and on the board. */}
+                  <option value="|">What did you score?</option>
                   {scoresFor(e.kind, e.exam).map((s) => (
                     <option key={`${s.level ?? ''}|${s.score}`} value={`${s.level ?? ''}|${s.score}`}>
                       {s.level ? `${s.level} ${s.score}` : `Score ${s.score}`}
@@ -152,6 +175,14 @@ export function PriorCredit({
               </li>
             ))}
           </ul>
+        )}
+
+        {waiting > 0 && (
+          <p className="prior-waiting">
+            {waiting === 1
+              ? 'Pick your score above. Until you do, that exam counts for nothing here and nothing on your plan.'
+              : `Pick your ${waiting} scores above. Until you do, those exams count for nothing here and nothing on your plan.`}
+          </p>
         )}
 
         {result.credits > 0 && (

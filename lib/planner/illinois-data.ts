@@ -211,6 +211,24 @@ export interface RawSection {
   availability: string | null;
 }
 
+/**
+ * A section Illinois marks restricted.
+ *
+ * The availability cell holds two facts and every surface used to read only
+ * the first. 4,196 Fall 2026 rows read "Open (Restricted)" and 1,243 read
+ * "CrossListOpen (Restricted)", so 5,439 of the 12,832 sections are open to
+ * some group and not to everyone. Plain "Open" never carries the marker: of
+ * the 3,811 rows that read "Open" or "CrossListOpen", not one has restriction
+ * text anywhere on it.
+ *
+ * Illinois names the restriction in the date cell for 1,039 of those rows and
+ * publishes nothing about the other 4,400, so no surface may say who is shut
+ * out unless splitDateCell found it written down.
+ */
+export function sectionIsRestricted(availability: string | null): boolean {
+  return /\(Restricted\)/i.test((availability ?? '').trim());
+}
+
 export interface RawSectionCourse {
   code: string;
   subject: string;
@@ -363,6 +381,15 @@ export type DifficultyLabel =
       n: number;
       sections: number;
       thin: boolean;
+      /**
+       * False when the thin-sample guard moved this row out of the band its
+       * number falls in, which it does for 127 undergraduate courses. Their
+       * difficulty is above the 75th percentile and they come back labelled
+       * 'typical', so anything that turns the band into a sentence about where
+       * the course sits must check this first or it tells 128 students their
+       * course is in the middle half when it is in the top quarter.
+       */
+      placed: boolean;
     };
 
 /**
@@ -1473,9 +1500,23 @@ export function adaptIllinoisCatalog(
  * Bands read off the data rather than hardcoded.
  *
  * Illinois difficulty is not distributed like the other tenants: min 0, median
- * 16, p75 26, max 80, and only 11 of 2,968 courses reach 65. The 65 threshold
- * that works for Mizzou labels nothing at all here. Recomputing on every load
- * means a future import cannot silently break the labels.
+ * 16, max 80, and only a handful of courses reach 65. The 65 threshold that
+ * works for Mizzou labels nothing at all here. Recomputing on every load means
+ * a future import cannot silently break the labels.
+ *
+ * HOW THE NUMBERS ARE PRODUCED, because the copy beside them names them out
+ * loud and a comment that misdescribes them is how this drifted once already.
+ * The difficulties are sorted ascending and the band is the value sitting at
+ * position floor(n x p) for p = 0.25, 0.75 and 0.90. No interpolation, so the
+ * result is always a difficulty some course really has.
+ *
+ * WHAT MUST BE PASSED IN: exactly the rows the product will label, and nothing
+ * else. This took every grade row Illinois publishes, 2,968 of them, while the
+ * planner only ever labels the undergraduate courses it indexes. The bands came
+ * out 9 / 26 / 37, and against the 2,296 undergraduate rows those sit at the
+ * 18.8th, 70.1st and 88.2nd, so a course called "the easiest quarter" was in
+ * the easiest fifth. On the undergraduate rows the same three positions are
+ * 10 / 28 / 39. buildIllinoisData filters before it calls this.
  */
 export function computeDifficultyBands(rows: GradeRow[]): DifficultyBands {
   const d = rows
@@ -1501,9 +1542,12 @@ export function difficultyLabel(row: GradeRow | undefined, bands: DifficultyBand
   else if (difficulty < bands.hardest) band = 'harder';
   else band = 'hardest';
 
-  // 836 rows are built on fewer than 50 students. Calling one of those the
-  // hardest course in a major is a claim the sample cannot carry.
-  if (thin && (band === 'harder' || band === 'hardest')) band = 'typical';
+  // 572 of the 2,293 indexed rows are built on fewer than 50 students. Calling
+  // one of those the hardest course in a major is a claim the sample cannot
+  // carry, so it is held back. Held back is not the same as measured, and
+  // `placed` is how a caller tells the two apart.
+  const placed = !(thin && (band === 'harder' || band === 'hardest'));
+  if (!placed) band = 'typical';
 
   return {
     kind: 'band',
@@ -1515,6 +1559,7 @@ export function difficultyLabel(row: GradeRow | undefined, bands: DifficultyBand
     n: row.n,
     sections: row.sections,
     thin,
+    placed,
   };
 }
 
@@ -3167,7 +3212,19 @@ export function buildIllinoisData(input: {
     if (!row?.code) continue;
     grades.set(normCode(row.code), row);
   }
-  const bands = computeDifficultyBands(gradeRows);
+  /**
+   * The bands describe the courses this index holds, not the whole grade file.
+   *
+   * 675 of the 2,968 published grade rows belong to courses the planner never
+   * shows: graduate courses, and 104 rows whose code is not in the catalog at
+   * all. Leaving them in moved all three cut points down, and the panel's
+   * "easiest quarter" then covered the easiest fifth of what a student can
+   * actually take. Filtering to byCode keeps the bands and the course list
+   * describing the same population, whichever population that is.
+   */
+  const bands = computeDifficultyBands(
+    gradeRows.filter((row) => row?.code && byCode.has(normCode(row.code))),
+  );
   const gradeProvenance = input.grades
     ? { source: input.grades.source, terms: input.grades.terms, count: input.grades.count }
     : null;

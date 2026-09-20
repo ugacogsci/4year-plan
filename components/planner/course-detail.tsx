@@ -18,6 +18,7 @@ import {
   difficultyLabel,
   partOfTermLine,
   prettyDateRange,
+  sectionIsRestricted,
   THIN_SAMPLE,
   visibleInstructors,
 } from '@/lib/planner/illinois-data';
@@ -31,17 +32,49 @@ const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
 /**
  * Where the course sits in Illinois's own distribution, not a verdict about it.
  *
- * The bands are the 25th, 75th and 90th percentiles of every Illinois course
- * with grade history, so these say exactly that and nothing more. "Harder than
- * most" next to a 3.44 average and 68% A grades reads as a contradiction; "in
- * the harder quarter" is the same number said accurately.
+ * "Harder than most" next to a 3.44 average and 68% A grades reads as a
+ * contradiction; a position in the distribution is the same number said
+ * accurately. So these sentences are only worth printing if the cut points
+ * behind them really are where they claim.
+ *
+ * HOW THE CUTS ARE DERIVED. computeDifficultyBands sorts the difficulties of
+ * the courses in this index that have grade history and takes the values at
+ * positions floor(n x 0.25), floor(n x 0.75) and floor(n x 0.90). Over the
+ * 2,293 such rows in the September 2026 import that is 10, 28 and 39. The
+ * shares those cuts carve out, which is what the four sentences below claim:
+ * 26.6% at or below 10, 47.8% between, 25.6% at or above 28, and 10.3% at or
+ * above 39. Difficulty is a whole number with heavy ties, so an exact quarter
+ * is not reachable and the harness allows three points either way.
+ *
+ * The comment here used to say the same three positions over "every Illinois
+ * course with grade history", and the code did exactly that: it read all 2,968
+ * published rows, graduate courses included, and produced 10 / 28 / 39's older
+ * siblings 9 / 26 / 37. Against the courses a student can actually take those
+ * sit at the 18.8th, 70.1st and 88.2nd, so the first sentence below was told
+ * to the easiest fifth while claiming a quarter. The fix was in the population,
+ * not in the words, which is why this paragraph says which population.
+ *
+ * 'harder' and 'hardest' both sit above the 75th. The hardest tenth gets the
+ * more specific sentence; everything else above the cut gets the general one.
  */
 const BAND_WORD: Record<string, string> = {
-  easier: 'In the easiest quarter of Illinois courses by grade history',
-  typical: 'In the middle half of Illinois courses by grade history',
-  harder: 'In the harder quarter of Illinois courses by grade history',
-  hardest: 'In the hardest tenth of Illinois courses by grade history',
+  easier: 'In the easiest quarter of Illinois undergraduate courses by grade history',
+  typical: 'In the middle half of Illinois undergraduate courses by grade history',
+  harder: 'In the harder quarter of Illinois undergraduate courses by grade history',
+  hardest: 'In the hardest tenth of Illinois undergraduate courses by grade history',
 };
+
+/**
+ * What to say when the sample is too small to place the course.
+ *
+ * difficultyLabel holds a thin row back from 'harder' and 'hardest' rather
+ * than letting 40 students decide a course is one of the hardest at Illinois.
+ * 127 courses are held back that way, and printing the held-back band as a
+ * position would tell those students they are in the middle half when their
+ * number is in the top quarter.
+ */
+const HELD_BACK =
+  'Too few students in the published history to say where this sits against other courses';
 
 const DAY_WORDS: Record<string, string> = {
   M: 'Mon',
@@ -166,6 +199,8 @@ export function CourseDetail({
       : { kind: 'none' as const };
 
   const rows = detail?.sections?.sections ?? [];
+  /** Sections a student may not be allowed to register for. 42% of Illinois's are. */
+  const restricted = rows.filter((row) => sectionIsRestricted(row.availability)).length;
   const max = course.creditsMax ?? course.credits;
 
   return (
@@ -281,7 +316,8 @@ export function CourseDetail({
         ) : (
           <>
             <p>
-              {BAND_WORD[grade.band]}. Average GPA {grade.gpa ?? 'not published'}
+              {grade.placed ? BAND_WORD[grade.band] : HELD_BACK}. Average GPA{' '}
+              {grade.gpa ?? 'not published'}
               {grade.aPct !== null && `, ${grade.aPct}% A grades`}
               {grade.withdrawPct !== null && `, ${grade.withdrawPct}% withdrew`}.
             </p>
@@ -335,11 +371,33 @@ export function CourseDetail({
                 {row.instructors.length > 0 && `, ${row.instructors.join(', ')}`}
                 {row.partOfTerm && `. Part of term ${row.partOfTerm}`}
                 {prettyDateRange(row.dateRange) && `, ${prettyDateRange(row.dateRange)}`}.
+                {/* Listing a section a student cannot register for, with no
+                    mark on it, is the same as telling them they can have it. */}
+                {sectionIsRestricted(row.availability) && (
+                  <span className="section-restricted"> Restricted</span>
+                )}
               </p>
             ))}
             {rows.length > 5 && (
               <p className="quiet">
                 And {rows.length - 5} more {plural(rows.length - 5, 'section')}.
+              </p>
+            )}
+            {restricted > 0 && (
+              <p className="quiet">
+                {restricted === rows.length
+                  ? 'Every section is marked restricted on the schedule, so not everyone can register.'
+                  : `${restricted} of the ${rows.length} sections ${
+                      restricted === 1 ? 'is' : 'are'
+                    } marked restricted on the schedule, so not everyone can register for ${
+                      restricted === 1 ? 'it' : 'them'
+                    }.`}{' '}
+                {/* Illinois writes the restriction into the date cell for some
+                    sections and publishes nothing for the rest. Guessing at the
+                    rest would be inventing a rule the university never wrote. */}
+                {sections.restrictions.length > 0
+                  ? `Illinois says: ${sections.restrictions.slice(0, 2).join(' ')}`
+                  : 'Illinois does not say who the restriction is for. Check the section on the schedule page before you plan around it.'}
               </p>
             )}
             {rows.length === 0 && !loading && (

@@ -10,6 +10,7 @@ import {
   difficultyLabel,
   missingPrerequisiteGroups,
   partOfTermLine,
+  sectionIsRestricted,
   termCreditRange,
   type CourseFacts,
   type IllinoisData,
@@ -261,11 +262,19 @@ function timeRange(start: string | null, end: string | null): string | null {
   return `${a} to ${b}`;
 }
 
-/** Illinois publishes a word, not a seat count. Anything unexpected is dropped. */
+/**
+ * Illinois publishes a word, not a seat count. Anything unexpected is dropped.
+ *
+ * The test used to match the prefix and throw away the rest of the cell, so
+ * every "Open (Restricted)" came back as "open" and 42 percent of all sections
+ * were described to a student as something they could sign up for. A student
+ * who builds a term around one of those loses the seat and maybe the semester.
+ */
 function availabilityWord(availability: string | null): string | null {
   const a = (availability ?? '').trim();
-  if (/^(?:CrossList)?Open\b/i.test(a)) return 'open';
-  if (/^Closed\b/i.test(a)) return 'closed';
+  const restricted = sectionIsRestricted(a);
+  if (/^(?:CrossList)?Open\b/i.test(a)) return restricted ? 'open but restricted' : 'open';
+  if (/^Closed\b/i.test(a)) return restricted ? 'closed and restricted' : 'closed';
   return null;
 }
 
@@ -1067,7 +1076,7 @@ function answerSection(code: string, raw: string, ctx: AskContext): Routed {
     // Illinois publishes an availability word and nothing else. Inventing a
     // number here is the exact class of defect the house rules name.
     lines.push(
-      `Illinois publishes no seat counts and no waitlist, so I cannot tell you how full ${code} is. The schedule marks each section open or closed and that is all it gives.`,
+      `Illinois publishes no seat counts and no waitlist, so I cannot tell you how full ${code} is. The schedule marks each section open or closed, and marks some of them restricted on top of that, and that is all it gives.`,
     );
   } else if (focus === 'part' && summary) {
     lines.push(`${code}, ${term.label}. ${partOfTermLine(summary)}`);
@@ -1112,6 +1121,30 @@ function answerSection(code: string, raw: string, ctx: AskContext): Routed {
   // wall of them is not an answer.
   if (rows.length <= 4) lines.push(rows.map(describeSection).join('\n'));
   else lines.push(digestByType(rows).join('\n'));
+
+  /**
+   * How many of these a student may not be allowed to register for.
+   *
+   * Counted over every section of the course, not the handful printed above,
+   * because the digest path prints none of them individually. Illinois spells
+   * the restriction out for some sections in the date cell, and those come
+   * through in summary.restrictions below. For the rest it publishes the
+   * marker and no reason, so this says there is a restriction and sends the
+   * student to the page that would know, rather than guessing at who is shut
+   * out.
+   */
+  const restricted = rows.filter((row) => sectionIsRestricted(row.availability)).length;
+  if (restricted > 0) {
+    const count =
+      restricted === rows.length
+        ? `Every section of ${code} is marked restricted`
+        : `${restricted} of the ${rows.length} sections ${restricted === 1 ? 'is' : 'are'} marked restricted`;
+    const reason =
+      summary && summary.restrictions.length > 0
+        ? 'Illinois names the restriction for some of them, below.'
+        : 'Illinois does not say who the restriction is for, so check the section on the schedule page before you plan around it.';
+    lines.push(`${count} on the schedule, which means not everyone can register. ${reason}`);
+  }
 
   if (summary) {
     if (summary.multiMeeting > 0) {
