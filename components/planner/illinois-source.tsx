@@ -393,10 +393,13 @@ export function buildContext(
       : undefined,
     grades: core.grades ? grades : undefined,
     sections: core.sections ?? undefined,
-    // Cross-listings and exclusions only exist in the full catalog. Until the
-    // second load lands they are absent, which costs matches but never invents one.
+    // Cross-listings still come from the full catalog and are absent until the
+    // second load lands, which costs matches but never invents one.
     equivalents: full?.equivalents,
-    exclusions: full ? exclusionsFrom(full) : undefined,
+    // Exclusions do NOT wait. They ship in the core index now, because a plan
+    // generated without them books a course whose credit will not count and
+    // then counts it. That is a wrong plan, not a missing nicety.
+    exclusions: core.exclusions ?? (full ? exclusionsFrom(full) : undefined),
     creditRanges,
     bands: core.meta?.bands ?? null,
     // Illinois publishes no offering term anywhere, so no course is ever refused

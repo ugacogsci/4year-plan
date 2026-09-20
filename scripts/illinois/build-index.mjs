@@ -520,6 +520,25 @@ if (programCourseRows.length > 0 && rowsWithTitle === 0) {
 }
 
 const topLevel = written.filter((r) => !r.path.includes('/'));
+/**
+ * Course exclusions, as their own small artifact.
+ *
+ * "Credit is not given for both MATH 221 and either MATH 220 or MATH 234" is a
+ * correctness constraint, not a nicety: a plan that books MATH 221 on top of a
+ * held MATH 220 has sold the student four credits that will not count, and the
+ * headline total counts them twice.
+ *
+ * They lived only in the full catalog adapter, which loads after the plan is
+ * already generated, so exclusions were never once checked against a generated
+ * plan. 562 courses carry one. The whole table is a few KB, so it ships with
+ * the index and the constraint is available from the first paint.
+ */
+const exclusionRows = {};
+for (const [code, fact] of data.facts) {
+  if (fact.exclusions && fact.exclusions.length) exclusionRows[code] = fact.exclusions;
+}
+write('exclusions.json', exclusionRows);
+
 const artifacts = {};
 for (const row of topLevel) artifacts[row.path] = { raw: row.raw, gzip: row.gzip };
 

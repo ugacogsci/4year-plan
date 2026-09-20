@@ -16,10 +16,49 @@ import type { Course, PlanState } from './types';
  * somebody graduates, which is the boundary the project README draws.
  */
 
+/** One row of a requirement group, with the alternatives the catalog prints for it. */
+export interface RequirementRow {
+  code: string;
+  title: string;
+  credits: number;
+  /**
+   * The rest of "CS 210 or CS 211", each with its own catalog credit hours.
+   *
+   * The row used to carry only the first code. Computer Science's Orientation
+   * and Professional Development area then read 1 of 3 hours for a student with
+   * CS 211 on the board, because the area only knew about CS 210, and the
+   * degree page says either one. A student reading that adds a second course
+   * they do not need. The hours are per alternative because CS 210 is two
+   * credits and CS 211 is three.
+   */
+  alternatives?: Array<{ code: string; credits: number }>;
+}
+
 export interface RequirementGroup {
   label: string;
   choose: number | null;
-  courses: Array<{ code: string; title: string; credits: number }>;
+  courses: RequirementRow[];
+  /**
+   * The most this group can contribute, in whichever unit the catalog published.
+   *
+   * Illinois sizes "Humanities & the Arts" in hours and "Cultural Studies:
+   * Non-Western Cultures" in courses, and neither number can be converted into
+   * the other without inventing what a course is worth. Null on either half
+   * means the catalog published no number of that kind, and an uncapped group
+   * is still bounded by the area total the way it always was.
+   */
+  cap?: { hours: number | null; courses: number | null } | null;
+  /**
+   * True when membership comes from a campus-wide category rather than a list
+   * the degree page prints.
+   *
+   * A general education category accepts hundreds of courses, and Illinois
+   * prints general education first on every degree page. Without this flag the
+   * gen-ed area claims PHYS 211 before the science area that actually requires
+   * it, and the science bar loses a course it was counting. areaProgress runs
+   * every printed list first and these second because of it.
+   */
+  broad?: boolean;
 }
 
 export interface RequirementArea {
@@ -79,9 +118,15 @@ export function earnedCredits(
 /**
  * Progress per requirement area.
  *
- * A course counts once, against the first area that wants it. Without that a
- * single course satisfying two areas inflates a student's progress twice and
- * the plan says they are finished when they are not.
+ * A course counts once. Without that a single course satisfying two areas
+ * inflates a student's progress twice and the plan says they are finished when
+ * they are not.
+ *
+ * Which area gets it goes in two passes. Every list a degree page prints is
+ * matched first, in page order, and only then the campus general education
+ * categories, which accept hundreds of courses each. The other way round the
+ * gen-ed area, printed first on every Illinois degree, takes PHYS 211 off the
+ * science area that names it.
  *
  * The general education categories in autoplan follow the same rule for hours
  * and a looser one for categories, because Illinois publishes the exception:
@@ -92,17 +137,83 @@ export function earnedCredits(
 export function areaProgress(
   program: ProgramRequirements,
   haveCodes: Set<string>,
+  /**
+   * Cross-listing classes by code, where the caller has them.
+   *
+   * GER 261 and JS 261 are one class under two codes. A caller that expands
+   * aliases into `haveCodes`, which the ask bar does so that a requirement
+   * written as one code is met by the other, then has the same class in the set
+   * twice, and counting it twice put nine hours on a Computer Science student's
+   * general education row that they were not taking. Spending one code spends
+   * the whole class. Optional because a caller with no alias map has no
+   * duplicates to collapse.
+   */
+  equivalents?: Map<string, string[]>,
 ): Array<{ area: RequirementArea; earned: number; percent: number; satisfied: boolean }> {
   const spent = new Set<string>();
-  return program.areas.map((area) => {
-    let earned = 0;
-    for (const group of area.groups) {
-      for (const c of group.courses) {
-        if (!haveCodes.has(c.code) || spent.has(c.code)) continue;
-        spent.add(c.code);
-        earned += c.credits;
-      }
+  const spend = (code: string): void => {
+    spent.add(code);
+    for (const alias of equivalents?.get(code) ?? []) spent.add(alias);
+  };
+  const earnedBy = program.areas.map(() => 0);
+
+  /** The held course that fills one row, honouring "CS 210 or CS 211". */
+  const rowMatch = (row: RequirementRow): { code: string; credits: number } | null => {
+    if (haveCodes.has(row.code) && !spent.has(row.code)) {
+      return { code: row.code, credits: row.credits };
     }
+    for (const alt of row.alternatives ?? []) {
+      if (haveCodes.has(alt.code) && !spent.has(alt.code)) return alt;
+    }
+    return null;
+  };
+
+  /**
+   * What one group earns, never more than the size the catalog published for it.
+   *
+   * Cheapest match first, so a category the catalog sizes at one course counts
+   * the one claiming the fewest hours. That can understate a student's progress
+   * and can never overstate it, which is the only safe direction when the
+   * number is read as how close somebody is to graduating.
+   */
+  const earnOf = (group: RequirementGroup): number => {
+    const hits: Array<{ code: string; credits: number }> = [];
+    for (const row of group.courses) {
+      const hit = rowMatch(row);
+      if (hit) hits.push(hit);
+    }
+    hits.sort((a, b) => a.credits - b.credits || a.code.localeCompare(b.code));
+
+    const hoursCap = group.cap?.hours ?? null;
+    const countCap = group.cap?.courses ?? null;
+    let earned = 0;
+    let taken = 0;
+    for (const hit of hits) {
+      if (countCap !== null && taken >= countCap) break;
+      if (hoursCap !== null && earned >= hoursCap) break;
+      // A later row in this same group can hold the other half of a
+      // cross-listing, so the check has to run again here.
+      if (spent.has(hit.code)) continue;
+      spend(hit.code);
+      earned += hit.credits;
+      taken += 1;
+    }
+    return hoursCap === null ? earned : Math.min(earned, hoursCap);
+  };
+
+  // Printed lists first, campus categories second. See RequirementGroup.broad
+  // for the course this ordering stops the gen-ed area from taking.
+  for (const broadPass of [false, true]) {
+    program.areas.forEach((area, index) => {
+      for (const group of area.groups) {
+        if ((group.broad ?? false) !== broadPass) continue;
+        earnedBy[index] += earnOf(group);
+      }
+    });
+  }
+
+  return program.areas.map((area, index) => {
+    const earned = earnedBy[index];
     const capped = Math.min(earned, area.hours || earned);
     return {
       area,

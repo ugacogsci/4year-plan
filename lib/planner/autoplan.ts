@@ -133,6 +133,17 @@ export interface PlanPrereqGroup {
   confidence: 'high' | 'low';
   /** The clause this group was parsed from, so an error can quote the catalog. */
   source: string;
+  /**
+   * The catalog's own words for school work that satisfies this group instead
+   * of the course, or null.
+   *
+   * CS 124 reads "Three years of high school mathematics or MATH 112". Nothing
+   * this engine can see records what a student did before university, so a
+   * group carrying this never forces its course into a plan and never blocks
+   * one either. It is reported in GeneratedPlan.priorLearning for the student
+   * to answer.
+   */
+  priorLearning?: string | null;
 }
 
 /** A university's own classification of an undergraduate by hours earned. */
@@ -219,7 +230,15 @@ export type PrereqMatcher = (
   earlier: Set<string>,
   sameTerm: Set<string>,
   equivalents: Map<string, string[]>,
-) => { missing: PlanPrereqGroup[]; uncertain: PlanPrereqGroup[] };
+) => {
+  missing: PlanPrereqGroup[];
+  uncertain: PlanPrereqGroup[];
+  /**
+   * Unmet groups the catalog says school work also satisfies. Absent from
+   * older matchers, which is why it is optional and always read with `?? []`.
+   */
+  priorLearning?: PlanPrereqGroup[];
+};
 
 export interface PlanningContext {
   /** Catalog courses in the planner's own shape. Credits and titles come from here, never from a program row. */
@@ -421,6 +440,33 @@ export interface NotPlaced {
   requirementId: string | null;
 }
 
+/**
+ * A prerequisite the catalog says school work can satisfy, and what was done
+ * about it.
+ *
+ * CS 124 reads "Three years of high school mathematics or MATH 112". Booking
+ * MATH 112 put a three hour algebra course in the first term of every Computer
+ * Science plan, including plans for students holding AP Calculus credit, and it
+ * is why a first semester of Computer Science held no Computer Science. The
+ * plan no longer books it. This says so, in the catalog's own words, and says
+ * whether the answer came from the student's own credit or is still a question
+ * for them.
+ */
+export interface PriorLearningCheck {
+  /** The course whose prerequisite this is. */
+  code: string;
+  /** The courses the catalog offers as the other way to meet it. */
+  alternatives: string[];
+  /** The catalog's own words for the school work it also accepts. */
+  alsoAccepts: string;
+  /** The whole prerequisite sentence, verbatim. */
+  text: string;
+  /** 'held' when prior credit settles it, 'ask' when only the student can. */
+  settled: 'held' | 'ask';
+  /** The sentence shown to the student. Already in `notes` as well. */
+  message: string;
+}
+
 export interface GeneratedPlan {
   plan: PlanState;
   terms: PlannedTerm[];
@@ -438,6 +484,8 @@ export interface GeneratedPlan {
   notPlaced: NotPlaced[];
   /** Courses the degree page never mentions that the catalog requires anyway. */
   addedPrerequisites: Array<{ code: string; requiredBy: string }>;
+  /** Prerequisites the catalog also accepts school work for. Nothing here was booked. */
+  priorLearning: PriorLearningCheck[];
   /** Requirements already met by credit the student walked in with. */
   satisfiedByPriorCredit: Array<{ requirementId: string; label: string; codes: string[] }>;
   credits: {
@@ -593,8 +641,10 @@ export function defaultPrereqMatcher(
   earlier: Set<string>,
   sameTerm: Set<string>,
   equivalents: Map<string, string[]>,
-): { missing: PlanPrereqGroup[]; uncertain: PlanPrereqGroup[] } {
-  if (!spec || !spec.parsed || spec.groups.length === 0) return { missing: [], uncertain: [] };
+): { missing: PlanPrereqGroup[]; uncertain: PlanPrereqGroup[]; priorLearning: PlanPrereqGroup[] } {
+  if (!spec || !spec.parsed || spec.groups.length === 0) {
+    return { missing: [], uncertain: [], priorLearning: [] };
+  }
 
   const groups = spec.groups;
   const available = groups.map((group) => {
@@ -640,18 +690,32 @@ export function defaultPrereqMatcher(
   const matched = new Set<number>(takenBy.values());
   const missing: PlanPrereqGroup[] = [];
   const uncertain: PlanPrereqGroup[] = [];
+  const priorLearning: PlanPrereqGroup[] = [];
   groups.forEach((group, index) => {
     if (matched.has(index)) return;
     if (group.confidence === 'low') uncertain.push(group);
+    // The catalog offers school work instead of the course. See
+    // PlanPrereqGroup.priorLearning for why that neither blocks nor passes.
+    else if (group.priorLearning) priorLearning.push(group);
     else missing.push(group);
   });
-  return { missing, uncertain };
+  return { missing, uncertain, priorLearning };
 }
 
-/** Groups that actually constrain ordering: high confidence, and not allowed in the same term. */
+/**
+ * Groups that actually constrain ordering: high confidence, not allowed in the
+ * same term, and not one the catalog says school work also satisfies.
+ *
+ * The last of those is the difference between CS 124 in a first fall and CS 124
+ * in a second spring. Its only prerequisite is "Three years of high school
+ * mathematics or MATH 112", which the matcher stopped treating as a blocker,
+ * and leaving it in the depth walk kept the course one term deep anyway. The
+ * two have to agree or the plan holds a course back for a reason it has already
+ * decided is not a reason.
+ */
 function orderingGroups(spec: PlanPrereq | undefined): PlanPrereqGroup[] {
   if (!spec || !spec.parsed) return [];
-  return spec.groups.filter((g) => g.confidence === 'high' && !g.concurrent);
+  return spec.groups.filter((g) => g.confidence === 'high' && !g.concurrent && !g.priorLearning);
 }
 
 // ---------------------------------------------------------------------------
@@ -1940,8 +2004,48 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   // Low-confidence groups are skipped: the parser could not tell an AND from
   // an OR there, and adding a course on a reading we do not trust would put a
   // requirement in the plan that the catalog may not have.
+  //
+  // So are groups the catalog says school work also satisfies. See
+  // priorLearningChecks below for the one that put MATH 112 in every plan.
   const addedPrerequisites: Array<{ code: string; requiredBy: string }> = [];
   const unresolvedPrereqs: Array<{ code: string; needs: string }> = [];
+  const priorLearningChecks: PriorLearningCheck[] = [];
+
+  /**
+   * A course the student already holds that names this one as its prerequisite.
+   *
+   * MATH 234 lists MATH 112, so a student holding MATH 234 has already been
+   * through MATH 112 by the catalog's own statement, and that statement can be
+   * quoted back at them. One step only. Following the chain two steps reaches
+   * MATH 112 from MATH 220 as well, through a sentence that reads "an adequate
+   * ALEKS placement score ... demonstrating knowledge of topics of MATH 115",
+   * and telling a student "the catalog says MATH 220 needs MATH 112" off the
+   * back of that is a sentence the catalog does not contain.
+   *
+   * Course numbers are never used. A higher number in the same subject is not
+   * a claim Illinois makes about what comes first.
+   */
+  const heldNaming = (alternatives: string[]): string | null => {
+    for (const held of [...satisfiedForPrereq].sort()) {
+      const spec = ctx.prereqs?.get(held);
+      if (!spec || !spec.parsed) continue;
+      for (const group of spec.groups) {
+        for (const raw of group.any) {
+          if (alternatives.includes(normaliseCode(raw))) return held;
+        }
+      }
+    }
+    return null;
+  };
+
+  /** Prior credit in the same subject as the course this plan is not booking. */
+  const heldInSubjectOf = (alternatives: string[]): string[] => {
+    const subjects = new Set(alternatives.map((code) => code.split(' ')[0]));
+    return [...satisfiedForPrereq]
+      .filter((code) => subjects.has(code.split(' ')[0]) && !alternatives.includes(code))
+      .sort();
+  };
+
   {
     const queue = [...chosen.keys()].sort();
     // The catalog is finite and each course enters the queue once, but a
@@ -1959,6 +2063,43 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
           for (const equiv of expandEquivalents(normaliseCode(raw), equivalents)) alternatives.push(equiv);
         }
         if (alternatives.some((alt) => satisfiedForPrereq.has(alt) || chosen.has(alt))) continue;
+
+        /**
+         * The catalog offers school work instead. Nothing is booked.
+         *
+         * This is where MATH 112 came from. CS 124 says "Three years of high
+         * school mathematics or MATH 112", the closure could only see the
+         * course, and a three hour algebra course went into the first term of
+         * every Computer Science plan, a student holding AP Calculus credit
+         * included. Booking it also crowded CS 124 out of that term, so the
+         * first semester of a Computer Science plan held no Computer Science.
+         */
+        if (group.priorLearning) {
+          if (priorLearningChecks.some((c) => c.code === code && c.alsoAccepts === group.priorLearning)) {
+            continue;
+          }
+          const already = heldNaming(group.any.map(normaliseCode));
+          const nearby = already ? [] : heldInSubjectOf(group.any.map(normaliseCode));
+          const named = group.any.join(' or ');
+          // Named credit the catalog is silent about is still worth saying. It
+          // tells a student the plan read their transcript, and it stops short
+          // of claiming the catalog lets that credit stand in for the course.
+          const heldLine = nearby.length === 0
+            ? ''
+            : ` You have ${nearby.join(' and ')}. The catalog does not say ${nearby.length === 1 ? 'that replaces' : 'those replace'} ${named}.`;
+          priorLearningChecks.push({
+            code,
+            alternatives: [...group.any],
+            alsoAccepts: group.priorLearning,
+            text: spec.text,
+            settled: already ? 'held' : 'ask',
+            message: already
+              ? `${code} takes ${group.priorLearning} or ${named}. You already have ${already}, and the catalog lists ${named} as its prerequisite, so this plan does not book it.`
+              : `${code} takes ${group.priorLearning} or ${named}. This plan does not book ${named}.${heldLine} Add it if you did not do that at school.`,
+          });
+          continue;
+        }
+
         const pick = best(alternatives.filter((alt) => byCode.has(alt)));
         if (!pick) {
           unresolvedPrereqs.push({ code, needs: group.any.join(' or ') });
@@ -1976,6 +2117,9 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   if (addedPrerequisites.length > 0) {
     notes.push(`Added ${addedPrerequisites.length} course${addedPrerequisites.length === 1 ? '' : 's'} that the degree page does not list but the catalog requires as prerequisites.`);
   }
+  // Every one of these, not a sample. Each is a course the student may have to
+  // add, and the one left out is the one they needed.
+  for (const check of priorLearningChecks) notes.push(check.message);
   for (const item of unresolvedPrereqs.slice(0, 3)) {
     notes.push(`${item.code} lists ${item.needs} as a prerequisite, and ${unresolvedPrereqs.length === 1 ? 'that is' : 'those are'} not in the catalog snapshot.`);
   }
@@ -2146,7 +2290,24 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
 
     const termCredits = planCreditRange(here, ctx);
     if (here.length > 0 && termCredits.min < credits.min) {
-      noteList.push(`${describeCreditTotal(termCredits)}, below the ${credits.min} you asked for. Nothing else was eligible this term.`);
+      /**
+       * Why a light term is light, where the reason is a rule and not a gap.
+       *
+       * "Nothing else was eligible this term" is true of a Computer Science
+       * Fall 2029 holding CS 464 alone, and it sends a student looking for a
+       * course to add. The real answer is that CS 464 needs senior standing,
+       * this plan reaches 90 hours only here, and nothing left to take is
+       * something they could have taken sooner.
+       */
+      const gated = here
+        .filter((code) => ctx.prereqs?.get(code)?.standing)
+        .map((code) => `${code} (${ctx.prereqs?.get(code)?.standing} standing)`)
+        .sort();
+      noteList.push(
+        gated.length > 0 && gated.length === here.length
+          ? `${describeCreditTotal(termCredits)}, below the ${credits.min} you asked for. ${gated.join(' and ')} could not come earlier, and nothing else was left.`
+          : `${describeCreditTotal(termCredits)}, below the ${credits.min} you asked for. Nothing else was eligible this term.`,
+      );
     }
     if (isLastTerm && hardHere > maxHard) {
       noteList.push(`${hardHere} of these are in the hardest band at this school. They landed together because this is the last term in the plan.`);
@@ -2317,7 +2478,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   }
 
   // --- report --------------------------------------------------------------
-  const plannedTerms: PlannedTerm[] = terms.map((term) => {
+  const everyTerm: PlannedTerm[] = terms.map((term) => {
     const codes = placed.get(term.id) ?? [];
     const load = termLoad(codes, grades);
     const weighed = codes.filter((code) => grades.get(code)?.difficulty != null).length;
@@ -2349,8 +2510,36 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
     };
   });
 
-  if (terms.length > 8) {
-    notes.push(`This plan runs ${terms.length} terms. The board labels everything past the eighth as year four.`);
+  /**
+   * The plan stops at the last term that holds a course.
+   *
+   * The board names its own last column, so a horizon term the plan never
+   * filled was printed as the end of the plan: a Computer Science freshman read
+   * "104 to 106 cr through Spring 2030" over a Spring 2030 holding nothing.
+   * That is eight semesters of enrolment and eight semesters of tuition on the
+   * screen for seven semesters of work.
+   *
+   * Spreading the work into that term instead was the other option and it does
+   * not help here. What is left at the end is held back by class standing and
+   * by prerequisite depth, not by room: moving courses later would only make
+   * two thin terms out of one thin term and one full one. An empty term is kept
+   * only when the whole plan is empty, so the board still has a column to drop
+   * a course into.
+   */
+  let lastUsed = -1;
+  everyTerm.forEach((term, index) => {
+    if (term.codes.length > 0) lastUsed = index;
+  });
+  const plannedTerms = lastUsed < 0 ? everyTerm.slice(0, 1) : everyTerm.slice(0, lastUsed + 1);
+  if (lastUsed >= 0 && lastUsed < everyTerm.length - 1) {
+    const spare = everyTerm.length - 1 - lastUsed;
+    notes.push(
+      `This plan finishes in ${everyTerm[lastUsed].label}, ${spare} term${spare === 1 ? '' : 's'} before the ${input.horizon.gradSeason} ${input.horizon.gradYear} you asked for.`,
+    );
+  }
+
+  if (plannedTerms.length > 8) {
+    notes.push(`This plan runs ${plannedTerms.length} terms. The board labels everything past the eighth as year four.`);
   }
 
   const placedCodes = plannedTerms.flatMap((t) => t.codes);
@@ -2436,6 +2625,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
     pools,
     notPlaced,
     addedPrerequisites,
+    priorLearning: priorLearningChecks,
     satisfiedByPriorCredit,
     credits: { planned: plannedCredits, prior: priorCredits, total: totalCredits, degreeTotal, unaccounted },
     offering: { unknown: offeringUnknown, seenOnlyInSnapshot, message: offeringMessage },
@@ -2644,7 +2834,7 @@ export function validatePlan(
 
       const spec = ctx.prereqs?.get(code);
       if (spec) {
-        const { missing, uncertain } = match(spec, earlier, sameTerm, equivalents);
+        const { missing, uncertain, priorLearning } = match(spec, earlier, sameTerm, equivalents);
         for (const group of missing) {
           const escapes = spec.escape !== null;
           issues.push({
@@ -2664,6 +2854,24 @@ export function validatePlan(
             severity: 'warning',
             title: 'Check this one',
             message: `The catalog says: ${group.source} We could not tell whether you need all of those or one of them.`,
+            termId: term.id,
+            courseId,
+          });
+        }
+        /**
+         * The half of a prerequisite that is about the student, not the board.
+         *
+         * A warning and not an error, the same way a catalog escape is, because
+         * the board is not wrong: CS 124 in a first term is legal for anybody
+         * who did three years of mathematics at school. Calling it an error
+         * sends every student to fix an order that is already fine.
+         */
+        for (const group of priorLearning ?? []) {
+          issues.push({
+            id: `ap-priorlearning-${term.id}-${courseId}-${group.any.join('-')}`,
+            severity: 'warning',
+            title: 'Only you can answer this one',
+            message: `${code} takes ${group.priorLearning} or ${group.any.join(' or ')}. Nothing earlier on the board has the course, and no record here says what you did at school.`,
             termId: term.id,
             courseId,
           });

@@ -418,6 +418,24 @@ button:disabled {
   color: var(--ink-mid);
 }
 
+/* Said where a heading would be, for the 358 areas the catalog page leaves
+   unheaded. Dimmer and italic so it cannot be mistaken for the page's own
+   words, which is what the old invented placeholder was mistaken for. The
+   first-child rule above sets the brighter label colour, so this has to match
+   its specificity to win. */
+.requirement-row > div > span.requirement-unnamed {
+  font-style: italic;
+  color: var(--ink-dim);
+}
+
+p.requirement-unnamed {
+  margin: 0;
+  font-size: var(--fs-micro);
+  font-style: italic;
+  line-height: 1.4;
+  color: var(--ink-dim);
+}
+
 /* --------------------------------------------------------------------------
    Elective pools: "take 18 hours from this list".
 
@@ -985,10 +1003,16 @@ button:disabled {
   scrollbar-color: #2b3648 transparent;
 }
 
+/* min-width:0 for the same reason as .requirement-list > *: a grid item's
+   automatic minimum size is its min-content width, so the card sized itself to
+   its own contents and ignored the column. In the 228px columns the 768px
+   layout uses, that pushed the card 112px past the column's right edge and cut
+   the credit hours off every card in the leftmost one. */
 .course-card {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   min-height: 52px;
   padding: 7px 7px 7px 0;
   border: 1px solid #1c2636;
@@ -1037,9 +1061,12 @@ button:disabled {
   margin-top: 6px;
 }
 
+/* overflow:hidden so a code longer than the column clips at the card's edge
+   instead of painting over the credits and the menu button. */
 .course-card-body {
   min-width: 0;
   flex: 1 1 auto;
+  overflow: hidden;
   text-align: left;
   background: none;
   border: 0;
@@ -1047,10 +1074,14 @@ button:disabled {
   color: inherit;
 }
 
+/* Wraps, because this row holds the code, the badges and the credit hours, and
+   a 228px column cannot fit all three. The code stays on the first line and
+   whatever does not fit drops under it rather than being cut off. */
 .course-card-code-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 2px 6px;
   min-width: 0;
 }
 
@@ -1095,10 +1126,11 @@ button:disabled {
   color: #93a4bb;
 }
 
+/* margin-left:auto keeps the hours at the right end of whichever line they end
+   up on, which is where they sat when they were a sibling of the card body. */
 .course-card-credits {
   flex: 0 0 auto;
-  align-self: flex-start;
-  margin-top: 2px;
+  margin-left: auto;
   font-size: var(--fs-micro);
   color: var(--ink-dim);
   white-space: nowrap;

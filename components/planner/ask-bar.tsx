@@ -15,7 +15,7 @@
  */
 
 import { useRef, useState } from 'react';
-import { routeQuestion, type AskContext, type Source } from '@/lib/planner/ask-router';
+import { routeQuestion, suggestedQuestions, type AskContext, type Source } from '@/lib/planner/ask-router';
 import type { School } from '@/lib/planner/onboarding';
 
 interface Answered {
@@ -24,13 +24,22 @@ interface Answered {
   grounded: boolean;
 }
 
-/** Four openers that are true for any school. The last uses the school's own word. */
-function suggestionsFor(school: School | undefined): string[] {
+/**
+ * The openers for a school this planner holds no data for.
+ *
+ * Every question goes upstream there, so these are questions upstream answers:
+ * the registrar's own processes, which live on published pages. The drop
+ * wording is the school's own word for it.
+ *
+ * For a school the planner does hold, the chips come from the router instead,
+ * which is the fix for a hardcoded list that promised three questions the
+ * router did not answer. See suggestedQuestions.
+ */
+function generalOpeners(school: School | undefined): string[] {
   return [
-    'Where does my first class meet?',
-    'Which term is hardest?',
-    'What do I need before CS 225?',
     school?.dropTerm === 'Q-drop' ? 'How many Q-drops do I get?' : 'How do I drop a class?',
+    'When is tuition due?',
+    'How do I contact my advisor?',
   ];
 }
 
@@ -42,7 +51,6 @@ export function AskBar({
   /** Null when the planner holds no data for this school, which sends everything upstream. */
   buildContext: () => Promise<AskContext | null>;
 }) {
-  const suggestions = suggestionsFor(school);
   const [question, setQuestion] = useState('');
   const [asked, setAsked] = useState('');
   const [answers, setAnswers] = useState<Answered[]>([]);
@@ -50,11 +58,36 @@ export function AskBar({
   const [open, setOpen] = useState(false);
   const [chips, setChips] = useState(false);
   /**
+   * Empty until the board has been read once. Nothing is offered before then,
+   * because a chip is a promise and this component cannot tell which questions
+   * the router will answer until it has the board the router answers from.
+   */
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  /**
    * Only a grounded upstream answer becomes the next question's `prior`. TRU's
    * prompt treats prior as its own previous text, so handing it an answer this
    * file wrote locally would have it reason about words it never said.
    */
   const lastUpstream = useRef<string | null>(null);
+
+  /**
+   * Ask the router what it can answer about this board, on focus.
+   *
+   * Built on focus rather than on load because the context costs a read of the
+   * whole catalog, and the board changes underneath it every time a card moves,
+   * so a list built once would go stale. The loader caches, so only the first
+   * focus of a session waits.
+   */
+  async function refreshSuggestions() {
+    try {
+      const ctx = await buildContext();
+      setSuggestions(ctx ? suggestedQuestions(ctx) : generalOpeners(school));
+    } catch {
+      // A failed read of the catalog is not worth a broken console on focus,
+      // and the bar is still usable: the field forwards whatever is typed.
+      setSuggestions([]);
+    }
+  }
 
   async function upstream(q: string): Promise<Answered> {
     try {
@@ -169,7 +202,7 @@ export function AskBar({
         </section>
       )}
 
-      {chips && !question.trim() && (
+      {chips && suggestions.length > 0 && !question.trim() && (
         <div className="askbar-suggestions">
           {suggestions.map((s) => (
             <button
@@ -200,7 +233,10 @@ export function AskBar({
           className="askbar-input"
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
-          onFocus={() => setChips(true)}
+          onFocus={() => {
+            setChips(true);
+            void refreshSuggestions();
+          }}
           onBlur={() => window.setTimeout(() => setChips(false), 120)}
           placeholder={`Ask anything about ${school?.short ?? 'your school'}`}
           aria-label={`Ask a question about ${school?.short ?? 'your school'}`}

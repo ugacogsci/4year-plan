@@ -222,6 +222,14 @@ export interface IllinoisCore {
   grades: Map<string, IllinoisGradeSummary> | null;
   sections: Map<string, SectionSummary> | null;
   programs: IllinoisProgramSummary[] | null;
+  /**
+   * "Credit is not given for both MATH 221 and either MATH 220 or MATH 234."
+   * This lived only in the full catalog adapter, which resolves well after the
+   * plan is generated, so no generated plan ever had it checked and a student
+   * holding MATH 220 was handed MATH 221 with both counted toward the degree.
+   * It is small enough to load with the core and be right from the first plan.
+   */
+  exclusions: Map<string, string[]> | null;
   /** Artifact names that were not there, for the header to name out loud. */
   missing: string[];
 }
@@ -440,15 +448,16 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
   if (corePromise) return corePromise;
   const started = (async (): Promise<IllinoisCore> => {
     const meta = await loadIllinoisMeta();
-    const [index, prereqs, grades, sections, programs] = await Promise.all([
+    const [index, prereqs, grades, sections, programs, exclusions] = await Promise.all([
       indexResult(),
       artifact<Record<string, PrereqSpec>>('prereqs.json'),
       artifact<IllinoisGradeSummary[]>('grades.json'),
       artifact<IllinoisSectionsFile>('sections.json'),
       artifact<IllinoisProgramSummary[]>('programs.json'),
+      artifact<Record<string, string[]>>('exclusions.json'),
     ]);
 
-    const results = [index, prereqs, grades, sections, programs];
+    const results = [index, prereqs, grades, sections, programs, exclusions];
     if (!meta || results.some(transient)) corePromise = null;
 
     const rows = index.ok ? index.value : [];
@@ -459,6 +468,7 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
     if (!grades.ok) missing.push('grades.json');
     if (!sections.ok) missing.push('sections.json');
     if (!programs.ok) missing.push('programs.json');
+    if (!exclusions.ok) missing.push('exclusions.json');
 
     return {
       meta,
@@ -466,6 +476,7 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
       byId: new Map(rows.map((c) => [c.id, c])),
       byCode: new Map(rows.map((c) => [normCode(c.code), c])),
       prereqs: prereqs.ok ? new Map(Object.entries(prereqs.value)) : null,
+      exclusions: exclusions.ok ? new Map(Object.entries(exclusions.value)) : null,
       grades: grades.ok ? new Map(grades.value.map((row) => [normCode(row.code), row])) : null,
       /**
        * The term is stamped back onto every row here rather than stored once

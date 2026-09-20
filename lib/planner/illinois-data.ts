@@ -11,6 +11,7 @@ import type {
   ProgramRequirements,
   RequirementArea,
   RequirementGroup,
+  RequirementRow,
 } from './scheduler';
 
 /**
@@ -257,6 +258,22 @@ export interface PrereqGroup {
   shape: 'single' | 'or' | 'one-of' | 'bare-comma' | 'paren-sequence';
   /** The clause this group came from, verbatim, so an error can quote it. */
   source: string;
+  /**
+   * A way to meet this group that is not a course, in the catalog's own words.
+   *
+   * CS 124's whole prerequisite is "Three years of high school mathematics or
+   * MATH 112". Reading only the code books MATH 112, a three hour algebra
+   * course, into the first term of every Computer Science plan, including plans
+   * for students whose transcript already carries two semesters of calculus.
+   * Nothing the crawl can see says what a student did in high school, so the
+   * clause is carried to somebody who can answer it instead of being decided
+   * here.
+   *
+   * 25 of the 9,440 catalog rows mention high school in their prerequisite
+   * sentence and 13 offer it as an alternative to a course. Null everywhere
+   * else.
+   */
+  priorLearning: string | null;
 }
 
 /** Illinois's own undergraduate classifications, lowest first. */
@@ -818,6 +835,48 @@ const ESC_STANDING =
   /\b(?:freshman|sophomore|junior|senior|graduate|undergraduate)\s+(?:standing|status)\b/i;
 const ABBREV = /(?:\be\.g|\bi\.e|\betc|\bvs|\bDr|\bMr|\bMs|\bJr|\bSr|\bPh\.D|\bU\.S|\bNo)$/i;
 
+/** School work done before university, which no crawl of the catalog can see. */
+const PRIOR_LEARNING = /\bhigh school\b/i;
+
+/**
+ * The clause offering school work instead of the course, or null.
+ *
+ * Read off the whole segment rather than off one item, because the catalog
+ * writes the two halves either way round: CS 124 has "Three years of high
+ * school mathematics or MATH 112" and CHEM 101 has "2.5 years of high school
+ * mathematics, or credit or concurrent registration in MATH 112".
+ *
+ * Three conditions, each of which stops a wrong reading that the corpus
+ * actually contains. The clause has to be one of the alternatives the "or"
+ * joins, so "MATH 112 and three years of high school chemistry", where the
+ * school work is an extra condition, is not read as a way out of the course.
+ * It has to name no course itself, so that "a placement score showing high
+ * school achievement equivalent to FR 102" is left alone: that is a rule about
+ * one specific course rather than a general alternative. And something else in
+ * the segment has to be a course, or there is nothing for it to be an
+ * alternative to. CHEM 102's "Credit in or exemption from MATH 112; one year of
+ * high school chemistry" fails the first test at the semicolon, which is right:
+ * its MATH 112 is required outright.
+ *
+ * 13 of the catalog's 9,440 rows come out of this. Twelve are school work.
+ * The thirteenth is FR 204, whose placement-score clause names FR 103, a course
+ * Illinois no longer lists, so the clause reads as naming no course and passes
+ * the second test. The reading is still right for that row: the catalog does
+ * offer a placement score instead of FR 203, and this planner cannot check a
+ * placement score either.
+ */
+function priorLearningClause(seg: string, known: Set<string>, self: string): string | null {
+  const parts = seg
+    .split(/\s*,?\s+or\s+/i)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return null;
+  const clause = parts.find((p) => PRIOR_LEARNING.test(p) && codesIn(p, known, self).length === 0);
+  if (!clause) return null;
+  if (!parts.some((p) => p !== clause && codesIn(p, known, self).length > 0)) return null;
+  return clause.replace(/[.;,]+$/, '');
+}
+
 /**
  * Stripping the anchor tags left a space before every mark, so the raw text
  * reads "MATH 220 , MATH 221 ." and a naive comma split produces empty items.
@@ -1080,6 +1139,7 @@ export function parsePrerequisites(
           confidence: 'high',
           shape: itemCodes.length > 1 ? 'or' : 'single',
           source: trimmed,
+          priorLearning: null,
         });
       }
 
@@ -1096,12 +1156,26 @@ export function parsePrerequisites(
             confidence: 'high',
             shape: 'one-of',
             source: tail.trim(),
+            priorLearning: null,
           });
         }
       }
 
       const produced = groups.slice(before);
       if (produced.length === 0) continue;
+
+      /**
+       * Only when the segment produced exactly one group.
+       *
+       * "Three years of high school mathematics or MATH 112" is one clause
+       * about one course, and every row in the corpus written this way parses
+       * to a single group. A segment that produced two groups would have to be
+       * read to know which of them the school work replaces, and stamping both
+       * would let a student past a course the catalog does require.
+       */
+      if (produced.length === 1) {
+        produced[0].priorLearning = priorLearningClause(seg, known, self);
+      }
 
       // Step 6, the two shapes we can read but cannot be sure of.
       const bareComma =
@@ -1158,14 +1232,20 @@ export function parsePrerequisites(
  * A per-group check calls that satisfied by ECON 102 alone and tells a student
  * they are ready for a course they are not. With at most 11 alternatives per
  * group and 8 groups, augmenting paths are instant.
+ *
+ * Three buckets come back, not two. `missing` blocks a course. `uncertain` is a
+ * reading we could not verify and only warns. `priorLearning` is a group the
+ * catalog says school work can also satisfy, which nothing here can check, so
+ * it neither blocks nor passes silently: it is handed to the caller to put in
+ * front of the student. See PrereqGroup.priorLearning.
  */
 export function missingPrerequisiteGroups(
   spec: PrereqSpec | null,
   earlier: Set<string>,
   sameTerm: Set<string>,
   equivalents: Map<string, string[]>,
-): { missing: PrereqGroup[]; uncertain: PrereqGroup[] } {
-  if (!spec || spec.groups.length === 0) return { missing: [], uncertain: [] };
+): { missing: PrereqGroup[]; uncertain: PrereqGroup[]; priorLearning: PrereqGroup[] } {
+  if (!spec || spec.groups.length === 0) return { missing: [], uncertain: [], priorLearning: [] };
 
   const earlierN = new Set([...earlier].map(normCode));
   const sameTermN = new Set([...sameTerm].map(normCode));
@@ -1205,15 +1285,20 @@ export function missingPrerequisiteGroups(
 
   const missing: PrereqGroup[] = [];
   const uncertain: PrereqGroup[] = [];
+  const priorLearning: PrereqGroup[] = [];
   spec.groups.forEach((group, i) => {
     if (satisfied.has(i)) return;
     // A low-confidence group is a reading we could not verify, so it warns
     // rather than blocks. Blocking on a guess is worse than not blocking.
     if (group.confidence === 'low') uncertain.push(group);
+    // The catalog offers school work instead of this course. Blocking here
+    // books a remedial course for every student on the degree, including one
+    // who arrives with two semesters of calculus.
+    else if (group.priorLearning) priorLearning.push(group);
     else missing.push(group);
   });
 
-  return { missing, uncertain };
+  return { missing, uncertain, priorLearning };
 }
 
 // ---------------------------------------------------------------------------
@@ -2720,6 +2805,31 @@ export function adaptIllinoisPrograms(
   let genEdCategories = 0;
   let genEdCategoriesFromCampus = 0;
 
+  /**
+   * The courses that carry one campus general education category, built once.
+   *
+   * A category is the same list of courses on every degree page that names it,
+   * so the same array is handed to each of them. The crawled corpus holds 2,380
+   * of these groups and only 9 distinct lists behind them. Rebuilding the list
+   * per program would put 365,594 duplicate row objects in the browser for no
+   * gain.
+   */
+  const genEdMembers = new Map<string, RequirementRow[]>();
+  const genEdMembersFor = (genEd: string[]): RequirementRow[] => {
+    const key = [...genEd].sort().join('|');
+    const cached = genEdMembers.get(key);
+    if (cached) return cached;
+    const wanted = new Set(genEd);
+    const rows: RequirementRow[] = [];
+    for (const course of byCode.values()) {
+      if (!course.tags.some((tag) => wanted.has(tag))) continue;
+      rows.push({ code: normCode(course.code), title: course.title, credits: course.credits ?? 0 });
+    }
+    rows.sort((a, b) => a.code.localeCompare(b.code));
+    genEdMembers.set(key, rows);
+    return rows;
+  };
+
   for (const raw of file.programs ?? []) {
     if (!raw?.id) continue;
 
@@ -2773,13 +2883,48 @@ export function adaptIllinoisPrograms(
             // of 170 courses cannot inflate the bar.
             choose: rule.kind === 'choose' ? rule.n : rule.kind === 'pool' ? rule.n : null,
             courses: rule.choices.map((c) => ({
-              code: c.codes[0],
+              code: normCode(c.codes[0]),
               title: c.title,
               // Zero when the catalog has no credit line for the course. It
               // understates progress, which is the safe direction: the other
               // way tells a student they have graduated.
               credits: c.credits ?? 0,
+              // "CS 210 or CS 211" is one row of the degree page and either
+              // course satisfies it. Each alternative is priced from the
+              // catalog, because CS 210 is two hours and CS 211 is three.
+              alternatives: c.codes.slice(1).map((code) => ({
+                code: normCode(code),
+                credits: byCode.get(normCode(code))?.credits ?? c.credits ?? 0,
+              })),
             })),
+          });
+        }
+
+        /**
+         * A campus general education category, so the area can show progress.
+         *
+         * Without this the nine gen-ed blocks on a degree page never reached
+         * areaProgress and the row read "0 hr" on every Illinois degree while
+         * RHET 105, CWL 207, GER 261, SHS 222 and AAS 246 sat on the board
+         * satisfying it. Membership is the catalog's own gen-ed tagging, and
+         * the cap is the size the degree page or the campus table states, so
+         * four humanities courses still count as the six hours the category
+         * asks for and not as twelve.
+         *
+         * The area keeps whatever hour total the degree page prints for it,
+         * which for 292 of the 295 areas holding a gen-ed table is none. Adding
+         * the categories up would leave out the ones sized in courses and
+         * produce a total no page states, and a student reading "12 of 12"
+         * would think they were finished with three Cultural Studies categories
+         * still open.
+         */
+        if (rule.kind === 'gened' && rule.genEd.length > 0) {
+          schedulerGroups.push({
+            label,
+            choose: rule.courses,
+            courses: genEdMembersFor(rule.genEd),
+            cap: { hours: rule.hours, courses: rule.courses },
+            broad: true,
           });
         }
       }

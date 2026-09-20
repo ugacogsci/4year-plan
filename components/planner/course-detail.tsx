@@ -128,9 +128,41 @@ export function CourseDetail({
   const bands = core?.meta?.bands ?? null;
   const term = core?.meta?.term ?? null;
 
+  /**
+   * The grade row this course's numbers really come from.
+   *
+   * A class taught under two codes is reported to the registrar under one of
+   * them. CS 468 has no row of its own while the identical ADV 492 has 114
+   * grades, and 503 undergraduate courses are in that position: the index gives
+   * them the twin's difficulty, so the board colours and sorts them, and this
+   * panel used to say "No grade history is published for this course" three
+   * inches away. Reading the twin's row here is right, because it is the same
+   * class and the same students, and the line below says whose row it is.
+   */
+  const twin = summary
+    ? null
+    : (detail?.course?.sameAs ?? [])
+        .map((code) => ({ code: normCode(code), row: core?.grades?.get(normCode(code)) ?? null }))
+        .find((t) => t.row !== null) ?? null;
+  const gradeRow = summary ?? twin?.row ?? null;
+
+  /**
+   * A course whose history is under a code this page cannot name.
+   *
+   * The catalog row lists the codes a class is also taught under, but not
+   * always the one the registrar filed under: AAS 201's row names AFRO 201 and
+   * the grades are under PS 201. The index knows, because the build reads the
+   * whole cross-listing class, and it hands down a difficulty. So a difficulty
+   * with no row to explain it means the history exists somewhere under this
+   * class's other names, and "no grade history is published for this course"
+   * would be the wrong thing to say about it.
+   */
+  const elsewhere =
+    !gradeRow && !loading && core?.byCode.get(code)?.difficulty !== undefined;
+
   const grade =
-    summary && bands
-      ? difficultyLabel(toGradeRow(summary, course.title, detail?.instructors ?? []), bands)
+    gradeRow && bands
+      ? difficultyLabel(toGradeRow(gradeRow, course.title, detail?.instructors ?? []), bands)
       : { kind: 'none' as const };
 
   const rows = detail?.sections?.sections ?? [];
@@ -235,7 +267,17 @@ export function CourseDetail({
       <section className="inspector-block">
         <h5>How it has gone</h5>
         {grade.kind === 'none' ? (
-          <p className="quiet">No grade history is published for this course.</p>
+          /* Still the honest line where there is no row anywhere, and it waits
+             for the shard: a course whose numbers are filed under its other
+             code has none of them until the catalog row naming that code has
+             loaded, and saying so in the meantime would be wrong for a second. */
+          <p className="quiet">
+            {loading
+              ? 'Reading the grade history.'
+              : elsewhere
+                ? 'This class is taught under more than one code, and Illinois filed its grade history under one of the others. The numbers are not published under this code.'
+                : 'No grade history is published for this course.'}
+          </p>
         ) : (
           <>
             <p>
@@ -243,15 +285,21 @@ export function CourseDetail({
               {grade.aPct !== null && `, ${grade.aPct}% A grades`}
               {grade.withdrawPct !== null && `, ${grade.withdrawPct}% withdrew`}.
             </p>
+            {twin && (
+              <p className="quiet">
+                Illinois filed those grades under {twin.code}. It is this same class under its
+                other code.
+              </p>
+            )}
             <p className="quiet">
               {grade.n.toLocaleString()} {plural(grade.n, 'student')} across {grade.sections}{' '}
               {plural(grade.sections, 'section')}.
               {grade.thin && ` Fewer than ${THIN_SAMPLE} students, so read it loosely.`}
             </p>
-            {detail?.instructors && detail.instructors.length > 0 && (
+            {detail?.instructors && detail.instructors.length > 0 && gradeRow && (
               <p className="quiet">
                 {visibleInstructors(
-                  toGradeRow(summary!, course.title, detail.instructors),
+                  toGradeRow(gradeRow, course.title, detail.instructors),
                 )
                   .slice(0, 4)
                   .map(

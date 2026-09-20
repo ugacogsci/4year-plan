@@ -103,6 +103,14 @@ export function CourseCard({
         className="course-card-body focus-visible:outline-none"
         onClick={() => onSelect(course.id, term.id)}
       >
+        {/* The credit hours are the last thing on this row rather than a
+            sibling of this button.
+            Outside it they were one more thing the card's single line had to
+            fit, and in the 228px columns the 768px layout uses it could not:
+            the card held its own min-content width, ran 112px past the column,
+            and the credits on every card in the leftmost column were clipped
+            off. On this row they keep their place at the right and wrap under
+            the code when the column is too narrow for both. */}
         <span className="course-card-code-row">
           <span className="course-card-code">{course.code}</span>
           {course.pathwayRole === 'required' && !electiveOf && (
@@ -127,10 +135,10 @@ export function CourseCard({
               check
             </span>
           )}
+          <span className="course-card-credits">{creditLabel(course)}</span>
         </span>
         <span className="course-card-title">{course.title}</span>
       </button>
-      <span className="course-card-credits">{creditLabel(course)}</span>
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={`Options for ${course.code}`}
