@@ -1,6 +1,6 @@
 {
   "school": "illinois",
-  "fetchedAt": "2026-09-20T11:20:58.723Z",
+  "fetchedAt": "2026-09-20T17:50:41.337Z",
   "sources": {
     "catalog": {
       "source": "catalog.illinois.edu/courses-of-instruction",
@@ -19,8 +19,8 @@
     },
     "sections": {
       "source": "https://courses.illinois.edu/schedule/2026/fall",
-      "fetchedAt": "2026-09-20T11:20:12.221Z",
-      "courses": 63
+      "fetchedAt": "2026-09-20T12:33:30.079Z",
+      "courses": 4452
     },
     "map": {
       "method": "all-MiniLM-L6-v2 (384d) -> umap(k=15, min_dist=0.1) -> rank-normalised 4..96",
@@ -33,7 +33,7 @@
     "label": "Fall 2026",
     "year": 2026,
     "term": "fall",
-    "fetchedAt": "2026-09-20T11:20:12.221Z"
+    "fetchedAt": "2026-09-20T12:33:30.079Z"
   },
   "bands": {
     "typical": 9,
@@ -52,7 +52,7 @@
     "withGrades": 2293,
     "withoutGrades": 3817,
     "orphanGradeRows": 104,
-    "withSections": 31,
+    "withSections": 3034,
     "sectionTerm": "Fall 2026",
     "programs": 308,
     "programsWithCourses": 294,
@@ -71,7 +71,7 @@
     "positioned": 6110,
     "withPrereqSpec": 3796,
     "withGrades": 2293,
-    "withSections": 31,
+    "withSections": 3034,
     "programs": 308,
     "programsWithCourses": 294,
     "programCourseRows": 13276,
@@ -279,8 +279,8 @@
   ],
   "artifacts": {
     "index.json": {
-      "raw": 1160995,
-      "gzip": 189046
+      "raw": 1164495,
+      "gzip": 189647
     },
     "prereqs.json": {
       "raw": 1231861,
@@ -291,8 +291,8 @@
       "gzip": 34063
     },
     "sections.json": {
-      "raw": 15321,
-      "gzip": 1898
+      "raw": 1542152,
+      "gzip": 118985
     },
     "programs.json": {
       "raw": 104989,

@@ -134,10 +134,26 @@ function parseCourse(html) {
       const spans = [...String(timeCells[i] ?? '').matchAll(/<span>([^<]+)<\/span>/g)].map((m) => text(m[1]));
       const where = splitRoom(text(locCells[i] ?? ''));
       const days = text(dayCells[i] ?? '') || null;
-      if (!days && !where.building && !spans.length) continue;
-      meetings.push({ days: orNull(days), start: orNull(spans[0]), end: orNull((spans[1] ?? '').replace(/^-/, '')), room: where.room, building: where.building });
+      const meeting = {
+        days: orNull(days),
+        start: orNull(spans[0]),
+        end: orNull((spans[1] ?? '').replace(/^-/, '')),
+        room: where.room,
+        building: where.building,
+      };
+      // A meeting whose every field is a placeholder is not a meeting. Keeping
+      // it put an empty row FIRST on 53 sections, and the flat fields below read
+      // meetings[0], so a course that meets TR 9:30 rendered as "time arranged
+      // with the instructor".
+      if (!meeting.days && !meeting.start && !meeting.building) continue;
+      meetings.push(meeting);
     }
-    const first = meetings[0] ?? { days: null, start: null, end: null, room: null, building: null };
+    // The summary fields describe the meeting a student plans around, which is
+    // the first one with a clock time. A section with an asynchronous part
+    // listed first was summarised as "time arranged" while it really met TR
+    // at 9:30. meetings[] still carries every part.
+    const first = meetings.find((m) => m.start) ?? meetings[0]
+      ?? { days: null, start: null, end: null, room: null, building: null };
     const times = [first.start, first.end].filter(Boolean);
     const place = { room: first.room, building: first.building };
 
