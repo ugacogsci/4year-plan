@@ -40,6 +40,8 @@ import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 export interface ElectiveOf {
   label: string;
   detail: string;
+  /** A pool pick reads "from a list"; a filler the plan chose reads "elective". */
+  kind?: 'pool' | 'elective';
 }
 
 interface CourseCardProps {
@@ -49,6 +51,8 @@ interface CourseCardProps {
   selected: boolean;
   issues: PlanIssue[];
   electiveOf?: ElectiveOf;
+  /** Opens the chooser for an elective slot. The card body does this in place of selecting. */
+  onChoose?: (courseId: string, termId: string) => void;
   onSelect: (courseId: string, termId: string) => void;
   onMove: (courseId: string, fromTermId: string, toTermId: string) => void;
   onRemove: (courseId: string, termId: string) => void;
@@ -68,6 +72,7 @@ export function CourseCard({
   selected,
   issues,
   electiveOf,
+  onChoose,
   onSelect,
   onMove,
   onRemove,
@@ -101,7 +106,11 @@ export function CourseCard({
       <button
         type="button"
         className="course-card-body focus-visible:outline-none"
-        onClick={() => onSelect(course.id, term.id)}
+        onClick={() =>
+          electiveOf?.kind === 'elective' && onChoose
+            ? onChoose(course.id, term.id)
+            : onSelect(course.id, term.id)
+        }
       >
         {/* The credit hours are the last thing on this row rather than a
             sibling of this button.
@@ -119,8 +128,15 @@ export function CourseCard({
             </span>
           )}
           {electiveOf && (
-            <span className="course-elective" title={`${electiveOf.label}. ${electiveOf.detail}`}>
-              <ListChecks /> from a list
+            <span
+              className={cn('course-elective', electiveOf.kind === 'elective' && 'is-slot')}
+              title={
+                electiveOf.kind === 'elective'
+                  ? `${electiveOf.detail} Tap the card to choose a different course for this slot.`
+                  : `${electiveOf.label}. ${electiveOf.detail}`
+              }
+            >
+              <ListChecks /> {electiveOf.kind === 'elective' ? 'elective · tap to choose' : 'from a list'}
             </span>
           )}
           {highestIssue && (

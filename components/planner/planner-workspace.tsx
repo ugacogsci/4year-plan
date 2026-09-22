@@ -23,6 +23,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
+  Info,
   Save,
   Sparkles,
   Undo2,
@@ -35,7 +36,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { AskBar } from './ask-bar';
+import { BotLauncher, BotPanel } from './advisor';
 import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
 import { groupIssues, PlanHealthList } from './plan-health';
@@ -53,6 +54,7 @@ import {
   type LoadedProgram,
 } from './illinois-source';
 import {
+  electiveOptions,
   describeCreditProgress,
   describeCreditTotal,
   generatePlan,
@@ -67,9 +69,9 @@ import {
 } from '@/lib/planner/autoplan';
 import { livePools, poolShortfalls } from './live-pools';
 import { plural } from './words';
-import { examCourses, useExamCredit } from './exam-credit';
+import { examCourses, examElectiveHours, useExamCredit } from './exam-credit';
 import { areaProgress } from '@/lib/planner/scheduler';
-import { sectionRowsFrom, type AskContext, type PlannedCourse } from '@/lib/planner/ask-router';
+import { routeQuestion, sectionRowsFrom, type AskContext, type PlannedCourse } from '@/lib/planner/ask-router';
 import { createSamplePlan, sampleCourses, samplePrograms } from '@/lib/planner/sample-data';
 import {
   getPlanCredits,
@@ -81,8 +83,34 @@ import {
 } from '@/lib/planner/rules';
 import type { Course, PlanIssue, PlanState } from '@/lib/planner/types';
 import { clearAnswers, schoolById, summarize, type OnboardingAnswers } from '@/lib/planner/onboarding';
+import { normalizeCourseCode, transcriptCodes } from '@/lib/planner/transcript';
+import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
+import { TranscriptUpload } from './transcript-upload';
+import { loadIllinoisCourseDetail } from '@/lib/planner/illinois-load';
+import type { AdvisorExecutor } from '@/lib/planner/advisor';
 
 const STORAGE_KEY = 'four-year-planner-v3';
+
+/**
+ * Whether a course answers a search: by code, by title, or by the name of its
+ * department, so "accounting" finds ACCY and not only the titles that spell it.
+ */
+function matchesQuery(course: Course, q: string): boolean {
+  return (
+    course.code.toLowerCase().includes(q) ||
+    course.title.toLowerCase().includes(q) ||
+    subjectMatches(course.cluster, q)
+  );
+}
+
+/** Forget the board saved on this device. Onboarding calls it, so a new setup builds a new plan. */
+export function clearSavedPlan(): void {
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* nothing to forget */
+  }
+}
 
 /**
  * The calendar year of a term, from its id ("2027-spring") or its label
@@ -109,6 +137,26 @@ const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
  * the reason itself, and a student who saw "standing-unmet" was reading a field
  * name out of somebody's source code.
  */
+/**
+ * How loudly each kind of shortfall is said.
+ *
+ * Every unsatisfied requirement used to be an error, so a student saw thirteen
+ * red rows where two needed a decision and the rest were the page's own words
+ * and the hours the elective slots had already filled. The catalog's quoted
+ * sentence and a filled hours block are notes; a course the credit rule shut
+ * out is a warning; a list the plan could not fill is the error it always was.
+ */
+const SEVERITY_BY_REASON: Record<string, PlanIssue['severity']> = {
+  'not-parsed': 'info',
+  'filled-by-electives': 'info',
+  'no-course-data': 'warning',
+  excluded: 'warning',
+  'constraint-unmet': 'warning',
+  'no-candidates': 'error',
+  'hours-short': 'error',
+  'did-not-fit': 'error',
+};
+
 const NOT_PLACED_WORD: Record<string, string> = {
   'chain-too-long': 'the prerequisite chain does not fit in the years left',
   'no-room': 'no term had room before graduation',
@@ -131,6 +179,10 @@ interface PlanReport {
   pools: PoolReport[];
   unsatisfied: UnsatisfiedRequirement[];
   notPlaced: NotPlaced[];
+  /** Held credit a required course displaced. Out of the headline, and in the review list. */
+  forfeited: Array<{ held: string; for: string }>;
+  /** Courses the plan chose to reach the degree total, each with its reason. */
+  electives: Array<{ code: string; why: string }>;
   firstTermId: string;
 }
 
@@ -140,10 +192,19 @@ interface Stored {
   programId: string | null;
   plan: PlanState;
   minimumTermCredits: number;
+  /** Null, or absent on boards saved before the control existed, means balanced. */
+  targetTermCredits?: number | null;
   careerInterests: string;
 }
 
-export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
+export function PlannerWorkspace({
+  answers,
+  onAnswersChange,
+}: {
+  answers?: OnboardingAnswers;
+  /** The shell owns the answers. A transcript added from the rail goes back through here. */
+  onAnswersChange?: (next: OnboardingAnswers) => void;
+}) {
   const school = schoolById(answers?.schoolId ?? null);
   const isIllinois = school?.id === 'illinois';
   const { status, core, coverage } = useIllinoisCore(Boolean(isIllinois));
@@ -173,10 +234,28 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
   const [targetTermId, setTargetTermId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [finderOpen, setFinderOpen] = useState(false);
+  /** The bot's column. Opening it folds the finder, so the board keeps its room. */
+  const [chatOpen, setChatOpen] = useState(false);
+  const botName = school?.bot ?? 'Assistant';
   const [dragUsable, setDragUsable] = useState(true);
   const [narrow, setNarrow] = useState(false);
   const [railOpen, setRailOpen] = useState(false);
   const [minimumTermCredits, setMinimumTermCredits] = useState(12);
+  /** The elective slot being chosen for, if any. Drives the finder's list. */
+  const [chooser, setChooser] = useState<{ termId: string; courseId: string } | null>(null);
+  /**
+   * The board as of the last commit, for the advisor's tools.
+   *
+   * Two tool calls in one step run back to back, and the second has to see
+   * the board the first one changed. React state has not re-rendered by then,
+   * so every commit the advisor makes writes here as well, and every read of
+   * the board by a tool comes from here.
+   */
+  const planRef = useRef<PlanState | null>(null);
+  useEffect(() => {
+    planRef.current = plan;
+  }, [plan]);
+  const [targetTermCredits, setTargetTermCredits] = useState<number | null>(null);
   const [careerInterests, setCareerInterests] = useState(answers?.after ?? '');
   const [status_, setStatus] = useState('');
   const restored = useRef<Stored | null>(null);
@@ -259,6 +338,7 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
       // oxlint-disable-next-line react/react-compiler
       setProgramId(parsed.programId ?? null);
       setMinimumTermCredits(parsed.minimumTermCredits ?? 12);
+      setTargetTermCredits(parsed.targetTermCredits ?? null);
       if (parsed.careerInterests) setCareerInterests(parsed.careerInterests);
     } catch {
       /* a corrupt entry is not worth failing the app over; a fresh plan follows */
@@ -332,8 +412,12 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
       // The exams the student reported, priced against the registrar's own
       // table and handed to the scheduler as courses already earned. Without
       // this the picker was decoration: a student could name four AP passes and
-      // still be planned as though they were starting from nothing.
-      examCourses(answers?.exams ?? [], examCredit.entries),
+      // still be planned as though they were starting from nothing. The
+      // transcript's lines ride in the same list, already matched against the
+      // catalog and checked by the student when they reviewed the reading.
+      [...examCourses(answers?.exams ?? [], examCredit.entries), ...transcriptCodes(answers?.transcript)],
+      Boolean(answers?.transcript),
+      examElectiveHours(answers?.exams ?? [], examCredit.entries),
     );
     const term = core.meta?.term;
     const horizon = readHorizon(answers?.timeline ?? '', {
@@ -346,11 +430,18 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
       context,
       prior,
       horizon,
-      preferences: { creditsPerTerm: { min: minimumTermCredits, target: 15, max: 18 } },
+      preferences: { creditsPerTerm: { min: minimumTermCredits, target: targetTermCredits, max: 18 } },
       programId: loaded.summary.id,
+      // The published total is what the plan must reach; the blocks alone
+      // name 82 of Finance's 124 credits. The student's own words rank the
+      // electives that fill the rest.
+      degreeTotal: loaded.summary.totalCredits ?? loaded.program.totalCredits ?? null,
+      interests: [answers?.studying ?? '', answers?.after ?? '', careerInterests].join(' '),
+      programName: loaded.program.name,
     });
 
     setPlan(generated.plan);
+    setChooser(null);
     setTargetTermId(generated.plan.terms[0]?.id ?? '');
     setPlanNotes(generated.notes);
     /**
@@ -362,6 +453,8 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
       pools: generated.pools,
       unsatisfied: generated.unsatisfied,
       notPlaced: generated.notPlaced,
+      forfeited: generated.forfeited,
+      electives: generated.electives,
       firstTermId: generated.plan.terms[0]?.id ?? '',
     });
     setUndoStack([]);
@@ -370,7 +463,7 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
         ? 'Plan built. Open the review list to see what it could not do.'
         : 'Plan built. Nothing to review.',
     );
-  }, [isIllinois, core, context, loaded, answers, byCode, minimumTermCredits, examCredit]);
+  }, [isIllinois, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests]);
 
   useEffect(() => {
     if (plan) return;
@@ -454,6 +547,16 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
       else byReason.set(row.reason, [row]);
     }
     return [
+      // Held credit the plan gave up for a required course. A student who sees
+      // MATH 221 booked next to the MATH 234 they marked as taken needs the
+      // reason where the other reasons are, not only in the caveats.
+      ...report.forfeited.map((f) => ({
+        id: `ap-forfeit-${f.held}`,
+        severity: 'info' as const,
+        title: 'Credit that will not count',
+        message: `${f.for} is required, and the catalog says credit is not given for both ${f.for} and ${f.held}. Your ${f.held} will not count toward this degree once ${f.for} is taken, so it is left out of the total.`,
+        termId: firstTerm,
+      })),
       ...[
         ...report.unsatisfied.filter((u) => !poolIds.has(u.requirementId)),
         ...poolShortfalls(pools),
@@ -461,7 +564,7 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
         // The reason is part of the id because one requirement can be reported
         // twice: once for having no candidate courses and once for not fitting.
         id: `unmet-${u.requirementId}-${u.reason}`,
-        severity: 'error' as const,
+        severity: SEVERITY_BY_REASON[u.reason] ?? ('error' as const),
         // An area-wide requirement carries the area's own name as its label, so
         // the pair would read "Technical Electives: Technical Electives".
         title: u.label && u.label !== u.areaLabel ? `${u.areaLabel}: ${u.label}` : u.areaLabel,
@@ -534,10 +637,14 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
     const shell = { degreeTotal: activeProgramTotal, unaccounted: null };
     if (!plan || !context) return { planned: empty, prior: 0, total: empty, ...shell };
     const planned = planCreditRange(boardCodes, context);
-    // Illinois credit for work done elsewhere is only ever counted through a
-    // course code the catalog lists, so hours the student holds are the hours
-    // of the courses they marked. Nothing is assumed from an unmatched line.
-    const prior = planCreditRange([...completedCodes], context).min;
+    // Hours the student holds are the hours of the courses they marked, plus
+    // the exam credit the registrar grants by subject rather than by course
+    // ("ECON 1--"), which is real credit with no card to sit on. Nothing is
+    // assumed from a transfer line the catalog could not match.
+    const forfeited = new Set((report?.forfeited ?? []).map((f) => normCode(f.held)));
+    const prior =
+      planCreditRange([...completedCodes].filter((code) => !forfeited.has(code)), context).min +
+      examElectiveHours(answers?.exams ?? [], examCredit.entries);
     return {
       planned,
       prior,
@@ -549,7 +656,7 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
       },
       ...shell,
     };
-  }, [plan, context, boardCodes, completedCodes, activeProgramTotal]);
+  }, [plan, context, boardCodes, completedCodes, activeProgramTotal, answers, examCredit, report]);
 
   /** The short form, for the board bar and the rail's big number. */
   const totalCredits = useMemo(() => {
@@ -581,8 +688,8 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
         if (course) have.add(normCode(course.code));
       }
     }
-    return areaProgress(loaded.program, have);
-  }, [loaded, plan, completedCodes, courseIndex]);
+    return areaProgress(loaded.program, have, core?.equivalents ?? undefined);
+  }, [loaded, plan, completedCodes, courseIndex, core]);
 
   /**
    * Which pool each planned course is filling, and what that pool still wants.
@@ -593,7 +700,7 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
    * hours were asked for.
    */
   const electiveOf = useMemo(() => {
-    const map = new Map<string, { label: string; detail: string }>();
+    const map = new Map<string, { label: string; detail: string; kind?: 'pool' | 'elective' }>();
     for (const pool of pools) {
       // Written with the number each half carries. Hardcoding "courses" made
       // every one-course list read "1 courses from this list", and 63 pools
@@ -607,11 +714,16 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
         : `${pool.count} chosen from this list. The catalog does not say how many to take.`;
       for (const code of pool.picked) {
         const course = byCode.get(normCode(code));
-        if (course) map.set(course.id, { label: pool.label, detail });
+        if (course) map.set(course.id, { label: pool.label, detail, kind: 'pool' });
       }
     }
+    // The plan's own fillers, so a student can tell a suggestion from a rule.
+    for (const pick of report?.electives ?? []) {
+      const course = byCode.get(normCode(pick.code));
+      if (course && !map.has(course.id)) map.set(course.id, { label: 'Elective', detail: pick.why, kind: 'elective' });
+    }
     return map;
-  }, [pools, byCode]);
+  }, [pools, byCode, report]);
 
   /**
    * What the map paints, in priority order, capped at 240.
@@ -626,8 +738,32 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return null;
     let n = 0;
-    for (const c of catalog) if (`${c.code} ${c.title}`.toLowerCase().includes(q)) n += 1;
+    for (const c of catalog) if (matchesQuery(c, q)) n += 1;
     return n;
+  }, [catalog, searchQuery]);
+
+  /**
+   * The matches themselves, as a list the student can read.
+   *
+   * The map answers a search by lighting dots, and forty accountancy courses
+   * light one cluster the size of a thumbnail. The list is the same matches
+   * with their codes and titles, catalog-wide rather than capped at the 240 the
+   * map paints. Code matches first, because a student who typed "ACCY 3" wants
+   * ACCY 301 above a title that mentions accountancy.
+   */
+  const searchResults = useMemo((): Course[] => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    const byCodeHit: Course[] = [];
+    const byTitleHit: Course[] = [];
+    const bySubjectHit: Course[] = [];
+    for (const c of catalog) {
+      if (c.code.toLowerCase().includes(q)) byCodeHit.push(c);
+      else if (c.title.toLowerCase().includes(q)) byTitleHit.push(c);
+      else if (subjectMatches(c.cluster, q)) bySubjectHit.push(c);
+      if (byCodeHit.length + byTitleHit.length + bySubjectHit.length >= 400) break;
+    }
+    return [...byCodeHit, ...byTitleHit, ...bySubjectHit].slice(0, 80);
   }, [catalog, searchQuery]);
 
   const mapCourses = useMemo(() => {
@@ -646,7 +782,7 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
     if (query) {
       for (const course of catalog) {
         if (picked.size >= MAP_LIMIT) break;
-        if (`${course.code} ${course.title}`.toLowerCase().includes(query)) take(course);
+        if (matchesQuery(course, query)) take(course);
       }
     }
 
@@ -698,6 +834,78 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
       termId === 'completed'
         ? `${course.code} marked as already taken.`
         : `${course.code} added to ${plan.terms.find((t) => t.id === termId)?.label ?? 'the plan'}.`,
+    );
+  }
+
+  /**
+   * The slot's chooser: everything the student could take in that term, best
+   * fit first, read off the board as it stands. Built only while a slot is open,
+   * because it walks the whole catalog against the board's prerequisites.
+   */
+  const chooserOptions = useMemo((): Course[] => {
+    if (!chooser || !plan || !context || !loaded) return [];
+    const prior = readPriorCredit(
+      answers?.transferText ?? '',
+      answers?.exams.length ?? 0,
+      byCode,
+      [...examCourses(answers?.exams ?? [], examCredit.entries), ...transcriptCodes(answers?.transcript)],
+      Boolean(answers?.transcript),
+      examElectiveHours(answers?.exams ?? [], examCredit.entries),
+    );
+    return electiveOptions({
+      context,
+      requirements: loaded.blocks,
+      plan,
+      termId: chooser.termId,
+      prior,
+      interests: [answers?.studying ?? '', answers?.after ?? '', careerInterests].join(' '),
+      programName: loaded.program.name,
+      limit: 80,
+    })
+      .map((option) => byCode.get(normCode(option.code)))
+      .filter((course): course is Course => Boolean(course));
+  }, [chooser, plan, context, loaded, answers, byCode, examCredit, careerInterests]);
+
+  function openChooser(courseId: string, termId: string) {
+    setChooser({ termId, courseId });
+    setSearchQuery('');
+    setFinderOpen(true);
+  }
+
+  /** Put the course the student chose into the slot, in place of the plan's suggestion. */
+  function chooseElective(termId: string, oldId: string, newId: string) {
+    if (!plan) return;
+    const oldCourse = courseIndex.get(oldId);
+    const course = courseIndex.get(newId);
+    if (!course) return;
+    if (plannedCourseIds.has(newId) || plan.completedCourseIds.includes(newId)) {
+      setStatus(`${course.code} is already in the plan.`);
+      return;
+    }
+    commit({
+      ...plan,
+      terms: plan.terms.map((t) =>
+        t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === oldId ? newId : id)) } : t,
+      ),
+    });
+    // The slot stays an elective slot, now holding what the student chose.
+    noteElectiveSwap(oldCourse?.code ?? '', course.code, 'You chose it for this elective slot.');
+    setChooser(null);
+    setSelectedCourseId(newId);
+    setStatus(`${course.code} replaces ${oldCourse?.code ?? 'the elective'} in ${plan.terms.find((t) => t.id === termId)?.label ?? 'that term'}.`);
+  }
+
+  /** An elective slot keeps being a slot after its course is swapped. */
+  function noteElectiveSwap(oldCode: string, newCode: string, why: string) {
+    setReport((current) =>
+      current
+        ? {
+            ...current,
+            electives: current.electives.map((e) =>
+              normCode(e.code) === normCode(oldCode) ? { code: newCode, why } : e,
+            ),
+          }
+        : current,
     );
   }
 
@@ -760,6 +968,373 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
       ?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
 
+  // ---- the advisor's hands and eyes ----------------------------------------
+
+  /**
+   * Everything a tool reads, as of the last render. A ref rather than a
+   * closure so that an executor created on one render does not answer from a
+   * board three edits old.
+   */
+  const live = useRef({
+    courseIndex,
+    byCode,
+    context,
+    loaded,
+    catalog,
+    electiveOf,
+    issues,
+    core,
+    completedCodes,
+    minimumTermCredits,
+    targetTermCredits,
+    totalCredits,
+    activeProgramTotal,
+  });
+  useEffect(() => {
+    live.current = {
+      courseIndex,
+      byCode,
+      context,
+      loaded,
+      catalog,
+      electiveOf,
+      issues,
+      core,
+      completedCodes,
+      minimumTermCredits,
+      targetTermCredits,
+      totalCredits,
+      activeProgramTotal,
+    };
+  });
+
+  type Role = 'required' | 'from a list' | 'elective slot' | 'added';
+  function roleOf(course: Course): Role {
+    const slot = live.current.electiveOf.get(course.id);
+    if (slot?.kind === 'elective') return 'elective slot';
+    if (slot?.kind === 'pool') return 'from a list';
+    if (course.pathwayRole === 'required') return 'required';
+    return 'added';
+  }
+  function markOf(course: Course): string {
+    const role = roleOf(course);
+    return role === 'from a list' ? `from a list: ${live.current.electiveOf.get(course.id)?.label ?? ''}` : role;
+  }
+  function creditsOf(course: Course): string {
+    const max = course.creditsMax ?? course.credits;
+    return max > course.credits ? `${course.credits} to ${max} cr` : `${course.credits} cr`;
+  }
+
+  /**
+   * The board, written for the advisor before every step.
+   *
+   * Every card carries why it is there, because that is what decides what
+   * the advisor may touch: an elective slot is fair game, a required course
+   * needs the student's yes. The review list is summarised so a question
+   * about a flag can be answered from what the flag says.
+   */
+  function describeBoard(): string {
+    const L = live.current;
+    const board = planRef.current;
+    if (!board || !L.loaded) return 'No plan is on the board yet.';
+    const lines: string[] = [];
+    const last = board.terms[board.terms.length - 1]?.label ?? '';
+    lines.push(
+      `Degree: ${L.loaded.program.name}, University of Illinois. Published total: ${L.activeProgramTotal ?? 'not published'} credits. Plan: ${L.totalCredits} through ${last}.`,
+    );
+    lines.push(
+      'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [added] the student put it there.',
+    );
+    const taken = board.completedCourseIds
+      .map((id) => L.courseIndex.get(id)?.code)
+      .filter((code): code is string => Boolean(code));
+    lines.push(`Already taken, counted but not on the board: ${taken.length > 0 ? taken.join(', ') : 'none'}.`);
+    lines.push(
+      `Preferences: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'balanced'}, never above 18.`,
+    );
+    for (const term of board.terms) {
+      const courses = term.courseIds
+        .map((id) => L.courseIndex.get(id))
+        .filter((c): c is Course => Boolean(c));
+      const credits = L.context
+        ? describeCreditTotal(planCreditRange(courses.map((c) => c.code), L.context)).replace(/ credits?$/, ' cr')
+        : `${courses.reduce((n, c) => n + c.credits, 0)} cr`;
+      lines.push(
+        `${term.label} (${credits}): ${
+          courses.length > 0
+            ? courses.map((c) => `${c.code} [${markOf(c)}] ${creditsOf(c)} ${c.title}`).join('; ')
+            : 'empty'
+        }`,
+      );
+    }
+    const groups = groupIssues(L.issues);
+    const toReview = groups.filter((g) => g.severity !== 'info');
+    const notes = groups.length - toReview.length;
+    lines.push(`Review list: ${toReview.length} to review, ${notes} notes.`);
+    for (const g of groups.slice(0, 10)) {
+      lines.push(`- [${g.severity}] ${g.title}: ${g.message.slice(0, 160)}`);
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * One tool, run against the real board.
+   *
+   * Every change goes through validatePlan and the same credit rules the
+   * board applies to a drag, so the advisor cannot place a course the finder
+   * would refuse. What it cannot decide is whether a required course should
+   * go, and that is the `confirmed` flag the model may only set after the
+   * student has said yes.
+   */
+  const advisorExecute: AdvisorExecutor = async (name, input) => {
+    const L = live.current;
+    const board = planRef.current;
+    const ctx = L.context;
+    if (!board || !ctx || !L.loaded) return { ok: false, error: 'The board is not loaded yet.' };
+    const str = (key: string) => (typeof input[key] === 'string' ? (input[key] as string).trim() : '');
+    const termList = board.terms.map((t) => t.label).join(', ');
+    const termOf = (label: string) => {
+      const want = label.toLowerCase().replace(/\s+/g, ' ').trim();
+      return (
+        board.terms.find((t) => t.label.toLowerCase() === want) ??
+        board.terms.find((t) => t.label.toLowerCase().includes(want) || want.includes(t.label.toLowerCase())) ??
+        null
+      );
+    };
+    const courseOf = (raw: string) => L.byCode.get(normalizeCourseCode(raw)) ?? null;
+    const holding = (courseId: string) => board.terms.find((t) => t.courseIds.includes(courseId)) ?? null;
+    const describe = (c: Course) => ({
+      code: c.code,
+      title: c.title,
+      credits: creditsOf(c),
+      subject: subjectName(c.cluster),
+      gen_ed: c.tags,
+      difficulty_0_to_100: L.core?.grades?.get(normCode(c.code))?.difficulty ?? null,
+      on_board_in: holding(c.id)?.label ?? null,
+      already_taken: L.completedCodes.has(normCode(c.code)),
+    });
+    const withCourseIn = (base: PlanState, courseId: string, termId: string): PlanState => ({
+      ...base,
+      terms: base.terms.map((t) => (t.id === termId ? { ...t, courseIds: [...t.courseIds, courseId] } : t)),
+    });
+    const without = (base: PlanState, courseId: string): PlanState => ({
+      ...base,
+      terms: base.terms.map((t) => ({ ...t, courseIds: t.courseIds.filter((id) => id !== courseId) })),
+    });
+    /** Why a candidate board is not allowed, or what to warn about if it is. */
+    const check = (candidate: PlanState, course: Course, termId: string) => {
+      const found = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18 });
+      const mine = found.filter((i) => i.courseId === course.id && i.termId === termId);
+      const blocking = mine
+        .filter((i) => /^ap-(prereq-(?!check)|standing-|exclusion-|duplicate-)/.test(i.id) && i.severity !== 'info')
+        .map((i) => i.message);
+      for (const i of mine) if (i.id.startsWith('ap-exclusion-')) blocking.push(i.message);
+      const warnings = mine.filter((i) => !blocking.includes(i.message)).map((i) => i.message);
+      const term = candidate.terms.find((t) => t.id === termId);
+      const codes = (term?.courseIds ?? []).map((id) => L.courseIndex.get(id)?.code).filter((c): c is string => Boolean(c));
+      const credits = planCreditRange(codes, ctx);
+      if (credits.min > 18) blocking.push(`${term?.label ?? 'That term'} would be ${describeCreditTotal(credits)}, over the 18 allowed.`);
+      return { blocking: [...new Set(blocking)], warnings: [...new Set(warnings)], credits: describeCreditTotal(credits) };
+    };
+    const apply = (next: PlanState, focusTerm: string | null, select: string | null, status: string) => {
+      commit(next);
+      planRef.current = next;
+      if (select) setSelectedCourseId(select);
+      if (focusTerm) setFocusTermId(focusTerm);
+      setStatus(status);
+    };
+    const guard = (course: Course, verb: string) => {
+      const role = roleOf(course);
+      if ((role === 'required' || role === 'from a list') && input.confirmed !== true) {
+        const why =
+          role === 'required'
+            ? `${course.code} is required by this degree`
+            : `${course.code} fills the list "${L.electiveOf.get(course.id)?.label ?? ''}"`;
+        return {
+          ok: false,
+          needs_confirmation: true,
+          reason: `${why}. Tell the student that and ask whether they want it ${verb} anyway; call again with confirmed true only after they say yes.`,
+        };
+      }
+      return null;
+    };
+
+    switch (name) {
+      case 'search_courses': {
+        const q = str('query').toLowerCase();
+        if (!q) return { ok: false, reason: 'Give a query.' };
+        const limit = Math.min(Math.max(Number(input.limit) || 12, 1), 40);
+        const term = str('term') ? termOf(str('term')) : null;
+        if (str('term') && !term) return { ok: false, reason: `No term called "${str('term')}" is on the board. The terms are ${termList}.` };
+        const subjects = new Set(
+          L.loaded.blocks.flatMap((b) => (b.rule.kind === 'all' || b.rule.kind === 'choose' || b.rule.kind === 'pool' ? b.rule.choices.flatMap((c) => c.codes) : [])).map((code) => normCode(code).split(' ')[0]),
+        );
+        const hits = L.catalog
+          .filter((c) => matchesQuery(c, q))
+          .sort((a, b) => {
+            const score = (c: Course) =>
+              (c.code.toLowerCase().includes(q) ? 4 : 0) +
+              (c.title.toLowerCase().includes(q) ? 2 : 0) +
+              (subjects.has(c.cluster) ? 1 : 0) +
+              (c.tags.length > 0 ? 1 : 0) -
+              (holding(c.id) || L.completedCodes.has(normCode(c.code)) ? 3 : 0);
+            return score(b) - score(a) || a.code.localeCompare(b.code);
+          });
+        if (!term) return { ok: true, matches: hits.length, results: hits.slice(0, limit).map(describe) };
+        const results: Array<ReturnType<typeof describe> & { eligible_in: string; warnings: string[] }> = [];
+        const refused: string[] = [];
+        for (const c of hits) {
+          if (results.length >= limit || refused.length > 40) break;
+          if (holding(c.id) || L.completedCodes.has(normCode(c.code))) continue;
+          const verdict = check(withCourseIn(board, c.id, term.id), c, term.id);
+          if (verdict.blocking.length === 0) results.push({ ...describe(c), eligible_in: term.label, warnings: verdict.warnings });
+          else refused.push(`${c.code}: ${verdict.blocking[0]}`);
+        }
+        return {
+          ok: true,
+          matches: hits.length,
+          note: `Only courses the student could take in ${term.label} are listed.`,
+          results,
+          not_eligible: refused.slice(0, 6),
+        };
+      }
+      case 'course_details': {
+        const c = courseOf(str('code'));
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        const detail = await loadIllinoisCourseDetail(c.code);
+        const key = normCode(c.code);
+        const grade = L.core?.grades?.get(key);
+        const prereq = L.core?.prereqs?.get(key);
+        return {
+          ok: true,
+          ...describe(c),
+          role_on_board: holding(c.id) ? roleOf(c) : null,
+          description: detail?.course?.description ?? null,
+          prerequisite_sentence: prereq?.text || detail?.course?.prereqText || null,
+          prerequisite_groups: prereq?.groups?.map((g) => g.any) ?? [],
+          standing_required: prereq?.standing ?? null,
+          grade_history: grade
+            ? { gpa: grade.gpa, a_percent: grade.aPct, drop_percent: grade.withdrawPct, difficulty_0_to_100: grade.difficulty, students: grade.n }
+            : null,
+          sections_in_crawled_term: L.core?.sections?.get(key)?.total ?? 0,
+          does_not_count_with: L.core?.exclusions?.get(key) ?? [],
+        };
+      }
+      case 'term_summary': {
+        const term = termOf(str('term'));
+        if (!term) return { ok: false, reason: `No term called "${str('term')}" is on the board. The terms are ${termList}.` };
+        const courses = term.courseIds.map((id) => L.courseIndex.get(id)).filter((c): c is Course => Boolean(c));
+        const credits = describeCreditTotal(planCreditRange(courses.map((c) => c.code), ctx));
+        let load: string | null = null;
+        const ask = await askContext();
+        if (ask) {
+          const routed = routeQuestion(`How does ${term.label} look?`, ask);
+          if (routed.kind === 'local') load = routed.answer.text;
+        }
+        return {
+          ok: true,
+          term: term.label,
+          credits,
+          courses: courses.map((c) => ({ ...describe(c), role: roleOf(c) })),
+          review: L.issues.filter((i) => i.termId === term.id).map((i) => ({ severity: i.severity, title: i.title, message: i.message })),
+          load,
+        };
+      }
+      case 'add_course': {
+        const c = courseOf(str('code'));
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        const already = holding(c.id);
+        if (already) return { ok: false, reason: `${c.code} is already on the board in ${already.label}.` };
+        if (board.completedCourseIds.includes(c.id)) return { ok: false, reason: `${c.code} is marked as already taken.` };
+        const wanted = str('term') ? termOf(str('term')) : null;
+        if (str('term') && !wanted) return { ok: false, reason: `No term called "${str('term')}" is on the board. The terms are ${termList}.` };
+        const refusals: string[] = [];
+        for (const t of wanted ? [wanted] : board.terms) {
+          const candidate = withCourseIn(board, c.id, t.id);
+          const verdict = check(candidate, c, t.id);
+          if (verdict.blocking.length === 0) {
+            apply(candidate, t.id, c.id, `${c.code} added to ${t.label} by ${botName}.`);
+            return { ok: true, summary: `${c.code} added to ${t.label}`, term: t.label, term_credits: verdict.credits, warnings: verdict.warnings };
+          }
+          refusals.push(`${t.label}: ${verdict.blocking[0]}`);
+        }
+        return { ok: false, reason: wanted ? refusals[0].slice(refusals[0].indexOf(': ') + 2) : `${c.code} is not eligible in any term. ${refusals.join(' ')}` };
+      }
+      case 'remove_course': {
+        const c = courseOf(str('code'));
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        const t = holding(c.id);
+        if (!t) return { ok: false, reason: `${c.code} is not on the board.` };
+        const stop = guard(c, 'removed');
+        if (stop) return stop;
+        const candidate = without(board, c.id);
+        const knockOn = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18 })
+          .filter((i) => i.severity === 'error' && /^ap-prereq-(?!check)/.test(i.id))
+          .map((i) => i.message);
+        apply(candidate, t.id, null, `${c.code} removed from ${t.label} by ${botName}.`);
+        const left = candidate.terms.find((x) => x.id === t.id);
+        const credits = describeCreditTotal(planCreditRange((left?.courseIds ?? []).map((id) => L.courseIndex.get(id)?.code ?? ''), ctx));
+        return { ok: true, summary: `${c.code} removed from ${t.label}`, term: t.label, term_credits: credits, now_missing_a_prerequisite: knockOn };
+      }
+      case 'replace_course': {
+        const oldC = courseOf(str('remove'));
+        const newC = courseOf(str('add'));
+        if (!oldC) return { ok: false, reason: `${str('remove') || 'That'} is not in the Illinois catalog.` };
+        if (!newC) return { ok: false, reason: `${str('add') || 'That'} is not in the Illinois catalog.` };
+        const t = holding(oldC.id);
+        if (!t) return { ok: false, reason: `${oldC.code} is not on the board.` };
+        const already = holding(newC.id);
+        if (already) return { ok: false, reason: `${newC.code} is already on the board in ${already.label}.` };
+        if (board.completedCourseIds.includes(newC.id)) return { ok: false, reason: `${newC.code} is marked as already taken.` };
+        const stop = guard(oldC, 'replaced');
+        if (stop) return stop;
+        const candidate: PlanState = {
+          ...board,
+          terms: board.terms.map((x) => (x.id === t.id ? { ...x, courseIds: x.courseIds.map((id) => (id === oldC.id ? newC.id : id)) } : x)),
+        };
+        const verdict = check(candidate, newC, t.id);
+        if (verdict.blocking.length > 0) return { ok: false, reason: `${newC.code} cannot go in ${t.label}: ${verdict.blocking.join(' ')}` };
+        if (roleOf(oldC) === 'elective slot') noteElectiveSwap(oldC.code, newC.code, `${botName} chose it for this elective slot.`);
+        apply(candidate, t.id, newC.id, `${newC.code} replaces ${oldC.code} in ${t.label}.`);
+        return { ok: true, summary: `${oldC.code} → ${newC.code} in ${t.label}`, term: t.label, term_credits: verdict.credits, warnings: verdict.warnings };
+      }
+      case 'move_course': {
+        const c = courseOf(str('code'));
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        const from = holding(c.id);
+        if (!from) return { ok: false, reason: `${c.code} is not on the board.` };
+        const to = termOf(str('term'));
+        if (!to) return { ok: false, reason: `No term called "${str('term')}" is on the board. The terms are ${termList}.` };
+        if (to.id === from.id) return { ok: false, reason: `${c.code} is already in ${to.label}.` };
+        const candidate = withCourseIn(without(board, c.id), c.id, to.id);
+        const verdict = check(candidate, c, to.id);
+        if (verdict.blocking.length > 0) return { ok: false, reason: `${c.code} cannot move to ${to.label}: ${verdict.blocking.join(' ')}` };
+        apply(candidate, to.id, c.id, `${c.code} moved to ${to.label} by ${botName}.`);
+        return { ok: true, summary: `${c.code} moved from ${from.label} to ${to.label}`, term_credits: verdict.credits, warnings: verdict.warnings };
+      }
+      case 'planner_answer': {
+        const ask = await askContext();
+        if (!ask) return { handled: false, note: 'The planner data is not loaded.' };
+        const routed = routeQuestion(str('question'), ask);
+        if (routed.kind === 'local') {
+          return { handled: true, text: routed.answer.text, sources: routed.answer.sources, grounded: routed.answer.grounded };
+        }
+        return { handled: false, note: 'Not a question the board can answer. Try university_answer.' };
+      }
+      case 'university_answer': {
+        const res = await fetch('/api/ask', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ question: str('question'), school: school?.id ?? 'illinois' }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { text?: string; error?: string; sources?: unknown; grounded?: boolean };
+        return { ok: res.ok, text: data.text || data.error || 'No answer came back.', sources: Array.isArray(data.sources) ? data.sources : [], grounded: Boolean(data.grounded) };
+      }
+      default:
+        return { ok: false, error: `Unknown tool ${String(name)}.` };
+    }
+  };
+
   function undo() {
     const previous = undoStack.at(-1);
     if (!previous) return;
@@ -776,6 +1351,7 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
       programId,
       plan,
       minimumTermCredits,
+      targetTermCredits,
       careerInterests,
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
@@ -939,6 +1515,7 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
   }
 
   const grouped = groupIssues(issues);
+  const actionable = grouped.filter((g) => g.severity !== 'info').length;
   const errors = grouped.filter((g) => g.severity === 'error').length;
   const warnings = grouped.filter((g) => g.severity === 'warning').length;
   const years = plan ? [...new Set(plan.terms.map((t) => t.year))] : [];
@@ -954,6 +1531,7 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
     <main
       className="planner-app"
       data-finder={finderOpen ? 'open' : 'closed'}
+      data-chat={chatOpen ? 'open' : 'closed'}
       data-rail={railOpen ? 'open' : 'closed'}
     >
       <output aria-live="polite" className="sr-only">
@@ -1020,6 +1598,20 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
         creditNote={creditNote}
         degreeTotal={activeProgramTotal}
         priorCount={plan?.completedCourseIds.length ?? 0}
+        transcript={
+          <TranscriptUpload
+            school={school}
+            record={answers?.transcript ?? null}
+            compact
+            onChange={(next) => {
+              if (!answers || !onAnswersChange) return;
+              onAnswersChange({ ...answers, transcript: next });
+              // Prior credit changed, so the board is rebuilt from it. The same
+              // move as choosing a different degree.
+              setPlan(null);
+            }}
+          />
+        }
         areas={areas}
         programs={programOptions}
         programId={programId}
@@ -1031,6 +1623,8 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
         }}
         minimumTermCredits={minimumTermCredits}
         onMinimumChange={setMinimumTermCredits}
+        targetTermCredits={targetTermCredits}
+        onTargetChange={setTargetTermCredits}
         careerInterests={careerInterests}
         onCareerChange={setCareerInterests}
         caveats={caveats}
@@ -1063,6 +1657,15 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
             )}
           </div>
 
+          <BotLauncher
+            botName={botName}
+            open={chatOpen}
+            onToggle={() => {
+              if (!chatOpen) setFinderOpen(false);
+              setChatOpen((current) => !current);
+            }}
+          />
+
           <Popover>
             <PopoverTrigger
               render={
@@ -1073,17 +1676,22 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
                 />
               }
             >
+              {/* Only errors and warnings are "to review". The rest are notes:
+                  the catalog's own words and where the elective hours went, and
+                  a red "13 to review" over nine of those sent students hunting
+                  for problems that were not there. */}
               {grouped.length === 0 ? (
                 <>
                   <CheckCircle2 /> Nothing to review
                 </>
-              ) : errors ? (
+              ) : actionable === 0 ? (
                 <>
-                  <AlertCircle /> {grouped.length} to review
+                  <Info /> {grouped.length} {grouped.length === 1 ? 'note' : 'notes'}
                 </>
               ) : (
                 <>
-                  <AlertTriangle /> {grouped.length} to review
+                  {errors ? <AlertCircle /> : <AlertTriangle />} {actionable} to review
+                  {grouped.length > actionable ? `, ${grouped.length - actionable} ${grouped.length - actionable === 1 ? 'note' : 'notes'}` : ''}
                 </>
               )}
             </PopoverTrigger>
@@ -1155,6 +1763,7 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
                 onAddCourse={openFinderFor}
                 onDropCourse={addCourse}
                 onFindAlternatives={selectPlanned}
+                onChooseElective={openChooser}
                 electiveOf={electiveOf}
               />
             );
@@ -1164,6 +1773,18 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
 
       <CourseExplorer
         searchHits={searchHits}
+        results={searchResults}
+        chooser={
+          chooser && plan
+            ? {
+                termLabel: plan.terms.find((t) => t.id === chooser.termId)?.label ?? 'that term',
+                replacing: courseIndex.get(chooser.courseId)?.code ?? 'the elective',
+                options: chooserOptions,
+                onPick: (courseId) => chooseElective(chooser.termId, chooser.courseId, courseId),
+                onCancel: () => setChooser(null),
+              }
+            : null
+        }
         courses={mapCourses}
         catalogSize={catalog.length}
         core={core}
@@ -1194,7 +1815,24 @@ export function PlannerWorkspace({ answers }: { answers?: OnboardingAnswers }) {
         * rebuilt from the new board, and an answer still in flight from the old
         * degree resolves into an unmounted component and is dropped.
         */}
-      <AskBar key={programId ?? 'no-degree'} school={school} buildContext={askContext} />
+      <BotPanel
+        key={programId ?? 'no-degree'}
+        botName={botName}
+        schoolShort={school?.short ?? 'your school'}
+        programId={programId}
+        board={describeBoard}
+        execute={advisorExecute}
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        openers={[
+          'How do I drop a class?',
+          'When is tuition due?',
+          'Where do I find my academic advisor?',
+          'I really like history. Can you work some in?',
+          'Which term is hardest?',
+        ]}
+        ready={Boolean(plan && context && loaded)}
+      />
     </main>
   );
 }

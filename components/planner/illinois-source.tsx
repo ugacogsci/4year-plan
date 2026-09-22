@@ -217,7 +217,7 @@ function factsFor(core: IllinoisCore): Map<string, CourseFacts> {
       },
       prereq: core.prereqs?.get(code) ?? null,
       genEd: course.tags,
-      equivalents: [],
+      equivalents: core.equivalents?.get(code) ?? [],
       exclusions: [],
       offeringKnown: false,
       catalogUrl: '',
@@ -330,9 +330,18 @@ export function readPriorCredit(
   examCount: number,
   byCode: Map<string, { code: string }>,
   alsoCompleted: string[],
+  /**
+   * True when the student uploaded a transcript. It counts as having said
+   * something even when none of its lines matched, which is every transcript
+   * from another school, so the plan says it was built without usable prior
+   * credit instead of assuming a clean start.
+   */
+  saidMore = false,
+  /** Hours earned with no course to hold them: AP credit granted as "ECON 1--". */
+  unmatchedCredits = 0,
 ): PriorCredit {
   const found = new Set<string>(alsoCompleted.map(normCode));
-  const saidSomething = transferText.trim().length > 0 || examCount > 0;
+  const saidSomething = transferText.trim().length > 0 || examCount > 0 || saidMore;
   CODE_IN_TEXT.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = CODE_IN_TEXT.exec(transferText.toUpperCase())) !== null) {
@@ -342,8 +351,8 @@ export function readPriorCredit(
   return {
     courseCodes: [...found],
     exemptCodes: [],
-    unmatchedCredits: 0,
-    known: !saidSomething || found.size > 0,
+    unmatchedCredits,
+    known: !saidSomething || found.size > 0 || unmatchedCredits > 0,
   };
 }
 
@@ -393,9 +402,10 @@ export function buildContext(
       : undefined,
     grades: core.grades ? grades : undefined,
     sections: core.sections ?? undefined,
-    // Cross-listings still come from the full catalog and are absent until the
-    // second load lands, which costs matches but never invents one.
-    equivalents: full?.equivalents,
+    // Cross-listings ship in the index now, so a held LLS 200 meets a row
+    // written as AAS 200 from the first plan. The full catalog is the fallback
+    // for an index built before the field existed.
+    equivalents: core.equivalents ?? full?.equivalents,
     // Exclusions do NOT wait. They ship in the core index now, because a plan
     // generated without them books a course whose credit will not count and
     // then counts it. That is a wrong plan, not a missing nicety.

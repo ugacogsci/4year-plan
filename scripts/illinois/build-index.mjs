@@ -244,6 +244,10 @@ for (const course of data.courses) {
   // codes, so the figures are right, but a student looking at CS 468 should be
   // able to see that the registrar filed them under ADV 492.
   if (grade && twinCode) row.gradeFrom = twinCode;
+  // The other codes this same class is filed under, so the browser can treat
+  // a held LLS 200 as the AAS 200 a degree page asks for without waiting for
+  // the full catalog, which the first plan never sees.
+  if (twins.length > 0) row.twins = twins;
   if (pos) {
     row.mapPosition = pos;
     positioned += 1;
@@ -535,7 +539,13 @@ const topLevel = written.filter((r) => !r.path.includes('/'));
  */
 const exclusionRows = {};
 for (const [code, fact] of data.facts) {
-  if (fact.exclusions && fact.exclusions.length) exclusionRows[code] = fact.exclusions;
+  // A cross-listing is one class under two codes and the registrar awards its
+  // credit once. Booking STAT 107 for a student who holds CS 107 is the MATH
+  // 220 and MATH 221 mistake by another door, and it was measured in 64 of 214
+  // generated plans, so twins ride in the same table the exclusions do.
+  const twins = (data.equivalents.get(code) ?? []).filter((t) => t !== code);
+  const all = [...new Set([...(fact.exclusions ?? []), ...twins])];
+  if (all.length) exclusionRows[code] = all;
 }
 write('exclusions.json', exclusionRows);
 

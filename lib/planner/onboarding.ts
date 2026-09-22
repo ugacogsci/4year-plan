@@ -1,3 +1,5 @@
+import type { TranscriptRecord } from './transcript';
+
 /**
  * What we learn before showing anyone a planner.
  *
@@ -20,11 +22,18 @@
  * the actual college a student transferred from is the difference between a
  * placeholder that helps and one that reads as filler.
  */
+/**
+ * `bot` is the name each school's TRU tenant already answers to: TRU after
+ * Truman the Tiger, REV after Reveille, PROSIM after Ut Prosim, ALMA after
+ * the Alma Mater, ARCH after the Arch. The planner's own assistant uses the
+ * same name, so a student sees one bot across both products.
+ */
 export const SCHOOLS = [
   {
     id: 'uga',
     name: 'University of Georgia',
     short: 'UGA',
+    bot: 'ARCH',
     people: 'Bulldogs',
     accent: '#BA0C2F',
     portal: 'Athena and DegreeWorks',
@@ -39,6 +48,7 @@ export const SCHOOLS = [
     id: 'tamu',
     name: 'Texas A&M University',
     short: 'Texas A&M',
+    bot: 'REV',
     people: 'Aggies',
     accent: '#500000',
     portal: 'Howdy',
@@ -53,6 +63,7 @@ export const SCHOOLS = [
     id: 'mizzou',
     name: 'University of Missouri',
     short: 'Mizzou',
+    bot: 'TRU',
     people: 'Tigers',
     accent: '#F1B82D',
     portal: 'myZou',
@@ -67,6 +78,7 @@ export const SCHOOLS = [
     id: 'illinois',
     name: 'University of Illinois',
     short: 'Illinois',
+    bot: 'ALMA',
     people: 'Illini',
     accent: '#FF5F05',
     portal: 'Student Self-Service',
@@ -81,6 +93,7 @@ export const SCHOOLS = [
     id: 'vt',
     name: 'Virginia Tech',
     short: 'Virginia Tech',
+    bot: 'PROSIM',
     people: 'Hokies',
     accent: '#861F41',
     portal: 'Hokie SPA',
@@ -100,6 +113,26 @@ export function schoolById(id: SchoolId | null): School | undefined {
 }
 
 export type SchoolId = (typeof SCHOOLS)[number]['id'];
+
+/**
+ * The schools this build can actually plan for.
+ *
+ * SCHOOLS is the roster the product is written towards. This is the part of it
+ * with a catalog, a set of degree pages and a schedule behind it today, which
+ * is Illinois and nothing else. Offering Texas A&M as a button when choosing it
+ * rendered the demo catalog under Texas A&M's name was a planner making things
+ * up about a university, and a student who opened it saw an A&M planner that
+ * had never read an A&M page.
+ */
+export const READY_SCHOOL_IDS: ReadonlySet<SchoolId> = new Set<SchoolId>(['illinois']);
+
+export function readySchools(): School[] {
+  return SCHOOLS.filter((s) => READY_SCHOOL_IDS.has(s.id));
+}
+
+export function isReadySchool(id: SchoolId | null | undefined): id is SchoolId {
+  return id != null && READY_SCHOOL_IDS.has(id);
+}
 
 export interface ExamCreditEntry {
   kind: string;
@@ -133,6 +166,11 @@ export interface OnboardingAnswers {
    */
   exams: PriorExam[];
   transferText: string;
+  /**
+   * The transcript the student uploaded, read by the model and reviewed by
+   * them. Optional because answers saved before this field existed have none.
+   */
+  transcript?: TranscriptRecord | null;
 }
 
 export const EMPTY_ANSWERS: OnboardingAnswers = {
@@ -142,6 +180,7 @@ export const EMPTY_ANSWERS: OnboardingAnswers = {
   after: '',
   exams: [],
   transferText: '',
+  transcript: null,
 };
 
 export function questionsFor(school: School | undefined): Array<{
@@ -178,7 +217,13 @@ export function questionsFor(school: School | undefined): Array<{
   ];
 }
 
-const KEY = 'fourYear.onboarding.v1';
+/**
+ * v2, not v1. A v1 setup could name any of five schools, four of which this
+ * build cannot plan, and one that did was quietly moved to Illinois and its
+ * owner never asked the three questions. A saved setup from before the roster
+ * was trimmed is therefore not read at all: the questions are asked again, once.
+ */
+const KEY = 'fourYear.onboarding.v2';
 
 export function loadAnswers(): OnboardingAnswers | null {
   if (typeof window === 'undefined') return null;

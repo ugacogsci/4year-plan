@@ -101,3 +101,32 @@ export function examCourses(exams: PriorExam[], table: ExamCreditEntry[]): strin
   if (exams.length === 0 || table.length === 0) return [];
   return applyExamCredit(exams, table).creditCourses.filter((code) => COURSE_CODE.test(code));
 }
+
+/**
+ * Hours an exam grants in a subject rather than as a named course.
+ *
+ * "ECON 1--" is three real hours toward the degree that no board card can
+ * hold. examCourses drops them, so the plan's prior credit came up short by
+ * exactly those hours: a student with AP Macro at a 4 was shown three fewer
+ * credits than the registrar's own table gives. Counted here and handed to the
+ * plan as hours with no course. A row that names a real course alongside an
+ * elective grant is priced by its courses and adds nothing here, which can
+ * understate and never overstate.
+ */
+export function examElectiveHours(exams: PriorExam[], table: ExamCreditEntry[]): number {
+  if (exams.length === 0 || table.length === 0) return 0;
+  let hours = 0;
+  for (const taken of exams) {
+    const row = table.find(
+      (e) =>
+        e.kind === taken.kind &&
+        e.exam === taken.exam &&
+        String(e.score) === String(taken.score) &&
+        (e.level ?? null) === (taken.level ?? null),
+    );
+    if (!row || row.noCredit || row.credits <= 0) continue;
+    if (row.courses.some((code) => COURSE_CODE.test(code))) continue;
+    hours += row.credits;
+  }
+  return hours;
+}

@@ -3,7 +3,7 @@
  "source": "https://citl.illinois.edu/current-cutoff-scores",
  "sourceFile": "https://citl.illinois.edu/themes/custom/citl/PnPCutoffs/TestBasedCredit2026.csv",
  "policy": "These are the credit policies for students entering Illinois in Summer 2026, Fall 2026 or Spring 2027.",
- "fetchedAt": "2026-09-20T08:26:27.006Z",
+ "fetchedAt": "2026-09-21T02:35:03.086Z",
  "entries": [
   {
    "kind": "AP",
@@ -466,9 +466,9 @@
     "MATH 231"
    ],
    "exemptOnly": [],
-   "credits": 16,
+   "credits": 8,
    "noCredit": false,
-   "raw": "MATH 220, MATH 231, 16 hours. Gen Ed: Quantitative Reasoning I (MATH 220) Quantitative Reasoning I (MATH 231). Placed into MATH 241"
+   "raw": "MATH 220, MATH 231, 8 hours. Gen Ed: Quantitative Reasoning I (MATH 220) Quantitative Reasoning I (MATH 231). Placed into MATH 241"
   },
   {
    "kind": "AP",
@@ -480,9 +480,9 @@
     "MATH 231"
    ],
    "exemptOnly": [],
-   "credits": 16,
+   "credits": 8,
    "noCredit": false,
-   "raw": "MATH 220, MATH 231, 16 hours. Gen Ed: Quantitative Reasoning I (MATH 220) Quantitative Reasoning I (MATH 231). Placed into MATH 241"
+   "raw": "MATH 220, MATH 231, 8 hours. Gen Ed: Quantitative Reasoning I (MATH 220) Quantitative Reasoning I (MATH 231). Placed into MATH 241"
   },
   {
    "kind": "AP",
@@ -556,33 +556,41 @@
    "exam": "CHEMISTRY",
    "level": null,
    "score": 3,
-   "courses": [],
+   "courses": [
+    "CHEM 102"
+   ],
    "exemptOnly": [],
    "credits": 3,
    "noCredit": false,
-   "raw": "No credit. Gen Ed: Nat Sci & Tech - Phys Sciences. CHEM 104; Consult with your advisor to determine which Chemistry course you should enroll in"
+   "raw": "CHEM 102, 3 hours. Gen Ed: Nat Sci & Tech - Phys Sciences. CHEM 104; Consult with your advisor to determine which Chemistry course you should enroll in"
   },
   {
    "kind": "AP",
    "exam": "CHEMISTRY",
    "level": null,
    "score": 4,
-   "courses": [],
+   "courses": [
+    "CHEM 102",
+    "CHEM 104"
+   ],
    "exemptOnly": [],
    "credits": 6,
    "noCredit": false,
-   "raw": "No credit. Gen Ed: Nat Sci & Tech - Phys Sciences (CHEM 102) Nat Sci & Tech - Phys Sciences (CHEM 104). Consult with your advisor to determine which Chemistry course you should enroll in"
+   "raw": "CHEM 102, CHEM 104, 6 hours. Gen Ed: Nat Sci & Tech - Phys Sciences (CHEM 102) Nat Sci & Tech - Phys Sciences (CHEM 104). Consult with your advisor to determine which Chemistry course you should enroll in"
   },
   {
    "kind": "AP",
    "exam": "CHEMISTRY",
    "level": null,
    "score": 5,
-   "courses": [],
+   "courses": [
+    "CHEM 102",
+    "CHEM 104"
+   ],
    "exemptOnly": [],
    "credits": 6,
    "noCredit": false,
-   "raw": "No credit. Gen Ed: Nat Sci & Tech - Phys Sciences (CHEM 102) Nat Sci & Tech - Phys Sciences (CHEM 104). Consult with your advisor to determine which Chemistry course you should enroll in"
+   "raw": "CHEM 102, CHEM 104, 6 hours. Gen Ed: Nat Sci & Tech - Phys Sciences (CHEM 102) Nat Sci & Tech - Phys Sciences (CHEM 104). Consult with your advisor to determine which Chemistry course you should enroll in"
   },
   {
    "kind": "AP",
@@ -853,11 +861,14 @@
    "exam": "ENGLISH LITERATURE & COMP",
    "level": null,
    "score": "4 or 5 (if English Language Score is 4 or 5)",
-   "courses": [],
+   "courses": [
+    "RHET 105",
+    "ENGL 1--"
+   ],
    "exemptOnly": [],
    "credits": 7,
    "noCredit": false,
-   "raw": "No credit. Gen Ed: Composition I. You have fulfilled the COMP 1 requirement"
+   "raw": "RHET 105, ENGL 1--, 7 hours. Gen Ed: Composition I. You have fulfilled the COMP 1 requirement"
   },
   {
    "kind": "AP",
@@ -1273,11 +1284,14 @@
    "exam": "ITALIAN",
    "level": null,
    "score": 5,
-   "courses": [],
+   "courses": [
+    "ITAL 203",
+    "ITAL 204"
+   ],
    "exemptOnly": [],
    "credits": 8,
    "noCredit": false,
-   "raw": "No credit. Gen Ed: Language Other Than English: Level 3 & 4. Please meet with Laura Callegari Hill to discuss opportunities for higher placement and possibly additional proficiency credit."
+   "raw": "ITAL 203, ITAL 204, 8 hours. Gen Ed: Language Other Than English: Level 3 & 4. Please meet with Laura Callegari Hill to discuss opportunities for higher placement and possibly additional proficiency credit."
   },
   {
    "kind": "AP",

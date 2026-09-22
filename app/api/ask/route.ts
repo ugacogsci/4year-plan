@@ -46,7 +46,17 @@ export async function POST(req: Request) {
     prior?: unknown;
   };
   const question = typeof body.question === 'string' ? body.question.trim() : '';
-  const prior = typeof body.prior === 'string' && body.prior ? body.prior : undefined;
+  /**
+   * The previous exchange, in the shape the tenant reads: its own last answer
+   * and the question that produced it. It used to be forwarded as a bare
+   * string, which the tenant checks for `.q` and `.a` and silently drops, so
+   * every follow-up arrived with no memory of the answer it followed.
+   */
+  const p = body.prior as { q?: unknown; a?: unknown } | null | undefined;
+  const prior =
+    p && typeof p === 'object' && typeof p.q === 'string' && typeof p.a === 'string'
+      ? { q: p.q.slice(0, 400), a: p.a.slice(0, 1000) }
+      : undefined;
 
   if (!question) {
     return NextResponse.json({ error: 'Ask something.' }, { status: 400 });

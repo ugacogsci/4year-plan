@@ -130,6 +130,10 @@ export interface IllinoisIndexRow {
   /** Absent means 'In person'. Set only when every section of the course is online. */
   online?: true;
   difficulty?: number;
+  /** The cross-listed code the registrar filed this course's grades under. */
+  gradeFrom?: string;
+  /** The other codes this same class is filed under. */
+  twins?: string[];
   mapPosition?: { x: number; y: number };
 }
 
@@ -144,6 +148,8 @@ export interface IllinoisIndexCourse extends IllinoisCourse {
    * the same class under two codes. Present on 503 rows.
    */
   gradeFrom?: string;
+  /** The other codes this same class is filed under, when there are any. */
+  twins?: string[];
   /**
    * False on every index row, because index.json carries no descriptions.
    * course.description is '' here and must not render as a course with nothing
@@ -236,6 +242,13 @@ export interface IllinoisCore {
    * It is small enough to load with the core and be right from the first plan.
    */
   exclusions: Map<string, string[]> | null;
+  /**
+   * Cross-listing classes by code: LLS 200 -> [AAS 200]. Built from the index
+   * rows, so a requirement written as one code is met by the other from the
+   * first plan rather than after a second load that the plan never waits for.
+   * Null when the index predates the field.
+   */
+  equivalents: Map<string, string[]> | null;
   /** Artifact names that were not there, for the header to name out loud. */
   missing: string[];
 }
@@ -400,6 +413,11 @@ export function hydrateIndexRow(row: IllinoisIndexRow): IllinoisIndexCourse {
     format: row.online ? 'Online' : 'In person',
     tags: row.tags ?? [],
     ...(row.difficulty !== undefined ? { difficulty: row.difficulty } : {}),
+    // gradeFrom was written by the build and dropped here, so the twin keying
+    // in loadIllinoisCore never ran and CS 468 showed no grade history beside
+    // an ADV 492 card with a 3.78 average.
+    ...(row.gradeFrom ? { gradeFrom: row.gradeFrom } : {}),
+    ...(row.twins && row.twins.length > 0 ? { twins: row.twins } : {}),
     ...(row.mapPosition ? { mapPosition: row.mapPosition } : {}),
     detailLoaded: false,
   };
@@ -483,6 +501,13 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
       byCode: new Map(rows.map((c) => [normCode(c.code), c])),
       prereqs: prereqs.ok ? new Map(Object.entries(prereqs.value)) : null,
       exclusions: exclusions.ok ? new Map(Object.entries(exclusions.value)) : null,
+      equivalents: (() => {
+        const map = new Map<string, string[]>();
+        for (const course of rows) {
+          if (course.twins && course.twins.length > 0) map.set(normCode(course.code), course.twins.map(normCode));
+        }
+        return map.size > 0 ? map : null;
+      })(),
       /**
        * Keyed by every code the row answers for, not only the one the registrar
        * filed it under.

@@ -468,6 +468,21 @@ const LOAD_SHAPE =
  * route asking it anything. Reading a column out loud needs no grade data, no
  * section data and no upstream at all.
  */
+/**
+ * "How is my schedule going to be in fall 2028?"
+ *
+ * The open question about a column: not how heavy, not what is in it, the
+ * whole of it. Neither the roster shape nor the load shape read it, because it
+ * carries no difficulty word and does not begin "what am I taking", so it went
+ * upstream to an engine that cannot see a board and came back with the
+ * cannot-reach line under a board that plainly held Fall 2028. Every
+ * alternative here requires a term or schedule noun, so "how are my prereqs
+ * looking" is not claimed. The answer is the two local answers together: the
+ * column read back, then its weight.
+ */
+const OUTLOOK_SHAPE =
+  /\bhow(?:'s| is| are| does| do| will| would| might)?\b[^?]{0,20}\b(schedule|term|semester|board|plan|spring|fall|summer|winter|year|terms|semesters)\b[^?]{0,30}\b(going to be|gonna be|be like|look like|looking|look|looks|shaping up|shape up|turn out|going to go|going to look|going)\b|\bhow(?:'s| is| are| does| will| would)\s+(?:my |the |this |next |that )?(schedule|term|semester|board|plan|spring|fall|summer|winter|year|terms|semesters)\b|\bwhat (?:is|'s|will|would|are) (?:my |the |this |next )?(schedule|term|semester|spring|fall|summer|winter|year)(?: \d{4}| \d{2})? (?:like|going to be|gonna be|look like|looking like|be like)\b|\b(tell me about|walk me through|describe|summari[sz]e|sum up|break down|overview of|rundown of|run me through) (?:my |the |this |next )?(schedule|term|semester|board|plan|spring|fall|summer|winter|year)\b|\bhow many (?:credit hours|credits|hours|classes|courses)\b[^?]{0,20}\b(am i|do i|is|are|in|will i|next|this|my)\b/i;
+
 const ROSTER_SHAPE =
   /\bwhat am i (taking|enrolled in|signed up for|registered for)\b|\bwhat (classes|courses) (am i|do i|will i|are on)\b|\bwhat (is|'?s) (my|on my) (schedule|board|plan)\b|\bwhat'?s on my (board|plan|schedule)\b|\bwhat (does|do) my (schedule|board|plan) (look like|hold|have)\b|\bshow me my (schedule|board|plan)\b|\bwhat do i have (in|on|that)\b|\bwhat am i in\b/i;
 
@@ -1496,6 +1511,39 @@ function answerLoad(ctx: AskContext, term: ResolvedTerm): Routed {
   );
 
   return local('load', lines.join('\n\n'), [sourceOf(1, DAIR.title, DAIR.url)]);
+}
+
+/**
+ * One column, whole: what is in it, then how heavy it reads.
+ *
+ * Built from the two answers that already exist rather than a third copy of
+ * either, so the roster and the weight a student gets here are byte for byte
+ * the ones they get asking each on its own. The load answer opens with the same
+ * count line the roster opens with, so that line is kept once, and the roster's
+ * closing offer to list sections moves to the end where an offer belongs.
+ */
+function answerOutlook(ctx: AskContext, term: ResolvedTerm | null, miss: TermMiss | null, raw: string): Routed {
+  if (!term) {
+    if (miss && (miss.reason === 'not-on-board' || miss.reason === 'past-end' || miss.reason === 'empty-board')) {
+      return answerTermMiss(ctx, miss, { shape: 'roster', verb: 'read it back and weigh it', noun: 'nothing to look at' });
+    }
+    // No column named: the whole board, read back, with the offer to go deeper.
+    return answerRoster(ctx, null, raw);
+  }
+  const roster = answerRoster(ctx, term, raw);
+  const load = answerLoad(ctx, term);
+  if (roster.kind !== 'local' || load.kind !== 'local' || !roster.answer.grounded) return roster;
+
+  const rosterParts = roster.answer.text.split('\n\n');
+  const offer = rosterParts.length > 0 && rosterParts[rosterParts.length - 1].startsWith('Ask about') ? rosterParts.pop() : null;
+  const weight = load.answer.text.split('\n\n').slice(1);
+  const text = [...rosterParts, ...weight, ...(offer ? [offer] : [])].join('\n\n');
+
+  const sources = [...roster.answer.sources];
+  for (const source of load.answer.sources) {
+    if (!sources.some((have) => have.url === source.url)) sources.push({ ...source, n: sources.length + 1 });
+  }
+  return local('load', text, sources, roster.answer.grounded);
 }
 
 /** "Which of my classes is hardest", ranked, over one term or the whole board. */
@@ -2608,6 +2656,14 @@ function routeOne(raw: string, ctx: AskContext): Routed {
     return answerLoad(ctx, term);
   }
 
+  // 5b. The whole of a column. "How is my schedule going to be in fall 2028"
+  //    names no difficulty word and does not begin "what am I taking", so
+  //    neither detector above reads it. A course in the sentence means a
+  //    question about the course, which belongs to the grade route below.
+  if (OUTLOOK_SHAPE.test(raw) && !course && (selfScoped || termNamed) && !WORLD_SCOPE.test(raw)) {
+    return answerOutlook(ctx, term, miss, raw);
+  }
+
   // 6. The board's own order, before the single-course prerequisite shape,
   //    which owns the phrase "the right order" as well.
   if (ORDER_SHAPE.test(raw)) return answerOrder(ctx);
@@ -2682,6 +2738,8 @@ export function suggestedQuestions(ctx: AskContext | null): string[] {
   if (!ctx) return [];
 
   const candidates: string[] = [];
+  const firstTerm = uniqueTerms(ctx)[0];
+  if (firstTerm) candidates.push(`How does ${firstTerm.termLabel} look?`);
   if (ctx.planned.length > 0) candidates.push('Where does my first class meet?');
   if (uniqueTerms(ctx).length > 1) candidates.push('Which term is hardest?');
 

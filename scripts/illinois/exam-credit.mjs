@@ -124,7 +124,16 @@ function hoursIn(cell) {
   if (stated) return Number(stated[1]);
   const addends = raw.match(/\d+(?:\.\d+)?/g);
   if (!addends) return 0;
-  if (raw.includes('+')) return addends.reduce((sum, n) => sum + Number(n), 0);
+  if (raw.includes('+')) {
+    // "5 + 3 + 8" is the registrar showing the total without the equals sign.
+    // Summing all three gave Calculus BC sixteen hours; the last number is the
+    // sum of the others, so it is the total.
+    const numbers = addends.map(Number);
+    const last = numbers[numbers.length - 1];
+    const rest = numbers.slice(0, -1).reduce((sum, n) => sum + n, 0);
+    if (numbers.length >= 3 && last === rest) return last;
+    return numbers.reduce((sum, n) => sum + n, 0);
+  }
   return Number(addends[0]);
 }
 
@@ -152,6 +161,10 @@ const BARE_NUMBER = /^(\d{3}|\d-{2})$/;
  * grants no course here. The cell is still carried verbatim in `raw`.
  */
 function coursesIn(cell) {
+  // "CHEM 102 & 104 LECTURE ONLY" is two courses joined with an ampersand and
+  // a note about which part of them is granted. Read literally it was no
+  // course at all, and AP Chemistry at a 5 came out as six hours of nothing.
+  cell = String(cell ?? '').replace(/\bLECTURE ONLY\b/gi, ' ').replace(/&/g, ',');
   const raw = cell.trim();
   if (!raw || /^none$/i.test(raw)) return [];
   const out = [];

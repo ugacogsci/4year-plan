@@ -57,9 +57,12 @@ const text = (html) =>
  * "1 to 4" as 1 undercounts a student's load by three hours a term.
  */
 function parseCredits(s) {
-  const range = s.match(/credit:\s*(\d+)\s*(?:to|-|or)\s*(\d+)\s*hour/i);
+  // Decimals are real: ME 340 is 3.5 hours, MSE 404 is 1.5, nine music
+  // classes are 0.5. Whole numbers only left twenty rows with no credit line,
+  // which the index shipped as 0 and the board counted as 0.
+  const range = s.match(/credit:\s*(\d+(?:\.\d+)?)\s*(?:to|-|or)\s*(\d+(?:\.\d+)?)\s*hour/i);
   if (range) return { credits: +range[1], creditsMax: +range[2] };
-  const one = s.match(/credit:\s*(\d+)\s*hour/i);
+  const one = s.match(/credit:\s*(\d+(?:\.\d+)?)\s*hour/i);
   if (one) return { credits: +one[1], creditsMax: +one[1] };
   return { credits: null, creditsMax: null };
 }

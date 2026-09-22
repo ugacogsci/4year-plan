@@ -5,12 +5,14 @@ import { PriorCredit } from './prior-credit';
 import {
   EMPTY_ANSWERS,
   questionsFor,
+  readySchools,
   schoolById,
   SCHOOLS,
   saveAnswers,
   type OnboardingAnswers,
   type SchoolId,
 } from '@/lib/planner/onboarding';
+import { transcriptCodes } from '@/lib/planner/transcript';
 
 /**
  * Three screens before the planner: pick a school, describe your situation,
@@ -21,9 +23,43 @@ import {
  * cannot express that in dropdowns, and that context is exactly what makes
  * the resulting plan worth anything.
  */
-export function Onboarding({ onDone }: { onDone: (a: OnboardingAnswers) => void }) {
-  const [step, setStep] = useState(0);
-  const [answers, setAnswers] = useState<OnboardingAnswers>(EMPTY_ANSWERS);
+/** What the credit step has so far, for the line between Back and Build. */
+function priorSummary(a: OnboardingAnswers): string {
+  const parts: string[] = [];
+  const fromTranscript = transcriptCodes(a.transcript).length;
+  if (fromTranscript > 0) {
+    parts.push(`${fromTranscript} course${fromTranscript === 1 ? '' : 's'} from your transcript`);
+  }
+  if (a.exams.length > 0) parts.push(`${a.exams.length} exam${a.exams.length === 1 ? '' : 's'} added`);
+  return parts.length > 0 ? parts.join(' · ') : 'Nothing added yet';
+}
+
+export function Onboarding({
+  onDone,
+  initial = null,
+  onResume,
+}: {
+  onDone: (a: OnboardingAnswers) => void;
+  /** Last time's answers, so a returning student edits rather than retypes. */
+  initial?: OnboardingAnswers | null;
+  /** Skips the questions and opens the saved plan. Offered only when there is one. */
+  onResume?: () => void;
+}) {
+  /**
+   * The school question is only asked when there is a choice to make.
+   *
+   * With Illinois the only school this build can plan, the first screen used to
+   * be five buttons, four of which led to a demo catalog wearing another
+   * university's name. Now it starts on "About you" with Illinois chosen, and
+   * the school step comes back on its own the day a second school is ready.
+   */
+  const ready = readySchools();
+  const onlySchool = ready.length === 1 ? ready[0] : null;
+  const [step, setStep] = useState(onlySchool ? 1 : 0);
+  const [answers, setAnswers] = useState<OnboardingAnswers>(() => {
+    const base = initial ? { ...EMPTY_ANSWERS, ...initial } : EMPTY_ANSWERS;
+    return onlySchool ? { ...base, schoolId: onlySchool.id } : base;
+  });
 
   const school = schoolById(answers.schoolId);
   const questions = questionsFor(school);
@@ -52,12 +88,27 @@ export function Onboarding({ onDone }: { onDone: (a: OnboardingAnswers) => void 
           ))}
         </ol>
 
+        {onResume && step < 3 && (
+          <p className="onb-resume">
+            Your answers from last time are filled in below.{' '}
+            <button type="button" onClick={onResume}>
+              Continue with my saved plan
+            </button>{' '}
+            or change anything and build it again.
+          </p>
+        )}
+
         {step === 0 && (
           <section className="onb-step">
             <h1>Where do you go?</h1>
             <p className="onb-sub">We answer from your university&rsquo;s own published pages, so this decides everything else.</p>
+            {ready.length < SCHOOLS.length && (
+              <p className="onb-sub">
+                Only {ready.map((s) => s.name).join(' and ')} {ready.length === 1 ? 'has' : 'have'} a catalog loaded in this build.
+              </p>
+            )}
             <div className="onb-schools">
-              {SCHOOLS.map((s) => (
+              {ready.map((s) => (
                 <button
                   key={s.id}
                   className="onb-school"
@@ -94,7 +145,8 @@ export function Onboarding({ onDone }: { onDone: (a: OnboardingAnswers) => void 
               ))}
             </div>
             <div className="onb-actions">
-              <button className="onb-back" onClick={() => setStep(0)}>Back</button>
+              {/* No school step to go back to when there was no school to choose. */}
+              {!onlySchool && <button className="onb-back" onClick={() => setStep(0)}>Back</button>}
               <span className="onb-count">{answered} of 3 answered</span>
               <button className="onb-next" onClick={() => setStep(2)} disabled={answered === 0}>
                 Next
@@ -117,15 +169,15 @@ export function Onboarding({ onDone }: { onDone: (a: OnboardingAnswers) => void 
               exams={answers.exams}
               transferText={answers.transferText}
               onChange={(next) => setAnswers((a) => ({ ...a, ...next }))}
+              transcript={answers.transcript ?? null}
+              onTranscriptChange={(transcript) => setAnswers((a) => ({ ...a, transcript }))}
             />
             <div className="onb-actions">
               <button className="onb-back" onClick={() => setStep(1)}>Back</button>
-              <span className="onb-count">
-                {answers.exams.length > 0
-                  ? `${answers.exams.length} exam${answers.exams.length === 1 ? '' : 's'} added`
-                  : 'Nothing added yet'}
-              </span>
-              <button className="onb-next" onClick={finish}>Build my plan</button>
+              <span className="onb-count">{priorSummary(answers)}</span>
+              <button className="onb-next" onClick={finish}>
+                {initial ? 'Build my plan again' : 'Build my plan'}
+              </button>
             </div>
             <p className="onb-skip">
               <button onClick={finish}>I am starting from zero</button>

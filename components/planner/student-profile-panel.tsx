@@ -44,6 +44,9 @@ interface RailProps {
   onProgramChange: (id: string) => void;
   minimumTermCredits: number;
   onMinimumChange: (value: number) => void;
+  /** What a term should hold, or null for an even spread. The scheduler goes past it only to fit the degree in time. */
+  targetTermCredits: number | null;
+  onTargetChange: (value: number | null) => void;
   careerInterests: string;
   onCareerChange: (value: string) => void;
   /** Plain sentences from the build and the scheduler about what is not known. */
@@ -55,6 +58,8 @@ interface RailProps {
    * six more props through here to rebuild it would only move the coupling.
    */
   pools?: ReactNode;
+  /** The transcript upload, rendered by the caller for the same reason the pools are. */
+  transcript?: ReactNode;
 }
 
 export function StudentProfilePanel({
@@ -75,10 +80,13 @@ export function StudentProfilePanel({
   onProgramChange,
   minimumTermCredits,
   onMinimumChange,
+  targetTermCredits,
+  onTargetChange,
   careerInterests,
   onCareerChange,
   caveats,
   pools,
+  transcript,
 }: RailProps) {
   const rows = areas.map((row, index) => ({
     row,
@@ -123,6 +131,7 @@ export function StudentProfilePanel({
           <span>Already taken</span>
           <span>{priorCount} course{priorCount === 1 ? '' : 's'}</span>
         </div>
+        {transcript}
         {creditNote && <p className="rail-credit-note">{creditNote}</p>}
       </div>
 
@@ -198,6 +207,20 @@ export function StudentProfilePanel({
       <details className="rail-section">
         <summary>Preferences</summary>
         <label className="rail-field">
+          <span>Credits you want each term, about</span>
+          <input
+            type="number"
+            min={6}
+            max={18}
+            placeholder="balanced"
+            value={targetTermCredits ?? ''}
+            onChange={(event) => {
+              const raw = event.target.value.trim();
+              onTargetChange(raw === '' ? null : Number(raw));
+            }}
+          />
+        </label>
+        <label className="rail-field">
           <span>Credits you want each term, at least</span>
           <input
             type="number"
@@ -207,6 +230,11 @@ export function StudentProfilePanel({
             onChange={(event) => onMinimumChange(Number(event.target.value))}
           />
         </label>
+        <p className="rail-field" style={{ fontSize: 'var(--fs-micro)', color: '#6f8098' }}>
+          Blank means balanced: every term takes an even share of what is left. Press Rebuild
+          after changing these. Your graduation date comes first, so a term goes past the number
+          you set only when the degree would not fit in time otherwise, and never past 18.
+        </p>
         <label className="rail-field">
           <span>What you want to be doing after</span>
           <textarea
@@ -233,7 +261,8 @@ export function StudentProfilePanel({
               ))}
               <p style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.5 }}>
                 {schoolShort} and {portal} remain the source of truth. Nothing you type
-                here leaves this device.
+                here leaves this device. A transcript you upload is sent once to be read
+                and is not kept.
               </p>
             </div>
           </PopoverContent>

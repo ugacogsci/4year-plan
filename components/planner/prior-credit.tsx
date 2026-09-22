@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import { examCreditUrl, useExamCredit } from './exam-credit';
+import { TranscriptUpload } from './transcript-upload';
+import type { TranscriptRecord } from '@/lib/planner/transcript';
 import {
   applyExamCredit,
   type PriorExam,
@@ -26,11 +28,16 @@ export function PriorCredit({
   exams,
   transferText,
   onChange,
+  transcript,
+  onTranscriptChange,
 }: {
   school: School | undefined;
   exams: PriorExam[];
   transferText: string;
   onChange: (next: { exams: PriorExam[]; transferText: string }) => void;
+  /** The uploaded transcript, kept apart from the typed answers so neither overwrites the other. */
+  transcript?: TranscriptRecord | null;
+  onTranscriptChange?: (next: TranscriptRecord | null) => void;
 }) {
   const loaded = useExamCredit(school);
   const table = loaded.entries;
@@ -109,6 +116,16 @@ export function PriorCredit({
 
   return (
     <div className="prior">
+      {onTranscriptChange && (
+        <div className="prior-block">
+          <span className="onb-q-label">Have a transcript?</span>
+          <span className="onb-q-hint">
+            Upload it and every course on it is read for you. You check the list before anything counts.
+          </span>
+          <TranscriptUpload school={school} record={transcript ?? null} onChange={onTranscriptChange} />
+        </div>
+      )}
+
       <div className="prior-block">
         <span className="onb-q-label">Did you take any AP or IB exams?</span>
         <span className="onb-q-hint">
@@ -222,7 +239,7 @@ export function PriorCredit({
       <label className="prior-block onb-q">
         <span className="onb-q-label">Transferred or dual enrollment credit?</span>
         <span className="onb-q-hint">
-          Where it came from and roughly what transferred. Paste from your transcript or {school?.portal ?? 'your student portal'} if it is easier.
+          Where it came from and roughly what transferred. Only {school?.short ?? 'this school'}&rsquo;s own course codes count here; another school&rsquo;s course counts once {school?.short ?? 'this school'} has named its equivalent, so type that code.
         </span>
         <textarea
           rows={3}

@@ -13,6 +13,7 @@ import type {
   RequirementGroup,
   RequirementRow,
 } from './scheduler';
+import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
 
 /**
  * Real Illinois data, adapted into the planner's shapes.
@@ -587,6 +588,13 @@ export interface CourseChoice {
   title: string;
   credits: number | null;
   creditsMax: number | null;
+  /**
+   * Courses the degree page itself says may stand in for this row: "Calculus I
+   * (MATH 220 may be substituted)". Never booked in the row's place, because
+   * the page lists them as substitutes and not as the course, but a student
+   * who holds one has met the row, and the bar counts it.
+   */
+  substitutes: string[];
 }
 
 export interface RequirementBlock {
@@ -848,6 +856,17 @@ const ONE_OF_SPLIT =
 const ADVISORY =
   /\b(recommend\w*|encouraged|helpful|preferred|desirable|suggested|may be taken|should also enroll|is useful|not required)\b/i;
 /**
+ * A recommendation joined onto a requirement by a connective. ACCY 301 reads
+ * "ACCY 202 or equivalent and recommend concurrent enrollment in ACCY 302", and
+ * dropping the whole segment for the word "recommend" left the course with no
+ * prerequisite at all, which put a 300-level accounting course in a freshman's
+ * first term. The clause is cut where the recommendation starts when what
+ * comes before it names a course. "ANTH 104 is strongly recommended" has no
+ * connective and stays advisory in full.
+ */
+const ADVISORY_CLAUSE =
+  /(?:,|;|\band)\s+(?:(?:we|it is|it's|students are)\s+)?(?:strongly\s+|highly\s+)?(?:recommend\w*|encourag\w*|suggest\w*)\b/i;
+/**
  * "students should" is deliberately absent. IS 557's sentence opens "Students
  * should have demonstrated ability, and must have taken one of the following
  * courses, IS 577 ...", and treating it as a restriction loses a real
@@ -1102,7 +1121,7 @@ export function parsePrerequisites(
 
   for (const sentence of splitSentences(text)) {
     for (const rawSeg of sentence.split(/;\s*/)) {
-      const seg = rawSeg.trim();
+      let seg = rawSeg.trim();
       if (!seg) continue;
 
       // A semicolon at Illinois is always a top-level AND, in all 510 sentences
@@ -1127,6 +1146,10 @@ export function parsePrerequisites(
       }
 
       if (segCodes.length === 0) continue;
+      const advisoryAt = seg.search(ADVISORY_CLAUSE);
+      if (advisoryAt > 0 && codesIn(seg.slice(0, advisoryAt), known, self).length > 0) {
+        seg = seg.slice(0, advisoryAt).trim();
+      }
       // This is what removes the 76 advisory-only courses and the recommended
       // half of the 50 mixed ones.
       if (ADVISORY.test(seg) || RESTRICTION.test(seg)) continue;
@@ -2334,8 +2357,212 @@ function normaliseProgramRows(group: RawProgramGroup): { rows: RawProgramCourse[
  * number is the budget for the lists printed under it, which is the only place
  * that page states how much of List 1 and List 2 to take.
  */
-const TOTAL_ROW = /^total hours?\b/i;
-const DEGREE_TOTAL_ROW = /\b(?:to graduate|curriculum|for graduation|for the degree)\b/i;
+/**
+ * A subtotal row: "Total Hours", "Total", "Minimum Total Hours", "Total
+ * Concentration Hours", "Total Hours of Curriculum to Graduate". Only ever a
+ * group with no course rows, which is what keeps this broad match safe. The
+ * old pattern took "Total Hours" alone, so the eleven "Minimum Total Hours"
+ * rows became requirements the plan could not fill and reported as such.
+ */
+const TOTAL_ROW = /^(?:minimum\s+)?total\b/i;
+const DEGREE_TOTAL_ROW = /\b(?:to graduate|curriculum|for graduation|for (?:the )?degree|degree hours)\b/i;
+
+/**
+ * A rule that names a count and a level rather than courses.
+ *
+ * "Four additional full-semester, 3 hour 400 level-Finance courses except FIN
+ * 494 or FIN 495" is a real requirement, twelve hours of a Finance degree, and
+ * it names no course the page could list. Fifty-two degree pages carry a
+ * sentence of this shape. Read literally the sentence was quoted back as
+ * something the planner could not act on; read this way it is a pool over
+ * every catalog course in that subject at that level, which is what the
+ * sentence means.
+ *
+ * Nothing is built unless the sentence states all three of a size (a count
+ * or hours), a level, and a subject. A sentence missing any of them is left
+ * as the quotation it was.
+ */
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+};
+const LEVEL_SENTENCE = /\b[1-4]00\s*-?\s*(?:or|to|and|\/|,)?\s*(?:[1-4]00\s*-?\s*)?level\b/i;
+
+export interface LevelRule {
+  n: number | null;
+  hours: number | null;
+  levels: number[];
+  subjects: string[];
+  excluded: string[];
+  minCredits: number;
+  sentence: string;
+  additional: boolean;
+}
+
+export function levelRuleIn(text: string, fallbackHours: number | null = null): LevelRule | null {
+  // An aside in parentheses is an aside: "(Though students must take a total
+  // of 6 courses, some may count toward...)" is not a second count. Stripped
+  // before the text is cut into sentences, because an aside can run across a
+  // full stop and an unclosed one is cut at the sentence's end.
+  const clean = (text ?? '')
+    .replace(/\s+/g, ' ')
+    .replace(/\(([^()]{13,})\)/g, ' ')
+    .trim();
+  if (!clean) return null;
+  for (const raw of clean.split(/(?<=\.)\s+/)) {
+    // A cap is not a requirement: "maximum of 4 credit hours of ASTR 100-level
+    // can count" limits what counts, and "will not receive credit" denies it.
+    if (/\b(?:maximum of|no more than|not more than|at most|up to a maximum|may not exceed|not receive credit|cannot count|will not count)\b/i.test(raw)) continue;
+    const sentence = raw.replace(/\([^()]{13,}$/, ' ');
+    const levelAt = sentence.search(LEVEL_SENTENCE);
+    if (levelAt < 0) continue;
+    // "200-400 level" and "300- to 400-level" are ranges; "300 or 400 level" is two.
+    const levels = new Set<number>();
+    const range = sentence.match(/\b([1-4])00\s*-?\s*(?:to|through|-)\s*-?\s*([1-4])00\b/i);
+    if (range) {
+      for (let l = Number(range[1]); l <= Number(range[2]); l += 1) levels.add(l * 100);
+    } else {
+      for (const m of sentence.matchAll(/\b([1-4])00\b/g)) levels.add(Number(m[1]) * 100);
+    }
+    if (levels.size === 0) continue;
+
+    /**
+     * The size, taken from the phrase nearest the level. A sentence that
+     * states two counts ("Select three of the following four courses. At
+     * least 3 additional hours of 300-level...") or two hour totals is two
+     * rules run together, and reading one number out of it is a coin toss,
+     * so it is left as the quotation it was.
+     */
+    const hourMatches = [
+      ...sentence.matchAll(
+        /\b(?:(?:select|choose|take|at least|(?:a )?minimum of|additional)\s+(?:an?\s+)?(?:additional\s+)?)?(\d{1,2})(?:\s*-\s*\d{1,2})?\s+(?:additional\s+)?(?:credit\s+)?hours\b(?=\s*(?:of|from|in|at|minimum|total|[,.;)]|$))/gi,
+      ),
+    ];
+    const countMatches = [
+      ...sentence.matchAll(
+        /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})\s+(?:additional\s+)?(?:[\w,()-]+\s+){0,7}?(?:courses?|electives?|classes)\b/gi,
+      ),
+      // "3 hour 400 level" inside a count is the credit each course carries;
+      // only a plural "hours" makes the phrase a total rather than a count.
+    ].filter((m) => !/\bhours\b/i.test(m[0]));
+    if (hourMatches.length > 1 || countMatches.length > 1) continue;
+    let hours: number | null = hourMatches[0] ? Number(hourMatches[0][1]) : null;
+    let n: number | null = countMatches[0] ? (NUMBER_WORDS[countMatches[0][1].toLowerCase()] ?? Number(countMatches[0][1])) : null;
+    if (hours !== null && n !== null) {
+      const hoursGap = Math.abs((hourMatches[0].index ?? 0) - levelAt);
+      const countGap = Math.abs((countMatches[0].index ?? 0) - levelAt);
+      if (hoursGap <= countGap) n = null;
+      else hours = null;
+    }
+    if (n === null && hours === null) {
+      if (fallbackHours === null) continue;
+      hours = fallbackHours;
+    }
+
+    // "3 hour 400 level" is the credit each course carries, not a total.
+    const each = sentence.match(/\b(\d)[- ]hour\b(?!s)/i);
+    const minCredits = each ? Number(each[1]) : 1;
+
+    const excluded = new Set<string>();
+    const exceptAt = sentence.search(/\b(?:except|excluding|excluded courses?:?|other than|not including)\b/i);
+    if (exceptAt >= 0) {
+      for (const m of sentence.slice(exceptAt).matchAll(/\b([A-Z]{2,4})\s?(\d{3})\b/g)) excluded.add(`${m[1]} ${m[2]}`);
+    }
+
+    const subjects = new Set<string>();
+    /**
+     * The subject is read near the level, not anywhere in the sentence. A
+     * Computer Science note mentions "100-level" in one clause and
+     * "Engineering" three clauses later, and reading the whole sentence made
+     * that a rule about 100-level engineering courses. The window runs from
+     * just before the size phrase to well past the level, which is where every
+     * real sentence of this shape names its subject.
+     */
+    const sizeAt = Math.min(hourMatches[0]?.index ?? levelAt, countMatches[0]?.index ?? levelAt, levelAt);
+    const windowEnd = Math.min(exceptAt >= 0 ? exceptAt : sentence.length, levelAt + 170);
+    const body = sentence.slice(Math.max(0, sizeAt - 24), windowEnd);
+    // Prefixes written as such: "AGCM", "CPSC/HORT/PLPA", "ChBE". Two capitals
+    // at least, so "Art" in "Art History" is a word and not the ART prefix. A
+    // token that is a course code names an exclusion or an example.
+    for (const m of body.matchAll(/\b([A-Za-z]{2,4})\b(?!\s?\d{3})/g)) {
+      const token = m[1];
+      if ((token.match(/[A-Z]/g) ?? []).length < 2) continue;
+      const upper = token.toUpperCase();
+      if (ILLINOIS_SUBJECT_NAMES[upper] !== undefined) subjects.add(upper);
+    }
+    // Subjects written out: "Finance", "Art History". The catalog spells some
+    // with double dashes ("Art--History"), so both sides are read with dashes
+    // as spaces. Longest name first, and a name inside a longer one that
+    // already matched is that longer name's: "History" in "Art History" is
+    // not HIST.
+    // Only where the page uses the name as a department's: capitalised
+    // ("Finance", "Art History") or right before "courses" ("economics
+    // courses"). Lowercase "engineering, or biological aspects" is an adjective,
+    // and reading it as ENG made a chemistry rule about engineering.
+    const plain = (s: string) => s.replace(/-+/g, ' ').replace(/\s+/g, ' ');
+    const body1 = plain(body);
+    const lower = body1.toLowerCase();
+    const named = Object.entries(ILLINOIS_SUBJECT_NAMES)
+      .map(([prefix, name]) => [prefix, plain(name).toLowerCase()] as const)
+      .filter(([, name]) => {
+        if (name.length < 5) return false;
+        const at = lower.indexOf(name);
+        if (at < 0) return false;
+        if (/[A-Z]/.test(body1.charAt(at))) return true;
+        return /^\s+(?:courses?|electives?|coursework|classes)\b/.test(lower.slice(at + name.length));
+      })
+      .sort((a, b) => b[1].length - a[1].length);
+    const accepted: string[] = [];
+    for (const [prefix, name] of named) {
+      if (accepted.some((longer) => longer.includes(name))) continue;
+      accepted.push(name);
+      subjects.add(prefix);
+      if (accepted.length >= 3) break;
+    }
+    if (subjects.size === 0) continue;
+
+    return {
+      n,
+      hours,
+      levels: [...levels].sort((a, b) => a - b),
+      subjects: [...subjects].sort(),
+      excluded: [...excluded],
+      minCredits,
+      sentence: sentence.trim(),
+      additional: /\b(?:additional|more|further|other)\b/i.test(sentence),
+    };
+  }
+  return null;
+}
+
+/** The pool a level rule names, read out of the catalog. Null without a catalog to read. */
+function levelPoolChoices(
+  rule: LevelRule,
+  byCode: CatalogRowLookup,
+  alreadyNamed: Set<string>,
+): CourseChoice[] | null {
+  if (typeof byCode.values !== 'function') return null;
+  const levels = new Set(rule.levels);
+  const subjects = new Set(rule.subjects);
+  const excluded = new Set(rule.excluded.map(normCode));
+  const out: CourseChoice[] = [];
+  for (const row of byCode.values()) {
+    const code = normCode(row.code);
+    const subject = row.cluster ?? code.split(' ')[0];
+    if (!subjects.has(subject)) continue;
+    const number = Number(code.split(' ')[1] ?? '');
+    if (!levels.has(Math.floor(number / 100) * 100)) continue;
+    if (excluded.has(code) || alreadyNamed.has(code)) continue;
+    if ((row.credits ?? 0) < rule.minCredits) continue;
+    out.push({ codes: [code], title: row.title, credits: row.credits, creditsMax: row.creditsMax ?? null, substitutes: [] });
+  }
+  out.sort((a, b) => a.codes[0].localeCompare(b.codes[0]));
+  return out.length > 0 ? out : null;
+}
+
+function levelPoolLabel(rule: LevelRule): string {
+  const size = rule.n !== null ? `${rule.n} additional` : `${rule.hours} hours of`;
+  return `${size} ${rule.levels.join(' or ')}-level ${rule.subjects.join('/')} courses`;
+}
 
 /**
  * "...from a single focus area", "...from the same area".
@@ -2373,6 +2600,13 @@ function soleCount(text: string): number | null {
 /** The narrowest view of the catalog the rule builder needs. */
 export interface CatalogRowLookup {
   get(code: string): { title: string; credits: number; creditsMax?: number | null } | undefined;
+  /**
+   * Every catalog row, for a rule that names a subject and a level rather
+   * than courses: "Four additional 400-level Finance courses" is a list the
+   * page never prints, so it has to be read out of the catalog. A Map has
+   * this; a lookup that does not cannot build such a rule and skips it.
+   */
+  values?(): Iterable<{ code: string; title: string; credits: number; creditsMax?: number | null; cluster?: string }>;
 }
 
 export interface AreaRuleBlock {
@@ -2399,7 +2633,17 @@ export interface AreaRules {
   droppedRows: number;
   droppedTotalRows: number;
   pools: number;
+  /**
+   * The hours the page states for the whole area, from its own heading or
+   * from the subtotal row at the foot of its table. Business Core prints
+   * "Minimum Total Hours 57" under rows that add to 48, and the rail read 48
+   * of 48 with nine hours of the requirement invisible.
+   */
+  areaHours: number | null;
 }
+
+const SUBSTITUTE_WORDING =
+  /substitut|may be taken (?:instead|in place)|in place of|in lieu of|instead of|accepted (?:in place|for|as)/i;
 
 /** One catalog row, with its "or" siblings folded into a single slot. */
 function choicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup): CourseChoice[] {
@@ -2412,6 +2656,14 @@ function choicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup): Course
   return rows.map((row) => {
     const codes = [row.code, ...(row.or ?? [])].map(normCode);
     const catalogCourse = byCode.get(codes[0]);
+    // The footnote the page prints inside the title is where the substitution
+    // lives: 31 rows say "may be substituted", 14 "may be taken instead".
+    const footnote = row.title ?? '';
+    const substitutes = SUBSTITUTE_WORDING.test(footnote)
+      ? [...new Set((footnote.match(/\b[A-Z]{2,4}\s?\d{3}\b/g) ?? []).map(normCode))].filter(
+          (code) => !codes.includes(code) && byCode.get(code) !== undefined,
+        )
+      : [];
     return {
       codes,
       // The program file's title field is never a course title: it is either
@@ -2420,6 +2672,7 @@ function choicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup): Course
       title: catalogCourse?.title ?? codes[0],
       credits: catalogCourse?.credits ?? row.credits,
       creditsMax: catalogCourse?.creditsMax ?? null,
+      substitutes,
     };
   });
 }
@@ -2571,6 +2824,38 @@ export function requirementRulesForArea(
   const blocks: AreaRuleBlock[] = [];
   let pools = 0;
 
+  // Every course the area names anywhere, so an "additional" rule does not
+  // hand back the courses printed above it.
+  const namedInArea = new Set<string>();
+  for (const r of read) for (const row of r.rows) namedInArea.add(normCode(row.code));
+  const levelBlockFor = (r: AreaGroupRead, requireAdditional: boolean): AreaRuleBlock | null => {
+    // A courseless row's own hours size a sentence that names none:
+    // "Additional Advanced (300- or 400-level) PSYC or BCOG Courses", 9 hours.
+    const rule = levelRuleIn([r.label, r.group.note ?? ''].filter(Boolean).join(' '), r.rows.length === 0 ? r.ownHours : null);
+    if (!rule || (requireAdditional && !rule.additional)) return null;
+    const choices = levelPoolChoices(rule, byCode, namedInArea);
+    if (!choices) return null;
+    const label = levelPoolLabel(rule);
+    return {
+      groupIndex: r.index,
+      idSuffix: 'level',
+      label,
+      hours: rule.hours,
+      note: rule.sentence,
+      rule: {
+        kind: 'pool',
+        hours: rule.hours,
+        n: rule.n,
+        choices,
+        lists: [{ label, codes: choices.flatMap((c) => c.codes) }],
+        constraints: [],
+        from: 'group',
+        label,
+      },
+      rows: 0,
+    };
+  };
+
   const merged =
     caplessPools.length > 0 ? mergeAreaPool(area, read, caplessPools, byCode, areaBudget) : null;
   if (merged) {
@@ -2593,6 +2878,21 @@ export function requirementRulesForArea(
     const genEdSource =
       r.rows.length === 0 ? [r.label, r.group.note ?? ''].filter(Boolean).join(' ') : '';
     const genEd = genEdSource ? genEdRulesFromText(genEdSource) : [];
+
+    /**
+     * A courseless group whose sentence names a count, a level and a subject
+     * is a pool over the catalog, not an hours block nobody can fill. Checked
+     * before the hours branch, which is where "Additional Advanced (300- or
+     * 400-level) PSYC or BCOG Courses" used to land.
+     */
+    if (r.rows.length === 0) {
+      const level = levelBlockFor(r, false);
+      if (level) {
+        blocks.push(level);
+        pools += 1;
+        continue;
+      }
+    }
 
     let rule: RequirementRule;
     if (r.rows.length > 0) {
@@ -2704,10 +3004,23 @@ export function requirementRulesForArea(
       rule,
       rows: r.rows.length,
     });
+
+    /**
+     * A group with rows whose comment asks for more: "Four additional ... 400
+     * level-Finance courses" printed under three named FIN courses. The rows
+     * are the requirement they always were, and the sentence is a second one.
+     */
+    if (r.rows.length > 0) {
+      const level = levelBlockFor(r, true);
+      if (level) {
+        blocks.push(level);
+        pools += 1;
+      }
+    }
   }
 
   blocks.sort((a, b) => a.groupIndex - b.groupIndex);
-  return { blocks, droppedRows, droppedTotalRows, pools };
+  return { blocks, droppedRows, droppedTotalRows, pools, areaHours: areaBudget };
 }
 
 const positive = (n: number | null): number | null => (n !== null && n > 0 ? n : null);
@@ -2944,7 +3257,7 @@ export function adaptIllinoisPrograms(
       const areaId = `${raw.id}::${ai}`;
       const schedulerGroups: RequirementGroup[] = [];
 
-      const rules = byArea[ai] ?? { blocks: [], droppedRows: 0, droppedTotalRows: 0, pools: 0 };
+      const rules = byArea[ai] ?? { blocks: [], droppedRows: 0, droppedTotalRows: 0, pools: 0, areaHours: null };
       dropped += rules.droppedRows;
       droppedTotalRows += rules.droppedTotalRows;
       poolGroups += rules.pools;
@@ -2990,7 +3303,7 @@ export function adaptIllinoisPrograms(
               // "CS 210 or CS 211" is one row of the degree page and either
               // course satisfies it. Each alternative is priced from the
               // catalog, because CS 210 is two hours and CS 211 is three.
-              alternatives: c.codes.slice(1).map((code) => ({
+              alternatives: [...c.codes.slice(1), ...(c.substitutes ?? [])].map((code) => ({
                 code: normCode(code),
                 credits: byCode.get(normCode(code))?.credits ?? c.credits ?? 0,
               })),
@@ -3027,11 +3340,13 @@ export function adaptIllinoisPrograms(
         }
       }
 
-      areas.push({ label: area.label, hours: area.hours ?? 0, groups: schedulerGroups });
+      // The area's own subtotal row counts as its size where the heading
+      // prints none, so Business Core reads 48 of 57 rather than 48 of 48.
+      areas.push({ label: area.label, hours: area.hours ?? rules.areaHours ?? 0, groups: schedulerGroups });
       requirements.push({
         id: areaId,
         label: area.label,
-        targetCredits: area.hours ?? 0,
+        targetCredits: area.hours ?? rules.areaHours ?? 0,
         description: area.groups?.find((g) => g.note)?.note ?? '',
       });
     });

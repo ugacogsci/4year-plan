@@ -19,6 +19,8 @@ interface SemesterColumnProps {
   onAddCourse: (termId: string) => void;
   onDropCourse: (courseId: string, termId: string) => void;
   onFindAlternatives: (courseId: string, termId: string) => void;
+  /** Opens the chooser for an elective slot. */
+  onChooseElective?: (courseId: string, termId: string) => void;
   /** Which elective pool a course is filling, by course id. Empty for most. */
   electiveOf: Map<string, ElectiveOf>;
   /** Low end of the term's credit range, already summed by the caller. */
@@ -38,6 +40,7 @@ export function SemesterColumn({
   onAddCourse,
   onDropCourse,
   onFindAlternatives,
+  onChooseElective,
   electiveOf,
   credits,
   heavy,
@@ -121,6 +124,7 @@ export function SemesterColumn({
                 (issue) => issue.courseId === courseId && issue.termId === term.id,
               )}
               electiveOf={electiveOf.get(courseId)}
+              onChoose={onChooseElective}
               onSelect={onSelectCourse}
               onMove={onMoveCourse}
               onRemove={onRemoveCourse}

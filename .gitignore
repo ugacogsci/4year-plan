@@ -22,3 +22,7 @@ data/illinois-embeddings.bin
 
 # Superseded crawl output, kept locally while the new shape settles.
 public/*.old.json
+
+# Machine-specific: the desktop app's launch config and scratch tests.
+.claude/
+.tmp/

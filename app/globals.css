@@ -189,16 +189,20 @@ button:disabled {
   overflow: hidden;
   background: var(--background);
   color: var(--foreground);
-  grid-template-columns: 248px minmax(0, 1fr) var(--finder-w, 44px);
-  grid-template-rows: 56px minmax(0, 1fr) 56px;
+  grid-template-columns: 248px minmax(0, 1fr) var(--chat-w, 0px) var(--finder-w, 44px);
+  grid-template-rows: 56px minmax(0, 1fr);
   grid-template-areas:
-    'head head  head'
-    'rail board finder'
-    'ask  ask   ask';
+    'head head  head head'
+    'rail board chat finder';
 }
 
 .planner-app[data-finder='open'] {
   --finder-w: 380px;
+}
+
+/* The bot is a column of its own, so it never sits on top of a semester. */
+.planner-app[data-chat='open'] {
+  --chat-w: 380px;
 }
 
 .eyebrow {
@@ -1648,220 +1652,6 @@ p.requirement-unnamed {
   line-height: 1.5;
 }
 
-/* ── ask ────────────────────────────────────────────────────── */
-
-.askbar-dock {
-  grid-area: ask;
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  border-top: 1px solid var(--line);
-  background: var(--card);
-}
-
-.askbar {
-  flex: 1 1 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  height: 36px;
-  padding: 0 4px 0 12px;
-  border: 1px solid #253042;
-  border-radius: 6px;
-  background: #080f1b;
-}
-
-.askbar:focus-within {
-  border-color: #4f80c4;
-}
-
-.askbar-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  /* The one text field on the main screen, and it was 21px tall. */
-  min-height: 24px;
-  background: none;
-  border: 0;
-  outline: 0;
-  color: var(--foreground);
-  font-size: var(--fs-ui);
-}
-
-.askbar-input::placeholder {
-  color: #5a6b81;
-}
-
-.askbar-go {
-  flex: 0 0 auto;
-  height: 28px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 4px;
-  background: #1f4f80;
-  color: #eaf2fb;
-  font-size: var(--fs-body);
-}
-
-.askbar-go:hover {
-  filter: brightness(1.12);
-}
-
-.askbar-go:disabled {
-  opacity: 0.6;
-}
-
-/* Absolutely positioned inside a fixed-height grid row, so an open
-   answer cannot change the board's height, its horizontal scroll
-   offset, or any column's vertical scroll offset. */
-.askbar-panel {
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 56px;
-  max-height: min(46vh, 420px);
-  overflow-y: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--popover);
-  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.45);
-  z-index: 20;
-}
-
-.askbar-panel-head {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line);
-  background: #0d1724;
-  position: sticky;
-  top: 0;
-}
-
-.askbar-q {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--fs-body);
-  font-weight: 600;
-  color: #e8eef7;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.askbar-close {
-  background: none;
-  border: 0;
-  color: #8496ad;
-  font-size: var(--fs-micro);
-  cursor: pointer;
-}
-
-.askbar-close:hover {
-  color: #e8eef7;
-}
-
-.askbar-body {
-  padding: 13px 14px 15px;
-}
-
-.askbar-thinking {
-  margin: 0;
-  font-size: var(--fs-body);
-  color: #7e8fa6;
-}
-
-.askbar-answer {
-  margin: 0;
-  font-size: var(--fs-ui);
-  line-height: 1.65;
-  color: #c8d4e4;
-  white-space: pre-wrap;
-}
-
-.askbar-sources {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 10px 0 0;
-  border-top: 1px solid var(--line);
-  display: grid;
-  gap: 3px;
-}
-
-.askbar-sources a {
-  display: flex;
-  gap: 9px;
-  align-items: baseline;
-  text-decoration: none;
-  font-size: var(--fs-body);
-  color: #9fb0c6;
-  padding: 4px 0;
-}
-
-.askbar-sources a:hover {
-  color: #e8eef7;
-}
-
-.askbar-src-n {
-  flex: 0 0 auto;
-  width: 17px;
-  height: 17px;
-  border-radius: 4px;
-  background: rgba(217, 72, 15, 0.16);
-  border: 1px solid rgba(217, 72, 15, 0.45);
-  color: #f08a5a;
-  font-size: var(--fs-micro);
-  font-weight: 700;
-  display: grid;
-  place-items: center;
-}
-
-.askbar-src-t {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.askbar-src-h {
-  color: #5f708a;
-  white-space: nowrap;
-}
-
-.askbar-suggestions {
-  position: absolute;
-  left: 16px;
-  bottom: 52px;
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  max-width: calc(100% - 32px);
-  padding: 7px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--popover);
-  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.4);
-  z-index: 20;
-}
-
-.askbar-chip {
-  border: 1px solid #253042;
-  border-radius: 5px;
-  background: #0d1725;
-  color: #9fb0c6;
-  font-size: var(--fs-micro);
-  padding: 5px 9px;
-  cursor: pointer;
-}
-
-.askbar-chip:hover {
-  color: #eef3fa;
-  border-color: #35465e;
-}
-
 /* ── loading and empty frames ───────────────────────────────── */
 
 .planner-loading {
@@ -1914,7 +1704,7 @@ p.requirement-unnamed {
    The head says so rather than leaving a broken gesture. */
 @media (max-width: 1100px) {
   .planner-app {
-    grid-template-columns: 220px minmax(0, 1fr) 44px;
+    grid-template-columns: 220px minmax(0, 1fr) var(--chat-w, 0px) 44px;
   }
   .planner-app[data-finder='open'] .course-finder {
     position: fixed;
@@ -1932,11 +1722,10 @@ p.requirement-unnamed {
    the progress bars away with no way back. */
 @media (max-width: 900px) {
   .planner-app {
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr) var(--chat-w, 0px) 44px;
     grid-template-areas:
-      'head head'
-      'board finder'
-      'ask ask';
+      'head head head'
+      'board chat finder';
     /* Three semesters instead of two on a 768 wide screen. The board still
        scrolls sideways for the rest, but a plan you can only ever see a
        quarter of at a time is a plan you cannot compare across.
@@ -2054,6 +1843,9 @@ p.requirement-unnamed {
 .onb-next { background: var(--school); color: #fff; }
 .onb-next:hover { filter: brightness(1.08); }
 .onb-next:disabled { opacity: .45; cursor: default; filter: none; }
+.onb-resume { text-align: center; margin: -16px auto 26px; max-width: 52ch; font-size: 13px; line-height: 1.6; color: #8496ad; }
+.onb-resume button { background: none; border: 0; padding: 0; color: #e8eef7; font: inherit; text-decoration: underline; cursor: pointer; }
+.onb-resume button:hover { color: var(--school, #fff); }
 .onb-skip { text-align: center; margin: 16px 0 0; }
 .onb-skip button { background: none; border: 0; color: #5d6e84; font-size: 13px; cursor: pointer; text-decoration: underline; }
 .onb-skip button:hover { color: #9fb0c6; }
@@ -2116,3 +1908,229 @@ p.requirement-unnamed {
 .prior-chosen li.prior-unscored { border-color: #3a3322; background: #12110b; }
 .prior-chosen li.prior-unscored select { border-color: #5a4a22; color: #e6d7a8; }
 .prior-waiting { margin: 9px 0 0; font-size: 12.5px; color: #cdb87a; line-height: 1.55; }
+
+/* ---- Transcript upload ------------------------------------------------------
+   The same control in two places: the credit step of onboarding, where the
+   list is open, and the rail, where it folds shut under "Already taken". */
+.transcript { display: grid; gap: 8px; position: relative; }
+.transcript-pick {
+  position: relative; display: inline-flex; align-items: center; gap: 8px;
+  width: fit-content; padding: 9px 13px; border-radius: 10px; cursor: pointer;
+  border: 1px dashed #2b3a4f; background: #0b1220; color: #cbd7e6; font-size: 13.5px;
+}
+.transcript-pick:hover { border-color: var(--school, #7f93ab); color: #eef3fa; }
+.transcript-pick:focus-within { outline: 0; border-color: var(--school, #7f93ab); box-shadow: 0 0 0 3px color-mix(in srgb, var(--school, #7f93ab) 22%, transparent); }
+.transcript-pick input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.transcript-hint { font-size: 12.5px; color: #6d7f96; line-height: 1.5; }
+.transcript-busy, .transcript-error, .transcript-summary { margin: 0; font-size: 12.5px; line-height: 1.5; }
+.transcript-busy { display: block; color: #9fb0c6; }
+.transcript-error { color: #e88175; }
+.transcript-summary { color: #dbe4f0; }
+.transcript-review summary { cursor: pointer; font-size: 12.5px; color: #9fb0c6; }
+.transcript-review summary:hover { color: #eef3fa; }
+.transcript-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; max-height: 280px; overflow: auto; }
+.transcript-list li {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center;
+  padding: 6px 8px; border: 1px solid #1d2838; border-radius: 8px; background: #0b1220;
+  font-size: 12.5px; color: #cbd7e6;
+}
+.transcript-list li.off { opacity: .6; }
+.transcript-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transcript-code { font-weight: 650; color: #eef3fa; }
+.transcript-meta { color: #7f93ab; font-size: 12px; margin: 0; line-height: 1.5; }
+.transcript-chip {
+  font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  border-radius: 5px; padding: 2px 6px; background: #142033; color: #9fb0c6; white-space: nowrap;
+}
+.transcript-chip.warn { background: #2a1d1a; color: #e6a596; }
+.transcript-remove { background: none; border: 0; padding: 0; width: fit-content; cursor: pointer; text-decoration: underline; color: #63748c; font-size: 12.5px; }
+.transcript-remove:hover { color: #e88175; }
+
+/* In the rail the control is a small link-sized button and the list stacks. */
+.rail-progress .transcript-compact { margin-top: 4px; }
+.rail-progress .transcript-compact .transcript-pick { padding: 5px 9px; font-size: var(--fs-micro); border-radius: 7px; }
+.rail-progress .transcript-compact .transcript-list li { grid-template-columns: auto minmax(0, 1fr); }
+.rail-progress .transcript-compact .transcript-list li .transcript-chip { grid-column: 2; justify-self: start; }
+
+/* ---- Map zoom and the search result list --------------------------------- */
+.map-layer {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+/* Dots and labels keep their screen size at any zoom; only the distances grow. */
+.map-layer .map-course-node { transform: translate(-50%, -50%) scale(var(--inv, 1)); }
+.map-stage.is-zoomed { cursor: grab; }
+.map-stage.is-zoomed:active { cursor: grabbing; }
+.map-stage .map-course-node { cursor: grab; }
+.map-zoom {
+  position: absolute; right: 8px; top: 8px; z-index: 2;
+  display: grid; gap: 4px;
+}
+.map-zoom button {
+  width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 6px; border: 1px solid #263141; background: rgba(9, 15, 26, 0.92);
+  color: #b6c4d6; cursor: pointer; padding: 0;
+}
+.map-zoom button:hover { color: #eef3fa; border-color: #36455a; }
+.map-zoom button:disabled { opacity: .35; cursor: default; }
+.map-zoom button svg { width: 13px; height: 13px; }
+
+.finder-results {
+  flex: 0 1 auto; max-height: 34%; overflow-y: auto;
+  margin: 8px 12px 0; padding: 0 0 2px;
+  border: 1px solid #16202e; border-radius: 6px; background: #060c17;
+  scrollbar-width: thin; scrollbar-color: #2b3648 transparent;
+}
+.finder-results-head {
+  margin: 0; padding: 6px 10px; font-size: var(--fs-micro); color: #66788f;
+  border-bottom: 1px solid #16202e; position: sticky; top: 0; background: #060c17;
+}
+.finder-results ul { list-style: none; margin: 0; padding: 4px; display: grid; gap: 2px; }
+.finder-results li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: center; border-radius: 6px; }
+.finder-results li.is-selected { background: #0f1a2b; }
+.finder-result {
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 8px; align-items: center;
+  min-width: 0; width: 100%; text-align: left; padding: 6px 8px; border: 0; border-radius: 6px;
+  background: none; color: #cbd7e6; font: inherit; font-size: var(--fs-micro); cursor: pointer;
+}
+.finder-result:hover { background: #0f1a2b; color: #eef3fa; }
+.finder-result-code { font-weight: 650; color: #eef3fa; white-space: nowrap; }
+.finder-result-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.finder-result-meta { color: #7f93ab; white-space: nowrap; }
+.finder-result-add {
+  width: 26px; height: 26px; display: grid; place-items: center; margin-right: 4px;
+  border-radius: 6px; border: 1px solid #263141; background: none; color: #b6c4d6; cursor: pointer; padding: 0;
+}
+.finder-result-add:hover { color: #eef3fa; border-color: #36455a; }
+.finder-result-add:disabled { opacity: .45; cursor: default; }
+.finder-result-add svg { width: 13px; height: 13px; }
+
+/* ---- Elective slots and their chooser ------------------------------------ */
+.course-elective.is-slot { border-style: dashed; }
+.finder-chooser {
+  margin: 0 12px 8px; padding: 9px 11px; border-radius: 8px;
+  border: 1px solid #2f4a3a; background: #0b1a14; display: grid; gap: 6px;
+}
+.finder-chooser p { margin: 0; font-size: var(--fs-micro); line-height: 1.5; color: #cbd7e6; }
+.finder-chooser strong { color: #eef3fa; }
+.finder-chooser button {
+  justify-self: start; background: none; border: 1px solid #36455a; border-radius: 6px;
+  padding: 4px 9px; color: #b6c4d6; font: inherit; font-size: var(--fs-micro); cursor: pointer;
+}
+.finder-chooser button:hover { color: #eef3fa; border-color: #4a5b73; }
+
+/* ---- The bot: ALMA at Illinois -------------------------------------------
+   A button in the board's toolbar and a column beside the board. Neither is
+   laid over a semester: the column takes its width from the grid and the
+   board narrows to make room, the way the finder does.
+
+   The look is Orion's, the assistant in Cameron's Semantic Course Map that
+   this planner grew from: the four-pointed star in a violet-to-sky circle,
+   indigo bubbles for the student, three bouncing dots while it writes. */
+.bot-launch {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 30px; padding: 0 12px 0 4px; border-radius: 999px;
+  border: 1px solid #2a3a52; background: #0b1220; color: #b6c4d6;
+  font: inherit; font-size: var(--fs-micro); cursor: pointer; white-space: nowrap;
+}
+.bot-launch:hover, .bot-launch.is-open {
+  border-color: rgba(167, 139, 250, 0.55); color: #eef3fa;
+  box-shadow: 0 0 18px rgba(167, 139, 250, 0.18);
+}
+.bot-launch strong { color: #eef3fa; font-weight: 650; }
+.bot-launch-text { color: #8fa1b8; }
+.bot-diamond, .bot-avatar {
+  flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%;
+  background: linear-gradient(135deg, #a78bfa, #38bdf8); color: #fff;
+}
+.bot-diamond { width: 22px; height: 22px; }
+.bot-diamond svg { width: 12px; height: 12px; }
+.bot-avatar { width: 24px; height: 24px; margin-top: 2px; }
+.bot-avatar svg { width: 12px; height: 12px; }
+@media (max-width: 1200px) {
+  .bot-launch-text { display: none; }
+}
+
+.bot-panel {
+  grid-area: chat;
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+  border-left: 1px solid rgba(167, 139, 250, 0.3); background: #0d1323;
+  box-shadow: inset 1px 0 0 rgba(167, 139, 250, 0.12), -12px 0 40px rgba(167, 139, 250, 0.06);
+}
+.bot-panel.is-closed { display: none; }
+.bot-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.bot-head .bot-diamond { width: 32px; height: 32px; }
+.bot-head .bot-diamond svg { width: 16px; height: 16px; }
+.bot-head h2 { margin: 0; font-size: var(--fs-ui); color: #fff; letter-spacing: 0.04em; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.bot-head-sub { font-size: 10px; font-weight: 500; letter-spacing: 0.02em; color: rgba(255, 255, 255, 0.4); text-transform: none; }
+.bot-head p { margin: 2px 0 0; font-size: var(--fs-micro); color: #8496ad; line-height: 1.35; }
+.bot-head-actions { margin-left: auto; display: flex; gap: 4px; align-self: flex-start; }
+.bot-head-actions button {
+  background: none; border: 1px solid transparent; border-radius: 6px; color: rgba(255, 255, 255, 0.45);
+  font: inherit; font-size: var(--fs-micro); padding: 4px 8px; cursor: pointer; display: inline-flex; align-items: center;
+}
+.bot-head-actions button:hover { color: #fff; border-color: rgba(255, 255, 255, 0.14); }
+
+.bot-log { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px; display: grid; gap: 12px; align-content: start; scrollbar-width: thin; scrollbar-color: #2b3648 transparent; }
+.bot-row { display: flex; gap: 8px; align-items: flex-start; min-width: 0; }
+.bot-msg { max-width: 88%; padding: 10px 14px; font-size: var(--fs-body); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bot-msg.user {
+  justify-self: end; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.4);
+  color: rgba(255, 255, 255, 0.92); border-radius: 14px 4px 14px 14px;
+}
+.bot-msg.assistant {
+  background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9); border-radius: 4px 14px 14px 14px;
+}
+.bot-tool { justify-self: start; display: flex; gap: 6px; align-items: center; padding-left: 32px; font-size: var(--fs-micro); color: rgba(255, 255, 255, 0.45); }
+.bot-tool svg { width: 12px; height: 12px; flex: 0 0 auto; }
+.bot-tool.ok { color: #7fc9a2; }
+.bot-tool.failed { color: #e6a596; }
+.bot-spin { animation: bot-spin 0.9s linear infinite; }
+@keyframes bot-spin { to { transform: rotate(360deg); } }
+.bot-typing {
+  display: flex; gap: 4px; align-items: center; padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 4px 14px 14px 14px;
+}
+.bot-typing span { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, 0.4); animation: bot-bounce 1.2s ease-in-out infinite; }
+.bot-typing span:nth-child(2) { animation-delay: 0.2s; }
+.bot-typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bot-bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+.bot-sources { list-style: none; margin: 0; padding: 0 0 0 4px; display: grid; gap: 3px; justify-self: start; }
+.bot-sources a { font-size: var(--fs-micro); color: #a5b4fc; text-decoration: none; }
+.bot-sources a:hover { text-decoration: underline; }
+
+.bot-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 10px; }
+.bot-chip { border: 1px solid rgba(167, 139, 250, 0.28); background: rgba(167, 139, 250, 0.06); color: #c7d2fe; border-radius: 999px; padding: 5px 10px; font: inherit; font-size: var(--fs-micro); cursor: pointer; text-align: left; }
+.bot-chip:hover { border-color: rgba(167, 139, 250, 0.7); color: #fff; }
+.bot-error { margin: 0; padding: 0 14px 8px; font-size: var(--fs-micro); color: #e88175; }
+
+.bot-compose { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.bot-compose textarea {
+  flex: 1 1 auto; min-width: 0; min-height: 38px; max-height: 120px; resize: none;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 9px 14px;
+  color: #fff; font: inherit; font-size: var(--fs-ui); line-height: 1.4;
+}
+.bot-compose textarea::placeholder { color: rgba(255, 255, 255, 0.35); }
+.bot-compose textarea:focus { outline: 0; border-color: rgba(167, 139, 250, 0.6); }
+.bot-compose button {
+  flex: 0 0 auto; height: 38px; padding: 0 14px; border: 0; border-radius: 10px;
+  background: rgba(99, 102, 241, 0.35); color: #fff; font: inherit; font-size: var(--fs-body); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.bot-compose button:hover { filter: brightness(1.12); }
+.bot-compose .bot-send { width: 38px; padding: 0; background: linear-gradient(135deg, #a78bfa, #6366f1); transition: transform 0.15s; }
+.bot-compose .bot-send:hover:not(:disabled) { transform: scale(1.06); filter: none; }
+.bot-compose .bot-send svg { width: 16px; height: 16px; }
+.bot-compose button:disabled { opacity: 0.45; cursor: default; filter: none; transform: none; background: rgba(99, 102, 241, 0.2); }
+
+/* Below 900px there is no room for a column beside the board, so the bot
+   takes the board's place while it is open, and the button brings it back. */
+@media (max-width: 900px) {
+  .planner-app[data-chat='open'] {
+    --chat-w: minmax(0, 1fr);
+    grid-template-columns: 0px var(--chat-w) 44px;
+  }
+}
