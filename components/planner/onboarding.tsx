@@ -168,6 +168,8 @@ export function Onboarding({
               school={school}
               exams={answers.exams}
               transferText={answers.transferText}
+              languageYears={answers.languageYears ?? null}
+              language={answers.language ?? ''}
               onChange={(next) => setAnswers((a) => ({ ...a, ...next }))}
               transcript={answers.transcript ?? null}
               onTranscriptChange={(transcript) => setAnswers((a) => ({ ...a, transcript }))}

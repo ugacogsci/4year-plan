@@ -24,10 +24,24 @@ import {
 } from '@/lib/planner/illinois-data';
 import type { IllinoisCore } from '@/lib/planner/illinois-load';
 import { toGradeRow } from '@/lib/planner/illinois-load';
+import { describeExcellent } from '@/lib/planner/quality';
 import type { RawSection } from '@/lib/planner/illinois-data';
 import type { Course } from '@/lib/planner/types';
 
 const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
+
+const TERM_WORD: Record<string, string> = { sp: 'Spring', su: 'Summer', fa: 'Fall', wi: 'Winter' };
+const termWord = (t: string) => {
+  const m = t.match(/^(sp|su|fa|wi)(\d{4})$/);
+  return m ? `${TERM_WORD[m[1]]} ${m[2]}` : t;
+};
+
+/** "Ran in Fall 2026, Spring 2026 and Fall 2025" or the plain absence, over the crawled window. */
+function offeredWords(ran: string[], window: string[], was?: string | null): string {
+  const span = `${termWord(window[window.length - 1])} to ${termWord(window[0])}`;
+  if (ran.length === 0) return `Has not run in any term from ${span}, by the Course Explorer. Check with the department before counting on it.`;
+  return `Ran${was ? ` (as ${was}, its number until this year)` : ''} in ${ran.map(termWord).join(', ')} (of the ${window.length} terms from ${span}).`;
+}
 
 /**
  * Where the course sits in Illinois's own distribution, not a verdict about it.
@@ -352,11 +366,41 @@ export function CourseDetail({
       </section>
 
       <section className="inspector-block">
+        <h5>Who teaches it</h5>
+        {!core && <p className="quiet">The teaching lists have not loaded.</p>}
+        {core && !core.excellent && (
+          <p className="quiet">No Teachers Ranked as Excellent list is available to this build.</p>
+        )}
+        {core?.excellent && (
+          <>
+            <p className={core.excellent.get(code) ? undefined : 'quiet'}>
+              {describeExcellent(
+                core.excellent.get(code) ?? null,
+                core.excellentTerms,
+                sections?.instructors ?? null,
+                sections?.termLabel ?? null,
+              )}
+            </p>
+            <p className="quiet">
+              From the university&apos;s own Teachers Ranked as Excellent lists, which the Center for
+              Innovation in Teaching and Learning compiles each term from student ratings. A name
+              missing from the list is not a rating against it.
+            </p>
+          </>
+        )}
+      </section>
+
+      <section className="inspector-block">
         <h5>Where and when</h5>
         {!core?.sections && <p className="quiet">The schedule has not loaded.</p>}
         {core?.sections && !sections && (
           <p className="quiet">
             {term ? `No ${term.label} section has been read for this course.` : 'No sections read.'}
+          </p>
+        )}
+        {core?.offeringTerms && (
+          <p className={core.offerings?.get(code)?.length ? 'quiet' : undefined}>
+            {offeredWords(core.offerings?.get(code) ?? [], core.offeringTerms, core.offeringAliases?.get(code) ?? null)}
           </p>
         )}
         {sections && (

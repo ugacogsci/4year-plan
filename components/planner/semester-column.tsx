@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 import { CourseCard, type ElectiveOf } from './course-card';
+import type { Alternative } from './course-card';
 
 interface SemesterColumnProps {
   term: PlanTerm;
@@ -21,6 +22,9 @@ interface SemesterColumnProps {
   onFindAlternatives: (courseId: string, termId: string) => void;
   /** Opens the chooser for an elective slot. */
   onChooseElective?: (courseId: string, termId: string) => void;
+  /** The card dropdown: what else could sit here, and the swap when one is picked. */
+  alternativesFor?: (courseId: string, termId: string) => Alternative[];
+  onSwapCourse?: (courseId: string, termId: string, replacementId: string) => void;
   /** Which elective pool a course is filling, by course id. Empty for most. */
   electiveOf: Map<string, ElectiveOf>;
   /** Low end of the term's credit range, already summed by the caller. */
@@ -41,6 +45,8 @@ export function SemesterColumn({
   onDropCourse,
   onFindAlternatives,
   onChooseElective,
+  alternativesFor,
+  onSwapCourse,
   electiveOf,
   credits,
   heavy,
@@ -125,6 +131,8 @@ export function SemesterColumn({
               )}
               electiveOf={electiveOf.get(courseId)}
               onChoose={onChooseElective}
+              alternativesFor={alternativesFor}
+              onSwap={onSwapCourse}
               onSelect={onSelectCourse}
               onMove={onMoveCourse}
               onRemove={onRemoveCourse}

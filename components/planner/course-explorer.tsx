@@ -41,6 +41,8 @@ interface CourseExplorerProps {
     options: Course[];
     onPick: (courseId: string) => void;
     onCancel: () => void;
+    /** Why each option is offered, by course id, in the student's own priorities. */
+    whys?: Map<string, string>;
   } | null;
   open: boolean;
   /** False below 1100px, where the finder overlays the board and a drag has nowhere to land. */
@@ -492,6 +494,9 @@ export function CourseExplorer({
                     <span className="finder-result-code">{course.code}</span>
                     <span className="finder-result-title">{course.title}</span>
                     <span className="finder-result-meta">{creditLabel(course)}</span>
+                    {chooser?.whys?.get(course.id) && (
+                      <span className="finder-result-why">{chooser.whys.get(course.id)}</span>
+                    )}
                   </button>
                   <button
                     type="button"

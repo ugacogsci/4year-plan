@@ -36,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { toast, Toaster } from '@/components/ui/toast';
 import { BotLauncher, BotPanel } from './advisor';
 import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
@@ -55,6 +56,8 @@ import {
 } from './illinois-source';
 import {
   electiveOptions,
+  offeredLine,
+  qualityScorer,
   describeCreditProgress,
   describeCreditTotal,
   generatePlan,
@@ -62,12 +65,22 @@ import {
   validatePlan,
   type CreditTotal,
   type GeneratedPlan,
+  type LanguagePlan,
   type NotPlaced,
   type PlanningContext,
   type PoolReport,
   type UnsatisfiedRequirement,
 } from '@/lib/planner/autoplan';
 import { livePools, poolShortfalls } from './live-pools';
+import { describeExcellent } from '@/lib/planner/quality';
+import {
+  DEFAULT_PRIORITIES,
+  describePriorities,
+  normalizePriorities,
+  PRIORITY_PRESETS,
+  type Priorities,
+} from '@/lib/planner/priorities';
+import type { Alternative } from './course-card';
 import { plural } from './words';
 import { examCourses, examElectiveHours, useExamCredit } from './exam-credit';
 import { areaProgress } from '@/lib/planner/scheduler';
@@ -81,7 +94,7 @@ import {
   indexCourses,
   isPlanState,
 } from '@/lib/planner/rules';
-import type { Course, PlanIssue, PlanState } from '@/lib/planner/types';
+import type { Course, PlanIssue, PlanState, PlanTerm } from '@/lib/planner/types';
 import { clearAnswers, schoolById, summarize, type OnboardingAnswers } from '@/lib/planner/onboarding';
 import { normalizeCourseCode, transcriptCodes } from '@/lib/planner/transcript';
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
@@ -184,6 +197,10 @@ interface PlanReport {
   /** Courses the plan chose to reach the degree total, each with its reason. */
   electives: Array<{ code: string; why: string }>;
   firstTermId: string;
+  /** The language sequence the plan booked, or null. */
+  language: LanguagePlan | null;
+  /** The college admission route the plan front-loads, or null. */
+  admission: GeneratedPlan['admission'];
 }
 
 interface Stored {
@@ -195,6 +212,8 @@ interface Stored {
   /** Null, or absent on boards saved before the control existed, means balanced. */
   targetTermCredits?: number | null;
   careerInterests: string;
+  /** Absent on boards saved before the knobs existed, which means balanced. */
+  priorities?: Priorities;
 }
 
 export function PlannerWorkspace({
@@ -256,8 +275,18 @@ export function PlannerWorkspace({
     planRef.current = plan;
   }, [plan]);
   const [targetTermCredits, setTargetTermCredits] = useState<number | null>(null);
+  const [priorities, setPriorities] = useState<Priorities>(DEFAULT_PRIORITIES);
+
   const [careerInterests, setCareerInterests] = useState(answers?.after ?? '');
   const [status_, setStatus] = useState('');
+  /**
+   * The status line is read by screen readers and nobody else. Anything a
+   * student pressed a button for is told back on screen as well.
+   */
+  function notify(title: string, description?: string, type: 'success' | 'info' = 'success') {
+    setStatus(description ? `${title} ${description}` : title);
+    toast.add({ title, description, type, timeout: 9000 });
+  }
   const restored = useRef<Stored | null>(null);
   const rulerRef = useRef<HTMLDivElement | null>(null);
   const lastBucket = useRef<string | null>(null);
@@ -339,6 +368,7 @@ export function PlannerWorkspace({
       setProgramId(parsed.programId ?? null);
       setMinimumTermCredits(parsed.minimumTermCredits ?? 12);
       setTargetTermCredits(parsed.targetTermCredits ?? null);
+      setPriorities(normalizePriorities(parsed.priorities));
       if (parsed.careerInterests) setCareerInterests(parsed.careerInterests);
     } catch {
       /* a corrupt entry is not worth failing the app over; a fresh plan follows */
@@ -363,6 +393,7 @@ export function PlannerWorkspace({
     }
   }, [isIllinois, core, programId, answers]);
 
+
   useEffect(() => {
     if (!isIllinois || !core || !programId) return;
     const summary = (core.programs ?? []).find((p) => p.id === programId);
@@ -380,6 +411,21 @@ export function PlannerWorkspace({
   }, [isIllinois, core, programId]);
 
   const loaded = fetched?.id === programId ? fetched.value : null;
+
+  /**
+   * The college the student is trying to get into, when their own words say
+   * they are not in it yet: "transfer into Gies", "switch to engineering",
+   * "LAS undeclared, want business". The route is the college's published
+   * one, and the plan front-loads what it asks for.
+   */
+  const admissionRoute = useMemo(() => {
+    const table = core?.admission;
+    const college = loaded?.program.college;
+    if (!table || !college || !table.colleges[college]) return null;
+    const words = [answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? '', careerInterests].join(' ');
+    const wants = /\b(transfer(ring)?|switch(ing)?|mov(e|ing) (in)?to|get(ting)? in(to)?|apply(ing)? (to|for)|ict|intercollegiate|undeclared|not (yet )?(in|admitted)|pre-?business|dgs|general studies)\b/i.test(words);
+    return wants ? table.colleges[college] : null;
+  }, [core, loaded, answers, careerInterests]);
   const programBusy = Boolean(isIllinois && programId) && fetched?.id !== programId;
 
   // ---- the planning context -------------------------------------------------
@@ -418,6 +464,8 @@ export function PlannerWorkspace({
       [...examCourses(answers?.exams ?? [], examCredit.entries), ...transcriptCodes(answers?.transcript)],
       Boolean(answers?.transcript),
       examElectiveHours(answers?.exams ?? [], examCredit.entries),
+      answers?.languageYears ?? null,
+      answers?.language ?? null,
     );
     const term = core.meta?.term;
     const horizon = readHorizon(answers?.timeline ?? '', {
@@ -430,7 +478,7 @@ export function PlannerWorkspace({
       context,
       prior,
       horizon,
-      preferences: { creditsPerTerm: { min: minimumTermCredits, target: targetTermCredits, max: 18 } },
+      preferences: { creditsPerTerm: { min: minimumTermCredits, target: targetTermCredits, max: 18 }, priorities },
       programId: loaded.summary.id,
       // The published total is what the plan must reach; the blocks alone
       // name 82 of Finance's 124 credits. The student's own words rank the
@@ -438,6 +486,8 @@ export function PlannerWorkspace({
       degreeTotal: loaded.summary.totalCredits ?? loaded.program.totalCredits ?? null,
       interests: [answers?.studying ?? '', answers?.after ?? '', careerInterests].join(' '),
       programName: loaded.program.name,
+      programCollege: loaded.program.college,
+      admissionRoute,
     });
 
     setPlan(generated.plan);
@@ -455,6 +505,8 @@ export function PlannerWorkspace({
       notPlaced: generated.notPlaced,
       forfeited: generated.forfeited,
       electives: generated.electives,
+      language: generated.language,
+      admission: generated.admission,
       firstTermId: generated.plan.terms[0]?.id ?? '',
     });
     setUndoStack([]);
@@ -463,7 +515,7 @@ export function PlannerWorkspace({
         ? 'Plan built. Open the review list to see what it could not do.'
         : 'Plan built. Nothing to review.',
     );
-  }, [isIllinois, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests]);
+  }, [isIllinois, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, priorities, admissionRoute]);
 
   useEffect(() => {
     if (plan) return;
@@ -547,6 +599,20 @@ export function PlannerWorkspace({
       else byReason.set(row.reason, [row]);
     }
     return [
+      // The college the student is trying to get into: an application with
+      // its own courses and deadline, put where the student reads what the
+      // plan wants from them, not only in the caveats.
+      ...(report.admission
+        ? [
+            {
+              id: 'admission-route',
+              severity: 'warning' as const,
+              title: `Getting into ${report.admission.name}`,
+              message: `${report.admission.path}: ${report.admission.eligibility.join(' ')} Its courses (${report.admission.codes.join(', ')}) are placed first, to be done by ${report.admission.requiredBy}. ${report.admission.notes[0] ?? ''} Source: ${report.admission.source}`,
+              termId: firstTerm,
+            },
+          ]
+        : []),
       // Held credit the plan gave up for a required course. A student who sees
       // MATH 221 booked next to the MATH 234 they marked as taken needs the
       // reason where the other reasons are, not only in the caveats.
@@ -587,10 +653,10 @@ export function PlannerWorkspace({
     if (!plan) return [];
     const rows =
       isIllinois && context
-        ? [...unmet, ...validatePlan(plan, context, { minimumTermCredits })]
+        ? [...unmet, ...validatePlan(plan, context, { minimumTermCredits, programName: loaded?.program.name, programCollege: loaded?.program.college })]
         : getPlanIssues(plan, catalog, { minimumTermCredits });
     return rows.map((issue) => ({ ...issue, message: withCourseCodes(issue.message) }));
-  }, [plan, isIllinois, context, unmet, minimumTermCredits, catalog]);
+  }, [plan, isIllinois, context, unmet, minimumTermCredits, catalog, loaded]);
 
   /** The degree on screen, from whichever source this school has. */
   const activeProgramName =
@@ -700,7 +766,7 @@ export function PlannerWorkspace({
    * hours were asked for.
    */
   const electiveOf = useMemo(() => {
-    const map = new Map<string, { label: string; detail: string; kind?: 'pool' | 'elective' }>();
+    const map = new Map<string, { label: string; detail: string; kind?: 'pool' | 'elective' | 'language' }>();
     for (const pool of pools) {
       // Written with the number each half carries. Hardcoding "courses" made
       // every one-course list read "1 courses from this list", and 63 pools
@@ -712,15 +778,52 @@ export function PlannerWorkspace({
       const detail = wanted
         ? `${wanted} from this list, ${pool.count} chosen.`
         : `${pool.count} chosen from this list. The catalog does not say how many to take.`;
+      /**
+       * Only as many cards as the list asks for wear its name. Finance's page
+       * names 82 of its 124 credits, so the fill reaches the total with more
+       * 400-level FIN courses, and every one of them sat in the same list;
+       * the board then read as seven courses "from a list" that needs four,
+       * and the bot called three of them padding. The first ones in term
+       * order fill the list. The rest are what they are: the planner's
+       * electives toward the total, free to swap.
+       */
+      const want = pool.countTarget ?? (pool.hoursTarget !== null ? Math.ceil(pool.hoursTarget / 3) : null);
+      let counted = 0;
       for (const code of pool.picked) {
         const course = byCode.get(normCode(code));
-        if (course) map.set(course.id, { label: pool.label, detail, kind: 'pool' });
+        if (!course) continue;
+        if (want !== null && counted >= want) {
+          map.set(course.id, {
+            label: 'Elective',
+            detail: `Counts toward the degree total. The list ${pool.label} already has its ${want} from earlier terms.`,
+            kind: 'elective',
+          });
+          continue;
+        }
+        map.set(course.id, { label: pool.label, detail, kind: 'pool' });
+        counted += 1;
       }
+    }
+    // The language sequence: required, but the language is the student's to pick.
+    if (report?.language) {
+      const lang = report.language;
+      lang.codes.forEach((code, i) => {
+        const course = byCode.get(normCode(code));
+        if (!course) return;
+        map.set(course.id, {
+          label: 'Language',
+          detail: `Semester ${lang.completed + i + 1} of ${lang.semesters} of ${lang.name}, for the language requirement. ${lang.why}`,
+          kind: 'language',
+        });
+      });
     }
     // The plan's own fillers, so a student can tell a suggestion from a rule.
     for (const pick of report?.electives ?? []) {
       const course = byCode.get(normCode(pick.code));
-      if (course && !map.has(course.id)) map.set(course.id, { label: 'Elective', detail: pick.why, kind: 'elective' });
+      if (!course) continue;
+      const mark = map.get(course.id);
+      if (!mark) map.set(course.id, { label: 'Elective', detail: pick.why, kind: 'elective' });
+      else if (mark.kind === 'elective' && mark.label === 'Elective') map.set(course.id, { ...mark, detail: pick.why });
     }
     return map;
   }, [pools, byCode, report]);
@@ -842,29 +945,46 @@ export function PlannerWorkspace({
    * fit first, read off the board as it stands. Built only while a slot is open,
    * because it walks the whole catalog against the board's prerequisites.
    */
-  const chooserOptions = useMemo((): Course[] => {
-    if (!chooser || !plan || !context || !loaded) return [];
-    const prior = readPriorCredit(
-      answers?.transferText ?? '',
-      answers?.exams.length ?? 0,
-      byCode,
-      [...examCourses(answers?.exams ?? [], examCredit.entries), ...transcriptCodes(answers?.transcript)],
-      Boolean(answers?.transcript),
-      examElectiveHours(answers?.exams ?? [], examCredit.entries),
-    );
-    return electiveOptions({
+  /** What the student walks in with, as the option lists and the re-pick read it. */
+  const priorForOptions = useMemo(
+    () =>
+      readPriorCredit(
+        answers?.transferText ?? '',
+        answers?.exams.length ?? 0,
+        byCode,
+        [...examCourses(answers?.exams ?? [], examCredit.entries), ...transcriptCodes(answers?.transcript)],
+        Boolean(answers?.transcript),
+        examElectiveHours(answers?.exams ?? [], examCredit.entries),
+        answers?.languageYears ?? null,
+        answers?.language ?? null,
+      ),
+    [answers, byCode, examCredit],
+  );
+  const interestsText = [answers?.studying ?? '', answers?.after ?? '', careerInterests].join(' ');
+
+  const chooserOptions = useMemo((): { options: Course[]; whys: Map<string, string> } => {
+    if (!chooser || !plan || !context || !loaded) return { options: [], whys: new Map() };
+    const options: Course[] = [];
+    const whys = new Map<string, string>();
+    for (const option of electiveOptions({
       context,
       requirements: loaded.blocks,
       plan,
       termId: chooser.termId,
-      prior,
-      interests: [answers?.studying ?? '', answers?.after ?? '', careerInterests].join(' '),
+      prior: priorForOptions,
+      interests: interestsText,
       programName: loaded.program.name,
+      programCollege: loaded.program.college,
+      priorities,
       limit: 80,
-    })
-      .map((option) => byCode.get(normCode(option.code)))
-      .filter((course): course is Course => Boolean(course));
-  }, [chooser, plan, context, loaded, answers, byCode, examCredit, careerInterests]);
+    })) {
+      const course = byCode.get(normCode(option.code));
+      if (!course) continue;
+      options.push(course);
+      whys.set(course.id, option.reasons.length > 0 ? option.reasons.slice(0, 3).join('; ') : option.why);
+    }
+    return { options, whys };
+  }, [chooser, plan, context, loaded, byCode, priorForOptions, interestsText, priorities]);
 
   function openChooser(courseId: string, termId: string) {
     setChooser({ termId, courseId });
@@ -902,7 +1022,7 @@ export function PlannerWorkspace({
         ? {
             ...current,
             electives: current.electives.map((e) =>
-              normCode(e.code) === normCode(oldCode) ? { code: newCode, why } : e,
+              normCode(e.code) === normCode(oldCode) ? { code: newCode, why, reasons: [] } : e,
             ),
           }
         : current,
@@ -971,6 +1091,26 @@ export function PlannerWorkspace({
   // ---- the advisor's hands and eyes ----------------------------------------
 
   /**
+   * The scorer the bot and the card dropdown read, over the priorities as
+   * they stand. Rebuilt when the board moves, because a category a new card
+   * covers stops being wanted.
+   */
+  const quality = useMemo(
+    () =>
+      context && loaded
+        ? qualityScorer({
+            context,
+            requirements: loaded.blocks,
+            interests: interestsText,
+            programName: loaded.program.name,
+            priorities,
+            carriedCodes: [...boardCodes, ...completedCodes],
+          })
+        : null,
+    [context, loaded, interestsText, priorities, boardCodes, completedCodes],
+  );
+
+  /**
    * Everything a tool reads, as of the last render. A ref rather than a
    * closure so that an executor created on one render does not answer from a
    * board three edits old.
@@ -989,6 +1129,13 @@ export function PlannerWorkspace({
     targetTermCredits,
     totalCredits,
     activeProgramTotal,
+    priorities,
+    quality,
+    priorForOptions,
+    interestsText,
+    pools,
+    language: report?.language ?? null,
+    admission: report?.admission ?? null,
   });
   useEffect(() => {
     live.current = {
@@ -1005,14 +1152,305 @@ export function PlannerWorkspace({
       targetTermCredits,
       totalCredits,
       activeProgramTotal,
+      priorities,
+      quality,
+      priorForOptions,
+      interestsText,
+      pools,
+      language: report?.language ?? null,
+      admission: report?.admission ?? null,
     };
   });
 
-  type Role = 'required' | 'from a list' | 'elective slot' | 'added';
+  /** Why a candidate board is not allowed for a course in a term, or what to warn about if it is. */
+  function checkPlacement(candidate: PlanState, course: Course, termId: string) {
+    const L = live.current;
+    const ctx = L.context;
+    if (!ctx) return { blocking: ['The catalog is not loaded yet.'], warnings: [] as string[], credits: '' };
+    const found = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18, programName: L.loaded?.program.name, programCollege: L.loaded?.program.college });
+    const mine = found.filter((i) => i.courseId === course.id && i.termId === termId);
+    const blocking = mine
+      .filter((i) => /^ap-(prereq-(?!check)|standing-|exclusion-|duplicate-)/.test(i.id) && i.severity !== 'info')
+      .map((i) => i.message);
+    for (const i of mine) if (i.id.startsWith('ap-exclusion-')) blocking.push(i.message);
+    const warnings = mine.filter((i) => !blocking.includes(i.message)).map((i) => i.message);
+    const term = candidate.terms.find((t) => t.id === termId);
+    const codes = (term?.courseIds ?? []).map((id) => L.courseIndex.get(id)?.code).filter((c): c is string => Boolean(c));
+    const credits = planCreditRange(codes, ctx);
+    if (credits.min > 18) blocking.push(`${term?.label ?? 'That term'} would be ${describeCreditTotal(credits)}, over the 18 allowed.`);
+    return { blocking: [...new Set(blocking)], warnings: [...new Set(warnings)], credits: describeCreditTotal(credits) };
+  }
+
+  /**
+   * Cameron's dropdown: what else could sit where this card sits. For an
+   * elective slot, the best of everything eligible in the term under the
+   * student's priorities; for a from-a-list card, the rest of its list that
+   * passes the same checks, best first. Ranks the catalog, so it runs when
+   * the menu opens and not on render.
+   */
+  function alternativesFor(courseId: string, termId: string): Alternative[] {
+    const L = live.current;
+    const board = planRef.current;
+    if (!board || !L.context || !L.loaded) return [];
+    const mark = L.electiveOf.get(courseId);
+    if (!mark) return [];
+    const reason = (reasons: string[], fallback: string) => (reasons.length > 0 ? reasons.slice(0, 2).join('; ') : fallback);
+    if (mark.kind === 'language') {
+      const lang = L.language;
+      const table = L.core?.languages;
+      const me = L.courseIndex.get(courseId);
+      if (!lang || !table || !me) return [];
+      const level = lang.completed + lang.codes.findIndex((code) => normCode(code) === normCode(me.code));
+      if (level < lang.completed) return [];
+      const out: Alternative[] = [];
+      for (const other of table.languages) {
+        if (other.name === lang.name) continue;
+        const code = other.levels[level]?.flat().find((c) => L.byCode.has(normCode(c)));
+        const course = code ? L.byCode.get(normCode(code)) : undefined;
+        if (!course) continue;
+        out.push({ course, why: `${other.name}, semester ${level + 1}. Choosing it switches the rest of the sequence to ${other.name}.` });
+      }
+      return out;
+    }
+    if (mark.kind === 'elective') {
+      return electiveOptions({
+        context: L.context,
+        requirements: L.loaded.blocks,
+        plan: board,
+        termId,
+        prior: L.priorForOptions,
+        interests: L.interestsText,
+        programName: L.loaded.program.name,
+        programCollege: L.loaded.program.college,
+        priorities: L.priorities,
+        limit: 7,
+      })
+        .map((o) => {
+          const course = L.byCode.get(normCode(o.code));
+          return course ? { course, why: reason(o.reasons, o.why) } : null;
+        })
+        .filter((a): a is Alternative => a !== null);
+    }
+    const pool = L.pools.find((p) => p.picked.some((code) => L.byCode.get(normCode(code))?.id === courseId));
+    const scorer = L.quality;
+    if (!pool || !scorer) return [];
+    const onBoard = new Set(board.terms.flatMap((t) => t.courseIds));
+    const ranked = pool.alternatives
+      .map((code) => L.byCode.get(normCode(code)))
+      .filter((c): c is Course => c !== undefined)
+      .filter((c) => !onBoard.has(c.id) && !board.completedCourseIds.includes(c.id))
+      .map((c) => ({ c, q: scorer(normCode(c.code)) }))
+      .sort((a, b) => b.q.score - a.q.score || b.q.known - a.q.known || a.c.code.localeCompare(b.c.code));
+    const out: Alternative[] = [];
+    for (const { c, q } of ranked) {
+      if (out.length >= 7) break;
+      const candidate: PlanState = {
+        ...board,
+        terms: board.terms.map((t) =>
+          t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === courseId ? c.id : id)) } : t,
+        ),
+      };
+      if (checkPlacement(candidate, c, termId).blocking.length > 0) continue;
+      out.push({ course: c, why: reason(q.reasons, `On the list ${pool.label}.`) });
+    }
+    return out;
+  }
+
+  /**
+   * Switch the language: the tapped card and every later card of the
+   * sequence become the same semesters of the new language, so the student
+   * never ends up with two semesters of Spanish and one of French.
+   */
+  function switchLanguage(courseId: string, replacementId: string) {
+    const lang = report?.language;
+    const table = core?.languages;
+    const replacement = courseIndex.get(replacementId);
+    if (!plan || !lang || !table || !replacement) return;
+    const other = table.languages.find((l) => l.levels.some((lv) => lv.flat().some((c) => normCode(c) === normCode(replacement.code))));
+    if (!other) return;
+    const startIndex = lang.codes.findIndex((code) => byCode.get(normCode(code))?.id === courseId);
+    if (startIndex < 0) return;
+    const swaps = new Map<string, string>();
+    const newCodes = lang.codes.slice();
+    for (let i = startIndex; i < lang.codes.length; i += 1) {
+      const level = lang.completed + i;
+      const code = other.levels[level]?.flat().find((c) => byCode.has(normCode(c)));
+      const oldCourse = byCode.get(normCode(lang.codes[i]));
+      const newCourse = code ? byCode.get(normCode(code)) : undefined;
+      if (!oldCourse || !newCourse) continue;
+      swaps.set(oldCourse.id, newCourse.id);
+      newCodes[i] = newCourse.code;
+    }
+    if (swaps.size === 0) return;
+    commit({
+      ...plan,
+      terms: plan.terms.map((t) => ({ ...t, courseIds: t.courseIds.map((id) => swaps.get(id) ?? id) })),
+    });
+    setReport((current) => (current && current.language ? { ...current, language: { ...current.language, name: other.name, codes: newCodes, why: `You chose ${other.name}.` } } : current));
+    setSelectedCourseId(replacementId);
+    notify(`${other.name} replaces ${lang.name}`, `${swaps.size} language ${plural(swaps.size, 'card')} switched: ${[...swaps.values()].map((id) => courseIndex.get(id)?.code).filter(Boolean).join(', ')}.`);
+  }
+
+  /** Put a course from the dropdown where the card is. A slot stays a slot; a list card stays on its list. */
+  function swapCourse(courseId: string, termId: string, replacementId: string) {
+    if (electiveOf.get(courseId)?.kind === 'language') {
+      switchLanguage(courseId, replacementId);
+      return;
+    }
+    if (electiveOf.get(courseId)?.kind === 'elective') {
+      chooseElective(termId, courseId, replacementId);
+      return;
+    }
+    if (!plan) return;
+    const oldCourse = courseIndex.get(courseId);
+    const course = courseIndex.get(replacementId);
+    if (!course) return;
+    if (plannedCourseIds.has(replacementId) || plan.completedCourseIds.includes(replacementId)) {
+      setStatus(`${course.code} is already in the plan.`);
+      return;
+    }
+    commit({
+      ...plan,
+      terms: plan.terms.map((t) =>
+        t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === courseId ? replacementId : id)) } : t,
+      ),
+    });
+    setSelectedCourseId(replacementId);
+    const list = electiveOf.get(courseId)?.label;
+    notify(
+      `${course.code} replaces ${oldCourse?.code ?? 'the course'}`,
+      `In ${plan.terms.find((t) => t.id === termId)?.label ?? 'that term'}${list ? `, still filling the list ${list}` : ''}.`,
+    );
+  }
+
+  /**
+   * Re-choose the planner's own picks under a set of priorities, term by
+   * term: every elective slot, and every from-a-list course the page's
+   * sub-rules do not pin. Required courses and anything the student added
+   * stay. A slot takes the best option its term allows; a list pick takes
+   * the best of the rest of its list that passes the same checks. Both are
+   * judged with the earlier swaps already on the board, so two picks cannot
+   * take the same course, and a pick keeps its course when nothing clearly
+   * beats it.
+   */
+  function repickElectives(next: Priorities): Array<{ term: string; from: string; to: string; why: string }> {
+    const L = live.current;
+    const board = planRef.current;
+    if (!board || !L.context || !L.loaded) return [];
+    const changed: Array<{ term: string; from: string; to: string; why: string }> = [];
+    let working = board;
+    const scorer = qualityScorer({
+      context: L.context,
+      requirements: L.loaded.blocks,
+      interests: L.interestsText,
+      programName: L.loaded.program.name,
+      priorities: next,
+      carriedCodes: [
+        ...board.terms.flatMap((t) => t.courseIds).map((id) => L.courseIndex.get(id)?.code ?? ''),
+        ...L.completedCodes,
+      ],
+    });
+    const swapIn = (termId: string, oldId: string, newId: string): PlanState => ({
+      ...working,
+      terms: working.terms.map((t) =>
+        t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === oldId ? newId : id)) } : t,
+      ),
+    });
+    // A course freed late in one pass (swapped out of a later term) can be
+    // the best choice for an earlier pick, so the pass repeats until a full
+    // pass moves nothing. Three is plenty; two picks cannot trade forever
+    // because every swap has to clearly beat what it replaces.
+    for (let pass = 0; pass < 3; pass += 1) {
+      const before = changed.length;
+      // The board as it stands after earlier swaps. A course swapped in has
+      // no mark of its own, so it is not considered again: picks do not trade
+      // back and forth, and each original pick gets at most one swap.
+      for (const term of working.terms) {
+        for (const courseId of term.courseIds) {
+          const mark = L.electiveOf.get(courseId);
+          if (!mark) continue;
+          if (!working.terms.some((t) => t.courseIds.includes(courseId))) continue;
+          const current = L.courseIndex.get(courseId);
+          if (!current) continue;
+          if (mark.kind === 'pool') {
+            const pool = L.pools.find((p) => p.picked.some((code) => normCode(code) === normCode(current.code)));
+            if (!pool) continue;
+            // A course a sub-rule counts ("at least two from FIN 4xx") stays,
+            // because the rest of the list may not satisfy that rule.
+            const pinned = pool.constraints.some((k) => k.picked.some((code) => normCode(code) === normCode(current.code)));
+            if (pinned) continue;
+            const onBoard = new Set(working.terms.flatMap((t) => t.courseIds));
+            const own = scorer(normCode(current.code));
+            const ranked = pool.alternatives
+              .map((code) => L.byCode.get(normCode(code)))
+              .filter((c): c is Course => c !== undefined)
+              .filter((c) => !onBoard.has(c.id) && !working.completedCourseIds.includes(c.id))
+              .map((c) => ({ c, q: scorer(normCode(c.code)) }))
+              .sort((a, b) => b.q.score - a.q.score || b.q.known - a.q.known || a.c.code.localeCompare(b.c.code));
+            for (const { c, q } of ranked) {
+              // Sorted best first, so the first that does not clearly beat the
+              // current course ends the search.
+              if (q.score <= own.score + 0.05) break;
+              const candidate = swapIn(term.id, courseId, c.id);
+              if (checkPlacement(candidate, c, term.id).blocking.length > 0) continue;
+              working = candidate;
+              changed.push({
+                term: term.label,
+                from: current.code,
+                to: c.code,
+                why: q.reasons.length > 0 ? q.reasons.slice(0, 2).join('; ') : `on the list ${pool.label}`,
+              });
+              break;
+            }
+            continue;
+          }
+          const options = electiveOptions({
+            context: L.context,
+            requirements: L.loaded.blocks,
+            plan: working,
+            termId: term.id,
+            prior: L.priorForOptions,
+            interests: L.interestsText,
+            programName: L.loaded.program.name,
+            programCollege: L.loaded.program.college,
+            priorities: next,
+            including: current.code,
+            limit: 3,
+          });
+          const best = options[0];
+          if (!best) continue;
+          const bestCourse = L.byCode.get(normCode(best.code));
+          if (!bestCourse || bestCourse.id === courseId) continue;
+          const own = options.find((o) => normCode(o.code) === normCode(current.code));
+          // Under a tie, or a hair, the student keeps what they have already seen.
+          // A quarter point is a thirtieth of the score's range, under any
+          // structural step, so a swap always has a reason the words can show.
+          if (own && best.fit <= own.fit + 0.25) continue;
+          working = swapIn(term.id, courseId, bestCourse.id);
+          changed.push({
+            term: term.label,
+            from: current.code,
+            to: bestCourse.code,
+            why: best.reasons.length > 0 ? best.reasons.slice(0, 2).join('; ') : best.why,
+          });
+        }
+      }
+      if (changed.length === before) break;
+    }
+    if (changed.length > 0) {
+      commit(working);
+      planRef.current = working;
+      for (const c of changed) noteElectiveSwap(c.from, c.to, `Picked for your priorities: ${c.why}`);
+    }
+    return changed;
+  }
+
+  type Role = 'required' | 'from a list' | 'elective slot' | 'language' | 'added';
   function roleOf(course: Course): Role {
     const slot = live.current.electiveOf.get(course.id);
     if (slot?.kind === 'elective') return 'elective slot';
     if (slot?.kind === 'pool') return 'from a list';
+    if (slot?.kind === 'language') return 'language';
     if (course.pathwayRole === 'required') return 'required';
     return 'added';
   }
@@ -1043,7 +1481,7 @@ export function PlannerWorkspace({
       `Degree: ${L.loaded.program.name}, University of Illinois. Published total: ${L.activeProgramTotal ?? 'not published'} credits. Plan: ${L.totalCredits} through ${last}.`,
     );
     lines.push(
-      'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [added] the student put it there.',
+      'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [language] part of the language sequence for the language requirement; the language is the student\'s choice, the level is not. [added] the student put it there.',
     );
     const taken = board.completedCourseIds
       .map((id) => L.courseIndex.get(id)?.code)
@@ -1052,6 +1490,9 @@ export function PlannerWorkspace({
     lines.push(
       `Preferences: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'balanced'}, never above 18.`,
     );
+    lines.push(`Priorities, which decide the elective picks and the order of choices: ${describePriorities(L.priorities)}`);
+    if (L.language) lines.push(`Language requirement: ${L.language.name}, semesters ${L.language.completed + 1} to ${L.language.semesters} planned (${L.language.codes.join(', ')}). ${L.language.why}`);
+    if (L.admission) lines.push(`Getting into ${L.admission.name} (${L.admission.path}): the student is not in this college yet. Its courses (${L.admission.codes.join(', ')}) are placed first, due by ${L.admission.requiredBy}. ${L.admission.eligibility.join(' ')} Source: ${L.admission.source}`);
     for (const term of board.terms) {
       const courses = term.courseIds
         .map((id) => L.courseIndex.get(id))
@@ -1059,8 +1500,15 @@ export function PlannerWorkspace({
       const credits = L.context
         ? describeCreditTotal(planCreditRange(courses.map((c) => c.code), L.context)).replace(/ credits?$/, ' cr')
         : `${courses.reduce((n, c) => n + c.credits, 0)} cr`;
+      const hardCut = L.context?.bands?.hardest ?? null;
+      const hard = courses.filter((c) => {
+        const d = L.core?.grades?.get(normCode(c.code))?.difficulty ?? null;
+        return hardCut !== null && d !== null && d >= hardCut;
+      }).length;
+      const dormant = courses.filter((c) => L.context?.offeringTerms?.length && (L.context.offerings?.get(normCode(c.code)) ?? []).length === 0).map((c) => c.code);
+      const read = [hard >= 2 ? `${hard} hardest-band courses together` : null, dormant.length ? `not run recently: ${dormant.join(', ')}` : null].filter(Boolean).join('; ');
       lines.push(
-        `${term.label} (${credits}): ${
+        `${term.label} (${credits}${read ? `; ${read}` : ''}): ${
           courses.length > 0
             ? courses.map((c) => `${c.code} [${markOf(c)}] ${creditsOf(c)} ${c.title}`).join('; ')
             : 'empty'
@@ -1103,6 +1551,12 @@ export function PlannerWorkspace({
     };
     const courseOf = (raw: string) => L.byCode.get(normalizeCourseCode(raw)) ?? null;
     const holding = (courseId: string) => board.terms.find((t) => t.courseIds.includes(courseId)) ?? null;
+    /** How the course reads against the student's priorities, in their words. */
+    const fitOf = (c: Course) => {
+      if (!L.quality) return null;
+      const q = L.quality(normCode(c.code));
+      return { score_0_to_1: Math.round(q.score * 100) / 100, reasons: q.reasons, not_known: q.unknown };
+    };
     const describe = (c: Course) => ({
       code: c.code,
       title: c.title,
@@ -1112,7 +1566,57 @@ export function PlannerWorkspace({
       difficulty_0_to_100: L.core?.grades?.get(normCode(c.code))?.difficulty ?? null,
       on_board_in: holding(c.id)?.label ?? null,
       already_taken: L.completedCodes.has(normCode(c.code)),
+      teaching: describeExcellent(
+        L.core?.excellent?.get(normCode(c.code)) ?? null,
+        L.core?.excellentTerms,
+        L.core?.sections?.get(normCode(c.code))?.instructors ?? null,
+        L.core?.meta?.term?.label ?? null,
+      ),
+      recent_terms_it_ran: offeredLine(ctx, normCode(c.code)),
+      fit: fitOf(c),
     });
+    /** The planner's read of one term: credits, how heavy, what stacks. */
+    const termRead = (t: PlanTerm) => {
+      const courses = t.courseIds.map((id) => L.courseIndex.get(id)).filter((x): x is Course => Boolean(x));
+      const credits = describeCreditTotal(planCreditRange(courses.map((x) => x.code), ctx));
+      const hardCut = ctx.bands?.hardest ?? null;
+      const hard = courses.filter((x) => {
+        const d = L.core?.grades?.get(normCode(x.code))?.difficulty ?? null;
+        return hardCut !== null && d !== null && d >= hardCut;
+      });
+      const weighed = courses.filter((x) => (L.core?.grades?.get(normCode(x.code))?.difficulty ?? null) !== null);
+      const avg = weighed.length
+        ? Math.round(weighed.reduce((n, x) => n + (L.core?.grades?.get(normCode(x.code))?.difficulty ?? 0), 0) / weighed.length)
+        : null;
+      const dormant = courses.filter((x) => ctx.offeringTerms?.length && (ctx.offerings?.get(normCode(x.code)) ?? []).length === 0).map((x) => x.code);
+      const wrongSeason = courses
+        .filter((x) => x.offeringKnown && x.offeredIn.length > 0 && !x.offeredIn.includes(t.season))
+        .map((x) => `${x.code} (has run in ${x.offeredIn.join(' and ')} only)`);
+      const load =
+        hard.length >= 3 || (avg !== null && ctx.bands && avg >= ctx.bands.hardest)
+          ? 'brutal'
+          : hard.length === 2 || (avg !== null && ctx.bands && avg >= ctx.bands.harder)
+            ? 'heavy'
+            : avg !== null && ctx.bands && avg <= ctx.bands.typical
+              ? 'light'
+              : 'typical';
+      return {
+        term: t.label,
+        credits,
+        load_by_grade_history: weighed.length ? load : 'not known',
+        average_difficulty_0_to_100: avg,
+        courses_weighed: `${weighed.length} of ${courses.length}`,
+        hardest_band_courses: hard.map((x) => x.code),
+        not_run_recently: ctx.offeringTerms?.length ? dormant : 'not known: no offering history is loaded',
+        season_mismatch: wrongSeason,
+        review: L.issues.filter((i) => i.termId === t.id && i.severity !== 'info').map((i) => `${i.severity}: ${i.message}`),
+      };
+    };
+    /** Runners-up for a slot or a list pick, with reasons. */
+    const runnersUp = (c: Course, t: PlanTerm, limit: number) =>
+      alternativesFor(c.id, t.id)
+        .slice(0, limit)
+        .map((a) => ({ code: a.course.code, title: a.course.title, credits: creditsOf(a.course), why: a.why, fit: fitOf(a.course) }));
     const withCourseIn = (base: PlanState, courseId: string, termId: string): PlanState => ({
       ...base,
       terms: base.terms.map((t) => (t.id === termId ? { ...t, courseIds: [...t.courseIds, courseId] } : t)),
@@ -1121,21 +1625,7 @@ export function PlannerWorkspace({
       ...base,
       terms: base.terms.map((t) => ({ ...t, courseIds: t.courseIds.filter((id) => id !== courseId) })),
     });
-    /** Why a candidate board is not allowed, or what to warn about if it is. */
-    const check = (candidate: PlanState, course: Course, termId: string) => {
-      const found = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18 });
-      const mine = found.filter((i) => i.courseId === course.id && i.termId === termId);
-      const blocking = mine
-        .filter((i) => /^ap-(prereq-(?!check)|standing-|exclusion-|duplicate-)/.test(i.id) && i.severity !== 'info')
-        .map((i) => i.message);
-      for (const i of mine) if (i.id.startsWith('ap-exclusion-')) blocking.push(i.message);
-      const warnings = mine.filter((i) => !blocking.includes(i.message)).map((i) => i.message);
-      const term = candidate.terms.find((t) => t.id === termId);
-      const codes = (term?.courseIds ?? []).map((id) => L.courseIndex.get(id)?.code).filter((c): c is string => Boolean(c));
-      const credits = planCreditRange(codes, ctx);
-      if (credits.min > 18) blocking.push(`${term?.label ?? 'That term'} would be ${describeCreditTotal(credits)}, over the 18 allowed.`);
-      return { blocking: [...new Set(blocking)], warnings: [...new Set(warnings)], credits: describeCreditTotal(credits) };
-    };
+    const check = checkPlacement;
     const apply = (next: PlanState, focusTerm: string | null, select: string | null, status: string) => {
       commit(next);
       planRef.current = next;
@@ -1145,11 +1635,13 @@ export function PlannerWorkspace({
     };
     const guard = (course: Course, verb: string) => {
       const role = roleOf(course);
-      if ((role === 'required' || role === 'from a list') && input.confirmed !== true) {
+      if ((role === 'required' || role === 'from a list' || role === 'language') && input.confirmed !== true) {
         const why =
           role === 'required'
             ? `${course.code} is required by this degree`
-            : `${course.code} fills the list "${L.electiveOf.get(course.id)?.label ?? ''}"`;
+            : role === 'language'
+              ? `${course.code} is part of the language sequence that meets the degree's language requirement (another language can take its place; use replace_course with the same semester's course in that language)`
+              : `${course.code} fills the list "${L.electiveOf.get(course.id)?.label ?? ''}"`;
         return {
           ok: false,
           needs_confirmation: true,
@@ -1178,7 +1670,8 @@ export function PlannerWorkspace({
               (subjects.has(c.cluster) ? 1 : 0) +
               (c.tags.length > 0 ? 1 : 0) -
               (holding(c.id) || L.completedCodes.has(normCode(c.code)) ? 3 : 0);
-            return score(b) - score(a) || a.code.localeCompare(b.code);
+            const fit = (c: Course) => (L.quality ? L.quality(normCode(c.code)).score : 0);
+            return score(b) - score(a) || fit(b) - fit(a) || a.code.localeCompare(b.code);
           });
         if (!term) return { ok: true, matches: hits.length, results: hits.slice(0, limit).map(describe) };
         const results: Array<ReturnType<typeof describe> & { eligible_in: string; warnings: string[] }> = [];
@@ -1268,7 +1761,7 @@ export function PlannerWorkspace({
         const stop = guard(c, 'removed');
         if (stop) return stop;
         const candidate = without(board, c.id);
-        const knockOn = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18 })
+        const knockOn = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18, programName: L.loaded?.program.name, programCollege: L.loaded?.program.college })
           .filter((i) => i.severity === 'error' && /^ap-prereq-(?!check)/.test(i.id))
           .map((i) => i.message);
         apply(candidate, t.id, null, `${c.code} removed from ${t.label} by ${botName}.`);
@@ -1312,6 +1805,238 @@ export function PlannerWorkspace({
         apply(candidate, to.id, c.id, `${c.code} moved to ${to.label} by ${botName}.`);
         return { ok: true, summary: `${c.code} moved from ${from.label} to ${to.label}`, term_credits: verdict.credits, warnings: verdict.warnings };
       }
+      case 'compare_courses': {
+        const raw = Array.isArray(input.codes) ? (input.codes as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+        const found = raw.map((x) => ({ asked: x, course: courseOf(x) }));
+        const missing = found.filter((f) => !f.course).map((f) => f.asked);
+        const courses = found.map((f) => f.course).filter((x): x is Course => Boolean(x));
+        if (courses.length < 2) return { ok: false, reason: `Name at least two courses in the catalog.${missing.length ? ` Not in the catalog: ${missing.join(', ')}.` : ''}` };
+        const term = str('term') ? termOf(str('term')) : null;
+        if (str('term') && !term) return { ok: false, reason: `No term called "${str('term')}" is on the board. The terms are ${termList}.` };
+        const rows = [];
+        for (const c of courses) {
+          const key = normCode(c.code);
+          const prereq = L.core?.prereqs?.get(key);
+          const grade = L.core?.grades?.get(key);
+          const detail = await loadIllinoisCourseDetail(c.code);
+          const verdict = term && !holding(c.id) ? check(withCourseIn(board, c.id, term.id), c, term.id) : null;
+          rows.push({
+            ...describe(c),
+            role_on_board: holding(c.id) ? roleOf(c) : null,
+            description: (detail?.course?.description ?? '').slice(0, 400) || null,
+            prerequisite_sentence: prereq?.text || detail?.course?.prereqText || null,
+            grade_history: grade ? { gpa: grade.gpa, a_percent: grade.aPct, drop_percent: grade.withdrawPct, students: grade.n } : null,
+            sections_in_crawled_term: L.core?.sections?.get(key)?.total ?? 0,
+            earliest_section: L.core?.sections?.get(key)?.earliest ?? null,
+            ...(term ? { in_term: term.label, eligible: verdict ? verdict.blocking.length === 0 : holding(c.id) ? 'already on the board' : null, blocked_by: verdict?.blocking ?? [], warnings: verdict?.warnings ?? [] } : {}),
+          });
+        }
+        return { ok: true, priorities: describePriorities(L.priorities), courses: rows, not_in_catalog: missing, note: 'Weigh these for the student in their own terms; do not just relist them.' };
+      }
+      case 'explain_choice': {
+        const c = courseOf(str('code'));
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        const t = holding(c.id);
+        if (!t) return { ok: false, reason: `${c.code} is not on the board.` };
+        const role = roleOf(c);
+        const key = normCode(c.code);
+        // What later courses on the board need it first.
+        const unlocks: string[] = [];
+        for (const later of board.terms) {
+          for (const id of later.courseIds) {
+            const other = L.courseIndex.get(id);
+            if (!other || other.id === c.id) continue;
+            const groups = L.core?.prereqs?.get(normCode(other.code))?.groups ?? [];
+            if (groups.some((g) => g.any.map(normCode).includes(key))) unlocks.push(`${other.code} in ${later.label}`);
+          }
+        }
+        const base = { ok: true, ...describe(c), term: t.label, role, unlocks_later_on_the_board: unlocks };
+        if (role === 'required') {
+          const names = L.loaded.blocks
+            .filter((b) => (b.rule.kind === 'all' || b.rule.kind === 'choose' || b.rule.kind === 'pool') && b.rule.choices.some((ch) => ch.codes.map(normCode).includes(key)))
+            .map((b) => `${b.areaLabel}: ${b.label}`);
+          return { ...base, named_by: names, why: 'The degree page names it. Moving it is fine when the checks allow; removing it needs the student\'s yes.' };
+        }
+        if (role === 'added') return { ...base, why: 'The student put it there.' };
+        const mark = L.electiveOf.get(c.id);
+        if (role === 'language') {
+          return {
+            ...base,
+            why: mark?.detail ?? 'Part of the language sequence.',
+            language_plan: L.language,
+            other_languages_same_semester: runnersUp(c, t, 30),
+            note: 'The level is required; the language is the student\'s choice. Switching one card switches the rest of the sequence.',
+          };
+        }
+        return {
+          ...base,
+          list: mark?.kind === 'pool' ? mark.label : null,
+          chosen_for: mark?.detail ?? null,
+          runners_up: runnersUp(c, t, 6),
+          note: 'Runners-up are what the planner would offer in its place under the current priorities, best first; a swap needs a clear reason.',
+        };
+      }
+      case 'what_if': {
+        const changes = Array.isArray(input.changes) ? (input.changes as Array<Record<string, unknown>>) : [];
+        if (changes.length === 0) return { ok: false, reason: 'Give at least one change.' };
+        let candidate: PlanState = board;
+        const applied: string[] = [];
+        const refused: string[] = [];
+        const added: Course[] = [];
+        const holdingIn = (b: PlanState, id: string) => b.terms.find((x) => x.courseIds.includes(id)) ?? null;
+        for (const ch of changes) {
+          const op = typeof ch.op === 'string' ? ch.op : '';
+          const c = typeof ch.code === 'string' ? courseOf(ch.code) : null;
+          if (!c) { refused.push(`${typeof ch.code === 'string' ? ch.code : 'that course'}: not in the catalog`); continue; }
+          if (op === 'add') {
+            const to = typeof ch.term === 'string' ? termOf(ch.term) : null;
+            if (!to) { refused.push(`add ${c.code}: give a term on the board`); continue; }
+            if (holdingIn(candidate, c.id)) { refused.push(`add ${c.code}: already on the board`); continue; }
+            candidate = withCourseIn(candidate, c.id, to.id); added.push(c); applied.push(`add ${c.code} to ${to.label}`);
+          } else if (op === 'remove') {
+            if (!holdingIn(candidate, c.id)) { refused.push(`remove ${c.code}: not on the board`); continue; }
+            candidate = without(candidate, c.id); applied.push(`remove ${c.code}`);
+          } else if (op === 'replace') {
+            const n = typeof ch.add === 'string' ? courseOf(ch.add) : null;
+            const from = holdingIn(candidate, c.id);
+            if (!from) { refused.push(`replace ${c.code}: not on the board`); continue; }
+            if (!n) { refused.push(`replace ${c.code}: the replacement is not in the catalog`); continue; }
+            if (holdingIn(candidate, n.id)) { refused.push(`replace ${c.code} with ${n.code}: ${n.code} is already on the board`); continue; }
+            candidate = { ...candidate, terms: candidate.terms.map((x) => (x.id === from.id ? { ...x, courseIds: x.courseIds.map((id) => (id === c.id ? n.id : id)) } : x)) };
+            added.push(n); applied.push(`replace ${c.code} with ${n.code} in ${from.label}`);
+          } else if (op === 'move') {
+            const to = typeof ch.term === 'string' ? termOf(ch.term) : null;
+            const from = holdingIn(candidate, c.id);
+            if (!from) { refused.push(`move ${c.code}: not on the board`); continue; }
+            if (!to) { refused.push(`move ${c.code}: give a term on the board`); continue; }
+            candidate = withCourseIn(without(candidate, c.id), c.id, to.id); applied.push(`move ${c.code} from ${from.label} to ${to.label}`);
+          } else refused.push(`${c.code}: unknown op ${op}`);
+        }
+        const before = validatePlan(board, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18, programName: L.loaded?.program.name, programCollege: L.loaded?.program.college });
+        const after = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18, programName: L.loaded?.program.name, programCollege: L.loaded?.program.college });
+        const keyOf = (i: PlanIssue) => `${i.id}|${i.message}`;
+        const was = new Set(before.map(keyOf));
+        const newIssues = after.filter((i) => !was.has(keyOf(i)) && i.severity !== 'info').map((i) => `${i.severity}: ${i.message}`);
+        const gone = new Set(after.map(keyOf));
+        const resolved = before.filter((i) => !gone.has(keyOf(i)) && i.severity !== 'info').map((i) => i.message);
+        const terms = candidate.terms.map((x) => ({
+          term: x.label,
+          credits: describeCreditTotal(planCreditRange(x.courseIds.map((id) => L.courseIndex.get(id)?.code ?? '').filter(Boolean), ctx)),
+        }));
+        return {
+          ok: true,
+          simulated: true,
+          note: 'Nothing on the board changed. Use add_course, remove_course, replace_course or move_course to make it real.',
+          applied,
+          refused,
+          new_problems: newIssues,
+          problems_resolved: resolved,
+          terms_after: terms,
+          new_courses_fit: added.map((c) => ({ code: c.code, fit: fitOf(c), recent_terms_it_ran: offeredLine(ctx, normCode(c.code)) })),
+        };
+      }
+      case 'review_board': {
+        const terms = board.terms.map(termRead);
+        const heaviest = terms
+          .filter((t) => t.average_difficulty_0_to_100 !== null)
+          .sort((a, b) => (b.average_difficulty_0_to_100 ?? 0) - (a.average_difficulty_0_to_100 ?? 0))[0]?.term ?? null;
+        const groups = groupIssues(L.issues).filter((g) => g.severity !== 'info');
+        const open = L.issues.filter((i) => /^(unsatisfied|pool|ap-missing)/.test(i.id) || /not (yet )?(met|satisfied)|still needs|short/i.test(i.title)).map((i) => i.message.slice(0, 200));
+        const dormant = terms.flatMap((t) => (Array.isArray(t.not_run_recently) ? t.not_run_recently : []).map((code) => `${code} in ${t.term}`));
+        const stacked = terms.filter((t) => t.hardest_band_courses.length >= 2).map((t) => `${t.term}: ${t.hardest_band_courses.join(', ')}`);
+        const suggestions: string[] = [];
+        for (const t of terms) {
+          if (t.hardest_band_courses.length >= 2) {
+            const slot = board.terms.find((x) => x.label === t.term)?.courseIds.map((id) => L.courseIndex.get(id)).find((c) => c && L.electiveOf.get(c.id)?.kind === 'elective');
+            if (slot) suggestions.push(`${t.term} stacks ${t.hardest_band_courses.length} hardest-band courses and has an elective slot (${slot.code}); a lighter elective there, or moving one hard course to a lighter term, would spread the load.`);
+            else suggestions.push(`${t.term} stacks ${t.hardest_band_courses.length} hardest-band courses; consider moving one to a lighter term if prerequisites allow.`);
+          }
+        }
+        for (const d of dormant) suggestions.push(`${d} has not run in any recent term; ask the department or pick a course that has.`);
+        return {
+          ok: true,
+          degree: L.loaded.program.name,
+          total_planned: L.totalCredits,
+          published_total: L.activeProgramTotal,
+          priorities: describePriorities(L.priorities),
+          terms,
+          heaviest_term_by_grade_history: heaviest,
+          terms_stacking_hard_courses: stacked,
+          not_run_recently: ctx.offeringTerms?.length ? dormant : 'not known: no offering history is loaded, so do not claim every course is offered',
+          open_requirements: open.slice(0, 12),
+          review_flags: groups.slice(0, 12).map((g) => `${g.severity}: ${g.title}: ${g.message.slice(0, 200)}`),
+          suggestions,
+          note: 'Give the student your own judgement from this: what is fine, what to change, and why. Not a list.',
+        };
+      }
+      case 'program_admission': {
+        const table = L.core?.admission;
+        if (!table) return { ok: false, reason: 'No admission routes are loaded in this build.' };
+        const q = str('college').toLowerCase();
+        const code = /gies|bus/.test(q) ? 'bus' : /grainger|engineer/.test(q) ? 'engineering' : Object.keys(table.colleges).find((k) => q.includes(k)) ?? null;
+        const route = code ? table.colleges[code] : null;
+        if (!route) return { ok: false, reason: `No published route is loaded for "${str('college')}". Loaded: ${Object.values(table.colleges).map((r) => r.name).join('; ')}. Use university_answer for other colleges.` };
+        const onBoardTerm = (c: string) => {
+          const course = courseOf(c);
+          return course ? holding(course.id)?.label ?? null : null;
+        };
+        const status = route.required.map((item) => {
+          const options = item.options ?? [];
+          const held = options.filter((c) => L.completedCodes.has(normCode(c)));
+          const planned = options.map((c) => [c, onBoardTerm(c)] as const).filter((x) => x[1]);
+          return { requirement: item.label, already_have: held, on_the_board: planned.map(([c, t]) => `${c} in ${t}`), status: held.length ? 'done' : planned.length ? 'planned' : item.genEd ? 'a general education category; check the board for a course carrying it' : 'missing' };
+        });
+        return {
+          ok: true,
+          college: route.name,
+          route: route.path,
+          who_it_is_for: route.who,
+          eligibility: route.eligibility,
+          required_by: route.requiredBy,
+          required: status,
+          plus_for_data_science_majors: route.dataScienceExtra ?? [],
+          recommended: route.recommended,
+          notes: route.notes,
+          contact: route.contact,
+          source: route.source,
+          as_of: table.fetchedAt,
+          note: 'Read this against the student\'s actual term of study and hours. Say what is done, what is planned and when, what is missing, and that the application itself is competitive.',
+        };
+      }
+      case 'set_priorities': {
+        const presetName =
+          typeof input.preset === 'string' && input.preset in PRIORITY_PRESETS
+            ? (input.preset as keyof typeof PRIORITY_PRESETS)
+            : null;
+        const base = presetName ? PRIORITY_PRESETS[presetName] : L.priorities;
+        const knobs: Record<string, unknown> = {};
+        for (const key of ['workload', 'teaching', 'relevance', 'coverage', 'schedule', 'noEarly', 'format'] as const) {
+          if (input[key] !== undefined) knobs[key] = input[key];
+        }
+        const next = normalizePriorities({ ...base, noEarly: L.priorities.noEarly, format: L.priorities.format, ...knobs });
+        setPriorities(next);
+        live.current = { ...live.current, priorities: next };
+        const repicked = input.repick === false ? [] : repickElectives(next);
+        if (repicked.length > 0) {
+          notify(
+            `ALMA re-picked ${repicked.length} ${plural(repicked.length, 'course')}`,
+            repicked.map((c) => `${c.to} for ${c.from} in ${c.term}`).join('; ') + '.',
+          );
+        } else {
+          notify('ALMA updated your priorities', 'Every pick already held the best course for them.', 'info');
+        }
+        return {
+          ok: true,
+          priorities: describePriorities(next),
+          repicked,
+          note:
+            repicked.length > 0
+              ? 'The courses listed were swapped; required courses and anything the student added were not touched. Tell the student each swap and its reason.'
+              : input.repick === false
+                ? 'Saved. The board was not re-picked.'
+                : 'Saved. Every one of the planner\'s picks already held the best course under these priorities, so nothing on the board moved.',
+        };
+      }
       case 'planner_answer': {
         const ask = await askContext();
         if (!ask) return { handled: false, note: 'The planner data is not loaded.' };
@@ -1353,6 +2078,7 @@ export function PlannerWorkspace({
       minimumTermCredits,
       targetTermCredits,
       careerInterests,
+      priorities,
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
     setStatus('Saved on this device.');
@@ -1537,6 +2263,7 @@ export function PlannerWorkspace({
       <output aria-live="polite" className="sr-only">
         {status_}
       </output>
+      <Toaster />
 
       <header className="app-header">
         <a className="brand" href="#top" aria-label="Four Year Planner home">
@@ -1627,6 +2354,24 @@ export function PlannerWorkspace({
         onTargetChange={setTargetTermCredits}
         careerInterests={careerInterests}
         onCareerChange={setCareerInterests}
+        priorities={priorities}
+        onPrioritiesChange={setPriorities}
+        onRepick={() => {
+          const changed = repickElectives(priorities);
+          const picks = [...electiveOf.values()].length;
+          if (changed.length > 0) {
+            notify(
+              `Re-picked ${changed.length} ${plural(changed.length, 'course')}`,
+              changed.map((c) => `${c.to} for ${c.from} in ${c.term}`).join('; ') + '.',
+            );
+          } else {
+            notify(
+              'Nothing to swap',
+              `Each of the planner's ${picks} ${plural(picks, 'pick')} already holds the best course for these priorities. Change a knob and try again, or open a card's chevron to see the runners-up.`,
+              'info',
+            );
+          }
+        }}
         caveats={caveats}
         pools={
           <ElectivePools
@@ -1764,6 +2509,8 @@ export function PlannerWorkspace({
                 onDropCourse={addCourse}
                 onFindAlternatives={selectPlanned}
                 onChooseElective={openChooser}
+                alternativesFor={alternativesFor}
+                onSwapCourse={swapCourse}
                 electiveOf={electiveOf}
               />
             );
@@ -1779,7 +2526,8 @@ export function PlannerWorkspace({
             ? {
                 termLabel: plan.terms.find((t) => t.id === chooser.termId)?.label ?? 'that term',
                 replacing: courseIndex.get(chooser.courseId)?.code ?? 'the elective',
-                options: chooserOptions,
+                options: chooserOptions.options,
+                whys: chooserOptions.whys,
                 onPick: (courseId) => chooseElective(chooser.termId, chooser.courseId, courseId),
                 onCancel: () => setChooser(null),
               }

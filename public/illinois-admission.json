@@ -1,0 +1,162 @@
+{
+  "school": "illinois",
+  "fetchedAt": "2026-09-23",
+  "colleges": {
+    "bus": {
+      "name": "Gies College of Business",
+      "path": "Intercollegiate Transfer (ICT)",
+      "source": "https://giesbusiness.illinois.edu/apply/admissions/intercollegiate-transfer-(ict)",
+      "who": "First-year University of Illinois students currently enrolled in another program who want a Gies Business degree. Sophomores are not eligible; the page's FAQ covers that case.",
+      "eligibility": [
+        "Be a first-year current student at Illinois.",
+        "Have completed at least 24 graded credit hours at Illinois by the end of the first spring semester.",
+        "Follow the course completion timelines below."
+      ],
+      "requiredBy": "the end of your first spring semester",
+      "required": [
+        {
+          "label": "Composition I",
+          "genEd": "Composition I"
+        },
+        {
+          "label": "ECON 102 Microeconomics (ACE 100 can be substituted)",
+          "options": [
+            "ECON 102",
+            "ACE 100"
+          ]
+        },
+        {
+          "label": "ECON 103 Macroeconomics",
+          "options": [
+            "ECON 103"
+          ]
+        },
+        {
+          "label": "At least one of MATH 115, MATH 220, MATH 221, MATH 231, MATH 234 or STAT 100",
+          "options": [
+            "MATH 115",
+            "MATH 220",
+            "MATH 221",
+            "MATH 231",
+            "MATH 234",
+            "STAT 100"
+          ]
+        }
+      ],
+      "dataScienceExtra": [
+        {
+          "label": "CS/IS/STAT 107 Data Science Discovery",
+          "options": [
+            "CS 107",
+            "IS 107",
+            "STAT 107"
+          ]
+        },
+        {
+          "label": "One of MATH 234 (recommended), MATH 220 or MATH 221",
+          "options": [
+            "MATH 234",
+            "MATH 220",
+            "MATH 221"
+          ]
+        }
+      ],
+      "recommended": [
+        "Levels I to III of a language other than English; priority goes to students who have completed three levels or passed a proficiency exam, and high school coursework counts.",
+        "CMN 101 Public Speaking",
+        "CS 105 Intro Computing: Non-Tech (all majors except + Data Science)"
+      ],
+      "notes": [
+        "The application is competitive: a major choice, essay prompts and additional considerations.",
+        "Gies undergraduate programs must be completed in no more than 9 full-time semesters.",
+        "The Fall 2026 application deadline was May 20, 2026; Fall 2027 deadlines will be posted by January 2027.",
+        "Transferring can change tuition rate, scholarship eligibility, course loads, dual-degree and study-abroad plans; the college asks students to talk to their current advisor first."
+      ],
+      "contact": "ICTinfo@business.illinois.edu",
+      "dueTermIndex": 1
+    },
+    "engineering": {
+      "name": "The Grainger College of Engineering",
+      "path": "Transfer admission (the college's published transfer coursework)",
+      "source": "https://grainger.illinois.edu/admissions/undergraduate/transfer",
+      "who": "This is the coursework the college publishes for transfer applicants. Current Illinois students changing colleges should confirm the intercollegiate route with the college; the same page notes that students who transferred into another Illinois college from outside are not eligible for later transfer into Grainger.",
+      "eligibility": [
+        "The college generally expects a minimum 3.00 overall GPA; admission to specific majors can be much more competitive, and the average admitted transfer GPA is above 3.50.",
+        "B or better (3.00 to 4.00) in all prerequisite courses, taken in the terms the major's suggested sequence expects, with three to four technical courses and 15 or more credit hours each semester."
+      ],
+      "requiredBy": "before applying",
+      "required": [
+        {
+          "label": "CHEM 102 and CHEM 103 General Chemistry I",
+          "options": [
+            "CHEM 102"
+          ],
+          "with": [
+            "CHEM 103"
+          ]
+        },
+        {
+          "label": "CHEM 104 and CHEM 105 General Chemistry II (see the page's footnote)",
+          "options": [
+            "CHEM 104"
+          ],
+          "with": [
+            "CHEM 105"
+          ]
+        },
+        {
+          "label": "MATH 220 Calculus or MATH 221 Calculus I",
+          "options": [
+            "MATH 220",
+            "MATH 221"
+          ]
+        },
+        {
+          "label": "MATH 231 Calculus II",
+          "options": [
+            "MATH 231"
+          ]
+        },
+        {
+          "label": "MATH 241 Calculus III",
+          "options": [
+            "MATH 241"
+          ]
+        },
+        {
+          "label": "PHYS 211 University Physics: Mechanics",
+          "options": [
+            "PHYS 211"
+          ]
+        },
+        {
+          "label": "PHYS 212 University Physics: Electricity and Magnetism",
+          "options": [
+            "PHYS 212"
+          ]
+        },
+        {
+          "label": "One or more of CS 101, CS 124, CS 125, ECE 110, MATH 227, MATH 257, MCB 150, STAT 107, SE 101 or ME 170, as the major's Transfer Handbook recommends",
+          "options": [
+            "CS 101",
+            "CS 124",
+            "CS 125",
+            "ECE 110",
+            "MATH 227",
+            "MATH 257",
+            "MCB 150",
+            "STAT 107",
+            "SE 101",
+            "ME 170"
+          ]
+        }
+      ],
+      "recommended": [],
+      "notes": [
+        "Transfer applications open January 15 for fall entry; see the page for the current deadline."
+      ],
+      "contact": null,
+      "dueTermIndex": 3
+    }
+  }
+}

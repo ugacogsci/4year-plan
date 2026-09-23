@@ -72,6 +72,13 @@ export interface PlanState {
   programId: string;
   graduationLabel: string;
   completedCourseIds: string[];
+  /**
+   * Courses the student is exempt from without holding the hours: the first
+   * two semesters of a language after two years of it in high school. They
+   * satisfy prerequisites and count for nothing else. Absent on boards saved
+   * before the field existed.
+   */
+  exemptCourseIds?: string[];
   terms: PlanTerm[];
 }
 

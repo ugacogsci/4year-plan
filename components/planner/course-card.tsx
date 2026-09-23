@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ChevronDown,
   AlertCircle,
   CircleAlert,
   GripVertical,
@@ -11,6 +12,7 @@ import {
   Shuffle,
   Trash2,
 } from 'lucide-react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -40,8 +42,14 @@ import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 export interface ElectiveOf {
   label: string;
   detail: string;
-  /** A pool pick reads "from a list"; a filler the plan chose reads "elective". */
-  kind?: 'pool' | 'elective';
+  /** A pool pick reads "from a list"; a filler the plan chose reads "elective"; a language sequence card reads "language". */
+  kind?: 'pool' | 'elective' | 'language';
+}
+
+/** Another course that could sit where a card sits, and why it is offered. */
+export interface Alternative {
+  course: Course;
+  why: string;
 }
 
 interface CourseCardProps {
@@ -53,6 +61,12 @@ interface CourseCardProps {
   electiveOf?: ElectiveOf;
   /** Opens the chooser for an elective slot. The card body does this in place of selecting. */
   onChoose?: (courseId: string, termId: string) => void;
+  /**
+   * What else could fill this slot or list, best first. Called when the
+   * dropdown opens rather than on render, because it ranks the catalog.
+   */
+  alternativesFor?: (courseId: string, termId: string) => Alternative[];
+  onSwap?: (courseId: string, termId: string, replacementId: string) => void;
   onSelect: (courseId: string, termId: string) => void;
   onMove: (courseId: string, fromTermId: string, toTermId: string) => void;
   onRemove: (courseId: string, termId: string) => void;
@@ -73,12 +87,16 @@ export function CourseCard({
   issues,
   electiveOf,
   onChoose,
+  alternativesFor,
+  onSwap,
   onSelect,
   onMove,
   onRemove,
   onFindAlternatives,
 }: CourseCardProps) {
   const highestIssue = issues.find((issue) => issue.severity === 'error') ?? issues[0];
+  const [alternatives, setAlternatives] = useState<Alternative[] | null>(null);
+  const swappable = Boolean(electiveOf && alternativesFor && onSwap);
 
   return (
     <article
@@ -129,14 +147,16 @@ export function CourseCard({
           )}
           {electiveOf && (
             <span
-              className={cn('course-elective', electiveOf.kind === 'elective' && 'is-slot')}
+              className={cn('course-elective', electiveOf.kind === 'elective' && 'is-slot', electiveOf.kind === 'language' && 'is-language')}
               title={
                 electiveOf.kind === 'elective'
                   ? `${electiveOf.detail} Tap the card to choose a different course for this slot.`
-                  : `${electiveOf.label}. ${electiveOf.detail}`
+                  : electiveOf.kind === 'language'
+                    ? `${electiveOf.detail} Open the chevron to switch languages.`
+                    : `${electiveOf.label}. ${electiveOf.detail}`
               }
             >
-              <ListChecks /> {electiveOf.kind === 'elective' ? 'elective · tap to choose' : 'from a list'}
+              <ListChecks /> {electiveOf.kind === 'elective' ? 'elective · tap to choose' : electiveOf.kind === 'language' ? 'language · switch ▾' : 'from a list'}
             </span>
           )}
           {highestIssue && (
@@ -155,6 +175,69 @@ export function CourseCard({
         </span>
         <span className="course-card-title">{course.title}</span>
       </button>
+      {/* The recommendation with its alternatives behind it: this card is the
+          planner's pick for the slot or the list, and the chevron shows what
+          else would fit, best first, each with the reason it is offered. */}
+      {swappable && electiveOf && (
+        <DropdownMenu
+          onOpenChange={(open) => {
+            if (open) setAlternatives(alternativesFor!(course.id, term.id));
+          }}
+        >
+          <DropdownMenuTrigger
+            aria-label={`Other options for ${course.code}`}
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="course-alt-trigger"
+                title={
+                  electiveOf.kind === 'elective'
+                    ? 'Other courses that could fill this elective slot'
+                    : `Other courses on the list ${electiveOf.label}`
+                }
+              />
+            }
+          >
+            <ChevronDown />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-80 course-alternatives">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>
+                {electiveOf.kind === 'elective'
+                  ? `Instead of ${course.code}`
+                  : electiveOf.kind === 'language'
+                    ? 'Switch the language to'
+                    : `Also on the list: ${electiveOf.label}`}
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
+            {alternatives === null && <DropdownMenuItem disabled>Looking.</DropdownMenuItem>}
+            {alternatives !== null && alternatives.length === 0 && (
+              <DropdownMenuItem disabled>Nothing else fits this term.</DropdownMenuItem>
+            )}
+            {(alternatives ?? []).map((alt) => (
+              <DropdownMenuItem key={alt.course.id} onClick={() => onSwap!(course.id, term.id, alt.course.id)}>
+                <span className="alt-item">
+                  <span className="alt-item-code">
+                    {alt.course.code} · {alt.course.title}
+                  </span>
+                  <span className="alt-item-why">{alt.why}</span>
+                </span>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() =>
+                electiveOf.kind === 'elective' && onChoose
+                  ? onChoose(course.id, term.id)
+                  : onFindAlternatives(course.id, term.id)
+              }
+            >
+              See all options
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={`Options for ${course.code}`}

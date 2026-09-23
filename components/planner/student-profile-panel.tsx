@@ -12,7 +12,28 @@
 import type { ReactNode } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { cn } from '@/lib/utils';
+import {
+  PRIORITY_LABELS,
+  PRIORITY_PRESETS,
+  presetOf,
+  type Priorities,
+  type PriorityPreset,
+} from '@/lib/planner/priorities';
 import type { RequirementArea } from '@/lib/planner/scheduler';
+
+const PRESET_ROWS: Array<[Exclude<PriorityPreset, 'custom'>, string]> = [
+  ['balanced', 'Balanced'],
+  ['lightest', 'Lightest'],
+  ['relevant', 'My interests'],
+  ['teaching', 'Best-rated teaching'],
+];
+const KNOBS = Object.keys(PRIORITY_LABELS) as Array<keyof typeof PRIORITY_LABELS>;
+const LEVELS: Array<[0 | 1 | 2, string]> = [
+  [0, 'skip'],
+  [1, 'counts'],
+  [2, 'most'],
+];
 
 export interface AreaRow {
   area: RequirementArea;
@@ -49,6 +70,11 @@ interface RailProps {
   onTargetChange: (value: number | null) => void;
   careerInterests: string;
   onCareerChange: (value: string) => void;
+  /** What makes a course a good pick for this student. Read by every choice the planner makes. */
+  priorities: Priorities;
+  onPrioritiesChange: (value: Priorities) => void;
+  /** Swap the planner's own picks for the best under the priorities, leaving required and student-added courses alone. */
+  onRepick: () => void;
   /** Plain sentences from the build and the scheduler about what is not known. */
   caveats: string[];
   /**
@@ -84,6 +110,9 @@ export function StudentProfilePanel({
   onTargetChange,
   careerInterests,
   onCareerChange,
+  priorities,
+  onPrioritiesChange,
+  onRepick,
   caveats,
   pools,
   transcript,
@@ -244,8 +273,85 @@ export function StudentProfilePanel({
           />
         </label>
         <p className="rail-field" style={{ fontSize: 'var(--fs-micro)', color: '#6f8098' }}>
-          Written down, not yet used by the scheduler.
+          The words here steer the electives toward what you wrote, and the bot reads them too.
         </p>
+
+        <div className="rail-priorities">
+          <span className="rail-priorities-head">What makes a class a good pick</span>
+          <fieldset className="rail-presets">
+            <legend className="sr-only">Priority presets</legend>
+            {PRESET_ROWS.map(([name, label]) => (
+              <button
+                key={name}
+                type="button"
+                className={cn('rail-preset', presetOf(priorities) === name && 'is-on')}
+                aria-pressed={presetOf(priorities) === name}
+                onClick={() =>
+                  onPrioritiesChange({
+                    ...PRIORITY_PRESETS[name],
+                    noEarly: priorities.noEarly,
+                    format: priorities.format,
+                  })
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </fieldset>
+          {KNOBS.map((knob) => (
+            <div key={knob} className="rail-knob">
+              <span>{PRIORITY_LABELS[knob]}</span>
+              <fieldset className="rail-knob-seg">
+                <legend className="sr-only">{PRIORITY_LABELS[knob]}</legend>
+                {LEVELS.map(([level, word]) => (
+                  <label key={level} className={cn(priorities[knob] === level && 'is-on')}>
+                    <input
+                      type="radio"
+                      name={`priority-${knob}`}
+                      value={level}
+                      className="sr-only"
+                      checked={priorities[knob] === level}
+                      onChange={() => onPrioritiesChange({ ...priorities, [knob]: level })}
+                    />
+                    {word}
+                  </label>
+                ))}
+              </fieldset>
+            </div>
+          ))}
+          <label className="rail-check">
+            <input
+              type="checkbox"
+              checked={priorities.noEarly}
+              onChange={(event) => onPrioritiesChange({ ...priorities, noEarly: event.target.checked })}
+            />
+            <span>Nothing before 9 a.m.</span>
+          </label>
+          <div className="rail-field">
+            <span>Format</span>
+            <NativeSelect
+              aria-label="Class format"
+              value={priorities.format}
+              onChange={(event) =>
+                onPrioritiesChange({ ...priorities, format: event.target.value as Priorities['format'] })
+              }
+            >
+              <NativeSelectOption value="any">Either</NativeSelectOption>
+              <NativeSelectOption value="in-person">In person</NativeSelectOption>
+              <NativeSelectOption value="online">Online</NativeSelectOption>
+            </NativeSelect>
+          </div>
+          <button type="button" className="rail-action" onClick={onRepick}>
+            Re-pick the planner&apos;s choices
+          </button>
+          <p className="rail-field" style={{ fontSize: 'var(--fs-micro)', color: '#6f8098' }}>
+            Re-pick swaps the courses the planner chose, the elective slots and the from-a-list
+            picks, for the best under these priorities. Required courses and anything you added
+            stay where they are. Rebuild starts the whole board over. Workload comes
+            from Illinois grade history and teaching from the university&apos;s own Teachers Ranked
+            as Excellent lists; a course missing from either is not marked down for it.
+          </p>
+        </div>
       </details>
 
       <p className="rail-note">

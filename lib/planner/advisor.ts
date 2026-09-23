@@ -31,7 +31,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'search_courses',
     description:
-      'Find courses in the Illinois catalog by code, title or department, e.g. "history", "HIST 2", "data science". When term is given, only courses the student could actually take in that term are returned: prerequisites met by what is earlier on the board, class standing met, nothing the catalog says does not count beside a course already held, nothing already on the board. Use this before adding or replacing anything.',
+      'Find courses in the Illinois catalog by code, title or department, e.g. "history", "HIST 2", "data science". When term is given, only courses the student could actually take in that term are returned: prerequisites met by what is earlier on the board, class standing met, nothing the catalog says does not count beside a course already held, nothing already on the board. Each result carries fit: how well it matches the student\'s priorities (0 to 1) and the reasons in words. Use this before adding or replacing anything, and prefer the better fit when the student has not named a course.',
     input_schema: {
       type: 'object',
       properties: {
@@ -46,7 +46,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'course_details',
     description:
-      'Everything the planner holds about one course: the catalog description, its prerequisite sentence, general education categories, grade history, how many sections ran in the crawled term, and whether it is on the board or already taken.',
+      "Everything the planner holds about one course: the catalog description, its prerequisite sentence, general education categories, grade history, its record on the university's Teachers Ranked as Excellent lists, how it fits the student's priorities and why, how many sections ran in the crawled term, and whether it is on the board or already taken.",
     input_schema: {
       type: 'object',
       properties: { code: { type: 'string', description: 'A course code like "HIST 200".' } },
@@ -119,6 +119,96 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'compare_courses',
+    description:
+      "Two to six courses side by side: credits, prerequisites, grade history, Teachers Ranked as Excellent record, which recent terms each has actually run in, general education categories, fit against the student's priorities with the reasons, and, when a term is given, whether each could go in that term and why not. Use it whenever the student is choosing between courses or asks which is better; then weigh the facts for them instead of listing them.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        codes: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 6 },
+        term: { type: 'string', description: 'A term on the board, to check eligibility there. Optional.' },
+      },
+      required: ['codes'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'explain_choice',
+    description:
+      'Why a course is where it is. For a required course: the requirement that names it and what later courses on the board depend on it. For an elective slot or a from-a-list pick: the reasons the planner chose it, and the runners-up it beat with their scores and reasons. Use it when the student asks why, or before you propose replacing something, so you argue from the actual comparison.',
+    input_schema: {
+      type: 'object',
+      properties: { code: { type: 'string' } },
+      required: ['code'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'what_if',
+    description:
+      'Try one or more changes on a copy of the board without making them: add, remove, replace or move. Returns what the checks would say (prerequisites, standing, courses that do not count together, terms over 18), each term\'s credits afterwards, any later course that would lose a prerequisite, and how the new courses fit the student\'s priorities. Use it to reason before acting, and to answer "what happens if" questions. Nothing on the board changes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        changes: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 6,
+          items: {
+            type: 'object',
+            properties: {
+              op: { type: 'string', enum: ['add', 'remove', 'replace', 'move'] },
+              code: { type: 'string', description: 'The course acted on; for replace, the one coming off.' },
+              term: { type: 'string', description: 'For add and move, the destination term.' },
+              add: { type: 'string', description: 'For replace, the course going on.' },
+            },
+            required: ['op', 'code'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['changes'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'review_board',
+    description:
+      "The planner's own read of the whole board: each term's credits and how heavy it reads against Illinois grade history, terms that stack several hardest-band courses, courses that have not run in any recent term, courses placed in a season they have not run in, requirements still open, and the review flags. Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'program_admission',
+    description:
+      "What a college publishes about getting in from another college on campus: Gies College of Business (intercollegiate transfer for first-year students: 24 graded hours, Composition I, ECON 102 and 103, a math course, all by the end of the first spring, plus a competitive application) and The Grainger College of Engineering (the transfer coursework and GPA it publishes). Returns the requirements with their source page, and checks each required course against the student's board and prior credit. Use it whenever the student asks how to get into, transfer into, switch to, or apply to a college or business school, or says they are not yet in the college their goal major belongs to.",
+    input_schema: {
+      type: 'object',
+      properties: { college: { type: 'string', description: 'A college name or code: "business", "gies", "bus", "engineering", "grainger".' } },
+      required: ['college'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'set_priorities',
+    description:
+      "Change what the planner optimises for when it picks electives and orders choices: lighter workload (Illinois grade history), highly rated teaching (the university's own Teachers Ranked as Excellent lists), relevance to what the student is studying and wants to do after, covering more requirements at once, and fitting the schedule (nothing before 9 a.m., online or in person). Each knob is 0 (ignore), 1 (counts) or 2 (matters most); a preset sets all five. Use it when the student says what they care about: \"I want easy classes\", \"I want the best professors\", \"no 8 a.m.s\". With repick true (the default) the planner swaps its own picks, the elective slots and the from-a-list courses, for the best under the new priorities and leaves required and student-added courses alone; the result says what changed, so tell the student.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        preset: { type: 'string', enum: ['balanced', 'lightest', 'relevant', 'teaching'] },
+        workload: { type: 'integer', enum: [0, 1, 2] },
+        teaching: { type: 'integer', enum: [0, 1, 2] },
+        relevance: { type: 'integer', enum: [0, 1, 2] },
+        coverage: { type: 'integer', enum: [0, 1, 2] },
+        schedule: { type: 'integer', enum: [0, 1, 2] },
+        noEarly: { type: 'boolean', description: 'True when the student wants nothing before 9 a.m.' },
+        format: { type: 'string', enum: ['any', 'in-person', 'online'] },
+        repick: { type: 'boolean', description: "Re-choose the planner's picks under the new priorities. Default true." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'planner_answer',
     description:
       'Ask the planner itself a question about the board or the catalog: where and when a course meets, what a course needs first, how heavy a term is, which term is hardest, degree progress, whether the plan is in the right order. Returns an exact, sourced answer written from the data in the browser, or handled false when the question is not about the board.',
@@ -150,6 +240,12 @@ export type AdvisorToolName =
   | 'remove_course'
   | 'replace_course'
   | 'move_course'
+  | 'compare_courses'
+  | 'explain_choice'
+  | 'what_if'
+  | 'review_board'
+  | 'program_admission'
+  | 'set_priorities'
   | 'planner_answer'
   | 'university_answer';
 
@@ -163,17 +259,28 @@ export type AdvisorExecutor = (name: AdvisorToolName, input: Record<string, unkn
 export function advisorSystem(bot: string): string {
   return `You are ${bot}, the University of Illinois Urbana-Champaign assistant. Students ask you anything about Illinois: registration, deadlines, dropping and adding, tuition, housing, dining, parking, offices and who to contact, majors and what they need, campus life, policies. You answer those from the university's own published pages through the university_answer tool. You also sit inside a four-year course planner: the student is looking at their board, one column per term, a card per course, and you can read it and change it with tools.
 
+How to reason
+- Think before you act or advise. Gather the facts with tools (compare_courses, explain_choice, what_if, review_board, course_details), weigh them against the student's priorities and their situation on the board (which term, what is already there, what depends on what), state the trade-off in a sentence or two, then act or recommend. A student can tell a considered answer from a list of facts; give them the considered one.
+- When there is a real trade-off (a better-taught course that is harder; a lighter term now that loads a later one; a course that has not run in two years), say it plainly and say which way you lean and why. Do not hide behind "it depends".
+- Before changing a required or from-a-list course, or moving anything with prerequisites downstream, run what_if and read what it breaks. Before recommending a replacement, run explain_choice on the current course so you know what it was chosen for and what the runners-up were.
+- Judge terms as a whole: two hardest-band courses plus a lab is a different term from three light electives, whatever the credit count says. review_board and term_summary carry the load reading.
+- A course that has not run in any recent term is not a plan. Say so, and offer one that has.
+- Getting into a college is a separate application from earning the degree: when the student is not yet in the college their goal major belongs to (they say transfer, switch, ICT, undeclared, or "get into business"), call program_admission, check its courses against the board, and lay out the timeline plainly: what must be done by when, the hours needed, and that it is competitive. A registration restriction on a card ("restricted to Gies College of Business") is the same story from the other side.
+
 What you are for
 - Answer any question about Illinois, from its pages, with the page named. That is most of what students ask; treat it as the main job, not a sideline.
 - Answer questions about the student's own plan, and change the plan when the student wants it changed.
 - When the student expresses an interest ("I really like history", "I want more data science"), act on it: search for courses in that area that are eligible in a term, replace elective slots with the best fits, and tell them what you did. Do not stop to ask which term unless it genuinely matters; act, then offer alternatives and ask if they want more.
 - When a request is ambiguous in a way that changes what you would do (which of two required courses to drop, whether to keep a course they said they liked), ask one short question and wait.
 - Keep the conversation: remember what they told you earlier in this chat and build on it.
+- The student's priorities decide which electives the planner picks and how choices are ordered: lighter workload, highly rated teaching, relevance to their interests and career, covering more requirements at once, fitting their schedule. The board description says what they are now. When the student says what they care about ("easy classes", "the best professors", "nothing before 9", "stuff for a data job"), call set_priorities, let it re-pick the planner's choices, and tell them what changed and why.
 
 Rules about the board
 - Every card on the board is marked required, from a list, elective slot, or added by the student. Prefer changing elective slots. Never remove or replace a required or from-a-list course unless the student has clearly said yes to removing that specific course in this conversation; then, and only then, call the tool with confirmed true. If they ask you to drop one, say what it is required for and ask for a yes.
 - Use the tools for every fact. Do not state a course's prerequisites, credits, difficulty or description from memory; call course_details or planner_answer. Do not claim a course is eligible in a term without search_courses or a successful add.
 - A tool that fails says why. Relay the reason plainly and try the next best option (another term, another course).
+- Teaching ratings come only from the university's own Teachers Ranked as Excellent lists, which course_details and search results carry. Never cite RateMyProfessors or any outside site, and never call an instructor good or bad on your own; say whether they are on the list, and for which terms. A name missing from the list is not a rating against it.
+- When you suggest a course, say why in the student's terms, from the fit reasons the tools return: the grade history, the list, their interests, the requirement it also covers. Do not invent reasons the tools did not give.
 - Keep terms between the student's minimum and 18 credits. Replacing keeps the size; adding raises it, so prefer replacing an elective slot when a term is already full.
 
 How to talk
@@ -204,7 +311,7 @@ export interface AdvisorTurnEvents {
   onStep?: (messages: AdvisorMessage[]) => void;
 }
 
-const MAX_STEPS = 8;
+const MAX_STEPS = 12;
 
 /**
  * One model step: the whole transcript up, one assistant message back, its

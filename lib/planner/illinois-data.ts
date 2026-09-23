@@ -581,7 +581,30 @@ export type RequirementRule =
       text: string;
       label: string;
     }
-  | { kind: 'unparsed'; text: string };
+  | { kind: 'unparsed'; text: string }
+  /**
+   * "Completion of the third semester or equivalent of a language other than
+   * English is required." Which language, and how many semesters are left,
+   * depend on the student, so the adapter records the level and the engine
+   * turns it into courses once it knows them.
+   */
+  | { kind: 'language'; semesters: 3 | 4; text: string };
+
+/**
+ * Split the language requirement out of a general education note.
+ *
+ * Returns the sentence about the language requirement, with the level it
+ * asks for, and the note with that sentence removed. Null language when the
+ * note has none.
+ */
+export function splitLanguageRequirement(text: string): { language: { semesters: 3 | 4; text: string } | null; rest: string } {
+  const m = text.match(/(?:Language Requirement\s*\([^)]*\)|[^.;()]*language other than English[^.;)]*[.)]?)/i);
+  if (!m || !/language other than english/i.test(m[0])) return { language: null, rest: text };
+  const sentence = m[0].trim();
+  const semesters: 3 | 4 = /fourth[- ]semester|fourth semester|4th semester/i.test(sentence) ? 4 : 3;
+  const rest = text.replace(m[0], ' ').replace(/\s+/g, ' ').replace(/\(\s*\)/g, '').trim();
+  return { language: { semesters, text: sentence }, rest };
+}
 
 export interface CourseChoice {
   codes: string[];
@@ -2966,7 +2989,20 @@ export function requirementRulesForArea(
        * student did in high school, and this planner has no way to check it.
        * Dropping it silently would be the plan pretending it is not there.
        */
-      const leftover = genEdLeftover(genEdSource, genEd);
+      const leftoverAll = genEdLeftover(genEdSource, genEd);
+      const split = leftoverAll ? splitLanguageRequirement(leftoverAll) : { language: null, rest: '' };
+      if (split.language) {
+        blocks.push({
+          groupIndex: r.index,
+          idSuffix: 'ge-language',
+          label: 'Language other than English',
+          hours: null,
+          note: split.language.text,
+          rule: { kind: 'language', semesters: split.language.semesters, text: split.language.text },
+          rows: 0,
+        });
+      }
+      const leftover = split.rest;
       if (leftover) {
         blocks.push({
           groupIndex: r.index,
@@ -2993,7 +3029,22 @@ export function requirementRulesForArea(
       // Nothing to quote, no courses, no hours. There is no requirement here to
       // report, and a row that says nothing buries the ones that do.
       if (!text) continue;
-      rule = { kind: 'unparsed', text };
+      const split = splitLanguageRequirement(text);
+      if (split.language) {
+        blocks.push({
+          groupIndex: r.index,
+          idSuffix: 'language',
+          label: 'Language other than English',
+          hours: null,
+          note: split.language.text,
+          rule: { kind: 'language', semesters: split.language.semesters, text: split.language.text },
+          rows: 0,
+        });
+        if (!split.rest) continue;
+        rule = { kind: 'unparsed', text: split.rest };
+      } else {
+        rule = { kind: 'unparsed', text };
+      }
     }
 
     blocks.push({

@@ -1,6 +1,6 @@
 {
   "school": "illinois",
-  "fetchedAt": "2026-09-21T02:45:04.345Z",
+  "fetchedAt": "2026-09-23T05:50:36.178Z",
   "sources": {
     "catalog": {
       "source": "catalog.illinois.edu/courses-of-instruction",
@@ -59,8 +59,8 @@
     "variableCredit": 1829,
     "unknownCredit": 0,
     "droppedProgramRows": 0,
-    "droppedTotalRows": 245,
-    "poolGroups": 378,
+    "droppedTotalRows": 333,
+    "poolGroups": 423,
     "implausibleProgramTotals": 0,
     "programsWithGenEd": 269,
     "genEdCategories": 2380,
@@ -296,7 +296,7 @@
     },
     "programs.json": {
       "raw": 104989,
-      "gzip": 10285
+      "gzip": 10291
     }
   },
   "notes": [

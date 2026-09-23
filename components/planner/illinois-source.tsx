@@ -339,6 +339,9 @@ export function readPriorCredit(
   saidMore = false,
   /** Hours earned with no course to hold them: AP credit granted as "ECON 1--". */
   unmatchedCredits = 0,
+  /** Years of one language other than English in high school, and which. One year counts as one semester. */
+  languageYears: number | null = null,
+  languageName: string | null = null,
 ): PriorCredit {
   const found = new Set<string>(alsoCompleted.map(normCode));
   const saidSomething = transferText.trim().length > 0 || examCount > 0 || saidMore;
@@ -353,6 +356,8 @@ export function readPriorCredit(
     exemptCodes: [],
     unmatchedCredits,
     known: !saidSomething || found.size > 0 || unmatchedCredits > 0,
+    languageSemesters: languageYears,
+    languageName: languageName?.trim() || null,
   };
 }
 
@@ -410,11 +415,22 @@ export function buildContext(
     // generated without them books a course whose credit will not count and
     // then counts it. That is a wrong plan, not a missing nicety.
     exclusions: core.exclusions ?? (full ? exclusionsFrom(full) : undefined),
+    // The excellent list rides with the core, small and optional. Absent, the
+    // scorer reports teaching ratings as not known.
+    excellent: core.excellent ?? undefined,
+    excellentTerms: core.excellentTerms ?? undefined,
     creditRanges,
     bands: core.meta?.bands ?? null,
     // Illinois publishes no offering term anywhere, so no course is ever refused
     // a term for being "spring only".
-    offeringPublished: new Set<string>(),
+    // Every course the offering crawl could speak to, which is every course
+    // once the crawl exists: seen courses carry their seasons, unseen ones an
+    // empty list the engine treats as dormant.
+    offeringPublished: core.offeringTerms ? new Set(core.index.map((c) => normCode(c.code))) : new Set<string>(),
+    offerings: core.offerings ?? undefined,
+    offeringTerms: core.offeringTerms ?? undefined,
+    offeringAliases: core.offeringAliases ?? undefined,
+    languages: core.languages ?? undefined,
     snapshotTerm: core.meta?.term
       ? {
           id: core.meta.term.id,

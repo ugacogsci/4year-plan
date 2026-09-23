@@ -171,6 +171,15 @@ export interface OnboardingAnswers {
    * them. Optional because answers saved before this field existed have none.
    */
   transcript?: TranscriptRecord | null;
+  /**
+   * Years of one language other than English in high school, and which one.
+   * The university counts a year as a semester toward its language
+   * requirement, so three years means no language courses are planned and
+   * one year means two or three are. Optional: answers saved before the
+   * question existed have neither.
+   */
+  languageYears?: number | null;
+  language?: string;
 }
 
 export const EMPTY_ANSWERS: OnboardingAnswers = {
@@ -181,6 +190,8 @@ export const EMPTY_ANSWERS: OnboardingAnswers = {
   exams: [],
   transferText: '',
   transcript: null,
+  languageYears: null,
+  language: '',
 };
 
 export function questionsFor(school: School | undefined): Array<{

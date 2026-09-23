@@ -26,3 +26,6 @@ public/*.old.json
 # Machine-specific: the desktop app's launch config and scratch tests.
 .claude/
 .tmp/
+
+# Teachers Ranked as Excellent PDFs, downloaded by scripts/illinois/excellent-teachers.mjs
+data/excellent/

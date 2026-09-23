@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { examCreditUrl, useExamCredit } from './exam-credit';
 import { TranscriptUpload } from './transcript-upload';
 import type { TranscriptRecord } from '@/lib/planner/transcript';
@@ -27,6 +27,8 @@ export function PriorCredit({
   school,
   exams,
   transferText,
+  languageYears = null,
+  language = '',
   onChange,
   transcript,
   onTranscriptChange,
@@ -34,7 +36,10 @@ export function PriorCredit({
   school: School | undefined;
   exams: PriorExam[];
   transferText: string;
-  onChange: (next: { exams: PriorExam[]; transferText: string }) => void;
+  /** Years of one language other than English in high school, and which one. */
+  languageYears?: number | null;
+  language?: string;
+  onChange: (next: { exams: PriorExam[]; transferText: string; languageYears?: number | null; language?: string }) => void;
   /** The uploaded transcript, kept apart from the typed answers so neither overwrites the other. */
   transcript?: TranscriptRecord | null;
   onTranscriptChange?: (next: TranscriptRecord | null) => void;
@@ -42,6 +47,21 @@ export function PriorCredit({
   const loaded = useExamCredit(school);
   const table = loaded.entries;
   const [query, setQuery] = useState('');
+  /** The registrar's language names, for the picker. Empty until the small file arrives. */
+  const [languageNames, setLanguageNames] = useState<string[]>([]);
+  useEffect(() => {
+    if (school?.id !== 'illinois') return;
+    let live = true;
+    fetch('/illinois/languages.json')
+      .then((r) => (r.ok ? (r.json() as Promise<{ languages?: Array<{ name: string }> }>) : null))
+      .then((d) => {
+        if (live && d?.languages) setLanguageNames(d.languages.map((l) => l.name));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [school?.id]);
   /**
    * Whether this school has a table at all, which is not the same as whether it
    * has loaded. A school with no table gets no search box: an input that
@@ -116,6 +136,53 @@ export function PriorCredit({
 
   return (
     <div className="prior">
+      {school?.id === 'illinois' && (
+        <div className="onb-q">
+          <span className="onb-q-label">Language other than English in high school</span>
+          <p className="onb-q-help">
+            Illinois counts each year of one language in high school as one college semester toward its
+            language requirement, and requires two years for admission. Three years usually means no
+            language courses to plan; fewer means the plan books the rest. A placement test decides
+            where you start if you continue.
+          </p>
+          <div className="onb-lang-row">
+            <select
+              id="onb-language-years"
+              aria-label="Years of one language in high school"
+              title="Years of one language in high school"
+              value={languageYears === null ? '' : String(languageYears)}
+              onChange={(event) => {
+                const raw = event.target.value;
+                onChange({ exams, transferText, languageYears: raw === '' ? null : Number(raw), language });
+              }}
+            >
+              <option value="">Not sure (the plan assumes 2, the admission minimum)</option>
+              <option value="0">None</option>
+              <option value="1">1 year</option>
+              <option value="2">2 years</option>
+              <option value="3">3 years</option>
+              <option value="4">4 or more years</option>
+            </select>
+            <input
+              id="onb-language-name"
+              list="onb-language-names"
+              aria-label="Which language"
+              title="Which language"
+              placeholder="Which language (Spanish, French, ...)"
+              value={language}
+              onChange={(event) => onChange({ exams, transferText, languageYears, language: event.target.value })}
+            />
+            <datalist id="onb-language-names">
+              {languageNames.map((name) => (
+                <option key={name} value={name} label={name}>
+                  {name}
+                </option>
+              ))}
+            </datalist>
+          </div>
+        </div>
+      )}
+
       {onTranscriptChange && (
         <div className="prior-block">
           <span className="onb-q-label">Have a transcript?</span>
