@@ -29,3 +29,4 @@ public/*.old.json
 
 # Teachers Ranked as Excellent PDFs, downloaded by scripts/illinois/excellent-teachers.mjs
 data/excellent/
+public/__samples/

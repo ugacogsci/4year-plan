@@ -2257,3 +2257,35 @@ p.requirement-unnamed {
     grid-template-columns: 0px var(--chat-w) 44px;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Transcript lines: what each counts as.
+
+   One select per line instead of a checkbox, because "counts" was never a
+   yes or no for a transfer student: their Parkland MAT 128 is MATH 221, or
+   hours, or nothing, and the line has to let them say which. A likely
+   equivalent the catalog's titles suggested is tinted until they confirm it,
+   so a proposal never passes for the university's word. */
+.transcript-counts {
+  flex: 0 0 auto;
+  max-width: 46%;
+  min-width: 0;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: #dbe4f0;
+  background: #0b1220;
+  border: 1px solid #263244;
+  border-radius: 7px;
+  text-overflow: ellipsis;
+}
+.transcript-counts.is-likely { border-color: #5a4a22; color: #e6d7a8; background: #12110b; }
+.transcript-counts:focus { outline: 0; border-color: var(--school, #7f93ab); box-shadow: 0 0 0 3px color-mix(in srgb, var(--school, #7f93ab) 22%, transparent); }
+.transcript-list li { gap: 8px; }
+.transcript-actions { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.transcript-more { position: relative; font-size: 12.5px; color: #9fb0c6; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.transcript-more:hover { color: #eef3fa; }
+.transcript-more input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.transcript-add { display: grid; gap: 4px; margin-top: 4px; }
+.transcript-compact .transcript-add { display: none; }
+.transcript-compact .transcript-counts { max-width: 52%; font-size: 11px; }

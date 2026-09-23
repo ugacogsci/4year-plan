@@ -388,6 +388,12 @@ export interface Horizon {
   startYear: number;
   gradSeason: SemesterSeason;
   gradYear: number;
+  /**
+   * True when the student named the end themselves ("graduate spring 2028",
+   * "in three years"). Absent or false means the end is a default, which a
+   * student who walks in with two years of credit should not be held to.
+   */
+  stated?: boolean;
 }
 
 export interface PlanPreferences {
@@ -414,6 +420,26 @@ export interface PlanPreferences {
    * is labelled as one wherever it is shown.
    */
   electivePolicy?: 'lightest' | 'catalog-order' | 'priorities';
+}
+
+/** The residency rule and what the student already holds toward it. */
+export interface ResidencyRule {
+  /** Hours that must be taken at the university. */
+  hours: number;
+  /** Of those, hours at the 300 level or above. */
+  upperLevel: number;
+  /** Hours already taken at the university, done or in progress: not transfer, not exam credit. */
+  heldHours: number;
+  heldUpper: number;
+  source: string;
+}
+
+export interface ResidencyReport extends ResidencyRule {
+  plannedHours: number;
+  plannedUpper: number;
+  ok: boolean;
+  /** The plain sentence, when short. */
+  shortfall: string | null;
 }
 
 export interface AutoplanInput {
@@ -468,6 +494,13 @@ export interface AutoplanInput {
    * application has a deadline the degree page knows nothing about.
    */
   admissionRoute?: AdmissionRoute | null;
+  /**
+   * The campus residency rule, when the school has one. Read after placement
+   * and reported, never enforced by adding courses: the degree total is what
+   * the fill reaches, and a shortfall here is a fact the student and their
+   * advisor act on.
+   */
+  residency?: ResidencyRule | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -658,6 +691,14 @@ export interface GeneratedPlan {
   admission: { name: string; path: string; source: string; requiredBy: string; codes: string[]; eligibility: string[]; notes: string[] } | null;
   /** Requirements already met by credit the student walked in with. */
   satisfiedByPriorCredit: Array<{ requirementId: string; label: string; codes: string[] }>;
+  /**
+   * The campus residency rule against this plan, or null when the school has
+   * none. A transfer student can hold ninety hours and still owe Illinois
+   * forty-five of its own, twenty-one of them at the 300 level or above, and
+   * a plan that reaches the degree total with fewer is not a plan they can
+   * graduate on.
+   */
+  residency?: ResidencyReport | null;
   credits: {
     planned: CreditTotal;
     prior: number;
@@ -1308,7 +1349,7 @@ interface PlanSlot {
   url: string;
 }
 
-function slotsFor(requirement: PlanRequirement, ctx: PlanningContext): PlanSlot[] {
+function slotsFor(requirement: PlanRequirement, ctx: PlanningContext, who: Audience = NOBODY): PlanSlot[] {
   const rule = requirement.rule;
   const base = {
     requirementId: requirement.id,
@@ -1371,7 +1412,7 @@ function slotsFor(requirement: PlanRequirement, ctx: PlanningContext): PlanSlot[
     if (rule.genEd.length === 0) return [];
     const wanted = new Set(rule.genEd);
     const eligible = ctx.courses
-      .filter((course) => course.tags.some((tag) => wanted.has(tag)))
+      .filter((course) => course.tags.some((tag) => wanted.has(tag)) && !titleClosesTo(course, who))
       .map((course) => normaliseCode(course.code))
       .sort();
     return [{
@@ -1398,7 +1439,7 @@ function slotsFor(requirement: PlanRequirement, ctx: PlanningContext): PlanSlot[
     // 101": the page's own words about which tagged courses do not count.
     const banned = new Set((rule.exclude ?? []).map(normaliseCode));
     const eligible = ctx.courses
-      .filter((course) => course.tags.some((tag) => wanted.has(tag)))
+      .filter((course) => course.tags.some((tag) => wanted.has(tag)) && !titleClosesTo(course, who))
       .map((course) => normaliseCode(course.code))
       .filter((code) => !banned.has(code))
       .sort();
@@ -2175,6 +2216,34 @@ function interestWordsOf(text: string | undefined): string[] {
  * only some courses, but a first-year student in FIN 442 is a plan no advisor
  * signs, and the fill was writing exactly that.
  */
+/** The student a plan is for, as far as a course title can address them. */
+interface Audience {
+  college: string | null;
+  /** The major's subject prefix, when known. */
+  primary: string | null;
+}
+const NOBODY: Audience = { college: null, primary: null };
+
+/**
+ * Whether a course's own title says it is not for this student.
+ *
+ * "Exploring Digital Information Technologies for Non-Engineers" is a fine
+ * course and the wrong one for a Grainger student, and it kept filling the
+ * science elective of Computer Science plans because it carries the category
+ * tag. A title that says "for non-majors" or "non-technical" closes the course
+ * to a student majoring in that subject. Read from the catalog's own words and
+ * applied only where they name this student; everyone else is unaffected.
+ */
+function titleClosesTo(course: Course | undefined, who: Audience): boolean {
+  if (!course) return false;
+  const title = course.title;
+  if (/\bnon-?\s?engineers?\b/i.test(title)) return /engineering/i.test(who.college ?? '');
+  if (/\bnon-?\s?(majors?|specialists?|scientists?|science majors?|tech(nical)?)\b/i.test(title)) {
+    return who.primary !== null && course.cluster === who.primary;
+  }
+  return false;
+}
+
 function levelFits(code: string, hoursBefore: number, standing: StandingThresholds): boolean {
   const level = courseLevel(code);
   if (level >= 400) return hoursBefore >= standing.junior;
@@ -2663,14 +2732,34 @@ export function generatePlan(raw: AutoplanInput): GeneratedPlan {
     : raw.prior;
   const route = raw.admissionRoute ?? null;
   const admission = route ? admissionRequirements(route, expansion.requirements, raw) : { added: [], codes: [] };
-  const result = generatePlanInner({
+  const inner = (horizon: Horizon) => generatePlanInner({
     ...raw,
+    horizon,
     prior,
     requirements: [...admission.added, ...expansion.requirements],
     sequenceFirst: [...admission.codes, ...(expansion.language?.codes ?? [])],
     earlyTags: route ? route.required.map((item) => item.genEd).filter((t): t is string => Boolean(t)) : [],
     dueByTerm: route && route.dueTermIndex !== undefined ? Object.fromEntries(admission.codes.map((c) => [c, route.dueTermIndex as number])) : undefined,
   });
+  /**
+   * A horizon fitted to the hours can still be a term too short for a chain:
+   * a transfer with twenty-five hours left and a four-semester language
+   * requirement cannot finish in two terms whatever the hours say. When the
+   * fitted plan leaves something unplaced for want of a term, it gets one more
+   * and is built again, up to the default the student would have had anyway.
+   */
+  let fitted = fitHorizonToCredit(raw, prior);
+  let result = inner(fitted.horizon);
+  for (let extra = 1; fitted.shortened && extra <= 4 && leftForWantOfATerm(result); extra += 1) {
+    const longer = fitHorizonToCredit(raw, prior, extra);
+    if (!longer.shortened) {
+      fitted = longer;
+      result = inner(longer.horizon);
+      break;
+    }
+    fitted = longer;
+    result = inner(longer.horizon);
+  }
   result.language = expansion.language;
   if (expansion.satisfied) result.satisfiedByPriorCredit.push(expansion.satisfied);
   result.notes.push(...expansion.notes);
@@ -2680,6 +2769,9 @@ export function generatePlan(raw: AutoplanInput): GeneratedPlan {
       `Getting into ${route.name}: ${route.path} is an application with its own rules, not part of the degree page. ${route.eligibility.join(' ')} The courses it asks for by ${route.requiredBy} are placed first in this plan. Source: ${route.source}`,
     );
   }
+  if (fitted.note) result.notes.push(fitted.note);
+  result.residency = raw.residency ? residencyReport(raw.residency, result, raw.context) : null;
+  if (result.residency?.shortfall) result.notes.push(result.residency.shortfall);
   return result;
 }
 
@@ -2697,6 +2789,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const grades = ctx.grades ?? new Map<string, GradeRow>();
   const baseMatch = ctx.prereqCheck ?? defaultPrereqMatcher;
   const byCode = new Map(ctx.courses.map((c) => [normaliseCode(c.code), c]));
+  /** Who the plan is for, so a course "for Non-Engineers" never fills an engineer's category. */
+  const who: Audience = { college: input.programCollege ?? null, primary: degreeSubjectsOf(input.requirements, input.programName).primary };
   const conflicts = buildConflicts(ctx.exclusions);
 
   const notes: string[] = [];
@@ -2732,7 +2826,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   // --- pick the courses ----------------------------------------------------
   const allCodes = new Set<string>();
   for (const requirement of input.requirements) {
-    for (const slot of slotsFor(requirement, ctx)) {
+    for (const slot of slotsFor(requirement, ctx, who)) {
       for (const option of slot.options) for (const code of option) allCodes.add(code);
     }
   }
@@ -3040,7 +3134,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const seen = new Set<string>();
     for (const requirement of input.requirements) {
       if (requirement.rule.kind !== 'all') continue;
-      for (const slot of slotsFor(requirement, ctx)) {
+      for (const slot of slotsFor(requirement, ctx, who)) {
         for (const option of slot.options) {
           const pick = option.find((code) => earned.has(code))
             ?? best(option.filter((code) => byCode.has(code)));
@@ -3137,7 +3231,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       continue;
     }
 
-    for (const slot of slotsFor(requirement, ctx)) {
+    for (const slot of slotsFor(requirement, ctx, who)) {
       const free: string[] = [];
       const picked: string[] = [];
 
@@ -4458,7 +4552,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     };
     const plannedAll = new Set<string>([...placed.values()].flat());
     const perSubject = new Map<string, number>();
-    const candidates = rankedElectivePool(ctx, scoring, (code) => plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0);
+    const candidates = rankedElectivePool(ctx, scoring, (code) => plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who));
     let total = priorCreditTotal + [...placed.values()].flat().reduce((sum, code) => sum + creditsOf(code), 0);
     /**
      * Hours the page wants at a level it names, by floor.
@@ -5257,4 +5351,75 @@ export function validatePlan(
   }
 
   return issues;
+}
+
+
+/**
+ * The residency rule against a finished plan.
+ *
+ * Every hour on the board is an Illinois hour, so the plan's own total is what
+ * counts toward the forty-five, and its 300- and 400-level hours toward the
+ * twenty-one. What the student already took at Illinois is added; transfer
+ * and exam credit is not, whatever course it became. Illinois states the rule
+ * on its transfer-credit page and the sentence names it.
+ */
+function residencyReport(rule: ResidencyRule, plan: GeneratedPlan, ctx: PlanningContext): ResidencyReport {
+  const codes = plan.terms.flatMap((term) => term.codes.map(normaliseCode));
+  const plannedHours = planCreditRange(codes, ctx).min;
+  const plannedUpper = planCreditRange(codes.filter((code) => courseLevel(code) >= 300), ctx).min;
+  const totalOk = rule.heldHours + plannedHours >= rule.hours;
+  const upperOk = rule.heldUpper + plannedUpper >= rule.upperLevel;
+  const ok = totalOk && upperOk;
+  const parts: string[] = [];
+  if (!totalOk) parts.push(`${rule.heldHours + plannedHours} of the ${rule.hours} hours that must be taken at Illinois`);
+  if (!upperOk) parts.push(`${rule.heldUpper + plannedUpper} of the ${rule.upperLevel} that must be at the 300 level or above`);
+  const shortfall = ok
+    ? null
+    : `Residency: this plan reaches ${parts.join(' and ')}. Transfer and exam credit does not count toward residency, so the degree total is not the whole story; plan the difference in Illinois courses or ask your college office. Source: ${rule.source}`;
+  return { ...rule, plannedHours, plannedUpper, ok, shortfall };
+}
+
+
+/**
+ * The end of a plan the student did not name, fitted to what they still owe.
+ *
+ * The default horizon is four years from the start, which is right for a
+ * first-year and wrong for a transfer with sixty hours: eight terms padded to
+ * the minimum load is a plan of a hundred and twenty hours for a degree that
+ * needs sixty more. So when the student has not said when they want to finish
+ * and their credit leaves fewer terms of work than the default holds, the plan
+ * ends when the work does, at the aim they set per term (fifteen unless they
+ * said otherwise), never fewer than two terms. A date the student stated is
+ * kept: the date outranks the hours, and the note names the setting.
+ */
+function fitHorizonToCredit(raw: AutoplanInput, prior: PriorCredit, extraTerms = 0): { horizon: Horizon; note: string | null; shortened: boolean } {
+  const horizon = raw.horizon;
+  const total = raw.degreeTotal ?? null;
+  if (horizon.stated === true || total === null) return { horizon, note: null, shortened: false };
+  const byCode = new Map(raw.context.courses.map((c) => [normaliseCode(c.code), c]));
+  const held = prior.courseCodes.reduce((sum, code) => sum + (byCode.get(normaliseCode(code))?.credits ?? 0), 0) + prior.unmatchedCredits;
+  const remaining = total - held;
+  if (remaining <= 0) return { horizon, note: null, shortened: false };
+  // Balanced terms by default: the student's own aim when they set one, else fifteen, never the maximum.
+  const aim = raw.preferences?.creditsPerTerm?.target ?? 15;
+  const needed = Math.max(2, Math.ceil(remaining / Math.max(12, aim))) + extraTerms;
+  const seasons: SemesterSeason[] = ['Spring', 'Fall'];
+  const ord = (season: SemesterSeason, year: number) => year * 2 + (season === 'Fall' ? 1 : 0);
+  const startOrd = ord(horizon.startSeason === 'Summer' ? 'Fall' : horizon.startSeason, horizon.startYear);
+  const endOrd = ord(horizon.gradSeason === 'Summer' ? 'Spring' : horizon.gradSeason, horizon.gradYear);
+  const defaultTerms = endOrd - startOrd + 1;
+  if (needed >= defaultTerms) return { horizon, note: null, shortened: false };
+  const lastOrd = startOrd + needed - 1;
+  const gradSeason = seasons[lastOrd % 2];
+  const gradYear = Math.floor(lastOrd / 2);
+  return {
+    horizon: { ...horizon, gradSeason, gradYear },
+    note: `Your credit leaves about ${remaining} hours of the ${total}, so this plan runs ${needed} terms and ends ${gradSeason} ${gradYear} instead of the usual four years. Say when you want to finish under About you to plan to a date instead.`,
+    shortened: true,
+  };
+}
+
+/** Whether a plan left a requirement or course out because the terms ran out, not because of data. */
+function leftForWantOfATerm(plan: GeneratedPlan): boolean {
+  return plan.unsatisfied.some((u) => u.reason === 'did-not-fit') || plan.notPlaced.some((n) => n.reason === 'no-room' || n.reason === 'chain-too-long');
 }

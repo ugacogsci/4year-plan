@@ -3,14 +3,29 @@
  *
  * Two shapes on purpose. The READING is what the model returns: every course
  * line as printed, with the grade and the term and nothing decided. The RECORD
- * is what the student keeps: the same lines with a catalog match and a checkbox
- * each, so the student, not the model, says what counts.
+ * is what the student keeps: the same lines with a catalog match, a way of
+ * counting and a switch each, so the student, not the model, says what counts.
  *
  * Matching lives here rather than in the API route so that the only thing the
  * server does with a transcript is read it once and hand the list back. Nothing
  * about a student is stored server-side, which is the boundary the README draws,
  * and the record itself lives in the browser with the rest of the answers.
+ *
+ * Most students who upload something are not first-years with an empty record:
+ * they hold credit from another college, an Illinois record with a transfer
+ * block on it, a Transfer Evaluation Report, or a screenshot of a course list.
+ * Each of those is read the same way and counted by the same three rules: a
+ * line that is an Illinois course counts as that course; a line another
+ * school taught counts as the Illinois course the document prints for it, or
+ * the one the catalog's titles suggest and the student confirms, or else as
+ * hours toward the total; a line the document says earns nothing counts as
+ * nothing. Illinois's own words on the subject: Transferology is the estimate
+ * and the university's Transfer Evaluation Report is the decision
+ * (admissions.illinois.edu/transferring-credit/), so a proposal here is never
+ * more than a proposal, and it says so on the line.
  */
+
+import { proposeEquivalents, type CatalogLite, type EquivalentProposal } from './transfer-match';
 
 export type TranscriptStatus =
   | 'completed'
@@ -18,10 +33,15 @@ export type TranscriptStatus =
   | 'withdrawn'
   | 'failed'
   | 'transfer'
-  | 'exam';
+  | 'exam'
+  /** The document itself says the line earns nothing: developmental, repeated, not transferable. */
+  | 'no_credit';
+
+/** What kind of document was read. Decides how its codes are treated. */
+export type DocumentKind = 'transcript' | 'degree_audit' | 'transfer_report' | 'course_list' | 'other';
 
 export interface TranscriptCourse {
-  /** The subject and number as printed, e.g. "MATH 221". */
+  /** The subject and number as printed, e.g. "MATH 221", or another school's "MAT 128". */
   code: string;
   title: string | null;
   /** Hours attempted on that line, as printed. Null when the line prints none. */
@@ -29,6 +49,22 @@ export interface TranscriptCourse {
   grade: string | null;
   term: string | null;
   status: TranscriptStatus;
+  /**
+   * The school that taught the course, when the document says and it is not
+   * the issuer: the transfer block on an Illinois record names Parkland, an
+   * evaluation report names the sending school. Null when it is the issuer.
+   */
+  from?: string | null;
+  /**
+   * The Illinois course the document itself prints as this line's
+   * equivalent: an evaluation report's right-hand column, a degree audit's
+   * "(Harper College MTH 200)" note read the other way. Null when none.
+   */
+  equivalent?: string | null;
+  /** The Illinois hours printed beside the equivalent, when they differ from the line's own. */
+  equivalentCredits?: number | null;
+  /** The Illinois Articulation Initiative code printed beside the line, e.g. "M1 900". */
+  iai?: string | null;
 }
 
 export interface TranscriptExam {
@@ -37,20 +73,32 @@ export interface TranscriptExam {
   score: string | null;
 }
 
-/** What the model returns for one file. */
+/** What the model returns for one file, or for several read together. */
 export interface TranscriptReading {
   institution: string | null;
+  kind: DocumentKind;
   courses: TranscriptCourse[];
   exams: TranscriptExam[];
   /** Anything the model could not read, in plain sentences. */
   notes: string[];
 }
 
+/** How one line counts toward the degree. */
+export type CountsAs = 'course' | 'hours' | 'none';
+
 export interface TranscriptCourseRecord extends TranscriptCourse {
-  /** The catalog code this line matched, or null when the catalog has no such course. */
+  /** The catalog code this line counts as, or null when it counts as hours or not at all. */
   matched: string | null;
-  /** Whether the student wants it counted. Off by default for a W or an F. */
+  /** Where the match came from. */
+  matchedBy: 'code' | 'printed' | 'proposal' | 'student' | null;
+  /** Whether the student wants it counted. Off for a W, an F, and a line that earns nothing. */
   use: boolean;
+  /** As the matched course, as hours toward the total, or not at all. */
+  counts: CountsAs;
+  /** Illinois courses this line could be, best first, for the student to pick from. Only for another school's lines. */
+  proposals?: EquivalentProposal[];
+  /** A second course the line also counts as: the lab folded into a five-hour chemistry course. */
+  also?: string[];
 }
 
 /** What the student keeps, alongside the rest of their answers. */
@@ -58,20 +106,23 @@ export interface TranscriptRecord {
   fileName: string;
   readAt: string;
   institution: string | null;
+  kind?: DocumentKind;
   /**
-   * Whether the transcript is Illinois's own. Another school's codes are that
+   * Whether the document is Illinois's own. Another school's codes are that
    * school's: Parkland's BUS 101 is not Illinois's BUS 101, and matching them
    * by code would hand a transfer student credit for courses they never took.
    * Absent on records saved before the check existed, which were all home.
    */
   home?: boolean;
+  /** Every file read into this record, first first. */
+  files?: string[];
   courses: TranscriptCourseRecord[];
   exams: TranscriptExam[];
   notes: string[];
 }
 
-/** The request body the upload component sends to /api/transcript. */
-export interface TranscriptUploadBody {
+/** One file of the upload body. */
+export interface TranscriptUploadFile {
   fileName: string;
   kind: 'pdf' | 'image' | 'text';
   mediaType: string;
@@ -81,12 +132,20 @@ export interface TranscriptUploadBody {
   text?: string;
 }
 
+/**
+ * The request body the upload component sends to /api/transcript. One file,
+ * or several read together so a course list that spans two screenshots is
+ * one list with one institution.
+ */
+export type TranscriptUploadBody = TranscriptUploadFile | { files: TranscriptUploadFile[] };
+
 export const TRANSCRIPT_MAX_BYTES = 10 * 1024 * 1024;
+export const TRANSCRIPT_MAX_FILES = 8;
 
 export const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
 
 /** Which of the three request shapes a file takes, or null when it is not a kind we read. */
-export function uploadKindFor(file: { name: string; type: string }): TranscriptUploadBody['kind'] | null {
+export function uploadKindFor(file: { name: string; type: string }): TranscriptUploadFile['kind'] | null {
   const name = file.name.toLowerCase();
   if (file.type === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
   if ((IMAGE_MEDIA_TYPES as readonly string[]).includes(file.type)) return 'image';
@@ -97,18 +156,46 @@ export function uploadKindFor(file: { name: string; type: string }): TranscriptU
 /**
  * "MATH221", "MATH-221" and "MATH 221 A" are all the catalog's MATH 221.
  *
- * Only the subject and the three-digit number are kept, because that is the
- * whole of an Illinois code. Anything that does not fit that shape is returned
- * upper-cased and untouched, so a code from another school stays legible in the
- * review list and simply never matches.
+ * Only the subject and the number are kept: three digits for an Illinois code,
+ * and a four-digit or letter-suffixed number from another school is kept as
+ * that school prints it, upper-cased, so it stays legible in the review list.
+ * Illinois's indirect credit, "HIST 1--", is a code too and is kept whole.
  */
 export function normalizeCourseCode(raw: string): string {
-  const m = raw.toUpperCase().match(/\b([A-Z]{2,4})\s*-?\s*(\d{3})\b/);
-  return m ? `${m[1]} ${m[2]}` : raw.toUpperCase().replace(/\s+/g, ' ').trim();
+  const upper = raw.toUpperCase().replace(/\s+/g, ' ').trim();
+  const indirect = upper.match(/\b([A-Z]{2,5})\s*-?\s*(\d)\s*(?:--|XX|\*\*)/);
+  if (indirect) return `${indirect[1]} ${indirect[2]}--`;
+  const m = upper.match(/\b([A-Z]{2,5})\s*-?\s*(\d{3,4}[A-Z]{0,2})\b/);
+  return m ? `${m[1]} ${m[2]}` : upper;
+}
+
+/** "MATH 1--", "CS 1--": hours in a subject rather than a class. */
+export function isIndirectCode(code: string): boolean {
+  return /^[A-Z]{2,5} \d--$/.test(code);
 }
 
 /**
- * Whether a transcript was issued by Illinois itself.
+ * "FA24" and "FALL 2024" and "Fall Semester 2024" are one term. Written the
+ * way the board writes its own labels, so a line can be placed against it.
+ */
+export function normalizeTerm(raw: string | null): string | null {
+  if (!raw) return null;
+  const s = raw.trim();
+  const short = s.match(/^(FA|SP|SU|WI)\s*-?\s*(\d{2}|\d{4})$/i);
+  if (short) {
+    const season = { FA: 'Fall', SP: 'Spring', SU: 'Summer', WI: 'Winter' }[short[1].toUpperCase() as 'FA' | 'SP' | 'SU' | 'WI'];
+    const year = short[2].length === 2 ? 2000 + Number(short[2]) : Number(short[2]);
+    return `${season} ${year}`;
+  }
+  const long = s.match(/\b(fall|spring|summer|winter)\b[^\d]*(\d{4})/i);
+  if (long) return `${long[1][0].toUpperCase()}${long[1].slice(1).toLowerCase()} ${long[2]}`;
+  const yearFirst = s.match(/(\d{4})[^a-z]*\b(fall|spring|summer|winter)\b/i);
+  if (yearFirst) return `${yearFirst[2][0].toUpperCase()}${yearFirst[2].slice(1).toLowerCase()} ${yearFirst[1]}`;
+  return s;
+}
+
+/**
+ * Whether a document, or the school named on a line, is Illinois itself.
  *
  * Urbana, Champaign or UIUC settles it. "University of Illinois" alone does
  * not, because Chicago and Springfield are different universities with their
@@ -117,7 +204,7 @@ export function normalizeCourseCode(raw: string): string {
  * into an Illinois planner, and the codes either match the catalog or they do
  * not.
  */
-export function isHomeTranscript(institution: string | null): boolean {
+export function isHomeTranscript(institution: string | null | undefined): boolean {
   if (!institution || !institution.trim()) return true;
   const name = institution.toLowerCase();
   if (/\b(urbana|champaign|uiuc)\b/.test(name)) return true;
@@ -131,35 +218,177 @@ export function earns(status: TranscriptStatus): boolean {
 }
 
 /**
+ * A course below college level. Community colleges number them 0xx or 0xxx
+ * ("MATH 0482 Foundations for College Math"), and Illinois transfers none of
+ * them. The number is the rule; the title is a second reading of the same
+ * fact for a school that numbers differently.
+ */
+export function isDevelopmental(code: string, title: string | null): boolean {
+  const number = code.match(/\b(\d{3,4})[A-Z]{0,2}$/)?.[1];
+  if (number && Number(number[0]) === 0) return true;
+  return /\b(developmental|remedial|foundations? for college|basic (math|writing|algebra)|pre-?college|college prep)\b/i.test(title ?? '');
+}
+
+/**
+ * Several files read as one document, when the student uploads a course list
+ * that spans two screenshots, or a transcript and its second page.
+ *
+ * Lines are kept in file order; a line printed on both files (the second
+ * screenshot overlapping the first) appears once. The institution is the
+ * first one any file names, and the kind the most specific.
+ */
+export function mergeReadings(readings: TranscriptReading[]): TranscriptReading {
+  const rank: Record<DocumentKind, number> = { transfer_report: 4, degree_audit: 3, transcript: 2, course_list: 1, other: 0 };
+  const seen = new Set<string>();
+  const courses: TranscriptCourse[] = [];
+  for (const reading of readings) {
+    for (const course of reading.courses) {
+      const key = `${normalizeCourseCode(course.code)}|${normalizeTerm(course.term) ?? ''}|${course.grade ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      courses.push(course);
+    }
+  }
+  const exams = readings.flatMap((r) => r.exams).filter((e, i, all) => all.findIndex((o) => o.kind === e.kind && o.exam === e.exam) === i);
+  return {
+    institution: readings.map((r) => r.institution).find((i) => i && i.trim()) ?? null,
+    kind: readings.map((r) => r.kind).sort((a, b) => rank[b] - rank[a])[0] ?? 'other',
+    courses,
+    exams,
+    notes: readings.flatMap((r) => r.notes),
+  };
+}
+
+/**
  * The reading, matched against the catalog and defaulted the way an advisor
- * would: a passing grade counts, a course in progress counts because it will
- * be done before the first planned term, and a W or an F is listed but off.
+ * would.
+ *
+ * An Illinois line counts as its course. Another school's line counts as the
+ * Illinois course the document prints for it; failing that, as the course the
+ * catalog's own titles make the likely equivalent, offered as a proposal the
+ * student confirms; failing that, as hours toward the total, which is what
+ * Illinois grants any transferable course at minimum. A passing grade counts,
+ * a course in progress counts because it will be done before the first
+ * planned term, and a W, an F or a line the document says earns nothing is
+ * listed but off.
  */
 export function matchTranscript(
   reading: TranscriptReading,
   fileName: string,
-  has: (code: string) => boolean,
+  catalog: CatalogLite[],
+  files: string[] = [fileName],
 ): TranscriptRecord {
-  const home = isHomeTranscript(reading.institution);
+  const known = new Map(catalog.map((c) => [c.code, c]));
+  /**
+   * Whose codes the document prints.
+   *
+   * An Illinois record prints Illinois codes everywhere on it, including the
+   * transfer block: "MATH 221 TR" under a Parkland heading is Illinois's
+   * MATH 221, already evaluated. A Transfer Evaluation Report is issued by
+   * Illinois but its left-hand column is the sending school's codes, with the
+   * Illinois course in the right-hand column. A course list with no school
+   * named on it is judged by its codes: when most of them are not in the
+   * catalog, they are another school's.
+   */
+  const issuerIsHome = isHomeTranscript(reading.institution);
+  const knownShare = reading.courses.length > 0
+    ? reading.courses.filter((c) => known.has(normalizeCourseCode(c.code)) || isIndirectCode(normalizeCourseCode(c.code))).length / reading.courses.length
+    : 1;
+  const home = reading.institution ? issuerIsHome : knownShare >= 0.5;
+  const codesAreIllinois = home && reading.kind !== 'transfer_report';
   const courses: TranscriptCourseRecord[] = reading.courses.map((c) => {
     const code = normalizeCourseCode(c.code);
-    const matched = home && has(code) ? code : null;
-    return { ...c, code, matched, use: matched !== null && earns(c.status) };
+    const term = normalizeTerm(c.term);
+    const taughtElsewhere = codesAreIllinois ? false : c.from ? !isHomeTranscript(c.from) : !home;
+    const base: TranscriptCourseRecord = {
+      ...c,
+      code,
+      term,
+      equivalent: c.equivalent ? normalizeCourseCode(c.equivalent) : null,
+      matched: null,
+      matchedBy: null,
+      use: false,
+      counts: 'none',
+    };
+    const off = !earns(c.status);
+
+    // The document's own word: an evaluation report or an audit that prints
+    // the Illinois equivalent beside the line. "HIST 1--" is hours.
+    if (base.equivalent) {
+      if (isIndirectCode(base.equivalent)) {
+        return { ...base, counts: off ? 'none' : 'hours', use: !off };
+      }
+      if (known.has(base.equivalent)) {
+        return { ...base, matched: base.equivalent, matchedBy: 'printed', counts: off ? 'none' : 'course', use: !off };
+      }
+    }
+    if (isIndirectCode(code) && !taughtElsewhere) {
+      return { ...base, counts: off ? 'none' : 'hours', use: !off };
+    }
+    if (!taughtElsewhere) {
+      if (known.has(code)) return { ...base, matched: code, matchedBy: 'code', counts: off ? 'none' : 'course', use: !off };
+      // An Illinois record with a code the catalog no longer lists: the hours
+      // are real, the course is not something the plan can name.
+      return { ...base, counts: off || c.credits === null ? 'none' : 'hours', use: !off && c.credits !== null };
+    }
+    if (isDevelopmental(code, c.title) || c.status === 'no_credit') {
+      return { ...base, status: 'no_credit', counts: 'none', use: false };
+    }
+    const proposals = proposeEquivalents({ code, title: c.title, credits: c.credits }, catalog);
+    const best = proposals[0];
+    if (best && best.confidence === 'high') {
+      const also = proposals.filter((p) => p.pairedWith === best.code).map((p) => p.code);
+      return { ...base, matched: best.code, matchedBy: 'proposal', proposals, counts: off ? 'none' : 'course', use: !off, ...(also.length ? { also } : {}) };
+    }
+    return { ...base, proposals, counts: off ? 'none' : 'hours', use: !off };
   });
+
   const notes = [...reading.notes];
-  if (!home) {
+  const foreign = codesAreIllinois ? [] : courses.filter((c) => c.from ? !isHomeTranscript(c.from) : !home);
+  if (!reading.institution && !home) {
+    notes.unshift('No school is named on this list and most of its codes are not Illinois courses, so they are read as another school\'s.');
+  }
+  if (foreign.length > 0) {
+    const proposed = foreign.filter((c) => c.matchedBy === 'proposal').length;
+    const asHours = foreign.filter((c) => c.counts === 'hours').length;
+    const where = reading.institution && !home ? reading.institution : [...new Set(foreign.map((c) => c.from).filter(Boolean))].join(', ') || 'another school';
     notes.unshift(
-      `This transcript is from ${reading.institution}. Its course codes are that school's, so none were matched to Illinois courses: Illinois decides what transfers and as which course. Once your Illinois record or your advisor names the equivalents, type them as Illinois codes in the box below and they will count.`,
+      `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Illinois decides what transfers and as which course (Transferology is the estimate, the Transfer Evaluation Report the decision).${
+        proposed > 0 ? ` ${proposed} ${proposed === 1 ? 'has' : 'have'} a likely Illinois equivalent filled in from the catalog's titles; check each.` : ''
+      }${asHours > 0 ? ` ${asHours} ${asHours === 1 ? 'counts' : 'count'} as hours toward the total until you pick the Illinois course it became.` : ''}`,
     );
   }
   return {
     fileName,
     readAt: new Date().toISOString(),
     institution: reading.institution,
+    kind: reading.kind,
     home,
+    files,
     courses,
     exams: reading.exams,
     notes,
+  };
+}
+
+/** The student's own choice for one line: an Illinois course, hours, or nothing. */
+export function setLineCounts(
+  record: TranscriptRecord,
+  index: number,
+  choice: { counts: 'course'; code: string } | { counts: 'hours' } | { counts: 'none' },
+): TranscriptRecord {
+  return {
+    ...record,
+    courses: record.courses.map((c, i) => {
+      if (i !== index) return c;
+      if (choice.counts === 'course') {
+        const by = c.matchedBy === 'code' && c.matched === choice.code ? 'code' : c.equivalent === choice.code ? 'printed' : 'student';
+        const also = (c.proposals ?? []).filter((p) => p.pairedWith === choice.code).map((p) => p.code);
+        return { ...c, matched: choice.code, matchedBy: by, counts: 'course', use: true, also: also.length ? also : undefined };
+      }
+      if (choice.counts === 'hours') return { ...c, matched: null, matchedBy: null, counts: 'hours', use: true, also: undefined };
+      return { ...c, matched: null, matchedBy: null, counts: 'none', use: false, also: undefined };
+    }),
   };
 }
 
@@ -167,28 +396,73 @@ export function matchTranscript(
 export function transcriptCodes(record: TranscriptRecord | null | undefined): string[] {
   if (!record) return [];
   const out = new Set<string>();
-  for (const c of record.courses) if (c.use && c.matched) out.add(c.matched);
+  for (const c of record.courses) {
+    if (!c.use || c.counts !== 'course' || !c.matched) continue;
+    out.add(c.matched);
+    for (const extra of c.also ?? []) out.add(extra);
+  }
   return [...out];
+}
+
+/** Hours the record earns toward the degree that no course code holds. */
+export function transcriptHours(record: TranscriptRecord | null | undefined): number {
+  if (!record) return 0;
+  let hours = 0;
+  for (const c of record.courses) {
+    if (!c.use || c.counts !== 'hours') continue;
+    hours += c.equivalentCredits ?? c.credits ?? 0;
+  }
+  return hours;
+}
+
+/**
+ * Hours the record shows as taught by Illinois itself, done or in progress,
+ * for the residency rule (45 hours at Illinois, 21 of them at the 300 level
+ * or above). Transfer and exam credit is not residence, whatever course it
+ * became.
+ */
+export function transcriptResidentHours(record: TranscriptRecord | null | undefined): { total: number; upper: number } {
+  if (!record || record.home === false) return { total: 0, upper: 0 };
+  let total = 0;
+  let upper = 0;
+  for (const c of record.courses) {
+    if (!c.use || (c.status !== 'completed' && c.status !== 'in_progress')) continue;
+    if (c.from && !isHomeTranscript(c.from)) continue;
+    // A course the student typed has no document saying where it was taken;
+    // counting it as residence could overstate, so it is not counted.
+    if (c.matchedBy === 'student') continue;
+    const hours = c.credits ?? 0;
+    total += hours;
+    if (/\b[34]\d\d[A-Z]?$/.test(c.matched ?? c.code)) upper += hours;
+  }
+  return { total, upper };
+}
+
+/** Lines the student has not settled: another school's course counted as hours with a proposal on offer. */
+export function transcriptOpenLines(record: TranscriptRecord | null | undefined): TranscriptCourseRecord[] {
+  if (!record) return [];
+  return record.courses.filter((c) => c.use && c.counts === 'hours' && (c.proposals?.length ?? 0) > 0);
 }
 
 /** One sentence about what was read, for the summary line over the list. */
 export function describeTranscript(record: TranscriptRecord, catalogName: string): string {
   const total = record.courses.length;
-  const counted = record.courses.filter((c) => c.use && c.matched).length;
-  const inProgress = record.courses.filter((c) => c.use && c.matched && c.status === 'in_progress').length;
+  const asCourse = record.courses.filter((c) => c.use && c.counts === 'course');
+  const likely = asCourse.filter((c) => c.matchedBy === 'proposal').length;
+  const asHours = record.courses.filter((c) => c.use && c.counts === 'hours');
+  const hours = transcriptHours(record);
+  const inProgress = record.courses.filter((c) => c.use && c.status === 'in_progress').length;
   const withdrawn = record.courses.filter((c) => c.status === 'withdrawn').length;
   const failed = record.courses.filter((c) => c.status === 'failed').length;
-  const unmatched = record.courses.filter((c) => !c.matched).length;
+  const none = record.courses.filter((c) => c.status === 'no_credit').length;
   const line = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
-  const parts = [`${counted} count toward your plan${inProgress ? ` (${inProgress} in progress)` : ''}`];
+  const parts: string[] = [];
+  parts.push(`${asCourse.length} count as ${catalogName} courses${likely ? ` (${likely} likely ${likely === 1 ? 'equivalent' : 'equivalents'} to confirm)` : ''}`);
+  if (asHours.length) parts.push(`${asHours.length} as hours toward the total (${hours} hr)`);
+  if (inProgress) parts.push(`${inProgress} in progress`);
   if (withdrawn) parts.push(`${withdrawn} withdrawn`);
   if (failed) parts.push(`${failed} failed`);
-  if (unmatched) {
-    parts.push(
-      record.home === false
-        ? `${unmatched} from ${record.institution ?? 'another school'}, not matched to Illinois courses`
-        : `${unmatched} not in the ${catalogName} catalog`,
-    );
-  }
-  return `${line(total, 'line')} read from ${record.fileName}. ${parts.join(', ')}.`;
+  if (none) parts.push(`${none} ${none === 1 ? 'earns' : 'earn'} no credit`);
+  const source = record.files && record.files.length > 1 ? `${record.files.length} files` : record.fileName;
+  return `${line(total, 'line')} read from ${source}. ${parts.join(', ')}.`;
 }

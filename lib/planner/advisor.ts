@@ -209,6 +209,57 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'prior_credit',
+    description:
+      "What the student walked in with, as the planner counts it: every course already earned (their transcript, another school's courses matched to Illinois equivalents, AP and other exam credit, courses they typed), the hours counted toward the total with no course code, lines from another school not yet matched to an Illinois course with the likely equivalents to offer, the exams named, where the record came from, and the residency rule (45 hours at Illinois, 21 at the 300 level or above) against the plan. Call it first whenever the student mentions transfer credit, AP or IB, dual enrollment, a previous college, a transcript, or asks what already counts.",
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'find_equivalent',
+    description:
+      "Which Illinois course another school's course is likely to be. Give the course as the student or their transcript names it (code, title, hours, school) and get the catalog's likely equivalents best first, each with a confidence and the reason. Illinois decides equivalency (Transferology is the estimate, the Transfer Evaluation Report the decision), so present the top one as likely rather than certain, and record it only when the student agrees or their evaluation report prints it.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'The other school\'s code as printed, e.g. "MAT 128". Optional.' },
+        title: { type: 'string', description: 'The course title as printed or as the student said it.' },
+        credits: { type: 'number', description: 'Hours, when known.' },
+        school: { type: 'string', description: 'The school that taught it, when known.' },
+      },
+      required: ['title'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'record_prior_credit',
+    description:
+      'Record credit the student already has so the plan is built around it. Give an Illinois course code when the student holds that course or its accepted equivalent ("MATH 221 transferred", "I have AP credit for PSYC 100"), or hours with no code when a course transferred as elective credit ("my sociology class came in as 3 elective hours"). For another school\'s course whose Illinois equivalent is not settled, call find_equivalent first and confirm the pick with the student before recording. The plan is rebuilt around the new credit and the result says what changed; tell the student.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'The Illinois course code the credit counts as, e.g. "MATH 221". Omit for hours only.' },
+        hours: { type: 'number', description: 'Hours toward the total when no Illinois course holds them.' },
+        title: { type: 'string', description: 'The course as the student named it, for the record.' },
+        from: { type: 'string', description: 'Where it was taken: a school name, "AP", "dual enrollment".' },
+        in_progress: { type: 'boolean', description: 'True when the course is being taken now and will be done before the first planned term.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'drop_prior_credit',
+    description:
+      'Stop counting a course or hours the student recorded by mistake. Name the Illinois code, or the line as the student named it. The plan is rebuilt and the result says what changed.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'The Illinois code the line counts as.' },
+        title: { type: 'string', description: 'The line as printed or as the student named it, when it has no Illinois code.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'planner_answer',
     description:
       'Ask the planner itself a question about the board or the catalog: where and when a course meets, what a course needs first, how heavy a term is, which term is hardest, degree progress, whether the plan is in the right order. Returns an exact, sourced answer written from the data in the browser, or handled false when the question is not about the board.',
@@ -246,6 +297,10 @@ export type AdvisorToolName =
   | 'review_board'
   | 'program_admission'
   | 'set_priorities'
+  | 'prior_credit'
+  | 'find_equivalent'
+  | 'record_prior_credit'
+  | 'drop_prior_credit'
   | 'planner_answer'
   | 'university_answer';
 
@@ -266,6 +321,12 @@ How to reason
 - Judge terms as a whole: two hardest-band courses plus a lab is a different term from three light electives, whatever the credit count says. review_board and term_summary carry the load reading.
 - A course that has not run in any recent term is not a plan. Say so, and offer one that has.
 - Getting into a college is a separate application from earning the degree: when the student is not yet in the college their goal major belongs to (they say transfer, switch, ICT, undeclared, or "get into business"), call program_admission, check its courses against the board, and lay out the timeline plainly: what must be done by when, the hours needed, and that it is competitive. A registration restriction on a card ("restricted to Gies College of Business") is the same story from the other side.
+
+Students with credit coming in
+- Most students arrive with credit: another college, dual enrollment, AP or IB, an Illinois record with a transfer block on it. Before advising such a student, call prior_credit and read it. The board only knows what has been recorded; when they mention a course that is not in it, record it with record_prior_credit so the plan stops booking it, after settling the Illinois code with find_equivalent when they name another school's course. Then tell them what the rebuilt plan changed.
+- Illinois's own rule, from its transfer-credit page: Transferology gives the estimate, the Transfer Evaluation Report after admission gives the decision, and every transferable course counts at least as elective hours toward the total. Say "likely" about an equivalent the planner proposed and "confirmed" only about one the student's Illinois record or evaluation report prints. Offer the upload: a screenshot of their Student Self-Service academic history, their evaluation report, or their old school's transcript settles most of it in one step, and the rail has the upload button.
+- Residency: 45 hours must be taken at Illinois, 21 of them at the 300 level or above. prior_credit reports the plan against it; when a transfer student is short, say so and what it means: they need more Illinois hours than the degree total alone suggests.
+- In-progress courses count as done for planning; a W or an F does not; a developmental course (numbered 0xx) never transfers. A transcript line counted as hours is real credit toward the total that fills no requirement; a line matched to an Illinois course fills whatever that course fills.
 
 What you are for
 - Answer any question about Illinois, from its pages, with the page named. That is most of what students ask; treat it as the main job, not a sideline.

@@ -69,6 +69,36 @@ reads each once into the rule (`minLevel`, `exclude`, `genEd`); the fill takes
 the best course at or above the floor while those hours are open, and the
 rail counts with the same fields.
 
+### Credit a student walks in with
+
+Most students are not starting from zero, so the credit step and the rail
+take whatever they have: their own Illinois academic history, another
+college's transcript, the Transfer Evaluation Report admissions sent, a degree
+audit, or a screenshot of a course list, several files at once. The reader
+(`app/api/transcript/route.ts`, one model call, nothing stored) returns every
+line as printed with the school that taught it, the Illinois equivalent the
+document itself prints, and lines the document says earn nothing. Matching
+happens in the browser (`lib/planner/transcript.ts`): an Illinois line counts as
+its course; another school's line counts as the course the document prints for
+it, else as the catalog's likely equivalent (`lib/planner/transfer-match.ts`, a
+curated table of the courses transfer students hold most often plus title
+matching, each with a confidence and a reason), else as hours toward the total,
+which is what Illinois grants a transferable course at minimum. Every line has
+a select saying what it counts as, and a course can be typed in with no
+document. Illinois's own words set the rule: Transferology is the estimate, the
+Transfer Evaluation Report is the decision, so a proposal is labelled likely
+until the student or their record confirms it.
+
+The plan is built around the credit: held courses come off the board and
+satisfy prerequisites, hours with no course count toward the total and toward
+class standing, a horizon the student did not state shrinks to the terms the
+remaining hours need (a chain that needs one more term gets it), and the
+residency rule (45 hours at Illinois, 21 at the 300 level or above,
+admissions.illinois.edu/transferring-credit/) is checked against the plan and
+reported when short. ALMA reads the same record (`prior_credit`), proposes
+equivalents (`find_equivalent`), and records or drops credit
+(`record_prior_credit`, `drop_prior_credit`), which rebuilds the board.
+
 ### Which terms a course actually runs in
 
 Illinois publishes no "offered in" line, so the planner used to assume every

@@ -52,6 +52,8 @@ export interface IllinoisProgressInput {
   equivalents?: Map<string, string[]>;
   /** The degree's published total, for a block whose own words are about reaching it. */
   degreeTotal?: number | null;
+  /** Hours the student holds with no course code (exam credit by subject, transfer lines counted as hours). */
+  priorHours?: number;
 }
 
 /** A row's size in the unit the catalog published, or null when it published none. */
@@ -383,7 +385,7 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
       }
       if (row.unit === 'hr' && row.needed !== null) surplus += Math.max(0, hours - row.needed);
     }
-    const boardTotal = have.reduce((sum, code) => sum + (creditsOf(code) ?? 0), 0);
+    const boardTotal = have.reduce((sum, code) => sum + (creditsOf(code) ?? 0), 0) + (input.priorHours ?? 0);
 
     const taken = new Set<string>();
     for (const entry of leftovers) {

@@ -103,7 +103,17 @@ import {
 } from '@/lib/planner/rules';
 import type { Course, PlanIssue, PlanState, PlanTerm } from '@/lib/planner/types';
 import { clearAnswers, schoolById, summarize, type OnboardingAnswers } from '@/lib/planner/onboarding';
-import { normalizeCourseCode, transcriptCodes } from '@/lib/planner/transcript';
+import {
+  normalizeCourseCode,
+  transcriptCodes,
+  transcriptHours,
+  transcriptOpenLines,
+  transcriptResidentHours,
+  type TranscriptCourseRecord,
+  type TranscriptRecord,
+} from '@/lib/planner/transcript';
+import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
+import type { PriorCredit } from '@/lib/planner/autoplan';
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail } from '@/lib/planner/illinois-load';
@@ -210,6 +220,8 @@ interface PlanReport {
   admission: GeneratedPlan['admission'];
   /** Requirements the generation found already met by held credit. */
   satisfiedByPriorCredit: GeneratedPlan['satisfiedByPriorCredit'];
+  /** The residency rule against the plan, or null. */
+  residency: GeneratedPlan['residency'] | null;
 }
 
 interface Stored {
@@ -498,7 +510,10 @@ export function PlannerWorkspace({
       // catalog and checked by the student when they reviewed the reading.
       [...examCourses(answers?.exams ?? [], examCredit.entries), ...transcriptCodes(answers?.transcript)],
       Boolean(answers?.transcript),
-      examElectiveHours(answers?.exams ?? [], examCredit.entries),
+      // Hours with no course to hold them: AP credit granted as "ECON 1--",
+      // and every transfer line the student is counting as hours toward the
+      // total, which is what Illinois grants a transferable course at minimum.
+      examElectiveHours(answers?.exams ?? [], examCredit.entries) + transcriptHours(answers?.transcript),
       answers?.languageYears ?? null,
       answers?.language ?? null,
     );
@@ -523,6 +538,19 @@ export function PlannerWorkspace({
       programName: loaded.program.name,
       programCollege: loaded.program.college,
       admissionRoute,
+      // Illinois's residency rule, from its transfer-credit page: 45 hours at
+      // Illinois, 21 of them at the 300 level or above. What the student has
+      // already taken here comes from their own record; transfer and exam
+      // credit is not residence, whatever course it became.
+      residency: isIllinois
+        ? {
+            hours: 45,
+            upperLevel: 21,
+            heldHours: transcriptResidentHours(answers?.transcript).total,
+            heldUpper: transcriptResidentHours(answers?.transcript).upper,
+            source: 'https://admissions.illinois.edu/transferring-credit/',
+          }
+        : null,
     });
 
     setPlan(generated.plan);
@@ -543,6 +571,7 @@ export function PlannerWorkspace({
       language: generated.language,
       admission: generated.admission,
       satisfiedByPriorCredit: generated.satisfiedByPriorCredit,
+      residency: generated.residency ?? null,
       firstTermId: generated.plan.terms[0]?.id ?? '',
     });
     setUndoStack([]);
@@ -551,7 +580,48 @@ export function PlannerWorkspace({
         ? 'Plan built. Open the review list to see what it could not do.'
         : 'Plan built. Nothing to review.',
     );
-  }, [isCatalogSchool, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, priorities, admissionRoute]);
+  }, [isCatalogSchool, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, priorities, admissionRoute, isIllinois]);
+
+  /**
+   * Credit that changes after the board exists rebuilds the board.
+   *
+   * A transcript uploaded from the rail, a course the student typed there, or
+   * one ALMA recorded used to change the numbers in the rail and nothing on
+   * the board, because the board is generated once and then edited. Now a
+   * change in what the student holds regenerates the plan: on its own when
+   * the student has not touched the board, and after they have, only when
+   * the bot recorded the credit at their request (the toast says the edits
+   * were replaced). Otherwise the rail tells them to press Rebuild.
+   */
+  const creditKey = [
+    ...transcriptCodes(answers?.transcript).sort(),
+    `h${transcriptHours(answers?.transcript)}`,
+    ...(answers?.exams ?? []).map((e) => `${e.kind}|${e.exam}|${e.score}`),
+    answers?.transferText ?? '',
+    String(answers?.languageYears ?? ''),
+    answers?.language ?? '',
+  ].join(';');
+  const lastCreditKey = useRef<string | null>(null);
+  const rebuildForCredit = useRef(false);
+  useEffect(() => {
+    if (lastCreditKey.current === null) {
+      lastCreditKey.current = creditKey;
+      return;
+    }
+    if (lastCreditKey.current === creditKey) return;
+    lastCreditKey.current = creditKey;
+    if (!plan || !context || !loaded) return;
+    const forced = rebuildForCredit.current;
+    rebuildForCredit.current = false;
+    if (forced || undoStack.length === 0) {
+      buildPlan();
+      notify('Plan rebuilt around your credit', forced && undoStack.length > 0 ? 'Your earlier edits to the board were replaced.' : undefined, 'info');
+    } else {
+      notify('Your credit changed', 'Press Rebuild to plan around it; your edits to the board would be replaced.', 'info');
+    }
+    // Only a change in the key does anything; the other dependencies are read
+    // fresh when it does and are otherwise a no-op through the early return.
+  }, [creditKey, plan, context, loaded, undoStack.length, buildPlan]);
 
   useEffect(() => {
     if (plan) return;
@@ -645,6 +715,21 @@ export function PlannerWorkspace({
               severity: 'warning' as const,
               title: `Getting into ${report.admission.name}`,
               message: `${report.admission.path}: ${report.admission.eligibility.join(' ')} Its courses (${report.admission.codes.join(', ')}) are placed first, to be done by ${report.admission.requiredBy}. ${report.admission.notes[0] ?? ''} Source: ${report.admission.source}`,
+              termId: firstTerm,
+            },
+          ]
+        : []),
+      // The campus residency rule, when the plan falls short of it. A transfer
+      // student with ninety hours reaches the degree total in three terms and
+      // still owes Illinois forty-five of its own; that belongs where the
+      // other things to act on are.
+      ...(report.residency && !report.residency.ok
+        ? [
+            {
+              id: 'residency',
+              severity: 'warning' as const,
+              title: 'Residency: hours that must be taken at Illinois',
+              message: report.residency.shortfall ?? '',
               termId: firstTerm,
             },
           ]
@@ -750,7 +835,8 @@ export function PlannerWorkspace({
     const forfeited = new Set((report?.forfeited ?? []).map((f) => normCode(f.held)));
     const prior =
       planCreditRange([...completedCodes].filter((code) => !forfeited.has(code)), context).min +
-      examElectiveHours(answers?.exams ?? [], examCredit.entries);
+      examElectiveHours(answers?.exams ?? [], examCredit.entries) +
+      transcriptHours(answers?.transcript);
     return {
       planned,
       prior,
@@ -805,6 +891,7 @@ export function PlannerWorkspace({
         languages: core?.languages ?? null,
         equivalents: core?.equivalents ?? undefined,
         degreeTotal: activeProgramTotal,
+        priorHours: examElectiveHours(answers?.exams ?? [], examCredit.entries) + transcriptHours(answers?.transcript),
       });
     }
     const have = new Set<string>(completedCodes);
@@ -815,7 +902,7 @@ export function PlannerWorkspace({
       }
     }
     return areaProgress(loaded.program, have);
-  }, [loaded, plan, completedCodes, courseIndex, isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal]);
+  }, [loaded, plan, completedCodes, courseIndex, isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit]);
 
   /**
    * Which pool each planned course is filling, and what that pool still wants.
@@ -1014,7 +1101,7 @@ export function PlannerWorkspace({
         byCode,
         [...examCourses(answers?.exams ?? [], examCredit.entries), ...transcriptCodes(answers?.transcript)],
         Boolean(answers?.transcript),
-        examElectiveHours(answers?.exams ?? [], examCredit.entries),
+        examElectiveHours(answers?.exams ?? [], examCredit.entries) + transcriptHours(answers?.transcript),
         answers?.languageYears ?? null,
         answers?.language ?? null,
       ),
@@ -1196,6 +1283,9 @@ export function PlannerWorkspace({
     pools,
     language: report?.language ?? null,
     admission: report?.admission ?? null,
+    answers: answers ?? null,
+    onAnswersChange: onAnswersChange ?? null,
+    report,
   });
   useEffect(() => {
     live.current = {
@@ -1219,6 +1309,9 @@ export function PlannerWorkspace({
       pools,
       language: report?.language ?? null,
       admission: report?.admission ?? null,
+      answers: answers ?? null,
+      onAnswersChange: onAnswersChange ?? null,
+      report,
     };
   });
 
@@ -1547,6 +1640,7 @@ export function PlannerWorkspace({
       .map((id) => L.courseIndex.get(id)?.code)
       .filter((code): code is string => Boolean(code));
     lines.push(`Already taken, counted but not on the board: ${taken.length > 0 ? taken.join(', ') : 'none'}.`);
+    lines.push(describeCredit(L.answers?.transcript ?? null, L.priorForOptions, L.report?.residency ?? null));
     lines.push(
       `Preferences: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'balanced'}, never above 18.`,
     );
@@ -2096,6 +2190,106 @@ export function PlannerWorkspace({
                 ? 'Saved. The board was not re-picked.'
                 : 'Saved. Every one of the planner\'s picks already held the best course under these priorities, so nothing on the board moved.',
         };
+      }
+      case 'prior_credit': {
+        const record = L.answers?.transcript ?? null;
+        const exams = L.answers?.exams ?? [];
+        const counted = (record?.courses ?? [])
+          .filter((c) => c.use && c.counts === 'course' && c.matched)
+          .map((c) => ({
+            code: c.matched,
+            also: c.also ?? [],
+            as_printed: c.code,
+            title: c.title,
+            credits: c.credits,
+            grade: c.grade,
+            term: c.term,
+            status: c.status,
+            from: c.from ?? (record?.home === false ? record.institution : null),
+            how: c.matchedBy === 'code' ? 'Illinois code on the record' : c.matchedBy === 'printed' ? 'equivalent printed on the document (confirmed)' : c.matchedBy === 'proposal' ? 'likely equivalent from the catalog (not confirmed)' : 'entered by the student or in chat',
+          }));
+        const hoursLines = (record?.courses ?? [])
+          .filter((c) => c.use && c.counts === 'hours')
+          .map((c) => ({ as_printed: c.code, title: c.title, hours: c.equivalentCredits ?? c.credits, from: c.from ?? (record?.home === false ? record.institution : null), status: c.status, likely_equivalents: (c.proposals ?? []).map((p) => `${p.code} ${p.title} (${p.confidence})`) }));
+        const notCounted = (record?.courses ?? [])
+          .filter((c) => !c.use)
+          .map((c) => ({ as_printed: c.code, title: c.title, status: c.status, why: c.status === 'no_credit' ? 'the document says it earns no credit' : c.status === 'withdrawn' ? 'withdrawn' : c.status === 'failed' ? 'failed' : 'turned off by the student' }));
+        const examCodes = L.priorForOptions.courseCodes.filter((code) => !transcriptCodes(record).includes(code));
+        return {
+          ok: true,
+          known: L.priorForOptions.known,
+          record: record ? { institution: record.institution, kind: record.kind ?? null, files: record.files ?? [record.fileName], read_at: record.readAt, home: record.home !== false } : null,
+          courses_counted: counted,
+          courses_from_exams_or_typed_codes: examCodes,
+          exams_named: exams.map((e) => `${e.kind} ${e.exam}${e.score !== '' ? ` (${e.score})` : ' (no score given)'}`),
+          hours_toward_total_without_a_course: L.priorForOptions.unmatchedCredits,
+          lines_counted_as_hours: hoursLines,
+          lines_not_counted: notCounted,
+          open_lines_to_settle: transcriptOpenLines(record).map((c) => ({ as_printed: c.code, title: c.title, hours: c.credits, likely_equivalents: (c.proposals ?? []).map((p) => ({ code: p.code, title: p.title, credits: p.credits, confidence: p.confidence, why: p.why })) })),
+          language: L.answers ? { high_school_years: L.answers.languageYears ?? null, language: L.answers.language || null } : null,
+          residency: L.report?.residency ?? null,
+          rule: 'Illinois decides equivalency: Transferology is the estimate, the Transfer Evaluation Report the decision. Every transferable course counts at least as elective hours toward the total. Residency: 45 hours at Illinois, 21 at the 300 level or above (admissions.illinois.edu/transferring-credit/).',
+        };
+      }
+      case 'find_equivalent': {
+        const title = str('title');
+        if (!title) return { ok: false, reason: 'Give the course title as printed or as the student said it.' };
+        const lite = catalogLiteOf(L.catalog);
+        const proposals = proposeEquivalents({ code: str('code').toUpperCase(), title, credits: typeof input.credits === 'number' ? input.credits : null }, lite, 5);
+        return {
+          ok: true,
+          course: { code: str('code') || null, title, credits: typeof input.credits === 'number' ? input.credits : null, school: str('school') || null },
+          likely_equivalents: proposals.map((p) => ({ code: p.code, title: p.title, credits: p.credits, confidence: p.confidence, why: p.why, on_board_or_held: holding(courseOf(p.code)?.id ?? '') || L.completedCodes.has(normCode(p.code)) })),
+          note: proposals.length === 0
+            ? 'Nothing in the catalog reads as the same course. It still transfers as elective hours if it is college-level; record it as hours.'
+            : 'These come from the catalog\'s titles and a table of common equivalents, not from Illinois\'s evaluation. Present the top one as likely, confirm with the student, then record it.',
+        };
+      }
+      case 'record_prior_credit': {
+        if (!L.onAnswersChange || !L.answers) return { ok: false, reason: 'Credit cannot be recorded on this screen.' };
+        const code = str('code') ? normCode(str('code')) : '';
+        const hours = typeof input.hours === 'number' && Number.isFinite(input.hours) ? input.hours : null;
+        const title = str('title') || null;
+        const from = str('from') || null;
+        const inProgress = input.in_progress === true;
+        let course: Course | null = null;
+        if (code) {
+          course = courseOf(code);
+          if (!course) return { ok: false, reason: `${code} is not in the Illinois catalog. If it is another school's course, call find_equivalent with its title first.` };
+        } else if (hours === null || hours <= 0) {
+          return { ok: false, reason: 'Give an Illinois course code, or the hours it transferred as.' };
+        }
+        const record = L.answers.transcript;
+        if (course && (transcriptCodes(record).includes(normCode(course.code)) || L.completedCodes.has(normCode(course.code)))) {
+          return { ok: true, changed: false, message: `${course.code} is already counted as taken.` };
+        }
+        const line: TranscriptCourseRecord = course
+          ? { code: course.code, title: title ?? course.title, credits: course.credits, grade: null, term: null, status: inProgress ? 'in_progress' : from && !/^(illinois|uiuc|urbana)/i.test(from) ? 'transfer' : 'completed', from, equivalent: null, matched: normCode(course.code), matchedBy: 'student', use: true, counts: 'course' }
+          : { code: title?.match(/^[A-Z]{2,5}\s?\d{3,4}[A-Z]?/i)?.[0].toUpperCase() ?? 'TRANSFER', title, credits: hours, grade: null, term: null, status: 'transfer', from, equivalent: null, matched: null, matchedBy: null, use: true, counts: 'hours' };
+        const base: TranscriptRecord = record ?? { fileName: 'Told to ALMA', readAt: new Date().toISOString(), institution: null, kind: 'course_list', home: true, files: [], courses: [], exams: [], notes: [] };
+        rebuildForCredit.current = true;
+        L.onAnswersChange({ ...L.answers, transcript: { ...base, courses: [...base.courses, line] } });
+        return {
+          ok: true,
+          changed: true,
+          recorded: course ? `${course.code} ${course.title} (${course.credits} cr) as already taken${from ? `, from ${from}` : ''}${inProgress ? ', in progress' : ''}` : `${hours} hours toward the total${title ? ` for ${title}` : ''}${from ? ` from ${from}` : ''}`,
+          message: 'Recorded. The plan is being rebuilt around it now; call review_board or term_summary in your next step to see the new board before describing it. Any edits the student made to the board by hand were replaced by the rebuild.',
+        };
+      }
+      case 'drop_prior_credit': {
+        if (!L.onAnswersChange || !L.answers?.transcript) return { ok: false, reason: 'There is no recorded credit to drop.' };
+        const code = str('code') ? normCode(str('code')) : '';
+        const title = str('title').toLowerCase();
+        const record = L.answers.transcript;
+        const index = record.courses.findIndex((c) => c.use && ((code && (c.matched === code || normCode(c.code) === code)) || (title && (c.title ?? '').toLowerCase() === title)));
+        if (index < 0) {
+          const fromExam = code && L.priorForOptions.courseCodes.includes(code);
+          return { ok: false, reason: fromExam ? `${code} comes from an exam the student chose under Credit, not from a recorded line; change the exam's score there to drop it.` : `No counted line matches ${code || title}.` };
+        }
+        const dropped = record.courses[index];
+        rebuildForCredit.current = true;
+        L.onAnswersChange({ ...L.answers, transcript: { ...record, courses: record.courses.map((c, i) => (i === index ? { ...c, use: false, counts: 'none', matched: null, matchedBy: null } : c)) } });
+        return { ok: true, changed: true, dropped: `${dropped.matched ?? dropped.code}${dropped.title ? ` ${dropped.title}` : ''}`, message: 'Dropped. The plan is being rebuilt; call review_board in your next step to see it.' };
       }
       case 'planner_answer': {
         const ask = await askContext();
@@ -2753,4 +2947,48 @@ function overTotal(planned: string, degreeTotal: number): string[] {
   return [
     `This plan is ${planned}, over the ${degreeTotal} hours the degree page lists. Where a requirement offers a choice between lists, this plan filled every list rather than guess which one you want.`,
   ];
+}
+
+/**
+ * What the student walked in with, in the words the bot reads before
+ * advising. Every count here is the planner's own: the codes it treats as
+ * earned, the hours it counts with no course, the lines it left open, and the
+ * residency rule against the plan.
+ */
+function describeCredit(record: TranscriptRecord | null, prior: PriorCredit, residency: GeneratedPlan['residency'] | null): string {
+  const parts: string[] = [];
+  if (!prior.known) parts.push('The student said they have credit but nothing usable was recorded, so the plan assumes a clean start.');
+  if (record) {
+    const source = record.home === false ? `${record.institution ?? 'another school'}'s ${record.kind === 'transfer_report' ? 'evaluation report' : record.kind === 'degree_audit' ? 'degree audit' : record.kind === 'course_list' ? 'course list' : 'transcript'}` : record.kind === 'course_list' && record.courses.every((c) => c.matchedBy === 'student') ? 'courses the student typed or told the bot' : `the student's Illinois ${record.kind === 'degree_audit' ? 'degree audit' : record.kind === 'transfer_report' ? 'evaluation report' : 'record'}`;
+    const likely = record.courses.filter((c) => c.use && c.counts === 'course' && c.matchedBy === 'proposal').map((c) => `${c.code} as ${c.matched}`);
+    const open = transcriptOpenLines(record).map((c) => `${c.code}${c.title ? ` ${c.title}` : ''}${c.proposals?.[0] ? ` (likely ${c.proposals[0].code})` : ''}`);
+    parts.push(`Credit read from ${source} (${record.courses.length} lines).`);
+    if (likely.length) parts.push(`Likely equivalents filled in from the catalog, not confirmed by Illinois: ${likely.join(', ')}.`);
+    if (open.length) parts.push(`Lines counted as hours only, with an Illinois course still to settle: ${open.join('; ')}.`);
+  }
+  if (prior.unmatchedCredits > 0) parts.push(`${prior.unmatchedCredits} hours count toward the total with no course code.`);
+  if (residency) {
+    parts.push(
+      residency.ok
+        ? `Residency (45 hours at Illinois, 21 at the 300 level or above) is met: ${residency.heldHours + residency.plannedHours} Illinois hours, ${residency.heldUpper + residency.plannedUpper} upper-level.`
+        : residency.shortfall ?? '',
+    );
+  }
+  return parts.length ? `Credit coming in: ${parts.join(' ')}` : 'Credit coming in: none recorded.';
+}
+
+let liteCache: { source: Course[]; lite: CatalogLite[] } | null = null;
+/** The catalog in the matcher's shape, built once per catalog. */
+function catalogLiteOf(catalog: Course[]): CatalogLite[] {
+  if (liteCache && liteCache.source === catalog) return liteCache.lite;
+  const lite = catalog.map((c) => ({
+    code: normCode(c.code),
+    title: c.title,
+    credits: c.credits,
+    level: Number(c.code.match(/\b(\d)\d\d[A-Z]?$/)?.[1] ?? 0) * 100,
+    cluster: c.cluster,
+    tags: c.tags,
+  }));
+  liteCache = { source: catalog, lite };
+  return lite;
 }
