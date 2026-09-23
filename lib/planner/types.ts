@@ -44,6 +44,8 @@ export interface Course {
   cluster: CourseCluster;
   requirementIds: string[];
   prerequisites: string[];
+  /** The registrar's original prerequisite sentence, where the source publishes one. */
+  prerequisiteText?: string;
   offeredIn: SemesterSeason[];
   /** False when no section data exists for this course, so offeredIn is a
    *  default rather than an observation. A planner that cannot tell those two

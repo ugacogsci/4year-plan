@@ -118,13 +118,12 @@ export type SchoolId = (typeof SCHOOLS)[number]['id'];
  * The schools this build can actually plan for.
  *
  * SCHOOLS is the roster the product is written towards. This is the part of it
- * with a catalog, a set of degree pages and a schedule behind it today, which
- * is Illinois and nothing else. Offering Texas A&M as a button when choosing it
- * rendered the demo catalog under Texas A&M's name was a planner making things
- * up about a university, and a student who opened it saw an A&M planner that
- * had never read an A&M page.
+ * with a catalog and degree pages behind it today: Illinois and UGA. Offering
+ * the other roster schools before their data exists would render a demo catalog
+ * under a real university's name, which is exactly the kind of false statement
+ * a degree planner cannot make.
  */
-export const READY_SCHOOL_IDS: ReadonlySet<SchoolId> = new Set<SchoolId>(['illinois']);
+export const READY_SCHOOL_IDS: ReadonlySet<SchoolId> = new Set<SchoolId>(['illinois', 'uga']);
 
 export function readySchools(): School[] {
   return SCHOOLS.filter((s) => READY_SCHOOL_IDS.has(s.id));

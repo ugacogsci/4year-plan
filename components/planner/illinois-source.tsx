@@ -310,7 +310,7 @@ const STOP = new Set([
 // Prior credit
 // ---------------------------------------------------------------------------
 
-const CODE_IN_TEXT = /\b([A-Z]{2,4})\s?(\d{3})\b/g;
+const CODE_IN_TEXT = /\b([A-Z]{2,5})\s?(\d{3,4}[A-Z]?)\b/g;
 
 /**
  * What the student walked in with, read out of what they typed.
@@ -554,13 +554,13 @@ export interface DetailState {
  * field would show a course with nothing to say about itself. This fetches the
  * subject shard the first time a course in that subject is opened and never again.
  */
-export function useCourseDetail(code: string | null): DetailState {
+export function useCourseDetail(code: string | null, enabled = true): DetailState {
   const [state, setState] = useState<DetailState>({ code: null, loading: false, detail: null });
   const wanted = useRef<string | null>(null);
 
   useEffect(() => {
     wanted.current = code;
-    if (!code) return;
+    if (!code || !enabled) return;
     void import('@/lib/planner/illinois-load').then(({ loadIllinoisCourseDetail }) =>
       loadIllinoisCourseDetail(code).then((detail) => {
         // A slow shard for a course the student has already clicked away from
@@ -569,7 +569,7 @@ export function useCourseDetail(code: string | null): DetailState {
         setState({ code, loading: false, detail });
       }),
     );
-  }, [code]);
+  }, [code, enabled]);
 
   /**
    * "Loading" is derived from the gap between the code asked for and the code
@@ -577,6 +577,7 @@ export function useCourseDetail(code: string | null): DetailState {
    * show the previous course's description for one frame under the new
    * course's heading, and it is a synchronous setState inside an effect.
    */
+  if (!enabled) return { code, loading: false, detail: null };
   if (state.code !== code) return { code, loading: code !== null, detail: null };
   return state;
 }

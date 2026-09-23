@@ -26,6 +26,7 @@ import type { IllinoisCore } from '@/lib/planner/illinois-load';
 import { toGradeRow } from '@/lib/planner/illinois-load';
 import type { RawSection } from '@/lib/planner/illinois-data';
 import type { Course } from '@/lib/planner/types';
+import type { SchoolId } from '@/lib/planner/onboarding';
 
 const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
 
@@ -147,14 +148,18 @@ function where(section: RawSection): string {
 export function CourseDetail({
   course,
   core,
+  schoolId,
   completed,
 }: {
   course: Course;
   core: IllinoisCore | null;
+  schoolId: SchoolId | null;
   completed: boolean;
 }) {
   const code = normCode(course.code);
-  const { detail, loading } = useCourseDetail(code);
+  const isIllinois = schoolId === 'illinois';
+  const isUga = schoolId === 'uga';
+  const { detail, loading } = useCourseDetail(code, isIllinois);
   const spec = core?.prereqs?.get(code) ?? null;
   const summary = core?.grades?.get(code) ?? null;
   const sections = core?.sections?.get(code) ?? null;
@@ -218,10 +223,10 @@ export function CourseDetail({
       <h4>{course.title}</h4>
 
       {loading && <p className="course-description quiet">Reading the catalog page.</p>}
-      {!loading && detail?.course?.description && (
-        <p className="course-description">{detail.course.description}</p>
+      {!loading && (detail?.course?.description || course.description) && (
+        <p className="course-description">{detail?.course?.description || course.description}</p>
       )}
-      {!loading && detail && !detail.course?.description && (
+      {!loading && isIllinois && detail && !detail.course?.description && (
         <p className="course-description quiet">
           The catalog page has no description for this course.
         </p>
@@ -248,7 +253,11 @@ export function CourseDetail({
 
       <section className="inspector-block">
         <h5>What it needs first</h5>
-        {!core?.prereqs && <p className="quiet">Prerequisites have not loaded.</p>}
+        {isUga && course.prerequisiteText && <p>{course.prerequisiteText}</p>}
+        {isUga && !course.prerequisiteText && (
+          <p className="quiet">The UGA Bulletin lists no prerequisite sentence for this course.</p>
+        )}
+        {isIllinois && !core?.prereqs && <p className="quiet">Prerequisites have not loaded.</p>}
         {/**
           * Said only when the catalog page really is silent.
           *
@@ -259,13 +268,13 @@ export function CourseDetail({
           * because three Illinois pages put an enrolment restriction there and
           * nowhere else.
           */}
-        {core?.prereqs && !spec && (
+        {isIllinois && core?.prereqs && !spec && (
           <p className="quiet">
             The catalog page for this course lists nothing that has to come first. Read the
             description above as well, in case it names one.
           </p>
         )}
-        {spec && (
+        {isIllinois && spec && (
           <>
             {/* The catalog's own sentence. For the 51 courses whose page says
                 the prerequisites are published elsewhere, this IS that
@@ -301,7 +310,9 @@ export function CourseDetail({
 
       <section className="inspector-block">
         <h5>How it has gone</h5>
-        {grade.kind === 'none' ? (
+        {isUga ? (
+          <p className="quiet">Grade and instructor history is not loaded for UGA in this prototype.</p>
+        ) : grade.kind === 'none' ? (
           /* Still the honest line where there is no row anywhere, and it waits
              for the shard: a course whose numbers are filed under its other
              code has none of them until the catalog row naming that code has
@@ -353,13 +364,25 @@ export function CourseDetail({
 
       <section className="inspector-block">
         <h5>Where and when</h5>
-        {!core?.sections && <p className="quiet">The schedule has not loaded.</p>}
-        {core?.sections && !sections && (
+        {isUga && (
+          <>
+            <p>
+              {course.offeringKnown
+                ? `Catalog pattern: ${course.offeredIn.join(' and ')}.`
+                : 'A specific offering pattern was not verified in this snapshot.'}
+            </p>
+            <p className="quiet">
+              Live sections, meeting times, rooms, instructors, and open seats are not loaded for UGA yet.
+            </p>
+          </>
+        )}
+        {isIllinois && !core?.sections && <p className="quiet">The schedule has not loaded.</p>}
+        {isIllinois && core?.sections && !sections && (
           <p className="quiet">
             {term ? `No ${term.label} section has been read for this course.` : 'No sections read.'}
           </p>
         )}
-        {sections && (
+        {isIllinois && sections && (
           <>
             <p>
               {sections.total} {plural(sections.total, 'section')} in {sections.termLabel}.

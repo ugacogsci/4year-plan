@@ -54,6 +54,12 @@ import {
   type LoadedProgram,
 } from './illinois-source';
 import {
+  guessUgaProgram,
+  loadUgaProgram,
+  useUgaData,
+  type UgaLoadedProgram,
+} from './uga-source';
+import {
   electiveOptions,
   describeCreditProgress,
   describeCreditTotal,
@@ -207,7 +213,12 @@ export function PlannerWorkspace({
 }) {
   const school = schoolById(answers?.schoolId ?? null);
   const isIllinois = school?.id === 'illinois';
-  const { status, core, coverage } = useIllinoisCore(Boolean(isIllinois));
+  const isUga = school?.id === 'uga';
+  const isCatalogSchool = isIllinois || isUga;
+  const { status: illinoisStatus, core, coverage: illinoisCoverage } = useIllinoisCore(Boolean(isIllinois));
+  const { status: ugaStatus, data: uga, coverage: ugaCoverage } = useUgaData(Boolean(isUga));
+  const status = isIllinois ? illinoisStatus : isUga ? ugaStatus : 'unavailable';
+  const coverage = isIllinois ? illinoisCoverage : isUga ? ugaCoverage : '';
   /**
    * The AP and IB credit the registrar grants, so the plan starts where the
    * student starts. Naming the exams in onboarding and then planning as if they
@@ -226,7 +237,10 @@ export function PlannerWorkspace({
    * degree's requirements to the board, and so that "still loading" is a
    * comparison rather than a second piece of state set inside an effect.
    */
-  const [fetched, setFetched] = useState<{ id: string; value: LoadedProgram | null } | null>(null);
+  const [fetched, setFetched] = useState<{
+    id: string;
+    value: LoadedProgram | UgaLoadedProgram | null;
+  } | null>(null);
   const [planNotes, setPlanNotes] = useState<string[]>([]);
   const [report, setReport] = useState<PlanReport | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
@@ -300,8 +314,8 @@ export function PlannerWorkspace({
   // ---- catalog -------------------------------------------------------------
 
   const catalog: Course[] = useMemo(
-    () => (isIllinois ? (core?.index ?? []) : sampleCourses),
-    [isIllinois, core],
+    () => (isIllinois ? (core?.index ?? []) : isUga ? (uga?.courses ?? []) : sampleCourses),
+    [isIllinois, isUga, core, uga],
   );
   const courseIndex = useMemo(() => indexCourses(catalog), [catalog]);
   const byCode = useMemo(() => {
@@ -311,12 +325,15 @@ export function PlannerWorkspace({
   }, [catalog]);
 
   const programOptions = useMemo(() => {
-    if (!isIllinois) return samplePrograms.map((p) => ({ id: p.id, name: `${p.name}, ${p.degree}` }));
-    return (core?.programs ?? [])
-      .filter(plannableProgram)
-      .map((p) => ({ id: p.id, name: p.name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [isIllinois, core]);
+    if (isIllinois) {
+      return (core?.programs ?? [])
+        .filter(plannableProgram)
+        .map((p) => ({ id: p.id, name: p.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    if (isUga) return (uga?.programs ?? []).map((program) => ({ id: program.id, name: program.name }));
+    return samplePrograms.map((p) => ({ id: p.id, name: `${p.name}, ${p.degree}` }));
+  }, [isIllinois, isUga, core, uga]);
 
   // ---- restore -------------------------------------------------------------
 
@@ -348,9 +365,12 @@ export function PlannerWorkspace({
   // ---- pick a degree -------------------------------------------------------
 
   useEffect(() => {
-    if (!isIllinois || !core || programId) return;
-    const plannable = (core.programs ?? []).filter(plannableProgram);
-    const guess = guessProgram(answers?.studying ?? '', plannable);
+    if (programId) return;
+    const guess = isIllinois && core
+      ? guessProgram(answers?.studying ?? '', (core.programs ?? []).filter(plannableProgram))
+      : isUga && uga
+        ? guessUgaProgram(answers?.studying ?? '', uga.programs)
+        : null;
     if (guess) {
       /**
        * A guess, not a derivation. The student can change it in the rail and
@@ -361,11 +381,22 @@ export function PlannerWorkspace({
       setProgramId(guess.id);
       setStatus(`Planning ${guess.name}`);
     }
-  }, [isIllinois, core, programId, answers]);
+  }, [isIllinois, isUga, core, uga, programId, answers]);
 
   useEffect(() => {
-    if (!isIllinois || !core || !programId) return;
-    const summary = (core.programs ?? []).find((p) => p.id === programId);
+    if (!programId) return;
+    if (isUga && uga) {
+      const program = uga.programs.find((candidate) => candidate.id === programId);
+      if (program) {
+        // The UGA degree file is already in memory, so there is no asynchronous
+        // page fetch to subscribe to as there is for an Illinois shard.
+        // oxlint-disable-next-line react/react-compiler
+        setFetched({ id: programId, value: loadUgaProgram(uga, program) });
+      }
+      return;
+    }
+    if (!isIllinois || !core) return;
+    const summary = (core.programs ?? []).find((candidate) => candidate.id === programId);
     if (!summary) return;
     let cancelled = false;
     void loadProgram(core, summary).then((result) => {
@@ -377,22 +408,23 @@ export function PlannerWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [isIllinois, core, programId]);
+  }, [isIllinois, isUga, core, uga, programId]);
 
   const loaded = fetched?.id === programId ? fetched.value : null;
-  const programBusy = Boolean(isIllinois && programId) && fetched?.id !== programId;
+  const programBusy = Boolean(isCatalogSchool && programId) && fetched?.id !== programId;
 
   // ---- the planning context -------------------------------------------------
 
   const context: PlanningContext | null = useMemo(() => {
-    if (!isIllinois || !core) return null;
-    return buildContext(core, loaded?.blocks ?? [], null).context;
-  }, [isIllinois, core, loaded]);
+    if (isIllinois && core) return buildContext(core, loaded?.blocks ?? [], null).context;
+    if (isUga && uga) return uga.context;
+    return null;
+  }, [isIllinois, isUga, core, uga, loaded]);
 
   // ---- the plan -------------------------------------------------------------
 
   const buildPlan = useCallback(() => {
-    if (!isIllinois) {
+    if (!isCatalogSchool) {
       const sample = createSamplePlan();
       setPlan(sample);
       setPlanNotes([]);
@@ -403,7 +435,7 @@ export function PlannerWorkspace({
       setProgramId((current) => current ?? sample.programId);
       return;
     }
-    if (!core || !context || !loaded) return;
+    if (!context || !loaded) return;
 
     const prior = readPriorCredit(
       answers?.transferText ?? '',
@@ -419,7 +451,7 @@ export function PlannerWorkspace({
       Boolean(answers?.transcript),
       examElectiveHours(answers?.exams ?? [], examCredit.entries),
     );
-    const term = core.meta?.term;
+    const term = core?.meta?.term;
     const horizon = readHorizon(answers?.timeline ?? '', {
       season: 'Fall',
       year: term?.year ?? new Date().getFullYear(),
@@ -463,7 +495,7 @@ export function PlannerWorkspace({
         ? 'Plan built. Open the review list to see what it could not do.'
         : 'Plan built. Nothing to review.',
     );
-  }, [isIllinois, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests]);
+  }, [isCatalogSchool, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests]);
 
   useEffect(() => {
     if (plan) return;
@@ -476,8 +508,8 @@ export function PlannerWorkspace({
       setStatus('Your saved plan, restored from this device.');
       return;
     }
-    if (!isIllinois || (core && context && loaded)) buildPlan();
-  }, [plan, isIllinois, core, context, loaded, buildPlan]);
+    if (!isCatalogSchool || (context && loaded)) buildPlan();
+  }, [plan, isCatalogSchool, context, loaded, buildPlan]);
 
   // ---- derived --------------------------------------------------------------
 
@@ -585,12 +617,16 @@ export function PlannerWorkspace({
 
   const issues = useMemo(() => {
     if (!plan) return [];
-    const rows =
-      isIllinois && context
-        ? [...unmet, ...validatePlan(plan, context, { minimumTermCredits })]
-        : getPlanIssues(plan, catalog, { minimumTermCredits });
+    const validation = context
+      ? validatePlan(plan, context, { minimumTermCredits }).filter(
+          (issue) => !isUga || !issue.id.startsWith('ap-weighed-'),
+        )
+      : [];
+    const rows = context
+      ? [...unmet, ...validation]
+      : getPlanIssues(plan, catalog, { minimumTermCredits });
     return rows.map((issue) => ({ ...issue, message: withCourseCodes(issue.message) }));
-  }, [plan, isIllinois, context, unmet, minimumTermCredits, catalog]);
+  }, [plan, context, isUga, unmet, minimumTermCredits, catalog]);
 
   /** The degree on screen, from whichever source this school has. */
   const activeProgramName =
@@ -603,7 +639,7 @@ export function PlannerWorkspace({
   /** Credits for one term, as a range whenever anything in it is variable. */
   const termCredits = useCallback(
     (courseIds: string[]): { label: string; heavy: boolean } => {
-      if (isIllinois && context) {
+      if (context) {
         const codes = courseIds
           .map((id) => courseIndex.get(id)?.code)
           .filter((c): c is string => Boolean(c));
@@ -616,7 +652,7 @@ export function PlannerWorkspace({
       const credits = getTermCredits(courseIds, courseIndex);
       return { label: `${credits} cr`, heavy: credits > 18 };
     },
-    [isIllinois, context, courseIndex],
+    [context, courseIndex],
   );
 
   /**
@@ -661,11 +697,11 @@ export function PlannerWorkspace({
   /** The short form, for the board bar and the rail's big number. */
   const totalCredits = useMemo(() => {
     if (!plan) return '0 cr';
-    if (isIllinois && context) {
+    if (context) {
       return describeCreditTotal(credits.total).replace(/ credits?$/, ' cr');
     }
     return `${getPlanCredits(plan, catalog).total} cr`;
-  }, [plan, isIllinois, context, credits, catalog]);
+  }, [plan, context, credits, catalog]);
 
   /**
    * The long form, shown only when the two halves differ.
@@ -675,7 +711,7 @@ export function PlannerWorkspace({
    * noise.
    */
   const creditNote =
-    isIllinois && context && credits.prior > 0
+    context && credits.prior > 0
       ? describeCreditProgress(credits, activeProgramTotal)
       : null;
 
@@ -688,8 +724,8 @@ export function PlannerWorkspace({
         if (course) have.add(normCode(course.code));
       }
     }
-    return areaProgress(loaded.program, have, core?.equivalents ?? undefined);
-  }, [loaded, plan, completedCodes, courseIndex, core]);
+    return areaProgress(loaded.program, have, isIllinois ? (core?.equivalents ?? undefined) : undefined);
+  }, [loaded, plan, completedCodes, courseIndex, isIllinois, core]);
 
   /**
    * Which pool each planned course is filling, and what that pool still wants.
@@ -1462,38 +1498,42 @@ export function PlannerWorkspace({
 
   // ---- render ---------------------------------------------------------------
 
-  if (isIllinois && status === 'loading') {
+  if (isCatalogSchool && status === 'loading') {
     return (
       <main className="planner-loading">
         <div>
-          <h1>Reading the Illinois catalog</h1>
-          <p>Courses, requirements, prerequisites, grade history and Fall 2026 sections.</p>
-        </div>
-      </main>
-    );
-  }
-
-  if (isIllinois && status === 'unavailable') {
-    return (
-      <main className="planner-loading">
-        <div>
-          <h1>Illinois data is not loaded</h1>
+          <h1>Reading the {school?.short} catalog</h1>
           <p>
-            The build step has not run, or its output is not deployed. Run npm run
-            build:illinois and reload. Nothing here will guess at a course list.
+            {isIllinois
+              ? 'Courses, requirements, prerequisites, grade history and Fall 2026 sections.'
+              : 'Courses, degree requirements, prerequisites, offering patterns and exam credit.'}
           </p>
         </div>
       </main>
     );
   }
 
-  if (isIllinois && !programId) {
+  if (isCatalogSchool && status === 'unavailable') {
+    return (
+      <main className="planner-loading">
+        <div>
+          <h1>{school?.short} data is not loaded</h1>
+          <p>
+            The catalog or degree data is missing from this build. Reload after the data files are
+            restored; nothing here will guess at a course list.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (isCatalogSchool && !programId) {
     return (
       <main className="planner-loading">
         <div>
           <h1>Which degree are you planning?</h1>
           <p>
-            Your answers did not point clearly at one of the {programOptions.length} Illinois
+            Your answers did not point clearly at one of the {programOptions.length} {school?.short}
             degrees with published course lists, so pick it rather than have one picked wrong.
           </p>
           <select
@@ -1524,6 +1564,12 @@ export function PlannerWorkspace({
     ...(activeProgramTotal && plan ? overTotal(totalCredits, activeProgramTotal) : []),
     ...planNotes,
     ...(core?.meta?.notes ?? []).map(studentWording),
+    ...(isUga
+      ? [
+          'UGA requirements and prerequisite sentences were mechanically parsed from the Bulletin. Confirm the finished plan in DegreeWorks with an advisor.',
+          'UGA offering terms are catalog patterns, not live section availability. Grade history, instructors, meeting times, rooms, and open seats are not loaded in this prototype.',
+        ]
+      : []),
     'Prerequisites are parsed from catalog sentences. Anything about placement or consent is not checked here.',
   ];
 
@@ -1549,7 +1595,7 @@ export function PlannerWorkspace({
             <small>from the Semantic Course Map</small>
           </span>
         </a>
-        <p className="header-coverage">{isIllinois ? coverage : 'Demo catalog'}</p>
+        <p className="header-coverage">{isCatalogSchool ? coverage : 'Demo catalog'}</p>
         <div className="header-actions">
           {narrow && (
             <Button
@@ -1657,14 +1703,16 @@ export function PlannerWorkspace({
             )}
           </div>
 
-          <BotLauncher
-            botName={botName}
-            open={chatOpen}
-            onToggle={() => {
-              if (!chatOpen) setFinderOpen(false);
-              setChatOpen((current) => !current);
-            }}
-          />
+          {isIllinois && (
+            <BotLauncher
+              botName={botName}
+              open={chatOpen}
+              onToggle={() => {
+                if (!chatOpen) setFinderOpen(false);
+                setChatOpen((current) => !current);
+              }}
+            />
+          )}
 
           <Popover>
             <PopoverTrigger
@@ -1788,6 +1836,7 @@ export function PlannerWorkspace({
         courses={mapCourses}
         catalogSize={catalog.length}
         core={core}
+        schoolId={school?.id ?? null}
         terms={plan?.terms ?? []}
         plannedCourseIds={plannedCourseIds}
         completedCodes={completedCodes}
@@ -1815,24 +1864,26 @@ export function PlannerWorkspace({
         * rebuilt from the new board, and an answer still in flight from the old
         * degree resolves into an unmounted component and is dropped.
         */}
-      <BotPanel
-        key={programId ?? 'no-degree'}
-        botName={botName}
-        schoolShort={school?.short ?? 'your school'}
-        programId={programId}
-        board={describeBoard}
-        execute={advisorExecute}
-        open={chatOpen}
-        onClose={() => setChatOpen(false)}
-        openers={[
-          'How do I drop a class?',
-          'When is tuition due?',
-          'Where do I find my academic advisor?',
-          'I really like history. Can you work some in?',
-          'Which term is hardest?',
-        ]}
-        ready={Boolean(plan && context && loaded)}
-      />
+      {isIllinois && (
+        <BotPanel
+          key={programId ?? 'no-degree'}
+          botName={botName}
+          schoolShort={school?.short ?? 'your school'}
+          programId={programId}
+          board={describeBoard}
+          execute={advisorExecute}
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          openers={[
+            'How do I drop a class?',
+            'When is tuition due?',
+            'Where do I find my academic advisor?',
+            'I really like history. Can you work some in?',
+            'Which term is hardest?',
+          ]}
+          ready={Boolean(plan && context && loaded)}
+        />
+      )}
     </main>
   );
 }

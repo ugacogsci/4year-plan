@@ -10,6 +10,7 @@ import { clusterColor } from './cluster-color';
 import { CourseDetail } from './course-detail';
 import { subjectMatches } from '@/lib/planner/illinois-subjects';
 import type { IllinoisCore } from '@/lib/planner/illinois-load';
+import type { SchoolId } from '@/lib/planner/onboarding';
 import type { Course, MapPosition, PlanTerm } from '@/lib/planner/types';
 
 interface CourseExplorerProps {
@@ -18,6 +19,7 @@ interface CourseExplorerProps {
   /** Everything in the catalog, so the count can say what it is showing. */
   catalogSize: number;
   core: IllinoisCore | null;
+  schoolId: SchoolId | null;
   terms: PlanTerm[];
   plannedCourseIds: Set<string>;
   completedCodes: Set<string>;
@@ -71,6 +73,7 @@ export function CourseExplorer({
   courses,
   catalogSize,
   core,
+  schoolId,
   terms,
   plannedCourseIds,
   completedCodes,
@@ -516,6 +519,7 @@ export function CourseExplorer({
             <CourseDetail
               course={selected}
               core={core}
+              schoolId={schoolId}
               completed={completedCodes.has(selected.code.toUpperCase())}
             />
             <div className="inspector-add">

@@ -95,7 +95,7 @@ export function useExamCredit(school: School | undefined): ExamCreditTable {
  * are not lost: applyExamCredit counts them separately and the onboarding step
  * shows the total.
  */
-const COURSE_CODE = /^[A-Z]{2,5} \d{3}$/;
+const COURSE_CODE = /^[A-Z]{2,5} \d{3,4}[A-Z]?$/;
 
 export function examCourses(exams: PriorExam[], table: ExamCreditEntry[]): string[] {
   if (exams.length === 0 || table.length === 0) return [];
