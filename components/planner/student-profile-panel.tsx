@@ -40,6 +40,17 @@ export interface AreaRow {
   earned: number;
   percent: number;
   satisfied: boolean;
+  /**
+   * Present on rows built per requirement rather than per page area: the size
+   * the catalog published for the row, in the unit it published it in. A
+   * category sized in courses stays in courses; nothing here converts.
+   */
+  needed?: number | null;
+  unit?: 'hr' | 'course' | 'semester';
+  /** What the count is made of, for the row's tooltip. */
+  note?: string;
+  /** The codes counted, so a caller can add the rail up. */
+  codes?: string[];
 }
 
 interface RailProps {
@@ -167,15 +178,15 @@ export function StudentProfilePanel({
       {areas.length > 0 && (
         <div className="requirement-list">
           {named.map(({ row, key, heading }) => (
-            <div className="requirement-row" key={key}>
+            <div className={`requirement-row${row.satisfied ? ' is-met' : ''}`} key={key}>
               <div>
-                <span title={heading ?? undefined}>{heading}</span>
+                <span title={row.note ? `${heading}. ${row.note}` : (heading ?? undefined)}>{heading}</span>
                 {/* No bar without a target. An area whose hours the degree page
                     does not publish has nothing to be a fraction of, and a bar
                     stuck at zero next to 73 earned hours reads as no progress. */}
-                <span>{row.area.hours ? `${row.earned}/${row.area.hours}` : `${row.earned} hr`}</span>
+                <span>{figureOf(row)}</span>
               </div>
-              {row.area.hours > 0 && <Bar percent={row.percent} />}
+              {targetOf(row) > 0 && <Bar percent={row.percent} />}
             </div>
           ))}
           {/* The heading slot says the page has no heading here. It is not a
@@ -391,6 +402,31 @@ export function StudentProfilePanel({
 function headingOf(area: RequirementArea): string | null {
   const label = String(area.label ?? '').trim();
   return label.length > 0 ? label : null;
+}
+
+/** The size a row is measured against: its own published number, else the page area's hours. */
+function targetOf(row: AreaRow): number {
+  if (row.needed !== undefined) return row.needed ?? 0;
+  return row.area.hours;
+}
+
+/**
+ * "4/4", "1/1 course", "2/3 semesters", or "12 hr" when the page gave no size.
+ *
+ * The unit is written out only where it is not hours, because hours are what
+ * every other number on this rail is in and "6/6 hr" nine times down a column
+ * is noise. A count of courses or semesters has to say so, or "1/1" under
+ * "Cultural Studies" reads as one hour.
+ */
+function figureOf(row: AreaRow): string {
+  const unit = row.unit ?? 'hr';
+  const target = targetOf(row);
+  if (!target) {
+    if (unit === 'hr') return `${row.earned} hr`;
+    return `${row.earned} ${unit}${row.earned === 1 ? '' : 's'}`;
+  }
+  if (unit === 'hr') return `${row.earned}/${target}`;
+  return `${row.earned}/${target} ${unit}${target === 1 ? '' : 's'}`;
 }
 
 /** "121" or "118 to 126" against the degree total, for the bar only. */

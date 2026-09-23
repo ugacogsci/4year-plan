@@ -47,6 +47,28 @@ planner already had. No outside rating site is used, and the wording never
 calls an instructor good or bad: it says whether they are on the list, and
 for which terms.
 
+### What the rail measures
+
+The rail draws one bar per requirement the degree page prints, counted off the
+board as it is now. For Illinois that is `components/planner/illinois-progress.ts`:
+one row per general education category, per required-course list, per "take N
+from this list" pool, per hours block and for the language sequence, each in
+the unit the page sized it in (hours, courses or semesters; nothing converts
+between them). A course counts once for the major and once per gen-ed
+exclusive group, which is the campus rule. Hours past a row's own target are
+spare, and a block whose words are "so that there are at least 128 credit
+hours" is met when the board reaches 128. Georgia's Bulletin prints an hour
+total on every area, so its rows stay one per area (`areaProgress`).
+
+Blocks that name hours and no courses are read for what the page does say:
+"Advanced Electives ... the 400-level coursework offered for letter grade in
+ANY area" carries a level floor, "Exceptions to the list are: ASTR 100, PHYS
+101 and PHYS 102, and CHEM 101" a list of exclusions, and "one course from the
+Natural Science & Technology (NST) list" the category itself. The adapter
+reads each once into the rule (`minLevel`, `exclude`, `genEd`); the fill takes
+the best course at or above the floor while those hours are open, and the
+rail counts with the same fields.
+
 ### Which terms a course actually runs in
 
 Illinois publishes no "offered in" line, so the planner used to assume every

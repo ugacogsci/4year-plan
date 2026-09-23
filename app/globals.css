@@ -371,6 +371,13 @@ button:disabled {
   background: #7fb4dd;
 }
 
+/* A row the board already covers. The same bar in the green the board uses
+   for a met requirement, so the eye can count the rows still open without
+   reading eleven fractions. */
+.requirement-row.is-met .rail-bar > i {
+  background: #79c99e;
+}
+
 .rail-progress-head {
   display: flex;
   min-width: 0;

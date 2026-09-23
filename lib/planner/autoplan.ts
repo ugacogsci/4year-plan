@@ -92,7 +92,16 @@ export type PlanRule =
       constraints: PlanPoolConstraint[];
       label: string;
     }
-  | { kind: 'hours'; hours: number; genEd: string[] | null; label: string }
+  | {
+      kind: 'hours';
+      hours: number;
+      genEd: string[] | null;
+      label: string;
+      /** The lowest course level the page's words allow for these hours, or null. Read by the fill. */
+      minLevel?: number | null;
+      /** Codes the page rules out of this block. */
+      exclude?: string[];
+    }
   /**
    * One general education category, sized in hours or in courses or both.
    *
@@ -1385,9 +1394,13 @@ function slotsFor(requirement: PlanRequirement, ctx: PlanningContext): PlanSlot[
     // category cannot be filled and is reported, not guessed at.
     if (!rule.genEd || rule.genEd.length === 0) return [];
     const wanted = new Set(rule.genEd);
+    // "Exceptions to the list are: ASTR 100, PHYS 101 and PHYS 102, and CHEM
+    // 101": the page's own words about which tagged courses do not count.
+    const banned = new Set((rule.exclude ?? []).map(normaliseCode));
     const eligible = ctx.courses
       .filter((course) => course.tags.some((tag) => wanted.has(tag)))
       .map((course) => normaliseCode(course.code))
+      .filter((code) => !banned.has(code))
       .sort();
     return [{
       ...base,
@@ -2475,13 +2488,21 @@ function expandLanguageRequirement(input: AutoplanInput): { requirements: PlanRe
     return top;
   };
   let chosen = null as null | (typeof table.languages)[number];
-  let from: LanguagePlan['from'] = 'none';
+  /**
+   * Where the semesters the student brings come from, whichever language is
+   * chosen. This used to be set only when the student named a language, so a
+   * plan that fell back to Spanish said its two assumed semesters were
+   * "already held", which is a claim about the student's record that nobody
+   * made.
+   */
+  const brought: LanguagePlan['from'] = assumed ? 'assumed' : broughtSemesters > 0 ? 'high school' : 'none';
+  let from: LanguagePlan['from'] = brought;
   let why = '';
   const named = (input.prior.languageName ?? '').trim();
   if (named) {
     const byName = table.languages.find((l) => l.name.toLowerCase() === named.toLowerCase())
       ?? table.languages.find((l) => LANGUAGE_WORDS.some(([re, name]) => re.test(named) && name === l.name));
-    if (byName) { chosen = byName; from = assumed ? 'assumed' : broughtSemesters > 0 ? 'high school' : 'none'; why = `You said ${byName.name}.`; }
+    if (byName) { chosen = byName; from = brought; why = `You said ${byName.name}.`; }
   }
   if (!chosen) {
     const continuing = table.languages.map((l) => ({ l, top: levelHeld(l.levels) })).filter((x) => x.top > 0).sort((a, b) => b.top - a.top)[0];
@@ -2491,11 +2512,11 @@ function expandLanguageRequirement(input: AutoplanInput): { requirements: PlanRe
     const words = input.interests ?? '';
     const hit = LANGUAGE_WORDS.find(([re]) => re.test(words));
     const byWords = hit ? table.languages.find((l) => l.name === hit[1]) : null;
-    if (byWords) { chosen = byWords; from = 'none'; why = `You mentioned ${byWords.name}.`; }
+    if (byWords) { chosen = byWords; from = brought; why = `You mentioned ${byWords.name}.`; }
   }
   if (!chosen) {
     chosen = table.languages.find((l) => l.name === 'Spanish') ?? table.languages[0];
-    from = 'none';
+    from = brought;
     why = 'No language was given, so Spanish is planned, the most-taught language on campus. Tap any language card to choose another.';
   }
   const levels = cleanLevels(chosen.levels);
@@ -4439,6 +4460,41 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const perSubject = new Map<string, number>();
     const candidates = rankedElectivePool(ctx, scoring, (code) => plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0);
     let total = priorCreditTotal + [...placed.values()].flat().reduce((sum, code) => sum + creditsOf(code), 0);
+    /**
+     * Hours the page wants at a level it names, by floor.
+     *
+     * "Advanced Electives: a minimum of two advanced elective courses ... from
+     * the 400-level coursework offered for letter grade in ANY area" is six
+     * hours of a Computer Science degree that name no course, and the fill
+     * treated them as any other hours: CS 101 and CS 102 went in. The fill
+     * still books the same number of hours; while a floor is unmet it takes
+     * the best course at or above it, and only when no such course fits the
+     * term does it fall back to the best course of any level. The level
+     * guard keeps a 400-level course out of a first term either way, so the
+     * floor is met in the terms where a student could actually register.
+     */
+    const levelLeft = new Map<number, number>();
+    for (const requirement of input.requirements) {
+      const rule = requirement.rule;
+      if (rule.kind !== 'hours' || (rule.genEd && rule.genEd.length > 0) || !rule.minLevel) continue;
+      levelLeft.set(rule.minLevel, (levelLeft.get(rule.minLevel) ?? 0) + rule.hours);
+    }
+    const floorWanted = (): number | null => {
+      let best: number | null = null;
+      for (const [floor, left] of levelLeft) if (left > 0 && (best === null || floor > best)) best = floor;
+      return best;
+    };
+    const spendLevel = (code: string): string | null => {
+      const floor = floorWanted();
+      if (floor === null || courseLevel(code) < floor) return null;
+      levelLeft.set(floor, (levelLeft.get(floor) ?? 0) - creditsOf(code));
+      return `Toward the ${floor}-level hours the degree page asks for.`;
+    };
+    const pickFrom = (fits: (code: string) => boolean): string | undefined => {
+      const floor = floorWanted();
+      const atLevel = floor !== null ? candidates.find((code) => courseLevel(code) >= floor && fits(code)) : undefined;
+      return atLevel ?? candidates.find(fits);
+    };
 
     for (const ceiling of [overallAim, credits.max]) {
       let progress = true;
@@ -4467,7 +4523,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           for (const code of here) for (const equiv of expandEquivalents(code, equivalents)) sameTerm.add(equiv);
           const hardHere = here.filter(isHard).length;
           const isLast = term.index === terms.length - 1;
-          const pick = candidates.find((code) => {
+          const pick = pickFrom((code) => {
             if (plannedAll.has(code)) return false;
             const course = byCode.get(code);
             if (!course) return false;
@@ -4487,7 +4543,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           total += creditsOf(pick);
           const subject = byCode.get(pick)?.cluster ?? '';
           perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
-          electives.push({ code: pick, why: electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick)), reasons: scoring.quality(pick).reasons });
+          const levelWhy = spendLevel(pick);
+          electives.push({ code: pick, why: `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons });
           progress = true;
         }
       }
@@ -4523,7 +4580,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         for (const code of here) for (const equiv of expandEquivalents(code, equivalents)) sameTerm.add(equiv);
         const hardHere = here.filter(isHard).length;
         const isLast = term.index === terms.length - 1;
-        const pick = candidates.find((code) => {
+        const pick = pickFrom((code) => {
           if (plannedAll.has(code)) return false;
           const course = byCode.get(code);
           if (!course) return false;
@@ -4543,7 +4600,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         total += creditsOf(pick);
         const subject = byCode.get(pick)?.cluster ?? '';
         perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
-        electives.push({ code: pick, why: electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick)), reasons: scoring.quality(pick).reasons });
+        const levelWhy = spendLevel(pick);
+        electives.push({ code: pick, why: `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons });
         topped = true;
       }
     }

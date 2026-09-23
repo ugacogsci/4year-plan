@@ -544,7 +544,21 @@ export type RequirementRule =
       from: 'group' | 'area';
       label: string;
     }
-  | { kind: 'hours'; hours: number; genEd: string[] | null; label: string }
+  | {
+      kind: 'hours';
+      hours: number;
+      genEd: string[] | null;
+      label: string;
+      /**
+       * The lowest course level the page's own words allow, or null when they
+       * state none. "Advanced Electives ... the 400-level coursework offered
+       * for letter grade in ANY area" is six hours that a 100-level course
+       * cannot fill, and without this the plan filled them with one.
+       */
+      minLevel?: number | null;
+      /** Codes the page rules out: "Exceptions to the list are: ASTR 100, PHYS 101 and PHYS 102, and CHEM 101." */
+      exclude?: string[];
+    }
   /**
    * One campus general education category, as the degree page states it.
    *
@@ -2020,6 +2034,91 @@ export function genEdForLabel(label: string): string[] | null {
 }
 
 /**
+ * The category a block's comment names when its label does not.
+ *
+ * Computer Science prints "One Science elective course" and says underneath
+ * that it must come "from the Natural Science & Technology (NST) list";
+ * Landscape Architecture prints "Physical Science" over "Any Natural Science &
+ * Technology: Physical Sciences general education course". The label maps to
+ * nothing and the comment says exactly which courses count. Read for the
+ * three categories the catalog tags courses with and never for Cultural
+ * Studies, which is also the name of a major's own area on two pages. A
+ * comment naming two categories is left alone: it is describing a table, not
+ * this row.
+ */
+export function genEdInNote(note: string): string[] | null {
+  const text = note.replace(/\s+/g, ' ');
+  const hits: string[][] = [];
+  const nst = text.match(/natural sciences? (?:&|and) technology(?::\s*(physical|life) sciences?)?/i);
+  if (nst) {
+    hits.push(
+      nst[1]
+        ? [nst[1].toLowerCase() === 'physical' ? 'Nat Sci & Tech - Phys Sciences' : 'Nat Sci & Tech - Life Sciences']
+        : GENED_MAP['natural sciences & technology'],
+    );
+  }
+  if (/humanities (?:&|and) the arts/i.test(text)) hits.push(GENED_MAP['humanities & the arts']);
+  if (/social (?:&|and) behavioral sciences?/i.test(text)) hits.push(GENED_MAP['social & behavioral sciences']);
+  if (/quantitative reasoning/i.test(text)) hits.push(GENED_MAP['quantitative reasoning']);
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/**
+ * The lowest level the page's words allow for a block that names no courses.
+ *
+ * The label first: "Additional 300-/400- upper division courses" is a floor of
+ * 300, "6 courses at the 200-400 level" one of 200. A label that only says
+ * "Advanced" is read with its comment, which is where Computer Science says
+ * "the 400-level coursework offered for letter grade in ANY area"; "advanced"
+ * with nothing more specific is 300, the level Illinois numbers its
+ * upper-division courses from. A comment is read the way levelRuleIn reads
+ * one: an aside in parentheses is stripped, and a sentence that caps what
+ * counts ("will not receive credit for any other 100-level ASTR course") is
+ * not a sentence about what is required.
+ */
+export function levelFloorIn(label: string, note: string): number | null {
+  const fromLabel = lowestLevelIn(label);
+  if (fromLabel !== null) return fromLabel;
+  const fromNote = lowestLevelIn(note);
+  if (/\badvanced\b|\bupper[- ]division\b/i.test(label)) return fromNote ?? 300;
+  return fromNote;
+}
+
+function lowestLevelIn(text: string): number | null {
+  const clean = (text ?? '')
+    .replace(/\s+/g, ' ')
+    .replace(/\(([^()]{13,})\)/g, ' ')
+    .trim();
+  if (!clean) return null;
+  for (const raw of clean.split(/(?<=\.)\s+/)) {
+    if (CAP_SENTENCE.test(raw)) continue;
+    const sentence = raw.replace(/\([^()]{13,}$/, ' ');
+    if (sentence.search(LEVEL_SENTENCE) < 0) continue;
+    const range = sentence.match(/\b([1-4])00\s*-?\s*(?:to|through|-)\s*-?\s*([1-4])00\b/i);
+    if (range) return Number(range[1]) * 100;
+    const levels = [...sentence.matchAll(/\b([1-4])00\b/g)].map((m) => Number(m[1]) * 100);
+    if (levels.length > 0) return Math.min(...levels);
+  }
+  return null;
+}
+
+/**
+ * Codes a comment rules out of a block: "Exceptions to the list are: ASTR
+ * 100, PHYS 101 and PHYS 102, and CHEM 101." Read from the exception phrase
+ * to the end of its sentence, so a code the comment names for another reason
+ * two sentences on is not an exception.
+ */
+export function exceptionsIn(note: string): string[] {
+  const text = (note ?? '').replace(/\s+/g, ' ');
+  const at = text.search(/\b(?:exceptions? (?:to (?:the|this) list )?(?:are|is|:)|except(?:ing)?|excluding|other than|not including)\b/i);
+  if (at < 0) return [];
+  const sentence = text.slice(at).split(/(?<=\.)\s+/)[0];
+  const out = new Set<string>();
+  for (const m of sentence.matchAll(/\b([A-Z]{2,4})\s?(\d{3})\b/g)) out.add(`${m[1]} ${m[2]}`);
+  return [...out];
+}
+
+/**
  * One spelling for a category that Illinois writes several ways.
  *
  * The same requirement is printed as "Humanities & the Arts" on one degree page
@@ -2409,6 +2508,8 @@ const NUMBER_WORDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
 };
 const LEVEL_SENTENCE = /\b[1-4]00\s*-?\s*(?:or|to|and|\/|,)?\s*(?:[1-4]00\s*-?\s*)?level\b/i;
+/** A sentence about what may not count, which is not a sentence about what is required. */
+const CAP_SENTENCE = /\b(?:maximum of|no more than|not more than|at most|up to a maximum|may not exceed|not receive credit|cannot count|will not count)\b/i;
 
 export interface LevelRule {
   n: number | null;
@@ -2434,7 +2535,7 @@ export function levelRuleIn(text: string, fallbackHours: number | null = null): 
   for (const raw of clean.split(/(?<=\.)\s+/)) {
     // A cap is not a requirement: "maximum of 4 credit hours of ASTR 100-level
     // can count" limits what counts, and "will not receive credit" denies it.
-    if (/\b(?:maximum of|no more than|not more than|at most|up to a maximum|may not exceed|not receive credit|cannot count|will not count)\b/i.test(raw)) continue;
+    if (CAP_SENTENCE.test(raw)) continue;
     const sentence = raw.replace(/\([^()]{13,}$/, ' ');
     const levelAt = sentence.search(LEVEL_SENTENCE);
     if (levelAt < 0) continue;
@@ -2941,7 +3042,15 @@ export function requirementRulesForArea(
       // A group with hours and no course rows is a real and common shape, not a
       // parse failure. The gen-ed tables are entirely rows like "Humanities &
       // the Arts (6 hours)" with no courses named.
-      rule = { kind: 'hours', hours: r.ownHours, genEd: genEdForLabel(r.label), label: r.label };
+      const note = r.group.note ?? '';
+      rule = {
+        kind: 'hours',
+        hours: r.ownHours,
+        genEd: genEdForLabel(r.label) ?? genEdInNote(note),
+        label: r.label,
+        minLevel: levelFloorIn(r.label, note),
+        exclude: exceptionsIn(note),
+      };
     } else if (genEd.length > 0) {
       /**
        * The campus general education table, one block per category.

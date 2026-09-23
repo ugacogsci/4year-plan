@@ -42,6 +42,7 @@ import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
 import { groupIssues, PlanHealthList } from './plan-health';
 import { SemesterColumn } from './semester-column';
+import { illinoisProgress } from './illinois-progress';
 import { StudentProfilePanel, type AreaRow } from './student-profile-panel';
 import {
   buildContext,
@@ -207,6 +208,8 @@ interface PlanReport {
   language: LanguagePlan | null;
   /** The college admission route the plan front-loads, or null. */
   admission: GeneratedPlan['admission'];
+  /** Requirements the generation found already met by held credit. */
+  satisfiedByPriorCredit: GeneratedPlan['satisfiedByPriorCredit'];
 }
 
 interface Stored {
@@ -539,6 +542,7 @@ export function PlannerWorkspace({
       electives: generated.electives,
       language: generated.language,
       admission: generated.admission,
+      satisfiedByPriorCredit: generated.satisfiedByPriorCredit,
       firstTermId: generated.plan.terms[0]?.id ?? '',
     });
     setUndoStack([]);
@@ -783,6 +787,26 @@ export function PlannerWorkspace({
 
   const areas: AreaRow[] = useMemo(() => {
     if (!loaded || !plan) return [];
+    /**
+     * Illinois gets one row per requirement block, in the unit the page sized
+     * it in, because its pages print no hour total on their areas and a bar
+     * per area read "28 hr" with nothing to be a fraction of. Georgia's pages
+     * do print one per area, so its rows stay per area.
+     */
+    if (isIllinois) {
+      return illinoisProgress({
+        blocks: loaded.blocks,
+        boardCodes,
+        priorCodes: completedCodes,
+        byCode,
+        pools,
+        language: report?.language ?? null,
+        satisfiedByPriorCredit: report?.satisfiedByPriorCredit ?? [],
+        languages: core?.languages ?? null,
+        equivalents: core?.equivalents ?? undefined,
+        degreeTotal: activeProgramTotal,
+      });
+    }
     const have = new Set<string>(completedCodes);
     for (const term of plan.terms) {
       for (const id of term.courseIds) {
@@ -790,8 +814,8 @@ export function PlannerWorkspace({
         if (course) have.add(normCode(course.code));
       }
     }
-    return areaProgress(loaded.program, have, isIllinois ? (core?.equivalents ?? undefined) : undefined);
-  }, [loaded, plan, completedCodes, courseIndex, isIllinois, core]);
+    return areaProgress(loaded.program, have);
+  }, [loaded, plan, completedCodes, courseIndex, isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal]);
 
   /**
    * Which pool each planned course is filling, and what that pool still wants.
