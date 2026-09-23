@@ -1914,21 +1914,19 @@ p.requirement-unnamed {
 }
 .onb-sub { text-align: center; color: #8496ad; font-size: 15px; line-height: 1.6; margin: 0 auto 30px; max-width: 46ch; }
 
-/* school picker */
-.onb-schools { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.onb-school {
-  --school: #6f8fb8;
-  display: grid; gap: 4px; justify-items: start;
-  padding: 18px 16px;
-  border: 1px solid #202b3a; border-radius: 14px;
-  background: #0b1220; cursor: pointer; text-align: left;
-  transition: border-color .14s, transform .08s, background .14s;
+/* university picker */
+.onb-university-picker { display: grid; gap: 8px; max-width: 460px; margin: 0 auto; }
+.onb-university-picker label { font-size: 13px; font-weight: 650; color: #c9d4e3; }
+.onb-university-picker select {
+  width: 100%; min-height: 48px;
+  border: 1px solid #2a3749; border-radius: 8px;
+  background: #0b1220; color: #edf3fa;
+  padding: 0 42px 0 14px; font: inherit; font-size: 15px;
 }
-.onb-school:hover { border-color: var(--school); background: #0d1626; }
-.onb-school:active { transform: translateY(1px); }
-.onb-school-mark { width: 26px; height: 6px; border-radius: 3px; background: var(--school); margin-bottom: 6px; }
-.onb-school-name { font-size: 15.5px; font-weight: 650; color: #eaf0f8; }
-.onb-school-people { font-size: 12.5px; color: #6d7f96; }
+.onb-university-picker select:focus { outline: 0; border-color: var(--school); box-shadow: 0 0 0 3px color-mix(in srgb, var(--school) 22%, transparent); }
+.onb-university-picker p { margin: 4px 0 0; color: #7588a1; font-size: 12.5px; line-height: 1.55; }
+.onb-university-actions { max-width: 460px; margin-inline: auto; }
+.onb-university-actions > span { flex: 1; }
 
 /* the three questions */
 .onb-questions { display: grid; gap: 20px; }

@@ -7,7 +7,6 @@ import {
   questionsFor,
   readySchools,
   schoolById,
-  SCHOOLS,
   saveAnswers,
   type OnboardingAnswers,
   type SchoolId,
@@ -67,7 +66,6 @@ export function Onboarding({
 
   function pick(id: SchoolId) {
     setAnswers((a) => ({ ...a, schoolId: id }));
-    setStep(1);
   }
 
   function finish() {
@@ -100,26 +98,34 @@ export function Onboarding({
 
         {step === 0 && (
           <section className="onb-step">
-            <h1>Where do you go?</h1>
+            <h1>Choose your university</h1>
             <p className="onb-sub">We answer from your university&rsquo;s own published pages, so this decides everything else.</p>
-            {ready.length < SCHOOLS.length && (
-              <p className="onb-sub">
-                Only {ready.map((s) => s.name).join(' and ')} {ready.length === 1 ? 'has' : 'have'} a catalog loaded in this build.
-              </p>
-            )}
-            <div className="onb-schools">
-              {ready.map((s) => (
-                <button
-                  key={s.id}
-                  className="onb-school"
-                  style={{ ['--school' as string]: s.accent }}
-                  onClick={() => pick(s.id)}
-                >
-                  <span className="onb-school-mark" aria-hidden="true" />
-                  <span className="onb-school-name">{s.short}</span>
-                  <span className="onb-school-people">{s.people}</span>
-                </button>
-              ))}
+            <div className="onb-university-picker">
+              <label htmlFor="university">University</label>
+              <select
+                id="university"
+                value={answers.schoolId ?? ''}
+                onChange={(event) => pick(event.target.value as SchoolId)}
+              >
+                <option value="">Select a university</option>
+                {ready.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name}
+                  </option>
+                ))}
+              </select>
+              {school && (
+                <p>
+                  {school.short} data comes from its published course catalog, degree requirements,
+                  prerequisites, and exam-credit policy.
+                </p>
+              )}
+            </div>
+            <div className="onb-actions onb-university-actions">
+              <span />
+              <button className="onb-next" onClick={() => setStep(1)} disabled={!answers.schoolId}>
+                Continue
+              </button>
             </div>
           </section>
         )}

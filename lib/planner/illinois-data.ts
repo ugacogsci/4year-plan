@@ -13,7 +13,7 @@ import type {
   RequirementGroup,
   RequirementRow,
 } from './scheduler';
-import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
+import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
 
 /**
  * Real Illinois data, adapted into the planner's shapes.
