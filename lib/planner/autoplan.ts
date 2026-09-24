@@ -1,7 +1,7 @@
 import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from './types';
 import { termLoad, type GradeRow } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
-import { interestProfile, type InterestProfile } from './career-tracks';
+import { interestProfile, labPartners, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
 import type { Priorities } from './priorities';
 import { interestWordsFrom, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
 import { DEFAULT_PRIORITIES } from './priorities';
@@ -58,6 +58,12 @@ export interface PlanCourseChoice {
    * course of each. The plan takes one set whole; see `resolveBundles`.
    */
   bundles?: string[][];
+  /**
+   * The set a row settled by `resolveBundles` came from, on each of its
+   * courses: "ECON 102 Microeconomic Principles and Macroeconomic Principles
+   * (6)" is ECON 102 and ECON 103, which the placer keeps in one year.
+   */
+  set?: string[];
 }
 
 /** One named list inside a pool, so a constraint can point at it. */
@@ -1187,6 +1193,144 @@ function exclusionAwareMatcher(
   };
 }
 
+/**
+ * A group the catalog words as "credit in or exemption from X".
+ *
+ * CHEM 102 reads "Credit in or exemption from MATH 112". A student placed into
+ * calculus is exempt from College Algebra, and the plan used to book MATH 112
+ * anyway: a Mechanical Engineering freshman had it in Fall 2026 beside MATH
+ * 221, one more hardest-band course in a first term. Not a prior-learning
+ * group: with no calculus anywhere in the plan, X is still booked.
+ */
+function exemptionGroup(group: PlanPrereqGroup): boolean {
+  return !group.priorLearning && /\bexemption from\b/i.test(group.source);
+}
+
+/** Every course whose parsed prerequisites name a code, by that code. Built once per table. */
+const namedByCache = new WeakMap<object, Map<string, Set<string>>>();
+
+function namedByIndex(prereqs: Map<string, PlanPrereq>): Map<string, Set<string>> {
+  const cached = namedByCache.get(prereqs);
+  if (cached) return cached;
+  const out = new Map<string, Set<string>>();
+  for (const [code, spec] of prereqs) {
+    if (!spec.parsed) continue;
+    for (const group of spec.groups) {
+      for (const raw of group.any) {
+        const named = normaliseCode(raw);
+        const set = out.get(named) ?? new Set<string>();
+        set.add(normaliseCode(code));
+        out.set(named, set);
+      }
+    }
+  }
+  namedByCache.set(prereqs, out);
+  return out;
+}
+
+/**
+ * Courses above `code` in its own sequence: the same subject, reached by
+ * walking the catalog's prerequisites down to it. MATH 234 names MATH 112;
+ * MATH 220 names MATH 115, which names MATH 112; MATH 231 names MATH 220 or
+ * MATH 221. MATH 221's own line is an ALEKS sentence with no course in it, so
+ * a course the catalog will not credit beside one already above (MATH 221
+ * beside MATH 220 and MATH 234) counts as above too, as long as `code` does not
+ * itself lead down to it.
+ */
+const aboveCache = new WeakMap<object, Map<string, Set<string>>>();
+
+function coursesAbove(code: string, prereqs: Map<string, PlanPrereq> | undefined, conflicts: Map<string, Set<string>>): Set<string> {
+  const above = new Set<string>();
+  if (!prereqs) return above;
+  // The placer asks this inside its innermost loop; the answer is fixed per
+  // plan, whose exclusion map is built once.
+  const memo = aboveCache.get(conflicts) ?? new Map<string, Set<string>>();
+  aboveCache.set(conflicts, memo);
+  const known = memo.get(code);
+  if (known) return known;
+  memo.set(code, above);
+  const subject = code.split(' ')[0];
+  const namedBy = namedByIndex(prereqs);
+  const queue = [code];
+  while (queue.length > 0) {
+    const next = queue.shift() as string;
+    for (const higher of namedBy.get(next) ?? []) {
+      if (higher === code || above.has(higher) || higher.split(' ')[0] !== subject) continue;
+      above.add(higher);
+      queue.push(higher);
+    }
+  }
+  const below = new Set<string>();
+  const down = [code];
+  while (down.length > 0) {
+    const next = down.shift() as string;
+    for (const group of prereqs.get(next)?.groups ?? []) {
+      for (const raw of group.any) {
+        const lower = normaliseCode(raw);
+        if (below.has(lower)) continue;
+        below.add(lower);
+        down.push(lower);
+      }
+    }
+  }
+  // A snapshot: the twins found are added to the set being read.
+  const reached = Array.from(above);
+  for (const higher of reached) {
+    for (const twin of conflicts.get(higher) ?? []) {
+      if (twin !== code && !below.has(twin) && twin.split(' ')[0] === subject) above.add(twin);
+    }
+  }
+  return above;
+}
+
+/**
+ * The course above an exemption group's own that the plan books or the student
+ * holds, when the plan books nothing the group names; null otherwise.
+ *
+ * Anywhere in the plan, not only earlier: the exemption is the placement that
+ * lets a student into MATH 221, and that happens before the first term, so
+ * CHEM 102 in a first fall stands on a MATH 221 booked for the spring. When X
+ * itself is booked the ordinary rule applies and X has to come first.
+ */
+function exemptedBy(
+  group: PlanPrereqGroup,
+  prereqs: Map<string, PlanPrereq> | undefined,
+  conflicts: Map<string, Set<string>>,
+  equivalents: Map<string, string[]>,
+  present: Array<Set<string> | Map<string, unknown>>,
+): string | null {
+  if (!exemptionGroup(group)) return null;
+  const has = (code: string) => present.some((set) => set.has(code));
+  const named = group.any.flatMap((raw) => expandEquivalents(normaliseCode(raw), equivalents));
+  if (named.some(has)) return null;
+  const found = new Set<string>();
+  for (const code of new Set(group.any.map(normaliseCode))) {
+    for (const higher of coursesAbove(code, prereqs, conflicts)) if (has(higher)) found.add(higher);
+  }
+  return [...found].sort((a, b) => courseLevel(a) - courseLevel(b) || a.localeCompare(b))[0] ?? null;
+}
+
+/**
+ * The matcher with exemption groups the plan's own calculus meets taken out of
+ * `missing`. Shared by generatePlan and validatePlan, like the exclusion
+ * relaxation above, so the board the engine builds and the review list agree
+ * about CHEM 102 standing on MATH 221.
+ */
+function exemptionAwareMatcher(
+  base: PrereqMatcher,
+  prereqs: Map<string, PlanPrereq> | undefined,
+  conflicts: Map<string, Set<string>>,
+  equivalents: Map<string, string[]>,
+  present: Array<Set<string> | Map<string, unknown>>,
+): PrereqMatcher {
+  return (spec, earlier, sameTerm, equiv) => {
+    const result = base(spec, earlier, sameTerm, equiv);
+    if (result.missing.length === 0) return result;
+    const missing = result.missing.filter((group) => exemptedBy(group, prereqs, conflicts, equivalents, present) === null);
+    return missing.length === result.missing.length ? result : { ...result, missing };
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Prerequisite satisfaction.
 // ---------------------------------------------------------------------------
@@ -1311,6 +1455,8 @@ function buildDepths(
   prereqs: Map<string, PlanPrereq> | undefined,
   satisfied: Set<string>,
   equivalents: Map<string, string[]>,
+  /** A group the plan meets some other way: CHEM 102's MATH 112 exemption, met by the plan's calculus. */
+  met?: (group: PlanPrereqGroup) => boolean,
 ): { depth: Map<string, number>; cycles: string[] } {
   const depth = new Map<string, number>();
   const cycles: string[] = [];
@@ -1332,6 +1478,7 @@ function buildDepths(
     let deepest = 0;
     let cut = false;
     for (const group of orderingGroups(prereqs?.get(code))) {
+      if (met?.(group)) continue;
       let cheapest = Infinity;
       for (const raw of group.any) {
         const alt = normaliseCode(raw);
@@ -3930,9 +4077,10 @@ export function resolveBundles(requirements: PlanRequirement[], prior: PriorCred
           bestHeld = n;
         }
       }
-      for (const code of best) {
-        const course = byCode.get(normaliseCode(code));
-        choices.push({ codes: [normaliseCode(code)], credits: course?.credits ?? null, substitutes: [] });
+      const set = best.map(normaliseCode);
+      for (const code of set) {
+        const course = byCode.get(code);
+        choices.push({ codes: [code], credits: course?.credits ?? null, substitutes: [], set });
       }
     }
     return { ...requirement, rule: { ...rule, choices } };
@@ -4237,6 +4385,29 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
 
   const chosen = new Map<string, { requirementId: string | null; label: string }>();
   /**
+   * The career track the student named, read before anything is chosen so a
+   * choice resolves toward the track's own course. MCB 244 takes "CHEM 101,
+   * CHEM 102, or equivalent", and the prerequisite closure took CHEM 101 for a
+   * pre-PT Kinesiology student whose track then needed CHEM 102 through 105
+   * anyway: five chemistry courses where four do. A general education
+   * category does the same: a pre-med Computer Science student's social
+   * science is PSYC 100, which the MCAT covers and the track books anyway,
+   * not HK 302 on top of it.
+   */
+  const tracks = careerProfileOf(input).tracks;
+  const trackPreferred = (open: string[]): string | null => {
+    for (const track of tracks) {
+      for (const row of track.courses) {
+        if (row.need === 'suggested') continue;
+        const codes = row.codes.map(normaliseCode);
+        if (codes.some((c) => satisfiedForPrereq.has(c) || chosen.has(c))) continue;
+        const hit = codes.find((c) => open.includes(c));
+        if (hit) return hit;
+      }
+    }
+    return null;
+  };
+  /**
    * Courses already spent inside one exclusive gen-ed group.
    *
    * Illinois allows one course to count for a Cultural Studies category and a
@@ -4320,7 +4491,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the board is a course in the wrong term, and passing `chosen` here let CHEM
    * 105 sit in a first-year fall on the strength of a CHEM 204 in year four.
    */
-  const match = exclusionAwareMatcher(baseMatch, conflicts, ctx.prereqs, equivalents, [earned]);
+  const match = exemptionAwareMatcher(
+    exclusionAwareMatcher(baseMatch, conflicts, ctx.prereqs, equivalents, [earned]),
+    ctx.prereqs, conflicts, equivalents, [satisfiedForPrereq, chosen],
+  );
 
   /**
    * The term list, built before the courses are chosen rather than after.
@@ -4932,7 +5106,13 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           );
           const alsoCounts = (code: string): number =>
             genEdPriorities.coverage > 0 && byCode.get(code)?.tags.some((tag) => waitingTags.has(tag)) ? 1 : 0;
+          const claimedByTrack = (code: string): number => (tracks.length > 0 && trackPreferred([code]) === code ? 1 : 0);
           const genEdOrder = (a: string, b: string): number => {
+            // A course the track books anyway counts here first, even one
+            // other courses in the category build on: PSYC 100 is not half of
+            // a sequence to a pre-med, it is the course the MCAT assumes.
+            const track = claimedByTrack(b) - claimedByTrack(a);
+            if (track !== 0) return track;
             const half = (sequence.has(a) ? 1 : 0) - (sequence.has(b) ? 1 : 0);
             if (half !== 0) return half;
             const kept = reserved(a) - reserved(b);
@@ -5286,14 +5466,72 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       .sort();
   };
 
-  {
-    const queue = [...chosen.keys()].sort();
+  /** Prerequisites booked only because a track course needs them. */
+  const trackPrereqs = new Set<string>();
+  /**
+   * Exemption groups nothing in the plan meets yet. They are settled once
+   * every course is chosen, because the calculus that meets CHEM 102's can be
+   * booked after CHEM 102 is: by a MATH 231 further down the degree's chain,
+   * or by the track.
+   */
+  const exemptionsWaiting: Array<{ code: string; group: PlanPrereqGroup }> = [];
+  const exemptionNotes: string[] = [];
+  let closureSteps = 0;
+
+  /** Books one course for a group nothing in the plan covers; the course, or null. */
+  const bookFor = (code: string, group: PlanPrereqGroup, alternatives: string[]): string | null => {
+    const inCatalog = alternatives.filter((alt) => byCode.has(alt));
+    if (inCatalog.length === 0) {
+      unresolvedPrereqs.push({ code, needs: group.any.join(' or ') });
+      return null;
+    }
+
+    /**
+     * A prerequisite the catalog will not pay for is not one to book.
+     *
+     * MATH 220's parsed prerequisite names MATH 115, and MATH 115's own
+     * catalog line says credit is not given for both. ECON 302 parses to
+     * three ANDed calculus groups that exclude one another. Booking them is
+     * how a plan came to hold MATH 115, MATH 220, MATH 221 and MATH 234 at
+     * once, four courses of which at most one ever counts.
+     *
+     * Reported only where the whole group is shut, which is the same test
+     * the placement matcher makes. A group with a way left that this
+     * snapshot happens not to carry is left to the not-placed list, so the
+     * two never say different things about one course.
+     */
+    const open = inCatalog.filter((alt) => conflictFor(alt) === null);
+    if (open.length === 0) {
+      const blocker = groupClosedByExclusion(group, conflicts, [earned, chosen], equivalents);
+      if (blocker !== null) {
+        closedPrereqs.push({ code, needs: group.any.join(' or '), alternatives: [...group.any], by: blocker });
+      }
+      return null;
+    }
+
+    /**
+     * "CHEM 104 or CHEM 204" is a choice between two courses the catalog
+     * will not pay for twice, and the one this adds decides which half of
+     * the chemistry sequence the rest of the plan can reach. The plain
+     * ranker took CHEM 204 and stranded the ten courses on the Chemical
+     * Engineering page that name CHEM 104. Only consulted when the group
+     * really does hold a pair like that.
+     */
+    // A course the named track books anyway goes first: MCB 244 takes CHEM
+    // 102, not CHEM 101, for a pre-PT student (see trackPreferred).
+    const pick = trackPreferred(open) ?? (holdsTwins(open) ? open.slice().sort(twinPreference)[0] : (best(open) ?? open[0]));
+    chosen.set(pick, { requirementId: null, label: `Prerequisite for ${code}` });
+    addedPrerequisites.push({ code: pick, requiredBy: code });
+    return pick;
+  };
+
+  const closeOver = (start: Iterable<string>, forTrack: boolean): void => {
+    const queue = [...start].sort();
     // The catalog is finite and each course enters the queue once, but a
     // malformed file should not be able to spin the browser.
-    let guard = 0;
-    while (queue.length > 0 && guard < 2000) {
+    while (queue.length > 0 && closureSteps < 2000) {
       const code = queue.shift() as string;
-      guard += 1;
+      closureSteps += 1;
       const spec = ctx.prereqs?.get(code);
       if (!spec || !spec.parsed) continue;
       for (const group of spec.groups) {
@@ -5340,52 +5578,227 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           continue;
         }
 
-        const inCatalog = alternatives.filter((alt) => byCode.has(alt));
-        if (inCatalog.length === 0) {
-          unresolvedPrereqs.push({ code, needs: group.any.join(' or ') });
+        if (exemptionGroup(group)) {
+          exemptionsWaiting.push({ code, group });
           continue;
         }
-
-        /**
-         * A prerequisite the catalog will not pay for is not one to book.
-         *
-         * MATH 220's parsed prerequisite names MATH 115, and MATH 115's own
-         * catalog line says credit is not given for both. ECON 302 parses to
-         * three ANDed calculus groups that exclude one another. Booking them is
-         * how a plan came to hold MATH 115, MATH 220, MATH 221 and MATH 234 at
-         * once, four courses of which at most one ever counts.
-         *
-         * Reported only where the whole group is shut, which is the same test
-         * the placement matcher makes. A group with a way left that this
-         * snapshot happens not to carry is left to the not-placed list, so the
-         * two never say different things about one course.
-         */
-        const open = inCatalog.filter((alt) => conflictFor(alt) === null);
-        if (open.length === 0) {
-          const blocker = groupClosedByExclusion(group, conflicts, [earned, chosen], equivalents);
-          if (blocker !== null) {
-            closedPrereqs.push({ code, needs: group.any.join(' or '), alternatives: [...group.any], by: blocker });
-          }
-          continue;
-        }
-
-        /**
-         * "CHEM 104 or CHEM 204" is a choice between two courses the catalog
-         * will not pay for twice, and the one this adds decides which half of
-         * the chemistry sequence the rest of the plan can reach. The plain
-         * ranker took CHEM 204 and stranded the ten courses on the Chemical
-         * Engineering page that name CHEM 104. Only consulted when the group
-         * really does hold a pair like that.
-         */
-        const pick = holdsTwins(open) ? open.slice().sort(twinPreference)[0] : (best(open) ?? open[0]);
-        chosen.set(pick, { requirementId: null, label: `Prerequisite for ${code}` });
-        addedPrerequisites.push({ code: pick, requiredBy: code });
+        const pick = bookFor(code, group, alternatives);
+        if (pick === null) continue;
+        if (forTrack) trackPrereqs.add(pick);
         queue.push(pick);
       }
     }
-    if (guard >= 2000) {
-      notes.push('The prerequisite chain was deeper than this plan follows. Some prerequisites may be missing from it.');
+  };
+  closeOver(chosen.keys(), false);
+
+  // --- the career track the student named ----------------------------------
+  /**
+   * The rows of a track the student named, booked like the degree's own
+   * courses so the placer puts them where they belong: as early as they fit,
+   * the core sciences before applications go out, a lab in its lecture's
+   * term. They were booked in the elective fill, which runs after every
+   * required course and fills the lightest term first: a pre-PT Kinesiology
+   * plan had MCB 151, IB 150, IB 151, PSYC 238 and MATH 220 in the graduating
+   * spring, after PTCAS closes, and CHEM 102 through 105 nowhere at all.
+   *
+   * They take the room the degree leaves, required rows first, then the
+   * recommended ones with a date, then the rest, and the degree's own courses
+   * keep first claim on every term. Booked past that room they cost the
+   * degree itself: with every required row placed alongside an Art History
+   * page that fills its eight terms, eleven of its own courses fell out. A
+   * required row the room does not cover goes to the completion pass after
+   * the fill, which takes only the planner's own lesser picks; a recommended
+   * one is left to the fill.
+   */
+  const labOf = labPartners();
+  const lectureLab = new Map<string, string>();
+  for (const [lab, lecture] of labOf) if (!lectureLab.has(lecture)) lectureLab.set(lecture, lab);
+  /** Track rows this plan books itself, with the tier the placer orders them by: 1 required, 2 recommended. */
+  const trackBooked = new Map<string, { track: CareerTrack; row: TrackCourse; tier: number }>();
+  /** Every course in the plan that stands for a track row, the degree's own CHEM 102 included: its date is the track's. */
+  const trackRowOf = new Map<string, { track: CareerTrack; row: TrackCourse }>();
+  const trackHeld: string[] = [];
+  /**
+   * When a row is due. A required row with no date of its own is due with the
+   * core sciences: the application sends the transcript as it stands, and
+   * PSYC 238 in a pre-PT plan's graduating spring is a prerequisite the
+   * school never sees.
+   */
+  const dueOf = (row: TrackCourse | undefined): TrackCourse['due'] => row?.due ?? (row?.need === 'required' ? 'application' : undefined);
+  /** Recommended rows the free room did not cover, left to the elective fill. */
+  const trackLeft: Array<{ code: string; track: CareerTrack; row: TrackCourse }> = [];
+  /** Required rows the free room did not cover, left to the completion pass after the fill. */
+  const trackBeyondRoom = new Map<string, { track: CareerTrack; row: TrackCourse }>();
+  /** Rows with a course in the catalog that nothing in this plan could book: the credit rule shut them. */
+  const trackShut: string[] = [];
+  /** Each track's note, by its place in `notes`, finished once the board is final. */
+  const trackNotes: Array<{ track: CareerTrack; at: number; head: string }> = [];
+  if (input.degreeTotal != null && tracks.length > 0 && terms.length > 0) {
+    const inPlan = (c: string) => satisfiedForPrereq.has(c) || chosen.has(c);
+    const claimed = new Set(tracks.flatMap((t) => t.courses.filter((r) => r.need !== 'suggested').flatMap((r) => r.codes.map(normaliseCode))));
+    const standIns = lowerStandIns(ctx.prereqs);
+    /**
+     * Low-confidence groups the plan has nothing for. The closure never books
+     * one, so an alternative that names a course nothing else brings is one the
+     * placer can only put in the wrong order: MCB 354 reads "CHEM 232 or CHEM
+     * 236, and MCB 250 and MCB 252", and a Psychology student has no MCB 252,
+     * where MCB 450 asks for CHEM 232 alone. A lone CHEM 101 group next to a
+     * CHEM 102 one is the parser splitting "CHEM 101, CHEM 102, or
+     * equivalent" (MCB 246) and is met by whatever meets CHEM 102.
+     */
+    const unresolvedLow = (code: string): number => {
+      const spec = ctx.prereqs?.get(code);
+      if (!spec?.parsed) return 0;
+      const met = (group: PlanPrereqGroup) =>
+        group.any.flatMap((raw) => expandEquivalents(normaliseCode(raw), equivalents)).some((c) => c === code || inPlan(c) || claimed.has(c));
+      let open = 0;
+      for (const group of spec.groups) {
+        if (group.confidence !== 'low' || group.priorLearning || met(group)) continue;
+        const lone = group.any.length === 1 ? normaliseCode(group.any[0]) : null;
+        const higher = lone ? standIns.get(lone) : undefined;
+        if (higher && spec.groups.some((other) => other !== group && other.any.some((raw) => higher.has(normaliseCode(raw))) && met(other))) continue;
+        open += 1;
+      }
+      return open;
+    };
+    /**
+     * Courses an alternative would add that nothing in the plan brings: STAT
+     * 100 asks for MATH 112 and STAT 200 for nothing, and a pre-PT student
+     * who places into calculus was booked College Algebra to reach the one
+     * the guide lists first. A group every course of which the catalog will
+     * not credit beside this one is not a course to add (MATH 220 "should
+     * consider MATH 221"), and neither is an exemption the plan's calculus
+     * meets.
+     */
+    const adds = (code: string): number => {
+      const spec = ctx.prereqs?.get(code);
+      if (!spec?.parsed) return 0;
+      let count = 0;
+      for (const group of spec.groups) {
+        if (group.confidence === 'low' || group.priorLearning) continue;
+        const names = group.any.flatMap((raw) => expandEquivalents(normaliseCode(raw), equivalents));
+        if (names.some((c) => inPlan(c) || claimed.has(c))) continue;
+        if (names.every((c) => conflicts.get(code)?.has(c))) continue;
+        if (exemptedBy(group, ctx.prereqs, conflicts, equivalents, [satisfiedForPrereq, chosen, claimed]) !== null) continue;
+        count += 1;
+      }
+      return count;
+    };
+    const pickFor = (row: TrackCourse): string | null => {
+      const options = row.codes
+        .map(normaliseCode)
+        .filter((c) => byCode.has(c) && creditsOf(c) > 0 && !input.notTowardDegree?.(c))
+        .map((c, order) => ({ c, order, low: unresolvedLow(c), adds: adds(c) }))
+        .filter(({ c }) => conflictFor(c) === null && !preparesForHeld(c, ctx.prereqs, inPlan));
+      return options.sort((a, b) => a.low - b.low || a.adds - b.adds || a.order - b.order)[0]?.c ?? null;
+    };
+    const rows = tracks.flatMap((track) => track.courses.filter((row) => row.need !== 'suggested').map((row) => ({ track, row })));
+    const book = (list: typeof rows, required: boolean) => {
+      // Hours a semester abroad earns count toward the total like any other.
+      let room = (input.degreeTotal ?? 0) - priorCreditTotal - awayCreditTotal - [...chosen.keys()].reduce((sum, c) => sum + creditsOf(c), 0);
+      const added: string[] = [];
+      for (const { track, row } of list) {
+        const codes = row.codes.map(normaliseCode);
+        const held = codes.find((c) => earned.has(c) || exempt.has(c));
+        if (held) {
+          if (earned.has(held)) trackHeld.push(held);
+          continue;
+        }
+        const planned = codes.find((c) => chosen.has(c));
+        if (planned) {
+          if (!trackRowOf.has(planned)) trackRowOf.set(planned, { track, row });
+          continue;
+        }
+        // A lab goes with its lecture, never alone: CHEM 103 is "not needed
+        // after CHEM 101", and OT's one semester of chemistry may be CHEM 101.
+        const lecture = codes.map((c) => labOf.get(c)).find((c): c is string => c !== undefined);
+        if (lecture && !inPlan(lecture)) {
+          const lab = codes.find((c) => labOf.get(c) === lecture);
+          if (lab && trackLeft.some((x) => x.code === lecture)) trackLeft.push({ code: lab, track, row });
+          if (lab && trackBeyondRoom.has(lecture)) trackBeyondRoom.set(lab, { track, row });
+          continue;
+        }
+        const code = pickFor(row);
+        if (code === null) {
+          const listed = codes.find((c) => byCode.has(c));
+          if (listed && !trackShut.includes(listed)) trackShut.push(listed);
+          continue;
+        }
+        // A lab follows its booked lecture whatever the room: the pair is one course.
+        if (creditsOf(code) > room && !(lecture !== undefined && trackBooked.has(lecture))) {
+          if (required) trackBeyondRoom.set(code, { track, row });
+          else trackLeft.push({ code, track, row });
+          continue;
+        }
+        chosen.set(code, { requirementId: null, label: `For ${track.name}` });
+        trackBooked.set(code, { track, row, tier: required ? 1 : 2 });
+        trackRowOf.set(code, { track, row });
+        room -= creditsOf(code);
+        added.push(code);
+      }
+      closeOver(added, true);
+    };
+    book(rows.filter((x) => x.row.need === 'required'), true);
+    book([...rows.filter((x) => x.row.need === 'recommended' && x.row.due), ...rows.filter((x) => x.row.need === 'recommended' && !x.row.due)], false);
+
+    /**
+     * A list pick that stands in for a course the track now books gives way to
+     * it, where the same row of the list offers both: a Middle Grades science
+     * list that took CHEM 101 takes CHEM 102 once a pre-med track books CHEM
+     * 102 anyway, and the one course counts for both.
+     */
+    for (const [low, highs] of standIns) {
+      const entry = chosen.get(low);
+      if (!entry || entry.requirementId === null || trackBooked.has(low)) continue;
+      const high = [...highs].sort().find((h) => trackBooked.has(h));
+      if (!high) continue;
+      const pool = poolFills.find(({ fill }) => fill.picked.includes(low));
+      const requirement = input.requirements.find((r) => r.id === entry.requirementId);
+      const listRows = pool
+        ? pool.slot.options
+        : requirement && (requirement.rule.kind === 'all' || requirement.rule.kind === 'choose')
+          ? requirement.rule.choices.map((choice) => choice.codes.map(normaliseCode))
+          : [];
+      if (!listRows.some((option) => option.includes(low) && option.includes(high))) continue;
+      if (pool) {
+        pool.fill.picked = pool.fill.picked.map((c) => (c === low ? high : c));
+        pool.fill.alternatives = [low, ...pool.fill.alternatives.filter((c) => c !== high)];
+      }
+      chosen.delete(low);
+      chosen.set(high, entry);
+      trackBooked.delete(high);
+      // What was said about the course that left goes with it: CHEM 101's
+      // "2.5 years of high school mathematics" is no question for this plan.
+      for (let i = priorLearningChecks.length - 1; i >= 0; i -= 1) if (priorLearningChecks[i].code === low) priorLearningChecks.splice(i, 1);
+      notes.push(`${high} takes the place of ${low} for ${entry.label || 'its requirement'}: ${trackRowOf.get(high)?.track.name ?? 'the track you named'} books ${high} anyway, it counts here too, and ${low} only prepares for it.`);
     }
+  }
+
+  // An exemption group nothing met when its course was closed over: either the
+  // plan's calculus meets it now, or its course is booked after all.
+  for (let i = 0; i < exemptionsWaiting.length; i += 1) {
+    const { code, group } = exemptionsWaiting[i];
+    if (!chosen.has(code)) continue;
+    const alternatives = group.any.flatMap((raw) => expandEquivalents(normaliseCode(raw), equivalents));
+    if (alternatives.some((alt) => satisfiedForPrereq.has(alt) || chosen.has(alt))) continue;
+    const by = exemptedBy(group, ctx.prereqs, conflicts, equivalents, [satisfiedForPrereq, chosen]);
+    if (by !== null) {
+      const named = group.any.join(' or ');
+      exemptionNotes.push(
+        earned.has(by) || exempt.has(by)
+          ? `${code} asks for "${group.source}". You have ${by}, which comes after ${named}, so this plan does not book ${named}.`
+          : `${code} asks for "${group.source}". This plan books ${by}, which comes after ${named}, and the placement that lets you into ${by} is past ${named}, so this plan does not book it. Add ${named} if your placement result says you need it.`,
+      );
+      continue;
+    }
+    const pick = bookFor(code, group, alternatives);
+    if (pick === null) continue;
+    const forTrack = trackBooked.has(code) || trackPrereqs.has(code);
+    if (forTrack) trackPrereqs.add(pick);
+    closeOver([pick], forTrack);
+  }
+  if (closureSteps >= 2000) {
+    notes.push('The prerequisite chain was deeper than this plan follows. Some prerequisites may be missing from it.');
   }
   if (addedPrerequisites.length > 0) {
     notes.push(`Added ${addedPrerequisites.length} course${addedPrerequisites.length === 1 ? '' : 's'} that the degree page does not list but the catalog requires as prerequisites.`);
@@ -5393,6 +5806,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   // Every one of these, not a sample. Each is a course the student may have to
   // add, and the one left out is the one they needed.
   for (const check of priorLearningChecks) notes.push(check.message);
+  notes.push(...new Set(exemptionNotes));
   for (const item of unresolvedPrereqs.slice(0, 3)) {
     notes.push(`${item.code} lists ${item.needs} as a prerequisite, and ${unresolvedPrereqs.length === 1 ? 'that is' : 'those are'} not in the catalog snapshot.`);
   }
@@ -5421,7 +5835,22 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
 
   // --- can the chains fit at all? -----------------------------------------
   const selected = [...chosen.keys()].sort();
-  const { depth, cycles } = buildDepths(selected, ctx.prereqs, satisfiedForPrereq, equivalents);
+  // CHEM 102 on a MATH 221 the plan books is not a term deep behind MATH 112.
+  const exempted = (group: PlanPrereqGroup) => exemptedBy(group, ctx.prereqs, conflicts, equivalents, [satisfiedForPrereq, chosen]) !== null;
+  const { depth, cycles } = buildDepths(selected, ctx.prereqs, satisfiedForPrereq, equivalents, exempted);
+  /** A course booked for the track, or for a track course's prerequisite: reported in the track's note, not as a hole in the degree. */
+  const forTrack = (code: string): boolean => trackBooked.has(code) || trackPrereqs.has(code);
+  /** The track a prerequisite was booked for, through the course that asked for it. */
+  const trackOfPrereq = (code: string, seen = new Set<string>()): CareerTrack | undefined => {
+    if (seen.has(code)) return undefined;
+    seen.add(code);
+    for (const added of addedPrerequisites.filter((a) => a.code === code)) {
+      const track = trackRowOf.get(added.requiredBy)?.track ?? trackOfPrereq(added.requiredBy, seen);
+      if (track) return track;
+    }
+    return undefined;
+  };
+  const trackTooDeep: string[] = [];
   const seasonKnown = ctx.offeringPublished ?? new Set<string>();
   const height = buildHeights(selected, ctx.prereqs, equivalents, (code) => {
     const course = byCode.get(code);
@@ -5434,6 +5863,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const toPlace = new Set<string>();
   for (const code of selected) {
     const needs = depth.get(code) ?? 0;
+    if (needs >= terms.length && forTrack(code)) {
+      trackTooDeep.push(code);
+      continue;
+    }
     if (needs >= terms.length) {
       notPlaced.push({
         code,
@@ -5445,6 +5878,50 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       continue;
     }
     toPlace.add(code);
+  }
+
+  /**
+   * The two halves of a sequence, each keyed to the other.
+   *
+   * A second half with nothing after it has no chain to pull it forward, so
+   * the placer left it for last: a Finance freshman had ACCY 201 in Spring
+   * 2027 and ACCY 202 in Fall 2029, two and a half years on, and BADM 211 a
+   * year after BADM 210. The pairs are the sets a degree row prints as one
+   * ("Accounting and Accountancy I and Accounting and Accountancy II (6)",
+   * "ECON 102 Microeconomic Principles and Macroeconomic Principles (6)"),
+   * lectures only, and the "I" and "II" titles of one subject: CHEM 102 and
+   * CHEM 104, MCB 244 and MCB 246, BADM 210 and BADM 211. A lab is not one:
+   * it goes with its own lecture.
+   */
+  const sequencePartners = new Map<string, Set<string>>();
+  {
+    const pair = (a: string, b: string) => {
+      if (a === b || !toPlace.has(a) || !toPlace.has(b) || labOf.has(a) || labOf.has(b)) return;
+      for (const [x, y] of [[a, b], [b, a]]) {
+        const set = sequencePartners.get(x) ?? new Set<string>();
+        set.add(y);
+        sequencePartners.set(x, set);
+      }
+    };
+    for (const requirement of input.requirements) {
+      const rule = requirement.rule;
+      if (rule.kind !== 'all' && rule.kind !== 'choose' && rule.kind !== 'pool') continue;
+      for (const choice of rule.choices) {
+        const set = (choice.set ?? []).map(normaliseCode).filter((c) => !labOf.has(c));
+        for (let i = 1; i < set.length; i += 1) pair(set[i - 1], set[i]);
+      }
+    }
+    const titled = new Map<string, string>();
+    const titleKey = (code: string, title: string) => `${code.split(' ')[0]}|${title.trim().toLowerCase()}`;
+    for (const code of toPlace) {
+      const title = byCode.get(code)?.title;
+      if (title) titled.set(titleKey(code, title), code);
+    }
+    for (const code of toPlace) {
+      const first = /^(.*\S)\s+I$/.exec(byCode.get(code)?.title?.trim() ?? '');
+      const second = first ? titled.get(titleKey(code, `${first[1]} II`)) : undefined;
+      if (second) pair(code, second);
+    }
   }
 
   // --- place them ----------------------------------------------------------
@@ -5546,27 +6023,110 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       if (byCode.get(code)?.tags.includes('Composition I')) dueByTerm[code] = Math.min(dueByTerm[code] ?? 1, 1);
     }
   }
-  for (const [raw, due] of Object.entries(dueByTerm)) {
-    const code = normaliseCode(raw);
-    if (latestStart.has(code)) latestStart.set(code, Math.min(latestStart.get(code) ?? due, due));
+  /**
+   * A track's dated rows, due by the last spring before the plan's last fall.
+   *
+   * AMCAS, PTCAS and CASPA open in the summer before the fourth year, and the
+   * transcript they read ends with that spring: for a freshman starting Fall
+   * 2026 and finishing Spring 2030 it is Spring 2029, the sixth of eight
+   * terms. The Medicine guide puts the MCAT there too, so PSYC 100 and SOC 100
+   * come by then. Null when the plan has no such spring left.
+   */
+  const lastFall = Math.max(-1, ...terms.filter((t) => t.season === 'Fall').map((t) => t.index));
+  const springs = terms.filter((t) => t.season === 'Spring' && t.index < lastFall);
+  const applicationDue = springs.length > 0 ? springs[springs.length - 1].index : null;
+  const trackDue: Record<string, number> = {};
+  if (applicationDue !== null) {
+    for (const code of selected) {
+      if (dueOf(trackRowOf.get(code)?.row)) trackDue[code] = applicationDue;
+    }
   }
-  if (Object.keys(dueByTerm).length > 0) {
-    let moved = true;
-    for (let guard = 0; moved && guard < 20; guard += 1) {
-      moved = false;
-      for (const code of selected) {
-        const mine = latestStart.get(code);
-        if (mine === undefined) continue;
-        for (const group of orderingGroups(ctx.prereqs?.get(code))) {
-          for (const alt of group.any) {
-            const p = normaliseCode(alt);
-            const theirs = latestStart.get(p);
-            if (theirs !== undefined && theirs > mine - 1) { latestStart.set(p, mine - 1); moved = true; }
+  /**
+   * The spring the student prepares for the MCAT in holds one hardest-band
+   * course where the degree allows it: a course out of slack still goes, a
+   * course with slack waits for another term.
+   */
+  const examTerm = input.degreeTotal != null && tracks.some((t) => t.exam) ? applicationDue : null;
+  const hardLimitAt = (index: number): number => {
+    const cap = terms[index] ? hardCapOf(terms[index]) : maxHard;
+    return index === examTerm ? Math.min(cap, 1) : cap;
+  };
+  /**
+   * The last term at or before `index` that the course runs in. MCB 244 has
+   * run only in the fall, and a date of Spring 2029 made it urgent in a term
+   * it cannot be taken in, so it went to Fall 2029, after the date.
+   */
+  const inSeasonBy = (code: string, index: number): number => {
+    const course = byCode.get(code);
+    let at = index;
+    while (at > 0 && outOfSeason(course, terms[at].season, seasonKnown.has(code))) at -= 1;
+    return at;
+  };
+  const applyDates = (dates: Record<string, number>, widen = false): void => {
+    for (const [raw, due] of Object.entries(dates)) {
+      const code = normaliseCode(raw);
+      if (latestStart.has(code)) latestStart.set(code, inSeasonBy(code, Math.min(latestStart.get(code) ?? due, due)));
+    }
+    if (Object.keys(dates).length === 0) return;
+    if (!widen) {
+      let moved = true;
+      for (let guard = 0; moved && guard < 20; guard += 1) {
+        moved = false;
+        for (const code of selected) {
+          const mine = latestStart.get(code);
+          if (mine === undefined) continue;
+          for (const group of orderingGroups(ctx.prereqs?.get(code))) {
+            for (const alt of group.any) {
+              const p = normaliseCode(alt);
+              const theirs = latestStart.get(p);
+              if (theirs !== undefined && theirs > mine - 1) { latestStart.set(p, inSeasonBy(p, mine - 1)); moved = true; }
+            }
           }
         }
       }
+      return;
     }
-  }
+    /**
+     * A track's dates reach down every group that orders two courses of this
+     * plan, the uncertain ones the placer waits on included, and a
+     * concurrent one with no term between. MCB 354 reads "CHEM 232 or CHEM
+     * 236, and MCB 250 and MCB 252", parsed with low confidence: a pre-med
+     * MCB plan dated MCB 354 by Spring 2029 and left MCB 150, MCB 250 and MCB
+     * 252 their slack, so MCB 252 took Spring 2029 and MCB 354 the fall
+     * after. Only from the dated courses down: walked over the whole board,
+     * the uncertain groups made courses urgent that no date asks for, and an
+     * urgent course goes past the hardest-band cap.
+     */
+    const dateGroups = (code: string): PlanPrereqGroup[] => {
+      const spec = ctx.prereqs?.get(code);
+      if (!spec || !spec.parsed) return [];
+      return spec.groups.filter((g) => !g.priorLearning && (g.confidence === 'high' || g.any.some((a) => latestStart.has(normaliseCode(a)))));
+    };
+    const queue = Object.keys(dates).map(normaliseCode).filter((code) => latestStart.has(code));
+    for (let steps = 0; queue.length > 0 && steps < 2000; steps += 1) {
+      const code = queue.shift() as string;
+      const mine = latestStart.get(code) as number;
+      for (const group of dateGroups(code)) {
+        const by = group.concurrent ? mine : mine - 1;
+        for (const alt of group.any) {
+          const p = normaliseCode(alt);
+          const theirs = latestStart.get(p);
+          if (p === code || theirs === undefined || theirs <= by) continue;
+          latestStart.set(p, inSeasonBy(p, by));
+          queue.push(p);
+        }
+      }
+    }
+  };
+  applyDates(dueByTerm);
+  /**
+   * The latest start the degree itself sets, before the track's dates. A
+   * course out of slack by the degree's reckoning outranks one out of slack
+   * only by the track's: a pre-med's IB 150 falling due does not take an Art
+   * History course's last seat.
+   */
+  const degreeLatest = new Map(latestStart);
+  applyDates(trackDue, true);
   /** No slack left: this is the last term the course can start in and still finish its chain. */
   const urgentAt = (code: string, termIndex: number): boolean => termIndex >= (latestStart.get(code) ?? terms.length);
   /**
@@ -5605,6 +6165,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     belowCache.set(code, below);
     return below;
   };
+  /** Out of slack by the degree's own chain or date, not only by a track's date. */
+  const degreeUrgentAt = (code: string, termIndex: number): boolean => termIndex >= (degreeLatest.get(code) ?? terms.length);
   let orderingTerm = 0;
   let orderingSummer = false;
   /**
@@ -5617,6 +6179,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const requirementById = new Map(input.requirements.map((r) => [r.id, r]));
   const genEdPick = new Set<string>();
   for (const [code, pick] of chosen) {
+    // A track course is the student's goal, not a category filler: MCB 150
+    // carries Natural Sciences, and as a filler it waited behind the major.
+    // That holds for one a category chose because the track books it too: a
+    // pre-med Computer Science student's IB 150 counts for Natural Sciences,
+    // and as a filler it sat in the graduating spring, past the application.
+    if (forTrack(code) || trackRowOf.has(code)) continue;
     const req = pick.requirementId ? requirementById.get(pick.requirementId) : null;
     if (req && (req.rule.kind === 'gened' || (req.rule.kind === 'hours' && (req.rule.genEd?.length ?? 0) > 0))) { genEdPick.add(code); continue; }
     // Degree pages also list categories as course pools ("Social Sciences:
@@ -5633,15 +6201,60 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   }
   if (debugCode) console.error(`  [PLAN_DEBUG] degree subjects: ${[...majorsForRank.subjects].join(', ')} (primary ${majorsForRank.primary}); fillers: ${[...genEdPick].join(', ')}`);
   let genEdHere = 0;
+  /**
+   * A category filler with a date is not a filler once the date comes. RHET
+   * 105 is due in the first year and has a handful of stand-ins, not a
+   * hundred; in a Materials Science plan whose first year filled with
+   * chemistry once MATH 112 was gone, it lost its seat to courses with slack
+   * of their own and fell out of the plan.
+   */
+  const dated = new Set(Object.keys(dueByTerm).map(normaliseCode));
+  const fillerAt = (code: string, index: number): boolean => genEdPick.has(code) && !(dated.has(code) && urgentAt(code, index));
+  /**
+   * How far out of slack a course is: 3 a requirement the degree itself has
+   * run out of time for, 2 a course out of time only by a track's date, 1 a
+   * category filler, 0 none. A track's date moves its courses ahead of
+   * everything with slack, never ahead of the degree's own last chance.
+   */
+  const urgencyAt = (code: string, index: number): number => {
+    if (!urgentAt(code, index)) return 0;
+    if (!degreeUrgentAt(code, index)) return 2;
+    return fillerAt(code, index) ? 1 : 3;
+  };
+  /** The term being filled, for the lab that goes with a lecture already in it. */
+  let hereNow: string[] = [];
+  const withLecture = (code: string): number => {
+    const lecture = labOf.get(code);
+    return lecture !== undefined && hereNow.includes(lecture) ? 1 : 0;
+  };
+  /** What the pass placing now has still to place, for the second half of a sequence whose first is already in. */
+  let remainingNow = new Set<string>();
+  /** 1 when the other half of this course's sequence is on the board already, this term or earlier. */
+  const followsPartner = (code: string): number => {
+    for (const partner of sequencePartners.get(code) ?? []) if (!remainingNow.has(partner)) return 1;
+    return 0;
+  };
+  /** 1 for a track's recommended row, 0 for everything else: a required row the room covers is placed like the degree's own. */
+  const trackTier = (code: string): number => (trackBooked.get(code)?.tier === 2 ? 1 : 0);
   const placementOrder = (a: string, b: string): number => {
     // A course out of slack goes before everything, or it never goes; among
     // courses out of slack, a requirement before a category filler, because
     // the filler has a hundred stand-ins and the requirement has none. In
     // the last term everything is out of slack, and PHYS 496 lost its seat
     // to a theatre course on catalog number alone.
-    const urgency = (code: string) => (urgentAt(code, orderingTerm) ? (genEdPick.has(code) ? 1 : 2) : 0);
+    const urgency = (code: string) => urgencyAt(code, orderingTerm);
     const urgDiff = urgency(b) - urgency(a);
     if (urgDiff !== 0) return urgDiff;
+    // Among courses out of slack, one the degree dates goes first in its
+    // term. A Materials Science plan whose chains are longer than its eight
+    // terms has every course out of slack from the first day, and RHET 105,
+    // due in the first year, lost every seat to a taller chain and fell out
+    // of the plan once the first year no longer began with MATH 112.
+    const dueDiff = (dated.has(b) && urgentAt(b, orderingTerm) ? 1 : 0) - (dated.has(a) && urgentAt(a, orderingTerm) ? 1 : 0);
+    if (dueDiff !== 0) return dueDiff;
+    // A lab whose lecture is already in this term, so the pair stays together.
+    const labDiff = withLecture(b) - withLecture(a);
+    if (labDiff !== 0) return labDiff;
     // Then a language sequence, so its semesters run back to back.
     const seqDiff = (sequenceFirst.has(b) ? 1 : 0) - (sequenceFirst.has(a) ? 1 : 0);
     if (seqDiff !== 0) return seqDiff;
@@ -5663,10 +6276,29 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const lightDiff = (grades.get(a)?.difficulty ?? unweighed) - (grades.get(b)?.difficulty ?? unweighed);
       if (lightDiff !== 0) return lightDiff;
     }
+    /**
+     * Then the second half of a sequence whose first half is already on the
+     * board, so the two run in consecutive terms, or in one year where
+     * neither needs the other (ECON 102 and ECON 103). It takes the seat of a
+     * course with slack, within the term's aim and the hardest-band guard;
+     * a course out of slack still goes first.
+     */
+    const followDiff = followsPartner(b) - followsPartner(a);
+    if (followDiff !== 0) return followDiff;
     if (genEdHere >= 2) {
       const geDiff = (genEdPick.has(a) ? 1 : 0) - (genEdPick.has(b) ? 1 : 0);
       if (geDiff !== 0) return geDiff;
     }
+    // A track's required rows go in like the degree's own courses, as early as
+    // they fit, and its recommended rows after both: medical terminology was
+    // booked while the physics every physical therapy program requires did
+    // not fit. Behind the degree's courses, the required rows of a pre-PT
+    // Kinesiology plan waited for their dates and then all fell due in the
+    // same spring, and PSYC 238 missed it. They only get here within the
+    // room the degree leaves (see the track booking), so the degree's own
+    // courses do not lose their terms to them.
+    const tierDiff = trackTier(a) - trackTier(b);
+    if (tierDiff !== 0) return tierDiff;
     const heightDiff = (height.get(b) ?? 0) - (height.get(a) ?? 0);
     if (heightDiff !== 0) return heightDiff;
     // Equal chains: the major's own course before a course from elsewhere,
@@ -5690,6 +6322,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    */
   const place = (cap: number) => {
     const remaining = new Set(toPlace);
+    remainingNow = remaining;
     const placed = new Map<string, string[]>();
     const termNotes = new Map<string, string[]>();
     const earlier = new Set<string>(satisfiedForPrereq);
@@ -5702,6 +6335,13 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      */
     const paceBefore = (index: number) =>
       priorCreditTotal + awayBefore[index] + terms.slice(0, index).reduce((sum, t) => sum + (isSummer(t) ? Math.min(cap, SUMMER_AIM) : Math.min(cap, credits.max)), 0);
+    /**
+     * Hours at the size each earlier term will finish at: what it holds, or
+     * the fill's aim if that is more. Packed to eighteen, the pace above
+     * counted five terms as ninety hours while four of them held seventeen,
+     * and a Chemical Engineering plan put CHBE 440 (senior standing) at 86.
+     */
+    let paced = priorCreditTotal;
 
     for (const term of terms) {
       const here: string[] = [];
@@ -5711,8 +6351,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       let hardHere = 0;
       // Hours abroad since the last term count from this one on.
       hoursBefore += awayBefore[term.index] - (term.index > 0 ? awayBefore[term.index - 1] : 0);
+      paced += awayBefore[term.index] - (term.index > 0 ? awayBefore[term.index - 1] : 0);
 
       genEdHere = 0;
+      hereNow = here;
       /**
        * The level guard is a preference, and a term with nothing in it is
        * not. A licensure program made of 300-level courses left its second
@@ -5745,7 +6387,21 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         if (genEdPick.has(code)) genEdHere -= 1;
       };
 
-      const roomFor = (codes: string[]): boolean => {
+      /**
+       * A lecture, and its lab straight after it where the room and the
+       * lab's own prerequisites allow. Left to the order, an urgent course
+       * took the lab's room first and a pre-med's IB 151 went a term after
+       * IB 150.
+       */
+      const admitWithLab = (code: string) => {
+        admit(code);
+        const lab = lectureLab.get(code);
+        if (lab === undefined || !remaining.has(lab) || !allowedHere(lab) || !roomFor([lab], true)) return;
+        if (match(ctx.prereqs?.get(lab), earlier, sameTerm, equivalents).missing.length === 0) admit(lab);
+      };
+
+      /** `pastAim`: a lab joining its lecture may take the term past its aim, never past the maximum. */
+      const roomFor = (codes: string[], pastAim = false, aimHere = cap): boolean => {
         const running = planCreditRange(here, ctx).min;
         const adds = codes.reduce((sum, code) => sum + creditsOf(code), 0);
         // Room is measured against the term's aim, never past the hard maximum:
@@ -5757,8 +6413,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // old rule, since default plans lean on the slack.
         const ceiling = credits.target !== null ? Math.min(credits.max, Math.max(cap + 1, credits.min + 3)) : credits.max;
         // A summer term the student asked for carries a summer load.
-        if (term.season === 'Summer') return running < Math.min(cap, SUMMER_AIM) && running + adds <= Math.min(ceiling, SUMMER_MAX);
-        return running < cap && running + adds <= ceiling;
+        if (term.season === 'Summer') return (pastAim || running < Math.min(cap, SUMMER_AIM)) && running + adds <= Math.min(ceiling, SUMMER_MAX);
+        // A track course stretches a term to the finished plan's size and no
+        // further, so the first year is not packed to eighteen; under the
+        // aim it takes a term the way any course does.
+        if (aimHere > cap && !pastAim) return (running < cap && running + adds <= ceiling) || running + adds <= aimHere;
+        return (pastAim || running < aimHere) && running + adds <= ceiling;
       };
 
       /**
@@ -5823,6 +6483,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         return `${dueNext} other hardest-band ${dueNext === 1 ? 'course has' : 'courses have'} no slack past ${terms[nextIndex]?.label ?? 'the next term'} either`;
       };
 
+      /** A track course may fill the term to the finished plan's size; see trackAim. */
+      const aimFor = (code: string): number => (forTrack(code) && term.season !== 'Summer' ? Math.max(cap, trackAim) : cap);
+
       const allowedHere = (code: string): boolean => {
         const course = byCode.get(code);
         if (!course) return false;
@@ -5864,11 +6527,17 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // "Senior Capstone Seminar" in a Sociology plan whose page names 34 of
         // its 120 hours never saw senior standing on paper and fell out of the
         // plan. The validator checks the finished board against real hours.
-        if (!standingMet(code, hoursByNow)) { debug(code, term.label, `standing not met at ${Math.round(hoursByNow)} hours by this term`); return false; }
+        // Never counted past what the terms will really hold, though: see `paced`.
+        const standingByNow = Math.max(hoursBefore, Math.min(hoursByNow, paced));
+        if (!standingMet(code, standingByNow)) { debug(code, term.label, `standing not met at ${Math.round(standingByNow)} hours by this term`); return false; }
+        // A lab never goes ahead of its lecture. MCB 247's own line names MCB
+        // 245 and chemistry, not MCB 246, and it sat two terms before it.
+        const lecture = labOf.get(code);
+        if (lecture !== undefined && remaining.has(lecture)) { debug(code, term.label, `waits for its lecture ${lecture}`); return false; }
         // The hardest-band guard is relaxed in the final term rather than
         // dropping the course, because a course that never gets placed costs
         // a student a semester and a heavy last term costs them a hard spring.
-        if (!isLastTerm && isHard(code) && hardHere >= maxHard && !urgent(code)) {
+        if (!isLastTerm && isHard(code) && hardHere >= hardLimitAt(term.index) && !urgent(code)) {
           const stays = deferralMisplaces(code);
           if (!stays) { debug(code, term.label, `already ${hardHere} hardest-band courses here`); return false; }
           debug(code, term.label, `stays over the hardest-band cap: ${stays}`);
@@ -5943,11 +6612,19 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           // requirement needs the seat: the fill will find it another term or
           // another course for its category, and nothing will find the
           // requirement another course.
+          // Nor is a lab whose lecture is here: evicted to make room, IB 151
+          // went a term after its IB 150.
+          const withItsLecture = (code: string) => here.includes(labOf.get(code) ?? '');
           const candidates = here.filter(
             (code) =>
               !sequenceFirst.has(code) &&
               !neededHere(code) &&
-              ((!urgent(code) && slackOf(code) >= 1) || (genEdPick.has(code) && !genEdPick.has(need))),
+              !withItsLecture(code) &&
+              // A course out of time only by a track's date takes a seat
+              // from the track's own picks, never from the degree's.
+              (urgencyAt(need, term.index) === 2
+                ? forTrack(code) && !urgent(code) && slackOf(code) >= 1
+                : (!urgent(code) && slackOf(code) >= 1) || (fillerAt(code, term.index) && !fillerAt(need, term.index))),
           );
           const victim = candidates.sort((x, y) => {
             const ge = (genEdPick.has(y) ? 1 : 0) - (genEdPick.has(x) ? 1 : 0);
@@ -5960,7 +6637,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             evict(victim);
             if (roomFor([need])) {
               debug(need, term.label, `made room by moving ${victim} (slack ${slackOf(victim)}) to a later term`);
-              admit(need);
+              admitWithLab(need);
               continue;
             }
             admit(victim);
@@ -5970,7 +6647,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const eligible: string[] = [];
         for (const code of remaining) {
           if (!allowedHere(code)) continue;
-          if (!roomFor([code])) { debug(code, term.label, `no room: ${planCreditRange(here, ctx).min} + ${creditsOf(code)} against aim ${cap}, max ${credits.max}`); continue; }
+          // A lecture goes where its lab fits beside it, and the lab follows it
+          // in past the aim: CHEM 102 and CHEM 103 in one term, not a year apart.
+          const lab = lectureLab.get(code);
+          const unit = lab !== undefined && remaining.has(lab) ? [code, lab] : [code];
+          if (!roomFor(unit, withLecture(code) === 1, aimFor(code))) { debug(code, term.label, `no room: ${planCreditRange(here, ctx).min} + ${creditsOf(code)} against aim ${cap}, max ${credits.max}`); continue; }
           const { missing } = match(ctx.prereqs?.get(code), earlier, sameTerm, equivalents);
           if (missing.length > 0) { debug(code, term.label, `prerequisite missing: ${missing.map((g) => g.any.join(' or ')).join('; ')}`); continue; }
           const waiting = waitsOnPlanned(code);
@@ -5981,19 +6662,31 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // under the maximum: AE 442 became eligible only once AE 323 was in
         // the term, the term had reached its aim, and AE 443 fell out of the
         // plan a term later for want of it.
-        if (running >= cap && !eligible.some((code) => urgent(code))) break;
+        if (running >= cap && !eligible.some((code) => urgent(code) || withLecture(code) === 1 || running < aimFor(code))) break;
 
         if (eligible.length > 0) {
           // Whatever keeps the term at or under its aim goes first. Only when
           // nothing does may a course carry it over, and the placement order
           // still decides which.
-          const within = eligible.filter((code) => running + creditsOf(code) <= cap || urgent(code));
-          const pool = within.length > 0 ? within : eligible;
+          const within = eligible.filter((code) => running + creditsOf(code) <= aimFor(code) || urgent(code) || withLecture(code) === 1);
+          // A row a track only recommends waits for every course the degree
+          // or the track requires that could go here, even one that carries
+          // the term past its aim: fitting under the aim by being smaller,
+          // MCB 244 took a pre-med MCB freshman's first fall from MCB 150,
+          // which the whole MCB chain stands on. Once its first half is on
+          // the board it is half of a sequence, and does not wait: MCB 246
+          // after MCB 244. Nor does one whose date has come: SOC 100 is only
+          // recommended to a pre-med, and due before the MCAT.
+          const waits = (code: string) => trackTier(code) === 1 && followsPartner(code) === 0 && !urgent(code);
+          const required = eligible.filter((code) => !waits(code));
+          const pool = required.length > 0
+            ? (within.some((code) => !waits(code)) ? within.filter((code) => !waits(code)) : required)
+            : within.length > 0 ? within : eligible;
           pool.sort(placementOrder);
           if (debugCode && pool.includes(normaliseCode(debugCode)) && pool[0] !== normaliseCode(debugCode)) {
             debug(normaliseCode(debugCode), term.label, `eligible, but ${pool[0]} went first (height ${height.get(pool[0]) ?? 0} vs ${height.get(normaliseCode(debugCode)) ?? 0}, depth ${depth.get(pool[0]) ?? 0} vs ${depth.get(normaliseCode(debugCode)) ?? 0}, genEdHere ${genEdHere}, within ${within.length > 0})`);
           }
-          admit(pool[0]);
+          admitWithLab(pool[0]);
           continue;
         }
 
@@ -6047,6 +6740,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       // The next term starts with this term's hours banked, which is what moves
       // a student from junior to senior standing part way through a plan.
       hoursBefore += termCredits.min;
+      paced += Math.max(termCredits.min, Math.min(cap, term.season === 'Summer' ? SUMMER_AIM : finishedTerm));
     }
 
     return { placed, termNotes, remaining, earlier, hoursBefore };
@@ -6119,6 +6813,19 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const neededShape = shapeOf(termsNeeded);
   const spread = termsNeeded > 0 ? Math.ceil(Math.max(0, load - neededShape.summers * SUMMER_AIM) / Math.max(1, neededShape.regular)) : credits.min;
   const aim = Math.min(credits.max, Math.max(wanted, spread, credits.min));
+  /**
+   * How full a track course may make a term: the size the finished plan's
+   * terms will have once the elective fill has run, not the lighter aim the
+   * degree's own courses are spread at. Psychology's courses spread to twelve
+   * a term and the fill brings every term to fifteen; at twelve, a pre-med's
+   * anatomy waited for the fourth year, and at fifteen it goes in the second.
+   */
+  // A fall or spring's share, the summers taking their own six first, as the
+  // fill counts it.
+  const finishedTerm = remainingDegree === null
+    ? aim
+    : Math.min(credits.max, Math.max(credits.target ?? credits.min, credits.min, Math.ceil(Math.max(0, remainingDegree - neededShape.summers * SUMMER_AIM) / Math.max(1, neededShape.regular))));
+  const trackAim = Math.max(aim, finishedTerm);
   let placement = place(aim);
   if (placement.remaining.size > 0 && aim < credits.max) {
     const packed = place(credits.max);
@@ -6184,7 +6891,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const here = placed.get(term.id) ?? [];
           if (outOfSeason(course, term.season, published.has(alt))) continue;
           if (planCreditRange(here, ctx).min + creditsOf(alt) > creditCapOf(term)) continue;
-          if (isHard(alt) && here.filter(isHard).length >= hardCapOf(term) && (isSummer(term) || term.index < terms.length - 1)) continue;
+          if (isHard(alt) && here.filter(isHard).length >= hardLimitAt(term.index) && (isSummer(term) || term.index < terms.length - 1)) continue;
           const hours = hoursAt(term.index);
           if (!standingMet(alt, hours) || !levelFits(alt, hours, standingHours)) continue;
           const same = new Set<string>();
@@ -6208,6 +6915,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   }
 
   for (const code of [...remaining].sort()) {
+    // The track's own courses are the track note's to report: they are not a
+    // hole in the degree, and the note says what to do about them.
+    if (forTrack(code)) continue;
     const spec = ctx.prereqs?.get(code);
     const { missing } = match(spec, earlier, new Set(), equivalents);
 
@@ -6560,30 +7270,21 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     };
     /**
      * A pre-professional track the student named, from the Illinois Career
-     * Center's guides (lib/planner/career-tracks.ts): the courses it marks
-     * required or strongly recommended that the student does not hold, first
-     * claim on free electives. A pre-PT Kinesiology student with room for
-     * thirty hours of electives got two meteorology courses and no physics;
-     * physical therapy schools ask for PHYS 101 and 102.
+     * Center's guides (lib/planner/career-tracks.ts). Its rows were booked and
+     * placed with the degree's own courses above; they are listed here with
+     * the track's name, so the board marks them as the track's and a re-pick
+     * keeps them. The recommended rows the free room did not cover keep first
+     * claim on the elective fill: a pre-PT Kinesiology student with room for
+     * thirty hours of electives got two meteorology courses and no physics.
      */
-    const tracks = careerProfileOf(input).tracks;
-    const trackWanted = new Map<string, { track: string; why: string }>();
-    const trackHeld: string[] = [];
-    // Required before strongly recommended, whatever order the guide lists
-    // them in: medical terminology was booked while physics, which every
-    // physical therapy program requires, did not fit.
-    const wantedInOrder: Array<{ code: string; track: string; why: string; rank: number }> = [];
-    for (const track of tracks) {
-      for (const need of track.courses) {
-        if (need.need === 'suggested') continue;
-        const codes = need.codes.map(normaliseCode);
-        const have = codes.find((c) => earned.has(c) || exempt.has(c) || plannedAll.has(c));
-        if (have) { if (earned.has(have)) trackHeld.push(have); continue; }
-        const first = codes.find((c) => byCode.has(c) && !wantedInOrder.some((w) => w.code === c) && creditsOf(c) > 0);
-        if (first) wantedInOrder.push({ code: first, track: track.name, why: need.why, rank: need.need === 'required' ? 0 : 1 });
-      }
+    for (const code of [...placed.values()].flat()) {
+      const booked = trackBooked.get(code);
+      if (booked) electives.push({ code, why: `For ${booked.track.name}: ${booked.row.why}`, reasons: scoring.quality(code).reasons, track: booked.track.name });
     }
-    for (const w of wantedInOrder.sort((a, b) => a.rank - b.rank)) trackWanted.set(w.code, { track: w.track, why: w.why });
+    const trackWanted = new Map<string, { track: string; why: string }>();
+    for (const left of trackLeft) {
+      if (!plannedAll.has(left.code) && !trackWanted.has(left.code)) trackWanted.set(left.code, { track: left.track.name, why: left.row.why });
+    }
     const pickFrom = (fits: (code: string) => boolean): string | undefined => {
       const track = [...trackWanted.keys()].find((code) => !plannedAll.has(code) && fits(code));
       if (track) return track;
@@ -6646,6 +7347,31 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       }
       // Stable: equal steps keep the score order.
       return best.sort((a, b) => lightStep(scoring.quality(a)) - lightStep(scoring.quality(b)))[0];
+    };
+    /** A lab the track wants goes with its lecture: never into a term the lecture is not in. */
+    const apartFromLecture = (code: string, here: string[]): boolean => {
+      const lecture = labOf.get(code);
+      return trackWanted.has(code) && lecture !== undefined && plannedAll.has(lecture) && !here.includes(lecture);
+    };
+    /** A lecture the fill books for the track brings its lab into the same term, room and prerequisites allowing. */
+    const followLab = (lecture: string, term: (typeof terms)[number], here: string[]): void => {
+      const lab = lectureLab.get(lecture);
+      if (lab === undefined || !trackWanted.has(lab) || plannedAll.has(lab)) return;
+      if (planCreditRange(here, ctx).min + creditsOf(lab) > creditCapOf(term)) return;
+      const before = new Set<string>(satisfiedForPrereq);
+      for (const other of terms) {
+        if (other.index >= term.index) break;
+        for (const c of placed.get(other.id) ?? []) for (const e of expandEquivalents(c, equivalents)) before.add(e);
+      }
+      const same = new Set<string>();
+      for (const c of here) for (const e of expandEquivalents(c, equivalents)) same.add(e);
+      if (match(ctx.prereqs?.get(lab), before, same, equivalents).missing.length > 0) return;
+      here.push(lab);
+      plannedAll.add(lab);
+      chosen.set(lab, { requirementId: null, label: 'Elective' });
+      total += creditsOf(lab);
+      const want = trackWanted.get(lab);
+      electives.push({ code: lab, why: `For ${want?.track ?? 'your goal'}: ${want?.why ?? ''}`, reasons: [], ...(want ? { track: want.track } : {}) });
     };
 
     /**
@@ -6711,7 +7437,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             if (outOfSeason(course, term.season, published.has(code))) return false;
             if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
             // No last-term exemption here: an elective is never forced into a term.
-            if (isHard(code) && hardHere >= hardCapOf(term)) return false;
+            if (isHard(code) && hardHere >= hardLimitAt(term.index)) return false;
+            if (apartFromLecture(code, here)) return false;
             if (conflictWith(code, conflicts, [earned, chosen, plannedAll]) !== null) return false;
             if (expandEquivalents(code, equivalents).some((twin) => twin !== code && (plannedAll.has(twin) || earned.has(twin)))) return false;
             return electivePrereqsMet(match(ctx.prereqs?.get(code), earlierSet, sameTerm, equivalents));
@@ -6728,6 +7455,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
           const levelWhy = spendLevel(pick);
           electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : {}) });
+          followLab(pick, term, here);
           progress = true;
         }
       }
@@ -6773,7 +7501,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (running + creditsOf(code) > credits.max) return false;
           if (outOfSeason(course, term.season, published.has(code))) return false;
           if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
-          if (isHard(code) && hardHere >= maxHard) return false;
+          if (isHard(code) && hardHere >= hardLimitAt(term.index)) return false;
+          if (apartFromLecture(code, here)) return false;
           if (conflictWith(code, conflicts, [earned, chosen, plannedAll]) !== null) return false;
           if (expandEquivalents(code, equivalents).some((twin) => twin !== code && (plannedAll.has(twin) || earned.has(twin)))) return false;
           return electivePrereqsMet(match(ctx.prereqs?.get(code), earlierSet, sameTerm, equivalents));
@@ -6791,37 +7520,44 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
         const levelWhy = spendLevel(pick);
         electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : {}) });
+        followLab(pick, term, here);
         topped = true;
       }
     }
     /**
-     * Required track courses the degree total left no room for. The total is
-     * a minimum: a pre-PT student who asked for four years and has a year of
+     * Required track courses the placer found no room for. The total is a
+     * minimum: a pre-PT student who asked for four years and has a year of
      * them unused still needs physics, and a plan that stops at 120 credits a
      * year early with "PHYS 101 and 102 did not fit" is not the plan an
-     * advisor writes. They go in the student's own terms, up to the end they
-     * gave, at most 18 credits a term, and the plan says what they add.
+     * advisor writes. They go in the student's own terms, earliest first, up
+     * to the end they gave, at most 18 credits a term, a lab beside its
+     * lecture, and the plan says what they add.
      */
     const pastTotal: string[] = [];
     const lastUsedTerm = Math.max(-1, ...terms.filter((t) => (placed.get(t.id) ?? []).length > 0).map((t) => t.index));
-    const trackRequired = new Set(
-      [...trackWanted].filter(([code, want]) => tracks.find((t) => t.name === want.track)?.courses.find((c) => c.codes.map(normaliseCode).includes(code))?.need === 'required').map(([code]) => code),
-    );
+    const rowFor = (code: string) => trackBooked.get(code) ?? trackBeyondRoom.get(code);
+    const trackRequired = new Set([...[...trackBooked].filter(([, b]) => b.tier === 1).map(([code]) => code), ...trackBeyondRoom.keys()]);
     const neededOnBoard = (code: string) => {
       const names = new Set(expandEquivalents(code, equivalents));
       return [...placed.values()].flat().some((other) => other !== code && (ctx.prereqs?.get(other)?.groups ?? []).some((g) => g.any.some((a) => names.has(normaliseCode(a)))));
     };
     for (const code of trackRequired) {
       if (plannedAll.has(code)) continue;
-      const want = trackWanted.get(code)!;
-      const course = byCode.get(code);
-      if (!course || conflictWith(code, conflicts, [earned, chosen, plannedAll]) !== null) continue;
+      // A lab goes in with its lecture below, or on its own into the term the
+      // lecture already sits in.
+      const lecture = labOf.get(code);
+      if (lecture !== undefined && trackRequired.has(lecture) && !plannedAll.has(lecture)) continue;
+      const lab = lectureLab.get(code);
+      const unit = lab !== undefined && trackRequired.has(lab) && !plannedAll.has(lab) ? [code, lab] : [code];
+      const lectureAt = lecture !== undefined && plannedAll.has(lecture) ? terms.findIndex((t) => (placed.get(t.id) ?? []).includes(lecture)) : -1;
+      if (unit.some((c) => !byCode.has(c) || conflictWith(c, conflicts, [earned, chosen, plannedAll]) !== null)) continue;
       // Only terms the plan already uses: a pre-PT plan grew two 5-credit
       // terms at the end for PHYS 101 and 102, which no advisor would write.
       for (const term of terms) {
         if (term.index > lastUsedTerm) break;
+        if (lectureAt >= 0 && term.index !== lectureAt) continue;
         const here = placed.get(term.id) ?? [];
-        if (outOfSeason(course, term.season, published.has(code))) continue;
+        if (unit.some((c) => outOfSeason(byCode.get(c), term.season, published.has(c)))) continue;
         let hours = priorCreditTotal + awayBefore[term.index];
         const before = new Set<string>(satisfiedForPrereq);
         for (const other of terms) {
@@ -6830,56 +7566,89 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           for (const c of codes) for (const e of expandEquivalents(c, equivalents)) before.add(e);
           hours += planCreditRange(codes, ctx).min;
         }
-        if (!standingMet(code, hours) || !levelFits(code, hours, standingHours)) continue;
+        if (unit.some((c) => !standingMet(c, hours) || !levelFits(c, hours, standingHours))) continue;
         const same = new Set<string>();
-        for (const c of here) for (const e of expandEquivalents(c, equivalents)) same.add(e);
-        if (!electivePrereqsMet(match(ctx.prereqs?.get(code), before, same, equivalents))) continue;
+        for (const c of [...here, ...unit]) for (const e of expandEquivalents(c, equivalents)) same.add(e);
+        if (unit.some((c) => match(ctx.prereqs?.get(c), before, same, equivalents).missing.length > 0)) continue;
         // Room, made if need be by taking out the planner's own lesser picks
         // in this term: a generic elective first, then a course the guide
         // only recommends. Never a requirement, never a course another on the
-        // board needs first.
-        const max = term.season === 'Summer' ? SUMMER_MAX : credits.max;
+        // board needs first, never half of a lecture and its lab.
+        const max = creditCapOf(term);
+        const cost = unit.reduce((sum, c) => sum + creditsOf(c), 0);
         let running = planCreditRange(here, ctx).min;
         const removable = here
-          .filter((c) => (chosen.get(c)?.requirementId ?? null) === null && !trackRequired.has(c) && !neededOnBoard(c))
-          .sort((a, b) => Number(trackWanted.has(a)) - Number(trackWanted.has(b)) || creditsOf(a) - creditsOf(b));
+          .filter((c) => (chosen.get(c)?.requirementId ?? null) === null && !trackRequired.has(c) && !trackPrereqs.has(c) && !neededOnBoard(c) && !labOf.has(c) && !lectureLab.has(c))
+          .sort((a, b) => Number(trackBooked.has(a) || trackWanted.has(a)) - Number(trackBooked.has(b) || trackWanted.has(b)) || creditsOf(a) - creditsOf(b));
         const out: string[] = [];
         for (const c of removable) {
-          if (running + creditsOf(code) <= max) break;
+          if (running + cost <= max) break;
           out.push(c);
           running -= creditsOf(c);
         }
-        if (running + creditsOf(code) > max) continue;
+        if (running + cost > max) continue;
         const hardAfter = here.filter((c) => !out.includes(c)).filter(isHard).length;
-        if (isHard(code) && hardAfter >= hardCapOf(term)) continue;
+        if (unit.filter(isHard).length > 0 && hardAfter + unit.filter(isHard).length > hardLimitAt(term.index)) continue;
         const overBefore = overTotal();
         for (const c of out) {
           plannedAll.delete(c);
           chosen.delete(c);
+          // A recommended row taken out stays booked for the track, so its
+          // note names it among the rows that did not fit.
           total -= creditsOf(c);
           const at = electives.findIndex((e) => e.code === c);
           if (at >= 0) electives.splice(at, 1);
         }
-        placed.set(term.id, [...here.filter((c) => !out.includes(c)), code]);
-        plannedAll.add(code);
-        chosen.set(code, { requirementId: null, label: 'Elective' });
-        total += creditsOf(code);
+        placed.set(term.id, [...here.filter((c) => !out.includes(c)), ...unit]);
+        for (const c of unit) {
+          plannedAll.add(c);
+          total += creditsOf(c);
+          const booked = rowFor(c);
+          chosen.set(c, { requirementId: null, label: `For ${booked?.track.name ?? 'your goal'}` });
+          if (!trackRowOf.has(c) && booked) trackRowOf.set(c, booked);
+          electives.push({ code: c, why: `For ${booked?.track.name ?? 'your goal'}: ${booked?.row.why ?? ''}`, reasons: [], ...(booked ? { track: booked.track.name } : {}) });
+          pastTotal.push(c);
+        }
         trackPast += overTotal() - overBefore;
-        electives.push({ code, why: `For ${want.track}: ${want.why}`, reasons: [], track: want.track });
-        pastTotal.push(code);
         break;
       }
     }
     if (pastTotal.length > 0) {
       notes.push(`${pastTotal.join(', ')} ${pastTotal.length === 1 ? 'is' : 'are'} required for the goal you named, placed where the planner's own lesser picks were. Drop ${pastTotal.length === 1 ? 'it' : 'them'} if the goal changes.`);
     }
+
     for (const track of tracks) {
-      const mine = [...trackWanted].filter(([, t]) => t.track === track.name).map(([code]) => code);
-      const booked = mine.filter((code) => plannedAll.has(code));
-      const missed = mine.filter((code) => !plannedAll.has(code));
-      notes.push(
-        `${track.name}: ${booked.length > 0 ? `the plan books ${booked.join(', ')} as electives` : 'no elective room was left for the courses'} from ${track.source.title} (${track.source.url})${trackHeld.length > 0 ? `; you already hold ${[...new Set(trackHeld)].join(', ')}` : ''}${missed.length > 0 ? `; ${missed.join(', ')} did not fit, so plan them with your advisor` : ''}. ${track.note}`,
-      );
+      const mine = [...trackRowOf].filter(([, r]) => r.track === track).map(([code]) => code);
+      const pastHere = [...trackBeyondRoom].filter(([, r]) => r.track === track).map(([code]) => code);
+      const booked = [...new Set([...mine.filter((code) => trackBooked.has(code)), ...trackLeft.filter((x) => x.track === track).map((x) => x.code), ...pastHere])].filter((code) => plannedAll.has(code));
+      const missed = [...new Set([
+        ...mine.filter((code) => trackBooked.has(code) && !plannedAll.has(code)),
+        ...pastHere.filter((code) => !plannedAll.has(code)),
+        ...trackLeft.filter((x) => x.track === track && !plannedAll.has(x.code)).map((x) => x.code),
+        ...trackTooDeep.filter((code) => trackBooked.get(code)?.track === track),
+        // A prerequisite booked for one of this track's courses is left out of
+        // the degree's not-placed list, so it is named here: MATH 112 for a
+        // pre-med's CHEM 102, when no term before CHEM 102 had room for it.
+        ...[...trackPrereqs].filter((code) => !plannedAll.has(code) && (tracks.length === 1 || trackOfPrereq(code) === track)),
+      ])];
+      // A row the credit rule closed is not a row that did not fit: MCB 151
+      // and MCB 251 do not both count, and an MCB major takes MCB 251.
+      const shut = trackShut
+        .filter((code) => track.courses.some((row) => row.codes.map(normaliseCode).includes(code)))
+        .map((code) => {
+          const by = conflictWith(code, conflicts, [earned, chosen]);
+          return by === null ? null : `${notBoth(code, by)} ${earned.has(by) ? `You have ${by}` : `This plan books ${by}`}, so ${code} is left out`;
+        })
+        .filter((line): line is string => line !== null);
+      // The rows that land after their date are named once the board is
+      // final (see trackNotes below): the repairs after the fill still move
+      // courses between terms.
+      trackNotes.push({
+        track,
+        at: notes.length,
+        head: `${track.name}: ${booked.length > 0 ? `the plan books ${booked.join(', ')} as electives` : 'no elective room was left for the courses'} from ${track.source.title} (${track.source.url})${trackHeld.length > 0 ? `; you already hold ${[...new Set(trackHeld)].join(', ')}` : ''}${missed.length > 0 ? `; ${missed.join(', ')} did not fit, so plan them with your advisor` : ''}.${shut.length > 0 ? ` ${shut.join('. ')}.` : ''}`,
+      });
+      notes.push(`${trackNotes[trackNotes.length - 1].head} ${track.note}`);
     }
     const beyondNote = describeBeyondTotal({
       degreeTotal: degreeTotalPublished,
@@ -6990,7 +7759,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const worth = creditsOf(code);
       if (creditsIn(index) + worth > creditCapOf(terms[index])) return false;
       if (!seasonFits(code, index)) return false;
-      if (isHard(code) && hardIn(index) >= hardCapOf(terms[index])) return false;
+      if (isHard(code) && hardIn(index) >= hardLimitAt(index)) return false;
       const hours = hoursBeforeIndex(index);
       if (!standingMet(code, hours) || !levelFits(code, hours, standingHours)) return false;
       return match(ctx.prereqs?.get(code), setBefore(index), setIn(index), equivalents).missing.length === 0;
@@ -7061,7 +7830,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
               if (hours < need) continue;
               const worth = creditsOf(code);
               if (creditsIn(j) + worth > creditCapOf(terms[j]) || !seasonFits(code, j)) continue;
-              if (isHard(code) && hardIn(j) >= hardCapOf(terms[j]) && (isSummer(terms[j]) || j < terms.length - 1)) continue;
+              if (isHard(code) && hardIn(j) >= hardLimitAt(j) && (isSummer(terms[j]) || j < terms.length - 1)) continue;
               move(code, i, j);
               done = true;
             }
@@ -7085,8 +7854,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
                   hoursBeforeIndex(j) >= need &&
                   match(ctx.prereqs?.get(other), setBefore(i), setIn(i), equivalents).missing.length === 0 &&
                   levelFits(other, hoursBeforeIndex(i), standingHours) &&
-                  !(isHard(code) && hardIn(j) > hardCapOf(terms[j]) && (isSummer(terms[j]) || j < terms.length - 1)) &&
-                  !(isHard(other) && hardIn(i) > hardCapOf(terms[i]));
+                  !(isHard(code) && hardIn(j) > hardLimitAt(j) && (isSummer(terms[j]) || j < terms.length - 1)) &&
+                  !(isHard(other) && hardIn(i) > hardLimitAt(i));
                 if (ok) {
                   done = true;
                   break;
@@ -7173,6 +7942,206 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         chosen.set(pick, { requirementId: null, label: 'Elective' });
         electives.push({ code: pick, why: `An elective that keeps ${terms[i].label} at the ${credits.min} credits you set as a minimum.`, reasons: [] });
       }
+    }
+  }
+
+  /**
+   * The board as a whole still has to hold together after a course moves:
+   * every course's prerequisites before it (or beside it, where the catalog
+   * allows), its class standing and level reached, and nothing out of season.
+   * Counted rather than asserted, so a repair never makes the board worse
+   * than the placer left it.
+   */
+  const boardFaults = (): number => {
+    let faults = 0;
+    let hours = priorCreditTotal;
+    const before = new Set<string>(satisfiedForPrereq);
+    for (const term of terms) {
+      const codes = placed.get(term.id) ?? [];
+      // Hours abroad since the term before count from this one on.
+      hours += awayBefore[term.index] - (term.index > 0 ? awayBefore[term.index - 1] : 0);
+      const same = new Set<string>();
+      for (const c of codes) for (const e of expandEquivalents(c, equivalents)) same.add(e);
+      for (const code of codes) {
+        if (outOfSeason(byCode.get(code), term.season, published.has(code))) faults += 1;
+        if (!standingMet(code, hours)) faults += 1;
+        faults += match(ctx.prereqs?.get(code), before, same, equivalents).missing.length;
+      }
+      for (const c of codes) for (const e of expandEquivalents(c, equivalents)) before.add(e);
+      hours += planCreditRange(codes, ctx).min;
+    }
+    return faults;
+  };
+
+  /**
+   * The MCAT spring, repaired after the fill. The placer keeps a course with
+   * slack out of it, but a course out of slack still goes in, and a Computer
+   * Science pre-med's Spring 2029 held PHYS 212 and IB 150 together. A
+   * hardest-band course there moves to another term, or trades places with a
+   * lighter course of about its size, when the rest of the board still holds;
+   * a lab moves with its lecture. When nothing can move, the plan says so.
+   */
+  if (examTerm !== null && examTerm < terms.length) {
+    const exam = terms[examTerm];
+    const hardAt = (index: number) => (placed.get(terms[index].id) ?? []).filter(isHard).length;
+    const lastUsed = Math.max(-1, ...terms.filter((t) => (placed.get(t.id) ?? []).length > 0).map((t) => t.index));
+    const faultsBefore = boardFaults();
+    // A dated course never moves past its date to lighten the exam spring:
+    // not a core science, and not RHET 105, which is due in the first year.
+    // Moving IB 150 out of a pre-med Computer Science student's Spring 2029
+    // put it in the graduating spring, after the application it is for.
+    const dated = new Map<string, number>();
+    for (const dates of [dueByTerm, trackDue]) {
+      for (const [raw, due] of Object.entries(dates)) {
+        const code = normaliseCode(raw);
+        dated.set(code, Math.min(dated.get(code) ?? due, due));
+      }
+    }
+    const dueAt = (code: string): number => dated.get(code) ?? terms.length;
+    const tryMove = (unit: string[], from: number, to: number, back: string[]): boolean => {
+      if (unit.some((c) => to > dueAt(c)) || back.some((c) => from > dueAt(c))) return false;
+      const fromCodes = placed.get(terms[from].id) ?? [];
+      const toCodes = placed.get(terms[to].id) ?? [];
+      const nextFrom = [...fromCodes.filter((c) => !unit.includes(c)), ...back];
+      const nextTo = [...toCodes.filter((c) => !back.includes(c)), ...unit];
+      const size = (codes: string[]) => planCreditRange(codes, ctx).min;
+      const max = (index: number) => creditCapOf(terms[index]);
+      if (size(nextFrom) > max(from) || size(nextTo) > max(to)) return false;
+      if (size(nextFrom) < Math.min(credits.min, size(fromCodes)) || size(nextTo) < Math.min(credits.min, size(toCodes))) return false;
+      if (nextTo.filter(isHard).length > hardLimitAt(to)) return false;
+      placed.set(terms[from].id, nextFrom);
+      placed.set(terms[to].id, nextTo);
+      if (boardFaults() <= faultsBefore) return true;
+      placed.set(terms[from].id, fromCodes);
+      placed.set(terms[to].id, toCodes);
+      return false;
+    };
+    for (let guard = 0; guard < 6 && hardAt(examTerm) > hardLimitAt(examTerm); guard += 1) {
+      let done = false;
+      const hards = (placed.get(exam.id) ?? []).filter(isHard).sort();
+      for (const hard of hards) {
+        if (done) break;
+        const lab = lectureLab.get(hard);
+        const unit = lab !== undefined && (placed.get(exam.id) ?? []).includes(lab) ? [hard, lab] : [hard];
+        const worth = unit.reduce((sum, c) => sum + creditsOf(c), 0);
+        // Nearest terms first, earlier before later, so the course moves as
+        // little as it can.
+        const others = terms
+          .filter((t) => t.index !== examTerm && t.index <= lastUsed)
+          .sort((a, b) => Math.abs(a.index - examTerm) - Math.abs(b.index - examTerm) || a.index - b.index);
+        for (const other of others) {
+          if (done) break;
+          // A trade keeps both terms their size: the planner's own lighter
+          // picks first, closest in credits.
+          const swaps = (placed.get(other.id) ?? [])
+            .filter((c) => !isHard(c) && !labOf.has(c) && !lectureLab.has(c))
+            .sort((a, b) => Number((chosen.get(a)?.requirementId ?? null) !== null) - Number((chosen.get(b)?.requirementId ?? null) !== null) || Math.abs(creditsOf(a) - worth) - Math.abs(creditsOf(b) - worth) || a.localeCompare(b));
+          for (const swap of swaps) {
+            if (tryMove(unit, examTerm, other.index, [swap])) { done = true; break; }
+          }
+          if (!done && tryMove(unit, examTerm, other.index, [])) done = true;
+        }
+      }
+      if (!done) break;
+    }
+    const left = (placed.get(exam.id) ?? []).filter(isHard).sort();
+    if (left.length > hardLimitAt(examTerm)) {
+      const test = tracks.find((t) => t.exam)?.exam?.name ?? 'admission test';
+      notes.push(`${exam.label} is the spring the ${test} is prepared for, and it holds ${left.length} hardest-band courses (${left.join(', ')}). The degree leaves no other term they fit in; ask your advisor whether one can move.`);
+    }
+  }
+
+  /**
+   * A course that stands on an exemption the plan's calculus gives, and the
+   * calculus did not make it onto the board: CHEM 102 would be left without
+   * MATH 112 before it, a prerequisite conflict on the review list. MATH 112
+   * goes in the latest earlier term with room instead.
+   */
+  {
+    const onBoard = new Set<string>();
+    for (const codes of placed.values()) for (const c of codes) for (const e of expandEquivalents(c, equivalents)) onBoard.add(e);
+    for (const term of terms) {
+      for (const code of placed.get(term.id) ?? []) {
+        for (const group of ctx.prereqs?.get(code)?.groups ?? []) {
+          if (!exemptionGroup(group) || group.confidence === 'low') continue;
+          const named = group.any.flatMap((raw) => expandEquivalents(normaliseCode(raw), equivalents));
+          if (named.some((c) => onBoard.has(c) || satisfiedForPrereq.has(c))) continue;
+          if (exemptedBy(group, ctx.prereqs, conflicts, equivalents, [satisfiedForPrereq, onBoard]) !== null) continue;
+          const add = named.find((c) => byCode.has(c) && conflictWith(c, conflicts, [earned, onBoard]) === null);
+          if (!add) continue;
+          for (let k = term.index - 1; k >= 0; k -= 1) {
+            const here = placed.get(terms[k].id) ?? [];
+            if (planCreditRange(here, ctx).min + creditsOf(add) > credits.max) continue;
+            if (outOfSeason(byCode.get(add), terms[k].season, published.has(add))) continue;
+            placed.set(terms[k].id, [...here, add]);
+            chosen.set(add, { requirementId: null, label: `Prerequisite for ${code}` });
+            addedPrerequisites.push({ code: add, requiredBy: code });
+            for (const e of expandEquivalents(add, equivalents)) onBoard.add(e);
+            notes.push(`${add} is added to ${terms[k].label}: ${code} asks for "${group.source}", and nothing on the board past ${add} is left to stand for it.`);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * The rows of a named track that land after their date, said in the
+   * track's note with the reason, on the final board: the course before it
+   * came late, or every term up to the date was full, already held its
+   * hardest-band courses, or does not run the course.
+   */
+  const termOfCode = (code: string): number => terms.findIndex((t) => (placed.get(t.id) ?? []).includes(code));
+  const lateWhy = (code: string, due: number): string => {
+    const lecture = labOf.get(code);
+    if (lecture !== undefined && termOfCode(lecture) === termOfCode(code)) return `it goes with its lecture ${lecture}`;
+    let after: { code: string; at: number } | null = null;
+    // Every group the placer orders by, the uncertain ones included: MCB
+    // 354 waits for the MCB 252 its low-confidence line names.
+    for (const group of (ctx.prereqs?.get(code)?.groups ?? []).filter((g) => !g.priorLearning && !g.concurrent)) {
+      const at = group.any
+        .flatMap((raw) => expandEquivalents(normaliseCode(raw), equivalents))
+        .map((c) => ({ code: c, at: termOfCode(c) }))
+        .filter((x) => x.at >= 0)
+        .sort((a, b) => a.at - b.at)[0];
+      if (at && (after === null || at.at > after.at)) after = at;
+    }
+    if (after !== null && after.at >= due) return `it follows ${after.code}, which is in ${terms[after.at].label}`;
+    const from = after === null ? 0 : after.at + 1;
+    const course = byCode.get(code);
+    const kinds = new Set<string>();
+    let hours = priorCreditTotal;
+    for (const term of terms) {
+      const inTerm = placed.get(term.id) ?? [];
+      if (term.index > due) break;
+      hours += awayBefore[term.index] - (term.index > 0 ? awayBefore[term.index - 1] : 0);
+      if (term.index >= from) {
+        if (outOfSeason(course, term.season, published.has(code))) kinds.add('season');
+        else if (!standingMet(code, hours) || !levelFits(code, hours, standingHours)) kinds.add('standing');
+        else if (planCreditRange(inTerm, ctx).min + creditsOf(code) > creditCapOf(term)) kinds.add('full');
+        else if (isHard(code) && inTerm.filter(isHard).length >= hardLimitAt(term.index)) kinds.add('hard');
+        else kinds.add('aim');
+      }
+      hours += planCreditRange(inTerm, ctx).min;
+    }
+    const span = from === due ? terms[due].label : `every term from ${terms[from].label} through ${terms[due].label}`;
+    if (kinds.size === 1 && kinds.has('season')) return `it runs only in ${course?.offeredIn.join(' and ')} terms`;
+    if (kinds.size === 1 && kinds.has('standing')) return `its level waits for hours the plan reaches only later`;
+    if (kinds.size === 1 && kinds.has('full')) return `${span} has no room for its ${creditsOf(code)} hours under ${credits.max}`;
+    if (kinds.size === 1 && kinds.has('hard')) return `${span} already holds as many hardest-band courses as the plan puts in one term`;
+    if (!kinds.has('aim')) return `${span} is full, holds its hardest-band courses, or does not run it`;
+    return `the degree's own courses took the room in ${span} first`;
+  };
+
+  if (applicationDue !== null) {
+    for (const { track, at, head } of trackNotes) {
+      const late = [...trackRowOf]
+        .filter(([code, r]) => r.track === track && dueOf(r.row) && termOfCode(code) > applicationDue)
+        .map(([code, r]) => {
+          const due = dueOf(r.row) === 'exam' && track.exam ? `before the ${track.exam.name}` : 'before applications go out';
+          return `${code} lands in ${terms[termOfCode(code)].label}, after ${terms[applicationDue].label}, the last term ${due}: ${lateWhy(code, applicationDue)}`;
+        });
+      if (late.length > 0) notes[at] = `${head} ${late.join('. ')}. ${track.note}`;
     }
   }
 
@@ -7555,7 +8524,20 @@ export function validatePlan(
    * over a board holding MATH 220 sends a student after four credits the
    * registrar will not award them.
    */
-  const match = exclusionAwareMatcher(baseMatch, conflicts, ctx.prereqs, equivalents, []);
+  /**
+   * Every course on the board or in hand, in any term. CHEM 102's "exemption
+   * from MATH 112" is the placement that lets the student into the MATH 221
+   * two terms later, so the whole board is what meets it.
+   */
+  const anywhere = new Set<string>();
+  const wanted = new Set([...plan.completedCourseIds, ...(plan.exemptCourseIds ?? []), ...plan.terms.flatMap((t) => t.courseIds)]);
+  for (const course of ctx.courses) {
+    if (wanted.has(course.id)) for (const equiv of expandEquivalents(normaliseCode(course.code), equivalents)) anywhere.add(equiv);
+  }
+  const match = exemptionAwareMatcher(
+    exclusionAwareMatcher(baseMatch, conflicts, ctx.prereqs, equivalents, []),
+    ctx.prereqs, conflicts, equivalents, [anywhere],
+  );
   const published = ctx.offeringPublished ?? new Set<string>();
   const dormant = dormantCheck(ctx);
   const rare = rareCheck(ctx);
