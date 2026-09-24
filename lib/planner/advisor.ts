@@ -220,15 +220,33 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'set_plan_shape',
     description:
-      "Change the shape of the plan and rebuild the board: credits per term (a minimum, and a target or null for an even share), the finish term, terms away from campus (study abroad, a co-op, a gap semester: nothing is booked in them), summers the student will take classes in (at most 9 credits each, only courses Illinois has run in a summer), and whether hard courses should be spread one to a term where the degree allows. Use it for \"I work 20 hours, only 12 credits\", \"I want to graduate a semester early\", \"I'm studying abroad spring 2029\", \"I'll take summer classes\", \"don't put hard classes together\". A lighter load needs a later finish: say so and set both. Rebuilding replaces the student's own edits to the board, so when they have made some the tool asks for their yes first. Afterwards call review_board and tell the student what changed.",
+      "Change the shape of the plan and rebuild the board: credits per term (a minimum, and a target or null for an even share), the finish term, terms away from campus (study abroad, a co-op, an internship, a gap semester: nothing is booked in them; a semester abroad still counts its approved hours toward the degree), summers the student will take classes in (at most 9 credits each, one hardest-band course at most, only courses Illinois has run in a summer; summers make the falls and springs lighter and never move the finish by themselves), and whether hard courses should be spread one to a term where the degree allows. Use it for \"I work 20 hours, only 12 credits\", \"I want to graduate a semester early\", \"I'm studying abroad spring 2029\", \"I'll take summer classes\", \"don't put hard classes together\". A lighter load needs a later finish: say so and set both. Rebuilding replaces the student's own edits to the board, so when they have made some the tool asks for their yes first. Afterwards call review_board and tell the student what changed.",
     input_schema: {
       type: 'object',
       properties: {
         min_credits: { type: 'integer', minimum: 6, maximum: 18, description: 'The fewest credits a fall or spring term may hold (12 is full time).' },
         target_credits: { type: ['integer', 'null'], minimum: 6, maximum: 18, description: 'The credits a term should aim for, or null for an even share of what is left.' },
         finish: { type: ['string', 'null'], description: 'The last term, like "Spring 2029" or "Summer 2029"; null or "default" returns to what the student said in About you.' },
-        away: { type: 'array', items: { type: 'string' }, description: 'Fall or spring terms the student is away, like ["Spring 2029"]. Replaces the list.' },
-        summers: { type: 'array', items: { type: ['integer', 'string'] }, description: 'Summers with classes, like [2027] or ["Summer 2027"]. Replaces the list.' },
+        away: {
+          type: 'array',
+          items: {
+            anyOf: [
+              { type: 'string' },
+              {
+                type: 'object',
+                properties: {
+                  term: { type: 'string', description: 'A fall or spring term, like "Spring 2029".' },
+                  kind: { type: 'string', enum: ['study_abroad', 'co_op', 'internship', 'gap'] },
+                  credits: { type: 'integer', minimum: 0, maximum: 18, description: 'Hours the term earns toward the degree. Leave out for the default: 15 for study abroad, 0 for anything else.' },
+                },
+                required: ['term'],
+                additionalProperties: false,
+              },
+            ],
+          },
+          description: 'Fall or spring terms the student is away, each "Spring 2029" or {"term": "Spring 2029", "kind": "study_abroad", "credits": 15}. A semester abroad counts 15 hours unless credits says otherwise (LAS allows at most 18); a co-op, internship or gap term counts none. Each must fall inside the plan. With no finish set, the default finish moves later so the student keeps eight falls and springs on campus, less what a semester abroad earns. Replaces the list.',
+        },
+        summers: { type: 'array', items: { type: ['integer', 'string'] }, description: 'Summers with classes, like [2027] or ["Summer 2027"], between the first term and the finish. Replaces the list.' },
         spread_hard: { type: 'boolean', description: 'One hardest-band course a term where the degree allows; kept only if it costs no term and leaves nothing out.' },
         confirmed: { type: 'boolean', description: 'True only after the student said yes to replacing their own edits.' },
       },
