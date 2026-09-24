@@ -70,6 +70,7 @@ import {
   describeCreditTotal,
   generatePlan,
   planCreditRange,
+  spreadHardOutcome,
   validatePlan,
   type AutoplanInput,
   type CreditTotal,
@@ -82,7 +83,7 @@ import {
 } from '@/lib/planner/autoplan';
 import { livePools, poolShortfalls } from './live-pools';
 import { careerWordsAfter, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
-import { describeExcellent, interestWordsFrom } from '@/lib/planner/quality';
+import { describeExcellent, interestWordsFrom, sectionTimes } from '@/lib/planner/quality';
 import {
   DEFAULT_PRIORITIES,
   describePriorities,
@@ -269,37 +270,6 @@ interface PlanShape {
 }
 
 const NO_SHAPE: PlanShape = { finish: null, away: [], summers: [], spreadHard: false };
-
-/**
- * When a course meets, for ALMA. The card's "earliest section 8:00AM" made
- * RHET 105, with 94 sections from morning to evening, read as an 8 a.m.
- * course to a student who said no early classes. This names the sections by
- * type and says whether every type has one at 9 or later.
- */
-function sectionTimes(rows: Array<{ type: string | null; days: string | null; start: string | null; end: string | null; instructors: string[] }>, termLabel: string | null) {
-  if (rows.length === 0) return { sections: null };
-  const minutes = (clock: string | null) => {
-    const m = (clock ?? '').match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-    if (!m) return null;
-    return ((Number(m[1]) % 12) + (m[3].toUpperCase() === 'PM' ? 12 : 0)) * 60 + Number(m[2]);
-  };
-  const byType = new Map<string, Array<{ days: string; start: string | null; end: string | null; late: boolean }>>();
-  for (const r of rows) {
-    const type = r.type ?? 'Section';
-    const start = minutes(r.start);
-    const list = byType.get(type) ?? [];
-    list.push({ days: r.days ?? 'arranged', start: r.start, end: r.end, late: start === null || start >= 540 });
-    byType.set(type, list);
-  }
-  const lines = [...byType].map(([type, list]) => {
-    const distinct = [...new Set(list.map((x) => (x.start ? `${x.days} ${x.start}-${x.end}` : 'arranged/online')))];
-    return `${type}: ${list.length} ${list.length === 1 ? 'section' : 'sections'} (${distinct.slice(0, 6).join('; ')}${distinct.length > 6 ? `; and ${distinct.length - 6} more times` : ''})`;
-  });
-  return {
-    sections: { term: termLabel, by_type: lines },
-    can_avoid_before_9: [...byType.values()].every((list) => list.some((x) => x.late)),
-  };
-}
 
 /** The plan shape in a sentence for ALMA's board description. Empty when nothing is set. */
 function describeShape(shape: PlanShape): string {
@@ -725,26 +695,18 @@ export function PlannerWorkspace({
      * "Spread my hard classes out": one hardest-band course a term, kept only
      * when it costs nothing. At one a term a Computer Engineering plan with
      * six required hardest-band courses and six terms had nowhere for a
-     * seventh, grew a term and twenty credits, and said nothing about why.
-     * The spread plan is kept when it leaves nothing more unplaced or open,
-     * adds no term and makes no term harder; otherwise the student is told
-     * which terms the degree itself makes heavy.
+     * seventh, grew two terms and nineteen credits, and said nothing about
+     * why. spreadHardOutcome decides, and its note names the check that
+     * failed or says what the kept plan really does.
      */
     if (planShape.spreadHard) {
       const spread = generatePlan({ ...planInput, preferences: { ...planInput.preferences, maxHardCourses: 1 } });
-      const hardest = (g: typeof generated) => Math.max(0, ...g.terms.map((t) => t.load.hard.length));
-      const noWorse =
-        spread.notPlaced.length <= generated.notPlaced.length &&
-        spread.unsatisfied.length <= generated.unsatisfied.length &&
-        spread.terms.length <= generated.terms.length &&
-        hardest(spread) <= hardest(generated);
-      if (noWorse) {
-        spread.notes.push('Hard courses are spread one to a term wherever the degree allows it.');
-        generated = spread;
-      } else {
-        const stacked = generated.terms.filter((t) => t.load.hard.length >= 2).map((t) => `${t.label} (${t.load.hard.join(', ')})`);
-        generated.notes.push(`One hardest-band course a term would cost this plan ${spread.terms.length > generated.terms.length ? 'another term' : 'courses it could not place'}, so it keeps two where the degree needs them${stacked.length > 0 ? `: ${stacked.join('; ')}` : ''}.`);
-      }
+      const outcome = spreadHardOutcome(generated, spread, {
+        difficulty: (code) => context.grades?.get(code)?.difficulty ?? null,
+        bands: context.bands ?? null,
+      });
+      if (outcome.adopt) generated = spread;
+      generated.notes.push(outcome.note);
     }
 
     if (!publishedTotal && isIllinois) {
@@ -2334,6 +2296,10 @@ export function PlannerWorkspace({
         const key = normCode(c.code);
         const grade = L.core?.grades?.get(key);
         const prereq = L.core?.prereqs?.get(key);
+        // The window the scorer weighs, read the way quality.ts reads it, so
+        // ALMA's answer for this course is the card's answer.
+        const p = L.priorities;
+        const wanted = { notBefore: p.notBefore ?? (p.noEarly ? 540 : null), notAfter: p.notAfter ?? null, freeDays: p.freeDays ?? [] };
         return {
           ok: true,
           ...describe(c),
@@ -2346,7 +2312,7 @@ export function PlannerWorkspace({
             ? { gpa: grade.gpa, a_percent: grade.aPct, drop_percent: grade.withdrawPct, difficulty_0_to_100: grade.difficulty, students: grade.n }
             : null,
           sections_in_crawled_term: L.core?.sections?.get(key)?.total ?? 0,
-          ...sectionTimes(detail?.sections?.sections ?? [], L.core?.meta?.term?.label ?? null),
+          ...sectionTimes(detail?.sections?.sections ?? [], L.core?.sections?.get(key)?.meet, L.core?.meta?.term?.label ?? null, wanted),
           does_not_count_with: L.core?.exclusions?.get(key) ?? [],
         };
       }

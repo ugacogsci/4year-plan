@@ -1395,6 +1395,166 @@ export function describeCreditProgress(
   return `${head}. ${credits.prior} of those you already have, ${describeCreditTotal(credits.planned)} are in the plan.`;
 }
 
+/**
+ * Why a plan runs past the degree's total, in one sentence, or null when it
+ * does not.
+ *
+ * The hours past the total have three sources, and the note names the ones
+ * that are there. The top-up that keeps every term at the student's minimum
+ * is the only one the minimum explains: a Mechanical Engineering last term of
+ * ten credits took a 4-credit elective to reach twelve. Maya's Computer
+ * Engineering courses and her AP credit came to 130 of 128 before any
+ * elective, with terms of 15 to 17, and "keep every term at the 12 you set as
+ * a minimum" sent her to lower a setting that changes nothing. A part-time
+ * Economics plan at 9 a term reached 122 because the elective that crossed
+ * 120 carried 4 credits where 2 were left. Hours a named career track needs
+ * have their own note and are only counted here.
+ */
+export function describeBeyondTotal(input: {
+  degreeTotal: number;
+  /** Everything the plan holds, prior credit included. */
+  total: number;
+  /** What the plan held before any elective: prior credit, requirements, list and gen-ed picks, prerequisites. */
+  booked: number;
+  prior: number;
+  /** Hours past the total that the top-up to the per-term minimum added. */
+  padded: number;
+  /** Hours past the total that required courses of a named career track added. */
+  track: number;
+  minimum: number;
+}): string | null {
+  const beyond = Math.max(0, input.total - input.degreeTotal);
+  if (Math.round(beyond) <= 0) return null;
+  const padded = Math.min(beyond, Math.max(0, input.padded));
+  const track = Math.min(beyond - padded, Math.max(0, input.track));
+  const rest = beyond - padded - track;
+  const required = Math.min(rest, Math.max(0, input.booked - input.degreeTotal));
+  const sizes = rest - required;
+  const n = (x: number) => Math.round(x);
+  const credits = (x: number) => `${n(x)} ${n(x) === 1 ? 'credit' : 'credits'}`;
+  const head = `${credits(beyond)} beyond the ${input.degreeTotal} this degree takes`;
+  const lower = 'Lower that minimum in Preferences to finish with lighter terms instead.';
+  if (n(padded) >= n(beyond)) return `${head} keep every term at the ${input.minimum} you set as a minimum. ${lower}`;
+  const parts = [
+    n(padded) > 0 ? `${n(padded)} keep every term at the ${input.minimum} you set as a minimum` : null,
+    n(track) > 0 ? `${n(track)} are the courses your goal needs, named above` : null,
+    n(required) > 0
+      ? `${n(required)} ${n(required) === 1 ? 'comes' : 'come'} from the required courses, which${input.prior > 0 ? ` with the ${n(input.prior)} hours you bring` : ''} already come to ${n(input.booked)} before any elective`
+      : null,
+    n(sizes) > 0 ? `${n(sizes)} ${n(sizes) === 1 ? 'comes' : 'come'} from course sizes, since the elective that reached ${input.degreeTotal} carried more hours than were left` : null,
+  ].filter((p): p is string => p !== null);
+  if (parts.length === 0) return null;
+  // One cause reads as a sentence of its own; several are listed with their shares.
+  if (parts.length === 1 && n(padded) === 0) {
+    if (n(required) > 0) {
+      return `The required courses round this plan up to ${head}: what the requirements book${input.prior > 0 ? `, with the ${n(input.prior)} hours you bring,` : ''} already comes to ${n(input.booked)} before any elective.`;
+    }
+    if (n(sizes) > 0) return `Course sizes round this plan up to ${head}: the elective that reached ${input.degreeTotal} carried more hours than were left.`;
+    return `The courses your goal needs, named above, take this plan to ${head}.`;
+  }
+  return `${head}: ${parts.join('; ')}.${n(padded) > 0 ? ` ${lower}` : ''}`;
+}
+
+/**
+ * "Spread my hard classes out": whether the plan built at one hardest-band
+ * course a term replaces the ordinary one, and the sentence that says what
+ * happened.
+ *
+ * It is kept only when it costs nothing: no more courses left unplaced, no
+ * more requirements open, no term added and no term harder than the
+ * ordinary plan's hardest. When it is turned down the note names the check
+ * that failed, with its numbers. A Mechanical Engineering freshman was told
+ * one a term "would cost this plan courses it could not place" when nothing
+ * was left unplaced and the real cost was a Fall 2027 with three
+ * hardest-band courses; a Computer Engineering student with AP credit was
+ * told "another term" when it was two terms and 19 credits.
+ *
+ * When it is kept the note says what the kept plan does, not what was
+ * asked. An Economics plan was told hard courses "are spread one to a term
+ * wherever the degree allows it" with MATH 441 and MATH 446 together in its
+ * last term, and a Molecular and Cellular Biology plan that nothing moved
+ * in was told the same. And since only the hardest band is counted, a term
+ * that stays heavy on the band below is named: MATH 220 beside MCB 354 and
+ * PHYS 102 is one hardest-band course and still a hard term.
+ */
+export function spreadHardOutcome(
+  base: GeneratedPlan,
+  spread: GeneratedPlan,
+  options?: { difficulty?: (code: string) => number | null; bands?: PlanDifficultyBands | null },
+): { adopt: boolean; note: string } {
+  const used = (g: GeneratedPlan) => g.terms.filter((t) => t.codes.length > 0);
+  const hardest = (g: GeneratedPlan) => Math.max(0, ...g.terms.map((t) => t.load.hard.length));
+  const stacked = (g: GeneratedPlan) => g.terms.filter((t) => t.load.hard.length >= 2).map((t) => `${t.label} (${t.load.hard.join(', ')})`);
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const list = (items: string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
+  const last = (g: GeneratedPlan) => used(g).at(-1)?.label ?? null;
+
+  const failed: string[] = [];
+  const lostCourses = spread.notPlaced.filter((n) => !base.notPlaced.some((b) => b.code === n.code)).map((n) => n.code);
+  if (spread.notPlaced.length > base.notPlaced.length) {
+    const k = spread.notPlaced.length - base.notPlaced.length;
+    failed.push(`leave ${count(k, 'more course', 'more courses')} unplaced${lostCourses.length > 0 ? ` (${lostCourses.slice(0, 4).join(', ')})` : ''}`);
+  }
+  if (spread.unsatisfied.length > base.unsatisfied.length) {
+    failed.push(`leave ${count(spread.unsatisfied.length - base.unsatisfied.length, 'more requirement', 'more requirements')} open`);
+  }
+  const addedTerms = Math.max(spread.terms.length - base.terms.length, used(spread).length - used(base).length);
+  if (addedTerms > 0) {
+    const credits = Math.round(spread.credits.planned.min - base.credits.planned.min);
+    failed.push(
+      `add ${count(addedTerms, 'term', 'terms')}${credits > 0 ? ` and ${credits} credits` : ''}${last(spread) && last(base) ? `, finishing in ${last(spread)} instead of ${last(base)}` : ''}`,
+    );
+  }
+  if (hardest(spread) > hardest(base)) {
+    const worst = spread.terms.find((t) => t.load.hard.length === hardest(spread))!;
+    failed.push(`put ${worst.load.hard.length} hardest-band courses in ${worst.label} (${worst.load.hard.join(', ')}), where no term now holds more than ${hardest(base)}`);
+  }
+  if (failed.length > 0) {
+    const kept = stacked(base);
+    return {
+      adopt: false,
+      note: `One hardest-band course a term was tried and not kept: it would ${list(failed)}.${kept.length > 0 ? ` So the plan keeps two where the degree needs them: ${kept.join('; ')}.` : ''}`,
+    };
+  }
+
+  const changed = JSON.stringify(base.terms.map((t) => t.codes)) !== JSON.stringify(spread.terms.map((t) => t.codes));
+  const still = stacked(spread);
+  let note: string;
+  if (still.length === 0) {
+    note = changed
+      ? 'Hard courses are spread one to a term: no term holds more than one hardest-band course.'
+      : 'No term holds more than one hardest-band course already, so spreading them changed nothing.';
+  } else {
+    const where = `${still.join('; ')} ${still.length === 1 ? 'keeps' : 'keep'} two, because no other term before the finish takes either one without stacking there instead or coming after a course it prepares for`;
+    note = changed ? `Hard courses are spread one to a term except where they cannot be: ${where}.` : `Spreading hard courses changed nothing here: ${where}.`;
+  }
+  // The band below the hardest is not counted above, so a term heavy on it is said out loud.
+  const bands = options?.bands ?? null;
+  const difficulty = options?.difficulty;
+  if (bands && difficulty) {
+    const heavy = used(spread)
+      .filter((t) => t.load.hard.length <= 1 && (t.load.bandVerdict === 'heavy' || t.load.bandVerdict === 'brutal'))
+      .sort((a, b) => (b.load.avgDifficulty ?? 0) - (a.load.avgDifficulty ?? 0));
+    const worst = heavy[0];
+    if (worst) {
+      const harder = worst.codes.filter((c) => {
+        const d = difficulty(c);
+        return d !== null && d >= bands.harder && d < bands.hardest;
+      });
+      const avg = Math.round(worst.load.avgDifficulty ?? 0);
+      const why =
+        harder.length === 0
+          ? `at an average difficulty of ${avg}`
+          : worst.load.hard.length > 0
+            ? `${worst.load.hard[0]} sits with ${list(harder)}, one band below, for an average difficulty of ${avg}`
+            : `${list(harder)}, one band below the hardest, average ${avg}`;
+      const others = heavy.length > 1 ? `; ${count(heavy.length - 1, 'other term reads', 'other terms read')} heavy too` : '';
+      note += ` That counts only the hardest band, so ${worst.label} still reads heavy${harder.length === 0 ? ' ' : ': '}${why}${others}.`;
+    }
+  }
+  return { adopt: true, note };
+}
+
 // ---------------------------------------------------------------------------
 // Requirement slots.
 // ---------------------------------------------------------------------------
@@ -4780,6 +4940,42 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   }
   /** No slack left: this is the last term the course can start in and still finish its chain. */
   const urgentAt = (code: string, termIndex: number): boolean => termIndex >= (latestStart.get(code) ?? terms.length);
+  /**
+   * The courses beneath a course's prerequisites, through any alternative
+   * and at any depth. MATH 231 asks for MATH 220 or MATH 221, MATH 220 for
+   * MATH 115, MATH 115 for MATH 112, so College Algebra sits below Calculus
+   * II even for a student who takes MATH 221 and never needs MATH 220.
+   *
+   * The prerequisites themselves are left out: they are what the course
+   * asks for, and one it can do without is an alternative, not a lower rung.
+   * NRES 419 takes CHEM 104 or NRES 201, and NRES 201 after NRES 419 is a
+   * course the student did not need, not a sequence run backwards. And only
+   * within one subject, where the catalog's numbers are one sequence: CHEM
+   * 104 takes CHEM 102 or CHEM 202, and CHEM 202 wants calculus, which does
+   * not put MATH 220 below General Chemistry II for a student taking CHEM 102.
+   */
+  const subjectOfCode = (code: string) => code.split(' ')[0];
+  const sitsBelow = (code: string, other: string): boolean =>
+    subjectOfCode(code) === subjectOfCode(other) && coursesBelow(other).has(code);
+  const belowCache = new Map<string, Set<string>>();
+  const namedBy = (code: string): string[] =>
+    (ctx.prereqs?.get(code)?.groups ?? []).filter((g) => !g.priorLearning).flatMap((g) => g.any.map(normaliseCode));
+  const coursesBelow = (code: string): Set<string> => {
+    const cached = belowCache.get(code);
+    if (cached) return cached;
+    const below = new Set<string>();
+    const queue = namedBy(code).flatMap(namedBy).filter((c) => c !== code);
+    for (const c of queue) below.add(c);
+    while (queue.length > 0 && below.size < 400) {
+      for (const c of namedBy(queue.shift()!)) {
+        if (c === code || below.has(c)) continue;
+        below.add(c);
+        queue.push(c);
+      }
+    }
+    belowCache.set(code, below);
+    return below;
+  };
   let orderingTerm = 0;
   /**
    * Courses chosen for a general education category. They have no chains,
@@ -4915,6 +5111,59 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const urgent = (code: string): boolean => urgentAt(code, term.index);
       orderingTerm = term.index;
 
+      /**
+       * Why deferring a hard course for the cap would put it somewhere worse,
+       * or null when a later term can take it.
+       *
+       * Two ways it can. It can land after a course it sits below: at one
+       * hardest-band course a term, a Mechanical Engineering freshman's MATH
+       * 112 left Fall 2026, where it sat beside MATH 221, for Fall 2027, a
+       * term after MATH 231. And a deferred course runs out of slack and goes
+       * in over the cap wherever it has got to: that MATH 112 became the third
+       * hardest-band course of Fall 2027, beside MATH 241 and PHYS 212, which
+       * had no slack either. So a hard course is deferred only when nothing it
+       * sits below could come next term ahead of it, and, if it would
+       * run out of slack there, the hard courses that must start next term
+       * leave it room under the cap. When they do not, it goes to whichever
+       * of the two terms ends up with fewer hardest-band courses, and stays
+       * here, where the plan without the cap had it, on a tie.
+       */
+      const deferralMisplaces = (code: string): string | null => {
+        // Order is only kept while it is still there to keep. Once a course
+        // above this one is on the board, room put it there, not the cap, and
+        // holding this one over the cap would not undo that: an Electrical
+        // Engineering MATH 112 with no room before MATH 231 was kept beside
+        // MATH 241 and ECE 220 as a third hardest-band course.
+        const onBoard = [...[...placed.values()].flat(), ...here];
+        const orderLost = onBoard.some((other) => other !== code && sitsBelow(code, other));
+        if (!orderLost) {
+          const through = new Set<string>(earlier);
+          for (const c of here) for (const e of expandEquivalents(c, equivalents)) through.add(e);
+          // Could start next term: nothing missing, and not waiting, as MCB
+          // 354 waits for MCB 250 and MCB 252, on a course its uncertain
+          // prerequisites name that is still to be placed.
+          const readyNext = (other: string): boolean => {
+            const { missing, uncertain } = match(ctx.prereqs?.get(other), through, new Set(), equivalents);
+            if (missing.length > 0) return false;
+            return !uncertain.some((g) => !g.priorLearning && g.any.some((a) => normaliseCode(a) !== other && remaining.has(normaliseCode(a))));
+          };
+          const next = [...remaining].find((other) => other !== code && sitsBelow(code, other) && readyNext(other));
+          if (next) return `${next} could come next term and sits above it`;
+        }
+        // A course with slack past the next term is asked again there.
+        const nextIndex = term.index + 1;
+        if (!urgentAt(code, nextIndex)) return null;
+        // Hard courses that must start next term; the ones out of slack now go here.
+        const dueNext = [...remaining].filter((other) => other !== code && isHard(other) && urgentAt(other, nextIndex) && !urgent(other)).length;
+        if (dueNext < maxHard) return null;
+        // Both terms end up over the cap: the course goes where fewer share it,
+        // and stays here on a tie. CHEM 102 still leaves a Fall 2027 that MATH
+        // 241 and PHYS 212 fill for a Spring 2028 that holds only TAM 212.
+        const dueHere = [...remaining].filter((other) => other !== code && isHard(other) && urgent(other)).length;
+        if (hardHere + dueHere > dueNext) return null;
+        return `${dueNext} other hardest-band ${dueNext === 1 ? 'course has' : 'courses have'} no slack past ${terms[nextIndex]?.label ?? 'the next term'} either`;
+      };
+
       const allowedHere = (code: string): boolean => {
         const course = byCode.get(code);
         if (!course) return false;
@@ -4960,7 +5209,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // The hardest-band guard is relaxed in the final term rather than
         // dropping the course, because a course that never gets placed costs
         // a student a semester and a heavy last term costs them a hard spring.
-        if (!isLastTerm && isHard(code) && hardHere >= maxHard && !urgent(code)) { debug(code, term.label, `already ${hardHere} hardest-band courses here`); return false; }
+        if (!isLastTerm && isHard(code) && hardHere >= maxHard && !urgent(code)) {
+          const stays = deferralMisplaces(code);
+          if (!stays) { debug(code, term.label, `already ${hardHere} hardest-band courses here`); return false; }
+          debug(code, term.label, `stays over the hardest-band cap: ${stays}`);
+        }
         return true;
       };
 
@@ -5542,6 +5795,18 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const candidates = rankedElectivePool(ctx, scoring, (code) => plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who));
     let total = priorCreditTotal + [...placed.values()].flat().reduce((sum, code) => sum + creditsOf(code), 0);
     /**
+     * Where the hours past the degree total come from, so the note names the
+     * real cause. Maya's AP credit and the Computer Engineering courses come
+     * to 130 of 128 before a single elective, and her terms run 15 to 17, yet
+     * the note said the 2 extra "keep every term at the 12 you set as a
+     * minimum". Only the top-up to the minimum is that; what the required
+     * courses bring and what a 4-credit last pick rounds up is not.
+     */
+    const bookedTotal = total;
+    let paddedPast = 0;
+    let trackPast = 0;
+    const overTotal = (): number => Math.max(0, total - degreeTotalPublished);
+    /**
      * Hours the page wants at a level it names, by floor.
      *
      * "Advanced Electives: a minimum of two advanced elective courses ... from
@@ -5724,7 +5989,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         here.push(pick);
         plannedAll.add(pick);
         chosen.set(pick, { requirementId: null, label: 'Elective' });
+        const overBefore = overTotal();
         total += creditsOf(pick);
+        paddedPast += overTotal() - overBefore;
         const subject = byCode.get(pick)?.cluster ?? '';
         perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
         const levelWhy = spendLevel(pick);
@@ -5790,6 +6057,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         if (running + creditsOf(code) > max) continue;
         const hardAfter = here.filter((c) => !out.includes(c)).filter(isHard).length;
         if (isHard(code) && hardAfter >= maxHard) continue;
+        const overBefore = overTotal();
         for (const c of out) {
           plannedAll.delete(c);
           chosen.delete(c);
@@ -5801,6 +6069,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         plannedAll.add(code);
         chosen.set(code, { requirementId: null, label: 'Elective' });
         total += creditsOf(code);
+        trackPast += overTotal() - overBefore;
         electives.push({ code, why: `For ${want.track}: ${want.why}`, reasons: [] });
         pastTotal.push(code);
         break;
@@ -5817,12 +6086,16 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         `${track.name}: ${booked.length > 0 ? `the plan books ${booked.join(', ')} as electives` : 'no elective room was left for the courses'} from ${track.source.title} (${track.source.url})${trackHeld.length > 0 ? `; you already hold ${[...new Set(trackHeld)].join(', ')}` : ''}${missed.length > 0 ? `; ${missed.join(', ')} did not fit, so plan them with your advisor` : ''}. ${track.note}`,
       );
     }
-    const beyond = Math.max(0, total - degreeTotalPublished);
-    if (beyond > 0) {
-      notes.push(
-        `${Math.round(beyond)} ${Math.round(beyond) === 1 ? 'credit' : 'credits'} beyond the ${degreeTotalPublished} this degree takes keep every term at the ${credits.min} you set as a minimum. Lower that minimum in Preferences to finish with lighter terms instead.`,
-      );
-    }
+    const beyondNote = describeBeyondTotal({
+      degreeTotal: degreeTotalPublished,
+      total,
+      booked: bookedTotal,
+      prior: priorCreditTotal,
+      padded: paddedPast,
+      track: trackPast,
+      minimum: credits.min,
+    });
+    if (beyondNote) notes.push(beyondNote);
     // A term that was light before the fill is not light now.
     for (const term of terms) {
       if (planCreditRange(placed.get(term.id) ?? [], ctx).min >= credits.min) {
