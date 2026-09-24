@@ -22,6 +22,7 @@
  */
 import type { Priorities } from './priorities';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
+import { describeMeetingWindow, registrationFits } from './meeting-fit';
 
 export interface ExcellentInstructor {
   /** As the section crawl spells it: "Alt, M". */
@@ -175,41 +176,12 @@ function namesSubject(cluster: string, word: string): boolean {
 }
 
 /**
- * Whether one registration fits a student's time window: for every section
- * type some section whose meetings all start at or after `notBefore`, end by
- * `notAfter` and avoid the free days. A section with no set time ("ARR",
- * online and asynchronous) always fits. Null when the build carries no
- * meeting data for the course.
+ * Whether one registration fits a student's time window. The rule lives in
+ * meeting-fit.ts so this scorer, ALMA's course details and the build's
+ * lateOption give one answer: CHEM 102's online path is its "Online" section,
+ * its "Online Discussion" at 10 and a quiz together, not "Online" alone.
  */
-export function registrationFits(
-  meet: Record<string, string[]> | undefined,
-  want: { notBefore?: number | null; notAfter?: number | null; freeDays?: string[] },
-): boolean | null {
-  if (!meet) return null;
-  const entries = Object.entries(meet);
-  if (entries.length === 0) return null;
-  const free = new Set(want.freeDays ?? []);
-  const fits = (signature: string): boolean =>
-    signature === 'ARR' ||
-    signature.split(';').every((meeting) => {
-      const m = meeting.match(/^([A-Z]*)@(\d+)-(\d+)$/);
-      if (!m) return true;
-      const [, days, start, end] = m;
-      if (want.notBefore != null && Number(start) < want.notBefore) return false;
-      if (want.notAfter != null && Number(end) > want.notAfter) return false;
-      return !days.split('').some((d) => free.has(d));
-    });
-  /**
-   * An "Online" section type is another way to take the course, not a part
-   * of every registration: ECON 490 runs in-person Lecture-Discussion
-   * sections and one Online section, and a student takes one or the other.
-   * The in-person path fits when every other type has a fitting section.
-   */
-  const online = entries.filter(([type]) => /online/i.test(type)).map(([, signatures]) => signatures);
-  const inPerson = entries.filter(([type]) => !/online/i.test(type)).map(([, signatures]) => signatures);
-  const inPersonFits = inPerson.length > 0 && inPerson.every((signatures) => signatures.some(fits));
-  return inPersonFits || online.some((signatures) => signatures.some(fits));
-}
+export { registrationFits, sectionTimes } from './meeting-fit';
 
 /** "9:00AM" -> 540. Null for anything else. */
 export function minutesOfDay(clock: string | null | undefined): number | null {
@@ -407,13 +379,10 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
       if (windowAsked) {
         // A course is not "an 8 a.m. course" because one of its twenty
         // sections starts at 8: what matters is whether a whole registration
-        // fits, which the build computes per section type.
+        // fits, in person or online, which meeting-fit.ts reads from the
+        // build's per-type signatures. ALMA's course details ask the same.
         const fits = asynchronous ? true : registrationFits(s.meet, { notBefore, notAfter, freeDays });
-        const said = [
-          notBefore !== null ? `nothing before ${clockOf(notBefore)}` : null,
-          notAfter !== null ? `nothing after ${clockOf(notAfter)}` : null,
-          freeDays.length > 0 ? `${freeDays.join('')} free` : null,
-        ].filter(Boolean).join(', ');
+        const said = describeMeetingWindow({ notBefore, notAfter, freeDays });
         if (fits === true) { v += 0.2; reasons.push(asynchronous ? 'online, no set meeting time' : `can be taken with ${said} (${term})`); }
         else if (fits === false) { v -= 0.45; conflicts.push(`no ${term.replace(/s$/, '')} fits ${said}`); }
         else if (notBefore !== null && start !== null) {
@@ -432,12 +401,6 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
   }
 
   return { score: weightSum > 0 ? weighted / weightSum : 0, known, reasons, unknown, cautions, conflicts, interest };
-}
-
-function clockOf(m: number): string {
-  const h = Math.floor(m / 60);
-  const mm = m % 60;
-  return `${((h + 11) % 12) + 1}${mm ? `:${String(mm).padStart(2, '0')}` : ''} ${h >= 12 ? 'p.m.' : 'a.m.'}`;
 }
 
 /**

@@ -14,6 +14,7 @@ import type {
   RequirementRow,
 } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
+import { registrationFits } from './meeting-fit.ts';
 
 /**
  * Real Illinois data, adapted into the planner's shapes.
@@ -457,11 +458,13 @@ export interface SectionSummary {
    */
   meet: Record<string, string[]>;
   /**
-   * True when "no classes before 9" can be honoured: every section type has at
-   * least one section whose meetings all start at 9:00 or later, or are
-   * arranged. False when some type has none, and also false when meet is empty,
-   * because a course we cannot read is not a course we can promise anything
-   * about. Exactly registrationFits(meet, { notBefore: 540 }) === true.
+   * True when "no classes before 9" can be honoured: one way of taking the
+   * course, in person or online, has in every section type on it a section
+   * whose meetings all start at 9:00 or later, or are arranged. False when
+   * neither does, and also false when meet is empty, because a course we
+   * cannot read is not a course we can promise anything about. Exactly
+   * registrationFits(meet, { notBefore: 540 }) === true, the rule the scorer
+   * and ALMA's course details use too.
    */
   lateOption: boolean;
 }
@@ -1918,93 +1921,12 @@ function sectionSignature(section: RawSection): string | null {
   return tokens.join(';');
 }
 
-/** A student's time wishes, in the units meet uses. Every part is optional. */
-export interface MeetingWindow {
-  /** Minutes since midnight no meeting may start before. 540 is 9:00 a.m. */
-  notBefore?: number | null;
-  /** Minutes since midnight every meeting must end by. 720 is noon. */
-  notAfter?: number | null;
-  /**
-   * Days with no meeting, in the crawl's letters: ["F"] for Fridays off,
-   * ["M", "W", "F", "S", "U"] for Tuesday/Thursday only. Leave out S and U and
-   * a lab that meets Tuesday and Saturday passes as Tuesday/Thursday only.
-   * "MWFSU" as one string also works.
-   */
-  freeDays?: string[];
-}
-
-const SIGNATURE_MEETING = /^([MTWRFSU]*)@(\d+)-(\d+)$/;
-
-function signatureFits(
-  signature: string,
-  notBefore: number | null,
-  notAfter: number | null,
-  free: Set<string>,
-): boolean {
-  for (const token of signature.split(';')) {
-    if (token === 'ARR') continue;
-    const m = SIGNATURE_MEETING.exec(token);
-    // A token this module did not write is not evidence that a section fits.
-    if (!m) return false;
-    if (notBefore !== null && Number(m[2]) < notBefore) return false;
-    if (notAfter !== null && Number(m[3]) > notAfter) return false;
-    for (const day of m[1]) if (free.has(day)) return false;
-  }
-  return true;
-}
-
 /**
- * Can a student register for this course inside a time window?
- *
- * true when every section type in meet has at least one section whose every
- * meeting fits: starts at or after notBefore, ends by notAfter, and falls on
- * no free day. Arranged meetings always fit. false when some type has no such
- * section. null when meet is missing or empty, which is "we do not know", and
- * must not be read as either answer.
- *
- * Per type because Illinois registers one section of each type. CHEM 101 with
- * notBefore 540 is true because lecture AL1 (TR 2 p.m.) and lab row ADB
- * (Friday 11, Monday 2) both clear 9 a.m., even though 10 of its 42 lab rows
- * have an 8 a.m. meeting. Ask it for Fridays off and it is false: every lab
- * row meets on a Friday.
- *
- * What per type cannot see. Some courses spread one choice over two types,
- * and then a type the student would never take can veto the answer: ACCY 201
- * "afternoons only" is false because its two Online Discussion rows are at 9
- * and 10, though an in-person discussion at noon would do, and CHEM 102 has
- * no 9 a.m. option only because one 8 a.m. row among 77 quizzes is typed
- * Discussion/Recitation. Nor does it know which lecture a discussion is
- * linked to, since the crawl does not say. Treat false as "not shown to fit"
- * and let a student override it.
- *
- * What ARR hides. A meeting that names days but no hour is signed ARR, so it
- * blocks no free day. Leaving the MTWRF placeholders aside, among the courses
- * sections.json ships that changes an answer only for hybrid rows whose
- * online half names days and no hour (10 courses): CMN 315 meets MW at
- * 2 p.m. in Lincoln Hall plus an online "F", and comes out true for Fridays
- * off on the reading that the online half keeps no set hour. If those halves
- * turn out to be live, this is where Fridays-off goes wrong.
- *
- * Pure and cheap: meet is a few short strings per type, so a planner can call
- * this for every course on every rebuild.
+ * Whether a registration fits a time window lives in meeting-fit.ts, so the
+ * planner's scorer, ALMA's course details and lateOption below read one rule.
  */
-export function registrationFits(
-  meet: Record<string, string[]> | null | undefined,
-  window: MeetingWindow,
-): boolean | null {
-  if (!meet) return null;
-  const types = Object.keys(meet);
-  if (types.length === 0) return null;
-  const notBefore = typeof window.notBefore === 'number' ? window.notBefore : null;
-  const notAfter = typeof window.notAfter === 'number' ? window.notAfter : null;
-  const free = new Set<string>();
-  for (const d of window.freeDays ?? []) for (const day of d.toUpperCase().match(MEETING_DAY) ?? []) free.add(day);
-  for (const type of types) {
-    const options = meet[type] ?? [];
-    if (!options.some((sig) => signatureFits(sig, notBefore, notAfter, free))) return false;
-  }
-  return true;
-}
+export { registrationFits };
+export type { MeetingWindow } from './meeting-fit.ts';
 
 export function summariseSections(
   course: RawSectionCourse,
