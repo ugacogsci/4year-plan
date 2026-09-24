@@ -200,18 +200,52 @@ export function momentumReview(input: MomentumInput): { flags: ReviewFlag[]; fac
    * The first college math course. Held credit settles it: MATH 220 from AP
    * Calculus, STAT 100 from AP Statistics, or a Parkland statistics course
    * the transfer guide counts as Quantitative Reasoning I.
+   *
+   * The degree's math, that is: a course carrying a Quantitative Reasoning
+   * category or one the degree names, and a course on the way to one on the
+   * board (a Finance freshman's MATH 112 before MATH 220). A pre-med's MATH
+   * 112 is on the way to CHEM 102 alone; read as her first college math, it
+   * hid PSYC 235, Psychology's statistics, from the check when she dragged it
+   * to her junior fall.
    */
+  const named = new Set<string>();
+  for (const requirement of input.requirements) {
+    const rule = requirement.rule;
+    if (rule.kind === 'all' || rule.kind === 'choose' || rule.kind === 'pool') {
+      for (const choice of rule.choices) for (const code of choice.codes) named.add(normaliseCode(code));
+    }
+  }
+  const counts = (course: Pick<Course, 'code' | 'title' | 'tags'>) =>
+    isMathOrStatistics(course) && ((course.tags ?? []).some((tag) => tag.startsWith('Quantitative Reasoning')) || named.has(normaliseCode(course.code)));
+  const onTheWay = new Set<string>();
+  {
+    const queue = [...input.board.terms.flatMap((t) => codesOf(t.courseIds)), ...input.heldCodes.map(normaliseCode)].filter((code) => {
+      const course = byCode.get(code);
+      return course ? counts(course) : false;
+    });
+    while (queue.length > 0) {
+      for (const group of ctx.prereqs?.get(queue.shift() as string)?.groups ?? []) {
+        for (const raw of group.any) {
+          const code = normaliseCode(raw);
+          if (onTheWay.has(code)) continue;
+          onTheWay.add(code);
+          queue.push(code);
+        }
+      }
+    }
+  }
+  const collegeMath = (course: Pick<Course, 'code' | 'title' | 'tags'>) => counts(course) || (isMathOrStatistics(course) && onTheWay.has(normaliseCode(course.code)));
   const heldMath =
     input.heldCodes.some((code) => {
       const course = byCode.get(normaliseCode(code));
-      return course ? isMathOrStatistics(course) : ['MATH', 'STAT'].includes(subjectOf(code));
+      return course ? collegeMath(course) : ['MATH', 'STAT'].includes(subjectOf(code));
     }) || (input.genEdCredits ?? []).some((g) => g.tags.includes('Quantitative Reasoning I'));
   if (!heldMath) {
     const firstMath = (terms: Array<{ id: string; codes: string[] }>) => {
       for (const t of terms) {
         const code = t.codes.find((c) => {
           const course = byCode.get(c);
-          return course ? isMathOrStatistics(course) : false;
+          return course ? collegeMath(course) : false;
         });
         if (code) return { termId: t.id, code };
       }
@@ -226,7 +260,7 @@ export function momentumReview(input: MomentumInput): { flags: ReviewFlag[]; fac
         id: 'momentum-math',
         termId: now.termId,
         cause,
-        message: `The first math or statistics course on the board, ${now.code}, is in ${label}, after year one${cause === 'edits' ? ' (an edit moved it there)' : ''}; finishing the first college math course in year one is one of CCRC's early-momentum measures.`,
+        message: `The first college math or statistics course on the board, ${now.code}, is in ${label}, after year one${cause === 'edits' ? ' (an edit moved it there)' : ''}; finishing the first college math course in year one is one of CCRC's early-momentum measures.`,
       });
     }
   }
