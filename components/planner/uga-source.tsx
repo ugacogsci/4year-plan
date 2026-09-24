@@ -37,6 +37,31 @@ function canonicalUgaCode(value: string): string {
   return match ? `${match[1]} ${match[2]}` : code;
 }
 
+/** Online, honors, and writing-intensive rows are versions of one UGA course. */
+function ugaVariantKey(value: string): string {
+  return canonicalUgaCode(value).replace(/^(\S+\s+\d{4})[EHW]$/, '$1');
+}
+
+function ugaEquivalents(courses: Course[]): Map<string, string[]> {
+  const groups = new Map<string, string[]>();
+  for (const course of courses) {
+    const code = normCode(course.code);
+    const key = ugaVariantKey(code);
+    const group = groups.get(key);
+    if (group) group.push(code);
+    else groups.set(key, [code]);
+  }
+
+  const equivalents = new Map<string, string[]>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    for (const code of group) {
+      equivalents.set(code, group.filter((candidate) => candidate !== code));
+    }
+  }
+  return equivalents;
+}
+
 interface RawUgaCourse extends Partial<Course> {
   id: string;
   code: string;
@@ -229,6 +254,7 @@ function choicesFor(
 ): CourseChoice[] {
   const choices: CourseChoice[] = [];
   const seen = new Set<string>();
+  const byVariant = new Map<string, CourseChoice>();
   for (const row of group.courses) {
     const wildcard = canonicalUgaCode(row.code).match(
       /^([A-Z]{2,5})\s+([1-9])XXX$/,
@@ -249,6 +275,13 @@ function choicesFor(
       const code = choice.codes[0];
       if (!code || seen.has(code)) continue;
       seen.add(code);
+      const variantKey = ugaVariantKey(code);
+      const existing = byVariant.get(variantKey);
+      if (existing) {
+        existing.codes.push(code);
+        continue;
+      }
+      byVariant.set(variantKey, choice);
       choices.push(choice);
     }
   }
@@ -498,6 +531,7 @@ function loadUgaData(): Promise<UgaData | null> {
 
     const courses = rawCourses.map(adaptCourse);
     const byCode = new Map(courses.map((course) => [normCode(course.code), course]));
+    const equivalents = ugaEquivalents(courses);
     const prereqs = new Map<string, PlanPrereq>();
     const creditRanges = new Map<string, { credits: number; min: number; max: number; variable: boolean; known: boolean }>();
     const offeringPublished = new Set<string>();
@@ -521,6 +555,7 @@ function loadUgaData(): Promise<UgaData | null> {
     const context: PlanningContext = {
       courses,
       prereqs,
+      equivalents,
       creditRanges,
       offeringPublished,
       snapshotTerm: null,
@@ -569,12 +604,20 @@ export function useUgaData(enabled: boolean): UgaState {
   return state;
 }
 
-export function loadUgaProgram(data: UgaData, program: UgaProgram): UgaLoadedProgram {
+export function loadUgaProgram(
+  data: UgaData,
+  program: UgaProgram,
+  options: { resetRequirements?: boolean } = {},
+): UgaLoadedProgram {
   // Requirement marks describe the active degree. Switching majors must not
   // leave a course labelled required because the previous degree required it.
-  for (const course of data.courses) {
-    course.requirementIds = [];
-    course.pathwayRole = undefined;
+  // A double-major load resets once before the first program, then accumulates
+  // the second program's marks on the same catalog.
+  if (options.resetRequirements !== false) {
+    for (const course of data.courses) {
+      course.requirementIds = [];
+      course.pathwayRole = undefined;
+    }
   }
   // The degree table publishes authoritative hours for every course it names.
   // Apply those rows to the map catalog before planning. This also repairs old

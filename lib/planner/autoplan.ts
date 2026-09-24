@@ -664,6 +664,19 @@ export function normaliseCode(code: string): string {
   return code.trim().replace(/\s+/g, ' ').toUpperCase();
 }
 
+/**
+ * UGA publishes online (E), honors (H), and writing-intensive (W) versions as
+ * separate catalog rows. They remain separate map nodes, but a degree plan
+ * should not spend two elective slots on two versions of the same course.
+ */
+function electiveVariantKey(code: string): string {
+  return normaliseCode(code).replace(/^(\S+\s+\d{4})[EHW]$/, '$1');
+}
+
+function isElectiveVariant(code: string): boolean {
+  return electiveVariantKey(code) !== normaliseCode(code);
+}
+
 function expandEquivalents(code: string, equivalents: Map<string, string[]>): string[] {
   const others = equivalents.get(code);
   return others && others.length ? [code, ...others] : [code];
@@ -1905,6 +1918,17 @@ function degreeSubjectsOf(
   for (const requirement of requirements) {
     const rule = requirement.rule;
     if (rule.kind !== 'all' && rule.kind !== 'choose' && rule.kind !== 'pool') continue;
+    const area = requirement.areaLabel.toLowerCase();
+    // Campus core menus can contain dozens of HIST, ENGL or language rows. They
+    // describe ways to satisfy general education, not what the major is made
+    // of. Counting those rows made HIST the "primary subject" for Cognitive
+    // Science and consequently filled its open credits with history courses.
+    if (
+      /general education|general electives?|free electives?|core curriculum/.test(area) ||
+      /(?:^|:\s*)(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences)\b/.test(area)
+    ) {
+      continue;
+    }
     for (const choice of rule.choices) {
       for (const code of choice.codes) {
         const subject = normaliseCode(code).split(' ')[0];
@@ -1967,6 +1991,9 @@ function scoreElective(code: string, s: ElectiveScoring): number {
   // most pages; it only becomes eligible once the hours allow it.
   if (s.degreeSubjects.has(course.cluster) && courseLevel(code) >= 300) score += 2;
   if (s.interestWords.some((w) => subjectMatches(course.cluster, w))) score += 3;
+  const courseWords = `${course.title} ${course.description} ${course.tags.join(' ')}`.toLowerCase();
+  const interestHits = s.interestWords.filter((word) => courseWords.includes(word)).length;
+  score += Math.min(4, interestHits * 2);
   if (course.tags.length > 0) score += 1;
   if (s.sectionCount(code) > 0) score += 1;
   if (s.isHard(code)) score -= 3;
@@ -1983,15 +2010,24 @@ function scoreElective(code: string, s: ElectiveScoring): number {
 /**
  * Whether one more elective from this subject is reasonable. Five MATH courses
  * for a Finance major is not a plan, it is a sort order showing through, so
- * subjects outside the degree get two. The major itself gets ten, because a
- * page that names only 34 of Psychology's 120 credits leaves the rest of the
- * major unnamed, and a Psychology plan made of thirty introductions to other
- * departments is not a Psychology plan. The degree's other subjects get four.
+ * subjects outside the degree get one. The primary subject gets five and the
+ * degree's other subjects get three: enough room for relevant depth without
+ * letting a tied catalog sort fill every open slot from one department.
  */
 function subjectRoomLeft(subject: string, taken: Map<string, number>, primary: string | null, degreeSubjects: Set<string>): boolean {
   const n = taken.get(subject) ?? 0;
-  const cap = subject === primary ? 10 : degreeSubjects.has(subject) ? 4 : 2;
+  const cap = subject === primary ? 5 : degreeSubjects.has(subject) ? 3 : 1;
   return n < cap;
+}
+
+/** Stable tie-break that does not turn the catalog's alphabet into advice. */
+function electiveTie(code: string): number {
+  let hash = 2166136261;
+  for (const character of code) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 /** The catalog, best elective first, minus what the caller rules out. */
@@ -2001,7 +2037,7 @@ function rankedElectivePool(
   exclude: (code: string) => boolean,
   limit = 800,
 ): string[] {
-  return ctx.courses
+  const ranked = ctx.courses
     .map((c) => normaliseCode(c.code))
     // Both supported catalogs include graduate courses. They cannot fill an
     // undergraduate degree and scoring them made initial UGA generation sort
@@ -2011,9 +2047,59 @@ function rankedElectivePool(
     .filter((code) => !exclude(code))
     .map((code) => ({ code, score: scoreElective(code, s) }))
     .filter((c) => Number.isFinite(c.score))
-    .sort((a, b) => b.score - a.score || courseLevel(a.code) - courseLevel(b.code) || a.code.localeCompare(b.code))
-    .slice(0, limit)
-    .map((c) => c.code);
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        Number(isElectiveVariant(a.code)) - Number(isElectiveVariant(b.code)) ||
+        courseLevel(a.code) - courseLevel(b.code) ||
+        electiveTie(a.code) - electiveTie(b.code),
+    );
+
+  // Keep the ordinary catalog row when equivalent delivery/honors variants
+  // tie. If a requirement restricts the pool to only one variant, that row is
+  // still retained because its siblings were filtered out above.
+  const seenVariants = new Set<string>();
+  const distinct = ranked.filter(({ code }) => {
+    const key = electiveVariantKey(code);
+    if (seenVariants.has(key)) return false;
+    seenVariants.add(key);
+    return true;
+  });
+
+  // Pull from department queues with a small repeat penalty. Relevance still
+  // leads, but sixty equally suitable replacement choices no longer begin
+  // with every A-prefix department or twenty rows from one subject.
+  const queues = new Map<string, Array<{ code: string; score: number }>>();
+  for (const row of distinct) {
+    const subject = s.byCode.get(row.code)?.cluster ?? row.code.split(' ')[0];
+    const queue = queues.get(subject);
+    if (queue) queue.push(row);
+    else queues.set(subject, [row]);
+  }
+  const used = new Map<string, number>();
+  const out: string[] = [];
+  while (out.length < limit) {
+    let bestSubject: string | null = null;
+    let bestAdjusted = Number.NEGATIVE_INFINITY;
+    let bestTie = Number.POSITIVE_INFINITY;
+    for (const [subject, queue] of queues) {
+      const next = queue[0];
+      if (!next) continue;
+      const adjusted = next.score - (used.get(subject) ?? 0) * 1.5;
+      const tie = electiveTie(next.code);
+      if (adjusted > bestAdjusted || (adjusted === bestAdjusted && tie < bestTie)) {
+        bestSubject = subject;
+        bestAdjusted = adjusted;
+        bestTie = tie;
+      }
+    }
+    if (bestSubject === null) break;
+    const next = queues.get(bestSubject)?.shift();
+    if (!next) break;
+    out.push(next.code);
+    used.set(bestSubject, (used.get(bestSubject) ?? 0) + 1);
+  }
+  return out;
 }
 
 function electiveWhy(course: Course | undefined, degreeSubjects: Set<string>): string {
@@ -2100,6 +2186,7 @@ export function electiveOptions(input: {
       hoursBefore += codes.reduce((sum, c) => sum + creditsOf(c), 0);
     }
   }
+  const occupiedVariants = new Set([...held, ...onBoard].map(electiveVariantKey));
 
   const majors = degreeSubjectsOf(input.requirements, input.programName);
   const scoring: ElectiveScoring = {
@@ -2119,6 +2206,7 @@ export function electiveOptions(input: {
     (code) =>
       onBoard.has(code) ||
       held.has(code) ||
+      occupiedVariants.has(electiveVariantKey(code)) ||
       creditsOf(code) <= 0 ||
       (input.candidateCodes !== undefined && !input.candidateCodes.has(code)),
     Math.max(800, input.limit ?? 60),
@@ -3651,6 +3739,9 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
       creditsOf,
     };
     const plannedAll = new Set<string>([...placed.values()].flat());
+    const plannedVariants = new Set(
+      [...plannedAll, ...earned, ...exempt].map(electiveVariantKey),
+    );
     const perSubject = new Map<string, number>();
     const candidates = rankedElectivePool(
       ctx,
@@ -3659,6 +3750,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
         plannedAll.has(code) ||
         earned.has(code) ||
         exempt.has(code) ||
+        plannedVariants.has(electiveVariantKey(code)) ||
         creditsOf(code) <= 0,
     );
     let total =
@@ -3703,6 +3795,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
           const isLast = term.index === terms.length - 1;
           const pick = candidates.find((code) => {
             if (plannedAll.has(code)) return false;
+            if (plannedVariants.has(electiveVariantKey(code))) return false;
             const course = byCode.get(code);
             if (!course) return false;
             if (!subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects)) return false;
@@ -3717,6 +3810,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
           if (!pick) continue;
           here.push(pick);
           plannedAll.add(pick);
+          plannedVariants.add(electiveVariantKey(pick));
           chosen.set(pick, { requirementId: null, label: 'Elective' });
           total += creditsOf(pick);
           const subject = byCode.get(pick)?.cluster ?? '';
@@ -3760,6 +3854,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
         const isLast = term.index === terms.length - 1;
         const pick = candidates.find((code) => {
           if (plannedAll.has(code)) return false;
+          if (plannedVariants.has(electiveVariantKey(code))) return false;
           const course = byCode.get(code);
           if (!course) return false;
           if (!subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects)) return false;
@@ -3774,6 +3869,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
         if (!pick) continue;
         here.push(pick);
         plannedAll.add(pick);
+        plannedVariants.add(electiveVariantKey(pick));
         chosen.set(pick, { requirementId: null, label: 'Elective' });
         total += creditsOf(pick);
         const subject = byCode.get(pick)?.cluster ?? '';

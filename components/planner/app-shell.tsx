@@ -43,7 +43,7 @@ export function AppShell() {
     return (
       <Onboarding
         initial={saved}
-        onResume={saved ? () => setAnswers(saved) : undefined}
+        onResume={saved?.programIds.length ? () => setAnswers(saved) : undefined}
         onDone={(next) => {
           // A board saved under the previous answers would otherwise win over
           // the plan these answers are about to build.

@@ -41,9 +41,9 @@ import { ElectivePools } from './elective-pools';
 import { groupIssues, isTermIssue, PlanHealthList } from './plan-health';
 import { SemesterColumn } from './semester-column';
 import { StudentProfilePanel, type AreaRow } from './student-profile-panel';
+import { ProgramPicker } from './program-picker';
 import {
   buildContext,
-  guessProgram,
   loadFullIllinois,
   loadProgram,
   plannableProgram,
@@ -53,7 +53,6 @@ import {
   type LoadedProgram,
 } from './illinois-source';
 import {
-  guessUgaProgram,
   loadUgaProgram,
   useUgaData,
   type UgaLoadedProgram,
@@ -75,7 +74,7 @@ import {
 import { livePools, poolShortfalls } from './live-pools';
 import { plural } from './words';
 import { examCourses, examElectiveHours, useExamCredit } from './exam-credit';
-import { areaProgress } from '@/lib/planner/scheduler';
+import { areaProgress, type ProgramRequirements } from '@/lib/planner/scheduler';
 import { routeQuestion, sectionRowsFrom, type AskContext, type PlannedCourse } from '@/lib/planner/ask-router';
 import { createSamplePlan, sampleCourses, samplePrograms } from '@/lib/planner/sample-data';
 import {
@@ -297,12 +296,101 @@ interface PlanReport {
 interface Stored {
   schemaVersion: 3;
   schoolId: string;
+  programIds?: string[];
+  /** Kept so plans saved by the previous release still open. */
   programId: string | null;
   plan: PlanState;
   minimumTermCredits: number;
   /** Null, or absent on boards saved before the control existed, means balanced. */
   targetTermCredits?: number | null;
   careerInterests: string;
+}
+
+type SourceProgram = LoadedProgram | UgaLoadedProgram;
+
+/** One or more catalog degree pages presented to the planner as one board. */
+interface LoadedBundle {
+  summary: { id: string; name: string; totalCredits: number | null };
+  program: ProgramRequirements;
+  blocks: RequirementBlock[];
+  sources: SourceProgram[];
+  urls: Array<{ name: string; url: string }>;
+  electiveHours?: number;
+  fillToDegreeTotal?: boolean;
+}
+
+/** Campus-wide requirements a double major completes once, not once per page. */
+function isSharedCoreArea(label: string): boolean {
+  return (
+    /general education|core curriculum/i.test(label) ||
+    /^(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences)\b/i.test(label.trim())
+  );
+}
+
+function combinePrograms(sources: SourceProgram[]): LoadedBundle | null {
+  if (sources.length === 0) return null;
+  const multiple = sources.length > 1;
+  const names = sources.map((source) => source.program.name);
+  const totalCredits = sources.reduce<number | null>((largest, source) => {
+    const total = source.summary.totalCredits ?? source.program.totalCredits;
+    if (total === null) return largest;
+    return Math.max(largest ?? 0, total);
+  }, null);
+  const qualify = (source: SourceProgram, label: string) =>
+    multiple ? `${source.program.name}: ${label}` : label;
+  const blocks = sources.flatMap((source, sourceIndex) =>
+    source.blocks
+      .filter(
+        (block) =>
+          !multiple || (
+            !(sourceIndex > 0 && (block.rule.kind === 'gened' || isSharedCoreArea(block.areaLabel))) &&
+            (block.rule.kind !== 'hours' || block.rule.source !== 'explicit-elective')
+          ),
+      )
+      .map((block) => ({
+        ...block,
+        areaLabel: qualify(source, block.areaLabel),
+      })),
+  );
+  const program: ProgramRequirements = {
+    id: sources.map((source) => source.program.id).join('+'),
+    college: [...new Set(sources.map((source) => source.program.college))].join(' + '),
+    degree: [...new Set(sources.map((source) => source.program.degree))].join(' + '),
+    name: names.join(' + '),
+    areas: sources.flatMap((source, sourceIndex) =>
+      source.program.areas
+        .filter(
+          (area) =>
+            !multiple || (
+              !/^(?:general|free) electives?\b/i.test(area.label) &&
+              !(sourceIndex > 0 && isSharedCoreArea(area.label))
+            ),
+        )
+        .map((area) => ({
+          ...area,
+          label: qualify(source, area.label),
+        })),
+    ),
+    totalCredits,
+    areaHours: sources.reduce((sum, source) => sum + source.program.areaHours, 0),
+  };
+  const electiveHours = sources.reduce(
+    (sum, source) => sum + ('electiveHours' in source ? source.electiveHours : 0),
+    0,
+  );
+  return {
+    summary: { id: program.id, name: program.name, totalCredits },
+    program,
+    blocks,
+    sources,
+    urls: sources.map((source) => ({ name: source.program.name, url: source.url })),
+    // A second major replaces free-elective room rather than adding another
+    // degree's full elective allowance. Leaving the cap undefined lets the
+    // combined requirements fill naturally to the shared degree total.
+    electiveHours: multiple ? undefined : electiveHours,
+    fillToDegreeTotal:
+      multiple || sources.some((source) => 'fillToDegreeTotal' in source && source.fillToDegreeTotal),
+  };
 }
 
 export function PlannerWorkspace({
@@ -330,7 +418,9 @@ export function PlannerWorkspace({
 
   const [plan, setPlan] = useState<PlanState | null>(null);
   const [undoStack, setUndoStack] = useState<PlanState[]>([]);
-  const [programId, setProgramId] = useState<string | null>(null);
+  const [programIds, setProgramIds] = useState<string[]>(() => answers?.programIds ?? []);
+  const programId = programIds[0] ?? null;
+  const programKey = programIds.join('|');
   /**
    * The degree page, tagged with the degree it belongs to.
    *
@@ -340,8 +430,8 @@ export function PlannerWorkspace({
    * comparison rather than a second piece of state set inside an effect.
    */
   const [fetched, setFetched] = useState<{
-    id: string;
-    value: LoadedProgram | UgaLoadedProgram | null;
+    key: string;
+    value: LoadedBundle | null;
   } | null>(null);
   const [planNotes, setPlanNotes] = useState<string[]>([]);
   const [report, setReport] = useState<PlanReport | null>(null);
@@ -438,6 +528,15 @@ export function PlannerWorkspace({
     return samplePrograms.map((p) => ({ id: p.id, name: `${p.name}, ${p.degree}` }));
   }, [isIllinois, isUga, core, uga]);
 
+  const changePrograms = useCallback((ids: string[]) => {
+    setProgramIds(ids);
+    setFetched(null);
+    setPlan(null);
+    setReport(null);
+    setPlanNotes([]);
+    if (answers && onAnswersChange) onAnswersChange({ ...answers, programIds: ids });
+  }, [answers, onAnswersChange]);
+
   // ---- restore -------------------------------------------------------------
 
   useEffect(() => {
@@ -447,6 +546,12 @@ export function PlannerWorkspace({
       const parsed = JSON.parse(raw) as Partial<Stored>;
       if (parsed.schemaVersion !== 3 || !isPlanState(parsed.plan)) return;
       if (parsed.schoolId !== (school?.id ?? '')) return;
+      const savedProgramIds = Array.isArray(parsed.programIds) && parsed.programIds.length > 0
+        ? parsed.programIds
+        : parsed.programId
+          ? [parsed.programId]
+          : [];
+      if (savedProgramIds.join('|') !== programKey) return;
       restored.current = parsed as Stored;
       /**
        * Set here and not derived, because localStorage cannot be read while
@@ -456,65 +561,56 @@ export function PlannerWorkspace({
        * extra render on arrival and never again.
        */
       // oxlint-disable-next-line react/react-compiler
-      setProgramId(parsed.programId ?? null);
       setMinimumTermCredits(parsed.minimumTermCredits ?? 12);
       setTargetTermCredits(parsed.targetTermCredits ?? null);
       if (parsed.careerInterests) setCareerInterests(parsed.careerInterests);
     } catch {
       /* a corrupt entry is not worth failing the app over; a fresh plan follows */
     }
-  }, [school]);
+  }, [school, programKey]);
 
-  // ---- pick a degree -------------------------------------------------------
-
-  useEffect(() => {
-    if (programId) return;
-    const guess = isIllinois && core
-      ? guessProgram(answers?.studying ?? '', (core.programs ?? []).filter(plannableProgram))
-      : isUga && uga
-        ? guessUgaProgram(answers?.studying ?? '', uga.programs)
-        : null;
-    if (guess) {
-      /**
-       * A guess, not a derivation. The student can change it in the rail and
-       * that choice has to survive, so this writes the degree once when the
-       * catalog lands and never overrules them afterwards.
-       */
-      // oxlint-disable-next-line react/react-compiler
-      setProgramId(guess.id);
-      setStatus(`Planning ${guess.name}`);
-    }
-  }, [isIllinois, isUga, core, uga, programId, answers]);
+  // ---- load the explicitly selected degree pages ---------------------------
 
   useEffect(() => {
-    if (!programId) return;
+    if (programIds.length === 0) return;
     if (isUga && uga) {
-      const program = uga.programs.find((candidate) => candidate.id === programId);
-      if (program) {
-        // The UGA degree file is already in memory, so there is no asynchronous
-        // page fetch to subscribe to as there is for an Illinois shard.
-        // oxlint-disable-next-line react/react-compiler
-        setFetched({ id: programId, value: loadUgaProgram(uga, program) });
-      }
+      const selected = programIds
+        .map((id) => uga.programs.find((candidate) => candidate.id === id))
+        .filter((program): program is NonNullable<typeof program> => Boolean(program));
+      const sources = selected.map((program, index) =>
+        loadUgaProgram(uga, program, { resetRequirements: index === 0 }),
+      );
+      // oxlint-disable-next-line react/react-compiler
+      setFetched({ key: programKey, value: sources.length === programIds.length ? combinePrograms(sources) : null });
       return;
     }
     if (!isIllinois || !core) return;
-    const summary = (core.programs ?? []).find((candidate) => candidate.id === programId);
-    if (!summary) return;
+    const summaries = programIds
+      .map((id) => (core.programs ?? []).find((candidate) => candidate.id === id))
+      .filter((summary): summary is NonNullable<typeof summary> => Boolean(summary));
+    for (const course of core.index) {
+      course.requirementIds = [];
+      course.pathwayRole = undefined;
+    }
     let cancelled = false;
-    void loadProgram(core, summary).then((result) => {
+    void Promise.all(summaries.map((summary) => loadProgram(core, summary))).then((results) => {
       if (cancelled) return;
-      // Recorded even when the page could not be read, so the board stops
-      // saying "Reading the degree page" about a page that is not coming.
-      setFetched({ id: programId, value: result });
+      const sources = results.filter((result): result is LoadedProgram => Boolean(result));
+      setFetched({
+        key: programKey,
+        value:
+          summaries.length === programIds.length && sources.length === programIds.length
+            ? combinePrograms(sources)
+            : null,
+      });
     });
     return () => {
       cancelled = true;
     };
-  }, [isIllinois, isUga, core, uga, programId]);
+  }, [isIllinois, isUga, core, uga, programIds, programKey]);
 
-  const loaded = fetched?.id === programId ? fetched.value : null;
-  const programBusy = Boolean(isCatalogSchool && programId) && fetched?.id !== programId;
+  const loaded = fetched?.key === programKey ? fetched.value : null;
+  const programBusy = Boolean(isCatalogSchool && programIds.length > 0) && fetched?.key !== programKey;
 
   // ---- the planning context -------------------------------------------------
 
@@ -535,7 +631,7 @@ export function PlannerWorkspace({
       setTargetTermId(sample.terms[0]?.id ?? '');
       // The demo plan names its own program. Without this the rail reads
       // "No degree chosen" above a board full of that degree's courses.
-      setProgramId((current) => current ?? sample.programId);
+      setProgramIds((current) => current.length > 0 ? current : [sample.programId]);
       return;
     }
     if (!context || !loaded) return;
@@ -759,7 +855,11 @@ export function PlannerWorkspace({
 
   /** The degree on screen, from whichever source this school has. */
   const activeProgramName =
-    loaded?.program.name ?? programOptions.find((p) => p.id === programId)?.name ?? null;
+    loaded?.program.name ??
+    (programIds
+        .map((id) => programOptions.find((program) => program.id === id)?.name)
+        .filter((name): name is string => Boolean(name))
+        .join(' + ') || null);
   const activeProgramTotal =
     loaded?.program.totalCredits ??
     samplePrograms.find((p) => p.id === programId)?.totalCredits ??
@@ -856,7 +956,7 @@ export function PlannerWorkspace({
     const progress = areaProgress(
       loaded.program,
       have,
-      isIllinois ? (core?.equivalents ?? undefined) : undefined,
+      context?.equivalents,
       { allowCrossAreaOverlap: isUga },
     );
     if (!isUga) return progress;
@@ -887,9 +987,8 @@ export function PlannerWorkspace({
     plan,
     completedCodes,
     courseIndex,
-    isIllinois,
     isUga,
-    core,
+    context?.equivalents,
     credits.total.min,
   ]);
 
@@ -1648,6 +1747,7 @@ export function PlannerWorkspace({
     const stored: Stored = {
       schemaVersion: 3,
       schoolId: school?.id ?? '',
+      programIds,
       programId,
       plan,
       minimumTermCredits,
@@ -1660,7 +1760,7 @@ export function PlannerWorkspace({
 
   function exportPlan() {
     if (!plan) return;
-    const blob = new Blob([JSON.stringify({ school: school?.id, programId, plan }, null, 2)], {
+    const blob = new Blob([JSON.stringify({ school: school?.id, programIds, programId, plan }, null, 2)], {
       type: 'application/json',
     });
     const a = document.createElement('a');
@@ -1678,12 +1778,20 @@ export function PlannerWorkspace({
       const file = input.files?.[0];
       if (!file) return;
       try {
-        const parsed = JSON.parse(await file.text()) as { plan?: unknown; programId?: unknown };
+        const parsed = JSON.parse(await file.text()) as {
+          plan?: unknown;
+          programId?: unknown;
+          programIds?: unknown;
+        };
         if (isPlanState(parsed.plan)) {
           setPlan(parsed.plan);
           setStatus('Plan loaded from the file.');
         }
-        if (typeof parsed.programId === 'string') setProgramId(parsed.programId);
+        if (Array.isArray(parsed.programIds) && parsed.programIds.every((id) => typeof id === 'string')) {
+          setProgramIds(parsed.programIds);
+        } else if (typeof parsed.programId === 'string') {
+          setProgramIds([parsed.programId]);
+        }
       } catch {
         setStatus('That file could not be read as a plan.');
       }
@@ -1693,7 +1801,7 @@ export function PlannerWorkspace({
 
   async function sharePlan() {
     if (!plan) return;
-    const encoded = btoa(encodeURIComponent(JSON.stringify({ programId, plan })));
+    const encoded = btoa(encodeURIComponent(JSON.stringify({ programIds, programId, plan })));
     try {
       await navigator.clipboard.writeText(
         `${window.location.origin}${window.location.pathname}#plan=${encoded}`,
@@ -1756,7 +1864,7 @@ export function PlannerWorkspace({
       selectedCode: selectedCourse ? normCode(selectedCourse.code) : null,
       focusTermId,
       program: loaded?.program ?? null,
-      programUrl: loaded?.url ?? null,
+      programUrl: loaded?.urls[0]?.url ?? null,
     };
   }, [isIllinois, plan, courseIndex, completedCodes, selectedCourse, focusTermId, loaded]);
 
@@ -1791,28 +1899,20 @@ export function PlannerWorkspace({
     );
   }
 
-  if (isCatalogSchool && !programId) {
+  if (isCatalogSchool && programIds.length === 0) {
     return (
       <main className="planner-loading">
         <div>
-          <h1>Which degree are you planning?</h1>
+          <h1>Choose your major</h1>
           <p>
-            Your answers did not point clearly at one of the {programOptions.length} {school?.short}
-            degrees with published course lists, so pick it rather than have one picked wrong.
+            Select a major explicitly. Add another to build a double-major plan from both
+            published degree pages.
           </p>
-          <select
-            className="prior-search"
-            aria-label="Pick your degree"
-            defaultValue=""
-            onChange={(event) => setProgramId(event.target.value || null)}
-          >
-            <option value="">Pick a degree</option>
-            {programOptions.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <ProgramPicker
+            options={programOptions}
+            selectedIds={programIds}
+            onChange={changePrograms}
+          />
         </div>
       </main>
     );
@@ -1834,6 +1934,11 @@ export function PlannerWorkspace({
       ? [
           'This planning draft uses requirements and prerequisites from the UGA Bulletin. DegreeWorks and your advisor remain the official check for graduation.',
           'Course availability is based on catalog patterns, not live registration. This prototype does not yet know current instructors, meeting times, rooms, or open seats.',
+        ]
+      : []),
+    ...(programIds.length > 1
+      ? [
+          'This double-major draft combines every named requirement from the selected degree pages and counts shared courses once. College residency rules and whether the pairing is one degree or two still need advisor confirmation.',
         ]
       : []),
     'Prerequisites are parsed from catalog sentences. Anything about placement or consent is not checked here.',
@@ -1903,7 +2008,7 @@ export function PlannerWorkspace({
         schoolShort={school?.short ?? 'Your school'}
         portal={school?.portal ?? 'your student portal'}
         programName={activeProgramName}
-        programUrl={loaded?.url ?? null}
+        programUrls={loaded?.urls ?? []}
         digest={answers ? [school?.short, activeProgramName].filter(Boolean).join(' · ') : ''}
         onStartOver={startOver}
         plannedCredits={totalCredits}
@@ -1926,13 +2031,8 @@ export function PlannerWorkspace({
         }
         areas={areas}
         programs={programOptions}
-        programId={programId}
-        onProgramChange={(id) => {
-          setProgramId(id || null);
-          // The board is rebuilt for the new degree; `loaded` follows the id
-          // on its own, so there is nothing else to clear here.
-          setPlan(null);
-        }}
+        programIds={programIds}
+        onProgramsChange={changePrograms}
         minimumTermCredits={minimumTermCredits}
         onMinimumChange={setMinimumTermCredits}
         targetTermCredits={targetTermCredits}
@@ -2150,10 +2250,10 @@ export function PlannerWorkspace({
         */}
       {isIllinois && (
         <BotPanel
-          key={programId ?? 'no-degree'}
+          key={programKey || 'no-degree'}
           botName={botName}
           schoolShort={school?.short ?? 'your school'}
-          programId={programId}
+          programId={programKey || null}
           board={describeBoard}
           execute={advisorExecute}
           open={chatOpen}

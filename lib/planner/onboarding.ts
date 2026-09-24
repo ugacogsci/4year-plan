@@ -155,6 +155,9 @@ export interface PriorExam {
 
 export interface OnboardingAnswers {
   schoolId: SchoolId | null;
+  /** Degree programs the student explicitly selected, primary first. */
+  programIds: string[];
+  /** Minors, certificates and subjects the student wants the plan to consider. */
   studying: string;
   timeline: string;
   after: string;
@@ -174,6 +177,7 @@ export interface OnboardingAnswers {
 
 export const EMPTY_ANSWERS: OnboardingAnswers = {
   schoolId: null,
+  programIds: [],
   studying: '',
   timeline: '',
   after: '',
@@ -193,11 +197,11 @@ export function questionsFor(school: School | undefined): Array<{
   return [
     {
       key: 'studying',
-      label: 'What are you studying, or thinking about studying?',
-      hint: 'A declared major, two you are torn between, or just the subjects you like.',
+      label: 'What else should the plan make room for?',
+      hint: 'Minors, certificates, possible fields of study, or subjects you want to explore.',
       placeholder: s
-        ? `I am in ${college} doing psychology but I have taken two CS classes and liked them more. Thinking about switching or adding a CS minor.`
-        : 'Psychology, but I like my CS classes more.',
+        ? `I am in ${college} and considering a computer science minor. I would also like room for psychology and linguistics.`
+        : 'A computer science minor, plus room to explore psychology.',
     },
     {
       key: 'timeline',
@@ -229,8 +233,15 @@ export function loadAnswers(): OnboardingAnswers | null {
   try {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as OnboardingAnswers;
-    return parsed.schoolId ? parsed : null;
+    const parsed = JSON.parse(raw) as Partial<OnboardingAnswers>;
+    if (!parsed.schoolId) return null;
+    return {
+      ...EMPTY_ANSWERS,
+      ...parsed,
+      programIds: Array.isArray(parsed.programIds)
+        ? parsed.programIds.filter((id): id is string => typeof id === 'string')
+        : [],
+    };
   } catch {
     return null;
   }

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { ProgramPicker, type ProgramOption } from './program-picker';
 import { PriorCredit } from './prior-credit';
 import {
   EMPTY_ANSWERS,
@@ -14,8 +15,8 @@ import {
 import { transcriptCodes } from '@/lib/planner/transcript';
 
 /**
- * Three screens before the planner: pick a school, describe your situation,
- * then we build the profile.
+ * Four screens before the planner: pick a school, explicitly choose one or
+ * more majors, describe the rest of the situation, then add prior credit.
  *
  * The middle screen is deliberately three open text boxes rather than a form.
  * Someone who has failed calculus once and is deciding between two majors
@@ -55,21 +56,60 @@ export function Onboarding({
   const ready = readySchools();
   const onlySchool = ready.length === 1 ? ready[0] : null;
   const [step, setStep] = useState(onlySchool ? 1 : 0);
+  const [programs, setPrograms] = useState<ProgramOption[] | null>(null);
   const [answers, setAnswers] = useState<OnboardingAnswers>(() => {
     const base = initial ? { ...EMPTY_ANSWERS, ...initial } : EMPTY_ANSWERS;
-    return onlySchool ? { ...base, schoolId: onlySchool.id } : base;
+    return onlySchool
+      ? { ...base, schoolId: onlySchool.id, programIds: base.programIds ?? [] }
+      : { ...base, programIds: base.programIds ?? [] };
   });
 
   const school = schoolById(answers.schoolId);
   const questions = questionsFor(school);
   const answered = questions.filter((q) => answers[q.key].trim().length > 0).length;
 
+  useEffect(() => {
+    if (!answers.schoolId) return;
+    let cancelled = false;
+    const url = answers.schoolId === 'uga' ? '/uga-programs.json' : '/illinois/programs.json';
+    void fetch(url)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((raw: unknown) => {
+        if (cancelled) return;
+        const rows = answers.schoolId === 'uga'
+          ? ((raw as { programs?: Array<{ id: string; name: string; degree: string; areas: unknown[] }> } | null)?.programs ?? [])
+              .filter((program) => program.areas.length > 0 && (program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree)))
+          : (Array.isArray(raw) ? raw : [])
+              .filter((program: { degree?: string; dataStatus?: string; courseCount?: number }) =>
+                /^(AB|BA|BS|BFA|BLA|BMUS|BSLAS|BSW)$/i.test(program.degree ?? '') &&
+                program.dataStatus === 'catalog' &&
+                (program.courseCount ?? 0) > 0,
+              );
+        setPrograms(
+          rows
+            .map((program: { id: string; name: string }) => ({ id: program.id, name: program.name }))
+            .sort((a: ProgramOption, b: ProgramOption) => a.name.localeCompare(b.name)),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setPrograms([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [answers.schoolId]);
+
   function pick(id: SchoolId) {
-    setAnswers((a) => ({ ...a, schoolId: id }));
+    if (answers.schoolId !== id) setPrograms(null);
+    setAnswers((a) => ({
+      ...a,
+      schoolId: id,
+      programIds: a.schoolId === id ? a.programIds : [],
+    }));
   }
 
   function finish() {
-    setStep(3);
+    setStep(4);
     saveAnswers(answers);
     window.setTimeout(() => onDone(answers), 1400);
   }
@@ -78,7 +118,7 @@ export function Onboarding({
     <div className="onb" style={school ? ({ ['--school' as string]: school.accent }) : undefined}>
       <div className="onb-inner">
         <ol className="onb-steps" aria-label="Progress">
-          {['School', 'About you', 'Credit', 'Profile'].map((label, i) => (
+          {['School', 'Majors', 'About you', 'Credit', 'Profile'].map((label, i) => (
             <li key={label} className={i === step ? 'now' : i < step ? 'done' : ''}>
               <span className="onb-dot">{i < step ? '✓' : i + 1}</span>
               {label}
@@ -86,7 +126,7 @@ export function Onboarding({
           ))}
         </ol>
 
-        {onResume && step < 3 && (
+        {onResume && step < 4 && (
           <p className="onb-resume">
             Your answers from last time are filled in below.{' '}
             <button type="button" onClick={onResume}>
@@ -124,13 +164,39 @@ export function Onboarding({
             <div className="onb-actions onb-university-actions">
               <span />
               <button className="onb-next" onClick={() => setStep(1)} disabled={!answers.schoolId}>
-                Continue
+                Choose majors
               </button>
             </div>
           </section>
         )}
 
         {step === 1 && (
+          <section className="onb-step">
+            <h1>Choose your major{answers.programIds.length > 1 ? 's' : ''}.</h1>
+            <p className="onb-sub">
+              Select your declared or intended major. Add another to build a double-major plan.
+            </p>
+            <ProgramPicker
+              options={programs ?? []}
+              selectedIds={answers.programIds}
+              onChange={(programIds) => setAnswers((current) => ({ ...current, programIds }))}
+              loading={programs === null}
+            />
+            <div className="onb-actions">
+              {!onlySchool && <button className="onb-back" onClick={() => setStep(0)}>Back</button>}
+              <span className="onb-count">
+                {answers.programIds.length === 0
+                  ? 'Choose at least one major'
+                  : `${answers.programIds.length} major${answers.programIds.length === 1 ? '' : 's'} selected`}
+              </span>
+              <button className="onb-next" onClick={() => setStep(2)} disabled={answers.programIds.length === 0}>
+                Continue
+              </button>
+            </div>
+          </section>
+        )}
+
+        {step === 2 && (
           <section className="onb-step">
             <h1>Tell us where you are{school ? ` at ${school.short}` : ''}.</h1>
             <p className="onb-sub">
@@ -152,19 +218,19 @@ export function Onboarding({
             </div>
             <div className="onb-actions">
               {/* No school step to go back to when there was no school to choose. */}
-              {!onlySchool && <button className="onb-back" onClick={() => setStep(0)}>Back</button>}
+              <button className="onb-back" onClick={() => setStep(1)}>Back</button>
               <span className="onb-count">{answered} of 3 answered</span>
-              <button className="onb-next" onClick={() => setStep(2)} disabled={answered === 0}>
+              <button className="onb-next" onClick={() => setStep(3)} disabled={answered === 0}>
                 Next
               </button>
             </div>
             <p className="onb-skip">
-              <button onClick={() => setStep(2)}>Skip for now</button>
+              <button onClick={() => setStep(3)}>Skip for now</button>
             </p>
           </section>
         )}
 
-        {step === 2 && (
+        {step === 3 && (
           <section className="onb-step">
             <h1>What do you already have?</h1>
             <p className="onb-sub">
@@ -179,7 +245,7 @@ export function Onboarding({
               onTranscriptChange={(transcript) => setAnswers((a) => ({ ...a, transcript }))}
             />
             <div className="onb-actions">
-              <button className="onb-back" onClick={() => setStep(1)}>Back</button>
+              <button className="onb-back" onClick={() => setStep(2)}>Back</button>
               <span className="onb-count">{priorSummary(answers)}</span>
               <button className="onb-next" onClick={finish}>
                 {initial ? 'Build my plan again' : 'Build my plan'}
@@ -191,7 +257,7 @@ export function Onboarding({
           </section>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <section className="onb-step onb-building">
             <div className="onb-spinner" aria-hidden="true" />
             <h1>Building your profile</h1>

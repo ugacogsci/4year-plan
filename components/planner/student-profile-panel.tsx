@@ -11,8 +11,8 @@
 
 import { useState, type ReactNode } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import type { RequirementArea } from '@/lib/planner/scheduler';
+import { ProgramPicker, type ProgramOption } from './program-picker';
 
 export interface AreaRow {
   area: RequirementArea;
@@ -26,7 +26,7 @@ interface RailProps {
   schoolShort: string;
   portal: string;
   programName: string | null;
-  programUrl: string | null;
+  programUrls: Array<{ name: string; url: string }>;
   digest: string;
   onStartOver: () => void;
   plannedCredits: string;
@@ -39,9 +39,9 @@ interface RailProps {
   degreeTotal: number | null;
   priorCount: number;
   areas: AreaRow[];
-  programs: Array<{ id: string; name: string }>;
-  programId: string | null;
-  onProgramChange: (id: string) => void;
+  programs: ProgramOption[];
+  programIds: string[];
+  onProgramsChange: (ids: string[]) => void;
   minimumTermCredits: number;
   onMinimumChange: (value: number) => void;
   /** What a term should hold, or null for an even spread. The scheduler goes past it only to fit the degree in time. */
@@ -99,7 +99,7 @@ export function StudentProfilePanel({
   schoolShort,
   portal,
   programName,
-  programUrl,
+  programUrls,
   digest,
   onStartOver,
   plannedCredits,
@@ -108,8 +108,8 @@ export function StudentProfilePanel({
   priorCount,
   areas,
   programs,
-  programId,
-  onProgramChange,
+  programIds,
+  onProgramsChange,
   minimumTermCredits,
   onMinimumChange,
   targetTermCredits,
@@ -220,26 +220,20 @@ export function StudentProfilePanel({
       {pools}
 
       <details className="rail-section">
-        <summary>Degree</summary>
-        <label className="rail-field">
-          <span>Which degree are you planning?</span>
-          <NativeSelect
-            value={programId ?? ''}
-            onChange={(event) => onProgramChange(event.target.value)}
-          >
-            <NativeSelectOption value="">Pick a degree</NativeSelectOption>
-            {programs.map((p) => (
-              <NativeSelectOption key={p.id} value={p.id}>
-                {p.name}
-              </NativeSelectOption>
+        <summary>Majors</summary>
+        <ProgramPicker
+          compact
+          options={programs}
+          selectedIds={programIds}
+          onChange={onProgramsChange}
+        />
+        {programUrls.length > 0 && (
+          <p className="rail-note program-catalog-links" style={{ margin: 0, paddingTop: 0, border: 0 }}>
+            {programUrls.map((program) => (
+              <a key={program.url} href={program.url} target="_blank" rel="noreferrer">
+                {program.name} catalog page
+              </a>
             ))}
-          </NativeSelect>
-        </label>
-        {programUrl && (
-          <p className="rail-note" style={{ margin: 0, paddingTop: 0, border: 0 }}>
-            <a href={programUrl} target="_blank" rel="noreferrer">
-              The catalog page these requirements came from
-            </a>
           </p>
         )}
       </details>
