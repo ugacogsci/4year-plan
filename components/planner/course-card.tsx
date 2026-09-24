@@ -29,27 +29,21 @@ import {
 import { cn } from '@/lib/utils';
 import { clusterColor } from './cluster-color';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
+import type { PlanMark } from '@/lib/planner/repick';
 
 /**
- * A course that is in the plan because a pool needed filling.
+ * A course that is in the plan because a pool needed filling, a slot needed a
+ * course, or the student's career track asks for it.
  *
  * Shown on the card because "required" and "one of a hundred and two" are very
  * different facts about a course sitting in a semester, and the old card had
  * one badge for the first and nothing at all for the second. `detail` is the
  * pool's own line, counted off the board, so hovering says what the catalog
- * asked for and how much of it the plan holds.
+ * asked for and how much of it the plan holds. The kinds are described on
+ * PlanMark (lib/planner/repick.ts), which builds these marks for the board,
+ * ALMA and the re-pick alike; a 'track' card carries the track's name.
  */
-export interface ElectiveOf {
-  label: string;
-  detail: string;
-  /**
-   * A pool pick reads "from a list"; a filler the plan chose reads "elective";
-   * a language sequence card reads "language"; the planner's pick for a
-   * general education category reads "gen ed"; a course booked only because a
-   * later course needs it reads "prerequisite".
-   */
-  kind?: 'pool' | 'elective' | 'language' | 'gened' | 'prerequisite';
-}
+export type ElectiveOf = PlanMark;
 
 /** Another course that could sit where a card sits, and why it is offered. */
 export interface Alternative {
@@ -101,7 +95,9 @@ export function CourseCard({
 }: CourseCardProps) {
   const highestIssue = issues.find((issue) => issue.severity === 'error') ?? issues[0];
   const [alternatives, setAlternatives] = useState<Alternative[] | null>(null);
-  const swappable = Boolean(electiveOf && electiveOf.kind !== 'prerequisite' && alternativesFor && onSwap);
+  // A track card is there for the student's goal (PHYS 101 for physical
+  // therapy school), so it offers no "better" course to trade it for.
+  const swappable = Boolean(electiveOf && electiveOf.kind !== 'prerequisite' && electiveOf.kind !== 'track' && alternativesFor && onSwap);
 
   return (
     <article
@@ -158,12 +154,14 @@ export function CourseCard({
                   ? `${electiveOf.detail} Tap the card to choose a different course for this slot.`
                   : electiveOf.kind === 'language'
                     ? `${electiveOf.detail} Open the chevron to switch languages.`
-                    : electiveOf.kind === 'gened' || electiveOf.kind === 'prerequisite'
-                      ? electiveOf.detail
-                      : `${electiveOf.label}. ${electiveOf.detail}`
+                    : electiveOf.kind === 'track'
+                      ? `${electiveOf.detail} Booked for your goal; it stays unless you drop that goal.`
+                      : electiveOf.kind === 'gened' || electiveOf.kind === 'prerequisite'
+                        ? electiveOf.detail
+                        : `${electiveOf.label}. ${electiveOf.detail}`
               }
             >
-              <ListChecks /> {electiveOf.kind === 'elective' ? 'elective · tap to choose' : electiveOf.kind === 'language' ? 'language · switch ▾' : electiveOf.kind === 'gened' ? 'gen ed · swap ▾' : electiveOf.kind === 'prerequisite' ? 'prerequisite' : 'from a list'}
+              <ListChecks /> {electiveOf.kind === 'elective' ? 'elective · tap to choose' : electiveOf.kind === 'track' ? `for ${electiveOf.track ?? electiveOf.label}` : electiveOf.kind === 'language' ? 'language · switch ▾' : electiveOf.kind === 'gened' ? 'gen ed · swap ▾' : electiveOf.kind === 'prerequisite' ? 'prerequisite' : 'from a list'}
             </span>
           )}
           {highestIssue && (
