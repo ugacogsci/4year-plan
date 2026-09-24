@@ -72,6 +72,7 @@ import {
   extendForAway,
   generatePlan,
   planCreditRange,
+  prereqNeedsAdmission,
   spreadHardOutcome,
   validatePlan,
   type AutoplanInput,
@@ -87,6 +88,7 @@ import {
 } from '@/lib/planner/autoplan';
 import { livePools, poolShortfalls } from './live-pools';
 import { careerWordsAfter, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
+import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
 import { describeExcellent, interestWordsFrom, sectionTimes } from '@/lib/planner/quality';
 import {
   DEFAULT_PRIORITIES,
@@ -316,7 +318,10 @@ function describeGoals(studying: string, career: string): string {
   const profile = interestProfileOf(career);
   const tracks = profile.tracks.map((track) => track.name);
   const topics = profile.topics.map((topic) => topic.label);
-  return `What the student said they study: ${studying.trim() || 'nothing yet'}. Career words the planner reads goals from: ${career.trim() ? `"${career.trim()}"` : 'none'}. Career tracks active: ${tracks.join(', ') || 'none'}. Interest topics active: ${topics.join(', ') || 'none'}.`;
+  // "Investment banking" is also a program Marcus applies to as a sophomore
+  // (FIN 391), which no elective slot will ever book for him.
+  const apply = describeApplicationPrograms(career);
+  return `What the student said they study: ${studying.trim() || 'nothing yet'}. Career words the planner reads goals from: ${career.trim() ? `"${career.trim()}"` : 'none'}. Career tracks active: ${tracks.join(', ') || 'none'}. Interest topics active: ${topics.join(', ') || 'none'}.${apply ? ` ${apply}` : ''}`;
 }
 
 export function PlannerWorkspace({
@@ -1869,12 +1874,20 @@ export function PlannerWorkspace({
   function describeBoard(): string {
     const L = live.current;
     const board = planRef.current;
-    if (!board || !L.loaded) return 'No plan is on the board yet.';
-    const lines: string[] = [];
+    // The model has no calendar. Asked in November whether a student could
+    // still drop CHEM 102 without a W, it would have to guess whether Oct 16
+    // had passed; with the student's own date it says so.
+    const today = `Today: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`;
+    if (!board || !L.loaded) return `${today}\nNo plan is on the board yet.`;
+    const lines: string[] = [today];
     const last = board.terms[board.terms.length - 1]?.label ?? '';
     lines.push(
       `Degree: ${L.loaded.program.name}, University of Illinois. Published total: ${L.activeProgramTotal ?? 'not published'} credits. Plan: ${L.totalCredits} through ${last}.`,
     );
+    // Who ALMA sends the student to for what it cannot decide: a Media student's
+    // late drop is a petition at 119 Gregory Hall, not "your advisor".
+    const college = collegeRulesFor(L.loaded.program.college);
+    lines.push(`College: ${college.name}. Its office for loads, CR/NC, grade replacement, late drops and petitions: ${college.office}.`);
     lines.push(
       'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [career track: X] a course the student\'s career track X requires; keep it unless they drop the goal, and ask before removing or replacing it. [language] part of the language sequence for the language requirement; the language is the student\'s choice, the level is not. [gen ed pick] the planner chose it for a general education category; swap it for another course that carries the same categories. [prerequisite] the planner booked it because a later course needs it. [added] the student or you put it there.',
     );
@@ -1954,24 +1967,57 @@ export function PlannerWorkspace({
       const q = L.quality(normCode(c.code));
       return { score_0_to_1: Math.round(q.score * 100) / 100, reasons: q.reasons, not_known: q.unknown };
     };
-    const describe = (c: Course) => ({
-      code: c.code,
-      title: c.title,
-      credits: creditsOf(c),
-      subject: subjectName(c.cluster),
-      gen_ed: c.tags,
-      difficulty_0_to_100: L.core?.grades?.get(normCode(c.code))?.difficulty ?? null,
-      on_board_in: holding(c.id)?.label ?? null,
-      already_taken: L.completedCodes.has(normCode(c.code)),
-      teaching: describeExcellent(
-        L.core?.excellent?.get(normCode(c.code)) ?? null,
-        L.core?.excellentTerms,
-        L.core?.sections?.get(normCode(c.code))?.instructors ?? null,
-        L.core?.meta?.term?.label ?? null,
-      ),
-      recent_terms_it_ran: offeredLine(ctx, normCode(c.code)),
-      fit: fitOf(c),
-    });
+    const describe = (c: Course) => {
+      // FIN 391 "Admission by application only": the Investment Banking
+      // Academy came back from a search for "investment banking" looking like
+      // any other one-credit elective.
+      const gate = prereqNeedsAdmission(ctx.prereqs?.get(normCode(c.code))?.text);
+      return {
+        code: c.code,
+        title: c.title,
+        credits: creditsOf(c),
+        subject: subjectName(c.cluster),
+        gen_ed: c.tags,
+        difficulty_0_to_100: L.core?.grades?.get(normCode(c.code))?.difficulty ?? null,
+        on_board_in: holding(c.id)?.label ?? null,
+        already_taken: L.completedCodes.has(normCode(c.code)),
+        teaching: describeExcellent(
+          L.core?.excellent?.get(normCode(c.code)) ?? null,
+          L.core?.excellentTerms,
+          L.core?.sections?.get(normCode(c.code))?.instructors ?? null,
+          L.core?.meta?.term?.label ?? null,
+        ),
+        recent_terms_it_ran: offeredLine(ctx, normCode(c.code)),
+        fit: fitOf(c),
+        ...(gate
+          ? { apply_first: `The catalog says "${gate}": a program the student applies to, not a class to book. Say it exists and how admission works; add it only after they say they were admitted.` }
+          : {}),
+      };
+    };
+    /**
+     * Whether a card could be taken credit/no credit, from why it is on the
+     * board: "can I take my gen ed pick CR/NC?" is a lookup on the card, and
+     * the answer names whose rule it is.
+     */
+    const crncOf = (c: Course) => {
+      const answer = crncAnswer(c);
+      return { crnc_eligible: answer.eligible, crnc_why: answer.why };
+    };
+    const crncAnswer = (c: Course) => {
+      if (!holding(c.id)) return crncEligibility({ role: null, tags: c.tags, college: L.loaded?.program.college });
+      const role = roleOf(c);
+      const code = normCode(c.code);
+      // A course the student added that one of the degree's lists names likely
+      // counts there, so it is not a free elective.
+      const namedBy =
+        role === 'added'
+          ? (L.loaded?.blocks.find((b) =>
+              (b.rule.kind === 'all' || b.rule.kind === 'choose' || b.rule.kind === 'pool') &&
+              b.rule.choices.some((choice) => [...choice.codes, ...(choice.bundles ?? []).flat()].some((x) => normCode(x) === code)),
+            )?.label ?? null)
+          : null;
+      return crncEligibility({ role, tags: c.tags, namedBy, college: L.loaded?.program.college, track: L.electiveOf.get(c.id)?.track ?? null });
+    };
     /** The planner's read of one term: credits, how heavy, what stacks. */
     const termRead = (t: PlanTerm) => {
       const courses = t.courseIds.map((id) => L.courseIndex.get(id)).filter((x): x is Course => Boolean(x));
@@ -2131,6 +2177,7 @@ export function PlannerWorkspace({
           ok: true,
           ...describe(c),
           role_on_board: holding(c.id) ? roleOf(c) : null,
+          ...crncOf(c),
           description: detail?.course?.description ?? null,
           prerequisite_sentence: prereq?.text || detail?.course?.prereqText || null,
           prerequisite_groups: prereq?.groups?.map((g) => g.any) ?? [],
@@ -2158,7 +2205,7 @@ export function PlannerWorkspace({
           ok: true,
           term: term.label,
           credits,
-          courses: courses.map((c) => ({ ...describe(c), role: roleOf(c) })),
+          courses: courses.map((c) => ({ ...describe(c), role: roleOf(c), ...crncOf(c) })),
           review: L.issues.filter((i) => i.termId === term.id).map((i) => ({ severity: i.severity, title: i.title, message: i.message })),
           load,
         };
@@ -2575,19 +2622,36 @@ export function PlannerWorkspace({
         let nextMin = L.minimumTermCredits;
         let nextTarget = L.targetTermCredits ?? null;
         const problems: string[] = [];
+        const college = L.loaded.program.college;
+        /**
+         * More than 18 is never planned. "Can I take 20 hours my first
+         * semester?" from a Grainger freshman used to get a range error; the
+         * answer is Grainger's own: no overload in a first semester.
+         */
+        let overload: number | null = null;
+        /** Under 12 is planned when asked, with the registrar's warnings: six 9-hour terms used to come back without a word. */
+        let underload: number | null = null;
         if (input.min_credits !== undefined) {
           const n = Number(input.min_credits);
-          if (Number.isInteger(n) && n >= 6 && n <= 18) nextMin = n;
-          else problems.push('min_credits must be a whole number from 6 to 18.');
+          if (Number.isInteger(n) && n > 18) overload = Math.max(overload ?? 0, n);
+          else if (Number.isInteger(n) && n >= 6) {
+            nextMin = n;
+            if (n < 12) underload = Math.min(underload ?? n, n);
+          } else problems.push('min_credits must be a whole number from 6 to 18.');
         }
         if (input.target_credits !== undefined) {
           if (input.target_credits === null) nextTarget = null;
           else {
             const n = Number(input.target_credits);
-            if (Number.isInteger(n) && n >= 6 && n <= 18) nextTarget = n;
-            else problems.push('target_credits must be a whole number from 6 to 18, or null for an even share.');
+            if (Number.isInteger(n) && n > 18) overload = Math.max(overload ?? 0, n);
+            else if (Number.isInteger(n) && n >= 6) {
+              nextTarget = n;
+              if (n < 12) underload = Math.min(underload ?? n, n);
+            } else problems.push('target_credits must be a whole number from 6 to 18, or null for an even share.');
           }
         }
+        if (overload !== null) problems.unshift(`${overloadAnswer(college, overload)} Keep the plan at 18 or under, and tell the student this.`);
+        const notes = underload !== null ? { underload: underloadNote(college, underload) } : {};
         if (input.finish !== undefined) {
           if (input.finish === null || input.finish === 'default') nextShape.finish = null;
           else {
@@ -2643,15 +2707,41 @@ export function PlannerWorkspace({
             if (at <= first || at > last) problems.push(`Summer ${y} is outside this plan, which runs ${range}; a summer of classes has to come after the first term and no later than the finish.`);
           }
         }
-        if (problems.length > 0) return { ok: false, reason: problems.join(' ') };
+        if (problems.length > 0) return { ok: false, reason: problems.join(' '), ...notes };
         const changed =
           JSON.stringify(nextShape) !== JSON.stringify(planShapeRef.current) || nextMin !== L.minimumTermCredits || nextTarget !== (L.targetTermCredits ?? null);
-        if (!changed) return { ok: true, note: 'Nothing changed; the board already has this shape.' };
+        if (!changed) return { ok: true, note: 'Nothing changed; the board already has this shape.', ...notes };
+        /**
+         * The summers after the second and third years are the internship
+         * summers. When Marcus, a Finance freshman headed for investment
+         * banking, says "I'll take summer classes", Summer 2028 and Summer 2029
+         * would fill on the rebuild with nobody asking whether he wants one
+         * for an internship; this stops for his answer first. Only a summer
+         * this call adds, and only for a student with a career goal.
+         */
+        const start = horizonFor(L.answers, L.core?.meta?.term?.year ?? new Date().getFullYear(), { ...nextShape, summers: [] });
+        const planYearBefore = (summer: number) => {
+          let fallsAndSprings = 0;
+          for (let at = termOrd(start.startSeason, start.startYear); at < termOrd('Summer', summer); at += 1) if (at % 3 !== 1) fallsAndSprings += 1;
+          return Math.ceil(fallsAndSprings / 2);
+        };
+        const internship = L.careerText.trim()
+          ? nextShape.summers.filter((y) => !planShapeRef.current.summers.includes(y) && (planYearBefore(y) === 2 || planYearBefore(y) === 3))
+          : [];
+        if (internship.length > 0 && input.confirmed !== true) {
+          return {
+            ok: false,
+            needs_confirmation: true,
+            reason: `${internship.map((y) => `Summer ${y} comes after year ${planYearBefore(y)} of this plan`).join('; ')}: the usual internship summer for a student with a goal like "${L.careerText.trim()}". Ask whether they want that summer for an internship or for classes${undoStack.length > 0 ? ', and tell them the rebuild replaces the edits they made by hand' : ''}; call again with confirmed true only after they choose classes.`,
+            ...notes,
+          };
+        }
         if (undoStack.length > 0 && input.confirmed !== true) {
           return {
             ok: false,
             needs_confirmation: true,
             reason: 'Changing the load or the timeline rebuilds the board, which replaces the edits the student made by hand. Tell them and ask; call again with confirmed true only after they say yes.',
+            ...notes,
           };
         }
         rebuildForShape.current = true;
@@ -2669,6 +2759,7 @@ export function PlannerWorkspace({
             nextShape.spreadHard ? 'hard courses spread one a term where the degree allows' : null,
           ].filter(Boolean).join('; '),
           note: 'The board rebuilds now. Call review_board next and tell the student what changed: the terms, the credits per term, and any note the plan adds (a lighter load needs a later finish; a term away is left empty on the board, and a semester abroad counts its hours toward the total; a summer carries at most 9 credits; summers make falls and springs lighter, so if the student wanted to finish earlier instead, confirm it and set finish).',
+          ...notes,
         };
       }
       case 'exam_credit': {
