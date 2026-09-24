@@ -2471,10 +2471,25 @@ export function prereqNamesOtherCollege(text: string | undefined, college: strin
   return null;
 }
 
-/** "Admission to a teacher education program" and its kin: a milestone with its own application, not a course. */
+/**
+ * "Admission to a teacher education program" and its kin: a milestone with its
+ * own application, not a course.
+ *
+ * The Gies academies say it their own way: FIN 391 "Admission by application
+ * only.", FIN 393 "Acceptance into the Risk Management Academy.", FIN 390
+ * "Induction into the Finance Academy.", BADM 332 "Application process.".
+ * Missed, Marcus's Finance plan ("investment banking") booked FIN 391
+ * through 395 as one-credit elective slots (light, well taught, in the
+ * major), not the selective programs sophomores and juniors apply to, and
+ * four Gies plans booked BUS 302 ("by application and interview. Restricted
+ * to section leaders of BUS 101").
+ */
 export function prereqNeedsAdmission(text: string | undefined): string | null {
   if (!text) return null;
-  const m = text.match(/(admission to|admitted to|accepted into)\s+(the |a |an )?[^.;]*(program|school|college|major|curriculum)/i);
+  const m =
+    text.match(/(admission to|admitted to|accepted into|acceptance into|induction into)\s+(the |a |an )?[^.;]*(program|school|college|major|curriculum|academy)/i) ??
+    // "by application of the chain rule" is mathematics, not a gate.
+    text.match(/\b((admission|approval)\s+)?by application(?!\s+of\b)(\s+(only|and interview))?|\bapplication process\b/i);
   return m ? m[0].trim() : null;
 }
 
@@ -6077,7 +6092,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     };
     const plannedAll = new Set<string>([...placed.values()].flat());
     const perSubject = new Map<string, number>();
-    const candidates = rankedElectivePool(ctx, scoring, (code) => plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who));
+    // A course behind an application (FIN 391, "Admission by application
+    // only") is a program the student applies to, not an elective slot the
+    // planner may fill: Marcus, a Finance freshman, had FIN 391 through 395
+    // booked as one-credit electives. The student can still add one by hand.
+    const behindApplication = (code: string) => prereqNeedsAdmission(ctx.prereqs?.get(code)?.text) !== null;
+    const candidates = rankedElectivePool(ctx, scoring, (code) => plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who) || behindApplication(code));
     let total = priorCreditTotal + awayCreditTotal + [...placed.values()].flat().reduce((sum, code) => sum + creditsOf(code), 0);
     /**
      * Where the hours past the degree total come from, so the note names the
