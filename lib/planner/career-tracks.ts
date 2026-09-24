@@ -47,11 +47,31 @@ export interface TrackSource {
  */
 export type TrackNeed = 'required' | 'recommended' | 'suggested';
 
+/**
+ * When a course has to be finished by, where the guide ties it to a date.
+ *
+ *   application  the core sciences (general biology, general chemistry,
+ *                physics, anatomy and physiology, organic chemistry,
+ *                biochemistry). AMCAS, PTCAS and CASPA open in the summer
+ *                before the fourth year, and a school reads the transcript
+ *                sent then: a pre-PT plan that left MCB 151, IB 150 and IB
+ *                151 for the graduating spring applied without them. The
+ *                planner holds a required row with no date of its own to the
+ *                same one.
+ *   exam         content the admission test covers. The Medicine guide's
+ *                timeline puts MCAT preparation in year 3, and the MCAT's
+ *                psychology and sociology section assumes PSYC 100 and SOC 100.
+ *
+ * Both fall due at the end of the third spring; the planner says which.
+ */
+export type TrackDue = 'application' | 'exam';
+
 export interface TrackCourse {
   /** Illinois alternatives, the one the source prefers first. One slot, not a sequence. */
   codes: string[];
   need: TrackNeed;
   why: string;
+  due?: TrackDue;
 }
 
 export interface CareerTrack {
@@ -73,6 +93,12 @@ export interface CareerTrack {
   source: TrackSource;
   alsoSee?: TrackSource[];
   note: string;
+  /**
+   * The admission test the student prepares for in the spring of year 3, if
+   * the guide's timeline puts it there. The planner keeps that term to one
+   * hardest-band course where the degree allows it.
+   */
+  exam?: { name: string };
 }
 
 export interface InterestTopic {
@@ -139,38 +165,41 @@ const HEALTH_NOTE =
 // Course slots shared by the health guides
 // ---------------------------------------------------------------------------
 
-const c = (codes: string[], need: TrackNeed, why: string): TrackCourse => ({ codes, need, why });
+const c = (codes: string[], need: TrackNeed, why: string, due?: TrackDue): TrackCourse => (due ? { codes, need, why, due } : { codes, need, why });
+
+/** A core science row: due before applications go out. */
+const core = (codes: string[], need: TrackNeed, why: string): TrackCourse => c(codes, need, why, 'application');
 
 /** MCB 150 and IB 150 with their labs: the guides' two-semester general biology. */
 function generalBiology(need: TrackNeed, span = 'two semesters'): TrackCourse[] {
   return [
-    c(['MCB 150'], need, `General biology (${span}), first half: molecular and cellular biology, with its lab MCB 151.`),
-    c(['MCB 151'], need, 'The lab taken with MCB 150.'),
-    c(['IB 150'], need, `General biology (${span}), second half: organismal and evolutionary biology, with its lab IB 151.`),
-    c(['IB 151'], need, 'The lab taken with IB 150.'),
+    core(['MCB 150'], need, `General biology (${span}), first half: molecular and cellular biology, with its lab MCB 151.`),
+    core(['MCB 151'], need, 'The lab taken with MCB 150.'),
+    core(['IB 150'], need, `General biology (${span}), second half: organismal and evolutionary biology, with its lab IB 151.`),
+    core(['IB 151'], need, 'The lab taken with IB 150.'),
   ];
 }
 
 function generalChemistry(need: TrackNeed, span = 'two semesters'): TrackCourse[] {
   return [
-    c(['CHEM 102'], need, `General chemistry (${span}), first half, with its lab CHEM 103.`),
-    c(['CHEM 103'], need, 'The lab taken with CHEM 102.'),
-    c(['CHEM 104'], need, `General chemistry (${span}), second half, with its lab CHEM 105.`),
-    c(['CHEM 105'], need, 'The lab taken with CHEM 104.'),
+    core(['CHEM 102'], need, `General chemistry (${span}), first half, with its lab CHEM 103.`),
+    core(['CHEM 103'], need, 'The lab taken with CHEM 102.'),
+    core(['CHEM 104'], need, `General chemistry (${span}), second half, with its lab CHEM 105.`),
+    core(['CHEM 105'], need, 'The lab taken with CHEM 104.'),
   ];
 }
 
 function organicOne(need: TrackNeed): TrackCourse[] {
   return [
-    c(['CHEM 232'], need, 'Organic chemistry I, with its lab CHEM 233.'),
-    c(['CHEM 233'], need, 'The lab taken with CHEM 232.'),
+    core(['CHEM 232'], need, 'Organic chemistry I, with its lab CHEM 233.'),
+    core(['CHEM 233'], need, 'The lab taken with CHEM 232.'),
   ];
 }
 
-const organicTwo = (need: TrackNeed) => c(['CHEM 332'], need, 'Organic chemistry II, after CHEM 232.');
+const organicTwo = (need: TrackNeed) => core(['CHEM 332'], need, 'Organic chemistry II, after CHEM 232.');
 
 const biochemistry = (need: TrackNeed) =>
-  c(['MCB 354', 'MCB 450'], need, 'One semester of biochemistry; the guide accepts MCB 354 or MCB 450.');
+  core(['MCB 354', 'MCB 450'], need, 'One semester of biochemistry; the guide accepts MCB 354 or MCB 450.');
 
 /*
  * Every guide names PHYS 101 and 102, the algebra-based sequence. Engineering
@@ -181,8 +210,8 @@ const biochemistry = (need: TrackNeed) =>
 function physics(need: TrackNeed, span = 'two semesters'): TrackCourse[] {
   const alt = 'PHYS 211 (the calculus-based sequence engineering majors take) is listed second; it is usually accepted in its place, but confirm on each school\'s list.';
   return [
-    c(['PHYS 101', 'PHYS 211'], need, `General physics (${span}), first half. ${alt}`),
-    c(['PHYS 102', 'PHYS 212'], need, `General physics, second half. ${alt.replace('211', '212')}`),
+    core(['PHYS 101', 'PHYS 211'], need, `General physics (${span}), first half. ${alt}`),
+    core(['PHYS 102', 'PHYS 212'], need, `General physics, second half. ${alt.replace('211', '212')}`),
   ];
 }
 
@@ -193,8 +222,8 @@ const statistics = (need: TrackNeed) =>
 const calculus = (need: TrackNeed) =>
   c(['MATH 220', 'MATH 221'], need, 'Calculus: the guide names MATH 220 (or equivalent); MATH 221 is the Calculus I for students who already had some calculus.');
 
-const psychology = (need: TrackNeed) => c(['PSYC 100'], need, 'Introductory psychology.');
-const sociology = (need: TrackNeed) => c(['SOC 100'], need, 'Introductory sociology.');
+const psychology = (need: TrackNeed, due?: TrackDue) => c(['PSYC 100'], need, 'Introductory psychology.', due);
+const sociology = (need: TrackNeed, due?: TrackDue) => c(['SOC 100'], need, 'Introductory sociology.', due);
 
 const composition = (need: TrackNeed) =>
   c(['RHET 105'], need,
@@ -203,18 +232,18 @@ const composition = (need: TrackNeed) =>
 /** A&P as the medicine and dental guides list it: lecture courses, MCB or IB. */
 function anatomyPhysiologyLecture(need: TrackNeed, extra = ''): TrackCourse[] {
   return [
-    c(['MCB 244', 'IB 303'], need, `Anatomy and physiology, first half: MCB 244, or IB 303 (Anatomy).${extra}`),
-    c(['MCB 246', 'IB 202'], need, `Anatomy and physiology, second half: MCB 246, or IB 202 (Physiology).${extra}`),
+    core(['MCB 244', 'IB 303'], need, `Anatomy and physiology, first half: MCB 244, or IB 303 (Anatomy).${extra}`),
+    core(['MCB 246', 'IB 202'], need, `Anatomy and physiology, second half: MCB 246, or IB 202 (Physiology).${extra}`),
   ];
 }
 
 /** A&P with labs, as the PA, PT, OT and pharmacy guides list it. */
 function anatomyPhysiologyWithLabs(need: TrackNeed): TrackCourse[] {
   return [
-    c(['MCB 244'], need, 'Human anatomy and physiology I (two semesters with labs), with its lab MCB 245.'),
-    c(['MCB 245'], need, 'The lab taken with MCB 244.'),
-    c(['MCB 246'], need, 'Human anatomy and physiology II, with its lab MCB 247.'),
-    c(['MCB 247'], need, 'The lab taken with MCB 246.'),
+    core(['MCB 244'], need, 'Human anatomy and physiology I (two semesters with labs), with its lab MCB 245.'),
+    core(['MCB 245'], need, 'The lab taken with MCB 244.'),
+    core(['MCB 246'], need, 'Human anatomy and physiology II, with its lab MCB 247.'),
+    core(['MCB 247'], need, 'The lab taken with MCB 246.'),
   ];
 }
 
@@ -288,12 +317,14 @@ export const CAREER_TRACKS: CareerTrack[] = [
       composition('required'),
       ...anatomyPhysiologyLecture('recommended'),
       genetics('recommended'),
-      psychology('recommended'),
-      sociology('recommended'),
+      psychology('recommended', 'exam'),
+      sociology('recommended', 'exam'),
     ],
     words: [],
     related: [],
     source: guide('Medicine%20Guide%202021-2022%20FINAL.pdf', 'Pre-Medicine Guide'),
+    // The guide's timeline: MCAT preparation in year 3, the application the summer after.
+    exam: { name: 'MCAT' },
     alsoSee: [
       { url: 'https://www.careercenter.illinois.edu/healthprofessions/medicine', title: 'Health Professions: Medicine | The Career Center | UIUC', read: READ },
       catalogPage('medicine', 'Medicine'),
@@ -423,10 +454,10 @@ export const CAREER_TRACKS: CareerTrack[] = [
       c(['PSYC 238'], 'required', 'The second psychology course the guide names (Psychopathology and Problems in Living).'),
       c(['HDFS 105'], 'required', 'Lifespan development: the guide names HDFS 105 (Intro to Human Development) or a psychology course.'),
       composition('required'),
-      c(['MCB 150', 'IB 150'], 'recommended', 'One semester of general biology: MCB 150 or IB 150, each with its lab.'),
-      c(['MCB 151', 'IB 151'], 'recommended', 'The lab for whichever general biology was taken.'),
-      c(['CHEM 101', 'CHEM 102'], 'recommended', 'One semester of general chemistry: CHEM 101, or CHEM 102 with its lab CHEM 103.'),
-      c(['CHEM 103'], 'recommended', 'The lab taken with CHEM 102; not needed after CHEM 101.'),
+      core(['MCB 150', 'IB 150'], 'recommended', 'One semester of general biology: MCB 150 or IB 150, each with its lab.'),
+      core(['MCB 151', 'IB 151'], 'recommended', 'The lab for whichever general biology was taken.'),
+      core(['CHEM 101', 'CHEM 102'], 'recommended', 'One semester of general chemistry: CHEM 101, or CHEM 102 with its lab CHEM 103.'),
+      core(['CHEM 103'], 'recommended', 'The lab taken with CHEM 102; not needed after CHEM 101.'),
       sociology('recommended'),
       medicalTerminology('recommended'),
       c(['PHYS 101'], 'suggested', 'The guide\'s timeline adds PHYS 101 "if needed" by a target program.'),
@@ -519,10 +550,10 @@ export const CAREER_TRACKS: CareerTrack[] = [
     courses: [
       ...generalBiology('required', 'one to two semesters'),
       ...microbiologyWithLab('required', ' The guide says a lab may be required.'),
-      c(['MCB 244', 'IB 303'], 'required', 'Anatomy and physiology (one to two semesters): MCB 244 with lab MCB 245, or IB 303.'),
-      c(['MCB 245'], 'required', 'The lab taken with MCB 244.'),
-      c(['MCB 246', 'IB 202'], 'required', 'Anatomy and physiology, second semester: MCB 246 with lab MCB 247, or IB 202.'),
-      c(['MCB 247'], 'required', 'The lab taken with MCB 246.'),
+      core(['MCB 244', 'IB 303'], 'required', 'Anatomy and physiology (one to two semesters): MCB 244 with lab MCB 245, or IB 303.'),
+      core(['MCB 245'], 'required', 'The lab taken with MCB 244.'),
+      core(['MCB 246', 'IB 202'], 'required', 'Anatomy and physiology, second semester: MCB 246 with lab MCB 247, or IB 202.'),
+      core(['MCB 247'], 'required', 'The lab taken with MCB 246.'),
       ...generalChemistry('required'),
       ...organicOne('required'),
       biochemistry('required'),
@@ -578,6 +609,31 @@ export const CAREER_TRACKS: CareerTrack[] = [
       'Law schools require no specific courses or major. At Illinois pre-law is a designation, not a major (Pre-Law Advising Services, PLAS), and PLAS says "there are no required courses for law school". Every course here is a suggestion for the skills PLAS names (analytical and critical thinking, communication, research and writing) or a legal topic; none should be placed as a requirement. PS 323 Law and Representation, also named in the post, is not in the current course index. Illinois offers a Legal Studies minor; PLAS runs its information sessions.',
   },
 ];
+
+/**
+ * Lecture and lab pairs, lab to lecture, read from the rows above whose why
+ * says "The lab taken with X": CHEM 103 with CHEM 102, CHEM 105 with CHEM 104,
+ * MCB 151 with MCB 150, IB 151 with IB 150, MCB 245 with MCB 244, MCB 247
+ * with MCB 246, CHEM 233 with CHEM 232, MCB 251 with MCB 250.
+ *
+ * The guides say "with its lab", and the lab's own catalog line only says
+ * "credit or concurrent registration", which a plan meets just as well with
+ * the lab a year later. A Mechanical Engineering plan put CHEM 102 in Spring
+ * 2027 and CHEM 103 in the fall after it, and a pre-PT Kinesiology plan put
+ * CHEM 104 in Spring 2028 and CHEM 103 a year later; no chemistry student is
+ * advised to do that, so the planner keeps each pair in one term.
+ */
+export function labPartners(tracks: CareerTrack[] = CAREER_TRACKS): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const track of tracks) {
+    for (const row of track.courses) {
+      const lecture = /^The lab taken with ([A-Z]{2,5} \d{3})\b/.exec(row.why)?.[1];
+      if (!lecture) continue;
+      for (const lab of row.codes) if (!out.has(lab)) out.set(lab, lecture);
+    }
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Interest topics
