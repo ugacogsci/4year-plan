@@ -106,33 +106,54 @@ function parseDetail(html) {
     // "4000/6000-level courses". It is a real twelve-hour pool, not one course.
     const subject = raw.match(/^([A-Z]{2,5})$/)?.[1];
     const level = clean(title).match(
-      /^(\d)000(?:\/\d000)?-level courses?/i,
+      /^(?:prefix\s+)?(\d)000(?:\/\d000)?-level(?:\s+or\s+higher)?\s*(?:courses?)?/i,
     )?.[1];
     return subject && level ? `${subject} ${level}XXX` : null;
   };
 
   // Course rows: each course is its own one-row table, "CODE | Title | Hours".
+  // Keep whether the Bulletin printed AND immediately before the row. A
+  // "Choose 1 group" block uses that word to bind a lecture to its lab.
+  let previousTableEnd = 0;
   for (const m of html.matchAll(/<table[\s\S]*?<\/table>/g)) {
+    const between = clean(
+      html.slice(previousTableEnd, m.index ?? previousTableEnd),
+    ).slice(-120);
+    let firstCourse = true;
     for (const r of m[0].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
       const cells = [...r[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)].map(
         (c) => clean(c[1]),
       );
-      const code = courseCode(cells[0] ?? '', cells[1] ?? '');
-      if (!code) continue;
-      marks.push({
-        kind: 'course',
-        at: m.index ?? 0,
-        code,
-        title: cells[1] ?? '',
-        credits: Number(cells[2]?.match(/\d+/)?.[0] ?? 3),
+      const rawCode = cells[0] ?? '';
+      const linkedCodes = [
+        ...rawCode.toUpperCase().matchAll(/\b([A-Z]{2,5})(?:\([A-Z]{2,5}\))*\s+(\d{4}[A-Z]?)\b/g),
+      ].map((match) => `${match[1]} ${match[2]}`);
+      const fallback = courseCode(rawCode, cells[1] ?? '');
+      const codes = [...new Set(linkedCodes.length ? linkedCodes : fallback ? [fallback] : [])];
+      if (codes.length === 0) continue;
+      const printedCredits = [...(cells[2] ?? '').matchAll(/\d+(?:\.\d+)?/g)].map((match) => Number(match[0]));
+      codes.forEach((code, index) => {
+        marks.push({
+          kind: 'course',
+          at: m.index ?? 0,
+          code,
+          title: cells[1] ?? '',
+          credits: printedCredits[index] ?? (index > 0 && code.endsWith('L') ? 1 : printedCredits[0] ?? 3),
+          andPrevious:
+            index > 0 ||
+            /(?:^|\s)AND(?:\s|$)/i.test(rawCode) ||
+            (firstCourse && /(?:^|\s)AND(?:\s|$)/i.test(between)),
+        });
       });
+      firstCourse = false;
     }
+    previousTableEnd = (m.index ?? 0) + m[0].length;
   }
 
   // A subject-wide elective is rendered as a linked subject followed by prose,
   // not as a normal course code cell: "CSCI 4000/6000-level courses".
   for (const m of html.matchAll(
-    /<a[^>]*>\s*([A-Z]{2,5})\s*<\/a>[\s\S]{0,240}?(\d)000\/\d000-level courses?/gi,
+    /<a[^>]*>\s*([A-Z]{2,5})\s*<\/a>[\s\S]{0,240}?(?:prefix\s+)?(\d)000(?:\/\d000)?-level(?:\s+or\s+higher)?/gi,
   )) {
     marks.push({
       kind: 'course',
@@ -140,6 +161,70 @@ function parseDetail(html) {
       code: `${m[1].toUpperCase()} ${m[2]}XXX`,
       title: `${m[1].toUpperCase()} ${m[2]}000-level courses`,
       credits: 0,
+    });
+  }
+
+  // Some elective buckets are intentionally campus-wide and therefore have
+  // no linked subject code. Preserve those rows as expandable wildcards so
+  // the planner can enforce upper-division and non-business hour splits.
+  for (const m of html.matchAll(/Any\s+upper[- ]level\s+course\s+3000\s*-\s*5999/gi)) {
+    marks.push({
+      kind: 'course',
+      at: m.index ?? 0,
+      code: 'ANY 3XXX',
+      title: 'Any upper-level course (3000-5999)',
+      credits: 0,
+    });
+  }
+  for (const m of html.matchAll(/Any\s+course\s*\*/gi)) {
+    marks.push({
+      kind: 'course',
+      at: m.index ?? 0,
+      code: 'ANY 1XXX',
+      title: 'Any undergraduate course',
+      credits: 0,
+    });
+  }
+
+  // A few programs publish the broad elective rule as prose instead of a
+  // linked table. English is the important example: five three-hour ENGL
+  // electives at the 3000/4000 levels, followed by many optional emphases.
+  for (const m of html.matchAll(
+    /Choose\s+(one|two|three|four|five|six|\d+)\s+(\d+)-hour\s+([A-Z]{2,5})\s+electives?\s+at\s+the\s+(\d)000\/(\d)000\s+levels?/gi,
+  )) {
+    const amount =
+      ({ one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 })[
+        m[1].toLowerCase()
+      ] ?? Number(m[1]);
+    marks.push({
+      kind: 'rule',
+      at: m.index ?? 0,
+      choose: null,
+      hours: amount * Number(m[2]),
+      minimum: false,
+      upperDivisionHours: null,
+      minimumAreas: null,
+      note: clean(m[0]),
+      grouped: false,
+    });
+    for (const level of [m[4], m[5]]) {
+      marks.push({
+        kind: 'course',
+        at: (m.index ?? 0) + 1,
+        code: `${m[3].toUpperCase()} ${level}XXX`,
+        title: `${m[3].toUpperCase()} ${level}000-level electives`,
+        credits: 0,
+      });
+    }
+  }
+
+  for (const m of html.matchAll(/Students\s+may\s+choose\s+to\s+add\s+an\s+Area\s+of\s+Emphasis/gi)) {
+    marks.push({
+      kind: 'heading',
+      at: m.index ?? 0,
+      level: 6,
+      label: 'Areas of Emphasis',
+      optional: true,
     });
   }
 
@@ -165,6 +250,16 @@ function parseDetail(html) {
         at: m.index ?? 0,
         level: Number(m[1]),
         label,
+        optional:
+          /^Area of Emphasis\b/i.test(label) ||
+          /^Area of Emphasis\b/i.test(
+            clean(
+              html.slice(
+                (m.index ?? 0) + m[0].length,
+                (m.index ?? 0) + m[0].length + 520,
+              ),
+            ),
+          ),
       });
   }
 
@@ -175,7 +270,7 @@ function parseDetail(html) {
       value.toLowerCase()
     ] ?? Number(value);
   for (const m of html.matchAll(
-    /Choose\s+(a\s+minimum\s+of\s+)?(\d+)\s+(course|credit\s+hour)\(s\)/gi,
+    /Choose\s+(a\s+minimum\s+of\s+)?(\d+)\s+(course|credit\s+hour|group)\(s\)/gi,
   )) {
     const before = clean(
       html.slice(Math.max(0, (m.index ?? 0) - 420), m.index ?? 0),
@@ -186,6 +281,7 @@ function parseDetail(html) {
       continue;
     const amount = Number(m[2]);
     const inHours = /credit/i.test(m[3]);
+    const grouped = /group/i.test(m[3]);
     const after = clean(html.slice(m.index ?? 0, (m.index ?? 0) + 900));
     const sentence =
       after.match(/^Choose\b.*?(?:\.(?=\s)|$)/i)?.[0] ?? '';
@@ -196,6 +292,9 @@ function parseDetail(html) {
     const areaMinimum = sentence.match(
       /at least\s+(one|two|three|four|five|six|\d+)\s+of\s+the\s+following\s+(?:\w+\s+)?areas?/i,
     );
+    const distinctAreas = /each course must come from a different area/i.test(
+      after,
+    );
     marks.push({
       kind: 'rule',
       at: m.index ?? 0,
@@ -203,8 +302,14 @@ function parseDetail(html) {
       hours: inHours ? amount : null,
       minimum: Boolean(m[1]),
       upperDivisionHours: upperDivisionHours || null,
-      minimumAreas: areaMinimum ? numberWord(areaMinimum[1]) : null,
+      minimumAreas: areaMinimum
+        ? numberWord(areaMinimum[1])
+        : distinctAreas
+          ? amount
+          : null,
       note: m[1] ? sentence : '',
+      grouped,
+      structured: Boolean(m[1]) || distinctAreas,
     });
   }
 
@@ -221,10 +326,26 @@ function parseDetail(html) {
   let skipOptional = false;
   let structuredGroup = null;
   let structuredList = null;
+  let courseBundle = null;
   const STOPS =
     /^(entrance requirements|major requirements|career information|transfer student information|other learning opportunities|student organizations|available graduate programs|college-wide requirements|general education core|university-wide requirements|four-year program of study)$/i;
   for (const mk of marks) {
     if (mk.kind === "area") {
+      // Optional emphases contain hour subheadings that look exactly like the
+      // required degree areas. Do not let each one reset the optional-section
+      // guard. "Total Major Hours" is the reliable boundary at the end of an
+      // optional emphasis and still needs to be captured as the degree total.
+      const resumesRequiredDegree =
+        /^(?:general|free) electives?\b/i.test(mk.label) ||
+        /^total\b/i.test(mk.label);
+      if (skipOptional && !resumesRequiredDegree) {
+        area = null;
+        group = null;
+        structuredGroup = null;
+        structuredList = null;
+        continue;
+      }
+      if (resumesRequiredDegree) skipOptional = false;
       area = { label: mk.label, hours: mk.hours, groups: [] };
       areas.push(area);
       group = null;
@@ -233,6 +354,7 @@ function parseDetail(html) {
       skipOptional = false;
       structuredGroup = null;
       structuredList = null;
+      courseBundle = null;
     } else if (mk.kind === 'heading') {
       if (STOPS.test(mk.label)) {
         area = null;
@@ -242,13 +364,15 @@ function parseDetail(html) {
         skipOptional = false;
         structuredGroup = null;
         structuredList = null;
+        courseBundle = null;
         continue;
       }
-      if (/^areas? of emphasis\b/i.test(mk.label)) {
+      if (mk.optional || /^areas? of emphasis\b/i.test(mk.label)) {
         skipOptional = true;
         group = null;
         structuredGroup = null;
         structuredList = null;
+        courseBundle = null;
         continue;
       }
       if (area && structuredGroup) {
@@ -262,6 +386,7 @@ function parseDetail(html) {
       }
       groupLabel = mk.label;
       group = null;
+      courseBundle = null;
       // This is a requirement that may overlap another major course, not four
       // more hours. The current planner has no overlay-constraint type. The CS
       // Application Design options already satisfy it, so omitting the duplicate
@@ -279,15 +404,25 @@ function parseDetail(html) {
         upperDivisionHours: mk.upperDivisionHours,
         minimumAreas: mk.minimumAreas,
         lists: [],
+        completeOneList: mk.grouped,
+        bundles: [],
         courses: [],
       };
       area.groups.push(group);
-      if (mk.minimum && mk.choose !== null) structuredGroup = group;
+      if (mk.structured && mk.choose !== null) structuredGroup = group;
+      courseBundle = null;
     } else if (mk.kind === 'course') {
       if (!area || skipGroup || skipOptional) continue;
       if (!group) {
         group = { label: groupLabel, choose: null, hours: null, courses: [] };
         area.groups.push(group);
+      }
+      if (group.completeOneList) {
+        if (!mk.andPrevious || !courseBundle) {
+          courseBundle = [];
+          group.bundles.push(courseBundle);
+        }
+        courseBundle.push(mk.code);
       }
       if (!group.courses.some((c) => c.code === mk.code)) {
         group.courses.push(mk);
@@ -299,6 +434,26 @@ function parseDetail(html) {
 
   for (const parsedArea of areas) {
     for (const parsedGroup of parsedArea.groups) {
+      if (parsedGroup.completeOneList && parsedGroup.bundles?.length) {
+        const credits = new Map(
+          parsedGroup.courses.map((course) => [course.code, course.credits]),
+        );
+        parsedGroup.lists = parsedGroup.bundles.map((codes, index) => ({
+          label: `Course group ${index + 1}`,
+          codes,
+        }));
+        parsedGroup.bundleSize = Math.min(
+          ...parsedGroup.bundles.map((codes) => codes.length),
+        );
+        parsedGroup.hours = Math.min(
+          ...parsedGroup.bundles.map((codes) =>
+            codes.reduce((sum, code) => sum + (credits.get(code) ?? 0), 0),
+          ),
+        );
+        parsedGroup.choose = null;
+        parsedGroup.note = 'Choose one complete course group.';
+        delete parsedGroup.bundles;
+      }
       if (parsedGroup.lists)
         parsedGroup.lists = parsedGroup.lists.filter(
           (list) => list.codes.length > 0,
@@ -313,14 +468,36 @@ function parseDetail(html) {
   // General/free electives legitimately name hours without naming courses.
   // Other empty areas are usually parent headings or prose mentions, so they
   // remain excluded instead of becoming invented requirements.
-  const kept = areas.filter(
-    (a2) =>
-      a2.groups.some((g) => g.courses.length) ||
-      /^(?:general|free) electives?\b/i.test(a2.label),
-  );
+  const kept = areas.filter((a2, index) => {
+    const hasCourses = a2.groups.some((g) => g.courses.length);
+    const isElectiveArea = /^(?:general|free) electives?\b/i.test(a2.label);
+    if (!hasCourses && isElectiveArea) {
+      let childHours = 0;
+      for (let next = index + 1; next < areas.length; next += 1) {
+        const child = areas[next];
+        if (!/electives?\b/i.test(child.label)) break;
+        childHours += child.hours;
+        if (childHours >= a2.hours) break;
+      }
+      // A heading such as "General Electives (24 Hours)" is sometimes only a
+      // parent for named child buckets. Keep the measurable children and do
+      // not count the parent a second time.
+      if (childHours === a2.hours) return false;
+    }
+    return hasCourses || isElectiveArea;
+  });
+  const excludedPrefixes =
+    flatPage
+      .match(
+        /excluding the following course prefixes:\s*([A-Z,\s]+?)(?:Please note|Transfer coursework)/i,
+      )?.[1]
+      ?.match(/[A-Z]{2,5}/g) ?? [];
   for (const keptArea of kept) {
     if (/^major electives?$/i.test(keptArea.label)) {
       keptArea.excludeCodes = majorElectiveExclusions;
+    }
+    if (/non-business/i.test(keptArea.label) && excludedPrefixes.length > 0) {
+      keptArea.excludePrefixes = [...new Set(excludedPrefixes)];
     }
   }
   return {

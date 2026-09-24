@@ -37,27 +37,73 @@ function canonicalUgaCode(value: string): string {
   return match ? `${match[1]} ${match[2]}` : code;
 }
 
-/** Online, honors, and writing-intensive rows are versions of one UGA course. */
+/** Online, honors, service-learning, and writing-intensive rows are versions of one UGA course. */
 function ugaVariantKey(value: string): string {
-  return canonicalUgaCode(value).replace(/^(\S+\s+\d{4})[EHW]$/, '$1');
+  return canonicalUgaCode(value).replace(/^(\S+\s+\d{4})[EHWS]$/, '$1');
 }
 
 function ugaEquivalents(courses: Course[]): Map<string, string[]> {
-  const groups = new Map<string, string[]>();
+  const linked = new Map<string, Set<string>>();
+  const link = (codes: string[]): void => {
+    for (const code of codes) {
+      const neighbors = linked.get(code) ?? new Set<string>();
+      for (const other of codes) if (other !== code) neighbors.add(other);
+      linked.set(code, neighbors);
+    }
+  };
+
+  const variants = new Map<string, string[]>();
   for (const course of courses) {
     const code = normCode(course.code);
     const key = ugaVariantKey(code);
-    const group = groups.get(key);
+    const group = variants.get(key);
     if (group) group.push(code);
-    else groups.set(key, [code]);
+    else variants.set(key, [code]);
+  }
+  for (const group of variants.values()) if (group.length > 1) link(group);
+
+  // A few UGA honors courses use a different number instead of an H suffix,
+  // for example BIOL 2107L beside BIOL 1107L. The shared department and title
+  // are the catalog evidence that these are delivery variants, not two labs a
+  // student should take. Keep this deliberately narrow: a title only creates
+  // an equivalence when at least one row explicitly says Honors.
+  const byTitle = new Map<string, Course[]>();
+  for (const course of courses) {
+    const title = course.title
+      .replace(/\([^)]*honors?[^)]*\)/gi, '')
+      .replace(/\bhonors?\b/gi, '')
+      .replace(/[^a-z0-9]+/gi, ' ')
+      .trim()
+      .toLowerCase();
+    const key = `${course.cluster.toUpperCase()}::${title}`;
+    const group = byTitle.get(key);
+    if (group) group.push(course);
+    else byTitle.set(key, [course]);
+  }
+  for (const group of byTitle.values()) {
+    if (
+      group.length > 1 &&
+      group.some((course) => /\bhonors?\b/i.test(course.title))
+    ) {
+      link(group.map((course) => normCode(course.code)));
+    }
   }
 
   const equivalents = new Map<string, string[]>();
-  for (const group of groups.values()) {
-    if (group.length < 2) continue;
-    for (const code of group) {
-      equivalents.set(code, group.filter((candidate) => candidate !== code));
+  const visited = new Set<string>();
+  for (const start of linked.keys()) {
+    if (visited.has(start)) continue;
+    const component: string[] = [];
+    const queue = [start];
+    while (queue.length > 0) {
+      const code = queue.shift() as string;
+      if (visited.has(code)) continue;
+      visited.add(code);
+      component.push(code);
+      for (const neighbor of linked.get(code) ?? []) queue.push(neighbor);
     }
+    for (const code of component)
+      equivalents.set(code, component.filter((candidate) => candidate !== code));
   }
   return equivalents;
 }
@@ -88,6 +134,8 @@ interface RawUgaRequirementGroup {
   minimumAreas?: number | null;
   upperDivisionHours?: number | null;
   lists?: Array<{ label: string; codes: string[] }>;
+  completeOneList?: boolean;
+  bundleSize?: number;
   courses: RawUgaRequirementCourse[];
 }
 
@@ -95,6 +143,7 @@ interface RawUgaRequirementArea {
   label: string;
   hours: number;
   excludeCodes?: string[];
+  excludePrefixes?: string[];
   groups: RawUgaRequirementGroup[];
 }
 
@@ -130,7 +179,7 @@ export interface UgaLoadedProgram {
   blocks: RequirementBlock[];
   /** General/free elective hours the Bulletin explicitly publishes. */
   electiveHours: number;
-  /** This reviewed degree has known overlap and college-wide credit outside its area table. */
+  /** Fill unnamed and overlapping credit up to the Bulletin's published degree total. */
   fillToDegreeTotal: boolean;
   url: string;
 }
@@ -247,10 +296,61 @@ function creditChoice(row: RawUgaRequirementCourse): CourseChoice {
   };
 }
 
+function broadElectiveCourses(
+  courses: Course[],
+  minimumLevel: number,
+  excludePrefixes: string[],
+): Course[] {
+  const bySubject = new Map<string, Course[]>();
+  const score = (code: string) => {
+    let hash = 2166136261;
+    for (const char of code) {
+      hash ^= char.charCodeAt(0);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  };
+
+  for (const course of courses) {
+    const [subject, number = ''] = course.code.split(' ');
+    const level = Number(number[0] ?? 0);
+    if (
+      excludePrefixes.includes(subject) ||
+      level < minimumLevel ||
+      level > 5 ||
+      course.credits < 3 ||
+      course.credits > 4 ||
+      /laboratory|internship|practicum|independent study|research|thesis|dissertation/i.test(
+        course.title,
+      )
+    ) {
+      continue;
+    }
+    const subjectCourses = bySubject.get(subject);
+    if (subjectCourses) subjectCourses.push(course);
+    else bySubject.set(subject, [course]);
+  }
+
+  const subjects = [...bySubject.keys()].sort((a, b) => score(a) - score(b));
+  for (const coursesForSubject of bySubject.values()) {
+    coursesForSubject.sort((a, b) => score(a.code) - score(b.code));
+  }
+  const selected: Course[] = [];
+  for (let index = 0; index < 4 && selected.length < 400; index += 1) {
+    for (const subject of subjects) {
+      const candidate = bySubject.get(subject)?.[index];
+      if (candidate) selected.push(candidate);
+      if (selected.length >= 400) break;
+    }
+  }
+  return selected;
+}
+
 /** Expand "CSCI 4XXX" into the undergraduate courses that can fill the pool. */
 function choicesFor(
   group: RawUgaRequirementGroup,
   byCode: Map<string, Course>,
+  excludePrefixes: string[] = [],
 ): CourseChoice[] {
   const choices: CourseChoice[] = [];
   const seen = new Set<string>();
@@ -260,10 +360,15 @@ function choicesFor(
       /^([A-Z]{2,5})\s+([1-9])XXX$/,
     );
     const rows = wildcard
-      ? [...byCode.values()]
-          .filter((course) =>
-            course.code.startsWith(`${wildcard[1]} ${wildcard[2]}`),
-          )
+      ? (wildcard[1] === 'ANY'
+          ? broadElectiveCourses(
+              [...byCode.values()],
+              Number(wildcard[2]),
+              excludePrefixes,
+            )
+          : [...byCode.values()].filter((course) =>
+              course.code.startsWith(`${wildcard[1]} ${wildcard[2]}`),
+            ))
           .map((course) => ({
             code: course.code,
             title: course.title,
@@ -290,7 +395,9 @@ function choicesFor(
 
 function minimumGroupHours(group: RawUgaRequirementGroup): number {
   if (group.choose === null || group.choose <= 0) return 0;
-  return [...group.courses]
+  const ordinary = group.courses.filter((course) => course.credits >= 3);
+  const candidates = ordinary.length >= group.choose ? ordinary : group.courses;
+  return [...candidates]
     .sort((a, b) => a.credits - b.credits)
     .slice(0, group.choose)
     .reduce((sum, course) => sum + course.credits, 0);
@@ -315,6 +422,14 @@ function adaptProgram(
     const progressGroups: RequirementGroup[] = [];
     area.groups.forEach((group, groupIndex) => {
       if (group.courses.length === 0) return;
+      const wildcardAlreadyFillsArea = area.groups
+        .slice(0, groupIndex)
+        .some(
+          (earlier) =>
+            (earlier.hours ?? 0) >= area.hours &&
+            earlier.courses.some((course) => /^ANY\s+[1-9]XXX$/i.test(course.code)),
+        );
+      if (wildcardAlreadyFillsArea) return;
       const representedBefore = area.groups
         .slice(0, groupIndex)
         .reduce((sum, earlier) => sum + statedGroupHours(earlier), 0);
@@ -324,7 +439,11 @@ function adaptProgram(
       if (/core courses?/i.test(group.label) && representedBefore >= area.hours)
         return;
       const id = `${areaId}::${groupIndex}`;
-      let choices = choicesFor(group, byCode);
+      let choices = choicesFor(group, byCode, area.excludePrefixes);
+      if (group.choose !== null && area.hours >= group.choose * 3) {
+        const ordinary = choices.filter((choice) => (choice.credits ?? 0) >= 3);
+        if (ordinary.length >= group.choose) choices = ordinary;
+      }
       const listedHours = group.courses.reduce(
         (sum, course) => sum + course.credits,
         0,
@@ -332,6 +451,7 @@ function adaptProgram(
       const poolWords = `${area.label} ${group.label}`;
       const isPool =
         (group.lists?.some((list) => list.codes.length > 0) ?? false) ||
+        (/preferred courses?/i.test(group.label) && listedHours > area.hours) ||
         (group.choose === null &&
         area.hours > 0 &&
         (group.hours != null ||
@@ -367,8 +487,16 @@ function adaptProgram(
         const poolLists = lists.length
           ? lists
           : [{ label: group.label || area.label, codes: [...allowed] }];
-        const constraints =
-          group.minimumAreas || group.upperDivisionHours
+        const constraints = group.completeOneList && lists.length
+          ? [
+              {
+                text: group.note || 'Choose one complete course group.',
+                n: group.bundleSize ?? 1,
+                lists: poolLists,
+                single: true,
+              },
+            ]
+          : group.minimumAreas || group.upperDivisionHours
             ? [
                 {
                   text:
@@ -419,6 +547,11 @@ function adaptProgram(
           title: choice.title,
           credits:
             choice.credits ?? byCode.get(choice.codes[0] ?? '')?.credits ?? 3,
+          alternatives: choice.codes.slice(1).map((code) => ({
+            code,
+            title: byCode.get(code)?.title ?? choice.title,
+            credits: byCode.get(code)?.credits ?? choice.credits ?? 3,
+          })),
         })),
         cap: isPool
           ? {
@@ -438,7 +571,11 @@ function adaptProgram(
           else if (course && !isPool) course.pathwayRole = 'required';
         }
       }
-      if (!isPool) {
+      // Only a take-every-course row is fixed. A choose-one row lists possible
+      // selections, and reserving every possibility here emptied later valid
+      // menus (STAT 2000 appeared in Foundation choices, so Psychology's
+      // Quantitative Reasoning pool incorrectly had zero courses).
+      if (!isPool && group.choose === null) {
         for (const choice of choices) {
           for (const code of choice.codes) fixedRequirementCodes.add(code);
         }
@@ -447,6 +584,14 @@ function adaptProgram(
 
     const representedHours = area.groups.reduce((sum, group, groupIndex) => {
       if (group.courses.length === 0) return sum;
+      const wildcardAlreadyFillsArea = area.groups
+        .slice(0, groupIndex)
+        .some(
+          (earlier) =>
+            (earlier.hours ?? 0) >= area.hours &&
+            earlier.courses.some((course) => /^ANY\s+[1-9]XXX$/i.test(course.code)),
+        );
+      if (wildcardAlreadyFillsArea) return sum;
       const representedBefore = area.groups
         .slice(0, groupIndex)
         .reduce((hours, earlier) => hours + statedGroupHours(earlier), 0);
@@ -456,7 +601,14 @@ function adaptProgram(
         (hours, course) => hours + course.credits,
         0,
       );
-      if (group.choose !== null) return sum + minimumGroupHours(group);
+      if (group.choose !== null) {
+        const minimum = minimumGroupHours(group);
+        // "PSYC prefix 3000-level or higher" expands into real courses later,
+        // but the scraper's wildcard row itself has zero hours. Its enclosing
+        // area supplies the authoritative total.
+        const hasWildcard = group.courses.some((course) => /\b[1-9]XXX\b/.test(course.code));
+        return sum + (minimum > 0 || !hasWildcard ? minimum : area.hours);
+      }
       if (group.hours != null) return sum + group.hours;
       if (
         listed > area.hours + 4 ||
@@ -512,7 +664,12 @@ function adaptProgram(
     electiveHours: program.areas
       .filter((area) => /^(?:general|free) electives?\b/i.test(area.label))
       .reduce((sum, area) => sum + area.hours, 0),
-    fillToDegreeTotal: program.id === '96447',
+    // UGA's program pages regularly omit college-wide requirements from the
+    // degree table even though they publish an authoritative total. Stopping
+    // at the named rows produces a 97-credit Psychology "four-year plan".
+    // Editable electives fill that difference; unresolved parser gaps remain
+    // visible as review items and are never presented as confirmed courses.
+    fillToDegreeTotal: program.totalCredits !== null,
     url: `https://bulletin.uga.edu/Program/Details/${program.id}?IDc=${program.college}`,
   };
 }

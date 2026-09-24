@@ -50,9 +50,16 @@ function askedFor(pool: PoolReport): string {
 
 function have(pool: PoolReport): string {
   const parts: string[] = [];
-  if (pool.hoursTarget !== null) parts.push(`${pool.hours} ${plural(pool.hours, 'hour')}`);
-  parts.push(`${pool.count} chosen`);
-  return parts.join(', ');
+  if (pool.hoursTarget !== null) {
+    parts.push(`${Math.min(pool.hours, pool.hoursTarget)}/${pool.hoursTarget} required hours`);
+    if (pool.hours > pool.hoursTarget) parts.push(`${pool.hours} eligible hours in plan`);
+  }
+  if (pool.countTarget !== null) {
+    parts.push(`${Math.min(pool.count, pool.countTarget)}/${pool.countTarget} required courses`);
+    if (pool.count > pool.countTarget) parts.push(`${pool.count} eligible courses in plan`);
+  }
+  if (parts.length === 0) parts.push(`${pool.count} ${plural(pool.count, 'course')} in plan`);
+  return parts.join(' / ');
 }
 
 function short(pool: PoolReport): boolean {

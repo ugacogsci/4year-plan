@@ -665,12 +665,13 @@ export function normaliseCode(code: string): string {
 }
 
 /**
- * UGA publishes online (E), honors (H), and writing-intensive (W) versions as
- * separate catalog rows. They remain separate map nodes, but a degree plan
- * should not spend two elective slots on two versions of the same course.
+ * UGA publishes online (E), honors (H), service-learning (S), and
+ * writing-intensive (W) versions as separate catalog rows. They remain
+ * separate map nodes, but a degree plan should not spend two elective slots
+ * on two versions of the same course.
  */
 function electiveVariantKey(code: string): string {
-  return normaliseCode(code).replace(/^(\S+\s+\d{4})[EHW]$/, '$1');
+  return normaliseCode(code).replace(/^(\S+\s+\d{4})[EHWS]$/, '$1');
 }
 
 function isElectiveVariant(code: string): boolean {
@@ -1929,6 +1930,11 @@ function degreeSubjectsOf(
     ) {
       continue;
     }
+    // A long menu describes breadth, even when it sits in Area VI or a
+    // college requirement whose label does not say "core". Letting all forty
+    // departments in that menu define the major made Psychology electives
+    // look like advanced GEOL, PHYS, and MARS courses.
+    if (rule.choices.length > 30) continue;
     for (const choice of rule.choices) {
       for (const code of choice.codes) {
         const subject = normaliseCode(code).split(' ')[0];
@@ -1993,6 +1999,13 @@ function scoreElective(code: string, s: ElectiveScoring): number {
   if (s.interestWords.some((w) => subjectMatches(course.cluster, w))) score += 3;
   const courseWords = `${course.title} ${course.description} ${course.tags.join(' ')}`.toLowerCase();
   const interestHits = s.interestWords.filter((word) => courseWords.includes(word)).length;
+  const isLab = code.endsWith('L') || /\b(?:lab|laboratory)\b/i.test(course.title);
+  // A requirement may deliberately name a lab, and a Biology major may want
+  // another BIOL lab. A generic elective slot should not recommend a stray
+  // one-credit lab from an unrelated department merely to hit an exact total.
+  if (isLab && course.cluster !== s.primarySubject && interestHits === 0) {
+    return Number.NEGATIVE_INFINITY;
+  }
   score += Math.min(4, interestHits * 2);
   if (course.tags.length > 0) score += 1;
   if (s.sectionCount(code) > 0) score += 1;
@@ -2004,6 +2017,10 @@ function scoreElective(code: string, s: ElectiveScoring): number {
   if (spec && spec.text.length > 0 && !spec.parsed) score -= 2;
   if (s.creditRanges?.get(code)?.variable) score -= 2;
   if (s.creditsOf(code) < 3) score -= 3;
+  // A lab is useful beside its lecture or when a requirement names it. As an
+  // unrelated free-elective recommendation it is almost never a humane
+  // default, especially when the catalog exposes it as a one-credit row.
+  if (isLab) score -= 8;
   return score;
 }
 
@@ -2409,7 +2426,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
    * `have` is a snapshot of what is chosen when the pool runs, which is why the
    * memo is built per pool rather than once.
    */
-  const poolOrderFor = (have: Set<string>) => {
+  const poolOrderFor = (have: Set<string>, sequence = new Set<string>()) => {
     const memo = new Map<string, number>();
     const score = (code: string): number[] => {
       const base = rank(code);
@@ -2433,9 +2450,12 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
       // pool out of those makes the eighteen meaningless, so among equally
       // reachable courses the one with a fixed credit line goes first.
       const variable = ctx.creditRanges?.get(code)?.variable ? 1 : 0;
-      return [base[0], unverifiable, extra, variable, ...base.slice(1)];
+      return [base[0], sequence.has(code) ? 1 : 0, unverifiable, extra, variable, ...base.slice(1)];
     };
-    return (a: string, b: string): number => compareRank(score(a), score(b), a, b);
+    return (a: string, b: string): number => {
+      const ranked = compareRank(score(a), score(b), '', '');
+      return ranked || electiveTie(a) - electiveTie(b);
+    };
   };
 
   /**
@@ -2481,6 +2501,9 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   const best = (codes: string[]): string | null =>
     codes.length === 0 ? null : codes.slice().sort((a, b) => compareRank(rank(a), rank(b), a, b))[0];
 
+  const chosenEquivalent = (code: string): string | null =>
+    expandEquivalents(code, equivalents).find((candidate) => chosen.has(candidate)) ?? null;
+
   /**
    * The course that fills one slot, and whether it is already filling another.
    *
@@ -2491,6 +2514,13 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
    */
   const pickFromOption = (option: string[]): { code: string; shared: boolean } | null => {
     for (const code of option) if (earned.has(code)) return { code, shared: false };
+    // Reuse an ordinary/online/honors version already selected by another
+    // requirement before considering a fresh alternative. Looking only at
+    // exact codes scheduled ENGL 1101 and ENGL 1101E in the same UGA plan.
+    const shared = best(
+      [...new Set(option.map(chosenEquivalent).filter((code): code is string => code !== null))],
+    );
+    if (shared) return { code: shared, shared: true };
     const open = best(option.filter((code) => !chosen.has(code)));
     if (open) return { code: open, shared: false };
     const taken = best(option.filter((code) => chosen.has(code)));
@@ -2658,7 +2688,9 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
             ? 'filled-by-electives'
             : 'no-course-data',
         message: parserGap
-          ? `This draft is incomplete. It could not read ${requirement.rule.hours} required credit ${requirement.rule.hours === 1 ? 'hour' : 'hours'} from the catalog, and it has not replaced them with electives.`
+          ? input.fillToDegreeTotal
+            ? `The catalog page leaves ${requirement.rule.hours} required credit ${requirement.rule.hours === 1 ? 'hour' : 'hours'} unnamed here. Editable courses bring the plan to the published degree total, but an advisor should confirm what belongs in this requirement.`
+            : `This draft is incomplete. It could not read ${requirement.rule.hours} required credit ${requirement.rule.hours === 1 ? 'hour' : 'hours'} from the catalog, and it has not replaced them with electives.`
           : explicitElective
             ? `${requirement.rule.hours} general-elective credit ${requirement.rule.hours === 1 ? 'hour is' : 'hours are'} included in the plan. Each elective card can be changed to another eligible course.`
             : filled
@@ -2694,12 +2726,25 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
          * different numbers whenever a chosen course does not fit, and the row
          * a student reads has to be the second one.
          */
+        const broadCore = /(?:^|:\s*)(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences)\b/i.test(slot.areaLabel);
+        const sequence = broadCore
+          ? genEdSequenceMembers(slot.options.flat())
+          : new Set<string>();
         const fill = fillPool(slot, {
           byCode,
           earned,
-          taken: new Set(chosen.keys()),
+          // A pool must not choose the online or honors version of a course
+          // already committed elsewhere on the board.
+          taken: new Set(
+            [...chosen.keys()].flatMap((code) =>
+              expandEquivalents(code, equivalents),
+            ),
+          ),
           creditsOf,
-          order: poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()])),
+          order: poolOrderFor(
+            new Set([...satisfiedForPrereq, ...chosen.keys()]),
+            sequence,
+          ),
           reachable: (code) => (rankDepth.get(code) ?? 0) < terms.length,
           conflict: (code, insidePool) => conflictFor(code, insidePool),
         });
