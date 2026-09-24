@@ -2502,6 +2502,19 @@ export function PlannerWorkspace({
         const profile = interestProfileOf(live.current.careerText);
         const dropped = tracksBefore.filter((track) => !profile.tracks.includes(track)).map((track) => track.name);
         /**
+         * Programs the student's goals name that are entered by application,
+         * not registration: FIN 391 Investment Banking Academy is "Admission
+         * by application only". The planner never books them, so this is the
+         * only way the student hears of them. Listed beside active_topics,
+         * whenever the result reports the goals.
+         */
+        const applyTo = (stored !== null || (mode === 'replace' && !said) ? profile.apply : []).map((code) => ({
+          course: code,
+          title: L.byCode.get(normCode(code))?.title ?? null,
+          for_goal: profile.topics.find((topic) => topic.apply?.includes(code))?.label ?? null,
+          how_to_get_in: L.context?.prereqs?.get(normCode(code))?.text || null,
+        }));
+        /**
          * The re-pick books a track's required courses first, one slot at a
          * time, and brought three of the twelve a Rebuild books for a pre-PT
          * Kinesiology student. So the result says which are on the board and
@@ -2540,6 +2553,9 @@ export function PlannerWorkspace({
           missingTrackCourses
             ? 'track_courses lists each course the track requires: on the board, already taken, or not on the board. The re-pick books them first, but only into elective slots it can swap. Tell the student which are not on the board, and that pressing Rebuild books the track\'s required courses before any other elective and places them earliest; the plan\'s notes name any it still cannot fit, and a Rebuild replaces their own edits to the board.'
             : null,
+          applyTo.length > 0
+            ? 'apply_to lists programs that fit the student\'s goal and are entered by application, not registration (how_to_get_in is the catalog\'s own sentence). The planner never books them. Mention them once as programs to apply to, with what the catalog says; do not add one to the board unless the student says they were admitted.'
+            : null,
         ].filter(Boolean);
         return {
           ok: true,
@@ -2550,6 +2566,7 @@ export function PlannerWorkspace({
                 career_words: live.current.careerText || 'none',
                 active_tracks: profile.tracks.map((track) => track.name),
                 active_topics: profile.topics.map((topic) => topic.label),
+                ...(applyTo.length > 0 ? { apply_to: applyTo } : {}),
               }
             : {}),
           ...(trackCourses.length > 0 ? { track_courses: trackCourses } : {}),
