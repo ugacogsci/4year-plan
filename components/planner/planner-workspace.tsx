@@ -64,6 +64,7 @@ import {
   type UgaLoadedProgram,
 } from './uga-source';
 import {
+  arrivalFromWords,
   electiveOptions,
   interestProfileOf,
   offeredLine,
@@ -77,6 +78,7 @@ import {
   prereqNeedsAdmission,
   spreadHardOutcome,
   validatePlan,
+  type Arrival,
   type AutoplanInput,
   type AwayKind,
   type AwayTerm,
@@ -318,6 +320,17 @@ function describeShape(shape: PlanShape): string {
 function heardInterests(text: string): string[] {
   const profile = interestProfileOf(text);
   return profile.heard.length > 0 ? profile.heard : interestWordsFrom(text);
+}
+
+/**
+ * Who the student is as they start here, from their About-you answers and the
+ * record they uploaded: a Parkland transfer's orientation row is LAS 102, not
+ * LAS 100 or LAS 101.
+ */
+function arrivalOf(answers: OnboardingAnswers | null | undefined): Arrival {
+  const record = answers?.transcript;
+  const elsewhere = Boolean(record && (record.kind === 'transfer_report' || record.home === false));
+  return arrivalFromWords([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), elsewhere);
 }
 
 /**
@@ -702,6 +715,7 @@ export function PlannerWorkspace({
       career: careerText,
       programName: loaded.program.name,
       programCollege: loaded.program.college,
+      arrival: arrivalOf(answers),
       admissionRoute,
       // Illinois's residency rule, from its transfer-credit page: 45 hours at
       // Illinois, 21 of them at the 300 level or above. What the student has
@@ -1708,6 +1722,7 @@ export function PlannerWorkspace({
       degreeTotal: degreeTotalNow(),
       programName: L.loaded.program.name,
       programCollege: L.loaded.program.college,
+      arrival: arrivalOf(L.answers),
     });
   }
 
@@ -1914,6 +1929,7 @@ export function PlannerWorkspace({
       degreeTotal: degreeTotalNow(),
       trackPicks: (L.report?.electives ?? []).filter((e) => e.track).map((e) => e.code),
       lastSignature: repickedFor.current,
+      arrival: arrivalOf(L.answers),
     });
     repickedFor.current = result.signature;
     if (result.changes.length === 0) return { changes: [], unchanged: result.unchanged };

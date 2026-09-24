@@ -27,7 +27,10 @@
  * started is ever a candidate. The component only commits the result.
  */
 import {
+  admissionGate,
+  audienceOf,
   closedToMajorCheck,
+  degreeSubjects,
   electiveOptions,
   interestProfileOf,
   normaliseCode,
@@ -38,6 +41,7 @@ import {
   qualityScorer,
   restrictionClosesTo,
   validatePlan,
+  type Arrival,
   type LanguagePlan,
   type PlanningContext,
   type PlanRequirement,
@@ -211,12 +215,17 @@ const RESTRICTION_CUE = /\b(only|restricted to|limited to|open to|reserved for|m
  * FIN 390 ("Induction into the Finance Academy") on a Finance board. So here
  * the same signals refuse outright: the catalog's registration restrictions
  * for this program, a prerequisite sentence naming another college, an
- * admission or an application ("Admission by application only", FIN 391
- * Investment Banking Academy), or a group the student has to belong to, and
- * titles that say the course is an honors section, an orientation, or for
- * other majors.
+ * admission, an application ("Admission by application only", FIN 391
+ * Investment Banking Academy) or someone's approval (admissionGate, the rule
+ * the fill books by), or a group the student has to belong to, a first-year
+ * course for a transfer student, and titles that say the course is an
+ * honors section, an orientation, or for other majors.
  */
-export function restrictedToOthers(course: Course, ctx: PlanningContext, who: { programName?: string; programCollege?: string }): string | null {
+export function restrictedToOthers(
+  course: Course,
+  ctx: PlanningContext,
+  who: { programName?: string; programCollege?: string; primary?: string | null; arrival?: Arrival },
+): string | null {
   const code = normaliseCode(course.code);
   const title = course.title;
   if (/\bhonors\b/i.test(title)) return `${code} is an honors course`;
@@ -227,6 +236,14 @@ export function restrictedToOthers(course: Course, ctx: PlanningContext, who: { 
     return `${code} is for majors in its own department`;
   }
   if (closedToMajorCheck(ctx, who.programName, who.programCollege)(code)) return `every section of ${code} is restricted to other students`;
+  // FIN 391 to 395 ("Admission by application only.", "Instructor approval
+  // required.") went onto every Finance board as electives; the fill no longer
+  // books them, and a re-pick does not either.
+  const gate = admissionGate(code, ctx, who.primary);
+  if (gate) return `${code} is taken by application or with approval: "${gate}"`;
+  // "Restricted to first-year students in LAS." (LAS 101) is not for a
+  // transfer student, whose row takes LAS 102.
+  if (who.arrival?.transfer && audienceOf(course, ctx) === 'first-year') return `${code} is for first-year students`;
   const text = ctx.prereqs?.get(code)?.text ?? '';
   if (!text) return null;
   const college = prereqNamesOtherCollege(text, who.programCollege);
@@ -318,6 +335,8 @@ export interface BoardCheckInput {
   degreeTotal: number | null;
   programName?: string;
   programCollege?: string;
+  /** Who the student is (arrivalFromWords): a transfer student is never re-picked into a first-year course. */
+  arrival?: Arrival;
 }
 
 /**
@@ -344,6 +363,7 @@ export function boardChecker(input: BoardCheckInput): SwapCheck {
   const genEdBlocks = genEdRules(input.requirements);
   const categoriesMet = (b: PlanState): boolean[] => genEdCategoriesMet(b, genEdBlocks, ctx, byId);
   const metBefore = categoriesMet(input.board);
+  const who = { ...input, primary: degreeSubjects(input.requirements, input.programName).primary };
   return (next, from, termId, add, removed) => {
     const term = next.terms.find((t) => t.id === termId);
     const was = from.terms.find((t) => t.id === termId);
@@ -369,7 +389,7 @@ export function boardChecker(input: BoardCheckInput): SwapCheck {
         if (after < input.degreeTotal && after < planned(from) + input.priorCredits) return `The plan would fall to ${after} credits, under the ${input.degreeTotal} the degree takes.`;
       }
     }
-    const closed = restrictedToOthers(add, ctx, input);
+    const closed = restrictedToOthers(add, ctx, who);
     if (closed) return closed;
     for (const issue of validatePlan(next, ctx, options)) {
       if (breaksTheBoard(issue) && !baseline.has(issue.id)) return issue.message;
@@ -588,6 +608,8 @@ export interface RepickInput {
   trackPicks?: string[];
   /** repickSignature of the last build or re-pick, when there was one. */
   lastSignature?: string | null;
+  /** Who the student is (arrivalFromWords), for courses written for one group. */
+  arrival?: Arrival;
 }
 
 export interface RepickChange {
@@ -656,6 +678,7 @@ export function repickBoard(input: RepickInput): RepickResult {
     degreeTotal: input.degreeTotal,
     programName: input.programName,
     programCollege: input.programCollege,
+    arrival: input.arrival,
   });
   // One scorer for the whole call, over the board as it was. A scorer rebuilt
   // after each swap moved the gen-ed "still wanted" categories under it, and

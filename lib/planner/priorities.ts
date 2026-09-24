@@ -40,9 +40,17 @@ export interface Priorities {
 
 export type PriorityPreset = 'balanced' | 'lightest' | 'relevant' | 'teaching' | 'custom';
 
+/**
+ * Lightest keeps relevance at 1. At 0 it dropped the student's own interest
+ * and kept the fixed nudge toward the major's own subject, so it made picks
+ * harder: an Economics student headed for law school lost LAW 301 and LAW 303
+ * (difficulty 8 and 7) to ECON 460 and ECON 437 (19 and 21). What makes it
+ * lighter is workload 2, which the engine reads on its own (autoplan.ts
+ * lightFirst), so setting workload to 2 and leaving the rest is this preset.
+ */
 export const PRIORITY_PRESETS: Record<Exclude<PriorityPreset, 'custom'>, Priorities> = {
   balanced: { workload: 1, teaching: 1, relevance: 1, coverage: 1, schedule: 1, noEarly: false, format: 'any' },
-  lightest: { workload: 2, teaching: 1, relevance: 0, coverage: 1, schedule: 1, noEarly: false, format: 'any' },
+  lightest: { workload: 2, teaching: 1, relevance: 1, coverage: 1, schedule: 1, noEarly: false, format: 'any' },
   relevant: { workload: 0, teaching: 1, relevance: 2, coverage: 1, schedule: 1, noEarly: false, format: 'any' },
   teaching: { workload: 1, teaching: 2, relevance: 1, coverage: 0, schedule: 1, noEarly: false, format: 'any' },
 };

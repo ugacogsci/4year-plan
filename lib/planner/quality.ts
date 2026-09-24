@@ -144,6 +144,14 @@ export interface QualityResult {
   conflicts?: string[];
   /** The relevance knob's weight when the course matches what the student said they want, else 0. */
   interest?: number;
+  /**
+   * The workload measure on its own, 0 (hardest) to 1 (lightest), when the
+   * workload knob is on: grade history, or the harder band for a course with
+   * none. Averaged in with four other measures it moved few picks, so where
+   * the student said lighter workload matters most the engine also reads it
+   * directly (autoplan.ts scoreElective, the list and gen-ed orders).
+   */
+  lightness?: number;
 }
 
 /**
@@ -230,6 +238,7 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
 
   // workload: grade history is the registrar's, and it is about the past.
   const g = q.grades?.get(code);
+  let lightness: number | undefined;
   if (p.workload > 0) {
     /**
      * Scaled to this school's own bands. Illinois difficulty runs from about 4
@@ -252,6 +261,7 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
       if (band && g.difficulty >= band.harder) cautions.push(line);
       else reasons.push(line);
       take(p.workload, v, 'grade history');
+      lightness = v;
     } else {
       /**
        * No grade history is not a light course. Leaving the measure out gave
@@ -264,6 +274,7 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
       weighted += p.workload * v;
       weightSum += p.workload;
       unknown.push('grade history');
+      lightness = v;
     }
   }
 
@@ -400,7 +411,7 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     }
   }
 
-  return { score: weightSum > 0 ? weighted / weightSum : 0, known, reasons, unknown, cautions, conflicts, interest };
+  return { score: weightSum > 0 ? weighted / weightSum : 0, known, reasons, unknown, cautions, conflicts, interest, lightness };
 }
 
 /**
