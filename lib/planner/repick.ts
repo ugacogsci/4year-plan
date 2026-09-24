@@ -34,6 +34,7 @@ import {
   planCreditRange,
   prereqNamesOtherCollege,
   prereqNeedsAdmission,
+  prereqNeedsApplication,
   qualityScorer,
   restrictionClosesTo,
   validatePlan,
@@ -210,8 +211,10 @@ const RESTRICTION_CUE = /\b(only|restricted to|limited to|open to|reserved for|m
  * FIN 390 ("Induction into the Finance Academy") on a Finance board. So here
  * the same signals refuse outright: the catalog's registration restrictions
  * for this program, a prerequisite sentence naming another college, an
- * admission, or a group the student has to belong to, and titles that say
- * the course is an honors section, an orientation, or for other majors.
+ * admission or an application ("Admission by application only", FIN 391
+ * Investment Banking Academy), or a group the student has to belong to, and
+ * titles that say the course is an honors section, an orientation, or for
+ * other majors.
  */
 export function restrictedToOthers(course: Course, ctx: PlanningContext, who: { programName?: string; programCollege?: string }): string | null {
   const code = normaliseCode(course.code);
@@ -232,6 +235,8 @@ export function restrictedToOthers(course: Course, ctx: PlanningContext, who: { 
   if (college && !/\bnon-/i.test(college)) return `${code}: "${college}"`;
   const admission = prereqNeedsAdmission(text);
   if (admission) return `${code} needs ${admission}`;
+  const application = prereqNeedsApplication(text);
+  if (application) return `${code}: "${application}"`;
   for (const sentence of text.split(/(?<=[.;])\s+/)) {
     const why = `${code}: "${sentence.trim()}"`;
     if (/\binduction into\b/i.test(sentence)) return why;
@@ -287,6 +292,20 @@ const TERM_MAX = 18;
 /** The engine's summer ceiling (SUMMER_MAX in autoplan.ts). */
 const SUMMER_MAX = 9;
 
+type GenEdRule = Extract<PlanRequirement['rule'], { kind: 'gened' }>;
+
+const genEdRules = (requirements: PlanRequirement[]): GenEdRule[] => requirements.flatMap((r) => (r.rule.kind === 'gened' ? [r.rule] : []));
+
+/** Which gen-ed categories a board meets on tags alone: hours and course counts carrying one of its tags. */
+function genEdCategoriesMet(b: PlanState, rules: GenEdRule[], ctx: PlanningContext, byId: Map<string, Course>): boolean[] {
+  const courses = [...b.terms.flatMap((t) => t.courseIds), ...b.completedCourseIds].map((id) => byId.get(id)).filter((c): c is Course => Boolean(c));
+  return rules.map((rule) => {
+    const carrying = courses.filter((c) => c.tags.some((t) => rule.genEd.includes(t)));
+    const hours = planCreditRange(carrying.map((c) => c.code), ctx).min;
+    return (rule.hours === null || hours >= rule.hours) && (rule.courses === null || carrying.length >= rule.courses) && carrying.length > 0;
+  });
+}
+
 export interface BoardCheckInput {
   context: PlanningContext;
   /** The board as it stood before any swap: what counts as "already wrong". */
@@ -322,16 +341,8 @@ export function boardChecker(input: BoardCheckInput): SwapCheck {
   const termRange = (t: PlanTerm) => planCreditRange(codesOf(t.courseIds), ctx);
   const planned = (b: PlanState) => planCreditRange(codesOf(b.terms.flatMap((t) => t.courseIds)), ctx).min;
   const cr = (c: Course) => planCreditRange([c.code], ctx).min;
-  const genEdBlocks = input.requirements.flatMap((r) => (r.rule.kind === 'gened' ? [r.rule] : []));
-  /** Which gen-ed categories a board meets on tags alone: hours and course counts carrying one of its tags. */
-  const categoriesMet = (b: PlanState): boolean[] => {
-    const courses = [...b.terms.flatMap((t) => t.courseIds), ...b.completedCourseIds].map((id) => byId.get(id)).filter((c): c is Course => Boolean(c));
-    return genEdBlocks.map((rule) => {
-      const carrying = courses.filter((c) => c.tags.some((t) => rule.genEd.includes(t)));
-      const hours = planCreditRange(carrying.map((c) => c.code), ctx).min;
-      return (rule.hours === null || hours >= rule.hours) && (rule.courses === null || carrying.length >= rule.courses) && carrying.length > 0;
-    });
-  };
+  const genEdBlocks = genEdRules(input.requirements);
+  const categoriesMet = (b: PlanState): boolean[] => genEdCategoriesMet(b, genEdBlocks, ctx, byId);
   const metBefore = categoriesMet(input.board);
   return (next, from, termId, add, removed) => {
     const term = next.terms.find((t) => t.id === termId);
@@ -458,6 +469,88 @@ function compositionOne(course: Course, mark: PlanMark): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// When a gen-ed swap is worth making
+// ---------------------------------------------------------------------------
+
+type Measure = 'workload' | 'teaching' | 'relevance' | 'coverage' | 'schedule';
+const MEASURES: Measure[] = ['workload', 'teaching', 'relevance', 'coverage', 'schedule'];
+
+/** The measures the student weighted most, which is what they asked for; none when every one is off. */
+function ledMeasures(p: Priorities): Measure[] {
+  const top = Math.max(...MEASURES.map((m) => p[m]));
+  return top > 0 ? MEASURES.filter((m) => p[m] === top) : [];
+}
+
+/**
+ * How far workload and teaching have to move, each on the scorer's own 0-to-1
+ * scale, before a gen-ed swap is worth making. The workload scale ends at 1.2
+ * times the hardest band (39 on Illinois's grade history), so 0.1 is about
+ * five points of difficulty; teaching's 0.2 is about one more recent term on
+ * the excellent list.
+ */
+const WORKLOAD_MARGIN = 0.1;
+const TEACHING_MARGIN = 0.2;
+
+export interface GenEdSide {
+  course: Course;
+  /** The re-pick's blended score, for the topic hit and the schedule clash. */
+  q: QualityResult;
+}
+
+/**
+ * Whether a gen-ed alternative is clearly better than the pick on what the
+ * student asked for, and no worse on anything else they asked for.
+ *
+ * A gen-ed pick is not the student's to judge from a list the way an
+ * elective is, and the blended score moves on things they did not ask about.
+ * A Finance student who asked for the lightest, most relevant courses had
+ * FSHN 120 Contemporary Nutrition (difficulty 10) swapped for FSHN 101 (13):
+ * heavier, no closer to investment banking, and ahead only because the
+ * scorer counted Physical Sciences as still wanted in a category Life
+ * Sciences had already met. So, for each measure the student weighted most:
+ *
+ *   workload   lighter by WORKLOAD_MARGIN on the grade-history scale
+ *   teaching   better by TEACHING_MARGIN on the excellent-list scale
+ *   relevance  a hit on the student's goal (course, title or subject) the
+ *              pick lacks
+ *   coverage   a tag of a gen-ed category the board has not met, which the
+ *              pick does not carry
+ *   schedule   fits the hours or format the student gave where the pick
+ *              does not
+ *
+ * One of them has to be a gain and none a loss by the same test.
+ */
+export function genEdSwapEarned(
+  priorities: Priorities,
+  from: GenEdSide,
+  to: GenEdSide,
+  measure: (m: 'workload' | 'teaching', code: string) => QualityResult,
+  unmetTags: Set<string>,
+): boolean {
+  let gained = false;
+  for (const m of ledMeasures(priorities)) {
+    let gain = 0;
+    if (m === 'workload' || m === 'teaching') {
+      const margin = m === 'workload' ? WORKLOAD_MARGIN : TEACHING_MARGIN;
+      const was = measure(m, normaliseCode(from.course.code)).score;
+      const now = measure(m, normaliseCode(to.course.code)).score;
+      gain = now >= was + margin ? 1 : now <= was - margin ? -1 : 0;
+    } else {
+      const has = (side: GenEdSide): boolean =>
+        m === 'relevance'
+          ? (side.q.interest ?? 0) > 0
+          : m === 'coverage'
+            ? side.course.tags.some((t) => unmetTags.has(t))
+            : (side.q.conflicts?.length ?? 0) === 0;
+      gain = has(to) && !has(from) ? 1 : has(from) && !has(to) ? -1 : 0;
+    }
+    if (gain < 0) return false;
+    if (gain > 0) gained = true;
+  }
+  return gained;
+}
+
+// ---------------------------------------------------------------------------
 // The re-pick
 // ---------------------------------------------------------------------------
 
@@ -538,8 +631,9 @@ const TRIES_PER_CARD = 24;
  * term has room. Then every elective slot, every gen-ed pick but Composition
  * I, and every from-a-list course the page's sub-rules do not pin takes the
  * best option that clearly beats it and passes the whole-board check,
- * same-credit options first. Track cards, the language sequence and booked
- * prerequisites are never touched.
+ * same-credit options first; a gen-ed pick moves only for a course that is
+ * better on the measure the student weighted most (genEdSwapEarned). Track
+ * cards, the language sequence and booked prerequisites are never touched.
  */
 export function repickBoard(input: RepickInput): RepickResult {
   const signature = repickSignature(input.priorities, input.interests);
@@ -575,6 +669,28 @@ export function repickBoard(input: RepickInput): RepickResult {
     priorities: input.priorities,
     carriedCodes: [...board.terms.flatMap((t) => t.courseIds).map(codeOf), ...held],
   });
+  // Workload and teaching alone, for the gen-ed test: the blended score says
+  // a course is better, not on which measure.
+  const measureScorers = new Map<'workload' | 'teaching', (code: string) => QualityResult>();
+  const measure = (m: 'workload' | 'teaching', code: string): QualityResult => {
+    let only = measureScorers.get(m);
+    if (!only) {
+      only = qualityScorer({
+        context: ctx,
+        requirements: input.requirements,
+        interests: input.interests,
+        career: input.career,
+        programName: input.programName,
+        priorities: { ...input.priorities, workload: m === 'workload' ? 1 : 0, teaching: m === 'teaching' ? 1 : 0, relevance: 0, coverage: 0, schedule: 0 },
+        carriedCodes: [],
+      });
+      measureScorers.set(m, only);
+    }
+    return only(code);
+  };
+  const genEdBlocks = genEdRules(input.requirements);
+  const metAtStart = genEdCategoriesMet(board, genEdBlocks, ctx, byId);
+  const unmetTags = new Set(genEdBlocks.filter((_, i) => !metAtStart[i]).flatMap((rule) => rule.genEd));
   let working = board;
   const changes: RepickChange[] = [];
   /** Course ids that do not move again this call: swapped in, or a slot a track course claimed. */
@@ -679,6 +795,7 @@ export function repickBoard(input: RepickInput): RepickResult {
         const own = scorer(code);
         const ranked = genEdCandidates({ context: ctx, requirements: input.requirements, board: working, courseId, scorer, exclude: atStart })
           .filter((c) => c.q.score > own.score + 0.05)
+          .filter((c) => genEdSwapEarned(input.priorities, { course: current, q: own }, { course: c.course, q: c.q }, measure, unmetTags))
           .map((c) => ({ course: c.course, why: genEdWhy(c.q, c.categories) }));
         found = firstThatFits(term, current, sameCreditsFirst(ranked, current, credits));
       } else if (mark.kind === 'pool') {

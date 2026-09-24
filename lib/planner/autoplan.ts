@@ -2493,6 +2493,23 @@ export function prereqNeedsAdmission(text: string | undefined): string | null {
   return m ? m[0].trim() : null;
 }
 
+/**
+ * The sentence of a prerequisite that makes a course one a student is
+ * selected into, or null: "Admission by application only" (FIN 391
+ * Investment Banking Academy, FIN 392, FIN 395), "Acceptance into the Risk
+ * Management Academy" (FIN 393), "Induction into the Finance Academy" (FIN
+ * 390). The elective fill booked FIN 391, FIN 392 and FIN 393 as one-credit
+ * fillers on a Finance board built for a student who wants to be a CPA; no
+ * student registers for one without being admitted, so the fill never
+ * books one and the re-pick never swaps one in.
+ */
+export function prereqNeedsApplication(text: string | undefined): string | null {
+  if (!text) return null;
+  const cue = /\b(by application|application only|application process|induction into|accept(ed|ance)\s+(in|into)\s+(the|a|an)\b)/i;
+  const sentence = text.split(/(?<=[.;])\s+/).find((s) => cue.test(s));
+  return sentence ? sentence.trim() : null;
+}
+
 /** Closed to this program in every crawled section it has. */
 export function closedToMajorCheck(ctx: PlanningContext, programName: string | undefined, college?: string): (code: string) => boolean {
   return (code) => {
@@ -6096,8 +6113,15 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     // only") is a program the student applies to, not an elective slot the
     // planner may fill: Marcus, a Finance freshman, had FIN 391 through 395
     // booked as one-credit electives. The student can still add one by hand.
-    const behindApplication = (code: string) => prereqNeedsAdmission(ctx.prereqs?.get(code)?.text) !== null;
-    const candidates = rankedElectivePool(ctx, scoring, (code) => plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who) || behindApplication(code));
+    const behindApplication = (code: string) => {
+      const text = ctx.prereqs?.get(code)?.text;
+      return prereqNeedsAdmission(text) !== null || prereqNeedsApplication(text) !== null;
+    };
+    const candidates = rankedElectivePool(
+      ctx,
+      scoring,
+      (code) => plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who) || behindApplication(code),
+    );
     let total = priorCreditTotal + awayCreditTotal + [...placed.values()].flat().reduce((sum, code) => sum + creditsOf(code), 0);
     /**
      * Where the hours past the degree total come from, so the note names the

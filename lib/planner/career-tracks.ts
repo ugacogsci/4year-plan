@@ -91,6 +91,14 @@ export interface InterestTopic {
   subjects: string[];
   /** The few courses a student with this interest should see first. */
   courses: string[];
+  /**
+   * Programs a student with this goal applies to, not courses to book: FIN
+   * 391 Investment Banking Academy is "Admission by application only". Never
+   * in `courses`, so the scorer never calls one "named for the goal you
+   * gave"; the planner never places them, and set_priorities hands them to
+   * ALMA as programs to apply to.
+   */
+  apply?: string[];
   note?: string;
   source?: TrackSource;
 }
@@ -101,6 +109,8 @@ export interface InterestProfile {
   words: string[];
   subjects: string[];
   courses: string[];
+  /** Every `apply` code of the topics heard, in the order they were named. */
+  apply: string[];
   heard: string[];
 }
 
@@ -774,31 +784,178 @@ export const INTEREST_TOPICS: InterestTopic[] = [
     subjects: [],
     courses: ['HK 152', 'HK 353', 'HK 454', 'HK 458'],
   },
+  /*
+   * Finance was one topic, and its title words were finance, financial,
+   * investment, banking, derivative, real estate and private equity. So a
+   * Finance student who changed "CPA" to "investment banker" and asked for
+   * light, relevant courses was re-picked ACE 240 Personal Financial
+   * Planning, ACE 349 Risk Management and Financial Planning Across the Life
+   * Cycle and FIN 461 Banking and Financial Regulation as courses for the
+   * goal, and FIN 424 Mergers and Acquisition never came up. Each kind of
+   * finance work is its own topic now, with title words that stay inside it.
+   * "financial" alone is in none of them: it starts a word in all three of
+   * those titles. Bare "finance" keeps a general topic of its own.
+   *
+   * `apply` names the Gies academy that fits each: one-credit courses taken
+   * "by application only", which the planner never books.
+   */
   {
     id: 'finance',
-    label: 'finance/investment banking',
+    label: 'finance',
     detect: [
       r`\bfinance\b`,
-      r`\bfinancial\s+(analyst|analysts|analysis|advisor|advisors|adviser|planning|planner|services|markets?|modeling|engineering)\b`,
+      r`\bfinancial\s+(services|industry|sector|institutions?|engineering)\b`,
+      r`\bfintech\b`,
+      r`\bwall\s+street\b`,
+      r`\bcapital\s+markets?\b`,
+      // "I want to go into banking" is investment banking as often as a
+      // bank's lending side, so bare banking is the whole field, not a guess.
+      r`\bbank(ing|er|ers)\b`,
+    ],
+    // A narrower goal is heard by its own topic, not also as the whole field:
+    // "corporate finance" is not a reason to suggest FIN 435 Personal Wealth
+    // Management, which the FIN subject would.
+    unless: [
+      r`\b(corporate|personal|real\s+estate|quantitative|quant)\s+finance\b`,
+      r`\b(investment|commercial|retail|corporate|community|consumer)\s+bank(ing|er|ers)\b`,
+      r`\bi-?bank(ing|er|ers)\b`,
+    ],
+    // "finance" alone also opens ACE 241 Advanced Personal Finance.
+    words: ['corporate finance', 'financial markets'],
+    subjects: ['FIN'],
+    courses: ['FIN 221', 'FIN 300', 'FIN 321', 'FIN 411'],
+    // "Induction into the Finance Academy. Restricted to Freshman students in their second semester."
+    apply: ['FIN 390'],
+  },
+  {
+    id: 'investment-banking',
+    label: 'investment banking/corporate finance',
+    detect: [
+      r`\bi-?bank(ing|er|ers)\b`,
+      r`\binvestment\s+bank(s|ing|er|ers)?\b`,
+      // Not bare "IB": that is Integrative Biology (IB 150) and the
+      // International Baccalaureate.
+      r`\bib\s+(analyst|analysts|associate|associates|recruiting)\b`,
+      r`\bprivate\s+equity\b`,
+      r`\bventure\s+capital(ist|ists)?\b`,
+      r`\bvc\s+(firm|firms|fund|funds)\b`,
+      r`\bm\s*&\s*a\b`,
+      r`\bmergers?(\s*(and|&)\s*acquisitions?)?\b`,
+      r`\bcorporate\s+(finance|development)\b`,
+      r`\bleveraged\s+buy-?outs?\b`,
+      r`\blbos?\b`,
+      r`\bvaluations?\b`,
+      r`\bfinancial\s+(model(ing|ling|s)?|analyst|analysts|analysis)\b`,
+      r`\bfp\s*&\s*a\b`,
+      r`\bcfos?\b`,
+    ],
+    // Not "acquisition", which also opens LING 423 Language Acquisition, nor
+    // "valuation" (ACE 408 Environmental Valuation), nor "investment banking",
+    // whose other title is the academy FIN 391.
+    words: ['corporate finance', 'mergers', 'private equity', 'venture capital', 'financial modeling', 'financial analysis', 'early-stage'],
+    subjects: [],
+    courses: ['FIN 321', 'FIN 424', 'FIN 463', 'FIN 418', 'FIN 425', 'FIN 464', 'ACCY 301'],
+    apply: ['FIN 391'],
+  },
+  {
+    id: 'markets',
+    label: 'asset management/markets/trading',
+    detect: [
+      r`\b(asset|investment|portfolio|fund|money)\s+manag(e|er|ers|ement)\b`,
+      r`\b(hedge|mutual|index)\s+funds?\b`,
+      r`\btrad(ing|er|ers)\b`,
+      r`\bsales\s+(and|&)\s+trading\b`,
+      r`\bquants?\b`,
+      r`\bquantitative\s+(finance|trading|trader|traders|analyst|analysts)\b`,
+      r`\bstocks?\s+(market|markets|trading|picking|analyst|analysts|broker|brokers)\b`,
+      r`\bstocks\b`,
+      r`\bequity\s+research\b`,
+      r`\bfixed\s+income\b`,
+      // Not bare "derivatives": "I keep messing up derivatives" is calculus.
+      r`\bderivatives\s+(trading|trader|traders|desk|pricing|markets?)\b`,
+      r`\bfinancial\s+derivatives\b`,
+      r`\b(options|futures|bond|bonds|commodit(y|ies))\s+(trading|trader|traders|markets?)\b`,
+      r`\bfinancial\s+markets?\b`,
+      r`\bcfa\b`,
+      r`\b(buy|sell)[-\s]side\b`,
       r`\binvestments?\b`,
       r`\binvest(ing|or|ors)\b`,
-      r`\bi-?bank(ing|er|ers)\b`,
-      r`\bprivate\s+equity\b`,
-      r`\bhedge\s+funds?\b`,
-      r`\bwall\s+street\b`,
-      r`\b(asset|wealth)\s+management\b`,
-      r`\btrad(ing|er|ers)\b`,
-      r`\bquant(s|itative\s+finance)?\b`,
-      r`\bstock\s+market\b`,
-      r`\bventure\s+capital\b`,
-      r`\breal\s+estate\b`,
-      r`\bfintech\b`,
     ],
-    // "Can I trade my class for a later section" is a swap, not the markets.
-    unless: [r`\btrad(e|es|ed|ing)\s+(my\s+|a\s+|this\s+|that\s+|the\s+)?(class|classes|course|courses|section|sections|seat|seats|spot|spots|shift|shifts|cards?)\b`],
-    words: ['finance', 'financial', 'investment', 'banking', 'derivative', 'real estate', 'private equity'],
-    subjects: ['FIN'],
-    courses: ['FIN 221', 'FIN 300', 'FIN 321', 'FIN 411', 'FIN 418', 'FIN 463', 'FIN 391', 'ACCY 201'],
+    unless: [
+      // "Can I trade my class for a later section" is a swap, not the markets.
+      r`\btrad(e|es|ed|ing)\s+(my\s+|a\s+|this\s+|that\s+|the\s+)?(class|classes|course|courses|section|sections|seat|seats|spot|spots|shift|shifts|cards?)\b`,
+      r`\btrading\s+cards?\b`,
+      r`\btrader\s+joe'?s\b`,
+      // Quantitative Reasoning is a general education category.
+      r`\bquant(itative)?\s+reasoning\b`,
+      // Investment banking and real estate investing have topics of their own.
+      r`\binvestment\s+bank(s|ing|er|ers)?\b`,
+      r`\b(real\s+estate|property)\s+invest(ment|ments|ing|or|ors)\b`,
+      r`\binvest(ing|ment|ments)?\s+in\s+(real\s+estate|property|properties)\b`,
+    ],
+    // "portfolio" alone also opens ADV 489 Digital Portfolio, and "futures"
+    // ENGL 221 Speculative Futures.
+    words: ['portfolio mngt', 'managed portfolio', 'fixed income', 'options', 'derivative', 'financial markets', 'trading'],
+    subjects: [],
+    courses: ['FIN 411', 'FIN 412', 'FIN 415', 'FIN 416', 'FIN 419', 'FIN 453'],
+    // "Primarily for Finance majors ... who show interest in pursuing their CFA credential."
+    apply: ['FIN 392'],
+  },
+  {
+    id: 'financial-planning',
+    label: 'financial planning/wealth management/insurance',
+    detect: [
+      r`\bfinancial\s+(plann(ing|er|ers)|advis(or|ors|er|ers|ing)|advice|coach|coaching)\b`,
+      r`\bpersonal\s+financ(e|es|ial)\b`,
+      r`\bwealth\s+(management|manager|managers|advisor|advisors|adviser|advisers|planning|planner|planners)\b`,
+      r`\bprivate\s+wealth\b`,
+      r`\bcfp\b`,
+      r`\bcertified\s+financial\s+planners?\b`,
+      r`\bretirement\s+(planning|planner|planners|plans?|benefits?)\b`,
+      r`\bemployee\s+benefits?\b`,
+      r`\binsurance\s+(industry|agent|agents|company|companies|career|careers|underwriter|underwriters|underwriting|broker|brokers|brokerage|sales|adjuster|adjusters)\b`,
+      r`\b(work|working|career|job|jobs|go|going)\s+(in|into|at|for)\s+(an?\s+|the\s+)?insurance\b`,
+      r`\brisk\s+management\b`,
+    ],
+    words: ['financial planning', 'personal finance', 'wealth', 'retirement', 'insurance', 'employee benefit', 'risk management'],
+    subjects: [],
+    courses: ['ACE 240', 'FIN 435', 'FIN 434', 'ACE 349'],
+    apply: ['FIN 393'],
+  },
+  {
+    id: 'real-estate',
+    label: 'real estate',
+    detect: [
+      r`\breal\s+estate\b`,
+      r`\brealtors?\b`,
+      r`\breal\s+property\b`,
+      r`\bproperty\s+(development|developer|developers|management|manager|managers|investing|investment|investments|investor|investors)\b`,
+      r`\b(commercial|residential|rental)\s+(property|properties)\b`,
+      r`\breits?\b`,
+    ],
+    // "property" alone also opens LAW 305 Art and Cultural Property Law and
+    // TE 450's intellectual property.
+    words: ['real estate'],
+    subjects: [],
+    courses: ['FIN 445', 'FIN 443', 'FIN 447', 'FIN 446'],
+    apply: ['FIN 395'],
+  },
+  {
+    id: 'commercial-banking',
+    label: 'commercial banking/lending',
+    detect: [
+      r`\b(commercial|retail|corporate|community|consumer)\s+bank(s|ing|er|ers)?\b`,
+      r`\blending\b`,
+      r`\b(loan|lending|credit)\s+(officer|officers|analyst|analysts|underwriter|underwriters|underwriting|risk)\b`,
+      r`\bbank(ing)?\s+(regulation|regulations|regulator|regulators|regulatory|examiner|examiners|teller|tellers|branch|manager|managers)\b`,
+      r`\b(work|working|job|jobs|career|internship|internships)\s+(at|in|for|with)\s+(a\s+|the\s+)?(local\s+|big\s+)?banks?\b`,
+      r`\bfederal\s+reserve\b`,
+      r`\bcentral\s+bank(s|ing)?\b`,
+    ],
+    // Not "banking" alone, which is also FIN 463 Investment Banking.
+    words: ['banking and financial', 'financial institution'],
+    subjects: [],
+    courses: ['FIN 461', 'FIN 300'],
   },
   {
     id: 'accounting',
@@ -1436,9 +1593,11 @@ export function interestProfile(text: string): InterestProfile {
   const words: string[] = [];
   const subjects: string[] = [];
   const courses: string[] = [];
+  const apply: string[] = [];
   const seenWords = new Set<string>();
   const seenSubjects = new Set<string>();
   const seenCourses = new Set<string>();
+  const seenApply = new Set<string>();
   for (const tr of tracks) {
     pushAll(words, seenWords, tr.words);
     pushAll(courses, seenCourses, tr.courses.flatMap((x) => x.codes));
@@ -1447,10 +1606,11 @@ export function interestProfile(text: string): InterestProfile {
     pushAll(words, seenWords, topic.words);
     pushAll(subjects, seenSubjects, topic.subjects);
     pushAll(courses, seenCourses, topic.courses);
+    pushAll(apply, seenApply, topic.apply ?? []);
   }
 
   const heard = [...tracks.map((tr) => tr.id), ...named.filter((x) => !covered.has(x.id)).map((x) => x.label)];
-  return { tracks, topics, words, subjects, courses, heard };
+  return { tracks, topics, words, subjects, courses, apply, heard };
 }
 
 /** How ALMA's set_priorities writes the student's new words into the stored career words. */
