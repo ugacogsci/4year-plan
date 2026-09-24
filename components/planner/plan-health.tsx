@@ -28,6 +28,20 @@ export interface HealthGroup {
   issue: PlanIssue;
 }
 
+/**
+ * "Area: requirement", the title of a requirement's row. An area-wide
+ * requirement carries the area's name as its label, so the pair would read
+ * "Technical Electives: Technical Electives"; an area the degree page prints
+ * no heading for has a null label whatever its type says, and Chemistry's
+ * rows read "null: Core Chemistry" here and on the printed advisor packet.
+ */
+export function reviewTitle(area: string | null | undefined, label: string | null | undefined): string {
+  const a = area?.trim() ?? '';
+  const l = label?.trim() ?? '';
+  if (!l || l === a) return a || 'A requirement on the degree page';
+  return a ? `${a}: ${l}` : l;
+}
+
 /** Identical messages become one row. Distinct ones never merge. */
 export function groupIssues(issues: PlanIssue[]): HealthGroup[] {
   const groups = new Map<string, HealthGroup>();

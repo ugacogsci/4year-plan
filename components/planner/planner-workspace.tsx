@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Info,
+  Printer,
   Save,
   Sparkles,
   Undo2,
@@ -38,9 +39,10 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { toast, Toaster } from '@/components/ui/toast';
 import { BotLauncher, BotPanel } from './advisor';
+import { AdvisorPacketDialog } from './advisor-packet';
 import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
-import { groupIssues, PlanHealthList } from './plan-health';
+import { groupIssues, PlanHealthList, reviewTitle } from './plan-health';
 import { SemesterColumn } from './semester-column';
 import { illinoisProgress } from './illinois-progress';
 import { StudentProfilePanel, type AreaRow } from './student-profile-panel';
@@ -132,6 +134,7 @@ import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-mat
 import { distinctHeld, heldTowardDegree, type GenEdCredit, type Horizon, type PlanRequirement, type PriorCredit } from '@/lib/planner/autoplan';
 import { boardChecker, genEdCandidates, genEdWhy, planMarks, repickBoard, repickSignature, type RepickChange } from '@/lib/planner/repick';
 import { creditUse, editFlags, enteringAsFirstYear, flagsCaused, isEditFlag, momentumReview, priorCreditUse, summerSuggestions, withSummer } from '@/lib/planner/review';
+import { buildAdvisorPacket, cardRole, type AdvisorPacket, type CardRole } from '@/lib/planner/advisor-packet';
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail } from '@/lib/planner/illinois-load';
@@ -387,6 +390,13 @@ export function PlannerWorkspace({
   const [minimumTermCredits, setMinimumTermCredits] = useState(12);
   /** The elective slot being chosen for, if any. Drives the finder's list. */
   const [chooser, setChooser] = useState<{ termId: string; courseId: string } | null>(null);
+  /**
+   * The advisor packet on screen, or null. Built when the student opens it
+   * rather than on every render, because the backup for each of next term's
+   * picks ranks the catalog against the board.
+   */
+  const [packet, setPacket] = useState<AdvisorPacket | null>(null);
+  const closePacket = useCallback(() => setPacket(null), []);
   /**
    * The board as of the last commit, for the advisor's tools.
    *
@@ -1036,9 +1046,9 @@ export function PlannerWorkspace({
         // twice: once for having no candidate courses and once for not fitting.
         id: `unmet-${u.requirementId}-${u.reason}`,
         severity: SEVERITY_BY_REASON[u.reason] ?? ('error' as const),
-        // An area-wide requirement carries the area's own name as its label, so
-        // the pair would read "Technical Electives: Technical Electives".
-        title: u.label && u.label !== u.areaLabel ? `${u.areaLabel}: ${u.label}` : u.areaLabel,
+        // Neither "Technical Electives: Technical Electives" nor "null: Core
+        // Chemistry" (see reviewTitle).
+        title: reviewTitle(u.areaLabel, u.label),
         message: u.message,
         termId: firstTerm,
       })),
@@ -1919,27 +1929,14 @@ export function PlannerWorkspace({
     return { changes: result.changes, unchanged: false };
   }
 
-  type Role = 'required' | 'from a list' | 'elective slot' | 'career track' | 'language' | 'gen ed pick' | 'prerequisite' | 'added';
-  function roleOf(course: Course): Role {
+  /**
+   * Why a card is on the board. The rules live in cardRole
+   * (lib/planner/advisor-packet.ts) so the printed packet names every card
+   * with the word ALMA and the board use for it.
+   */
+  function roleOf(course: Course): CardRole {
     const L = live.current;
-    const slot = L.electiveOf.get(course.id);
-    if (slot?.kind === 'elective') return 'elective slot';
-    // Booked for the goal the student named: Aaliyah's PHYS 101 for physical
-    // therapy school read "elective slot", and ALMA offered to swap it freely.
-    if (slot?.kind === 'track') return 'career track';
-    if (slot?.kind === 'pool') return 'from a list';
-    if (slot?.kind === 'language') return 'language';
-    if (slot?.kind === 'gened') return 'gen ed pick';
-    if (slot?.kind === 'prerequisite') return 'prerequisite';
-    if (course.pathwayRole === 'required') return 'required';
-    // Booked for a take-all or choose row: the second course of a required
-    // group ("CHEM 102, 103, 104 and 105") is required, whatever its card says.
-    const booked = L.report?.bookedFor?.[normCode(course.code)];
-    if (booked && !studentAdded.current.has(course.id)) {
-      const block = L.loaded?.blocks.find((b) => b.id === booked);
-      if (block && (block.rule.kind === 'all' || block.rule.kind === 'choose')) return 'required';
-    }
-    return 'added';
+    return cardRole(course, { marks: L.electiveOf, bookedFor: L.report?.bookedFor, blocks: L.loaded?.blocks, studentAdded: studentAdded.current });
   }
   function markOf(course: Course): string {
     const role = roleOf(course);
@@ -3383,6 +3380,72 @@ export function PlannerWorkspace({
     'Prerequisites are parsed from catalog sentences. Anything about placement or consent is not checked here.',
   ];
 
+  /**
+   * "Print for my advisor": the board, what each course is for, a backup for
+   * each of next term's picks, every assumption and flag, and the questions
+   * for the college, built from what is on screen now. The backups are the
+   * card dropdown's own runners-up (alternativesFor), the list ALMA's
+   * explain_choice reads, so paper and screen offer the same course.
+   */
+  const openPacket = () => {
+    const board = planRef.current ?? plan;
+    if (!board) return;
+    const record = answers?.transcript ?? null;
+    const known = (code: string) => byCode.has(normCode(code));
+    const priced = exams.map((e) => {
+      const codes = examCourses([e], examCredit.entries, known);
+      const hours = examElectiveHours([e], examCredit.entries, transcriptIndirectCodes(record), catalogCredits);
+      return {
+        name: `${e.kind} ${e.exam.replace(/\s+-\s+Entering.*$/, '')}${e.level ? ` ${e.level}` : ''}, score ${e.score}`,
+        codes,
+        grants: [codes.join(', '), hours > 0 ? `${hours} elective ${plural(hours, 'hour')}` : ''].filter(Boolean).join(' and '),
+      };
+    });
+    // Held codes no document shows: typed under Credit, or told to ALMA
+    // without a record line. The record's own lines are listed from the record.
+    const shown = new Set([...transcriptCodes(record), ...priced.flatMap((e) => e.codes)].map(normCode));
+    const entered = [...completedCodes].filter((code) => !shown.has(code));
+    setPacket(
+      buildAdvisorPacket({
+        school: {
+          id: school?.id ?? 'demo',
+          name: school?.name ?? 'Your university',
+          short: school?.short ?? 'your university',
+          audit: isIllinois ? 'uAchieve degree audit' : isUga ? 'DegreeWorks audit' : 'degree audit',
+        },
+        program: {
+          name: activeProgramName ?? 'Your plan',
+          college: loaded?.program.college ?? null,
+          url: loaded?.url ?? null,
+          total: degreeTotalNow() ?? activeProgramTotal,
+          totalPublished: !isCatalogSchool || Boolean(loaded?.summary.totalCredits || loaded?.program.totalCredits),
+        },
+        board,
+        courseById: (id) => courseIndex.get(id),
+        context,
+        marks: electiveOf,
+        blocks: loaded?.blocks ?? [],
+        bookedFor: report?.bookedFor ?? {},
+        studentAdded: studentAdded.current,
+        creditsLine: context ? describeCreditProgress(credits, activeProgramTotal) : totalCredits,
+        hoursWithoutCourse: priorHoursOf(answers, exams, examCredit.entries, catalogCredits),
+        goal: careerText,
+        language: report?.language ?? null,
+        languageYears: answers?.languageYears ?? null,
+        transcript: record,
+        exams: priced.map(({ name, grants }) => ({ name, grants })),
+        enteredCodes: entered,
+        away: report?.away ?? [],
+        residency: report?.residency ?? null,
+        admission: report?.admission ?? null,
+        flags: grouped.map((g) => ({ severity: g.severity, title: g.title, message: g.message, count: g.count })),
+        caveats,
+        alternatives: alternativesFor,
+        madeOn: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+      }),
+    );
+  };
+
   return (
     <main
       className="planner-app"
@@ -3431,9 +3494,12 @@ export function PlannerWorkspace({
             <DropdownMenuTrigger render={<Button variant="outline" />}>
               Plan <ChevronDown />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem onClick={save}>
                 <Save /> Save on this device
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={openPacket} disabled={!plan}>
+                <Printer /> Print for my advisor
               </DropdownMenuItem>
               <DropdownMenuItem onClick={exportPlan}>Download as JSON</DropdownMenuItem>
               <DropdownMenuItem onClick={importPlan}>Load from a file</DropdownMenuItem>
@@ -3727,6 +3793,7 @@ export function PlannerWorkspace({
           ready={Boolean(plan && context && loaded)}
         />
       )}
+      {packet && <AdvisorPacketDialog packet={packet} onClose={closePacket} />}
     </main>
   );
 }
