@@ -285,6 +285,90 @@ function firstSentence(text: string): string {
   return (m ? m[1] : text).replace(/[.;]$/, '').trim();
 }
 
+/** "A", "A and B", "A, B and C". */
+function joinList(items: string[]): string {
+  return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+const CODE = '[A-Z]{2,5} \\d{3}[A-Z]?';
+/** "CHEM 442 lists MATH 225 as a prerequisite. ... This plan books MATH 227, so nothing was booked for it. Ask your advisor whether that clears." */
+const NOT_BOOKED = new RegExp(`^(${CODE}) lists (.+?) as a prerequisite\\. (?:.+? )?(You have|This plan books) (${CODE})[,.] .*Ask your advisor whether that clears\\.$`);
+/** Inside a track note: "MCB 151 and MCB 251 do not both count toward graduation. This plan books MCB 251, so MCB 151 is left out." */
+const LEFT_OUT = new RegExp(`(${CODE}) and (${CODE}) do not both count toward graduation\\. (You have|This plan books) (${CODE}), so (${CODE}) is left out\\.`, 'g');
+/** Inside a track note: "CHEM 332 lands in Fall 2029, after Spring 2029, the last term before applications go out: <why>." */
+const LANDS = new RegExp(`(${CODE}) lands in ((?:Fall|Spring|Summer) \\d{4}), after ((?:Fall|Spring|Summer) \\d{4}), the last term ([^:]+): ([^.]+)\\.`, 'g');
+
+/**
+ * The planner's notes as a page prints them: the same facts in fewer lines.
+ * Printed one by one, Priya's Chemistry notes spent twelve lines on six
+ * prerequisites not booked because a course the plan books does not count
+ * beside them, and her pre-pharmacy note five sentences on courses the credit
+ * rule leaves out; with the career track's rows on her board the packet ran
+ * to two and a half pages. On paper:
+ *
+ *   - the prerequisites not booked are one line, grouped by what stands in
+ *     their way;
+ *   - a track note does not list the courses it books, which the board marks
+ *     "career track" one by one, and says the courses the credit rule leaves
+ *     out, and the ones that land after their date for one reason, in one
+ *     sentence each.
+ *
+ * Nothing is dropped: every course, date and reason stays on the page.
+ */
+export function condenseNotesForPaper(notes: string[]): string[] {
+  const out: string[] = [];
+  const blocked = new Map<string, { needs: string; by: string; verb: string; courses: string[] }>();
+  let blockedAt = -1;
+  for (const note of notes) {
+    const hit = NOT_BOOKED.exec(note.trim());
+    if (hit) {
+      const [, course, needs, verb, by] = hit;
+      const key = `${needs}|${verb}|${by}`;
+      const row = blocked.get(key) ?? { needs, by, verb, courses: [] };
+      if (!row.courses.includes(course)) row.courses.push(course);
+      blocked.set(key, row);
+      if (blockedAt < 0) {
+        blockedAt = out.length;
+        out.push('');
+      }
+      continue;
+    }
+    out.push(condenseTrackNote(note));
+  }
+  if (blockedAt >= 0) {
+    const rows = [...blocked.values()];
+    out[blockedAt] =
+      rows.length === 1 && rows[0].courses.length === 1
+        ? `${rows[0].courses[0]} lists ${rows[0].needs} as a prerequisite, and ${rows[0].verb === 'You have' ? 'you have' : 'this plan books'} ${rows[0].by}, which the catalog does not count beside it, so nothing was booked for it. Ask your advisor whether that clears.`
+        : `Prerequisites not booked, because the catalog does not count them beside a course ${rows.every((r) => r.verb === 'You have') ? 'you have' : 'this plan books'}; ask your advisor whether each clears: ${rows.map((r) => `${r.needs} for ${joinList(r.courses)} (beside ${r.by}${r.verb === 'You have' ? ', which you have' : ''})`).join('; ')}.`;
+  }
+  return out;
+}
+
+function condenseTrackNote(note: string): string {
+  const head = note.match(/^([^:]+): the plan books (.+?) as electives from (.+?) \((https?:[^)]+)\)/);
+  if (!head) return note;
+  let text = `${head[1]}: the courses marked career track come from ${head[3]} (${head[4]})${note.slice(head[0].length)}`;
+  const left = [...text.matchAll(LEFT_OUT)];
+  if (left.length > 1) {
+    const verb = left.every((m) => m[3] === 'You have') ? 'you have' : 'this plan books';
+    const said = `The catalog does not count these beside a course ${verb}, so each is left out: ${left.map((m) => `${m[5]} (beside ${m[4]})`).join(', ')}.`;
+    text = text.replace(left[0][0], said);
+    for (const m of left.slice(1)) text = text.replace(` ${m[0]}`, '').replace(m[0], '');
+  }
+  const lands = [...text.matchAll(LANDS)];
+  const byWhy = new Map<string, RegExpMatchArray[]>();
+  for (const m of lands) byWhy.set(`${m[3]}|${m[4]}|${m[5]}`, [...(byWhy.get(`${m[3]}|${m[4]}|${m[5]}`) ?? []), m]);
+  for (const group of byWhy.values()) {
+    if (group.length < 2) continue;
+    const [first] = group;
+    const said = `${joinList(group.map((m) => `${m[1]} (${m[2]})`))} land after ${first[3]}, the last term ${first[4]}: ${first[5]}.`;
+    text = text.replace(first[0], said);
+    for (const m of group.slice(1)) text = text.replace(` ${m[0]}`, '').replace(m[0], '');
+  }
+  return text;
+}
+
 /** A catalog sentence shortened at a word, for a line that quotes it. */
 function clip(text: string, max: number): string {
   const flat = text.replace(/\s+/g, ' ').trim();
@@ -615,6 +699,7 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
    * assumption, and grade provenance, "weighed 40 of 44" and the credit aim
    * explain the board, not the plan an advisor signs off on. Anything not
    * recognised is kept: a note the advisor never sees is the worse failure.
+   * What is kept is condensed for paper (condenseNotesForPaper).
    */
   const SCREEN_ONLY = [
     /^Language: \d+ more semesters? of /,
@@ -626,7 +711,7 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
     /^\d+ courses? on the degree page counts? under more than one heading/,
   ];
   const residencyLine = input.residency?.shortfall?.trim() ?? null;
-  const plannerNotes = [...new Set(input.caveats)].filter((note) => note.trim() && note.trim() !== residencyLine && !SCREEN_ONLY.some((re) => re.test(note.trim())));
+  const plannerNotes = condenseNotesForPaper([...new Set(input.caveats)].filter((note) => note.trim() && note.trim() !== residencyLine && !SCREEN_ONLY.some((re) => re.test(note.trim()))));
 
   // --- questions only the college can answer ----------------------------------
   const questions: PacketQuestion[] = [];
@@ -696,7 +781,9 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
     });
   }
   if (input.residency && !input.residency.ok && input.residency.shortfall) {
-    questions.push({ topic: 'residency', text: `How do I meet the residency rule? ${input.residency.shortfall}`, who: `${collegeWord} advising` });
+    // The shortfall's first sentence: the rest, and its source, is the
+    // residency flag printed above, word for word.
+    questions.push({ topic: 'residency', text: `How do I meet the residency rule? ${firstSentence(input.residency.shortfall)}.`, who: `${collegeWord} advising` });
   }
   if (input.admission) {
     questions.push({
@@ -718,10 +805,25 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
   const errors = flags.filter((f) => f.severity === 'error');
   if (errors.length > 0) {
     // With the flag's own first sentence: "Prerequisite conflict" alone does
-    // not say that it is SPAN 203 ahead of SPAN 201.
+    // not say that it is SPAN 203 ahead of SPAN 201. One course ahead of
+    // several of its prerequisites is said once: CHEM 105 moved into a first
+    // fall needs CHEM 102, CHEM 103 and CHEM 104 before it, not three
+    // sentences that differ in one code.
+    const said: Array<{ key: string; title: string; course: string; needs: string[]; tail: string } | { key: string; text: string }> = [];
+    for (const f of errors) {
+      const title = f.title.replace(/:\s*$/, '');
+      const sentence = clip(firstSentence(f.message), 110);
+      const m = sentence.match(new RegExp(`^(${CODE}) needs (${CODE}) (.+)$`));
+      const key = m ? `${title}|${m[1]}|${m[3]}` : `${title}|${sentence}`;
+      const row = said.find((s) => s.key === key);
+      if (m && row && 'needs' in row) row.needs.push(m[2]);
+      else if (m) said.push({ key, title, course: m[1], needs: [m[2]], tail: m[3] });
+      else if (!row) said.push({ key, text: `${title} (${sentence})` });
+    }
+    const one = said.length === 1;
     questions.push({
       topic: 'errors',
-      text: `The plan could not settle ${errors.length === 1 ? 'this' : 'these'}: ${errors.map((f) => `${f.title.replace(/:\s*$/, '')} (${clip(firstSentence(f.message), 110)})`).join('; ')}. What should I do about ${errors.length === 1 ? 'it' : 'them'}?`,
+      text: `The plan could not settle ${one ? 'this' : 'these'}: ${said.map((s) => ('text' in s ? s.text : `${s.title} (${s.course} needs ${joinList(s.needs)} ${s.tail})`)).join('; ')}. What should I do about ${one ? 'it' : 'them'}?`,
     });
   }
   if (!input.program.totalPublished) {
