@@ -156,6 +156,37 @@ export interface AdmissionRoute {
   recommended: string[];
   notes: string[];
   contact: string | null;
+  /**
+   * The college this route leads into, when the table key is not the college
+   * code: Grainger has two routes, "engineering" for students coming from
+   * another school and "engineering-undeclared" for students already here.
+   */
+  college?: string;
+  /** Who the route is for: students already at Illinois (an ICT), or applicants from another school. */
+  for?: 'internal' | 'external';
+  /** The day the route's own page was read, when it differs from the table's. */
+  readAt?: string;
+  /** How the student must have entered Illinois to use the route. */
+  entry?: 'first-year';
+  /** The semesters of enrollment (fall and spring, 1 = the first) in which a student may apply. */
+  applySemesters?: number[];
+  /** The page's own sentence on who may not apply. */
+  notEligible?: string;
+  /** What the college says to a student who entered Illinois as a transfer. */
+  transferEntry?: string;
+  gpa?: { cumulative?: number; technical?: number; perTechnicalCourse?: string; technicalCourses?: string };
+  /** Application windows: in which season's term the window falls, its dates, and the term it admits for. */
+  windows?: Array<{ applyIn: 'Fall' | 'Spring'; opens: string; closes: string; admitTerm: 'Fall' | 'Spring' }>;
+  /** Majors the application may name only a limited number of. */
+  competitive?: { limit: number; majors: string[]; text: string };
+  /** Majors in the college this route cannot reach, and what their pages offer instead. */
+  closedMajors?: {
+    majors: Array<{ name: string; programId?: string }>;
+    text: string;
+    offers: string[];
+    sources: Array<{ url: string; title: string; read: string }>;
+  };
+  sources?: Array<{ url: string; title: string; read: string }>;
 }
 
 export interface AdmissionTable {
@@ -3422,7 +3453,14 @@ function admissionRequirements(route: AdmissionRoute, requirements: PlanRequirem
   const satisfied = new Set([...input.prior.courseCodes, ...input.prior.exemptCodes].map(normaliseCode));
   const allOptions = route.required.flatMap((item) => [...(item.options ?? []), ...(item.with ?? [])]).map(normaliseCode);
   const { depth } = buildDepths(allOptions, ctx.prereqs, satisfied, equivalents);
-  const reachableByDeadline = (code: string) => (depth.get(code) ?? 0) <= 1;
+  /**
+   * The deadline is the route's own. Gies reads its courses at the end of the
+   * first spring (term 1); a sophomore applying to Engineering Undeclared in
+   * this fall's November window has term 0, and a chain two deep cannot be
+   * finished by then whatever the degree says.
+   */
+  const deadline = route.dueTermIndex ?? 1;
+  const reachableByDeadline = (code: string) => (depth.get(code) ?? 0) <= deadline;
   const label = `Getting into ${route.name} (${route.path}), by ${route.requiredBy}`;
   const added: PlanRequirement[] = [];
   const codes: string[] = [];
