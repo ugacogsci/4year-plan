@@ -22,7 +22,16 @@ import { createPortal } from 'react-dom';
 import { Printer, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { AdvisorPacket, CardRole } from '@/lib/planner/advisor-packet';
+import type { AdvisorPacket, CardRole, PacketPick } from '@/lib/planner/advisor-packet';
+
+/**
+ * A course next term has a row of its own when it is one of the planner's
+ * picks: its backup, or the line saying nothing registrable takes its place.
+ * The courses the plan needs as they are (required, career track, language,
+ * prerequisite) share one row. A pre-med's first fall printed "None: the plan
+ * needs this course" five times, a quarter of a page of the two.
+ */
+const hasOwnRow = (c: PacketPick) => c.chosen;
 
 /** The chip each role wears, drawn like the board's: a dashed slot, a dotted language, a solid requirement. */
 function RoleChip({ kind }: { kind: CardRole }) {
@@ -132,7 +141,7 @@ export function AdvisorPacketSheet({ packet }: { packet: AdvisorPacket }) {
               </tr>
             </thead>
             <tbody>
-              {packet.next.courses.map((c) => (
+              {packet.next.courses.filter(hasOwnRow).map((c) => (
                 <tr key={c.code}>
                   <td>
                     <span className="packet-code">{c.code}</span> {c.title} <span className="packet-cr">{c.credits}</span>
@@ -147,17 +156,34 @@ export function AdvisorPacketSheet({ packet }: { packet: AdvisorPacket }) {
                         <span className="packet-cr">{c.backup.credits}</span>
                         <span className="packet-why">{c.backup.why}</span>
                       </>
-                    ) : c.chosen ? (
+                    ) : (
                       <span className="packet-why">
                         No other course you can register for takes its place this term. Take another section, or ask
                         what could.
                       </span>
-                    ) : (
-                      <span className="packet-why">{c.role === 'language' ? 'Another section of the same course.' : 'None: the plan needs this course.'}</span>
                     )}
                   </td>
                 </tr>
               ))}
+              {packet.next.courses.some((c) => !hasOwnRow(c)) && (
+                <tr>
+                  <td colSpan={3}>
+                    {packet.next.courses
+                      .filter((c) => !hasOwnRow(c))
+                      .map((c, i) => (
+                        <span key={c.code}>
+                          {i > 0 && '; '}
+                          <span className="packet-code">{c.code}</span> {c.title} <span className="packet-cr">{c.credits}</span>{' '}
+                          <RoleChip kind={c.role} />
+                        </span>
+                      ))}
+                    <span className="packet-why">
+                      No backup: the plan needs these as they are. If a section is full, take another section of the same
+                      course.
+                    </span>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </section>
