@@ -775,9 +775,12 @@ export interface GeneratedPlan {
   forfeited: Array<{ held: string; for: string }>;
   /**
    * Courses placed to reach the degree total that no requirement names, each
-   * with the reason it was chosen. Marked on the board as electives to swap.
+   * with the reason it was chosen. Marked on the board as electives to swap,
+   * except those booked for a career track the student named, which carry
+   * the track's name: Aaliyah's MCB 150 is "For Pre-physical therapy (DPT)",
+   * and a re-pick for easier electives must not trade it for an HK course.
    */
-  electives: Array<{ code: string; why: string; reasons: string[] }>;
+  electives: Array<{ code: string; why: string; reasons: string[]; track?: string }>;
   /**
    * The language sequence this plan books for the language requirement, or
    * null when the degree has none or the student already meets it.
@@ -3107,6 +3110,14 @@ export function electiveOptions(input: {
    * its own slot and none of them checked against the others.
    */
   electiveCodes?: string[];
+  /**
+   * The quality scorer to rank with, when the caller already holds one. The
+   * re-pick passes the scorer it built from the board as the call began, so
+   * every slot is ranked the same way and the catalog is scored once rather
+   * than once per slot: Sofia's Psychology board took 25 seconds to re-pick
+   * under "best teaching", nearly all of it re-scoring the same 6,000 courses.
+   */
+  quality?: (code: string) => QualityResult;
 }): ElectiveOption[] {
   const ctx = input.context;
   const term = input.plan.terms.find((t) => t.id === input.termId);
@@ -3178,7 +3189,7 @@ export function electiveOptions(input: {
     dormant: dormantCheck(ctx),
     closedToMajor: closedToMajorCheck(ctx, input.programName, input.programCollege),
     rare: rareCheck(ctx),
-    quality: qualityFor(ctx, byCode, {
+    quality: input.quality ?? qualityFor(ctx, byCode, {
       priorities: input.priorities,
       interestWords: interestWordsOf(input.interests),
     profile: careerProfileOf(input),
@@ -5968,7 +5979,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * first, up to the same even aim the required courses were placed at. Only if
    * the total is still short does a second set of rounds go up to the maximum.
    */
-  const electives: Array<{ code: string; why: string; reasons: string[] }> = [];
+  const electives: Array<{ code: string; why: string; reasons: string[]; track?: string }> = [];
   const degreeTotalPublished = input.degreeTotal ?? null;
   if (degreeTotalPublished !== null && remainingDegree !== null && terms.length > 0) {
     // The terms in play: the ones this student needs, or one more where a
@@ -6178,7 +6189,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const subject = byCode.get(pick)?.cluster ?? '';
           perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
           const levelWhy = spendLevel(pick);
-          electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons });
+          electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : {}) });
           progress = true;
         }
       }
@@ -6242,7 +6253,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const subject = byCode.get(pick)?.cluster ?? '';
         perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
         const levelWhy = spendLevel(pick);
-        electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons });
+        electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : {}) });
         topped = true;
       }
     }
@@ -6317,7 +6328,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         chosen.set(code, { requirementId: null, label: 'Elective' });
         total += creditsOf(code);
         trackPast += overTotal() - overBefore;
-        electives.push({ code, why: `For ${want.track}: ${want.why}`, reasons: [] });
+        electives.push({ code, why: `For ${want.track}: ${want.why}`, reasons: [], track: want.track });
         pastTotal.push(code);
         break;
       }

@@ -82,7 +82,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'remove_course',
     description:
-      'Take a course off the board. A course the degree requires, or one filling a "from a list" requirement, is only removed when confirmed is true, which you may set only after the student has said yes in this conversation to removing that specific course. Elective slots and courses the student added can be removed freely.',
+      'Take a course off the board. A course the degree requires, one filling a "from a list" requirement, or one booked for the student\'s career track, is only removed when confirmed is true, which you may set only after the student has said yes in this conversation to removing that specific course. Elective slots and courses the student added can be removed freely.',
     input_schema: {
       type: 'object',
       properties: {
@@ -96,7 +96,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'replace_course',
     description:
-      'Swap one course on the board for another in the same term, keeping the term the same size. The usual way to act on an interest: replace an elective slot with a course the student would rather take. Replacing a required or from-a-list course needs confirmed true, obtained the same way as for remove_course. The replacement must pass the same checks as add_course.',
+      'Swap one course on the board for another in the same term, keeping the term the same size. The usual way to act on an interest: replace an elective slot with a course the student would rather take. Replacing a required, from-a-list or career-track course needs confirmed true, obtained the same way as for remove_course. The replacement must pass the same checks as add_course.',
     input_schema: {
       type: 'object',
       properties: {
@@ -191,7 +191,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'set_priorities',
     description:
-      "Change what the planner optimises for when it picks electives and orders choices: lighter workload (Illinois grade history), highly rated teaching (the university's own Teachers Ranked as Excellent lists), relevance to what the student is studying and wants to do after, covering more requirements at once, and fitting the schedule (a time window such as nothing before 9 or afternoons only, days off, online or in person; judged on whether a whole registration fits the crawled term's sections, since the planner picks courses, not sections). Each knob is 0 (ignore), 1 (counts) or 2 (matters most); a preset sets all five. Use it when the student says what they care about: \"I want easy classes\", \"I want the best professors\", \"no 8 a.m.s\". With repick true (the default) the planner swaps its own picks, the elective slots and the from-a-list courses, for the best under the new priorities and leaves required and student-added courses alone; the result says what changed, so tell the student.",
+      "Change what the planner optimises for when it picks electives and orders choices: lighter workload (Illinois grade history), highly rated teaching (the university's own Teachers Ranked as Excellent lists), relevance to what the student is studying and wants to do after, covering more requirements at once, and fitting the schedule (a time window such as nothing before 9 or afternoons only, days off, online or in person; judged on whether a whole registration fits the crawled term's sections, since the planner picks courses, not sections). Each knob is 0 (ignore), 1 (counts) or 2 (matters most); a preset sets all five. Use it when the student says what they care about: \"I want easy classes\", \"I want the best professors\", \"no 8 a.m.s\". With repick true (the default) the planner swaps its own picks, the elective slots and the from-a-list courses, for the best under the new priorities and leaves required, career-track and student-added courses alone, never breaking a prerequisite, overloading a term or using a term a course does not run in; the result lists the net changes, so tell the student. The same priorities and interests the board was built or last re-picked for move nothing, and the result says so.",
     input_schema: {
       type: 'object',
       properties: {
@@ -408,7 +408,7 @@ What you are for
 - A course already taken can be retaken only by the registrar's rules (grade replacement is theirs to decide); the board shows it as taken. When a student wants a course or subject kept out of their electives, replace it and tell them a rebuild may bring it back until they say so again.
 
 Rules about the board
-- Every card on the board is marked required, from a list, elective slot, language, gen ed pick, prerequisite, or added. Prefer changing elective slots and gen ed picks (a gen ed pick is swapped for another course carrying the same categories). Never remove or replace a required or from-a-list course unless the student has clearly said yes to removing that specific course in this conversation; then, and only then, call the tool with confirmed true. If they ask you to drop one, say what it is required for and ask for a yes.
+- Every card on the board is marked required, from a list, elective slot, career track, language, gen ed pick, prerequisite, or added. Prefer changing elective slots and gen ed picks (a gen ed pick is swapped for another course carrying the same categories). A career-track card is a course the student's named goal requires (PHYS 101 for physical therapy school); keep it unless they drop the goal. Never remove or replace a required, from-a-list or career-track course unless the student has clearly said yes to removing that specific course in this conversation; then, and only then, call the tool with confirmed true. If they ask you to drop one, say what it is required for and ask for a yes.
 - Use the tools for every fact. Do not state a course's prerequisites, credits, difficulty or description from memory; call course_details or planner_answer. Do not claim a course is eligible in a term without search_courses or a successful add.
 - A tool that fails says why. Relay the reason plainly and try the next best option (another term, another course).
 - Teaching ratings come only from the university's own Teachers Ranked as Excellent lists, which course_details and search results carry. Never cite RateMyProfessors or any outside site, and never call an instructor good or bad on your own; say whether they are on the list, and for which terms. A name missing from the list is not a rating against it.

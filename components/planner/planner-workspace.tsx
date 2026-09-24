@@ -127,6 +127,7 @@ import {
 } from '@/lib/planner/transcript';
 import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
 import { distinctHeld, heldTowardDegree, type GenEdCredit, type Horizon, type PlanRequirement, type PriorCredit } from '@/lib/planner/autoplan';
+import { boardChecker, genEdCandidates, genEdWhy, planMarks, repickBoard, repickSignature, type RepickChange } from '@/lib/planner/repick';
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail } from '@/lib/planner/illinois-load';
@@ -224,8 +225,11 @@ interface PlanReport {
   notPlaced: NotPlaced[];
   /** Held credit a required course displaced. Out of the headline, and in the review list. */
   forfeited: Array<{ held: string; for: string }>;
-  /** Courses the plan chose to reach the degree total, each with its reason. */
-  electives: Array<{ code: string; why: string }>;
+  /**
+   * Courses the plan chose to reach the degree total, each with its reason,
+   * and the career track it was booked for when there is one.
+   */
+  electives: Array<{ code: string; why: string; track?: string }>;
   firstTermId: string;
   /** The language sequence the plan booked, or null. */
   language: LanguagePlan | null;
@@ -385,6 +389,15 @@ export function PlannerWorkspace({
    * the second course of a required group) was described as the student's.
    */
   const studentAdded = useRef<Set<string>>(new Set());
+  /**
+   * The priorities and words the board was last built or re-picked for
+   * (repickSignature), or null for a board restored from this device. A
+   * re-pick for the same ones is a no-op: pressing Re-pick on a fresh
+   * balanced board used to move 21 of a pre-med student's courses, because
+   * the fill and the re-pick rank a little differently, and pressing it
+   * again moved more.
+   */
+  const repickedFor = useRef<string | null>(null);
   useEffect(() => {
     planRef.current = plan;
   }, [plan]);
@@ -605,6 +618,7 @@ export function PlannerWorkspace({
   const buildPlan = useCallback(() => {
     if (!isCatalogSchool) {
       const sample = createSamplePlan();
+      repickedFor.current = null;
       setPlan(sample);
       setPlanNotes([]);
       setReport(null);
@@ -739,6 +753,7 @@ export function PlannerWorkspace({
       away: generated.away ?? [],
       firstTermId: generated.plan.terms[0]?.id ?? '',
     });
+    repickedFor.current = repickSignature(priorities, planInput.interests ?? '');
     studentAdded.current = new Set();
     setUndoStack([]);
     setStatus(
@@ -812,6 +827,7 @@ export function PlannerWorkspace({
     if (restored.current) {
       const saved = restored.current;
       restored.current = null;
+      repickedFor.current = null;
       setPlan(saved.plan);
       setTargetTermId(saved.plan.terms[0]?.id ?? '');
       setStatus('Your saved plan, restored from this device.');
@@ -1135,94 +1151,26 @@ export function PlannerWorkspace({
    * Counted off the pool report rather than off Course.pathwayRole, because
    * pathwayRole only says "choice" and a student looking at CS 483 in their
    * spring needs to know it is one of six technical electives and that eighteen
-   * hours were asked for.
+   * hours were asked for. The same map says which cards are the planner's
+   * slots, gen-ed picks, language and booked prerequisites, and which are
+   * booked for the student's career track. It is built by planMarks in
+   * lib/planner/repick.ts, so the re-pick and its regression check read
+   * exactly the marks the board shows.
    */
-  const electiveOf = useMemo(() => {
-    const map = new Map<string, { label: string; detail: string; kind?: ElectiveOf['kind'] }>();
-    for (const pool of pools) {
-      // Written with the number each half carries. Hardcoding "courses" made
-      // every one-course list read "1 courses from this list", and 63 pools
-      // across 36 Illinois degrees ask for exactly one.
-      const wanted = [
-        pool.hoursTarget !== null ? `${pool.hoursTarget} ${plural(pool.hoursTarget, 'hour')}` : null,
-        pool.countTarget !== null ? `${pool.countTarget} ${plural(pool.countTarget, 'course')}` : null,
-      ].filter(Boolean).join(' and ');
-      const detail = wanted
-        ? `${wanted} from this list, ${pool.count} chosen.`
-        : `${pool.count} chosen from this list. The catalog does not say how many to take.`;
-      /**
-       * Only as many cards as the list asks for wear its name. Finance's page
-       * names 82 of its 124 credits, so the fill reaches the total with more
-       * 400-level FIN courses, and every one of them sat in the same list;
-       * the board then read as seven courses "from a list" that needs four,
-       * and the bot called three of them padding. The first ones in term
-       * order fill the list. The rest are what they are: the planner's
-       * electives toward the total, free to swap.
-       */
-      const want = pool.countTarget ?? (pool.hoursTarget !== null ? Math.ceil(pool.hoursTarget / 3) : null);
-      let counted = 0;
-      for (const code of pool.picked) {
-        const course = byCode.get(normCode(code));
-        if (!course) continue;
-        if (want !== null && counted >= want) {
-          map.set(course.id, {
-            label: 'Elective',
-            detail: `Counts toward the degree total. The list ${pool.label} already has its ${want} from earlier terms.`,
-            kind: 'elective',
-          });
-          continue;
-        }
-        map.set(course.id, { label: pool.label, detail, kind: 'pool' });
-        counted += 1;
-      }
-    }
-    // The language sequence: required, but the language is the student's to pick.
-    if (report?.language) {
-      const lang = report.language;
-      lang.codes.forEach((code, i) => {
-        const course = byCode.get(normCode(code));
-        if (!course) return;
-        map.set(course.id, {
-          label: 'Language',
-          detail: `Semester ${lang.completed + i + 1} of ${lang.semesters} of ${lang.name}, for the language requirement. ${lang.why}`,
-          kind: 'language',
-        });
-      });
-    }
-    // The plan's own fillers, so a student can tell a suggestion from a rule.
-    for (const pick of report?.electives ?? []) {
-      const course = byCode.get(normCode(pick.code));
-      if (!course) continue;
-      const mark = map.get(course.id);
-      if (!mark) map.set(course.id, { label: 'Elective', detail: pick.why, kind: 'elective' });
-      else if (mark.kind === 'elective' && mark.label === 'Elective') map.set(course.id, { ...mark, detail: pick.why });
-    }
-    /**
-     * The planner's gen-ed picks and the prerequisites it booked. Both are its
-     * own choices, and unmarked they read on the board, and to ALMA, as
-     * courses "the student put there": RHET 105 on every first-year board, and
-     * MATH 112 booked for a Finance student's calculus.
-     */
-    for (const pick of report?.genEdPicks ?? []) {
-      const course = byCode.get(normCode(pick.code));
-      if (!course || map.has(course.id)) continue;
-      map.set(course.id, {
-        label: pick.label,
-        detail: `The planner's pick for ${pick.label}. Any course that carries the same categories can take its place.`,
-        kind: 'gened',
-      });
-    }
-    for (const added of report?.addedPrerequisites ?? []) {
-      const course = byCode.get(normCode(added.code));
-      if (!course || map.has(course.id)) continue;
-      map.set(course.id, {
-        label: 'Prerequisite',
-        detail: `The degree page does not list it; the catalog requires it before ${added.requiredBy}.`,
-        kind: 'prerequisite',
-      });
-    }
-    return map;
-  }, [pools, byCode, report]);
+  const electiveOf = useMemo(
+    (): Map<string, ElectiveOf> =>
+      planMarks(
+        {
+          pools,
+          language: report?.language ?? null,
+          electives: report?.electives ?? [],
+          genEdPicks: report?.genEdPicks ?? [],
+          addedPrerequisites: report?.addedPrerequisites ?? [],
+        },
+        byCode,
+      ),
+    [pools, byCode, report],
+  );
 
   /**
    * What the map paints, in priority order, capped at 240.
@@ -1416,14 +1364,19 @@ export function PlannerWorkspace({
     setStatus(`${course.code} replaces ${oldCourse?.code ?? 'the elective'} in ${plan.terms.find((t) => t.id === termId)?.label ?? 'that term'}.`);
   }
 
-  /** An elective slot keeps being a slot after its course is swapped. */
-  function noteElectiveSwap(oldCode: string, newCode: string, why: string) {
+  /**
+   * An elective slot keeps being a slot after its course is swapped. A course
+   * put in for a career track keeps the track: MCB 150 swapped into a slot
+   * for a pre-PT student is still "for Pre-physical therapy (DPT)", so the
+   * next re-pick for easier classes leaves it where it is.
+   */
+  function noteElectiveSwap(oldCode: string, newCode: string, why: string, track?: string) {
     setReport((current) =>
       current
         ? {
             ...current,
             electives: current.electives.map((e) =>
-              normCode(e.code) === normCode(oldCode) ? { code: newCode, why, reasons: [] } : e,
+              normCode(e.code) === normCode(oldCode) ? { code: newCode, why, reasons: [], ...(track ? { track } : {}) } : e,
             ),
             genEdPicks: current.genEdPicks.map((g) => (normCode(g.code) === normCode(oldCode) ? { ...g, code: newCode } : g)),
           }
@@ -1603,65 +1556,71 @@ export function PlannerWorkspace({
    * passes the same checks, best first. Ranks the catalog, so it runs when
    * the menu opens and not on render.
    */
-  /** The board's elective-slot courses, by code, for the per-subject cap. */
+  /**
+   * The board's elective-slot courses, by code, for the per-subject cap. The
+   * courses booked for a career track count too, as they do in the fill.
+   */
   function electiveCodesOn(board: PlanState): string[] {
     const L = live.current;
     return board.terms
       .flatMap((t) => t.courseIds)
-      .filter((id) => L.electiveOf.get(id)?.kind === 'elective')
+      .filter((id) => ['elective', 'track'].includes(L.electiveOf.get(id)?.kind ?? ''))
       .map((id) => L.courseIndex.get(id)?.code ?? '')
       .filter(Boolean);
   }
 
+  /** The published total a swap must not take the plan below, read the way buildPlan reads it. */
+  function degreeTotalNow(): number | null {
+    const loadedNow = live.current.loaded;
+    if (!loadedNow) return null;
+    return loadedNow.summary.totalCredits || loadedNow.program.totalCredits || (isIllinois ? 120 : null);
+  }
+
   /**
-   * Other courses that could take a gen-ed pick's place, best first.
-   *
-   * A replacement has to carry every category of this degree the current pick
-   * carries, not only the one it was booked for: PHIL 103 booked for
-   * Humanities that also meets Quantitative Reasoning II cannot be swapped for
-   * a Humanities course that does not, or the second category opens up
-   * silently. Half of a two-course sequence (RHET 101 of RHET 101 and 102) is
-   * not offered.
+   * The whole-board check a swap on this board has to pass: nothing on the
+   * board loses a prerequisite or its standing, the course coming in runs
+   * that term and is open to this student, the term stays within 18 (9 in a
+   * summer) and above the minimum, and the plan stays at its total.
    */
-  function genEdAlternatives(courseId: string, termId: string, limit: number, priorities?: Priorities): Array<Alternative & { score: number }> {
+  function swapCheckOn(board: PlanState) {
+    const L = live.current;
+    if (!L.context || !L.loaded) return null;
+    return boardChecker({
+      context: L.context,
+      board,
+      requirements: L.loaded.blocks,
+      minimumTermCredits: L.minimumTermCredits,
+      priorCredits: L.priorCreditHours,
+      degreeTotal: degreeTotalNow(),
+      programName: L.loaded.program.name,
+      programCollege: L.loaded.program.college,
+    });
+  }
+
+  /**
+   * Other courses that could take a gen-ed pick's place, best first: the
+   * candidates genEdCandidates allows (every category the pick carries, at
+   * least its hours, never half of a two-course sequence such as CMN 111 for
+   * RHET 105), each one passing the whole-board check where the pick sits.
+   */
+  function genEdAlternatives(courseId: string, termId: string, limit: number): Array<Alternative & { score: number }> {
     const L = live.current;
     const board = planRef.current;
-    if (!board || !L.context || !L.loaded) return [];
+    if (!board || !L.context || !L.loaded || !L.quality) return [];
     const me = L.courseIndex.get(courseId);
-    if (!me) return [];
-    const categories = L.loaded.blocks.flatMap((b) => (b.rule.kind === 'gened' ? [b.rule.genEd] : []));
-    const mine = categories.filter((tags) => tags.some((t) => me.tags.includes(t)));
-    if (mine.length === 0) return [];
-    const scorer = priorities
-      ? qualityScorer({ context: L.context, requirements: L.loaded.blocks, interests: L.interestsText, career: L.careerText, programName: L.loaded.program.name, priorities, carriedCodes: [...board.terms.flatMap((t) => t.courseIds).map((id) => L.courseIndex.get(id)?.code ?? ''), ...L.completedCodes] })
-      : L.quality;
-    if (!scorer) return [];
-    const onBoard = new Set(board.terms.flatMap((t) => t.courseIds));
-    const inSequence = (code: string) => {
-      const spec = L.context?.prereqs?.get(code);
-      return (spec?.groups ?? []).some((g) => g.any.some((a) => {
-        const other = L.byCode.get(normCode(a));
-        return other ? mine.some((tags) => tags.some((t) => other.tags.includes(t))) : false;
-      }));
-    };
-    // The same class under another code is not an alternative: PHIL 316 was
-    // offered in place of its own cross-listing, ECE 316.
-    const twins = new Set((L.context.equivalents?.get(normCode(me.code)) ?? []).map(normCode));
-    const ranked = L.context.courses
-      .filter((c) => c.id !== courseId && !onBoard.has(c.id) && !board.completedCourseIds.includes(c.id) && !twins.has(normCode(c.code)))
-      .filter((c) => mine.every((tags) => tags.some((t) => c.tags.includes(t))))
-      .filter((c) => !inSequence(normCode(c.code)))
-      .map((c) => ({ c, q: scorer(normCode(c.code)) }))
-      .sort((a, b) => b.q.score - a.q.score || b.q.known - a.q.known || a.c.code.localeCompare(b.c.code));
+    const check = swapCheckOn(board);
+    if (!me || !check) return [];
     const out: Array<Alternative & { score: number }> = [];
-    for (const { c, q } of ranked) {
-      if (out.length >= limit) break;
+    let tries = 0;
+    for (const { course, q, categories } of genEdCandidates({ context: L.context, requirements: L.loaded.blocks, board, courseId, scorer: L.quality })) {
+      if (out.length >= limit || tries >= limit * 4) break;
+      tries += 1;
       const candidate: PlanState = {
         ...board,
-        terms: board.terms.map((t) => (t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === courseId ? c.id : id)) } : t)),
+        terms: board.terms.map((t) => (t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === courseId ? course.id : id)) } : t)),
       };
-      if (checkPlacement(candidate, c, termId).blocking.length > 0) continue;
-      out.push({ course: c, score: q.score, why: q.reasons.length > 0 ? q.reasons.slice(0, 2).join('; ') : `Also carries ${mine.map((tags) => tags[0]).join(' and ')}.` });
+      if (check(candidate, board, termId, course, me) !== null) continue;
+      out.push({ course, score: q.score, why: genEdWhy(q, categories) });
     }
     return out;
   }
@@ -1691,7 +1650,9 @@ export function PlannerWorkspace({
       return out;
     }
     if (mark.kind === 'gened') return genEdAlternatives(courseId, termId, 7);
-    if (mark.kind === 'prerequisite') return [];
+    // A track card is there for the student's goal, not to be traded for a
+    // better-rated elective; the card offers no dropdown for it.
+    if (mark.kind === 'prerequisite' || mark.kind === 'track') return [];
     if (mark.kind === 'elective') {
       return electiveOptions({
         context: L.context,
@@ -1808,204 +1769,60 @@ export function PlannerWorkspace({
   }
 
   /**
-   * Re-choose the planner's own picks under a set of priorities, term by
-   * term: every elective slot, and every from-a-list course the page's
-   * sub-rules do not pin. Required courses and anything the student added
-   * stay. A slot takes the best option its term allows; a list pick takes
-   * the best of the rest of its list that passes the same checks. Both are
-   * judged with the earlier swaps already on the board, so two picks cannot
-   * take the same course, and a pick keeps its course when nothing clearly
-   * beats it.
+   * Re-choose the planner's own picks under a set of priorities: a named
+   * career track's required courses first, then every elective slot, gen-ed
+   * pick (never Composition I) and from-a-list course the page's sub-rules
+   * do not pin, each at most once. The logic and its safety rules live in
+   * repickBoard (lib/planner/repick.ts), where __repick.check.mjs replays it:
+   * every swap is checked against the whole board, track cards never move,
+   * and a re-pick for the priorities the board was last built or re-picked
+   * for moves nothing (`unchanged`). This commits the result and keeps the
+   * report's marks in step with it.
    */
-  function repickElectives(next: Priorities): Array<{ term: string; from: string; to: string; why: string }> {
+  function repickElectives(next: Priorities): { changes: RepickChange[]; unchanged: boolean } {
     const L = live.current;
     const board = planRef.current;
-    if (!board || !L.context || !L.loaded) return [];
-    const changed: Array<{ term: string; from: string; to: string; why: string }> = [];
-    let working = board;
-    const scorer = qualityScorer({
+    if (!board || !L.context || !L.loaded) return { changes: [], unchanged: false };
+    const result = repickBoard({
       context: L.context,
       requirements: L.loaded.blocks,
+      board,
+      marks: L.electiveOf,
+      pools: L.pools,
+      prior: L.priorForOptions,
       interests: L.interestsText,
       career: L.careerText,
       programName: L.loaded.program.name,
+      programCollege: L.loaded.program.college,
       priorities: next,
-      carriedCodes: [
-        ...board.terms.flatMap((t) => t.courseIds).map((id) => L.courseIndex.get(id)?.code ?? ''),
-        ...L.completedCodes,
-      ],
+      minimumTermCredits: L.minimumTermCredits,
+      priorCredits: L.priorCreditHours,
+      degreeTotal: degreeTotalNow(),
+      trackPicks: (L.report?.electives ?? []).filter((e) => e.track).map((e) => e.code),
+      lastSignature: repickedFor.current,
     });
-    const swapIn = (termId: string, oldId: string, newId: string): PlanState => ({
-      ...working,
-      terms: working.terms.map((t) =>
-        t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === oldId ? newId : id)) } : t,
-      ),
-    });
-    // A pre-professional goal the student named claims elective slots before
-    // any priority does, the way generatePlan gives it first claim. A
-    // Psychology transfer student who said "PT school, and easier electives"
-    // got twelve lighter psychology and social work picks and no anatomy,
-    // chemistry or physics, all of which physical therapy schools require.
-    // Required track courses are also never re-picked away for a lighter one.
-    const trackCodes = new Set<string>();
-    const added: Array<{ code: string; why: string }> = [];
-    const tracks = interestProfileOf(L.careerText).tracks;
-    if (tracks.length > 0) {
-      const onBoard = () =>
-        new Set([...L.completedCodes, ...working.terms.flatMap((t) => t.courseIds).map((id) => normCode(L.courseIndex.get(id)?.code ?? ''))]);
-      const claimed = new Set<string>();
-      for (const track of tracks) {
-        for (const need of track.courses) {
-          if (need.need !== 'required') continue;
-          const codes = need.codes.map(normCode);
-          codes.forEach((code) => trackCodes.add(code));
-          if (codes.some((code) => onBoard().has(code))) continue;
-          const course = codes.map((code) => L.byCode.get(code)).find((c): c is Course => c !== undefined && c.credits > 0);
-          if (!course) continue;
-          const why = `For ${track.name}: ${need.why}`;
-          // The earliest term the course runs in and passes the placement
-          // checks, so a sequence's first half lands before its second.
-          for (const term of working.terms) {
-            if (term.season === 'Summer' ? !course.offeredIn.includes('Summer') : course.offeringKnown && course.offeredIn.length > 0 && !course.offeredIn.includes(term.season)) continue;
-            // A lab (two hours or less) goes in beside its lecture when the
-            // term has room, so the plan does not lose the hours of the
-            // three-hour elective it would otherwise replace.
-            const withIt: PlanState = { ...working, terms: working.terms.map((t) => (t.id === term.id ? { ...t, courseIds: [...t.courseIds, course.id] } : t)) };
-            if (course.credits <= 2 && checkPlacement(withIt, course, term.id).blocking.length === 0) {
-              working = withIt;
-              added.push({ code: course.code, why });
-              changed.push({ term: term.label, from: '', to: course.code, why });
-              break;
-            }
-            const slots = term.courseIds
-              .filter((id) => L.electiveOf.get(id)?.kind === 'elective' && !claimed.has(id))
-              .map((id) => L.courseIndex.get(id))
-              .filter((c): c is Course => c !== undefined && !trackCodes.has(normCode(c.code)))
-              .sort((a, b) => Math.abs(a.credits - course.credits) - Math.abs(b.credits - course.credits));
-            const slot = slots.find((s) => checkPlacement(swapIn(term.id, s.id, course.id), course, term.id).blocking.length === 0);
-            if (!slot) continue;
-            working = swapIn(term.id, slot.id, course.id);
-            claimed.add(slot.id);
-            changed.push({ term: term.label, from: slot.code, to: course.code, why });
-            break;
-          }
-        }
-      }
+    repickedFor.current = result.signature;
+    if (result.changes.length === 0) return { changes: [], unchanged: result.unchanged };
+    commit(result.board);
+    planRef.current = result.board;
+    for (const c of result.changes) {
+      if (c.from) noteElectiveSwap(c.from, c.to, c.kind === 'track' ? c.why : `Picked for your priorities: ${c.why}`, c.track);
     }
-    // A course freed late in one pass (swapped out of a later term) can be
-    // the best choice for an earlier pick, so the pass repeats until a full
-    // pass moves nothing. Three is plenty; two picks cannot trade forever
-    // because every swap has to clearly beat what it replaces.
-    for (let pass = 0; pass < 3; pass += 1) {
-      const before = changed.length;
-      // The board as it stands after earlier swaps. A course swapped in has
-      // no mark of its own, so it is not considered again: picks do not trade
-      // back and forth, and each original pick gets at most one swap.
-      for (const term of working.terms) {
-        for (const courseId of term.courseIds) {
-          const mark = L.electiveOf.get(courseId);
-          if (!mark) continue;
-          // The language course meets the language requirement; a re-pick
-          // for "easy classes" took SPAN 201 off a Kinesiology board. The
-          // language is switched on its own card, never by a re-pick.
-          if (mark.kind === 'language' || mark.kind === 'prerequisite') continue;
-          if (!working.terms.some((t) => t.courseIds.includes(courseId))) continue;
-          const current = L.courseIndex.get(courseId);
-          if (!current) continue;
-          if (trackCodes.has(normCode(current.code))) continue;
-          if (mark.kind === 'gened') {
-            const own = scorer(normCode(current.code));
-            planRef.current = working;
-            const best = genEdAlternatives(courseId, term.id, 1, next)[0];
-            if (!best || best.score <= own.score + 0.05) continue;
-            working = swapIn(term.id, courseId, best.course.id);
-            planRef.current = working;
-            changed.push({ term: term.label, from: current.code, to: best.course.code, why: best.why });
-            continue;
-          }
-          if (mark.kind === 'pool') {
-            const pool = L.pools.find((p) => p.picked.some((code) => normCode(code) === normCode(current.code)));
-            if (!pool) continue;
-            // A course a sub-rule counts ("at least two from FIN 4xx") stays,
-            // because the rest of the list may not satisfy that rule.
-            const pinned = pool.constraints.some((k) => k.picked.some((code) => normCode(code) === normCode(current.code)));
-            if (pinned) continue;
-            const onBoard = new Set(working.terms.flatMap((t) => t.courseIds));
-            const own = scorer(normCode(current.code));
-            const ranked = pool.alternatives
-              .map((code) => L.byCode.get(normCode(code)))
-              .filter((c): c is Course => c !== undefined)
-              .filter((c) => !onBoard.has(c.id) && !working.completedCourseIds.includes(c.id))
-              .map((c) => ({ c, q: scorer(normCode(c.code)) }))
-              .sort((a, b) => b.q.score - a.q.score || b.q.known - a.q.known || a.c.code.localeCompare(b.c.code));
-            for (const { c, q } of ranked) {
-              // Sorted best first, so the first that does not clearly beat the
-              // current course ends the search.
-              if (q.score <= own.score + 0.05) break;
-              const candidate = swapIn(term.id, courseId, c.id);
-              if (checkPlacement(candidate, c, term.id).blocking.length > 0) continue;
-              working = candidate;
-              changed.push({
-                term: term.label,
-                from: current.code,
-                to: c.code,
-                why: q.reasons.length > 0 ? q.reasons.slice(0, 2).join('; ') : `on the list ${pool.label}`,
-              });
-              break;
-            }
-            continue;
-          }
-          const options = electiveOptions({
-            context: L.context,
-            requirements: L.loaded.blocks,
-            plan: working,
-            termId: term.id,
-            prior: L.priorForOptions,
-            interests: L.interestsText,
-            career: L.careerText,
-            programName: L.loaded.program.name,
-            programCollege: L.loaded.program.college,
-            priorities: next,
-            including: current.code,
-            electiveCodes: electiveCodesOn(working),
-            limit: 3,
-          });
-          const best = options[0];
-          if (!best) continue;
-          const bestCourse = L.byCode.get(normCode(best.code));
-          if (!bestCourse || bestCourse.id === courseId) continue;
-          const own = options.find((o) => normCode(o.code) === normCode(current.code));
-          // Under a tie, or a hair, the student keeps what they have already seen.
-          // A quarter point is a thirtieth of the score's range, under any
-          // structural step, so a swap always has a reason the words can show.
-          if (own && best.fit <= own.fit + 0.25) continue;
-          working = swapIn(term.id, courseId, bestCourse.id);
-          changed.push({
-            term: term.label,
-            from: current.code,
-            to: bestCourse.code,
-            why: best.reasons.length > 0 ? best.reasons.slice(0, 2).join('; ') : best.why,
-          });
-        }
-      }
-      if (changed.length === before) break;
+    const added = result.changes.filter((c) => !c.from);
+    if (added.length > 0) {
+      setReport((current) => (current ? { ...current, electives: [...current.electives, ...added.map((c) => ({ code: c.to, why: c.why, reasons: [], track: c.track }))] } : current));
     }
-    if (changed.length > 0) {
-      commit(working);
-      planRef.current = working;
-      for (const c of changed) if (c.from) noteElectiveSwap(c.from, c.to, c.why.startsWith('For ') ? c.why : `Picked for your priorities: ${c.why}`);
-      if (added.length > 0) {
-        setReport((current) => (current ? { ...current, electives: [...current.electives, ...added.map((a) => ({ ...a, reasons: [] }))] } : current));
-      }
-    }
-    return changed;
+    return { changes: result.changes, unchanged: false };
   }
 
-  type Role = 'required' | 'from a list' | 'elective slot' | 'language' | 'gen ed pick' | 'prerequisite' | 'added';
+  type Role = 'required' | 'from a list' | 'elective slot' | 'career track' | 'language' | 'gen ed pick' | 'prerequisite' | 'added';
   function roleOf(course: Course): Role {
     const L = live.current;
     const slot = L.electiveOf.get(course.id);
     if (slot?.kind === 'elective') return 'elective slot';
+    // Booked for the goal the student named: Aaliyah's PHYS 101 for physical
+    // therapy school read "elective slot", and ALMA offered to swap it freely.
+    if (slot?.kind === 'track') return 'career track';
     if (slot?.kind === 'pool') return 'from a list';
     if (slot?.kind === 'language') return 'language';
     if (slot?.kind === 'gened') return 'gen ed pick';
@@ -2022,7 +1839,19 @@ export function PlannerWorkspace({
   }
   function markOf(course: Course): string {
     const role = roleOf(course);
-    return role === 'from a list' ? `from a list: ${live.current.electiveOf.get(course.id)?.label ?? ''}` : role;
+    if (role === 'from a list') return `from a list: ${live.current.electiveOf.get(course.id)?.label ?? ''}`;
+    if (role === 'career track') return `career track: ${live.current.electiveOf.get(course.id)?.track ?? ''}`;
+    return role;
+  }
+  /**
+   * The row of the student's career track a course fills, with its other
+   * codes: PHYS 101's row also takes PHYS 211. Null when no track the
+   * student names asks for it.
+   */
+  function trackRowOf(code: string, trackName: string | undefined): string[] | null {
+    const track = interestProfileOf(live.current.careerText).tracks.find((t) => t.name === trackName);
+    const row = track?.courses.find((c) => c.codes.some((x) => normCode(x) === normCode(code)));
+    return row ? row.codes.map(normCode) : null;
   }
   function creditsOf(course: Course): string {
     const max = course.creditsMax ?? course.credits;
@@ -2047,7 +1876,7 @@ export function PlannerWorkspace({
       `Degree: ${L.loaded.program.name}, University of Illinois. Published total: ${L.activeProgramTotal ?? 'not published'} credits. Plan: ${L.totalCredits} through ${last}.`,
     );
     lines.push(
-      'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [language] part of the language sequence for the language requirement; the language is the student\'s choice, the level is not. [gen ed pick] the planner chose it for a general education category; swap it for another course that carries the same categories. [prerequisite] the planner booked it because a later course needs it. [added] the student or you put it there.',
+      'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [career track: X] a course the student\'s career track X requires; keep it unless they drop the goal, and ask before removing or replacing it. [language] part of the language sequence for the language requirement; the language is the student\'s choice, the level is not. [gen ed pick] the planner chose it for a general education category; swap it for another course that carries the same categories. [prerequisite] the planner booked it because a later course needs it. [added] the student or you put it there.',
     );
     const taken = board.completedCourseIds
       .map((id) => L.courseIndex.get(id)?.code)
@@ -2224,10 +2053,13 @@ export function PlannerWorkspace({
     };
     const guard = (course: Course, verb: string) => {
       const role = roleOf(course);
-      if ((role === 'required' || role === 'from a list' || role === 'language' || role === 'gen ed pick' || role === 'prerequisite') && input.confirmed !== true) {
+      if ((role === 'required' || role === 'from a list' || role === 'career track' || role === 'language' || role === 'gen ed pick' || role === 'prerequisite') && input.confirmed !== true) {
+        const mark = L.electiveOf.get(course.id);
         const why =
           role === 'required'
             ? `${course.code} is required by this degree`
+            : role === 'career track'
+              ? `${course.code} is booked for the student's goal, ${mark?.track ?? 'their career track'}: ${mark?.detail.replace(/^For [^:]*:\s*/, '') ?? 'the track asks for it'} It stays unless they drop that goal`
             : role === 'language'
               ? `${course.code} is part of the language sequence that meets the degree's language requirement (another language can take its place; use replace_course with the same semester's course in that language)`
               : role === 'gen ed pick'
@@ -2387,7 +2219,11 @@ export function PlannerWorkspace({
         const verdict = check(candidate, newC, t.id);
         if (verdict.blocking.length > 0) return { ok: false, reason: `${newC.code} cannot go in ${t.label}: ${verdict.blocking.join(' ')}` };
         const oldRole = roleOf(oldC);
+        const oldMark = L.electiveOf.get(oldC.id);
         if (oldRole === 'elective slot' || oldRole === 'gen ed pick') noteElectiveSwap(oldC.code, newC.code, `${botName} chose it for this ${oldRole === 'gen ed pick' ? 'category' : 'elective slot'}.`);
+        // PHYS 211 in place of PHYS 101 still meets the track's physics row,
+        // so it stays a track course; anything else is the student's own.
+        else if (oldRole === 'career track' && trackRowOf(oldC.code, oldMark?.track)?.includes(normCode(newC.code))) noteElectiveSwap(oldC.code, newC.code, oldMark?.detail ?? `For ${oldMark?.track}.`, oldMark?.track);
         else studentAdded.current.add(newC.id);
         apply(candidate, t.id, newC.id, `${newC.code} replaces ${oldC.code} in ${t.label}.`);
         return { ok: true, summary: `${oldC.code} → ${newC.code} in ${t.label}`, term: t.label, term_credits: verdict.credits, warnings: verdict.warnings };
@@ -2462,6 +2298,15 @@ export function PlannerWorkspace({
         if (role === 'gen ed pick') return { ...base, why: L.electiveOf.get(c.id)?.detail ?? 'The planner chose it for a general education category.', alternatives_same_categories: genEdAlternatives(c.id, t.id, 5).map((a) => `${a.course.code}: ${a.why}`) };
         if (role === 'prerequisite') return { ...base, why: L.electiveOf.get(c.id)?.detail ?? 'A later course on the board needs it first.' };
         const mark = L.electiveOf.get(c.id);
+        if (role === 'career track') {
+          return {
+            ...base,
+            why: mark?.detail ?? 'Booked for the career goal the student named.',
+            career_track: mark?.track ?? null,
+            same_row_alternatives: (trackRowOf(c.code, mark?.track) ?? []).filter((code) => code !== normCode(c.code)),
+            note: 'The student\'s career track requires it. Keep it unless they drop the goal; a re-pick never moves it.',
+          };
+        }
         if (role === 'language') {
           return {
             ...base,
@@ -2651,7 +2496,9 @@ export function PlannerWorkspace({
           live.current = { ...live.current, interestsText: [L.answers?.studying ?? '', stored].join(' '), careerText: stored };
           if (said) heard = heardInterests(stored);
         }
-        const repicked = input.repick === false ? [] : repickElectives(next);
+        const outcome = input.repick === false ? { changes: [], unchanged: false } : repickElectives(next);
+        // Net changes, one per course that left or joined the board.
+        const repicked = outcome.changes.map((c) => ({ term: c.term, from: c.from, to: c.to, why: c.why, ...(c.track ? { career_track: c.track } : {}) }));
         const profile = interestProfileOf(live.current.careerText);
         const dropped = tracksBefore.filter((track) => !profile.tracks.includes(track)).map((track) => track.name);
         /**
@@ -2682,8 +2529,10 @@ export function PlannerWorkspace({
           );
         } else if (input.repick === false) {
           notify('ALMA saved your priorities', 'The board was not changed. Re-pick or Rebuild applies them.', 'info');
+        } else if (outcome.unchanged) {
+          notify('ALMA kept your priorities', 'The board was built, or last re-picked, for exactly these, so nothing moved.', 'info');
         } else {
-          notify('ALMA updated your priorities', 'Every pick already held the best course for them.', 'info');
+          notify('ALMA updated your priorities', 'Every pick already held the best course for them that the board can take.', 'info');
         }
         const interestsNotes = [
           mode === 'replace' && !said ? 'interests_mode replace needs the new words in interests, so the stored career words were kept; use clear to drop the goal.' : null,
@@ -2707,10 +2556,12 @@ export function PlannerWorkspace({
           repicked,
           note:
             (repicked.length > 0
-              ? `The courses listed were swapped; required courses and anything the student added were not touched. Tell the student each swap and its reason.${repicked.some((c) => c.why.startsWith('For ')) ? ' Swaps whose reason starts "For <track>" book a course the career track requires (an entry with an empty "from" was added beside its lecture); these come before a wish for lighter electives, so say that once, and say the other picks were kept light.' : ''}`
+              ? `The courses listed were swapped; required courses, career-track courses and anything the student added were not touched, and no swap left a course without its prerequisites, pushed a term over 18 credits or put a course in a term it does not run. Tell the student each swap and its reason.${repicked.some((c) => 'career_track' in c) ? ' Entries with career_track book a course that track requires (an empty "from" means it was added beside its lecture); these come before a wish for lighter electives, so say that once, and say the other picks were kept light.' : ''}`
               : input.repick === false
                 ? 'Saved. The board was not re-picked.'
-                : 'Saved. Every one of the planner\'s picks already held the best course under these priorities, so nothing on the board moved.') +
+                : outcome.unchanged
+                  ? 'Saved. Nothing moved because the board already reflects these priorities: it was built, or last re-picked, for exactly these priorities and these interests. Say so; do not call set_priorities again for the same wish.'
+                  : 'Saved. Every one of the planner\'s picks already held the best course under these priorities that the board can take (a better-rated course that would break a prerequisite, overload a term or not run that term is never swapped in), so nothing on the board moved.') +
             (interestsNotes.length > 0 ? ` ${interestsNotes.join(' ')}` : ''),
         };
       }
@@ -3274,9 +3125,11 @@ export function PlannerWorkspace({
         priorities={priorities}
         onPrioritiesChange={setPriorities}
         onRepick={() => {
-          const changed = repickElectives(priorities);
+          const { changes: changed, unchanged } = repickElectives(priorities);
           const picks = [...electiveOf.values()].length;
-          if (changed.length > 0) {
+          if (unchanged) {
+            notify('Nothing to re-pick', 'The board was built, or last re-picked, for these priorities, so it already reflects them. Change a knob first, or open a card\'s chevron to see the runners-up.', 'info');
+          } else if (changed.length > 0) {
             notify(
               `Re-picked ${changed.length} ${plural(changed.length, 'course')}`,
               changed.map((c) => (c.from ? `${c.to} for ${c.from} in ${c.term}` : `${c.to} added in ${c.term}`)).join('; ') + '.',
