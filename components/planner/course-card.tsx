@@ -42,8 +42,13 @@ import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 export interface ElectiveOf {
   label: string;
   detail: string;
-  /** A pool pick reads "from a list"; a filler the plan chose reads "elective"; a language sequence card reads "language". */
-  kind?: 'pool' | 'elective' | 'language';
+  /**
+   * A pool pick reads "from a list"; a filler the plan chose reads "elective";
+   * a language sequence card reads "language"; the planner's pick for a
+   * general education category reads "gen ed"; a course booked only because a
+   * later course needs it reads "prerequisite".
+   */
+  kind?: 'pool' | 'elective' | 'language' | 'gened' | 'prerequisite';
 }
 
 /** Another course that could sit where a card sits, and why it is offered. */
@@ -96,7 +101,7 @@ export function CourseCard({
 }: CourseCardProps) {
   const highestIssue = issues.find((issue) => issue.severity === 'error') ?? issues[0];
   const [alternatives, setAlternatives] = useState<Alternative[] | null>(null);
-  const swappable = Boolean(electiveOf && alternativesFor && onSwap);
+  const swappable = Boolean(electiveOf && electiveOf.kind !== 'prerequisite' && alternativesFor && onSwap);
 
   return (
     <article
@@ -153,10 +158,12 @@ export function CourseCard({
                   ? `${electiveOf.detail} Tap the card to choose a different course for this slot.`
                   : electiveOf.kind === 'language'
                     ? `${electiveOf.detail} Open the chevron to switch languages.`
-                    : `${electiveOf.label}. ${electiveOf.detail}`
+                    : electiveOf.kind === 'gened' || electiveOf.kind === 'prerequisite'
+                      ? electiveOf.detail
+                      : `${electiveOf.label}. ${electiveOf.detail}`
               }
             >
-              <ListChecks /> {electiveOf.kind === 'elective' ? 'elective · tap to choose' : electiveOf.kind === 'language' ? 'language · switch ▾' : 'from a list'}
+              <ListChecks /> {electiveOf.kind === 'elective' ? 'elective · tap to choose' : electiveOf.kind === 'language' ? 'language · switch ▾' : electiveOf.kind === 'gened' ? 'gen ed · swap ▾' : electiveOf.kind === 'prerequisite' ? 'prerequisite' : 'from a list'}
             </span>
           )}
           {highestIssue && (
@@ -208,7 +215,9 @@ export function CourseCard({
                   ? `Instead of ${course.code}`
                   : electiveOf.kind === 'language'
                     ? 'Switch the language to'
-                    : `Also on the list: ${electiveOf.label}`}
+                    : electiveOf.kind === 'gened'
+                      ? `Also counts for ${electiveOf.label}`
+                      : `Also on the list: ${electiveOf.label}`}
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             {alternatives === null && <DropdownMenuItem disabled>Looking.</DropdownMenuItem>}

@@ -25,7 +25,8 @@
  * more than a proposal, and it says so on the line.
  */
 
-import { proposeEquivalents, type CatalogLite, type EquivalentProposal } from './transfer-match';
+import { genEdTagsFromText, guideSchool, proposeEquivalents, type CatalogLite, type EquivalentProposal, type TransferGenEdGuide } from './transfer-match';
+import type { GenEdCredit } from './autoplan';
 
 export type TranscriptStatus =
   | 'completed'
@@ -65,12 +66,16 @@ export interface TranscriptCourse {
   equivalentCredits?: number | null;
   /** The Illinois Articulation Initiative code printed beside the line, e.g. "M1 900". */
   iai?: string | null;
+  /** Gen-ed categories the document itself prints beside the line ("Gen Ed: SBS"), as printed. */
+  genEdText?: string | null;
 }
 
 export interface TranscriptExam {
   kind: string;
   exam: string;
   score: string | null;
+  /** A subscore the document prints: the AB subscore of AP Calculus BC, the aural subscore of AP Music Theory. */
+  subscore?: string | null;
 }
 
 /** What the model returns for one file, or for several read together. */
@@ -114,6 +119,22 @@ export interface TranscriptCourseRecord extends TranscriptCourse {
   illinoisCredits?: number | null;
   /** The hours as printed, when they were converted from quarter hours. */
   printedCredits?: number | null;
+  /**
+   * Illinois gen-ed categories this line meets without an Illinois course:
+   * from a published guide (Parkland's), or printed on the document. Counted
+   * only while the line counts as hours.
+   */
+  genEdTags?: string[];
+  /** Where genEdTags came from, for the line's note. */
+  genEdSource?: string | null;  /** Why the line counts as the course it counts as, when that is not the line alone ("with ENG 102: Composition I"). */
+  matchNote?: string | null;
+  /**
+   * Hours assumed for a line the document prints none for (a portal
+   * screenshot of dual-credit courses). Three, the usual community-college
+   * course, which can understate a four-hour lab science and cannot
+   * overstate a three-hour course; the line says so until the student edits it.
+   */
+  assumedCredits?: number | null;
 }
 
 /** What the student keeps, alongside the rest of their answers. */
@@ -292,6 +313,8 @@ export function matchTranscript(
   fileName: string,
   catalog: CatalogLite[],
   files: string[] = [fileName],
+  /** Published guides of which Illinois gen-ed categories another school's courses meet. */
+  guide: TransferGenEdGuide | null = null,
 ): TranscriptRecord {
   const known = new Map(catalog.map((c) => [c.code, c]));
   /**
@@ -369,14 +392,99 @@ export function matchTranscript(
     return { ...base, proposals, counts: off ? 'none' : 'hours', use: !off };
   });
 
+  // A document that prints no hours (a portal list of dual-credit courses)
+  // still earns them: each such line from another school is counted at three
+  // hours until the student says otherwise.
+  let assumed = 0;
+  for (const line of courses) {
+    const foreign = line.from ? !isHomeTranscript(line.from) : false;
+    if (!foreign || line.credits !== null || line.equivalentCredits != null || !earns(line.status)) continue;
+    line.assumedCredits = 3;
+    assumed += 1;
+  }
+
   const notes = [...reading.notes];
+  if (assumed > 0) {
+    notes.push(`${assumed} ${assumed === 1 ? 'line prints' : 'lines print'} no credit hours, so each is counted as 3 hours, the usual community-college course. A 4-hour lab science counts one short until you correct it; your transcript from that college shows the real hours.`);
+  }
+  // Gen-ed categories for lines from another school: the published guide
+  // first, then what the document prints beside the line.
+  const tagsOf = (code: string) => catalog.find((c) => c.code === code)?.tags ?? [];
+  for (const line of courses) {
+    const foreign = line.from ? !isHomeTranscript(line.from) : false;
+    if (!foreign) continue;
+    const school = guideSchool(guide, line.from);
+    const entry = school?.courses[line.code];
+    const printed = genEdTagsFromText(line.genEdText);
+    const tags = entry ? entry.tags : printed;
+    if (tags.length === 0) continue;
+    line.genEdTags = tags;
+    line.genEdSource = entry ? `${guide?.title ?? 'the published guide'} (${guide?.effective ?? 'current'})` : 'printed on the document';
+    // A likely Illinois course is kept only when it meets the same categories
+    // the guide says the line meets; otherwise the line counts as hours with
+    // the guide's categories, which is what Illinois has said about it.
+    if (entry && line.matchedBy === 'proposal' && line.matched) {
+      const courseTags = new Set([line.matched, ...(line.also ?? [])].flatMap(tagsOf));
+      const same = courseTags.size === tags.length && tags.every((t) => courseTags.has(t));
+      if (!same) Object.assign(line, { matched: null, matchedBy: null, counts: line.use ? 'hours' : 'none', also: undefined, illinoisCredits: null });
+    }
+  }
+  // Composition I is the two-course sequence. With both courses from another
+  // school, the first counts as RHET 105 and the second as hours; with one,
+  // it is hours and Composition I is still to do.
+  // The first and second composition courses, by title or by the number
+  // nearly every Illinois community college gives them (ENG 101 and 102,
+  // ENGLI 1101 and 1102): Joliet's "Rhetoric" and "Critical Writing and
+  // Research" are the same two courses under other names.
+  const foreignLine = (c: TranscriptCourseRecord) => c.use && c.matchedBy !== 'code' && c.matchedBy !== 'printed' && Boolean(c.from) && !isHomeTranscript(c.from);
+  const writingTitle = /\b(composition|rhetoric|writing|english)\b/i;
+  const isCompOne = (c: TranscriptCourseRecord) =>
+    (c.proposals ?? [])[0]?.code === 'RHET 105' || (/^(ENG|ENGL|ENGLI|WRT|WRIT|RHET|ENC)\s(101|1101|111|1110)$/.test(c.code) && writingTitle.test(c.title ?? ''));
+  const isCompTwo = (c: TranscriptCourseRecord) =>
+    /\b(composition|writing|rhetoric)\b.*\b(2|ii)\b|\bcomposition 2\b|\bcritical writing\b|\bwriting and research\b|\bresearch writing\b/i.test(c.title ?? '') ||
+    (/^(ENG|ENGL|ENGLI|WRT|WRIT|RHET|ENC)\s(102|1102|112|1120)$/.test(c.code) && writingTitle.test(c.title ?? ''));
+  const compFirst = courses.find((c) => foreignLine(c) && isCompOne(c));
+  const compSecond = compFirst ? courses.find((c) => c !== compFirst && foreignLine(c) && isCompTwo(c)) : undefined;
+  const iaiFirst = courses.find((c) => c.use && /C1\s*900/i.test(c.iai ?? ''));
+  const iaiSecond = courses.find((c) => c.use && /C1\s*901/i.test(c.iai ?? ''));
+  const pairFirst = compFirst && compSecond ? compFirst : iaiFirst && iaiSecond ? iaiFirst : null;
+  if (pairFirst && known.has('RHET 105')) {
+    Object.assign(pairFirst, {
+      matched: 'RHET 105',
+      matchedBy: 'proposal',
+      counts: 'course',
+      illinoisCredits: known.get('RHET 105')?.credits ?? null,
+      genEdTags: undefined,
+      matchNote: `with ${(compFirst && compSecond ? compSecond : iaiSecond)?.code ?? 'the second course'}: Composition I`,
+    });
+    notes.push('Your two composition courses together count as Composition I (RHET 105), the way Illinois treats the transfer composition sequence.');
+  }
+
+  // The same Illinois course twice. A repeat of the same course counts once
+  // (Illinois never grants the hours twice); two different courses that both
+  // look like one Illinois course keep the second as elective hours, which is
+  // what an evaluator does with the second of two similar courses.
+  const firstFor = new Map<string, TranscriptCourseRecord>();
+  for (const line of courses) {
+    if (!line.use || line.counts !== 'course' || !line.matched) continue;
+    const earlier = firstFor.get(line.matched);
+    if (!earlier) {
+      firstFor.set(line.matched, line);
+      continue;
+    }
+    if (earlier.code === line.code) {
+      Object.assign(line, { counts: 'none', use: false, matchNote: `a repeat of ${line.code}; it counts once` });
+    } else {
+      Object.assign(line, { counts: 'hours', matched: null, matchedBy: null, illinoisCredits: null, also: undefined, matchNote: `${earlier.code} already counts as ${earlier.matched}` });
+    }
+  }
   if (quarter) notes.unshift('This transcript is in quarter hours; each line\'s hours are converted to semester hours at two-thirds, the usual conversion. Your Transfer Evaluation Report shows the figure Illinois settles on.');
   const foreign = codesAreIllinois ? [] : courses.filter((c) => c.from ? !isHomeTranscript(c.from) : !home);
   if (!reading.institution && !home) {
     notes.unshift('No school is named on this list and most of its codes are not Illinois courses, so they are read as another school\'s.');
   }
   if (foreign.length > 0) {
-    const proposed = foreign.filter((c) => c.matchedBy === 'proposal').length;
+    const proposed = foreign.filter((c) => c.use && c.matchedBy === 'proposal').length;
     const asHours = foreign.filter((c) => c.counts === 'hours').length;
     const where = reading.institution && !home ? reading.institution : [...new Set(foreign.map((c) => c.from).filter(Boolean))].join(', ') || 'another school';
     notes.unshift(
@@ -441,7 +549,7 @@ export function transcriptHours(record: TranscriptRecord | null | undefined): nu
   let hours = 0;
   for (const c of record.courses) {
     if (!c.use || c.counts !== 'hours') continue;
-    hours += c.equivalentCredits ?? c.credits ?? 0;
+    hours += c.equivalentCredits ?? c.credits ?? c.assumedCredits ?? 0;
   }
   return hours;
 }
@@ -543,4 +651,47 @@ export function describeTranscript(record: TranscriptRecord, catalogName: string
   if (none) parts.push(`${none} ${none === 1 ? 'earns' : 'earn'} no credit`);
   const source = record.files && record.files.length > 1 ? `${record.files.length} files` : record.fileName;
   return `${line(total, 'line')} read from ${source}. ${parts.join(', ')}.`;
+}
+
+/**
+ * Gen-ed credit the record holds with no Illinois course: lines counted as
+ * hours whose categories a published guide or the document names. Each line
+ * is one credit, identified by its school and code so it fills a category once.
+ */
+export function transcriptGenEdCredits(record: TranscriptRecord | null | undefined): GenEdCredit[] {
+  if (!record) return [];
+  const out: GenEdCredit[] = [];
+  record.courses.forEach((c, i) => {
+    if (!c.use || c.counts !== 'hours' || !c.genEdTags || c.genEdTags.length === 0) return;
+    const hours = c.equivalentCredits ?? c.credits ?? c.assumedCredits ?? 0;
+    if (!(hours > 0)) return;
+    out.push({ id: `${c.from ?? record.institution ?? 'transfer'} ${c.code} #${i}`, label: `${c.code}${c.title ? ` ${c.title}` : ''}${c.from ? ` (${c.from})` : ''}`, credits: hours, tags: c.genEdTags });
+  });
+  return out;
+}
+
+/**
+ * Whether a student's words ask for an intercollegiate transfer inside
+ * Illinois ("switching from LAS into Gies", "ICT", "undeclared, want
+ * engineering"), as opposed to arriving from another school.
+ *
+ * A student coming from College of DuPage who is already admitted to Gies
+ * wrote "transfer student", and the plan front-loaded the ICT route meant for
+ * current Illinois students, pushing ACCY 302 into her first term. Arriving
+ * from elsewhere is read from the words ("transferring to Illinois", "from
+ * Parkland", "admitted to Gies") and from the record (another school's
+ * transcript or an evaluation report, with no Illinois courses on it).
+ */
+export function internalTransferIntent(words: string, record: TranscriptRecord | null | undefined): boolean {
+  const wants = /\b(transfer(ring)?|switch(ing)?|mov(e|ing) (in)?to|get(ting)? in(to)?|apply(ing)? (to|for)|ict|intercollegiate|undeclared|not (yet )?(in|admitted)|pre-?business|dgs|general studies)\b/i.test(words);
+  if (!wants) return false;
+  if (/\bict\b|\bintercollegiate\b|\bswitch(ing)? (from|out of|majors?)\b|\bundeclared\b|\bdgs\b|\bgeneral studies\b/i.test(words)) return true;
+  const arriving =
+    /\btransferr?\w* (to|into) (the )?(illinois|uiuc|u of i|university of illinois|urbana)\b/i.test(words) ||
+    /\b(admitted|accepted) (to|into|at)\b/i.test(words) ||
+    /\btransfer student\b/i.test(words) ||
+    /\bfrom (a |my )?(community college|parkland|college of dupage|harper|joliet|moraine valley|triton|oakton|waubonsee|elgin|mchenry|college of lake county|illinois central|lincoln land|heartland|richland|kishwaukee|rock valley|john a\.? logan|southwestern)\b/i.test(words);
+  const recordFromElsewhere =
+    Boolean(record) && (record?.kind === 'transfer_report' || record?.home === false) && transcriptResidentHours(record).total === 0;
+  return !(arriving || recordFromElsewhere);
 }

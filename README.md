@@ -115,6 +115,33 @@ the start and end terms clause by clause ("transferring to Illinois in Fall
 they say they have with nothing recorded raise a review row.
 `lib/planner/__transcript.check.mjs` checks the arithmetic.
 
+AP and IB credit is priced from the registrar's own table
+(`scripts/illinois/exam-credit.mjs` builds `public/illinois-exam-credit.json`
+from the CSV behind citl.illinois.edu/current-cutoff-scores). Every exam and
+score in the source, 714 of them, is checked against the app's pricing, courses
+and hours both: a score that earns two rows earns both (AP Biology 5 is IB 150
+and MCB 150), a grant's elective remainder is kept ("RHET 105 & ENGL 1--, 7
+hours"), a course the catalog lacks still earns its hours, the registrar's typos
+("JPAN") are mapped, and Grainger students are priced from Grainger's calculus
+table. Official College Board and IB names ("Physics 1: Algebra-Based",
+"Mathematics: Analysis and Approaches HL") resolve to the table's; subscores and
+the English Literature/Language condition are read from the score report.
+ALMA's `exam_credit` tool answers from the same table.
+
+Transfer gen-eds come from published guides where they exist:
+`scripts/illinois/transfer-gened.py` reads the Parkland-to-UIUC gen-ed guide
+(edited by Illinois admissions and Parkland) into
+`public/illinois-transfer-gened.json`, and a Parkland course the guide lists
+fills its Illinois categories even with no Illinois course number. Categories an
+evaluation report prints beside a line count the same way. Composition I is the
+two-course sequence (ENG 101 with ENG 102, IAI C1 900 with C1 901R); one course
+alone is elective hours. `lib/planner/__credit-e2e.check.mjs` runs five
+students with credit through the whole pipeline on every degree and fails on a
+re-booked course, a booked course that cannot earn credit beside a held one, a
+validator error, a gen-ed category booked though held credit meets it, held
+hours that differ from the documents, a re-booked language level, or a wrong
+Composition I.
+
 ### Which terms a course actually runs in
 
 Illinois publishes no "offered in" line, so the planner used to assume every
@@ -160,6 +187,62 @@ restricted to other majors and prefer courses that run every term. Set
 `PLAN_DEBUG="AE 433"` when running a check harness to see why that course
 was refused in each term. `lib/planner/__schedule-quality.check.mjs`
 generates every degree and tallies the mistakes no rule check catches.
+
+Rules added after testing five realistic incoming students (September 2026):
+
+- A degree page with no campus General Education table (39 of them, Computer
+  and Electrical Engineering, English, History and Political Science among
+  them) gets the campus table appended, with its college's own language rule,
+  so those plans book Composition I, the categories and the language.
+- A row the crawl collapsed to one code ("CHEM 102" carrying the titles of
+  CHEM 102, 103, 104 and 105) is rebuilt from the catalog titles, and "Select
+  one group of courses" becomes one choice between whole sets. The plan takes
+  the set the student already holds part of, else the first listed.
+- A "to include" technical-elective pool counts the courses its nested
+  "Select ..." rows chose toward its own hours, in the engine and on the rail.
+- A prerequisite read with low confidence still orders the plan: a course
+  never goes before a course its sentence names that the plan also books, and
+  a suggested elective needs every named prerequisite met.
+- A course titled "Senior ..." or "Capstone ..." with no stated standing is
+  taken as needing senior standing.
+- Composition I is due by the second term (the campus says first year).
+- Grainger degrees give no hours for math below MATH 220, STAT 100, CHEM 101
+  and 108, 100-level PHYS or ASTR 100, and 4 of MATH 220's 5.
+- The degree's own subjects are the ones its lists are made of, not every
+  department with three courses on a 400-course elective list, and its major
+  subject is read from the name by word ("Computer Engineering" is ECE).
+- Gen-ed categories fill the one-course Cultural Studies ones first, with
+  courses that also count for a category still waiting, and prefer courses
+  that run every term.
+
+### Planning the way the student wants
+
+What a student asks for reaches the plan through three channels, and each was
+audited against realistic students before it was trusted:
+
+- **Priorities** (`lib/planner/priorities.ts`, scored in `lib/planner/quality.ts`):
+  lighter workload, highly rated teaching, relevance to their goals, covering
+  requirements, and schedule wishes. Workload is scaled to Illinois's own
+  difficulty bands, and a course with no grade history is weighed at the
+  harder band, not given a free pass. Teaching counts the share of sections an
+  excellent-listed instructor teaches. Schedule wishes (a time window, days off,
+  in person or online) are judged on whether a whole registration fits the
+  crawled term's sections (`meet` in `sections.json`, from `summariseSections`).
+  A clash with an explicit wish is a conflict, not a nudge. Priorities reach
+  electives, list picks and gen-ed picks alike; required courses never move.
+- **Goals** (`lib/planner/career-tracks.ts`): nine pre-professional tracks from
+  the Illinois Career Center guides and 29 interest topics, read out of the
+  student's own words. A named track's required and strongly recommended
+  courses get first claim on free electives and may displace the planner's own
+  lesser picks; the plan cites the guide and says what did not fit.
+- **Shape** (`set_plan_shape` in ALMA, `Horizon.away` and `Horizon.summers` in
+  the engine): credits per term, the finish term, terms away (study abroad, a
+  co-op), summers (at most 9 credits, only courses with a summer record), and
+  spreading hard courses one a term when that costs nothing.
+
+ALMA's re-pick respects the per-subject cap, never touches the language or a
+booked prerequisite, re-picks gen-ed picks only for courses carrying every
+category the current one carries, and labels every card for what it is.
 
 ### Getting into the college, not just finishing the degree
 

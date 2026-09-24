@@ -3,7 +3,7 @@
  "source": "https://citl.illinois.edu/current-cutoff-scores",
  "sourceFile": "https://citl.illinois.edu/themes/custom/citl/PnPCutoffs/TestBasedCredit2026.csv",
  "policy": "These are the credit policies for students entering Illinois in Summer 2026, Fall 2026 or Spring 2027.",
- "fetchedAt": "2026-09-21T02:35:03.086Z",
+ "fetchedAt": "2026-09-24T02:45:40.550Z",
  "entries": [
   {
    "kind": "AP",
@@ -1645,7 +1645,33 @@
    "kind": "AP",
    "exam": "PRECALCULUS",
    "level": null,
-   "score": "3 to 5",
+   "score": 3,
+   "courses": [
+    "MATH 1--"
+   ],
+   "exemptOnly": [],
+   "credits": 3,
+   "noCredit": false,
+   "raw": "MATH 1--, 3 hours. Follow your ALEKS PPL placement"
+  },
+  {
+   "kind": "AP",
+   "exam": "PRECALCULUS",
+   "level": null,
+   "score": 4,
+   "courses": [
+    "MATH 1--"
+   ],
+   "exemptOnly": [],
+   "credits": 3,
+   "noCredit": false,
+   "raw": "MATH 1--, 3 hours. Follow your ALEKS PPL placement"
+  },
+  {
+   "kind": "AP",
+   "exam": "PRECALCULUS",
+   "level": null,
+   "score": 5,
    "courses": [
     "MATH 1--"
    ],
@@ -2915,22 +2941,28 @@
    "exam": "CHINESE B - MADARIN",
    "level": "SL",
    "score": 6,
-   "courses": [],
+   "courses": [
+    "CHIN 203",
+    "CHIN 204"
+   ],
    "exemptOnly": [],
    "credits": 10,
    "noCredit": false,
-   "raw": "No credit. Gen Ed: Language Other Than English: Level 3 & 4. CHIN 305"
+   "raw": "CHIN 203, CHIN 204, 10 hours. Gen Ed: Language Other Than English: Level 3 & 4. CHIN 305"
   },
   {
    "kind": "IB",
    "exam": "CHINESE B - MADARIN",
    "level": "SL",
    "score": 7,
-   "courses": [],
+   "courses": [
+    "CHIN 203",
+    "CHIN 204"
+   ],
    "exemptOnly": [],
    "credits": 10,
    "noCredit": false,
-   "raw": "No credit. Gen Ed: Language Other Than English: Level 3 & 4. CHIN 305"
+   "raw": "CHIN 203, CHIN 204, 10 hours. Gen Ed: Language Other Than English: Level 3 & 4. CHIN 305"
   },
   {
    "kind": "IB",
@@ -2963,22 +2995,28 @@
    "exam": "CHINESE B - MADARIN",
    "level": "SL ab initio",
    "score": 6,
-   "courses": [],
+   "courses": [
+    "CHIN 201",
+    "CHIN 202"
+   ],
    "exemptOnly": [],
    "credits": 5,
    "noCredit": false,
-   "raw": "No credit. Gen Ed: Language Other Than English: Level 1 & 2. CHIN 305"
+   "raw": "CHIN 201, CHIN 202, 5 hours. Gen Ed: Language Other Than English: Level 1 & 2. CHIN 305"
   },
   {
    "kind": "IB",
    "exam": "CHINESE B - MADARIN",
    "level": "SL ab initio",
    "score": 7,
-   "courses": [],
+   "courses": [
+    "CHIN 201",
+    "CHIN 202"
+   ],
    "exemptOnly": [],
    "credits": 5,
    "noCredit": false,
-   "raw": "No credit. Gen Ed: Language Other Than English: Level 1 & 2. CHIN 305"
+   "raw": "CHIN 201, CHIN 202, 5 hours. Gen Ed: Language Other Than English: Level 1 & 2. CHIN 305"
   },
   {
    "kind": "IB",

@@ -57,6 +57,7 @@ const Course = z.object({
   equivalent: z.string().nullable().describe('The University of Illinois course the document itself prints as this line\'s equivalent, as printed ("MATH 221", "HIST 1--"): the right-hand column of a Transfer Evaluation Report, the Illinois code beside a transfer line on a degree audit. Null when the document prints none. Never guess one.'),
   equivalent_credits: z.number().nullable().describe('The Illinois hours printed beside the equivalent, when the document prints them separately from the line\'s own hours. Null otherwise.'),
   iai: z.string().nullable().describe('An Illinois Articulation Initiative code printed beside the line, like "M1 900" or "C1 900", or null.'),
+  gen_ed: z.string().nullable().describe('General education categories the document prints beside this line, as printed ("Gen Ed: SBS", "Humanities", "NST-Life"). Null when it prints none. Never infer one.'),
 });
 
 const Reading = z.object({
@@ -64,7 +65,7 @@ const Reading = z.object({
   kind: z.enum(['transcript', 'degree_audit', 'transfer_report', 'course_list', 'score_report', 'other']),
   hours_unit: z.enum(['semester', 'quarter']).nullable().describe('"quarter" when the document says its hours are quarter hours (a quarter-system school), "semester" when it says semester hours, null when it does not say.'),
   courses: z.array(Course),
-  exams: z.array(z.object({ kind: z.string(), exam: z.string(), score: z.string().nullable() })),
+  exams: z.array(z.object({ kind: z.string(), exam: z.string(), score: z.string().nullable(), subscore: z.string().nullable().describe('A subscore the document prints for this exam: the AB subscore of AP Calculus BC, the aural subscore of AP Music Theory. Null when none.') })),
   notes: z.array(z.string()),
 });
 
@@ -78,6 +79,7 @@ For each line:
 - from: the school that taught the course when the document names one and it is not the issuer. On an Illinois record, the transfer block is headed with the school's name; on an evaluation report the sending institution is named once for every line; a degree audit may put it in parentheses beside the line. Null otherwise.
 - equivalent: only what the document itself prints as the Illinois equivalent of this line, as printed. A Transfer Evaluation Report has a column for it; a degree audit lists the Illinois code with the sending school's course in parentheses, in which case the Illinois code is the code and the sending school's course goes in from (school) and is not a second line. Never invent an equivalent.
 - iai: an IAI code printed beside the line, else null.
+- gen_ed: the general education categories the document prints for the line (an evaluation report's "Gen Ed: SBS", an audit's category heading the line sits under), else null.
 
 For the document:
 - institution: the school that issued it (the university on the letterhead, the school named in the header). A Transfer Evaluation Report from Illinois is issued by Illinois; the sending school goes in each line's from.
@@ -146,9 +148,12 @@ export async function POST(req: Request) {
     if (total > MAX_TOTAL_BASE64) return json({ error: 'Those files are too large together. Send fewer at a time.' }, 413);
     content.push(...read.blocks);
   }
+  // The reader cannot tell a past term from a current one without today's
+  // date, and a dual-credit list with no grades was read as all in progress.
+  const today = new Date().toISOString().slice(0, 10);
   content.push({
     type: 'text',
-    text: files.length === 1 ? 'Read this document and list every course line on it.' : `Read these ${files.length} files as one document and list every course line on them.`,
+    text: `${files.length === 1 ? 'Read this document and list every course line on it.' : `Read these ${files.length} files as one document and list every course line on them.`} Today is ${today}: a course in a term that has already ended is completed (or failed, withdrawn, no credit, as printed) even when the document prints no grade; only a term still running or in the future is in progress.`,
   });
 
   const client = new Anthropic();
@@ -187,9 +192,10 @@ export async function POST(req: Request) {
           equivalent: clean(c.equivalent),
           equivalentCredits: typeof c.equivalent_credits === 'number' && Number.isFinite(c.equivalent_credits) ? c.equivalent_credits : null,
           iai: clean(c.iai),
+          genEdText: clean(c.gen_ed),
         }))
         .filter((c) => c.code.length > 0),
-      exams: parsed.exams.map((e) => ({ kind: e.kind.trim(), exam: e.exam.trim(), score: clean(e.score) })),
+      exams: parsed.exams.map((e) => ({ kind: e.kind.trim(), exam: e.exam.trim(), score: clean(e.score), subscore: clean(e.subscore) })),
       notes: parsed.notes.map((n) => n.trim()).filter(Boolean),
     };
     // A score report has exams and no course lines, and that is a reading.

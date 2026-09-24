@@ -98,8 +98,11 @@ interface CuratedRule {
 }
 
 const CURATED: CuratedRule[] = [
-  { test: /\b(composition|rhetoric|writing)\b.*\b1\b|\b(english|college) composition\b(?!.*\b2\b)|\bcomposition\b(?!.*\b2\b)|\bcollege writing\b|\bfirst[- ]year writing\b/, prefixes: ['RHET', 'ENGL'], code: 'RHET 105', confidence: 'high', why: 'The first college composition course transfers as Illinois\'s Composition I course.' },
-  { test: /\b(composition|writing)\b.*\b2\b|\bcomposition 2\b|\bargument/, prefixes: ['RHET', 'ENGL'], code: null, confidence: 'high', why: 'Illinois has one composition requirement, met by the first course; a second composition course transfers as elective hours.' },
+  // Illinois's Composition I is a two-course sequence for transfer students
+  // (Parkland's ENG 101 "paired with" ENG 102; IAI C1 900 with C1 901R), so the
+  // first course alone is never Composition I. matchTranscript pairs the two.
+  { test: /\b(composition|rhetoric|writing)\b.*\b1\b|\b(english|college) composition\b(?!.*\b2\b)|\bcomposition\b(?!.*\b2\b)|\bcollege writing\b|\bfirst[- ]year writing\b/, prefixes: ['RHET', 'ENGL'], code: 'RHET 105', confidence: 'medium', why: 'Illinois meets Composition I with the two-course composition sequence; this course together with the second one counts as Composition I (RHET 105). On its own it is elective hours.' },
+  { test: /\b(composition|writing)\b.*\b2\b|\bcomposition 2\b|\bargument/, prefixes: ['RHET', 'ENGL'], code: null, confidence: 'high', why: 'The second composition course completes Composition I together with the first; on its own it is elective hours.' },
   { test: /\bcollege algebra\b/, prefixes: ['MATH'], code: 'MATH 112', confidence: 'high', why: 'College algebra is MATH 112 at Illinois.' },
   { test: /\b(pre-?calculus|preparation for calculus|precalc)\b/, prefixes: ['MATH'], code: 'MATH 115', confidence: 'high', why: 'Precalculus is MATH 115 at Illinois.' },
   { test: /\btrigonometry\b/, prefixes: ['MATH'], code: null, confidence: 'medium', why: 'Illinois has no separate trigonometry course; it transfers as elective hours, and MATH 115 covers the material.' },
@@ -140,12 +143,14 @@ const CURATED: CuratedRule[] = [
   { test: /\bmanagerial accounting\b|\baccounting 2\b/, prefixes: ['ACCY'], code: 'ACCY 202', confidence: 'high', why: 'Managerial accounting is ACCY 202 at Illinois.' },
   { test: /\b(introduction to|intro to|intro) business\b/, prefixes: ['BUS', 'BADM'], code: 'BUS 101', confidence: 'medium', why: 'An introduction to business course is closest to BUS 101 at Illinois.' },
   { test: /\bnutrition\b/, prefixes: ['FSHN', 'CHLH', 'KIN'], code: 'FSHN 120', confidence: 'medium', why: 'Introductory nutrition is FSHN 120 at Illinois.' },
-  { test: /\b(elementary|beginning) spanish\b.*\b1\b|\bspanish 1\b/, prefixes: ['SPAN'], code: 'SPAN 101', confidence: 'high', why: 'First-semester Spanish is SPAN 101 at Illinois.' },
-  { test: /\b(elementary|beginning) spanish\b.*\b2\b|\bspanish 2\b/, prefixes: ['SPAN'], code: 'SPAN 102', confidence: 'high', why: 'Second-semester Spanish is SPAN 102 at Illinois.' },
   { test: /\bintermediate spanish\b.*\b1\b|\bspanish 3\b/, prefixes: ['SPAN'], code: 'SPAN 201', confidence: 'high', why: 'Third-semester Spanish is SPAN 201 at Illinois.' },
   { test: /\bintermediate spanish\b.*\b2\b|\bspanish 4\b/, prefixes: ['SPAN'], code: 'SPAN 203', confidence: 'medium', why: 'Fourth-semester Spanish is SPAN 203 (or SPAN 228) at Illinois, per the registrar\'s language table.' },
-  { test: /\b(elementary|beginning) french\b.*\b1\b|\bfrench 1\b/, prefixes: ['FR'], code: 'FR 101', confidence: 'high', why: 'First-semester French is FR 101 at Illinois.' },
-  { test: /\b(elementary|beginning) french\b.*\b2\b|\bfrench 2\b/, prefixes: ['FR'], code: 'FR 102', confidence: 'high', why: 'Second-semester French is FR 102 at Illinois.' },
+  { test: /^(?!.*intermediate).*(\b(elementary|beginning) spanish\b.*\b1\b|\bspanish 1\b)/, prefixes: ['SPAN'], code: 'SPAN 101', confidence: 'high', why: 'First-semester Spanish is SPAN 101 at Illinois.' },
+  { test: /^(?!.*intermediate).*(\b(elementary|beginning) spanish\b.*\b2\b|\bspanish 2\b)/, prefixes: ['SPAN'], code: 'SPAN 102', confidence: 'high', why: 'Second-semester Spanish is SPAN 102 at Illinois.' },
+  { test: /\bintermediate french\b.*\b1\b|\bfrench 3\b/, prefixes: ['FR'], code: 'FR 203', confidence: 'medium', why: 'Third-semester French is FR 203 at Illinois, per the registrar\'s language table.' },
+  { test: /\bintermediate french\b.*\b2\b|\bfrench 4\b/, prefixes: ['FR'], code: 'FR 204', confidence: 'medium', why: 'Fourth-semester French is FR 204 at Illinois, per the registrar\'s language table.' },
+  { test: /^(?!.*intermediate).*(\b(elementary|beginning) french\b.*\b1\b|\bfrench 1\b)/, prefixes: ['FR'], code: 'FR 101', confidence: 'high', why: 'First-semester French is FR 101 at Illinois.' },
+  { test: /^(?!.*intermediate).*(\b(elementary|beginning) french\b.*\b2\b|\bfrench 2\b)/, prefixes: ['FR'], code: 'FR 102', confidence: 'high', why: 'Second-semester French is FR 102 at Illinois.' },
   { test: /\bastronomy\b/, prefixes: ['ASTR', 'PHYS'], code: 'ASTR 100', confidence: 'medium', why: 'Introductory astronomy is ASTR 100 at Illinois.' },
   { test: /\b(physical|introductory|introduction to) geology\b|\bgeology\b/, prefixes: ['GEOL'], code: 'GEOL 100', confidence: 'medium', why: 'Introductory geology is GEOL 100 at Illinois.' },
   { test: /\b(cultural|introduction to|intro) anthropology\b|\banthropology\b/, prefixes: ['ANTH'], code: 'ANTH 103', confidence: 'medium', why: 'Introductory cultural anthropology is ANTH 103 at Illinois.' },
@@ -344,5 +349,69 @@ export function curatedTargets(): string[] {
     if (rule.code) out.add(rule.code);
     if (rule.also) out.add(rule.also);
   }
+  return [...out];
+}
+
+
+/** A published guide's statement of which Illinois gen-ed categories a school's courses meet. */
+export interface TransferGenEdGuide {
+  source: string;
+  title: string;
+  effective: string | null;
+  schools: Array<{
+    name: string;
+    /** Lower-case words that identify the school on a transcript. */
+    match: string[];
+    courses: Record<string, { title: string; tags: string[] }>;
+    paired: Array<{ courses: string[]; tags: string[]; why: string; lab?: string }>;
+    language: Record<string, { title: string; semester: number | null; language: string | null }>;
+  }>;
+}
+
+let guideCache: Promise<TransferGenEdGuide | null> | null = null;
+
+/** The published transfer gen-ed guides, loaded once. Null when the file is missing. */
+export function loadTransferGenEd(): Promise<TransferGenEdGuide | null> {
+  if (!guideCache) {
+    guideCache = fetch('/illinois-transfer-gened.json')
+      .then((r) => (r.ok ? (r.json() as Promise<TransferGenEdGuide>) : null))
+      .catch(() => {
+        guideCache = null;
+        return null;
+      });
+  }
+  return guideCache;
+}
+
+/** The guide entry for a school named on a transcript, or null. */
+export function guideSchool(guide: TransferGenEdGuide | null | undefined, school: string | null | undefined) {
+  if (!guide || !school) return null;
+  const name = school.toLowerCase();
+  return guide.schools.find((s) => s.match.some((word) => name.includes(word))) ?? null;
+}
+
+/**
+ * The catalog's gen-ed strings for the categories a document prints beside a
+ * line: "Gen Ed: SBS", "Humanities", "NST - Life Science", "QR I". A category
+ * the words do not name clearly is left out rather than guessed.
+ */
+export function genEdTagsFromText(text: string | null | undefined): string[] {
+  const s = ` ${String(text ?? '').toLowerCase()} `;
+  const out = new Set<string>();
+  if (/\bcomposition i\b|\bcomp(osition)? 1\b/.test(s) && !/advanced/.test(s)) out.add('Composition I');
+  if (/advanced composition|\bacp\b/.test(s)) out.add('Advanced Composition');
+  if (/hist(orical)?\s*(&|and)?\s*phil/.test(s)) out.add('Humanities - Hist & Phil');
+  if (/lit(erature)?\s*(&|and)?\s*(the\s*)?arts/.test(s)) out.add('Humanities - Lit & Arts');
+  if (/\bhumanities\b|\bhum\b/.test(s) && !/hist(orical)?\s*(&|and)?\s*phil|lit(erature)?\s*(&|and)?\s*(the\s*)?arts/.test(s)) out.add('Humanities - Lit & Arts');
+  if (/behavioral sci|beh(avioral)?\s*sci|\bbsc\b/.test(s)) out.add('Social & Beh Sci - Beh Sci');
+  if (/social sci|soc(ial)?\s*sci|\bsbs\b|social\s*(&|and)\s*beh/.test(s) && !out.has('Social & Beh Sci - Beh Sci')) out.add('Social & Beh Sci - Soc Sci');
+  if (/life sci/.test(s)) out.add('Nat Sci & Tech - Life Sciences');
+  if (/phys(ical)?\s*sci/.test(s)) out.add('Nat Sci & Tech - Phys Sciences');
+  if (/natural sci|\bnst\b/.test(s) && !/life sci|phys(ical)?\s*sci/.test(s)) out.add('Nat Sci & Tech - Phys Sciences');
+  if (/non-?\s?west/.test(s)) out.add('Cultural Studies - Non-West');
+  if (/us minority|u\.s\. minority|\busm\b/.test(s)) out.add('Cultural Studies - US Minority');
+  if (/\bwestern\b|comparative cultures/.test(s) && !/non-?\s?west/.test(s)) out.add('Cultural Studies - Western');
+  if (/quantitative reasoning ii\b|\bqr\s*(ii|2)\b/.test(s)) out.add('Quantitative Reasoning II');
+  else if (/quantitative reasoning i\b|\bqr\s*(i|1)\b|quantitative reasoning/.test(s)) out.add('Quantitative Reasoning I');
   return [...out];
 }

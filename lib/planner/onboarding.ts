@@ -271,14 +271,80 @@ export function summarize(a: OnboardingAnswers): string {
 
 
 /**
- * Turn the exams a student reports into the credit UGA actually grants,
- * using the registrar's own published equivalence tables.
+ * Course codes the registrar's exam table spells differently from the catalog.
+ * The 2026 table writes "JPAN 203" in one row and "JAPN 203" in the next; the
+ * catalog has only JAPN, and credit for a code the catalog does not know
+ * reached the plan as nothing.
+ */
+const GRANT_ALIASES: Record<string, string> = { JPAN: 'JAPN' };
+
+/** A granted code in the catalog's spelling. */
+export function grantCode(raw: string): string {
+  const up = raw.toUpperCase().replace(/\s+/g, ' ').trim();
+  const space = up.indexOf(' ');
+  if (space < 0) return up;
+  const subject = up.slice(0, space);
+  return GRANT_ALIASES[subject] ? `${GRANT_ALIASES[subject]}${up.slice(space)}` : up;
+}
+
+/**
+ * Whether a table score cell covers the score a student has.
+ *
+ * Cells are a number ("4"), a range the builder did not expand ("3 to 5",
+ * AP Precalculus), or a phrase with a condition ("3 with a subscore of 4",
+ * "4 or 5 (if English Language Score is 4 or 5)"). A phrase is matched only
+ * when the student chose that phrase, because the condition is the credit.
+ */
+export function scoreCovers(cell: number | string, given: number | string): boolean {
+  const c = String(cell).trim();
+  const g = String(given).trim();
+  if (!g) return false;
+  if (c.toUpperCase() === g.toUpperCase()) return true;
+  if (!/^\d+$/.test(g)) return false;
+  const n = Number(g);
+  if (/^\d+$/.test(c)) return Number(c) === n;
+  const range = c.match(/^(\d+)\s*(?:to|-)\s*(\d+)$/i);
+  if (range) return n >= Number(range[1]) && n <= Number(range[2]);
+  const list = c.match(/^(\d+(?:\s*(?:,|or)\s*\d+)*)$/i);
+  if (list) return list[1].split(/\s*(?:,|or)\s*/i).map(Number).includes(n);
+  return false;
+}
+
+/**
+ * Every row an exam earns. The table writes a grant of two courses as two
+ * rows ("AP Biology 5: IB 150" and "AP Biology 5: MCB 150", and the Biology
+ * department's page confirms a 5 earns both), so taking the first row lost
+ * the second course. Rows repeated word for word in the source are one row.
+ */
+export function examRows(taken: PriorExam, table: ExamCreditEntry[]): ExamCreditEntry[] {
+  const seen = new Set<string>();
+  return table.filter((e) => {
+    if (e.kind !== taken.kind || e.exam !== taken.exam || (e.level ?? null) !== (taken.level ?? null)) return false;
+    if (!scoreCovers(e.score, taken.score)) return false;
+    const key = `${e.courses.join(',')}|${e.exemptOnly.join(',')}|${e.credits}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+const GRANT_COURSE = /^[A-Z]{2,5} \d{3}[A-Z]?$/;
+
+/**
+ * Turn the exams a student reports into the credit the school actually
+ * grants, using the registrar's own published equivalence tables.
  *
  * Two outcomes matter and they are different: a course you get CREDIT for
- * counts toward the 120, and a course you are only EXEMPT from does not.
+ * counts toward the total, and a course you are only EXEMPT from does not.
  * AP Calculus AB at a 4 grants MATH 2250 and exempts you from MATH 1101 and
- * MATH 1113 with zero hours. Treating those the same overstates a student's
- * progress by a semester.
+ * MATH 1113 with zero hours at UGA. Treating those the same overstates a
+ * student's progress by a semester.
+ *
+ * Hours are counted once per course across exams: AP English Language and
+ * AP English Literature both grant RHET 105, and a student with both holds
+ * RHET 105 once. A course's hours come from a row that grants it alone; the
+ * rest of a row's hours (the "ENGL 1--" in "RHET 105 & ENGL 1--, 7 hours")
+ * are counted as that row's own.
  */
 export function applyExamCredit(
   exams: PriorExam[],
@@ -287,26 +353,36 @@ export function applyExamCredit(
   const creditCourses = new Set<string>();
   const exemptCourses = new Set<string>();
   const unmatched: PriorExam[] = [];
+  // What a course is worth, read off the rows that grant it alone.
+  const alone = new Map<string, number>();
+  for (const e of table) {
+    if (e.courses.length === 1 && GRANT_COURSE.test(grantCode(e.courses[0])) && e.credits > 0) alone.set(grantCode(e.courses[0]), e.credits);
+  }
   let credits = 0;
 
   for (const taken of exams) {
-    const row = table.find(
-      (e) =>
-        e.kind === taken.kind &&
-        e.exam === taken.exam &&
-        String(e.score) === String(taken.score) &&
-        (e.level ?? null) === (taken.level ?? null),
-    );
-    if (!row) { unmatched.push(taken); continue; }
-    row.courses.forEach((c) => creditCourses.add(c));
-    row.exemptOnly.forEach((c) => exemptCourses.add(c));
-    credits += row.credits;
+    const rows = examRows(taken, table);
+    if (rows.length === 0) { unmatched.push(taken); continue; }
+    for (const row of rows) {
+      const codes = row.courses.map(grantCode);
+      const real = codes.filter((c) => GRANT_COURSE.test(c));
+      const known = real.every((c) => alone.has(c));
+      if (known) {
+        const courseHours = real.reduce((sum, c) => sum + (alone.get(c) ?? 0), 0);
+        for (const c of real) if (!creditCourses.has(c)) credits += alone.get(c) ?? 0;
+        credits += row.credits - courseHours;
+      } else if (!real.some((c) => creditCourses.has(c))) {
+        credits += row.credits;
+      }
+      codes.forEach((c) => creditCourses.add(c));
+      row.exemptOnly.forEach((c) => exemptCourses.add(grantCode(c)));
+    }
   }
 
   return {
     creditCourses: [...creditCourses],
     exemptCourses: [...exemptCourses].filter((c) => !creditCourses.has(c)),
-    credits,
+    credits: Math.round(credits * 100) / 100,
     unmatched,
   };
 }

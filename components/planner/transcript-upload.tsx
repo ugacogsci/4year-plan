@@ -18,7 +18,7 @@ import {
   type TranscriptRecord,
   type TranscriptUploadFile,
 } from '@/lib/planner/transcript';
-import type { CatalogLite } from '@/lib/planner/transfer-match';
+import { loadTransferGenEd, type CatalogLite } from '@/lib/planner/transfer-match';
 
 /**
  * "Upload what you have."
@@ -115,6 +115,7 @@ export function TranscriptUpload({
         return;
       }
       const lite = await catalogLite();
+      const guide = school?.id === 'illinois' ? await loadTransferGenEd() : null;
       const names = files.map((f) => f.fileName);
       // A score report: exams and no course lines. The exams go to the exam
       // list, priced by the registrar's table like the ones picked by hand,
@@ -132,7 +133,7 @@ export function TranscriptUpload({
       if (addTo) {
         // More pages of the same record: the lines already settled keep the
         // student's choices, and only the new lines are matched.
-        const fresh = matchTranscript(json.reading, names[0], lite, names);
+        const fresh = matchTranscript(json.reading, names[0], lite, names, guide);
         const seen = new Set(addTo.courses.map((c) => `${c.code}|${c.term ?? ''}`));
         const added = fresh.courses.filter((c) => !seen.has(`${c.code}|${c.term ?? ''}`));
         onChange({
@@ -144,7 +145,7 @@ export function TranscriptUpload({
           notes: [...addTo.notes, ...fresh.notes.filter((n) => !addTo.notes.includes(n))],
         });
       } else {
-        onChange(matchTranscript(json.reading, names[0], lite, names));
+        onChange(matchTranscript(json.reading, names[0], lite, names, guide));
       }
     } catch {
       setError('The transcript could not be sent. Check your connection and try again.');
@@ -201,7 +202,7 @@ export function TranscriptUpload({
   }, [query, catalog]);
 
   const known = useMemo(() => new Map((catalog ?? []).map((c) => [c.code, c])), [catalog]);
-  const hoursOf = (c: TranscriptCourseRecord) => c.equivalentCredits ?? c.credits;
+  const hoursOf = (c: TranscriptCourseRecord) => c.equivalentCredits ?? c.credits ?? c.assumedCredits ?? null;
 
   return (
     <div className={compact ? 'transcript transcript-compact' : 'transcript'}>
@@ -258,7 +259,7 @@ export function TranscriptUpload({
                     <span className="transcript-line">
                       <span className="transcript-code">{c.code}</span>{' '}
                       <span className="transcript-meta">
-                        {[c.title, c.credits !== null ? `${c.credits} cr` : null, c.grade, c.term, c.from && !isHomeTranscript(c.from) ? c.from : null, c.iai ? `IAI ${c.iai}` : null, c.also?.length ? `also ${c.also.join(', ')}` : null]
+                        {[c.title, c.credits !== null ? `${c.credits} cr` : c.assumedCredits ? `${c.assumedCredits} cr assumed (none printed)` : null, c.grade, c.term, c.from && !isHomeTranscript(c.from) ? c.from : null, c.iai ? `IAI ${c.iai}` : null, c.also?.length ? `also ${c.also.join(', ')}` : null, c.counts === 'hours' && c.genEdTags?.length ? `counts for ${c.genEdTags.join(', ')}` : null, c.matchNote && c.counts !== 'course' ? c.matchNote : null]
                           .filter(Boolean)
                           .join(' · ')}
                       </span>
@@ -367,6 +368,7 @@ function countsOptions(
     const course = known.get(code);
     out.push({ value: `course:${code}`, label: `${code}${course ? ` ${course.title}` : ''}${note ? ` (${note})` : ''}` });
   };
+  if (c.matched && c.matchNote) push(c.matched, c.matchNote);
   if (c.matched && (c.matchedBy === 'code' || c.matchedBy === 'student')) push(c.matched, foreign ? 'your choice' : '');
   if (c.equivalent && known.has(c.equivalent)) push(c.equivalent, 'printed on the document');
   for (const p of c.proposals ?? []) push(p.code, p.confidence === 'high' ? 'likely' : p.confidence === 'medium' ? 'possible' : 'a guess');

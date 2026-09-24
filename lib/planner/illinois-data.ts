@@ -274,7 +274,7 @@ export interface PrereqGroup {
   /** "credit or concurrent registration in ...", so the same term is allowed. */
   concurrent: boolean;
   confidence: 'high' | 'low';
-  shape: 'single' | 'or' | 'one-of' | 'bare-comma' | 'paren-sequence';
+  shape: 'single' | 'or' | 'one-of' | 'bare-comma' | 'paren-sequence' | 'or-of-and';
   /** The clause this group came from, verbatim, so an error can quote it. */
   source: string;
   /**
@@ -432,6 +432,38 @@ export interface SectionSummary {
   /** Sections whose location or day cell held several meetings concatenated. */
   multiMeeting: number;
   onlineOnly: boolean;
+  /**
+   * Every distinct weekly timetable a student could be handed, by section type.
+   *
+   * Keyed by the type as the crawl names it ("Lecture", "Discussion/Recitation",
+   * "Lecture-Discussion", and combined types such as "Discussion/Recitation,
+   * Laboratory" kept whole, because that is one section with two meetings, not
+   * two things to register for). The one change to the name is that dates the
+   * scraper glued on are taken off; see sectionTypeKey. Each value is the
+   * distinct list of section signatures, sorted as plain strings so a rebuild
+   * writes the same bytes, which puts "MW@1020-1095" before "MW@840-915": read
+   * the numbers, not the order. See sectionSignature for the format. CHEM
+   * 101's 42 discussion-and-lab rows are one type whose entries read like
+   * "F@480-530;M@1080-1190": an 8 a.m. Friday discussion and a 6 p.m. Monday lab.
+   *
+   * earliest and latest cannot answer "no classes before 9". RHET 105 has three
+   * 8 a.m. sections out of 94, so its earliest is 8:00AM, and a planner reading
+   * that would drop a course 91 of whose sections start at 9 or later. This
+   * keeps every option so the question can be asked of the options.
+   *
+   * Empty when the course has no sections, or when the crawl gave no way to
+   * read a section's meetings; both mean unknown, and registrationFits returns
+   * null for them.
+   */
+  meet: Record<string, string[]>;
+  /**
+   * True when "no classes before 9" can be honoured: every section type has at
+   * least one section whose meetings all start at 9:00 or later, or are
+   * arranged. False when some type has none, and also false when meet is empty,
+   * because a course we cannot read is not a course we can promise anything
+   * about. Exactly registrationFits(meet, { notBefore: 540 }) === true.
+   */
+  lateOption: boolean;
 }
 
 export interface CoverageReport {
@@ -632,6 +664,20 @@ export interface CourseChoice {
    * who holds one has met the row, and the bar counts it.
    */
   substitutes: string[];
+  /**
+   * Several courses taken together, and the page's choice between such sets.
+   *
+   * The catalog prints "CHEM 102 & CHEM 103 & CHEM 104 & CHEM 105" as one
+   * row, and Molecular & Cellular Biology offers it or the accelerated
+   * CHEM 202 set under "Select one group of courses", then PHYS 101 & 102 or
+   * PHYS 211 & 212 & 213 & 214 the same way. The crawl keeps the first code of
+   * each row and runs the titles together, so the degree read as CHEM 102 and
+   * CHEM 202 and PHYS 101 and PHYS 211, both halves of two choices, with the
+   * labs and second semesters gone. Each inner array is one set, in the
+   * page's order. `codes` still holds the first course of each set, so a
+   * reader that knows nothing of sets sees the alternatives.
+   */
+  bundles?: string[][];
 }
 
 export interface RequirementBlock {
@@ -1336,6 +1382,29 @@ export function parsePrerequisites(
     }
   }
 
+  /**
+   * One pair of courses OR another: "Completion of CHEM 104 with a B- or
+   * higher, or completion of CHEM 204, or completion of CHEM 222 and CHEM
+   * 223"; "FSHN 220; or FSHN 120 and FSHN 414"; "CHEM 102 and CHEM 104, OR
+   * CHEM 202 and CHEM 204". Groups of alternatives cannot say "this pair or
+   * that one", and read as groups they demanded every course named: CHEM 223
+   * of a student holding CHEM 104, CHEM 204 of one taking general chemistry.
+   * The courses named are right, so the groups stay, at low confidence: the
+   * plan orders around the ones it books and warns, and never demands the
+   * rest. "GWS 100 or GWS 250 and GWS 350 or GWS 370" has no pair on either
+   * side of an "or" and keeps its reading.
+   */
+  const PAIR = String.raw`[A-Z]{2,4}\s?\d{3}\s+and\s+(?:completion of\s+)?[A-Z]{2,4}\s?\d{3}`;
+  const orOfAnd =
+    new RegExp(`${PAIR}[^;.]*?\\bor\\b\\s+(?:completion of\\s+|credit in\\s+)?${PAIR}`, 'i').test(text) ||
+    new RegExp(`[;,]\\s*or\\s+(?:completion of\\s+|credit in\\s+)?${PAIR}`, 'i').test(text);
+  if (orOfAnd && groups.length > 1) {
+    for (const g of groups) {
+      g.confidence = 'low';
+      g.shape = 'or-of-and';
+    }
+  }
+
   // Identical groups with the same concurrency flag are a repeat of the same
   // requirement, not two of them. ACCY 201's pair survives this because one is
   // concurrent and the other is not, which is exactly the distinction that
@@ -1742,6 +1811,201 @@ function dominantValue(values: Array<string | null>, total: number): string | nu
   return bestCount / total >= SUPERMAJORITY ? best : null;
 }
 
+/**
+ * One meeting of one section, as the crawl's meetings[] array holds it.
+ *
+ * RawSection does not declare meetings[] because the section cells it does
+ * declare came first, and those cells hold at most one meeting: CHEM 101 ADA
+ * meets Friday at 8 in Noyes and Monday at 6 in the Chemistry Annex, and the
+ * top-level days/start/end name only the Friday. Every one of the 12,832 Fall
+ * 2026 rows carries meetings[], so this narrow type reads it without claiming
+ * an older crawl had it too.
+ */
+interface RawMeeting {
+  days: string | null;
+  start: string | null;
+  end: string | null;
+}
+
+/** 9:00 a.m. in minutes since midnight, the line "no classes before 9" draws. */
+export const LATE_START_MINUTES = 540;
+
+/** The day letters the crawl uses. R is Thursday, S Saturday, U Sunday. */
+const MEETING_DAY = /[MTWRFSU]/g;
+
+/**
+ * A date the scraper glued onto a type name, "Lecture-Discussion08/29/26" or
+ * "Online08/24/26-12/09/26". Global, so only ever used with replace().
+ */
+const DATED_TYPE_SUFFIX = /\d{2}\/\d{2}\/\d{2}(?:-\d{2}\/\d{2}\/\d{2})?/g;
+
+/**
+ * The type a section is registered under, with scraper dates taken off.
+ *
+ * Combined types stay combined: "Discussion/Recitation, Laboratory" is one
+ * CHEM 101 row a student signs up for once. What does not stay is a date the
+ * scraper fused onto each part. 27 rows read like "Lecture-Discussion09/19/26,
+ * Lecture-Discussion09/19/26-11/27/26", and kept verbatim each would become a
+ * type of its own, so registrationFits would demand a fitting section of a
+ * "type" that has exactly one member. That row is a Lecture-Discussion.
+ */
+function sectionTypeKey(type: string | null): string {
+  const parts: string[] = [];
+  for (const raw of (type ?? '').replace(DATED_TYPE_SUFFIX, '').split(',')) {
+    const part = raw.trim();
+    if (part && !parts.includes(part)) parts.push(part);
+  }
+  return parts.join(', ') || 'Unlisted';
+}
+
+/**
+ * The meetings of one section, or null when there is no trustworthy way to
+ * know them.
+ *
+ * meetings[] is the source. An empty one (2,609 rows, mostly Independent
+ * Study, Online and Internship) means the section has no time, and the
+ * top-level cell is empty on every such row too, so it is read as that single
+ * untimed cell. A crawl from before meetings[] existed falls back to the
+ * top-level cell as well, but only when that cell is one clean meeting: "TR R"
+ * is two meetings run together and splitting it would be a guess.
+ */
+function meetingsOf(section: RawSection): RawMeeting[] | null {
+  const listed = (section as RawSection & { meetings?: RawMeeting[] }).meetings;
+  if (Array.isArray(listed) && listed.length > 0) return listed;
+  const days = (section.days ?? '').trim();
+  if (days && days !== 'n.a.' && !/^[MTWRFSU]+$/.test(days)) return null;
+  return [{ days: section.days, start: section.start, end: section.end }];
+}
+
+/**
+ * One section's weekly timetable as a short string, the unit meet is built of.
+ *
+ * Each timed meeting is "DAYS@start-end" in minutes since midnight, meetings
+ * joined by ";" in start order: CHEM 101 BDB is "F@660-710;M@960-1070", eleven
+ * on Friday and four on Monday. A meeting with no clock time is "ARR". That
+ * covers the 2,609 rows with no meeting at all and also the ones that list
+ * days without a time: 59 Practice rows say "MTWRF" with no hour, and CHIN
+ * 201's online half says "TR" with no hour. Neither is a room the student must
+ * be in at a given time, so neither is a meeting a time window can exclude.
+ * A section with nothing but untimed meetings is just "ARR".
+ *
+ * Days are kept only as the crawl's letters. The one row with a time and no
+ * days (ME 297, 1:00PM) comes out as "@780-830": its hour still counts against
+ * "no classes before 9", and it blocks no free day because it names none.
+ */
+function sectionSignature(section: RawSection): string | null {
+  const meetings = meetingsOf(section);
+  if (!meetings) return null;
+  const timed: Array<{ days: string; start: number; end: number }> = [];
+  let arranged = false;
+  for (const m of meetings) {
+    const start = minutesOfDay(m.start);
+    const end = minutesOfDay(m.end);
+    if (start === null || end === null) {
+      arranged = true;
+      continue;
+    }
+    timed.push({ days: ((m.days ?? '').match(MEETING_DAY) ?? []).join(''), start, end });
+  }
+  if (timed.length === 0) return 'ARR';
+  timed.sort((a, b) => a.start - b.start || a.end - b.end || a.days.localeCompare(b.days));
+  const tokens: string[] = [];
+  for (const t of timed) {
+    const token = `${t.days}@${t.start}-${t.end}`;
+    if (!tokens.includes(token)) tokens.push(token);
+  }
+  if (arranged) tokens.push('ARR');
+  return tokens.join(';');
+}
+
+/** A student's time wishes, in the units meet uses. Every part is optional. */
+export interface MeetingWindow {
+  /** Minutes since midnight no meeting may start before. 540 is 9:00 a.m. */
+  notBefore?: number | null;
+  /** Minutes since midnight every meeting must end by. 720 is noon. */
+  notAfter?: number | null;
+  /**
+   * Days with no meeting, in the crawl's letters: ["F"] for Fridays off,
+   * ["M", "W", "F", "S", "U"] for Tuesday/Thursday only. Leave out S and U and
+   * a lab that meets Tuesday and Saturday passes as Tuesday/Thursday only.
+   * "MWFSU" as one string also works.
+   */
+  freeDays?: string[];
+}
+
+const SIGNATURE_MEETING = /^([MTWRFSU]*)@(\d+)-(\d+)$/;
+
+function signatureFits(
+  signature: string,
+  notBefore: number | null,
+  notAfter: number | null,
+  free: Set<string>,
+): boolean {
+  for (const token of signature.split(';')) {
+    if (token === 'ARR') continue;
+    const m = SIGNATURE_MEETING.exec(token);
+    // A token this module did not write is not evidence that a section fits.
+    if (!m) return false;
+    if (notBefore !== null && Number(m[2]) < notBefore) return false;
+    if (notAfter !== null && Number(m[3]) > notAfter) return false;
+    for (const day of m[1]) if (free.has(day)) return false;
+  }
+  return true;
+}
+
+/**
+ * Can a student register for this course inside a time window?
+ *
+ * true when every section type in meet has at least one section whose every
+ * meeting fits: starts at or after notBefore, ends by notAfter, and falls on
+ * no free day. Arranged meetings always fit. false when some type has no such
+ * section. null when meet is missing or empty, which is "we do not know", and
+ * must not be read as either answer.
+ *
+ * Per type because Illinois registers one section of each type. CHEM 101 with
+ * notBefore 540 is true because lecture AL1 (TR 2 p.m.) and lab row ADB
+ * (Friday 11, Monday 2) both clear 9 a.m., even though 10 of its 42 lab rows
+ * have an 8 a.m. meeting. Ask it for Fridays off and it is false: every lab
+ * row meets on a Friday.
+ *
+ * What per type cannot see. Some courses spread one choice over two types,
+ * and then a type the student would never take can veto the answer: ACCY 201
+ * "afternoons only" is false because its two Online Discussion rows are at 9
+ * and 10, though an in-person discussion at noon would do, and CHEM 102 has
+ * no 9 a.m. option only because one 8 a.m. row among 77 quizzes is typed
+ * Discussion/Recitation. Nor does it know which lecture a discussion is
+ * linked to, since the crawl does not say. Treat false as "not shown to fit"
+ * and let a student override it.
+ *
+ * What ARR hides. A meeting that names days but no hour is signed ARR, so it
+ * blocks no free day. Leaving the MTWRF placeholders aside, among the courses
+ * sections.json ships that changes an answer only for hybrid rows whose
+ * online half names days and no hour (10 courses): CMN 315 meets MW at
+ * 2 p.m. in Lincoln Hall plus an online "F", and comes out true for Fridays
+ * off on the reading that the online half keeps no set hour. If those halves
+ * turn out to be live, this is where Fridays-off goes wrong.
+ *
+ * Pure and cheap: meet is a few short strings per type, so a planner can call
+ * this for every course on every rebuild.
+ */
+export function registrationFits(
+  meet: Record<string, string[]> | null | undefined,
+  window: MeetingWindow,
+): boolean | null {
+  if (!meet) return null;
+  const types = Object.keys(meet);
+  if (types.length === 0) return null;
+  const notBefore = typeof window.notBefore === 'number' ? window.notBefore : null;
+  const notAfter = typeof window.notAfter === 'number' ? window.notAfter : null;
+  const free = new Set<string>();
+  for (const d of window.freeDays ?? []) for (const day of d.toUpperCase().match(MEETING_DAY) ?? []) free.add(day);
+  for (const type of types) {
+    const options = meet[type] ?? [];
+    if (!options.some((sig) => signatureFits(sig, notBefore, notAfter, free))) return false;
+  }
+  return true;
+}
+
 export function summariseSections(
   course: RawSectionCourse,
   term: { id: string; label: string },
@@ -1753,6 +2017,8 @@ export function summariseSections(
   const instructorCounts = new Map<string, number>();
   const restrictions: string[] = [];
   const restrictionSeen = new Set<string>();
+  const signaturesByType = new Map<string, Set<string>>();
+  let meetingsUnreadable = false;
 
   let located = 0;
   let multiMeeting = 0;
@@ -1806,6 +2072,16 @@ export function summariseSections(
 
     if (/^Online/i.test(s.type ?? '')) onlineSections += 1;
 
+    const signature = sectionSignature(s);
+    if (signature === null) {
+      meetingsUnreadable = true;
+    } else {
+      const typeKey = sectionTypeKey(s.type);
+      const seen = signaturesByType.get(typeKey);
+      if (seen) seen.add(signature);
+      else signaturesByType.set(typeKey, new Set([signature]));
+    }
+
     const startMin = minutesOfDay(s.start);
     if (startMin !== null && (earliestMin === null || startMin < earliestMin)) {
       earliestMin = startMin;
@@ -1843,6 +2119,22 @@ export function summariseSections(
     }))
     .sort((a, b) => b.count - a.count || a.pattern.localeCompare(b.pattern));
 
+  /**
+   * One unreadable section empties the whole map rather than leaving a gap.
+   * Dropping one option of several only hides a way to fit, but dropping the
+   * only section of a type deletes that type's demand outright: were HK 340's
+   * one lecture (TR 8:00) unreadable, meet would hold nothing but its labs and
+   * lateOption would promise a morning-free schedule the course cannot give.
+   * Sorted keys and sorted values so a rebuild over the same crawl writes the
+   * same bytes.
+   */
+  const meet: Record<string, string[]> = {};
+  if (!meetingsUnreadable) {
+    for (const type of [...signaturesByType.keys()].sort()) {
+      meet[type] = [...(signaturesByType.get(type) ?? [])].sort();
+    }
+  }
+
   return {
     code: course.code,
     termId: term.id,
@@ -1863,6 +2155,8 @@ export function summariseSections(
     restrictions,
     multiMeeting,
     onlineOnly: sections.length > 0 && onlineSections === sections.length,
+    meet,
+    lateOption: registrationFits(meet, { notBefore: LATE_START_MINUTES }) === true,
   };
 }
 
@@ -2216,14 +2510,17 @@ export interface GenEdCategoryRule {
 /**
  * Spellings the ampersand rule below does not reach, counted off the corpus.
  *
- * 17 pages write "U.S. Minority", one writes "U.S. Minorities", and three write
- * "Social & Behavior Sciences". Each of those is a real degree whose gen-ed
- * table would otherwise be read one category short.
+ * 17 pages write "U.S. Minority", one writes "U.S. Minorities", ten (Applied
+ * Health Sciences) write "US Minority Culture", and three write "Social &
+ * Behavior Sciences". Each of those is a real degree whose gen-ed table would
+ * otherwise be read one category short: a Kinesiology plan had no US Minority
+ * Cultures course in it at all.
  */
 const GENED_ALIASES: Record<string, string[]> = {
   'cultural studies: us minority cultures': [
     'cultural studies: u.s. minority cultures',
     'cultural studies: u.s. minorities cultures',
+    'cultural studies: us minority culture',
   ],
   'social & behavioral sciences': ['social & behavior sciences'],
 };
@@ -2770,7 +3067,87 @@ const SUBSTITUTE_WORDING =
   /substitut|may be taken (?:instead|in place)|in place of|in lieu of|instead of|accepted (?:in place|for|as)/i;
 
 /** One catalog row, with its "or" siblings folded into a single slot. */
-function choicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup): CourseChoice[] {
+/** Catalog titles by subject, lower-cased, built once per lookup. */
+const titleIndexCache = new WeakMap<object, Map<string, Map<string, string>>>();
+
+function titleIndex(byCode: CatalogRowLookup): Map<string, Map<string, string>> | null {
+  if (!byCode.values) return null;
+  const cached = titleIndexCache.get(byCode);
+  if (cached) return cached;
+  const index = new Map<string, Map<string, string>>();
+  for (const course of byCode.values()) {
+    const code = normCode(course.code);
+    const subject = code.split(' ')[0];
+    const titles = index.get(subject) ?? new Map<string, string>();
+    titles.set(course.title.trim().toLowerCase(), code);
+    index.set(subject, titles);
+  }
+  titleIndexCache.set(byCode, index);
+  return index;
+}
+
+/**
+ * The courses of a row the crawl collapsed to its first code.
+ *
+ * Such a row has no hours of its own and a title that is several catalog
+ * titles joined by "and": "General Chemistry I and General Chemistry Lab I and
+ * General Chemistry II and General Chemistry Lab II". It is rebuilt only when
+ * every piece is, word for word, the title of a course in the row's subject and
+ * the first is the row's own code; a title that merely contains "and" ("Plant
+ * Diversity and Evolution") matches one course and is left alone.
+ */
+function bundleOf(row: RawProgramCourse, byCode: CatalogRowLookup): string[] | null {
+  const title = (row.title ?? '').trim();
+  if (row.credits !== null && row.credits !== undefined) return null;
+  if (!/ and /.test(title)) return null;
+  const code = normCode(row.code);
+  const titles = titleIndex(byCode)?.get(code.split(' ')[0]);
+  if (!titles) return null;
+  const parts = title.split(' and ');
+  const out: string[] = [];
+  let i = 0;
+  while (i < parts.length) {
+    let found: { next: number; code: string } | null = null;
+    for (let j = parts.length; j > i; j -= 1) {
+      const hit = titles.get(parts.slice(i, j).join(' and ').trim().toLowerCase());
+      if (hit) {
+        found = { next: j, code: hit };
+        break;
+      }
+    }
+    if (!found) return null;
+    out.push(found.code);
+    i = found.next;
+  }
+  return out.length >= 2 && out[0] === code ? out : null;
+}
+
+function choicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup, note = ''): CourseChoice[] {
+  const plain = plainChoicesFrom(rows, byCode);
+  /**
+   * "Select one group of courses": the sets the page offers side by side are
+   * one choice. A run of consecutive sets in one subject is merged; a set on
+   * its own stays a row of several courses.
+   */
+  const either = /\bone group\b/i.test(note);
+  const out: CourseChoice[] = [];
+  for (const choice of plain) {
+    const last = out[out.length - 1];
+    const subject = (c: CourseChoice) => normCode(c.codes[0]).split(' ')[0];
+    if (either && choice.bundles && last?.bundles && subject(last) === subject(choice)) {
+      out[out.length - 1] = {
+        ...last,
+        codes: [...last.codes, ...choice.codes],
+        bundles: [...last.bundles, ...choice.bundles],
+      };
+      continue;
+    }
+    out.push(choice);
+  }
+  return out;
+}
+
+function plainChoicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup): CourseChoice[] {
   /**
    * One catalog row is one CourseChoice, with its orclass siblings folded in.
    * MATH 257 with orclass MATH 415 and orclass MATH 416 is a single linear
@@ -2788,6 +3165,17 @@ function choicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup): Course
           (code) => !codes.includes(code) && byCode.get(code) !== undefined,
         )
       : [];
+    const bundle = bundleOf(row, byCode);
+    if (bundle) {
+      return {
+        codes: [bundle[0]],
+        title: bundle.map((code) => byCode.get(code)?.title ?? code).join(', '),
+        credits: bundle.reduce((sum, code) => sum + (byCode.get(code)?.credits ?? 0), 0),
+        creditsMax: null,
+        substitutes: [],
+        bundles: [bundle],
+      };
+    }
     return {
       codes,
       // The program file's title field is never a course title: it is either
@@ -2892,7 +3280,9 @@ export function requirementRulesForArea(
     const label = group.label || '';
     const { rows, dropped } = normaliseProgramRows(group);
     droppedRows += dropped;
-    const total = rows.length === 0 && TOTAL_ROW.test(label.trim());
+    // Kinesiology prints its "Total Hours" row with the words in the note and
+    // no label, and read that way it became a requirement with no name.
+    const total = rows.length === 0 && (TOTAL_ROW.test(label.trim()) || (!label.trim() && TOTAL_ROW.test((group.note ?? '').trim())));
     if (total) droppedTotalRows += 1;
     return {
       index,
@@ -3020,7 +3410,7 @@ export function requirementRulesForArea(
 
     let rule: RequirementRule;
     if (r.rows.length > 0) {
-      const choices = choicesFrom(r.rows, byCode);
+      const choices = choicesFrom(r.rows, byCode, [r.label, r.group.note ?? ''].join(' '));
       if (r.isList || (r.ownChoose !== null && r.ownHours !== null)) {
         pools += 1;
         rule = {
@@ -3079,9 +3469,29 @@ export function requirementRulesForArea(
             hours: category.hours,
             courses: category.courses,
             fulfilledBy: category.fulfilledBy,
+            // Only the Cultural Studies categories exclude each other ("no single
+            // course can fulfill multiple Cultural Studies categories",
+            // gened.illinois.edu/requirements/). Every other category is its own
+            // ledger: PHYS 211 counts for Natural Sciences and Quantitative
+            // Reasoning II at once, and Grainger's advising page says Advanced
+            // Composition courses can count for social sciences and humanities
+            // too. One shared ledger made the plan book a second course for a
+            // category the first already met.
+            //
+            // A category a degree restates in its own requirement ("Life &
+            // Physical Science Requirement: a Life Science and a Physical
+            // Science course"), rather than in the campus table, is the same
+            // requirement said twice, and the campus table says so ("Natural
+            // Sciences & Technology (6 hours) fulfilled by Life Science &
+            // Physical Science Requirement"). It keeps a ledger of its own so
+            // the same courses count for both: sharing one made Elementary
+            // Education book PLPA 200 and CHEM 108 on top of held chemistry
+            // and biology.
             exclusiveGroup: category.genEd.every((g) => g.startsWith('Cultural Studies'))
               ? 'cultural-studies'
-              : 'core',
+              : genEd.length < 3
+                ? `category:${category.label}#${r.index}`
+                : `category:${category.label}`,
             sizeFromCampus: category.sizeFromCampus,
             text: category.text,
             label: category.label,
@@ -3350,6 +3760,59 @@ function sumRowCredits(rows: RawProgramCourse[], byCode: CatalogRowLookup): numb
   return sum;
 }
 
+/**
+ * The campus General Education table, for a degree page that does not print it.
+ *
+ * Thirty-nine degree pages have no table: Computer and Electrical
+ * Engineering, English, History, every Political Science track, Geology,
+ * Information Sciences among them. Their students take the same campus
+ * requirements as everyone else, and a plan read off the page alone booked no
+ * Composition I, no Humanities, no Cultural Studies and no language, which is
+ * twenty-odd hours short of a degree while the rail said everything was met.
+ *
+ * The words are the table as 227 other pages print it, in the same order, so
+ * the one parser reads both. The language clause is the college's own: LAS
+ * BALAS and BSLAS pages say the fourth semester, or the third in two
+ * languages; every other college, and the LAS BS pages, say the third. Read
+ * from the crawled pages on 24 September 2026. No "fulfilled by" is added:
+ * that is a degree's own statement, and these pages make none.
+ */
+export const CAMPUS_GENED_AREA_LABEL = 'General Education Requirements (campus)';
+
+function campusGenEdNote(raw: RawIllinoisProgram): string {
+  const las4 = raw.college === 'las' && /\b(BALAS|BSLAS)\b/.test(`${raw.degree} ${raw.name}`);
+  const language = las4
+    ? 'Completion of the fourth semester or equivalent of a language other than English, or completion of the third semester in two different languages other than English is required'
+    : 'Completion of the third semester or equivalent of a language other than English is required';
+  return 'Composition I Advanced Composition Humanities & the Arts (6 hours) Natural Sciences & Technology (6 hours) '
+    + 'Social & Behavioral Sciences (6 hours) Cultural Studies: Non-Western Cultures (1 course) '
+    + 'Cultural Studies: US Minority Cultures (1 course) Cultural Studies: Western/Comparative Cultures (1 course) '
+    + 'Quantitative Reasoning (2 courses, at least one course must be Quantitative Reasoning I) '
+    + `Language Requirement (${language})`;
+}
+
+/**
+ * The program with the campus table appended when its page has none.
+ *
+ * Appended after the page's own areas, so every block id the page already
+ * produced is unchanged and a saved plan still points where it did.
+ */
+export function withCampusGenEd(raw: RawIllinoisProgram): RawIllinoisProgram {
+  const areas = raw.areas ?? [];
+  const hasTable = areas.some((area) =>
+    area.groups.some((group) => (group.courses?.length ?? 0) === 0 && genEdRulesFromText([group.label, group.note ?? ''].filter(Boolean).join(' ')).length > 0),
+  );
+  if (hasTable) return raw;
+  const area: RawProgramArea = {
+    label: CAMPUS_GENED_AREA_LABEL,
+    hours: null,
+    hoursFrom: null,
+    chooseCourses: null,
+    groups: [{ label: '', choose: null, courses: [], note: campusGenEdNote(raw), summedCredits: 0, kind: 'unknown' }],
+  };
+  return { ...raw, areas: [...areas, area] };
+}
+
 export function adaptIllinoisPrograms(
   file: RawProgramFile,
   byCode: Map<string, IllinoisCourse>,
@@ -3401,8 +3864,9 @@ export function adaptIllinoisPrograms(
     return rows;
   };
 
-  for (const raw of file.programs ?? []) {
-    if (!raw?.id) continue;
+  for (const crawled of file.programs ?? []) {
+    if (!crawled?.id) continue;
+    const raw = withCampusGenEd(crawled);
 
     const programBlocks: RequirementBlock[] = [];
     const areas: RequirementArea[] = [];

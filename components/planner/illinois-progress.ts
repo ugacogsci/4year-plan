@@ -23,8 +23,8 @@
  * graduating is the one kind of wrong this rail must never be.
  */
 
-import { normaliseCode } from '@/lib/planner/autoplan';
-import type { LanguagePlan, LanguageTable, PoolReport } from '@/lib/planner/autoplan';
+import { degreeSubjects, normaliseCode } from '@/lib/planner/autoplan';
+import type { GenEdCredit, LanguagePlan, LanguageTable, PlanRequirement, PoolReport } from '@/lib/planner/autoplan';
 import type { CourseChoice, RequirementBlock } from '@/lib/planner/illinois-data';
 import type { Course } from '@/lib/planner/types';
 import type { AreaRow } from './student-profile-panel';
@@ -54,6 +54,10 @@ export interface IllinoisProgressInput {
   degreeTotal?: number | null;
   /** Hours the student holds with no course code (exam credit by subject, transfer lines counted as hours). */
   priorHours?: number;
+  /** Held credit that meets gen-ed categories without an Illinois course, as the engine counts it. */
+  genEdCredits?: GenEdCredit[];
+  /** The degree's name, which names its major subject ("Psychology, BSLAS" is PSYC). */
+  programName?: string;
 }
 
 /** A row's size in the unit the catalog published, or null when it published none. */
@@ -89,8 +93,30 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
    * Cultural Studies categories may not share a course, so those share one.
    */
   const spentMajor = new Set<string>();
+  /** Which major row claimed each code, so a row nested in another can share it. */
+  const spentBy = new Map<string, string>();
+  let currentBlock = '';
+  /**
+   * Rows that sit inside another: "Technical Electives, 30 hours, to include:
+   * at least 3 Advanced Computing electives ... one Design elective" makes the
+   * "Select three" and "Select one" rows parts of the 30 hours, so a course
+   * counts for both. A pool whose label says "to include" is the parent of the
+   * "Select ..." rows after it in the same area.
+   */
+  const parentOf = new Map<string, string>();
+  blocks.forEach((block, index) => {
+    if (block.rule.kind !== 'pool' || !/\bto include\b/i.test(block.label)) return;
+    for (const later of blocks.slice(index + 1)) {
+      if (later.areaId !== block.areaId) break;
+      if ((later.rule.kind === 'choose' || later.rule.kind === 'pool') && /^select\b/i.test(later.label)) parentOf.set(later.id, block.id);
+    }
+  });
+  const related = (a: string | undefined, b: string): boolean => Boolean(a) && (parentOf.get(a as string) === b || parentOf.get(b) === a);
+  /** Whether a code is already another major row's, unless that row and this one nest. */
+  const takenElsewhere = (code: string): boolean => spentMajor.has(code) && !related(spentBy.get(code), currentBlock);
   const spentGenEd = new Map<string, Set<string>>();
   const spend = (ledger: Set<string>, code: string): void => {
+    if (ledger === spentMajor && !spentBy.has(code)) spentBy.set(code, currentBlock);
     ledger.add(code);
     for (const alias of input.equivalents?.get(code) ?? []) ledger.add(normaliseCode(alias));
   };
@@ -106,7 +132,7 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
   const choiceHit = (choice: CourseChoice): string | null => {
     for (const raw of [...choice.codes, ...choice.substitutes]) {
       const code = normaliseCode(raw);
-      if (haveSet.has(code) && !spentMajor.has(code)) return code;
+      if (haveSet.has(code) && !takenElsewhere(code)) return code;
     }
     return null;
   };
@@ -125,19 +151,37 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
   };
 
   const sized: Array<{ block: RequirementBlock; row: Sized }> = [];
+  const creditLedger = new Map<string, Set<string>>();
+  const assignedCredits = new Set<string>();
+  const usedByHours = new Set<string>();
   /** Unnamed hours blocks are filled last, from whatever no other block claimed. */
   const leftovers: Array<{ block: RequirementBlock; row: Sized }> = [];
   const poolById = new Map(pools.map((pool) => [pool.requirementId, pool]));
   const met = new Set(input.satisfiedByPriorCredit.map((s) => s.requirementId));
 
-  for (const block of blocks) {
+  // Specific requirements claim their courses before open lists do, the way
+  // the engine fills them: a 30-hour technical-elective list that happens to
+  // include ECE 496 must not take it from the design-elective row the plan
+  // booked it for. Rows are returned in page order afterwards.
+  const pageOrder = new Map(blocks.map((block, index) => [block, index]));
+  // A "to include" pool claims after the rows nested in it, so it can count what they counted.
+  const nestParents = new Set(parentOf.values());
+  const claimOrder = [...blocks].sort((a, b) =>
+    Number(a.rule.kind === 'pool') - Number(b.rule.kind === 'pool') ||
+    Number(nestParents.has(a.id)) - Number(nestParents.has(b.id)) ||
+    (pageOrder.get(a) ?? 0) - (pageOrder.get(b) ?? 0));
+  for (const block of claimOrder) {
+    currentBlock = block.id;
     const rule = block.rule;
 
     if (rule.kind === 'gened' || (rule.kind === 'hours' && rule.genEd && rule.genEd.length > 0)) {
       const wanted = new Set(rule.kind === 'gened' ? rule.genEd : (rule.genEd ?? []));
       const wantHours = rule.kind === 'gened' ? rule.hours : rule.hours;
       const wantCourses = rule.kind === 'gened' ? rule.courses : null;
-      const ledger = ledgerFor(rule.kind === 'gened' ? rule.exclusiveGroup : 'core');
+      // An hours block over a category ("one science elective ... in addition
+      // to those taken as part of the General Education requirements") takes
+      // only courses no gen-ed category has counted.
+      const ledger = rule.kind === 'gened' ? ledgerFor(rule.exclusiveGroup) : new Set([...spentGenEd.values()].flatMap((set) => [...set]));
       let hours = 0;
       let courses = 0;
       const counted: string[] = [];
@@ -149,6 +193,33 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
         courses += 1;
         hours += creditsOf(code) ?? 0;
       };
+      // Held credit with no Illinois course (a Parkland course the guide puts in
+      // this category), assigned the way the engine assigns it: a credit fills
+      // one category per exclusive group, and a transfer course used for a
+      // Cultural Studies category is not also Advanced Composition.
+      if (rule.kind === 'gened') {
+        const group = transferGroup(rule.exclusiveGroup, rule.genEd);
+        const used = creditLedger.get(group) ?? new Set<string>();
+        creditLedger.set(group, used);
+        for (const credit of input.genEdCredits ?? []) {
+          if (isMet()) break;
+          if (used.has(credit.id) || !credit.tags.some((tag) => wanted.has(tag))) continue;
+          used.add(credit.id);
+          assignedCredits.add(credit.id);
+          counted.push(credit.label);
+          courses += 1;
+          hours += credit.credits;
+        }
+      } else {
+        for (const credit of input.genEdCredits ?? []) {
+          if (isMet()) break;
+          if (assignedCredits.has(credit.id) || usedByHours.has(credit.id) || !credit.tags.some((tag) => wanted.has(tag))) continue;
+          usedByHours.add(credit.id);
+          counted.push(credit.label);
+          courses += 1;
+          hours += credit.credits;
+        }
+      }
       // The page's own "fulfilled by" list first, as the scheduler counts it.
       if (rule.kind === 'gened') {
         for (const option of rule.fulfilledBy) {
@@ -162,7 +233,9 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
       // fewest hours, which can understate progress and cannot overstate it.
       const tagged = have
         .filter((code) => !ledger.has(code) && (byCode.get(code)?.tags ?? []).some((tag) => wanted.has(tag)))
-        .sort((a, b) => (creditsOf(a) ?? 0) - (creditsOf(b) ?? 0) || a.localeCompare(b));
+        // Held credit first, so the row says the student's own HIST 171 covers
+        // US Minority Cultures rather than a course planned for later.
+        .sort((a, b) => Number(!prior.has(a)) - Number(!prior.has(b)) || (creditsOf(a) ?? 0) - (creditsOf(b) ?? 0) || a.localeCompare(b));
       for (const code of tagged) {
         if (isMet()) break;
         take(code);
@@ -236,8 +309,27 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
     if (rule.kind === 'all') {
       let needed = 0;
       let earned = 0;
+      let listed = 0;
       const counted: string[] = [];
       for (const choice of rule.choices) {
+        // "One of these sets of courses": the set the student is furthest
+        // into, else the first, is the row, and every course in it counts.
+        if (choice.bundles && choice.bundles.length > 0) {
+          const scored = choice.bundles.map((bundle) => ({
+            bundle: bundle.map(normaliseCode),
+            hits: bundle.map(normaliseCode).filter((code) => haveSet.has(code) && !takenElsewhere(code)),
+          }));
+          const best = scored.reduce((a, b) => (b.hits.length > a.hits.length ? b : a));
+          needed += best.bundle.reduce((sum, code) => sum + (creditsOf(code) ?? 0), 0);
+          listed += best.bundle.length;
+          for (const hit of best.hits) {
+            spend(spentMajor, hit);
+            counted.push(hit);
+            earned += creditsOf(hit) ?? 0;
+          }
+          continue;
+        }
+        listed += 1;
         const hit = choiceHit(choice);
         const worth = choiceCredits(choice, hit);
         needed += worth;
@@ -253,7 +345,7 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
           needed: needed > 0 ? needed : null,
           unit: 'hr',
           earned: needed > 0 ? Math.min(earned, needed) : earned,
-          note: `${counted.length} of ${rule.choices.length} courses on the board or held.`,
+          note: `${counted.length} of ${listed} courses on the board or held.`,
           codes: counted,
         },
       });
@@ -312,11 +404,14 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
         hours += worth;
       };
       if (live) {
-        // The pool panel's own order: held credit first, then the board left to right.
-        for (const raw of [...live.fromPriorCredit, ...live.picked]) {
+        // The pool panel's own order: held credit first, then what the rows
+        // nested inside this one counted (they are part of its hours), then
+        // the board left to right.
+        const nestedHere = [...spentBy].filter(([, by]) => parentOf.get(by) === block.id).map(([code]) => code);
+        for (const raw of [...live.fromPriorCredit, ...nestedHere, ...live.picked]) {
           if (full()) break;
           const code = normaliseCode(raw);
-          if (spentMajor.has(code)) continue;
+          if (takenElsewhere(code)) continue;
           claim(code, creditsOf(code) ?? 0);
         }
       } else {
@@ -388,9 +483,18 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
     const boardTotal = have.reduce((sum, code) => sum + (creditsOf(code) ?? 0), 0) + (input.priorHours ?? 0);
 
     const taken = new Set<string>();
+    // The degree's own subjects, read the way the engine reads them: its
+    // course lists, and the department its name names ("Psychology, BSLAS" is
+    // PSYC even when the page lists only two PSYC courses).
+    const read = degreeSubjects(blocks as unknown as PlanRequirement[], input.programName);
+    const ownSubjects = new Set([...read.subjects, ...(read.primary ? [read.primary] : [])]);
     for (const entry of leftovers) {
       const rule = entry.block.rule;
       const floor = rule.kind === 'hours' ? (rule.minLevel ?? null) : null;
+      // "Concentration Coursework, 28 hours" is courses in the major, not any
+      // spare course: counting Spanish and chemistry toward a psychology
+      // concentration showed a student progress they had not made.
+      const majorOnly = /\b(concentration|major)\b/i.test(`${entry.block.label} ${entry.block.areaLabel}`) && ownSubjects.size > 0;
       const counted: string[] = [];
       let hours = 0;
       const want = entry.row.needed ?? 0;
@@ -404,13 +508,14 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
         // into the rule, and a 100-level course does not become advanced by
         // being spare.
         if (floor !== null && levelOf(code) < floor) continue;
+        if (majorOnly && !ownSubjects.has(code.split(' ')[0])) continue;
         taken.add(code);
         counted.push(code);
         hours += worth;
       }
-      // Spare hours have no level, so only a block with no floor takes them.
+      // Spare hours have no level or subject, so only a block with neither takes them.
       let spareUsed = 0;
-      if (floor === null && hours < want && surplus > 0) {
+      if (floor === null && !majorOnly && hours < want && surplus > 0) {
         spareUsed = Math.min(want - hours, surplus);
         surplus -= spareUsed;
         hours += spareUsed;
@@ -440,6 +545,7 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
     }
   }
 
+  sized.sort((a, b) => (pageOrder.get(a.block) ?? 0) - (pageOrder.get(b.block) ?? 0));
   return sized.map(({ block, row }) => {
     const needed = row.needed;
     const percent = needed ? Math.min(100, Math.round((row.earned / needed) * 100)) : 0;
@@ -489,4 +595,15 @@ function ruleLabel(block: RequirementBlock): string {
     return codes.length <= 3 ? codes.join(', ') : `${codes.slice(0, 3).join(', ')} and ${codes.length - 3} more`;
   }
   return '';
+}
+
+/**
+ * The ledger a transfer credit is spent against for a category. The campus
+ * groups Cultural Studies categories so one course fills one of them; the
+ * Parkland guide adds that a course used for Cultural Studies does not also
+ * meet Advanced Composition, so for transfer credit the two share a ledger.
+ */
+export function transferGroup(exclusiveGroup: string | undefined, genEd: string[]): string {
+  if (genEd.includes('Advanced Composition')) return 'cultural-studies';
+  return exclusiveGroup ?? 'core';
 }

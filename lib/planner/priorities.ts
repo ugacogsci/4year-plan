@@ -27,6 +27,15 @@ export interface Priorities {
   /** No sections that start before 9 a.m. */
   noEarly: boolean;
   format: 'any' | 'in-person' | 'online';
+  /**
+   * A time window, in minutes after midnight, when the student said more than
+   * "nothing before 9": "afternoons only" is notBefore 720, "done by 3" is
+   * notAfter 900. Null when not said. noEarly is notBefore 540.
+   */
+  notBefore?: number | null;
+  notAfter?: number | null;
+  /** Days with no class, in the schedule's letters: M T W R F. "Fridays off" is ['F']. */
+  freeDays?: string[];
 }
 
 export type PriorityPreset = 'balanced' | 'lightest' | 'relevant' | 'teaching' | 'custom';
@@ -40,7 +49,7 @@ export const PRIORITY_PRESETS: Record<Exclude<PriorityPreset, 'custom'>, Priorit
 
 export const DEFAULT_PRIORITIES: Priorities = PRIORITY_PRESETS.balanced;
 
-export const PRIORITY_LABELS: Record<keyof Omit<Priorities, 'noEarly' | 'format'>, string> = {
+export const PRIORITY_LABELS: Record<keyof Omit<Priorities, 'noEarly' | 'format' | 'notBefore' | 'notAfter' | 'freeDays'>, string> = {
   workload: 'Lighter workload',
   teaching: 'Highly rated teaching',
   relevance: 'Toward my interests and career',
@@ -71,7 +80,11 @@ export function describePriorities(p: Priorities): string {
     (k) => `${PRIORITY_LABELS[k].toLowerCase()} ${level(p[k])}`,
   );
   const extras: string[] = [];
-  if (p.noEarly) extras.push('no classes before 9 a.m.');
+  const clock = (m: number) => `${((Math.floor(m / 60) + 11) % 12) + 1}${m % 60 ? `:${String(m % 60).padStart(2, '0')}` : ''} ${m >= 720 ? 'p.m.' : 'a.m.'}`;
+  if (p.notBefore != null && p.notBefore !== 540) extras.push(`no classes before ${clock(p.notBefore)}`);
+  else if (p.noEarly) extras.push('no classes before 9 a.m.');
+  if (p.notAfter != null) extras.push(`no classes after ${clock(p.notAfter)}`);
+  if (p.freeDays && p.freeDays.length > 0) extras.push(`${p.freeDays.join(', ')} free`);
   if (p.format === 'online') extras.push('online preferred');
   if (p.format === 'in-person') extras.push('in person preferred');
   return `${parts.join(', ')}${extras.length ? `; ${extras.join(', ')}` : ''}.`;
@@ -81,13 +94,26 @@ export function describePriorities(p: Priorities): string {
 export function normalizePriorities(raw: unknown): Priorities {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const knob = (v: unknown, fallback: 0 | 1 | 2): 0 | 1 | 2 => (v === 0 || v === 1 || v === 2 ? v : fallback);
+  const minutes = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 24 * 60 ? Math.round(v) : null);
+  const days = Array.isArray(r.freeDays) ? [...new Set(r.freeDays.filter((d): d is string => typeof d === 'string' && /^[MTWRFSU]$/.test(d)))] : [];
+  const noEarly = r.noEarly === true;
+  const format = r.format === 'online' || r.format === 'in-person' ? r.format : 'any';
+  const notBefore = minutes(r.notBefore) ?? (noEarly ? 540 : null);
+  const notAfter = minutes(r.notAfter);
+  // A wish about times, days or format is a schedule wish: with the schedule
+  // knob at 0 it did nothing at all, and ALMA could set noEarly with it at 0.
+  const asked = noEarly || format !== 'any' || notBefore !== null || notAfter !== null || days.length > 0;
+  const schedule = knob(r.schedule, DEFAULT_PRIORITIES.schedule);
   return {
     workload: knob(r.workload, DEFAULT_PRIORITIES.workload),
     teaching: knob(r.teaching, DEFAULT_PRIORITIES.teaching),
     relevance: knob(r.relevance, DEFAULT_PRIORITIES.relevance),
     coverage: knob(r.coverage, DEFAULT_PRIORITIES.coverage),
-    schedule: knob(r.schedule, DEFAULT_PRIORITIES.schedule),
-    noEarly: r.noEarly === true,
-    format: r.format === 'online' || r.format === 'in-person' ? r.format : 'any',
+    schedule: asked && schedule === 0 ? 1 : schedule,
+    noEarly: noEarly || (notBefore !== null && notBefore >= 540),
+    format,
+    notBefore,
+    notAfter,
+    freeDays: days,
   };
 }
