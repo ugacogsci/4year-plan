@@ -110,7 +110,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   },
   {
     name: 'move_course',
-    description: 'Move a course on the board to another term, if the checks allow it there.',
+    description: 'Move a course on the board to another term, if the checks allow it there. A summer between the board\'s terms that is not on the board yet ("Summer 2027") is added with the course; do that only after the student said yes to that summer. The result names any review flag the move caused.',
     input_schema: {
       type: 'object',
       properties: { code: { type: 'string' }, term: { type: 'string' } },
@@ -146,7 +146,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'what_if',
     description:
-      'Try one or more changes on a copy of the board without making them: add, remove, replace or move. Returns what the checks would say (prerequisites, standing, courses that do not count together, terms over 18), each term\'s credits afterwards, any later course that would lose a prerequisite, and how the new courses fit the student\'s priorities. Use it to reason before acting, and to answer "what happens if" questions. Nothing on the board changes.',
+      'Try one or more changes on a copy of the board without making them: add, remove, replace or move. Returns what the checks would say (prerequisites, standing, courses that do not count together, terms over 18), the review flags the changes would cause (Composition I after the first year, a missing language course past 60 hours, a light first year), each term\'s credits afterwards, any later course that would lose a prerequisite, and how the new courses fit the student\'s priorities. A summer between the board\'s terms can be named ("Summer 2027") to try a suggested summer. Use it to reason before acting, and to answer "what happens if" questions. Nothing on the board changes.',
     input_schema: {
       type: 'object',
       properties: {
@@ -174,7 +174,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'review_board',
     description:
-      "The planner's own read of the whole board: each term's credits and how heavy it reads against Illinois grade history, terms that stack several hardest-band courses, courses that have not run in any recent term, courses placed in a season they have not run in, requirements still open, and the review flags. Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
+      "The planner's own read of the whole board: each term's credits and how heavy it reads against Illinois grade history, terms that stack several hardest-band courses, courses that have not run in any recent term, courses placed in a season they have not run in, requirements still open, the review flags, the first year's pace, hours that count toward nothing, and a summer where one would buy time (a suggestion only). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -382,6 +382,10 @@ How to reason
 - The board description you get with each message is the board as it is now. Your earlier messages may describe a board that has since changed: the student may have reloaded without saving, rebuilt, or edited cards by hand. When the two disagree, trust the description, say briefly that the board no longer has what you did earlier, and redo the change if they still want it. Never tell the student a course is on the board unless the description shows it.
 - Judge terms as a whole: two hardest-band courses plus a lab is a different term from three light electives, whatever the credit count says. review_board and term_summary carry the load reading.
 - A course that has not run in any recent term is not a plan. Say so, and offer one that has.
+- The first year sets the pace. review_board's first_year_momentum flags a first-year fall or spring under 15 hours or a year one under 30 Illinois hours that the student's own hours setting or edits caused, the first math or statistics course after year one, and fewer than three courses in the major's subjects in year one. When a result carries momentum_fact_say_once, give that fact once in the conversation, in a sentence, then leave the choice to the student; do not repeat it or press.
+- Summers buy time. review_board's summer_suggestions name a summer, the courses Illinois has run in summer that could go there, and what it saves. Offer it; never add a summer unless the student says yes. Then try it with what_if (a summer between the board's terms can be named, like "Summer 2027"), and make it real with move_course into that summer or set_plan_shape summers.
+- Hours that count toward nothing: review_board reports credits past the degree total and courses whose hours the college does not count, or that the catalog does not credit alongside another; prior_credit says how many held hours fill a requirement. A course the student added that fills no requirement still counts as free elective hours toward the total, which is fine: say so rather than calling it wasted.
+- An edit can break a rule no prerequisite check sees: Composition I moved past the first year, or (LAS and the iSchool) a fall or spring past 60 hours without a language course while the requirement is open. move_course, remove_course, replace_course and what_if return review_flags_caused when a change does that; tell the student.
 - Getting into a college is a separate application from earning the degree: when the student is not yet in the college their goal major belongs to (they say transfer, switch, ICT, undeclared, or "get into business"), call program_admission, check its courses against the board, and lay out the timeline plainly: what must be done by when, the hours needed, and that it is competitive. A registration restriction on a card ("restricted to Gies College of Business") is the same story from the other side.
 
 Students with credit coming in
