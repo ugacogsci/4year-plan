@@ -682,6 +682,13 @@ export function transcriptGenEdCredits(record: TranscriptRecord | null | undefin
  * Parkland", "admitted to Gies") and from the record (another school's
  * transcript or an evaluation report, with no Illinois courses on it).
  */
+/**
+ * "From Parkland", "from my community college": the words of a student who
+ * is coming to Illinois from another school. Shared with admission-route.ts,
+ * which reads the same words to tell a transfer from a first-year.
+ */
+export const FROM_ANOTHER_COLLEGE = /\bfrom (a |my )?(community college|parkland|college of dupage|harper|joliet|moraine valley|triton|oakton|waubonsee|elgin|mchenry|college of lake county|illinois central|lincoln land|heartland|richland|kishwaukee|rock valley|john a\.? logan|southwestern)\b/i;
+
 export function internalTransferIntent(words: string, record: TranscriptRecord | null | undefined): boolean {
   const wants = /\b(transfer(ring)?|switch(ing)?|mov(e|ing) (in)?to|get(ting)? in(to)?|apply(ing)? (to|for)|ict|intercollegiate|undeclared|not (yet )?(in|admitted)|pre-?business|dgs|general studies)\b/i.test(words);
   if (!wants) return false;
@@ -690,7 +697,7 @@ export function internalTransferIntent(words: string, record: TranscriptRecord |
     /\btransferr?\w* (to|into) (the )?(illinois|uiuc|u of i|university of illinois|urbana)\b/i.test(words) ||
     /\b(admitted|accepted) (to|into|at)\b/i.test(words) ||
     /\btransfer student\b/i.test(words) ||
-    /\bfrom (a |my )?(community college|parkland|college of dupage|harper|joliet|moraine valley|triton|oakton|waubonsee|elgin|mchenry|college of lake county|illinois central|lincoln land|heartland|richland|kishwaukee|rock valley|john a\.? logan|southwestern)\b/i.test(words);
+    FROM_ANOTHER_COLLEGE.test(words);
   const recordFromElsewhere =
     Boolean(record) && (record?.kind === 'transfer_report' || record?.home === false) && transcriptResidentHours(record).total === 0;
   return !(arriving || recordFromElsewhere);

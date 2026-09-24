@@ -99,6 +99,7 @@ import type { Alternative, ElectiveOf } from './course-card';
 import { plural } from './words';
 import { alignExamsToCollege, examCourses, examCreditNotes, examElectiveHours, examGenEdCredits, examSchedule, matchDocumentExams, useExamCredit } from './exam-credit';
 import { areaProgress } from '@/lib/planner/scheduler';
+import { admissionGoal, chooseAdmission, describeAdmissionChoice, goalFromQuery, readEntry, type AdmissionChoice } from '@/lib/planner/admission-route';
 import { routeQuestion, sectionRowsFrom, type AskContext, type PlannedCourse } from '@/lib/planner/ask-router';
 import { createSamplePlan, sampleCourses, samplePrograms } from '@/lib/planner/sample-data';
 import {
@@ -114,7 +115,6 @@ import { clearAnswers, schoolById, summarize, type ExamCreditEntry, type Onboard
 import {
   normalizeCourseCode,
   normalizeTerm,
-  internalTransferIntent,
   transcriptGenEdCredits,
   transcriptCodes,
   transcriptCreditAdjustment,
@@ -594,15 +594,22 @@ export function PlannerWorkspace({
    * The college the student is trying to get into, when their own words say
    * they are not in it yet: "transfer into Gies", "switch to engineering",
    * "LAS undeclared, want business". The route is the college's published
-   * one, and the plan front-loads what it asks for.
+   * one that fits how the student entered Illinois: a Psychology first-year
+   * who wants mechanical engineering gets Engineering Undeclared, a student
+   * coming from Parkland gets Grainger's transfer admission, and only a route
+   * taken here is front-loaded onto the board (admission-route.ts).
    */
-  const admissionRoute = useMemo(() => {
+  const admissionChoice = useMemo((): AdmissionChoice | null => {
     const table = core?.admission;
-    const college = loaded?.program.college;
-    if (!table || !college || !table.colleges[college]) return null;
+    if (!table || !loaded) return null;
     const words = [answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? '', careerInterests].join(' ');
-    return internalTransferIntent(words, answers?.transcript) ? table.colleges[college] : null;
-  }, [core, loaded, answers, careerInterests]);
+    const goal = admissionGoal(table, { college: loaded.program.college, programId: loaded.summary.id, programName: loaded.program.name }, words, answers?.transcript);
+    if (!goal) return null;
+    const horizon = horizonFor(answers, core?.meta?.term?.year ?? new Date().getFullYear(), planShape);
+    const start = { season: horizon.startSeason, year: horizon.startYear };
+    return chooseAdmission(table, goal, readEntry(words, answers?.transcript, start), start);
+  }, [core, loaded, answers, careerInterests, planShape]);
+  const admissionRoute = admissionChoice?.front ? admissionChoice.route : null;
   const programBusy = Boolean(isCatalogSchool && programId) && fetched?.id !== programId;
 
   // ---- the planning context -------------------------------------------------
@@ -708,6 +715,15 @@ export function PlannerWorkspace({
     if (!publishedTotal && isIllinois) {
       generated.notes.push(`The catalog page for ${loaded.program.name} states no total, so this plan aims at 120 hours, the minimum most Illinois bachelor's degrees state (las.illinois.edu/academics/requirements/minimum). Ask your advisor for this degree's own total.`);
     }
+    /**
+     * Which route in, and why: the windows and the competitive-major limit
+     * for a student EU is open to, and for one it is not (a transfer, a
+     * junior, a student aiming at Computer Science) the page's own reason.
+     * Gies's single route already says all it has in the note above.
+     */
+    if (admissionChoice && !(admissionChoice.front && !admissionChoice.route?.applySemesters)) {
+      generated.notes.push(describeAdmissionChoice(admissionChoice));
+    }
     generated.notes.push(
       ...examCreditNotes({
         words: [answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? '', careerInterests].join(' '),
@@ -761,7 +777,7 @@ export function PlannerWorkspace({
         ? 'Plan built. Open the review list to see what it could not do.'
         : 'Plan built. Nothing to review.',
     );
-  }, [isCatalogSchool, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, priorities, admissionRoute, isIllinois, exams, examsAligned, catalogCredits, planShape]);
+  }, [isCatalogSchool, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape]);
 
   /**
    * Credit that changes after the board exists rebuilds the board.
@@ -933,6 +949,25 @@ export function PlannerWorkspace({
             },
           ]
         : []),
+      // The college the student named, with no route the board can take: a
+      // transfer student Engineering Undeclared does not admit, a junior past
+      // its window, a student aiming at Computer Science, which is closed to
+      // on-campus transfer. Saying nothing here read as "no application needed".
+      ...(admissionChoice && !admissionChoice.front
+        ? [
+            {
+              id: 'admission-route',
+              severity: 'warning' as const,
+              title: admissionChoice.closed
+                ? `${admissionChoice.closed.major} is closed to students already at Illinois`
+                : admissionChoice.route
+                  ? `Getting into ${admissionChoice.route.name}: ${admissionChoice.route.path}`
+                  : `Getting into ${admissionChoice.name}: no published route fits you`,
+              message: describeAdmissionChoice(admissionChoice),
+              termId: firstTerm,
+            },
+          ]
+        : []),
       // Hours the student says they have that nothing recorded explains. A
       // plan built as if they were starting from zero is wrong from the first
       // term, and the fix is one upload away.
@@ -1002,7 +1037,7 @@ export function PlannerWorkspace({
         termId: firstTerm,
       })),
     ];
-  }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits]);
+  }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits, admissionChoice]);
 
   const issues = useMemo(() => {
     if (!plan) return [];
@@ -1493,6 +1528,7 @@ export function PlannerWorkspace({
     pools,
     language: report?.language ?? null,
     admission: report?.admission ?? null,
+    admissionChoice,
     answers: answers ?? null,
     onAnswersChange: onAnswersChange ?? null,
     report,
@@ -1522,6 +1558,7 @@ export function PlannerWorkspace({
       pools,
       language: report?.language ?? null,
       admission: report?.admission ?? null,
+      admissionChoice,
       answers: answers ?? null,
       onAnswersChange: onAnswersChange ?? null,
       report,
@@ -1890,6 +1927,12 @@ export function PlannerWorkspace({
     lines.push(`Priorities, which decide the elective picks and the order of choices: ${describePriorities(L.priorities)}`);
     if (L.language) lines.push(`Language requirement: ${L.language.name}, semesters ${L.language.completed + 1} to ${L.language.semesters} planned (${L.language.codes.join(', ')}). ${L.language.why}`);
     if (L.admission) lines.push(`Getting into ${L.admission.name} (${L.admission.path}): the student is not in this college yet. Its courses (${L.admission.codes.join(', ')}) are placed first, due by ${L.admission.requiredBy}. ${L.admission.eligibility.join(' ')} Source: ${L.admission.source}`);
+    // Why this route and not the other, or why none: ALMA should not offer
+    // a transfer student the EU windows, or a CS hopeful any route at all.
+    const choice = L.admissionChoice;
+    if (choice && (!choice.front || choice.route?.applySemesters)) {
+      lines.push(`Which route in, from how the student entered Illinois: ${describeAdmissionChoice(choice)}`);
+    }
     for (const term of board.terms) {
       const courses = term.courseIds
         .map((id) => L.courseIndex.get(id))
@@ -2425,35 +2468,105 @@ export function PlannerWorkspace({
       case 'program_admission': {
         const table = L.core?.admission;
         if (!table) return { ok: false, reason: 'No admission routes are loaded in this build.' };
-        const q = str('college').toLowerCase();
-        const code = /gies|bus/.test(q) ? 'bus' : /grainger|engineer/.test(q) ? 'engineering' : Object.keys(table.colleges).find((k) => q.includes(k)) ?? null;
-        const route = code ? table.colleges[code] : null;
-        if (!route) return { ok: false, reason: `No published route is loaded for "${str('college')}". Loaded: ${Object.values(table.colleges).map((r) => r.name).join('; ')}. Use university_answer for other colleges.` };
+        const goal = goalFromQuery(table, str('college'), str('major'), { college: L.loaded.program.college, programId: L.loaded.summary.id, programName: L.loaded.program.name });
+        if (!goal) return { ok: false, reason: `No published route is loaded for "${[str('college'), str('major')].filter(Boolean).join(', ')}". Loaded: ${[...new Set(Object.values(table.colleges).map((r) => r.name))].join('; ')}. Use university_answer for other colleges.` };
+        /**
+         * The route from the student's situation, not from the college name
+         * alone: "engineering" used to return Grainger's transfer admission
+         * (3.00 GPA, Calc III, opening January 15) to a Psychology
+         * first-year, whose route is Engineering Undeclared. The semester is
+         * read against the board's first term, the one the plan starts in.
+         */
+        const words = [L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? '', L.careerText].join(' ');
+        const firstLabel = board.terms[0]?.label ?? '';
+        const labelled = firstLabel.match(/\b(Fall|Spring) (\d{4})\b/);
+        const fallback = horizonFor(L.answers, L.core?.meta?.term?.year ?? new Date().getFullYear(), planShapeRef.current);
+        const start = labelled ? { season: labelled[1] as 'Fall' | 'Spring', year: Number(labelled[2]) } : { season: fallback.startSeason, year: fallback.startYear };
+        const entry = readEntry(words, L.answers?.transcript, start);
+        const choice = chooseAdmission(table, goal, entry, start);
+        const notFor = choice.notFor
+          .filter((n) => n.key !== choice.key)
+          .map((n) => ({ route: n.path, why_not: n.reason, source: n.source }));
+        const readAs = entry.entry === 'transfer'
+          ? `a transfer student, ${entry.arriving ? 'still coming from another school' : 'already at Illinois'} (${entry.why})`
+          : entry.entry === 'first-year'
+            ? `entered Illinois as a first-year; ${entry.semester ? `${start.season} ${start.year} is semester ${entry.semester}` : 'semester unknown'} (${entry.why})`
+            : `not said (${entry.why})`;
+        if (choice.closed) {
+          return {
+            ok: true,
+            college: choice.name,
+            major: choice.closed.major,
+            closed_to_students_already_here: choice.closed.text,
+            what_the_pages_offer_instead: choice.closed.offers,
+            student_read_as: readAs,
+            sources: choice.closed.sources,
+            as_of: choice.closed.readAt ?? table.fetchedAt,
+            note: 'Say plainly that this major cannot be reached from another college on campus, and offer what the pages offer. Do not suggest Engineering Undeclared as a way into it.',
+          };
+        }
+        const route = choice.route;
+        if (!route) {
+          return {
+            ok: true,
+            college: choice.name,
+            route: null,
+            why: choice.why,
+            not_for_you: notFor,
+            student_read_as: readAs,
+            as_of: table.fetchedAt,
+            note: 'Tell the student no published route fits them and why, in the page\'s own words, and who to ask.',
+          };
+        }
         const onBoardTerm = (c: string) => {
           const course = courseOf(c);
           return course ? holding(course.id)?.label ?? null : null;
         };
+        /**
+         * "CHEM 102 and CHEM 103" is met by both, not either: one of the
+         * options and every course it must be taken with. A held CHEM 103
+         * alone read as General Chemistry 1 done.
+         */
         const status = route.required.map((item) => {
           const options = item.options ?? [];
-          const held = options.filter((c) => L.completedCodes.has(normCode(c)));
-          const planned = options.map((c) => [c, onBoardTerm(c)] as const).filter((x) => x[1]);
-          return { requirement: item.label, already_have: held, on_the_board: planned.map(([c, t]) => `${c} in ${t}`), status: held.length ? 'done' : planned.length ? 'planned' : item.genEd ? 'a general education category; check the board for a course carrying it' : 'missing' };
+          const together = item.with ?? [];
+          const isHeld = (c: string) => L.completedCodes.has(normCode(c));
+          const isPlanned = (c: string) => isHeld(c) || Boolean(onBoardTerm(c));
+          const held = [...options, ...together].filter(isHeld);
+          const planned = [...options, ...together].map((c) => [c, onBoardTerm(c)] as const).filter((x) => x[1]);
+          const done = options.some(isHeld) && together.every(isHeld);
+          const covered = options.some(isPlanned) && together.every(isPlanned);
+          const missing = [...(options.some(isPlanned) ? [] : [options.join(' or ')]), ...together.filter((c) => !isPlanned(c))].filter(Boolean);
+          return {
+            requirement: item.label,
+            already_have: held,
+            on_the_board: planned.map(([c, t]) => `${c} in ${t}`),
+            status: done ? 'done' : covered ? 'planned' : item.genEd ? 'a general education category; check the board for a course carrying it' : held.length || planned.length ? `partly: ${missing.join(', ')} not on the board` : 'missing',
+          };
         });
         return {
           ok: true,
           college: route.name,
           route: route.path,
+          why_this_route: choice.why,
+          student_read_as: readAs,
+          not_for_you: notFor,
           who_it_is_for: route.who,
           eligibility: route.eligibility,
           required_by: route.requiredBy,
           required: status,
+          application_windows: choice.windows.map((w) => ({ semester: w.semester, term: w.term, dates: w.dates, admits_for: w.admits })),
+          competitive_majors: choice.competitive,
           plus_for_data_science_majors: route.dataScienceExtra ?? [],
           recommended: route.recommended,
           notes: route.notes,
           contact: route.contact,
           source: route.source,
-          as_of: table.fetchedAt,
-          note: 'Read this against the student\'s actual term of study and hours. Say what is done, what is planned and when, what is missing, and that the application itself is competitive.',
+          other_sources: (route.sources ?? []).map((x) => x.url).filter((u) => u !== route.source),
+          as_of: route.readAt ?? table.fetchedAt,
+          note: choice.front
+            ? 'Read this against the student\'s actual term of study and hours. Say which route this is and why, what is done, what is planned and when, what is missing, the windows, and that the application itself is competitive.'
+            : 'This route is applied for before the student arrives at Illinois, so the board does not carry its courses. Say which route this is and why, and what the college expects done before applying.',
         };
       }
       case 'set_priorities': {
