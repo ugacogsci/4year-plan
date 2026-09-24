@@ -1,4 +1,5 @@
 import type { TranscriptRecord } from './transcript';
+import { UGA_COLLEGE_BY_ID } from './uga-colleges';
 
 /**
  * What we learn before showing anyone a planner.
@@ -153,6 +154,9 @@ export interface PriorExam {
   score: number | string;
 }
 
+export type AcademicYear = '' | 'first' | 'second' | 'third' | 'fourth' | 'fifth-plus';
+export type GraduationSeason = '' | 'Spring' | 'Summer' | 'Fall';
+
 export interface OnboardingAnswers {
   schoolId: SchoolId | null;
   /** Degree programs the student explicitly selected, primary first. */
@@ -167,6 +171,13 @@ export interface OnboardingAnswers {
    * more than one independent set of required choices.
    */
   emphasisSelections: Record<string, string[]>;
+  /** Primary degree-granting college, inferred from the selected major when unambiguous. */
+  collegeId: string;
+  /** Current undergraduate year, confirmed after the open-ended questions. */
+  academicYear: AcademicYear;
+  /** Explicit schedule horizon; the open-ended answer is used to prefill it. */
+  graduationSeason: GraduationSeason;
+  graduationYear: number | null;
   /** UGA courses the student explicitly marked as completed. */
   alreadyTakenCourseCodes: string[];
   /** Other subjects and interests the student wants the plan to consider. */
@@ -193,6 +204,10 @@ export const EMPTY_ANSWERS: OnboardingAnswers = {
   minorIds: [],
   certificateIds: [],
   emphasisSelections: {},
+  collegeId: '',
+  academicYear: '',
+  graduationSeason: '',
+  graduationYear: null,
   alreadyTakenCourseCodes: [],
   studying: '',
   timeline: '',
@@ -236,6 +251,43 @@ export function questionsFor(school: School | undefined): Array<{
   ];
 }
 
+const ACADEMIC_YEAR_PATTERNS: Array<[Exclude<AcademicYear, ''>, RegExp]> = [
+  ['fifth-plus', /\b(?:fifth|5th)(?:[- ]year)?\b/i],
+  ['fourth', /\b(?:fourth|4th)(?:[- ]year)?\b|\bsenior\b/i],
+  ['third', /\b(?:third|3rd)(?:[- ]year)?\b|\bjunior\b/i],
+  ['second', /\b(?:second|2nd)(?:[- ]year)?\b|\bsophomore\b/i],
+  ['first', /\b(?:first|1st)(?:[- ]year)?\b|\bfreshm[ae]n\b/i],
+];
+
+export function inferAcademicYear(text: string): AcademicYear {
+  return ACADEMIC_YEAR_PATTERNS.find(([, pattern]) => pattern.test(text))?.[0] ?? '';
+}
+
+export function inferGraduationTarget(text: string): {
+  season: GraduationSeason;
+  year: number | null;
+} {
+  const graduationClause = text.match(
+    /(?:graduat\w*|finish\w*|complet\w*|done|degree)\b[^.\n]{0,55}/i,
+  )?.[0] ?? '';
+  const season = graduationClause.match(/\b(spring|summer|fall)\b/i)?.[1];
+  const year = graduationClause.match(/\b(20\d{2})\b/)?.[1];
+  return {
+    season: season
+      ? (`${season[0].toUpperCase()}${season.slice(1).toLowerCase()}` as GraduationSeason)
+      : '',
+    year: year ? Number(year) : null,
+  };
+}
+
+/** Structured confirmation wins when free-form text and the selected date disagree. */
+export function timelineForPlanning(answers: OnboardingAnswers): string {
+  const target = answers.graduationSeason && answers.graduationYear
+    ? `I plan to graduate ${answers.graduationSeason} ${answers.graduationYear}.`
+    : '';
+  return [target, answers.timeline].filter(Boolean).join(' ');
+}
+
 /**
  * v2, not v1. A v1 setup could name any of five schools, four of which this
  * build cannot plan, and one that did was quietly moved to Illinois and its
@@ -274,6 +326,24 @@ export function loadAnswers(): OnboardingAnswers | null {
               ]),
             )
           : {},
+      collegeId:
+        typeof parsed.collegeId === 'string' && UGA_COLLEGE_BY_ID.has(parsed.collegeId)
+          ? parsed.collegeId
+          : '',
+      academicYear: ['first', 'second', 'third', 'fourth', 'fifth-plus'].includes(
+        parsed.academicYear ?? '',
+      )
+        ? (parsed.academicYear as AcademicYear)
+        : '',
+      graduationSeason: ['Spring', 'Summer', 'Fall'].includes(parsed.graduationSeason ?? '')
+        ? (parsed.graduationSeason as GraduationSeason)
+        : '',
+      graduationYear:
+        typeof parsed.graduationYear === 'number' &&
+        parsed.graduationYear >= 2000 &&
+        parsed.graduationYear <= 2100
+          ? parsed.graduationYear
+          : null,
       alreadyTakenCourseCodes: Array.isArray(parsed.alreadyTakenCourseCodes)
         ? parsed.alreadyTakenCourseCodes.filter(
             (code): code is string => typeof code === 'string',
@@ -304,7 +374,13 @@ export function clearAnswers() {
 /** A short line for the planner header, so the answers stay visible. */
 export function summarize(a: OnboardingAnswers): string {
   const school = SCHOOLS.find((s) => s.id === a.schoolId);
-  return [school?.short, a.studying.split(/[.\n]/)[0]?.trim()].filter(Boolean).join(' · ');
+  const college = a.schoolId === 'uga' ? UGA_COLLEGE_BY_ID.get(a.collegeId)?.name : null;
+  const graduation = a.graduationSeason && a.graduationYear
+    ? `${a.graduationSeason} ${a.graduationYear}`
+    : null;
+  return [school?.short, college, graduation, a.studying.split(/[.\n]/)[0]?.trim()]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 

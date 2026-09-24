@@ -90,7 +90,12 @@ import {
   isPlanState,
 } from '@/lib/planner/rules';
 import type { Course, PlanIssue, PlanState } from '@/lib/planner/types';
-import { clearAnswers, schoolById, type OnboardingAnswers } from '@/lib/planner/onboarding';
+import {
+  clearAnswers,
+  schoolById,
+  timelineForPlanning,
+  type OnboardingAnswers,
+} from '@/lib/planner/onboarding';
 import { normalizeCourseCode, transcriptCodes } from '@/lib/planner/transcript';
 import { degreeCompletionIssue } from '@/lib/planner/completion';
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
@@ -786,7 +791,7 @@ export function PlannerWorkspace({
       examElectiveHours(answers?.exams ?? [], examCredit.entries),
     );
     const term = core?.meta?.term;
-    const horizon = readHorizon(answers?.timeline ?? '', {
+    const horizon = readHorizon(answers ? timelineForPlanning(answers) : '', {
       season: 'Fall',
       year: term?.year ?? new Date().getFullYear(),
     });

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { UGA_COLLEGES } from '../lib/planner/uga-colleges.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const file = JSON.parse(
@@ -342,6 +343,14 @@ assert.deepEqual(
   Object.keys(collegeCourseChecks).sort((left, right) => left.localeCompare(right)),
   'Every UGA college with a parsed undergraduate major must have a representative course check',
 );
+assert.equal(UGA_COLLEGES.length, 20, 'The current official UGA roster must contain 20 schools and colleges');
+assert.deepEqual(
+  UGA_COLLEGES.filter((college) => college.hasBaccalaureateProgram)
+    .map((college) => college.id)
+    .sort((left, right) => left.localeCompare(right)),
+  Object.keys(collegeCourseChecks).sort((left, right) => left.localeCompare(right)),
+  'The 15 parsed bachelor-degree colleges must be distinguished from UGA\'s full 20-unit roster',
+);
 
 const parsedMinors = file.programs.filter(
   (candidate) => candidate.degree === 'MINOR' && candidate.areaHours > 0,
@@ -406,5 +415,5 @@ assert.equal(
 );
 
 console.log(
-  `UGA catalog coverage: one requirement course verified for each of ${Object.keys(collegeCourseChecks).length} undergraduate colleges; ${parsedMinors.length} minors, ${parsedCertificates.length} certificates, and required degree paths are plannable.`,
+  `UGA catalog coverage: one requirement course verified for each of ${Object.keys(collegeCourseChecks).length} schools and colleges with parsed bachelor's majors, within UGA's full ${UGA_COLLEGES.length}-unit roster; ${parsedMinors.length} minors, ${parsedCertificates.length} certificates, and required degree paths are plannable.`,
 );

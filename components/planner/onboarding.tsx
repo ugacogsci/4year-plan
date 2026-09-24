@@ -11,18 +11,24 @@ import {
 } from './uga-source';
 import {
   EMPTY_ANSWERS,
+  inferAcademicYear,
+  inferGraduationTarget,
   questionsFor,
   readySchools,
   schoolById,
   saveAnswers,
+  type AcademicYear,
+  type GraduationSeason,
   type OnboardingAnswers,
   type SchoolId,
 } from '@/lib/planner/onboarding';
 import { transcriptCodes } from '@/lib/planner/transcript';
+import { findUgaCollege, UGA_COLLEGES } from '@/lib/planner/uga-colleges';
 
 /**
- * Four screens before the planner: pick a school, explicitly choose one or
- * more majors, describe the rest of the situation, then add prior credit.
+ * Six screens before the planner: pick a school, explicitly choose one or
+ * more programs, describe the situation, confirm inferred details, then add
+ * prior credit.
  *
  * The middle screen is deliberately three open text boxes rather than a form.
  * Someone who has failed calculus once and is deciding between two majors
@@ -50,6 +56,55 @@ interface ProgramCatalog {
   minors: ProgramOption[];
   certificates: ProgramOption[];
   requirements: UgaSelectionRequirement[];
+  ugaPrograms: UgaProgram[];
+}
+
+const ACADEMIC_YEAR_OPTIONS: Array<{ value: Exclude<AcademicYear, ''>; label: string }> = [
+  { value: 'first', label: 'First year' },
+  { value: 'second', label: 'Second year' },
+  { value: 'third', label: 'Third year' },
+  { value: 'fourth', label: 'Fourth year' },
+  { value: 'fifth-plus', label: 'Fifth year or later' },
+];
+
+const GRADUATION_SEASONS: Exclude<GraduationSeason, ''>[] = ['Spring', 'Summer', 'Fall'];
+
+function normalizedChoice(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\bpsychological\b/g, 'psychology')
+    .replace(/\bphilosophical\b/g, 'philosophy')
+    .replace(/\bcultural\b/g, 'culture')
+    .replace(/\bfoundations?\b/g, ' ')
+    .replace(/\bareas?\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function inferredProgramSelections(
+  requirements: UgaSelectionRequirement[],
+  current: Record<string, string[]>,
+  text: string,
+): Record<string, string[]> {
+  const haystack = ` ${normalizedChoice(text)} `;
+  const mentionsAi = /\bai\b/i.test(text);
+  const next = { ...current };
+  for (const requirement of requirements) {
+    const existing = next[requirement.id] ?? [];
+    if (existing.length >= requirement.minimum) continue;
+    const matches = requirement.options.filter((option) => {
+      const label = normalizedChoice(option.label.replace(/\([^)]*\)/g, ' '));
+      if (!label) return false;
+      if (haystack.includes(` ${label} `)) return true;
+      if (mentionsAi && label.includes('artificial intelligence')) return true;
+      const words = label.split(' ').filter((word) => word.length >= 5);
+      return words.length > 0 && words.every((word) => haystack.includes(` ${word} `));
+    });
+    if (matches.length >= requirement.minimum && matches.length <= requirement.maximum) {
+      next[requirement.id] = matches.map((option) => option.id);
+    }
+  }
+  return next;
 }
 
 export function Onboarding({
@@ -97,6 +152,27 @@ export function Onboarding({
     answers.emphasisSelections,
   );
   const programChoicesReady = answers.schoolId !== 'uga' || catalog !== null;
+  const detailsComplete =
+    Boolean(answers.academicYear) &&
+    Boolean(answers.graduationSeason) &&
+    Boolean(answers.graduationYear) &&
+    (answers.schoolId !== 'uga' || Boolean(answers.collegeId)) &&
+    emphasesComplete;
+  const missingDetails = [
+    !answers.academicYear,
+    !answers.graduationSeason || !answers.graduationYear,
+    answers.schoolId === 'uga' && !answers.collegeId,
+    !emphasesComplete,
+  ].filter(Boolean).length;
+  const graduationYears = useMemo(() => {
+    const current = new Date().getFullYear();
+    const years = Array.from({ length: 9 }, (_, index) => current + index);
+    if (answers.graduationYear && !years.includes(answers.graduationYear)) {
+      years.push(answers.graduationYear);
+      years.sort((left, right) => left - right);
+    }
+    return years;
+  }, [answers.graduationYear]);
 
   useEffect(() => {
     if (!answers.schoolId) return;
@@ -121,6 +197,7 @@ export function Onboarding({
             minors: options(rows.filter((program) => program.degree === 'MINOR' && program.areaHours > 0)),
             certificates: options(rows.filter((program) => program.degree === 'CERT-UG' && program.areaHours > 0)),
             requirements: majors.flatMap(ugaSelectionRequirements),
+            ugaPrograms: rows,
           });
           return;
         }
@@ -132,10 +209,12 @@ export function Onboarding({
           )
           .map((program: { id: string; name: string }) => ({ id: program.id, name: program.name }))
           .sort((a: ProgramOption, b: ProgramOption) => a.name.localeCompare(b.name));
-        setCatalog({ majors, minors: [], certificates: [], requirements: [] });
+        setCatalog({ majors, minors: [], certificates: [], requirements: [], ugaPrograms: [] });
       })
       .catch(() => {
-        if (!cancelled) setCatalog({ majors: [], minors: [], certificates: [], requirements: [] });
+        if (!cancelled) {
+          setCatalog({ majors: [], minors: [], certificates: [], requirements: [], ugaPrograms: [] });
+        }
       });
     return () => {
       cancelled = true;
@@ -151,12 +230,44 @@ export function Onboarding({
       minorIds: a.schoolId === id ? a.minorIds : [],
       certificateIds: a.schoolId === id ? a.certificateIds : [],
       emphasisSelections: a.schoolId === id ? a.emphasisSelections : {},
+      collegeId: a.schoolId === id ? a.collegeId : '',
       alreadyTakenCourseCodes: a.schoolId === id ? a.alreadyTakenCourseCodes : [],
     }));
   }
 
+  function prepareDetails() {
+    setAnswers((current) => {
+      const text = [current.studying, current.timeline, current.after].join(' ');
+      const graduation = inferGraduationTarget(current.timeline);
+      const selectedPrograms = (catalog?.ugaPrograms ?? []).filter((program) =>
+        current.programIds.includes(program.id),
+      );
+      const selectedColleges = [...new Set(selectedPrograms.map((program) => program.college))];
+      const mentionedCollege = findUgaCollege(text);
+      const collegeId = current.collegeId ||
+        (selectedColleges.length === 1
+          ? selectedColleges[0]
+          : mentionedCollege && selectedColleges.includes(mentionedCollege.id)
+            ? mentionedCollege.id
+            : '');
+      return {
+        ...current,
+        collegeId,
+        academicYear: current.academicYear || inferAcademicYear(current.timeline),
+        graduationSeason: current.graduationSeason || graduation.season,
+        graduationYear: current.graduationYear ?? graduation.year,
+        emphasisSelections: inferredProgramSelections(
+          emphasisRequirements,
+          current.emphasisSelections,
+          text,
+        ),
+      };
+    });
+    setStep(3);
+  }
+
   function finish() {
-    setStep(4);
+    setStep(5);
     saveAnswers(answers);
     window.setTimeout(() => onDone(answers), 1400);
   }
@@ -165,7 +276,7 @@ export function Onboarding({
     <div className="onb" style={school ? ({ ['--school' as string]: school.accent }) : undefined}>
       <div className="onb-inner">
         <ol className="onb-steps" aria-label="Progress">
-          {['School', 'Majors', 'About you', 'Credit', 'Profile'].map((label, i) => (
+          {['School', 'Programs', 'About you', 'Details', 'Credit', 'Plan'].map((label, i) => (
             <li key={label} className={i === step ? 'now' : i < step ? 'done' : ''}>
               <span className="onb-dot">{i < step ? '✓' : i + 1}</span>
               {label}
@@ -173,7 +284,7 @@ export function Onboarding({
           ))}
         </ol>
 
-        {onResume && programChoicesReady && emphasesComplete && step < 4 && (
+        {onResume && programChoicesReady && detailsComplete && step < 5 && (
           <p className="onb-resume">
             Your answers from last time are filled in below.{' '}
             <button type="button" onClick={onResume}>
@@ -221,7 +332,7 @@ export function Onboarding({
           <section className="onb-step">
             <h1>Choose your programs.</h1>
             <p className="onb-sub">
-              Select every declared or intended major, then add any minor, certificate, or required program path.
+              Select every declared or intended major, then add any minor or certificate. We will confirm program paths after learning more about you.
             </p>
             <div className="onb-program-groups">
               <section>
@@ -229,7 +340,19 @@ export function Onboarding({
                 <ProgramPicker
                   options={catalog?.majors ?? []}
                   selectedIds={answers.programIds}
-                  onChange={(programIds) => setAnswers((current) => ({ ...current, programIds }))}
+                  onChange={(programIds) => setAnswers((current) => {
+                    const selected = new Set(programIds);
+                    return {
+                      ...current,
+                      programIds,
+                      collegeId: '',
+                      emphasisSelections: Object.fromEntries(
+                        Object.entries(current.emphasisSelections).filter(([key]) =>
+                          [...selected].some((id) => key.startsWith(`${id}::`)),
+                        ),
+                      ),
+                    };
+                  })}
                   loading={catalog === null}
                 />
               </section>
@@ -259,27 +382,18 @@ export function Onboarding({
                   </section>
                 </>
               )}
-              <EmphasisPicker
-                requirements={emphasisRequirements}
-                selections={answers.emphasisSelections}
-                onChange={(emphasisSelections) =>
-                  setAnswers((current) => ({ ...current, emphasisSelections }))
-                }
-              />
             </div>
             <div className="onb-actions">
               {!onlySchool && <button className="onb-back" onClick={() => setStep(0)}>Back</button>}
               <span className="onb-count">
                 {answers.programIds.length === 0
                   ? 'Choose at least one major'
-                  : !emphasesComplete
-                    ? 'Complete the required program choices'
                   : `${answers.programIds.length} major${answers.programIds.length === 1 ? '' : 's'} selected`}
               </span>
               <button
                 className="onb-next"
                 onClick={() => setStep(2)}
-                disabled={answers.programIds.length === 0 || !programChoicesReady || !emphasesComplete}
+                disabled={answers.programIds.length === 0 || !programChoicesReady}
               >
                 Continue
               </button>
@@ -311,17 +425,127 @@ export function Onboarding({
               {/* No school step to go back to when there was no school to choose. */}
               <button className="onb-back" onClick={() => setStep(1)}>Back</button>
               <span className="onb-count">{answered} of 3 answered</span>
-              <button className="onb-next" onClick={() => setStep(3)} disabled={answered === 0}>
+              <button className="onb-next" onClick={prepareDetails} disabled={answered === 0}>
                 Next
               </button>
             </div>
             <p className="onb-skip">
-              <button onClick={() => setStep(3)}>Skip for now</button>
+              <button onClick={prepareDetails}>Skip for now</button>
             </p>
           </section>
         )}
 
         {step === 3 && (
+          <section className="onb-step">
+            <h1>Confirm the details the plan needs.</h1>
+            <p className="onb-sub">
+              We filled in what your answers and selected programs made clear. Complete anything still blank before the schedule is built.
+            </p>
+            <div className="onb-details-grid">
+              <label className="onb-q">
+                <span className="onb-q-label">What year are you in?</span>
+                <span className="onb-q-hint">This helps us interpret how much time and prior credit the plan should account for.</span>
+                <select
+                  value={answers.academicYear}
+                  onChange={(event) => setAnswers((current) => ({
+                    ...current,
+                    academicYear: event.target.value as AcademicYear,
+                  }))}
+                >
+                  <option value="">Select your current year</option>
+                  {ACADEMIC_YEAR_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              {answers.schoolId === 'uga' && (
+                <label className="onb-q">
+                  <span className="onb-q-label">Which college owns your primary major?</span>
+                  <span className="onb-q-hint">
+                    Usually inferred from your major. UGA has 20 schools and colleges; five do not currently own a standalone bachelor&rsquo;s major in this planner.
+                  </span>
+                  <select
+                    value={answers.collegeId}
+                    onChange={(event) => setAnswers((current) => ({
+                      ...current,
+                      collegeId: event.target.value,
+                    }))}
+                  >
+                    <option value="">Select your primary college</option>
+                    {UGA_COLLEGES.map((college) => (
+                      <option
+                        key={college.id}
+                        value={college.id}
+                        disabled={!college.hasBaccalaureateProgram}
+                      >
+                        {college.name}{college.hasBaccalaureateProgram ? '' : ' — no standalone bachelor’s major'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              <fieldset className="onb-graduation">
+                <legend>When do you intend to graduate?</legend>
+                <span className="onb-q-hint">The planner will not schedule courses beyond this term.</span>
+                <div>
+                  <label>
+                    <span>Term</span>
+                    <select
+                      value={answers.graduationSeason}
+                      onChange={(event) => setAnswers((current) => ({
+                        ...current,
+                        graduationSeason: event.target.value as GraduationSeason,
+                      }))}
+                    >
+                      <option value="">Select term</option>
+                      {GRADUATION_SEASONS.map((season) => (
+                        <option key={season} value={season}>{season}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Year</span>
+                    <select
+                      value={answers.graduationYear ?? ''}
+                      onChange={(event) => setAnswers((current) => ({
+                        ...current,
+                        graduationYear: event.target.value ? Number(event.target.value) : null,
+                      }))}
+                    >
+                      <option value="">Select year</option>
+                      {graduationYears.map((year) => (
+                        <option key={year} value={year}>{year}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </fieldset>
+
+              <EmphasisPicker
+                requirements={emphasisRequirements}
+                selections={answers.emphasisSelections}
+                onChange={(emphasisSelections) =>
+                  setAnswers((current) => ({ ...current, emphasisSelections }))
+                }
+              />
+            </div>
+            <div className="onb-actions">
+              <button className="onb-back" onClick={() => setStep(2)}>Back</button>
+              <span className="onb-count">
+                {missingDetails === 0
+                  ? 'Ready to review prior credit'
+                  : `${missingDetails} detail${missingDetails === 1 ? '' : 's'} still needed`}
+              </span>
+              <button className="onb-next" onClick={() => setStep(4)} disabled={!detailsComplete}>
+                Continue
+              </button>
+            </div>
+          </section>
+        )}
+
+        {step === 4 && (
           <section className="onb-step">
             <h1>What do you already have?</h1>
             <p className="onb-sub">
@@ -340,7 +564,7 @@ export function Onboarding({
               }
             />
             <div className="onb-actions">
-              <button className="onb-back" onClick={() => setStep(2)}>Back</button>
+              <button className="onb-back" onClick={() => setStep(3)}>Back</button>
               <span className="onb-count">{priorSummary(answers)}</span>
               <button className="onb-next" onClick={finish}>
                 {initial ? 'Build my plan again' : 'Build my plan'}
@@ -352,7 +576,7 @@ export function Onboarding({
           </section>
         )}
 
-        {step === 4 && (
+        {step === 5 && (
           <section className="onb-step onb-building">
             <div className="onb-spinner" aria-hidden="true" />
             <h1>Building your profile</h1>
