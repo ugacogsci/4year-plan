@@ -2709,6 +2709,57 @@ const TOTAL_ROW = /^(?:minimum\s+)?total\b/i;
 const DEGREE_TOTAL_ROW = /\b(?:to graduate|curriculum|for graduation|for (?:the )?degree|degree hours)\b/i;
 
 /**
+ * A total row this large is the degree's, whatever its label says.
+ *
+ * 114 degree pages end a table with a plain "Total Hours" row that is the whole
+ * degree: Animal Sciences prints "Total Hours 126" in a table of its own, and
+ * the three Community Health concentrations print "Total Hours 128" as the last
+ * row of their summary table. Read as that area's subtotal, it left every other
+ * area of the degree with no room at all, so the one test that turns an
+ * oversized table into a list to choose from never ran on those degrees: the
+ * Companion Animal and Equine Science core, 65 ANSC courses and 153 hours under
+ * "Choose one group ... Select two ... Select two", was booked whole, and the
+ * plan ran 17 and 18 credits a term to 142 with 30 courses still unplaced. The
+ * ask bar's degree progress also told the student a part of the page "carries
+ * no heading" and stood at 0 of 126 hours.
+ *
+ * 100 is the floor programs.mjs already uses for a graduation total. No area of
+ * any crawled degree comes near it: the largest area total is 83 hours
+ * (Neuroscience's major requirements), the largest subtotal row is in the 60s,
+ * every degree is at least 120, and every "Total Hours" row of 100 or more
+ * equals the total its degree publishes.
+ */
+const DEGREE_SIZED_TOTAL = 100;
+
+function isDegreeTotalRow(label: string, hours: number | null | undefined): boolean {
+  return DEGREE_TOTAL_ROW.test(label) || (hours !== null && hours !== undefined && hours >= DEGREE_SIZED_TOTAL);
+}
+
+/**
+ * The degree's total, from the crawl's own reading or, failing that, from the
+ * total row of the degree's own table.
+ *
+ * programs.mjs looks for a sentence ("Total Hours of Curriculum to Graduate",
+ * "Minimum hours required for graduation: 126 hours", "Total hours for all
+ * requirements", "120 hours required for graduation"). The Community Health
+ * pages say it only in their table, as "Total Hours 128", so all three
+ * concentrations arrived with no total: the plan aimed at a guessed 120 and had
+ * nothing to measure a list of 76 correlate courses against. Six degrees read
+ * their total this way; the other three are the two Early Childhood tracks
+ * (120) and Ecosystem Stewardship (126).
+ */
+export function degreeTotalOf(program: { areas?: RawProgramArea[]; totalCredits?: number | null }): number | null {
+  if (program.totalCredits !== null && program.totalCredits !== undefined) return program.totalCredits;
+  for (const area of program.areas ?? []) {
+    for (const group of area.groups ?? []) {
+      if ((group.courses?.length ?? 0) > 0 || !TOTAL_ROW.test((group.label ?? '').trim())) continue;
+      if (group.hours !== null && group.hours !== undefined && group.hours >= DEGREE_SIZED_TOTAL) return group.hours;
+    }
+  }
+  return null;
+}
+
+/**
  * A rule that names a count and a level rather than courses.
  *
  * "Four additional full-semester, 3 hour 400 level-Finance courses except FIN
@@ -2940,6 +2991,28 @@ function soleCount(text: string): number | null {
   return chooseCount(text);
 }
 
+/**
+ * Credit hours a list's own heading asks for, when its table has no hours cell.
+ *
+ * "List A: Choose 3 credits from the list below:" is the only statement of
+ * size the Music Education concentrations print for their lists, and the
+ * crawler reads hours from the hours column or from a parenthesised digit, so
+ * the group arrived with no hours. Read as nothing, the Technology
+ * concentration's Lists A, B and C (35 courses, where the page asks for 8
+ * hours) were all required, and with its 28-course electives list read the
+ * same way the plan left 17 courses unplaced. Once the degree's room was
+ * measured, List C was a list the plan could only report as unsized. Only the
+ * heading is read, never the note, for the reason given at the note-count test
+ * in requirementRulesForArea.
+ */
+const HEADING_HOURS =
+  /\b(?:choose|select|complete|take)\s+(?:a\s+minimum\s+of\s+|at\s+least\s+)?(\d{1,2})\s*(?:credit\s*hours?|credits?|hours?)\b/i;
+
+function hoursInHeading(label: string): number | null {
+  const m = HEADING_HOURS.exec(label);
+  return m ? positive(Number(m[1])) : null;
+}
+
 /** The narrowest view of the catalog the rule builder needs. */
 export interface CatalogRowLookup {
   get(code: string): { title: string; credits: number; creditsMax?: number | null } | undefined;
@@ -3143,16 +3216,165 @@ export function requirementRulesForProgram(
 ): AreaRules[] {
   const areas = program.areas ?? [];
   const published = areas.map(publishedAreaHours);
-  const total = program.totalCredits ?? null;
+  const total = degreeTotalOf(program);
   const spent = published.reduce((sum, h) => sum + h, 0);
+  const lists = unstatedLists(areas, byCode, total);
 
   return areas.map((area, index) => {
     // Hours the rest of the degree has already claimed. Null when the page
     // publishes no total, or when its own subtotals already add to more than
     // it, which happens and must not turn into a negative budget.
     const headroom = total === null ? null : total - (spent - published[index]);
-    return requirementRulesForArea(area, byCode, headroom !== null && headroom > 0 ? headroom : null);
+    const rules = requirementRulesForArea(area, byCode, headroom !== null && headroom > 0 ? headroom : null, lists?.consumed.get(index));
+    if (lists && lists.host.area === index) {
+      rules.blocks.push(lists.block);
+      rules.blocks.sort((a, b) => a.groupIndex - b.groupIndex);
+      rules.pools += 1;
+    }
+    return rules;
   });
+}
+
+/** The pool unstatedLists builds, and the groups it took from their own areas. */
+interface UnstatedLists {
+  /** Where the pool is reported: the row that points at the lists, or else the first list. */
+  host: { area: number; group: number };
+  /** The groups the pool took over, by area index. */
+  consumed: Map<number, Set<number>>;
+  block: AreaRuleBlock;
+}
+
+/** "(see Correlates List Tab)", "see the list below": a row whose courses are printed somewhere else. */
+const POINTS_AT_LIST = /\bsee\b[^.;]{0,60}?\b(?:lists?|tab)\b/i;
+
+/** "Concentration Requirements" and "Concentration Requirements:" are one heading. */
+const headingKey = (text: string | null | undefined): string =>
+  (text ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/**
+ * Tables the page prints without saying what to take from them, merged into
+ * the one requirement that points at them.
+ *
+ * The Community Health pages print their summary table ("Correlate Areas (see
+ * Correlates List Tab) 18", "Electives 9", "Concentration Requirements 18",
+ * "Total Hours 128") and then the Correlates List tab: seven more tables, 152
+ * courses in 41 subjects from ACCY 200 to UP 260, each with no label, no hours,
+ * no count and no note. Nothing on the page says to take them all, but a table
+ * that says nothing is read as "take every row", and a Rehabilitation Studies
+ * student's plan asked for 467 hours of correlates, ran 17 and 18 credits a
+ * term to 142 and still left 124 of them unplaced.
+ *
+ * The test is a measurement, not a reading of the headings: tables that state
+ * nothing and together carry more hours than the whole degree cannot all be
+ * required. Kinesiology's unlabelled "Major Requirements" table (29 hours) and
+ * the Studio Art capstone pair (7) are the same kind of table and fit, so they
+ * stay required. A table under a heading the degree names as a requirement of
+ * its own is that requirement's courses and stays required too: Health
+ * Education's "Concentration Requirements" table holds FSHN 120 under the
+ * summary's 18-hour "Concentration Requirements" row, and is not a correlate.
+ * Of the 308 crawled pages only the three Community Health concentrations meet
+ * the test today.
+ *
+ * The lists become one pool, sized by the row that points at them ("see
+ * Correlates List Tab", 18 hours), and that row's block id is the one the pool
+ * takes, so a plan saved against "Correlate Areas" still finds it. With no such
+ * row the pool has no size, and it is reported that way rather than guessed.
+ */
+function unstatedLists(
+  areas: RawProgramArea[],
+  byCode: CatalogRowLookup,
+  total: number | null,
+): UnstatedLists | null {
+  if (total === null) return null;
+
+  // Every heading the degree prints as a row of its own, with no courses.
+  const statedHeadings = new Set<string>();
+  for (const area of areas) {
+    for (const group of area.groups ?? []) {
+      if ((group.courses?.length ?? 0) === 0 && headingKey(group.label)) statedHeadings.add(headingKey(group.label));
+    }
+  }
+
+  const silent: Array<{ area: number; group: number; rows: RawProgramCourse[]; credits: number; heading: string }> = [];
+  const pointers: Array<{ area: number; group: number; hours: number; label: string; note: string }> = [];
+  let lastSilentArea = -2;
+  let heading = '';
+  areas.forEach((area, ai) => {
+    const areaLabel = (area.label ?? '').trim();
+    // An unlabelled table right after a list carries on under that list's
+    // heading: "Other College of AHS Courses:" heads the RST table and the SHS
+    // table printed straight after it.
+    heading = areaLabel || (lastSilentArea === ai - 1 ? heading : '');
+    const areaStates =
+      publishedAreaHours(area) > 0 || (area.chooseCourses ?? null) !== null || statedHeadings.has(headingKey(areaLabel));
+    for (const [gi, group] of (area.groups ?? []).entries()) {
+      const label = (group.label ?? '').trim();
+      const note = (group.note ?? '').trim();
+      const { rows } = normaliseProgramRows(group);
+      if (rows.length === 0) {
+        const hours = group.hours ?? null;
+        if (hours !== null && !TOTAL_ROW.test(label) && POINTS_AT_LIST.test(`${label} ${note}`)) {
+          pointers.push({ area: ai, group: gi, hours, label, note });
+        }
+        continue;
+      }
+      if (areaStates || label || note || group.hours != null || group.choose != null) continue;
+      silent.push({ area: ai, group: gi, rows, credits: Math.max(group.summedCredits ?? 0, sumRowCredits(rows, byCode)), heading });
+      lastSilentArea = ai;
+    }
+  });
+
+  const credits = silent.reduce((sum, t) => sum + t.credits, 0);
+  if (silent.length === 0 || credits <= total) return null;
+
+  const pointer = pointers.length === 1 ? pointers[0] : null;
+  const host = pointer ? { area: pointer.area, group: pointer.group } : { area: silent[0].area, group: silent[0].group };
+  const consumed = new Map<number, Set<number>>();
+  for (const t of [...silent, host]) {
+    const set = consumed.get(t.area) ?? new Set<number>();
+    set.add(t.group);
+    consumed.set(t.area, set);
+  }
+
+  // One slot per course, as in mergeAreaPool: ACE 255 is printed in two of
+  // the Community Health tables and is still one course.
+  const seen = new Set<string>();
+  const rows: RawProgramCourse[] = [];
+  for (const t of silent) {
+    for (const row of t.rows) {
+      const key = normCode(row.code);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(row);
+    }
+  }
+  const label = pointer?.label || silent[0].heading;
+  const lists: PoolList[] = silent.map((t) => ({
+    label: t.heading || label,
+    codes: t.rows.flatMap((row) => [row.code, ...(row.or ?? [])].map(normCode)),
+  }));
+
+  return {
+    host,
+    consumed,
+    block: {
+      groupIndex: host.group,
+      label,
+      hours: pointer?.hours ?? null,
+      note: pointer?.note ?? '',
+      rows: rows.length,
+      rule: {
+        kind: 'pool',
+        hours: pointer?.hours ?? null,
+        n: null,
+        choices: choicesFrom(rows, byCode),
+        lists,
+        constraints: [],
+        from: 'area',
+        label,
+      },
+    },
+  };
 }
 
 /**
@@ -3160,13 +3382,15 @@ export function requirementRulesForProgram(
  *
  * A "Total Hours of Curriculum to Graduate" row is the whole degree, not this
  * area, and counting it here would leave every other area with no room at all.
+ * So is a plain "Total Hours 126" row, which is how 114 pages print the same
+ * thing.
  */
 function publishedAreaHours(area: RawProgramArea): number {
   if (area.hours !== null && area.hours !== undefined) return area.hours;
   for (const group of area.groups ?? []) {
     const label = (group.label ?? '').trim();
     if ((group.courses?.length ?? 0) > 0) continue;
-    if (!TOTAL_ROW.test(label) || DEGREE_TOTAL_ROW.test(label)) continue;
+    if (!TOTAL_ROW.test(label) || isDegreeTotalRow(label, group.hours)) continue;
     if (group.hours !== null && group.hours !== undefined) return group.hours;
   }
   return 0;
@@ -3201,6 +3425,12 @@ export function requirementRulesForArea(
   byCode: CatalogRowLookup,
   /** Credit hours the rest of the degree leaves for this area, when known. */
   headroom: number | null = null,
+  /**
+   * Groups a requirement read at the degree level has already taken, so they
+   * are not read a second time here: the Community Health correlate tables,
+   * which belong to the "Correlate Areas" row of another area's table.
+   */
+  taken: ReadonlySet<number> = new Set(),
 ): AreaRules {
   const groups = area.groups ?? [];
   let droppedRows = 0;
@@ -3228,9 +3458,13 @@ export function requirementRulesForArea(
       label,
       rows,
       isTotal: total,
-      isDegreeTotal: total && DEGREE_TOTAL_ROW.test(label),
+      isDegreeTotal: total && isDegreeTotalRow(label, group.hours),
       ownChoose: positive(soleCount(label) ?? group.choose ?? null),
-      ownHours: group.hours ?? null,
+      // Only for a group with rows: a courseless "Select 18 credit hours from
+      // List 1 and List 2" is the area's own sentence, which mergeAreaPool
+      // already reads, and sizing it here would move the Chemical Engineering
+      // pool to another block id and orphan every plan saved against it.
+      ownHours: group.hours ?? (rows.length > 0 ? hoursInHeading(label) : null),
       // The degree page leaves most of its credit cells empty, so the catalog
       // is asked as well and the larger of the two answers is used. Reading a
       // 71-course list as zero credits would make it look like it fits
@@ -3238,7 +3472,7 @@ export function requirementRulesForArea(
       credits: Math.max(group.summedCredits ?? 0, sumRowCredits(rows, byCode)),
       isList: false,
     };
-  });
+  }).filter((r) => !taken.has(r.index));
 
   // The area's own budget: its published total, or the subtotal row it prints
   // at the bottom of its own table.
@@ -3913,7 +4147,7 @@ export function adaptIllinoisPrograms(
       });
     });
 
-    let totalCredits = raw.totalCredits;
+    let totalCredits = degreeTotalOf(raw);
     if (totalCredits !== null && totalCredits < MIN_PLAUSIBLE_DEGREE_CREDITS) {
       implausibleTotals += 1;
       totalCredits = null;
