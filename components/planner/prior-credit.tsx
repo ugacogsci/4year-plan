@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState, useEffect } from 'react';
-import { examCreditUrl, useExamCredit } from './exam-credit';
+import { examCreditUrl, matchDocumentExams, useExamCredit } from './exam-credit';
 import { TranscriptUpload } from './transcript-upload';
 import type { TranscriptRecord } from '@/lib/planner/transcript';
 import {
@@ -32,6 +32,7 @@ export function PriorCredit({
   onChange,
   transcript,
   onTranscriptChange,
+  grainger = false,
 }: {
   school: School | undefined;
   exams: PriorExam[];
@@ -43,6 +44,8 @@ export function PriorCredit({
   /** The uploaded transcript, kept apart from the typed answers so neither overwrites the other. */
   transcript?: TranscriptRecord | null;
   onTranscriptChange?: (next: TranscriptRecord | null) => void;
+  /** Whether the student is heading for Grainger, which has its own calculus table. */
+  grainger?: boolean;
 }) {
   const loaded = useExamCredit(school);
   const table = loaded.entries;
@@ -189,7 +192,18 @@ export function PriorCredit({
           <span className="onb-q-hint">
             Upload it and every course on it is read for you. You check the list before anything counts.
           </span>
-          <TranscriptUpload school={school} record={transcript ?? null} onChange={onTranscriptChange} />
+          <TranscriptUpload
+            school={school}
+            record={transcript ?? null}
+            onChange={onTranscriptChange}
+            onExams={(found) => {
+              const priced = matchDocumentExams(found, table, grainger).filter(
+                (e) => !exams.some((have) => have.kind === e.kind && have.exam === e.exam),
+              );
+              if (priced.length > 0) onChange({ exams: [...exams, ...priced], transferText, languageYears, language });
+              return priced.length;
+            }}
+          />
         </div>
       )}
 

@@ -477,14 +477,31 @@ function exclusionsFrom(full: IllinoisData): Map<string, string[]> {
 // Where the plan starts and ends
 // ---------------------------------------------------------------------------
 
-const SEASON_WORD = /\b(fall|spring|summer)\s*(20\d\d)\b/gi;
+/**
+ * A term in a student's own words: "fall 2027", "Spring '28", "May 2028"
+ * (a May or December graduation is the spring or fall term), "Dec 2027".
+ */
+const SEASON_WORD = /\b(fall|spring|summer|may|december|dec|august|aug)\s*(?:of\s*)?('\d{2}|20\d\d)\b/gi;
+const MONTH_SEASON: Record<string, SemesterSeason> = { fall: 'Fall', spring: 'Spring', summer: 'Summer', may: 'Spring', december: 'Fall', dec: 'Fall', august: 'Summer', aug: 'Summer' };
 
 /** Words that mark a date as the END of the plan. */
-const GRAD_CUE = /\b(graduat\w*|finish\w*|done|complete\w*|walk|out by|degree by|by the end of|aiming for|target\w*)\b/i;
-/** Words that mark a date as the BEGINNING of it. */
-const START_CUE = /\b(start\w*|begin\w*|began|entering|enter|arriv\w*|incoming|first (semester|term|year)|freshman|transferr?\w* in|since)\b/i;
+const GRAD_CUE = /\b(graduat\w*|finish\w*|done|complete\w*|walk|out by|degree by|by the end of|aiming for|target\w*|class of)\b/gi;
+/**
+ * Words that mark a date as the BEGINNING of it. A transfer student names
+ * their entry term far more often than their graduation ("transferring to
+ * Illinois in Fall 2027"), and a start read as an end gave them a one-year
+ * plan, so every way of saying they arrive is a start.
+ */
+const START_CUE = /\b(start\w*|begin\w*|began|entering|enter|arriv\w*|incoming|first (semester|term|year)|freshman|transferr?\w*|admitted|admission|coming (in|to)|join\w*|moving (to|in)|since)\b/gi;
 
 const WORD_YEARS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+
+/** The last match of a cue in a clause, as its end position, or -1. */
+function lastCueAt(re: RegExp, clause: string): number {
+  let at = -1;
+  for (const m of clause.matchAll(re)) at = (m.index ?? 0) + m[0].length;
+  return at;
+}
 
 /**
  * The student's own timeline where they gave one, the crawled term otherwise.
@@ -497,9 +514,13 @@ const WORD_YEARS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
  * horizon of Fall 2026 to Fall 2026 and a ONE SEMESTER plan presented as a
  * finished four-year plan.
  *
- * So every date in the sentence is classified by the words in front of it, and
- * a relative span ("in four years") is honoured when no end date is named.
- * Nothing is inferred from silence.
+ * So every date is classified by the words of its own clause, and when a
+ * clause has both kinds of word ("I start in Fall 2027 and want to graduate in
+ * Spring 2029" is two clauses; "transferring in to graduate by Fall 2027" is
+ * one) the cue nearest the date wins. A relative span ("in four years") is
+ * honoured when no end date is named, and a start in the past ("I transferred
+ * in fall 2025") is where the student began, not where the plan does: the plan
+ * never starts before the current term. Nothing is inferred from silence.
  */
 export function readHorizon(
   timeline: string,
@@ -507,25 +528,59 @@ export function readHorizon(
 ): { startSeason: SemesterSeason; startYear: number; gradSeason: SemesterSeason; gradYear: number; stated: boolean } {
   const found: Array<{ season: SemesterSeason; year: number; cue: 'grad' | 'start' | null }> = [];
   for (const m of timeline.matchAll(SEASON_WORD)) {
-    // The clause in front of the date is what says which end it is. 40
-    // characters covers "I want to graduate by" without reaching the previous
-    // sentence's cue word.
-    const before = timeline.slice(Math.max(0, m.index - 40), m.index);
+    const at = m.index ?? 0;
+    // The clause in front of the date: back to the last sentence break or
+    // "and"/"but", at most 70 characters.
+    const window = timeline.slice(Math.max(0, at - 70), at);
+    const cut = Math.max(window.search(/[.;!?][^.;!?]*$/), ...[...window.matchAll(/\b(and|but)\b/gi)].map((b) => b.index ?? -1));
+    const clause = cut >= 0 ? window.slice(cut) : window;
+    const grad = lastCueAt(GRAD_CUE, clause);
+    const begin = lastCueAt(START_CUE, clause);
+    const yearRaw = m[2].startsWith("'") ? 2000 + Number(m[2].slice(1)) : Number(m[2]);
     found.push({
-      season: (m[1][0].toUpperCase() + m[1].slice(1).toLowerCase()) as SemesterSeason,
-      year: Number(m[2]),
-      cue: GRAD_CUE.test(before) ? 'grad' : START_CUE.test(before) ? 'start' : null,
+      season: MONTH_SEASON[m[1].toLowerCase()] ?? 'Fall',
+      year: yearRaw,
+      cue: grad < 0 && begin < 0 ? null : grad > begin ? 'grad' : 'start',
     });
   }
 
-  const named = found.find((f) => f.cue === 'start');
-  const startSeason = named?.season ?? startTerm.season;
-  const startYear = named?.year ?? startTerm.year;
+  // "next fall", "this spring": the first such term after the current one
+  // (this fall, in a fall, is the current term).
+  for (const m of timeline.matchAll(/\b(this|next|coming)\s+(fall|spring|summer)\b/gi)) {
+    const season = MONTH_SEASON[m[2].toLowerCase()];
+    const order = { Spring: 0, Summer: 1, Fall: 2 } as const;
+    let year = startTerm.year;
+    const same = order[season] === order[startTerm.season];
+    if (order[season] < order[startTerm.season] || (same && m[1].toLowerCase() !== 'this')) year += 1;
+    const at = m.index ?? 0;
+    const clause = timeline.slice(Math.max(0, at - 70), at);
+    const grad = lastCueAt(GRAD_CUE, clause);
+    const begin = lastCueAt(START_CUE, `${clause} ${m[0]}`);
+    found.push({ season, year, cue: grad < 0 && begin < 0 ? 'start' : grad > begin ? 'grad' : 'start' });
+  }
 
-  // "finish in four years" is a real constraint even with no end date in it.
-  const spanM = timeline.match(/\bin\s+(\d|one|two|three|four|five|six)\s*(?:more\s*)?years?\b/i);
-  const span = spanM
-    ? (WORD_YEARS[spanM[1].toLowerCase() as keyof typeof WORD_YEARS] ?? Number(spanM[1]))
+  // A bare year after a graduation word ("class of 2029", "graduating 2028")
+  // is that spring, the term Illinois holds its main commencement.
+  for (const m of timeline.matchAll(/\b(class of|graduat\w*|finish\w*|done)\b[^.;!?\d]{0,20}(20\d\d)\b/gi)) {
+    const year = Number(m[2]);
+    const before = timeline.slice(Math.max(0, (m.index ?? 0) + m[0].length - 14), (m.index ?? 0) + m[0].length);
+    if (/\b(fall|spring|summer|may|december|dec|august|aug)\b/i.test(before)) continue;
+    found.push({ season: 'Spring', year, cue: 'grad' });
+  }
+
+  const ordOf = (season: SemesterSeason, year: number) => year * 3 + (season === 'Spring' ? 0 : season === 'Summer' ? 1 : 2);
+  const named = found.find((f) => f.cue === 'start');
+  // A start in the past is where the student began; the plan starts now.
+  const future = named && ordOf(named.season, named.year) > ordOf(startTerm.season, startTerm.year) ? named : null;
+  const startSeason = future ? (future.season === 'Summer' ? 'Fall' : future.season) : startTerm.season;
+  const startYear = future?.year ?? startTerm.year;
+
+  // "finish in four years" and "two more years" are real constraints even
+  // with no end date in them.
+  const spanM = timeline.match(/\bin\s+(\d|one|two|three|four|five|six)\s*(?:more\s*)?years?\b|\b(\d|one|two|three|four|five|six)\s+more\s+years?\b/i);
+  const spanWord = spanM ? (spanM[1] ?? spanM[2]) : null;
+  const span = spanWord
+    ? (WORD_YEARS[spanWord.toLowerCase() as keyof typeof WORD_YEARS] ?? Number(spanWord))
     : null;
 
   // An unlabelled date is a graduation date only when it is the only one, since
@@ -542,9 +597,7 @@ export function readHorizon(
 
   // A graduation on or before the first term is a misread, not a plan, and
   // shipping it produced a one-semester degree. Fall back rather than show it.
-  const ord = (season: SemesterSeason, year: number) =>
-    year * 3 + (season === 'Spring' ? 0 : season === 'Summer' ? 1 : 2);
-  if (ord(gradSeason, gradYear) <= ord(startSeason, startYear) || gradYear > startYear + 8) {
+  if (ordOf(gradSeason, gradYear) <= ordOf(startSeason, startYear) || gradYear > startYear + 8) {
     gradSeason = 'Spring';
     gradYear = startYear + 4;
     stated = false;

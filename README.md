@@ -99,6 +99,22 @@ reported when short. ALMA reads the same record (`prior_credit`), proposes
 equivalents (`find_equivalent`), and records or drops credit
 (`record_prior_credit`, `drop_prior_credit`), which rebuilds the board.
 
+Counting follows what Illinois records show. Each line keeps the school that
+taught it, so a record merged from an Illinois history and another college's
+transcript still counts only Illinois lines toward residency. A transferred
+course earns its own hours: Parkland's 5-hour calculus is MATH 221 plus an
+elective hour, and a 3-hour course matched to a 4-hour one earns 3. Quarter
+hours are converted at two-thirds. A held cross-listed class counts once, and
+of two held courses the catalog says do not both earn credit, the smaller
+counts. AP credit the student picks and their record also lists is counted
+once. An AP or IB score report adds its exams to the exam list, priced by the
+registrar's table (Grainger's calculus table for Grainger students). A plan
+never starts in a term the record shows in progress. The student's words set
+the start and end terms clause by clause ("transferring to Illinois in Fall
+2027" is a start, "class of 2029" an end, "next fall" is relative), and hours
+they say they have with nothing recorded raise a review row.
+`lib/planner/__transcript.check.mjs` checks the arithmetic.
+
 ### Which terms a course actually runs in
 
 Illinois publishes no "offered in" line, so the planner used to assume every

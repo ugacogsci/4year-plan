@@ -113,7 +113,17 @@ export function examCourses(exams: PriorExam[], table: ExamCreditEntry[]): strin
  * elective grant is priced by its courses and adds nothing here, which can
  * understate and never overstate.
  */
-export function examElectiveHours(exams: PriorExam[], table: ExamCreditEntry[]): number {
+export function examElectiveHours(
+  exams: PriorExam[],
+  table: ExamCreditEntry[],
+  /**
+   * Subject-hours codes the student's record already counts ("ECON 1--" as a
+   * test-credit line on their Illinois academic history). An exam that grants
+   * one of those is the same credit named twice, once by the student in the
+   * picker and once by the registrar on the record, and is not added again.
+   */
+  alreadyCounted: Set<string> = new Set(),
+): number {
   if (exams.length === 0 || table.length === 0) return 0;
   let hours = 0;
   for (const taken of exams) {
@@ -126,7 +136,72 @@ export function examElectiveHours(exams: PriorExam[], table: ExamCreditEntry[]):
     );
     if (!row || row.noCredit || row.credits <= 0) continue;
     if (row.courses.some((code) => COURSE_CODE.test(code))) continue;
+    if (row.courses.some((code) => alreadyCounted.has(code.toUpperCase().replace(/\s+/g, ' ').trim()))) continue;
     hours += row.credits;
   }
   return hours;
+}
+
+/**
+ * The exams a document names (an AP score report, the test-credit block of a
+ * record), matched to rows of the registrar's table so they can be priced.
+ *
+ * The reader writes "AP Calculus AB" and the table writes "CALCULUS AB -
+ * Entering Grainger"; the words are compared without the kind and without
+ * punctuation. Calculus has two tables, one for students entering Grainger
+ * and one for everyone else, and the caller says which applies. Only an exam
+ * with a score the table lists is returned, because a score the table does
+ * not list earns nothing and naming it would suggest otherwise.
+ */
+export function matchDocumentExams(
+  found: Array<{ kind: string; exam: string; score: string | null }>,
+  table: ExamCreditEntry[],
+  grainger: boolean,
+): PriorExam[] {
+  /** The words of an exam name, spelled one way: "Macroeconomics" and "ECON MACRO" agree. */
+  const words = (s: string): string[] =>
+    s
+      .toUpperCase()
+      .replace(/\b(AP|IB|ADVANCED PLACEMENT|INTERNATIONAL BACCALAUREATE|EXAM|TEST)\b/g, ' ')
+      .replace(/\bMACRO-?ECONOMICS\b/g, 'ECON MACRO')
+      .replace(/\bMICRO-?ECONOMICS\b/g, 'ECON MICRO')
+      .replace(/\bECONOMICS\b/g, 'ECON')
+      .replace(/\bU\.?\s?S\.?(?=\s|$|,)|\bUNITED STATES\b/g, 'US')
+      .replace(/\bGOV'?T\b|\bGOVERNMENT\b/g, 'GOVT')
+      .replace(/\bLANG(UAGE)?\b/g, 'LANGUAGE')
+      .replace(/\bLIT(ERATURE)?\b/g, 'LITERATURE')
+      .replace(/\bCOMP(OSITION)?\b/g, 'COMP')
+      .replace(/\bAND\b/g, '&')
+      .replace(/\b(HIGHER|STANDARD) LEVEL\b/g, (m) => (m.startsWith('H') ? 'HL' : 'SL'))
+      .replace(/[^A-Z0-9& ]+/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((w) => b.includes(w));
+  const names = [...new Map(table.map((e) => [`${e.kind}|${e.exam}|${e.level ?? ''}`, e])).values()];
+  const out: PriorExam[] = [];
+  for (const f of found) {
+    const kind = /\bIB\b|baccalaureate/i.test(`${f.kind} ${f.exam}`) ? 'IB' : 'AP';
+    const all = words(f.exam);
+    // IB exams carry their level in the name ("Biology HL"); the table keeps it apart.
+    const level = all.find((w) => w === 'HL' || w === 'SL') ?? null;
+    const want = all.filter((w) => w !== 'HL' && w !== 'SL');
+    if (want.length === 0) continue;
+    const candidates = names.filter((e) => {
+      if (e.kind !== kind) return false;
+      if (kind === 'IB' && level && e.level && !e.level.startsWith(level)) return false;
+      const base = e.exam.split(/\s+-\s+Entering\b/i)[0];
+      return same(want, words(base));
+    });
+    if (candidates.length === 0) continue;
+    // Calculus has a table for students entering Grainger and one for everyone else.
+    const pick =
+      candidates.find((e) => (grainger ? /Entering Grainger/i.test(e.exam) : /other than Grainger/i.test(e.exam))) ??
+      candidates.find((e) => !/Entering/i.test(e.exam)) ??
+      candidates[0];
+    const score = String(f.score ?? '').trim();
+    const row = table.find((e) => e.kind === pick.kind && e.exam === pick.exam && (e.level ?? null) === (pick.level ?? null) && String(e.score) === score);
+    if (!row) continue;
+    out.push({ kind: row.kind, exam: row.exam, level: row.level ?? null, score: row.score });
+  }
+  return out;
 }

@@ -44,11 +44,18 @@ export function TranscriptUpload({
   school,
   record,
   onChange,
+  onExams,
   compact = false,
 }: {
   school: School | undefined;
   record: TranscriptRecord | null;
   onChange: (next: TranscriptRecord | null) => void;
+  /**
+   * Exams a document names with no course lines (an AP or IB score report).
+   * The caller prices them against the registrar's table and adds them to the
+   * student's exams; the return value is how many it added.
+   */
+  onExams?: (found: TranscriptReading['exams']) => number;
   /** The rail's version: the same control, the list folded shut. */
   compact?: boolean;
 }) {
@@ -56,6 +63,7 @@ export function TranscriptUpload({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<CatalogLite[] | null>(null);
   const [query, setQuery] = useState('');
 
@@ -71,6 +79,7 @@ export function TranscriptUpload({
 
   async function readFiles(picked: File[], addTo: TranscriptRecord | null) {
     setError(null);
+    setNotice(null);
     if (picked.length > TRANSCRIPT_MAX_FILES) {
       setError(`Up to ${TRANSCRIPT_MAX_FILES} files at a time.`);
       return;
@@ -107,6 +116,19 @@ export function TranscriptUpload({
       }
       const lite = await catalogLite();
       const names = files.map((f) => f.fileName);
+      // A score report: exams and no course lines. The exams go to the exam
+      // list, priced by the registrar's table like the ones picked by hand,
+      // and the course record is left as it was.
+      if (json.reading.courses.length === 0) {
+        const added = onExams ? onExams(json.reading.exams) : 0;
+        const named = json.reading.exams.map((e) => `${e.kind} ${e.exam}${e.score ? ` (${e.score})` : ''}`).join(', ');
+        setNotice(
+          added > 0
+            ? `Found ${json.reading.exams.length} ${json.reading.exams.length === 1 ? 'exam' : 'exams'} (${named}); added ${added} to your AP and IB list with the credit Illinois grants.`
+            : `Found ${named || 'no exams'}, but none matched a score Illinois grants credit for, so nothing was added. Check them in the AP and IB list.`,
+        );
+        return;
+      }
       if (addTo) {
         // More pages of the same record: the lines already settled keep the
         // student's choices, and only the new lines are matched.
@@ -148,6 +170,7 @@ export function TranscriptUpload({
       matchedBy: 'student',
       use: true,
       counts: 'course',
+      illinoisCredits: course.credits,
     };
     const base: TranscriptRecord = record ?? {
       fileName: 'Added by you',
@@ -199,9 +222,9 @@ export function TranscriptUpload({
       </label>
       {!compact && (
         <span className="transcript-hint">
-          Your transcript, your Illinois academic history, a Transfer Evaluation Report, a degree audit, or a
-          screenshot of a course list from {school?.portal ?? 'your student portal'} or Canvas. Several files at
-          once is fine. It is read once to list your courses and is not kept.
+          Your transcript, your Illinois academic history, a Transfer Evaluation Report, a degree audit, an AP
+          or IB score report, or a screenshot of a course list from {school?.portal ?? 'your student portal'} or
+          Canvas. Several files at once is fine. It is read once to list your courses and is not kept.
         </span>
       )}
       {busy && <output className="transcript-busy">{busy}. This takes about half a minute.</output>}
@@ -210,6 +233,7 @@ export function TranscriptUpload({
           {error}
         </p>
       )}
+      {notice && <p className="transcript-summary">{notice}</p>}
 
       {record && record.courses.length > 0 && (
         <>
@@ -249,9 +273,10 @@ export function TranscriptUpload({
                         value={value}
                         onChange={(e) => {
                           const v = e.target.value;
-                          if (v === 'hours') onChange(setLineCounts(record, i, { counts: 'hours' }));
-                          else if (v === 'none') onChange(setLineCounts(record, i, { counts: 'none' }));
-                          else onChange(setLineCounts(record, i, { counts: 'course', code: v.slice('course:'.length) }));
+                          const creditsOf = (code: string) => known.get(code)?.credits ?? null;
+                          if (v === 'hours') onChange(setLineCounts(record, i, { counts: 'hours' }, creditsOf));
+                          else if (v === 'none') onChange(setLineCounts(record, i, { counts: 'none' }, creditsOf));
+                          else onChange(setLineCounts(record, i, { counts: 'course', code: v.slice('course:'.length) }, creditsOf));
                         }}
                       >
                         {options.map((o) => (

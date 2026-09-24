@@ -181,6 +181,7 @@ export function Onboarding({
               onChange={(next) => setAnswers((a) => ({ ...a, ...next }))}
               transcript={answers.transcript ?? null}
               onTranscriptChange={(transcript) => setAnswers((a) => ({ ...a, transcript }))}
+              grainger={/\b(grainger|engineer\w*|computer science|cs)\b/i.test(answers.studying)}
             />
             <div className="onb-actions">
               <button className="onb-back" onClick={() => setStep(1)}>Back</button>

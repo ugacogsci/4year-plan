@@ -2920,9 +2920,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the headline total at the end. They were two separate sums before and the
    * standing check would have missed a transfer student's 18 hours entirely.
    */
-  let priorCreditTotal =
-    [...earned].reduce((sum, code) => sum + (byCode.get(code)?.credits ?? 0), 0) +
-    input.prior.unmatchedCredits;
+  const heldOnce = distinctHeld(input.prior.courseCodes, ctx);
+  const heldCredit = new Map(heldOnce.codes.map((code) => [code, byCode.get(code)?.credits ?? 0]));
+  let priorCreditTotal = [...heldCredit.values()].reduce((sum, n) => sum + n, 0) + input.prior.unmatchedCredits;
+  for (const d of heldOnce.dropped) {
+    notes.push(`The catalog says credit is not given for both ${d.kept} and ${d.dropped}, and you hold both. Only ${d.kept} is counted toward the total; your Transfer Evaluation Report or advisor says which one Illinois keeps.`);
+  }
 
   /**
    * Held credit that stands in for a required course, or gives way to it.
@@ -3565,7 +3568,13 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   for (const f of forfeits) {
     if (forfeited.has(f.held)) continue;
     forfeited.add(f.held);
-    priorCreditTotal -= byCode.get(f.held)?.credits ?? 0;
+    // Only what was counted comes out: the held code itself, or the name the
+    // student holds it under when the forfeited code is its cross-listing.
+    const counted = [f.held, ...(equivalents.get(f.held) ?? []).map(normaliseCode)].find((code) => heldCredit.has(code));
+    if (counted) {
+      priorCreditTotal -= heldCredit.get(counted) ?? 0;
+      heldCredit.delete(counted);
+    }
     notes.push(
       `${f.for} is required here, and the catalog says credit is not given for both ${f.for} and ${f.held}. Your ${f.held} will not count toward this degree once ${f.for} is taken, so it is left out of the total.`,
     );
@@ -5422,4 +5431,46 @@ function fitHorizonToCredit(raw: AutoplanInput, prior: PriorCredit, extraTerms =
 /** Whether a plan left a requirement or course out because the terms ran out, not because of data. */
 function leftForWantOfATerm(plan: GeneratedPlan): boolean {
   return plan.unsatisfied.some((u) => u.reason === 'did-not-fit') || plan.notPlaced.some((n) => n.reason === 'no-room' || n.reason === 'chain-too-long');
+}
+
+
+/**
+ * The courses a student holds, one per class.
+ *
+ * A cross-listed class has several codes (CS 107, IS 107, STAT 107 are one
+ * class), and the held set is widened to all of them so a prerequisite
+ * written under any name is met. Summing hours over the widened set counted
+ * that class three times: a student holding CS 107 was credited twelve hours
+ * for four. And two courses the catalog says do not both earn credit are one
+ * course's credit, the smaller, since the planner cannot know which one the
+ * registrar keeps and must not overstate progress.
+ */
+export function distinctHeld(
+  codes: string[],
+  ctx: Pick<PlanningContext, 'courses' | 'equivalents' | 'exclusions'>,
+): { codes: string[]; dropped: Array<{ kept: string; dropped: string }> } {
+  const credits = new Map(ctx.courses.map((c) => [normaliseCode(c.code), c.credits]));
+  const kept: string[] = [];
+  const seen = new Set<string>();
+  const dropped: Array<{ kept: string; dropped: string }> = [];
+  for (const raw of codes) {
+    const code = normaliseCode(raw);
+    if (seen.has(code)) continue;
+    const twins = [code, ...(ctx.equivalents?.get(code) ?? []).map(normaliseCode)];
+    for (const twin of twins) seen.add(twin);
+    const excluded = (ctx.exclusions?.get(code) ?? []).map(normaliseCode).filter((other) => !twins.includes(other));
+    const clash = kept.find((other) => excluded.includes(other));
+    if (clash) {
+      const keepNew = (credits.get(code) ?? 0) < (credits.get(clash) ?? 0);
+      if (keepNew) {
+        kept[kept.indexOf(clash)] = code;
+        dropped.push({ kept: code, dropped: clash });
+      } else {
+        dropped.push({ kept: clash, dropped: code });
+      }
+      continue;
+    }
+    kept.push(code);
+  }
+  return { codes: kept, dropped };
 }

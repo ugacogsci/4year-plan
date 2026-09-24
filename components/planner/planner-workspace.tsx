@@ -89,7 +89,7 @@ import {
 } from '@/lib/planner/priorities';
 import type { Alternative } from './course-card';
 import { plural } from './words';
-import { examCourses, examElectiveHours, useExamCredit } from './exam-credit';
+import { examCourses, examElectiveHours, matchDocumentExams, useExamCredit } from './exam-credit';
 import { areaProgress } from '@/lib/planner/scheduler';
 import { routeQuestion, sectionRowsFrom, type AskContext, type PlannedCourse } from '@/lib/planner/ask-router';
 import { createSamplePlan, sampleCourses, samplePrograms } from '@/lib/planner/sample-data';
@@ -101,19 +101,22 @@ import {
   indexCourses,
   isPlanState,
 } from '@/lib/planner/rules';
-import type { Course, PlanIssue, PlanState, PlanTerm } from '@/lib/planner/types';
-import { clearAnswers, schoolById, summarize, type OnboardingAnswers } from '@/lib/planner/onboarding';
+import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from '@/lib/planner/types';
+import { clearAnswers, schoolById, summarize, type ExamCreditEntry, type OnboardingAnswers } from '@/lib/planner/onboarding';
 import {
   normalizeCourseCode,
+  normalizeTerm,
   transcriptCodes,
+  transcriptCreditAdjustment,
   transcriptHours,
+  transcriptIndirectCodes,
   transcriptOpenLines,
   transcriptResidentHours,
   type TranscriptCourseRecord,
   type TranscriptRecord,
 } from '@/lib/planner/transcript';
 import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
-import type { PriorCredit } from '@/lib/planner/autoplan';
+import { distinctHeld, type PriorCredit } from '@/lib/planner/autoplan';
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail } from '@/lib/planner/illinois-load';
@@ -513,15 +516,34 @@ export function PlannerWorkspace({
       // Hours with no course to hold them: AP credit granted as "ECON 1--",
       // and every transfer line the student is counting as hours toward the
       // total, which is what Illinois grants a transferable course at minimum.
-      examElectiveHours(answers?.exams ?? [], examCredit.entries) + transcriptHours(answers?.transcript),
+      priorHoursOf(answers, examCredit.entries),
       answers?.languageYears ?? null,
       answers?.language ?? null,
     );
     const term = core?.meta?.term;
-    const horizon = readHorizon(answers?.timeline ?? '', {
+    const read = readHorizon(answers?.timeline ?? '', {
       season: 'Fall',
       year: term?.year ?? new Date().getFullYear(),
     });
+    /**
+     * A record with courses in progress in the plan's first term means the
+     * student is taking that term now: those courses are counted as done, so
+     * planning another full load in the same term books the term twice. The
+     * plan starts the term after the last one in progress.
+     */
+    const busy = latestInProgressTerm(answers?.transcript);
+    const startOrd = termOrd(read.startSeason, read.startYear);
+    const horizon = { ...read };
+    if (busy && termOrd(busy.season, busy.year) >= startOrd) {
+      const next = busy.season === 'Fall' ? { season: 'Spring' as const, year: busy.year + 1 } : { season: 'Fall' as const, year: busy.year };
+      horizon.startSeason = next.season;
+      horizon.startYear = next.year;
+      if (termOrd(horizon.gradSeason, horizon.gradYear) <= termOrd(next.season, next.year)) {
+        horizon.gradSeason = 'Spring';
+        horizon.gradYear = next.year + 4;
+        horizon.stated = false;
+      }
+    }
 
     const generated = generatePlan({
       requirements: loaded.blocks,
@@ -595,7 +617,7 @@ export function PlannerWorkspace({
    */
   const creditKey = [
     ...transcriptCodes(answers?.transcript).sort(),
-    `h${transcriptHours(answers?.transcript)}`,
+    `h${transcriptHours(answers?.transcript)}|${transcriptCreditAdjustment(answers?.transcript)}`,
     ...(answers?.exams ?? []).map((e) => `${e.kind}|${e.exam}|${e.score}`),
     answers?.transferText ?? '',
     String(answers?.languageYears ?? ''),
@@ -719,6 +741,26 @@ export function PlannerWorkspace({
             },
           ]
         : []),
+      // Hours the student says they have that nothing recorded explains. A
+      // plan built as if they were starting from zero is wrong from the first
+      // term, and the fix is one upload away.
+      ...(() => {
+        const said = statedHours(answers?.timeline ?? '');
+        if (said === null) return [];
+        const recorded =
+          (context ? planCreditRange(distinctHeld([...completedCodes], context).codes, context).min : 0) +
+          priorHoursOf(answers, examCredit.entries);
+        if (recorded >= said - 6) return [];
+        return [
+          {
+            id: 'stated-hours',
+            severity: 'warning' as const,
+            title: `You said about ${said} credits; ${recorded > 0 ? `${recorded} are` : 'none are'} recorded`,
+            message: `The plan counts only credit it can see. Upload your transcript or academic history (a screenshot works), pick your AP or IB exams, or tell ${school?.bot ?? 'the assistant'} what you took, and the plan is rebuilt around it.`,
+            termId: firstTerm,
+          },
+        ];
+      })(),
       // The campus residency rule, when the plan falls short of it. A transfer
       // student with ninety hours reaches the degree total in three terms and
       // still owes Illinois forty-five of its own; that belongs where the
@@ -768,7 +810,7 @@ export function PlannerWorkspace({
         termId: firstTerm,
       })),
     ];
-  }, [report, pools]);
+  }, [report, pools, answers, examCredit, completedCodes, context, school]);
 
   const issues = useMemo(() => {
     if (!plan) return [];
@@ -833,10 +875,11 @@ export function PlannerWorkspace({
     // ("ECON 1--"), which is real credit with no card to sit on. Nothing is
     // assumed from a transfer line the catalog could not match.
     const forfeited = new Set((report?.forfeited ?? []).map((f) => normCode(f.held)));
-    const prior =
-      planCreditRange([...completedCodes].filter((code) => !forfeited.has(code)), context).min +
-      examElectiveHours(answers?.exams ?? [], examCredit.entries) +
-      transcriptHours(answers?.transcript);
+    // One class once: a held cross-listed course sits in completedCodes under
+    // every name it has, and two courses that do not both earn credit are one
+    // course's credit. The engine totals it the same way.
+    const once = distinctHeld([...completedCodes].filter((code) => !forfeited.has(code)), context).codes;
+    const prior = planCreditRange(once, context).min + priorHoursOf(answers, examCredit.entries);
     return {
       planned,
       prior,
@@ -891,7 +934,7 @@ export function PlannerWorkspace({
         languages: core?.languages ?? null,
         equivalents: core?.equivalents ?? undefined,
         degreeTotal: activeProgramTotal,
-        priorHours: examElectiveHours(answers?.exams ?? [], examCredit.entries) + transcriptHours(answers?.transcript),
+        priorHours: priorHoursOf(answers, examCredit.entries),
       });
     }
     const have = new Set<string>(completedCodes);
@@ -1101,7 +1144,7 @@ export function PlannerWorkspace({
         byCode,
         [...examCourses(answers?.exams ?? [], examCredit.entries), ...transcriptCodes(answers?.transcript)],
         Boolean(answers?.transcript),
-        examElectiveHours(answers?.exams ?? [], examCredit.entries) + transcriptHours(answers?.transcript),
+        priorHoursOf(answers, examCredit.entries),
         answers?.languageYears ?? null,
         answers?.language ?? null,
       ),
@@ -2264,7 +2307,7 @@ export function PlannerWorkspace({
           return { ok: true, changed: false, message: `${course.code} is already counted as taken.` };
         }
         const line: TranscriptCourseRecord = course
-          ? { code: course.code, title: title ?? course.title, credits: course.credits, grade: null, term: null, status: inProgress ? 'in_progress' : from && !/^(illinois|uiuc|urbana)/i.test(from) ? 'transfer' : 'completed', from, equivalent: null, matched: normCode(course.code), matchedBy: 'student', use: true, counts: 'course' }
+          ? { code: course.code, title: title ?? course.title, credits: course.credits, grade: null, term: null, status: inProgress ? 'in_progress' : from && !/^(illinois|uiuc|urbana)/i.test(from) ? 'transfer' : 'completed', from, equivalent: null, matched: normCode(course.code), matchedBy: 'student', use: true, counts: 'course', illinoisCredits: course.credits }
           : { code: title?.match(/^[A-Z]{2,5}\s?\d{3,4}[A-Z]?/i)?.[0].toUpperCase() ?? 'TRANSFER', title, credits: hours, grade: null, term: null, status: 'transfer', from, equivalent: null, matched: null, matchedBy: null, use: true, counts: 'hours' };
         const base: TranscriptRecord = record ?? { fileName: 'Told to ALMA', readAt: new Date().toISOString(), institution: null, kind: 'course_list', home: true, files: [], courses: [], exams: [], notes: [] };
         rebuildForCredit.current = true;
@@ -2588,7 +2631,7 @@ export function PlannerWorkspace({
         plannedCredits={totalCredits}
         creditNote={creditNote}
         degreeTotal={activeProgramTotal}
-        priorCount={plan?.completedCourseIds.length ?? 0}
+        priorCount={context ? distinctHeld([...completedCodes], context).codes.length : (plan?.completedCourseIds.length ?? 0)}
         transcript={
           <TranscriptUpload
             school={school}
@@ -2600,6 +2643,15 @@ export function PlannerWorkspace({
               // Prior credit changed, so the board is rebuilt from it. The same
               // move as choosing a different degree.
               setPlan(null);
+            }}
+            onExams={(found) => {
+              if (!answers || !onAnswersChange) return 0;
+              const grainger = /engineering/i.test(loaded?.program.college ?? '');
+              const priced = matchDocumentExams(found, examCredit.entries, grainger).filter(
+                (e) => !answers.exams.some((have) => have.kind === e.kind && have.exam === e.exam),
+              );
+              if (priced.length > 0) onAnswersChange({ ...answers, exams: [...answers.exams, ...priced] });
+              return priced.length;
             }}
           />
         }
@@ -2991,4 +3043,45 @@ function catalogLiteOf(catalog: Course[]): CatalogLite[] {
   }));
   liteCache = { source: catalog, lite };
   return lite;
+}
+
+/**
+ * Hours the student holds that no course code on the board carries: exam
+ * credit granted by subject ("ECON 1--"), transcript lines counted as hours,
+ * and the difference between what a transferred course earned and the
+ * catalog hours of the Illinois course it counts as. An exam the student's
+ * own record already lists as a test-credit line is not counted twice.
+ */
+function priorHoursOf(answers: OnboardingAnswers | null | undefined, table: ExamCreditEntry[]): number {
+  const record = answers?.transcript ?? null;
+  return (
+    examElectiveHours(answers?.exams ?? [], table, transcriptIndirectCodes(record)) +
+    transcriptHours(record) +
+    transcriptCreditAdjustment(record)
+  );
+}
+
+function termOrd(season: SemesterSeason, year: number): number {
+  return year * 3 + (season === 'Spring' ? 0 : season === 'Summer' ? 1 : 2);
+}
+
+/** The latest term with a course the student is taking now, from their record. */
+function latestInProgressTerm(record: TranscriptRecord | null | undefined): { season: SemesterSeason; year: number } | null {
+  let best: { season: SemesterSeason; year: number } | null = null;
+  for (const c of record?.courses ?? []) {
+    if (!c.use || c.status !== 'in_progress') continue;
+    const m = (normalizeTerm(c.term) ?? '').match(/^(Fall|Spring|Summer) (\d{4})$/);
+    if (!m) continue;
+    const t = { season: m[1] as SemesterSeason, year: Number(m[2]) };
+    if (!best || termOrd(t.season, t.year) > termOrd(best.season, best.year)) best = t;
+  }
+  return best;
+}
+
+/** "About 45 credits", "I have 60 hours", "30 credit hours": what the student says they hold, or null. */
+function statedHours(text: string): number | null {
+  const m = text.match(/\b(\d{1,3})\s*(?:\+\s*)?(?:credit hours|credits|hours|hrs|cr)\b/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 6 && n <= 150 ? n : null;
 }

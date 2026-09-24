@@ -61,7 +61,8 @@ const Course = z.object({
 
 const Reading = z.object({
   institution: z.string().nullable().describe('The school that issued the document. Null when it is not shown.'),
-  kind: z.enum(['transcript', 'degree_audit', 'transfer_report', 'course_list', 'other']),
+  kind: z.enum(['transcript', 'degree_audit', 'transfer_report', 'course_list', 'score_report', 'other']),
+  hours_unit: z.enum(['semester', 'quarter']).nullable().describe('"quarter" when the document says its hours are quarter hours (a quarter-system school), "semester" when it says semester hours, null when it does not say.'),
   courses: z.array(Course),
   exams: z.array(z.object({ kind: z.string(), exam: z.string(), score: z.string().nullable() })),
   notes: z.array(z.string()),
@@ -80,8 +81,10 @@ For each line:
 
 For the document:
 - institution: the school that issued it (the university on the letterhead, the school named in the header). A Transfer Evaluation Report from Illinois is issued by Illinois; the sending school goes in each line's from.
-- kind: transcript, degree_audit (DARS, uAchieve, DegreeWorks, an audit by requirement), transfer_report (a transfer credit evaluation), course_list (Canvas, a registration list, a typed list), or other.
-- exams: the AP, IB, CLEP, A-Level or other exams the document names together with a score. Empty when it prints none. Where the registrar has already posted the exam as a course line, keep the course line too.
+- kind: transcript, degree_audit (DARS, uAchieve, DegreeWorks, an audit by requirement), transfer_report (a transfer credit evaluation), course_list (Canvas, a registration list, a typed list), score_report (an AP, IB or other exam score report with no course lines), or other.
+- hours_unit: "quarter" when the document states quarter hours or the school is on quarters and says so; "semester" when it states semester hours; null when it does not say. Never convert the hours yourself.
+- A degree audit lists requirements still needed next to courses taken: return only courses taken or in progress, never a course the audit lists as still needed or as an option.
+- exams: the AP, IB, CLEP, A-Level or other exams the document names together with a score, the exam name as printed ("Calculus AB", "Psychology", "Biology HL") and kind "AP", "IB", "CLEP" or "A-Level". Empty when it prints none. Where the registrar has already posted the exam as a course line, keep the course line too. A score report has exams and no course lines; that is a complete reading.
 - notes: one sentence for anything you could not read or had to leave out, and for any reading you made that the student should check (a cut-off header, a list with no grades printed). Otherwise empty.
 
 Do not invent lines, grades, hours or equivalents. If a line is unreadable, leave it out and say so in notes. If several files were sent, read them as one document in the order given and do not repeat a line that appears on two of them.`;
@@ -170,7 +173,8 @@ export async function POST(req: Request) {
     const clean = (s: string | null | undefined): string | null => (s && s.trim() ? s.trim() : null);
     const reading: TranscriptReading = {
       institution: clean(parsed.institution),
-      kind: parsed.kind,
+      kind: parsed.kind === 'score_report' ? 'other' : parsed.kind,
+      hoursUnit: parsed.hours_unit ?? null,
       courses: parsed.courses
         .map((c) => ({
           code: c.code.trim(),
@@ -188,8 +192,9 @@ export async function POST(req: Request) {
       exams: parsed.exams.map((e) => ({ kind: e.kind.trim(), exam: e.exam.trim(), score: clean(e.score) })),
       notes: parsed.notes.map((n) => n.trim()).filter(Boolean),
     };
-    if (reading.courses.length === 0) {
-      return json({ error: 'No course lines were found in this file.', reading }, 422);
+    // A score report has exams and no course lines, and that is a reading.
+    if (reading.courses.length === 0 && reading.exams.length === 0) {
+      return json({ error: 'No course lines or exam scores were found in this file.', reading }, 422);
     }
     return json({
       reading,

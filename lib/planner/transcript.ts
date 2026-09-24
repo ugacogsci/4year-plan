@@ -77,6 +77,12 @@ export interface TranscriptExam {
 export interface TranscriptReading {
   institution: string | null;
   kind: DocumentKind;
+  /**
+   * 'quarter' when the document's hours are quarter hours. Illinois counts in
+   * semester hours, and a quarter-hour transcript read as semester hours
+   * overstates a transfer by half again.
+   */
+  hoursUnit?: 'semester' | 'quarter' | null;
   courses: TranscriptCourse[];
   exams: TranscriptExam[];
   /** Anything the model could not read, in plain sentences. */
@@ -99,6 +105,15 @@ export interface TranscriptCourseRecord extends TranscriptCourse {
   proposals?: EquivalentProposal[];
   /** A second course the line also counts as: the lab folded into a five-hour chemistry course. */
   also?: string[];
+  /**
+   * The catalog hours of the Illinois course(s) the line counts as, so the
+   * hours the line actually earned can be told apart from them. A 5-hour
+   * Parkland calculus that becomes MATH 221 (4) earns one more elective hour;
+   * a 3-hour sociology that becomes SOC 100 (4) earns three, not four.
+   */
+  illinoisCredits?: number | null;
+  /** The hours as printed, when they were converted from quarter hours. */
+  printedCredits?: number | null;
 }
 
 /** What the student keeps, alongside the rest of their answers. */
@@ -291,12 +306,17 @@ export function matchTranscript(
    * catalog, they are another school's.
    */
   const issuerIsHome = isHomeTranscript(reading.institution);
+  const quarter = reading.hoursUnit === 'quarter';
+  const creditsOfCode = (code: string | null | undefined): number | null => (code ? known.get(code)?.credits ?? null : null);
   const knownShare = reading.courses.length > 0
     ? reading.courses.filter((c) => known.has(normalizeCourseCode(c.code)) || isIndirectCode(normalizeCourseCode(c.code))).length / reading.courses.length
     : 1;
   const home = reading.institution ? issuerIsHome : knownShare >= 0.5;
   const codesAreIllinois = home && reading.kind !== 'transfer_report';
-  const courses: TranscriptCourseRecord[] = reading.courses.map((c) => {
+  const courses: TranscriptCourseRecord[] = reading.courses.map((raw) => {
+    // Quarter hours are two-thirds of a semester hour, the usual conversion;
+    // the Transfer Evaluation Report shows the figure Illinois settles on.
+    const c = quarter && raw.credits !== null ? { ...raw, credits: Math.round(raw.credits * (2 / 3) * 100) / 100 } : raw;
     const code = normalizeCourseCode(c.code);
     const term = normalizeTerm(c.term);
     const taughtElsewhere = codesAreIllinois ? false : c.from ? !isHomeTranscript(c.from) : !home;
@@ -304,11 +324,16 @@ export function matchTranscript(
       ...c,
       code,
       term,
+      // Every line says which school taught it, so a record merged from an
+      // Illinois history and a Parkland transcript can still tell its lines
+      // apart. The document's own school is the default for its lines.
+      from: c.from ?? (taughtElsewhere ? reading.institution ?? 'another school' : null),
       equivalent: c.equivalent ? normalizeCourseCode(c.equivalent) : null,
       matched: null,
       matchedBy: null,
       use: false,
       counts: 'none',
+      ...(quarter && raw.credits !== null ? { printedCredits: raw.credits } : {}),
     };
     const off = !earns(c.status);
 
@@ -319,14 +344,14 @@ export function matchTranscript(
         return { ...base, counts: off ? 'none' : 'hours', use: !off };
       }
       if (known.has(base.equivalent)) {
-        return { ...base, matched: base.equivalent, matchedBy: 'printed', counts: off ? 'none' : 'course', use: !off };
+        return { ...base, matched: base.equivalent, matchedBy: 'printed', illinoisCredits: creditsOfCode(base.equivalent), counts: off ? 'none' : 'course', use: !off };
       }
     }
     if (isIndirectCode(code) && !taughtElsewhere) {
       return { ...base, counts: off ? 'none' : 'hours', use: !off };
     }
     if (!taughtElsewhere) {
-      if (known.has(code)) return { ...base, matched: code, matchedBy: 'code', counts: off ? 'none' : 'course', use: !off };
+      if (known.has(code)) return { ...base, matched: code, matchedBy: 'code', illinoisCredits: creditsOfCode(code), counts: off ? 'none' : 'course', use: !off };
       // An Illinois record with a code the catalog no longer lists: the hours
       // are real, the course is not something the plan can name.
       return { ...base, counts: off || c.credits === null ? 'none' : 'hours', use: !off && c.credits !== null };
@@ -338,12 +363,14 @@ export function matchTranscript(
     const best = proposals[0];
     if (best && best.confidence === 'high') {
       const also = proposals.filter((p) => p.pairedWith === best.code).map((p) => p.code);
-      return { ...base, matched: best.code, matchedBy: 'proposal', proposals, counts: off ? 'none' : 'course', use: !off, ...(also.length ? { also } : {}) };
+      const illinoisCredits = [best.code, ...also].reduce((sum, code) => sum + (creditsOfCode(code) ?? 0), 0);
+      return { ...base, matched: best.code, matchedBy: 'proposal', proposals, illinoisCredits, counts: off ? 'none' : 'course', use: !off, ...(also.length ? { also } : {}) };
     }
     return { ...base, proposals, counts: off ? 'none' : 'hours', use: !off };
   });
 
   const notes = [...reading.notes];
+  if (quarter) notes.unshift('This transcript is in quarter hours; each line\'s hours are converted to semester hours at two-thirds, the usual conversion. Your Transfer Evaluation Report shows the figure Illinois settles on.');
   const foreign = codesAreIllinois ? [] : courses.filter((c) => c.from ? !isHomeTranscript(c.from) : !home);
   if (!reading.institution && !home) {
     notes.unshift('No school is named on this list and most of its codes are not Illinois courses, so they are read as another school\'s.');
@@ -376,6 +403,8 @@ export function setLineCounts(
   record: TranscriptRecord,
   index: number,
   choice: { counts: 'course'; code: string } | { counts: 'hours' } | { counts: 'none' },
+  /** Catalog hours by code, so the line keeps the hours of what it now counts as. */
+  creditsOf: (code: string) => number | null = () => null,
 ): TranscriptRecord {
   return {
     ...record,
@@ -384,10 +413,12 @@ export function setLineCounts(
       if (choice.counts === 'course') {
         const by = c.matchedBy === 'code' && c.matched === choice.code ? 'code' : c.equivalent === choice.code ? 'printed' : 'student';
         const also = (c.proposals ?? []).filter((p) => p.pairedWith === choice.code).map((p) => p.code);
-        return { ...c, matched: choice.code, matchedBy: by, counts: 'course', use: true, also: also.length ? also : undefined };
+        const credits = [choice.code, ...also].map((code) => creditsOf(code));
+        const illinoisCredits = credits.every((n) => n !== null) ? credits.reduce<number>((sum, n) => sum + (n ?? 0), 0) : null;
+        return { ...c, matched: choice.code, matchedBy: by, counts: 'course', use: true, also: also.length ? also : undefined, illinoisCredits };
       }
-      if (choice.counts === 'hours') return { ...c, matched: null, matchedBy: null, counts: 'hours', use: true, also: undefined };
-      return { ...c, matched: null, matchedBy: null, counts: 'none', use: false, also: undefined };
+      if (choice.counts === 'hours') return { ...c, matched: null, matchedBy: null, counts: 'hours', use: true, also: undefined, illinoisCredits: null };
+      return { ...c, matched: null, matchedBy: null, counts: 'none', use: false, also: undefined, illinoisCredits: null };
     }),
   };
 }
@@ -416,18 +447,65 @@ export function transcriptHours(record: TranscriptRecord | null | undefined): nu
 }
 
 /**
+ * The difference between the hours a counted line earned and the catalog
+ * hours of the Illinois course it counts as, summed over the record.
+ *
+ * The plan totals held courses at their catalog hours. That is right for an
+ * Illinois course and wrong for a course from elsewhere: Parkland's 5-hour
+ * calculus becomes MATH 221 (4) plus an hour of elective credit, and a 3-hour
+ * sociology becomes SOC 100 but earns 3. The line's own hours are what
+ * transferred (or the Illinois hours the document prints beside it), so the
+ * difference is added to the hours with no course, up or down.
+ */
+export function transcriptCreditAdjustment(record: TranscriptRecord | null | undefined): number {
+  if (!record) return 0;
+  let delta = 0;
+  for (const c of record.courses) {
+    if (!c.use || c.counts !== 'course' || !c.matched) continue;
+    const earned = c.equivalentCredits ?? c.credits;
+    const catalog = c.illinoisCredits ?? null;
+    if (earned === null || earned === undefined || catalog === null || !(earned > 0)) continue;
+    delta += earned - catalog;
+  }
+  return Math.round(delta * 100) / 100;
+}
+
+/**
+ * Subject-hours codes ("ECON 1--") the record already counts as hours, so the
+ * exam picker does not count the same AP credit a second time when the
+ * student's Illinois record lists it and they also picked the exam.
+ */
+export function transcriptIndirectCodes(record: TranscriptRecord | null | undefined): Set<string> {
+  const out = new Set<string>();
+  if (!record) return out;
+  for (const c of record.courses) {
+    if (!c.use || c.counts !== 'hours') continue;
+    if (isIndirectCode(c.code)) out.add(c.code);
+    if (c.equivalent && isIndirectCode(c.equivalent)) out.add(c.equivalent);
+  }
+  return out;
+}
+
+/** Whether a line was taught somewhere other than Illinois. */
+export function lineIsForeign(record: TranscriptRecord, c: TranscriptCourseRecord): boolean {
+  if (c.from) return !isHomeTranscript(c.from);
+  // Records saved before lines carried their school: the document decides.
+  return record.home === false && c.matchedBy !== 'student';
+}
+
+/**
  * Hours the record shows as taught by Illinois itself, done or in progress,
  * for the residency rule (45 hours at Illinois, 21 of them at the 300 level
  * or above). Transfer and exam credit is not residence, whatever course it
  * became.
  */
 export function transcriptResidentHours(record: TranscriptRecord | null | undefined): { total: number; upper: number } {
-  if (!record || record.home === false) return { total: 0, upper: 0 };
+  if (!record) return { total: 0, upper: 0 };
   let total = 0;
   let upper = 0;
   for (const c of record.courses) {
     if (!c.use || (c.status !== 'completed' && c.status !== 'in_progress')) continue;
-    if (c.from && !isHomeTranscript(c.from)) continue;
+    if (lineIsForeign(record, c)) continue;
     // A course the student typed has no document saying where it was taken;
     // counting it as residence could overstate, so it is not counted.
     if (c.matchedBy === 'student') continue;
