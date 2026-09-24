@@ -3095,10 +3095,17 @@ function titleIndex(byCode: CatalogRowLookup): Map<string, Map<string, string>> 
  * every piece is, word for word, the title of a course in the row's subject and
  * the first is the row's own code; a title that merely contains "and" ("Plant
  * Diversity and Evolution") matches one course and is left alone.
+ *
+ * A row that prints its hours is rebuilt too when those hours are exactly the
+ * pieces' catalog hours added up. The Gies business core prints "ECON 102
+ * Microeconomic Principles and Macroeconomic Principles (6)", and reading only
+ * ECON 102 left ECON 103, ACCY 202 and BADM 211 off every business plan: a
+ * Finance student's re-pick then swapped ECON 103, which looked like a free
+ * gen-ed pick, for an education course. 134 rows in 92 degrees read this way,
+ * most of them chemistry and anatomy labs; every one adds up.
  */
 function bundleOf(row: RawProgramCourse, byCode: CatalogRowLookup): string[] | null {
   const title = (row.title ?? '').trim();
-  if (row.credits !== null && row.credits !== undefined) return null;
   if (!/ and /.test(title)) return null;
   const code = normCode(row.code);
   const titles = titleIndex(byCode)?.get(code.split(' ')[0]);
@@ -3119,7 +3126,16 @@ function bundleOf(row: RawProgramCourse, byCode: CatalogRowLookup): string[] | n
     out.push(found.code);
     i = found.next;
   }
-  return out.length >= 2 && out[0] === code ? out : null;
+  if (out.length < 2 || out[0] !== code) return null;
+  // The LAS first-year seminars are one course chosen by who the student is
+  // (LAS 100 for international students, LAS 101, LAS 102 for transfers), so
+  // "LAS 100 ... and LAS 101 ... (3)" is a choice, not a pair to take.
+  if (out.some((c) => /^LAS 10\d$/.test(c))) return null;
+  if (row.credits !== null && row.credits !== undefined) {
+    const sum = out.reduce((n, c) => n + (byCode.get(c)?.credits ?? 0), 0);
+    if (sum !== row.credits) return null;
+  }
+  return out;
 }
 
 function choicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup, note = ''): CourseChoice[] {
