@@ -28,6 +28,13 @@ export interface HealthGroup {
   issue: PlanIssue;
 }
 
+/** Issues about the shape of one whole semester rather than one course. */
+export function isTermIssue(issue: PlanIssue): boolean {
+  return /^(?:ap-(?:load|minimum|variable|unknown-credits|hard|weighed)-|load-|minimum-load-)/.test(
+    issue.id,
+  );
+}
+
 /** Identical messages become one row. Distinct ones never merge. */
 export function groupIssues(issues: PlanIssue[]): HealthGroup[] {
   const groups = new Map<string, HealthGroup>();
@@ -61,7 +68,7 @@ export function PlanHealthList({
   if (groups.length === 0) {
     return (
       <div className="health-empty">
-        <CheckCircle2 /> Nothing to review. Every course clears its prerequisites.
+        <CheckCircle2 /> No plan-wide notes. Course and semester warnings appear directly on the board.
       </div>
     );
   }

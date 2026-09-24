@@ -149,16 +149,22 @@ export function areaProgress(
    * duplicates to collapse.
    */
   equivalents?: Map<string, string[]>,
+  options?: {
+    /** UGA permits a course to satisfy a Core area and a major-related area. */
+    allowCrossAreaOverlap?: boolean;
+  },
 ): Array<{ area: RequirementArea; earned: number; percent: number; satisfied: boolean }> {
-  const spent = new Set<string>();
-  const spend = (code: string): void => {
+  const spend = (code: string, spent: Set<string>): void => {
     spent.add(code);
     for (const alias of equivalents?.get(code) ?? []) spent.add(alias);
   };
   const earnedBy = program.areas.map(() => 0);
 
   /** The held course that fills one row, honouring "CS 210 or CS 211". */
-  const rowMatch = (row: RequirementRow): { code: string; credits: number } | null => {
+  const rowMatch = (
+    row: RequirementRow,
+    spent: Set<string>,
+  ): { code: string; credits: number } | null => {
     if (haveCodes.has(row.code) && !spent.has(row.code)) {
       return { code: row.code, credits: row.credits };
     }
@@ -176,10 +182,10 @@ export function areaProgress(
    * and can never overstate it, which is the only safe direction when the
    * number is read as how close somebody is to graduating.
    */
-  const earnOf = (group: RequirementGroup): number => {
+  const earnOf = (group: RequirementGroup, spent: Set<string>): number => {
     const hits: Array<{ code: string; credits: number }> = [];
     for (const row of group.courses) {
-      const hit = rowMatch(row);
+      const hit = rowMatch(row, spent);
       if (hit) hits.push(hit);
     }
     hits.sort((a, b) => a.credits - b.credits || a.code.localeCompare(b.code));
@@ -194,7 +200,7 @@ export function areaProgress(
       // A later row in this same group can hold the other half of a
       // cross-listing, so the check has to run again here.
       if (spent.has(hit.code)) continue;
-      spend(hit.code);
+      spend(hit.code, spent);
       earned += hit.credits;
       taken += 1;
     }
@@ -203,13 +209,26 @@ export function areaProgress(
 
   // Printed lists first, campus categories second. See RequirementGroup.broad
   // for the course this ordering stops the gen-ed area from taking.
-  for (const broadPass of [false, true]) {
+  if (options?.allowCrossAreaOverlap) {
     program.areas.forEach((area, index) => {
-      for (const group of area.groups) {
-        if ((group.broad ?? false) !== broadPass) continue;
-        earnedBy[index] += earnOf(group);
+      const spent = new Set<string>();
+      for (const broadPass of [false, true]) {
+        for (const group of area.groups) {
+          if ((group.broad ?? false) !== broadPass) continue;
+          earnedBy[index] += earnOf(group, spent);
+        }
       }
     });
+  } else {
+    const spent = new Set<string>();
+    for (const broadPass of [false, true]) {
+      program.areas.forEach((area, index) => {
+      for (const group of area.groups) {
+        if ((group.broad ?? false) !== broadPass) continue;
+        earnedBy[index] += earnOf(group, spent);
+      }
+      });
+    }
   }
 
   return program.areas.map((area, index) => {

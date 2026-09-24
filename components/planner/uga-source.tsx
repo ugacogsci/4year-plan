@@ -18,7 +18,24 @@ import type {
 } from '@/lib/planner/scheduler';
 import type { Course, SemesterSeason } from '@/lib/planner/types';
 
-const normCode = (value: string) => value.replace(/\s+/g, ' ').trim().toUpperCase();
+const normCode = (value: string) =>
+  value.replace(/\s+/g, ' ').trim().toUpperCase();
+const slug = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
+/**
+ * UGA displays joint undergraduate/graduate and lecture/lab listings as one
+ * code. Requirements and prerequisites refer to the undergraduate half, so
+ * all three data sources need the same key.
+ */
+function canonicalUgaCode(value: string): string {
+  const code = normCode(value).replace(/\s*\*+\s*$/, '');
+  const match = code.match(/^([A-Z]{2,5})(?:\([A-Z]{2,5}\))*\s+(\d{4}[A-Z]?)/);
+  return match ? `${match[1]} ${match[2]}` : code;
+}
 
 interface RawUgaCourse extends Partial<Course> {
   id: string;
@@ -41,12 +58,18 @@ interface RawUgaRequirementCourse {
 interface RawUgaRequirementGroup {
   label: string;
   choose: number | null;
+  hours?: number | null;
+  note?: string;
+  minimumAreas?: number | null;
+  upperDivisionHours?: number | null;
+  lists?: Array<{ label: string; codes: string[] }>;
   courses: RawUgaRequirementCourse[];
 }
 
 interface RawUgaRequirementArea {
   label: string;
   hours: number;
+  excludeCodes?: string[];
   groups: RawUgaRequirementGroup[];
 }
 
@@ -80,6 +103,10 @@ export interface UgaLoadedProgram {
   summary: UgaProgram;
   program: ProgramRequirements;
   blocks: RequirementBlock[];
+  /** General/free elective hours the Bulletin explicitly publishes. */
+  electiveHours: number;
+  /** This reviewed degree has known overlap and college-wide credit outside its area table. */
+  fillToDegreeTotal: boolean;
   url: string;
 }
 
@@ -104,12 +131,16 @@ async function readJson<T>(url: string): Promise<T | null> {
 }
 
 function adaptCourse(raw: RawUgaCourse): Course {
-  const offeredIn: SemesterSeason[] = raw.offeredIn?.length ? raw.offeredIn : ['Fall', 'Spring'];
+  const offeredIn: SemesterSeason[] = raw.offeredIn?.length
+    ? raw.offeredIn
+    : ['Fall', 'Spring'];
+  const code = canonicalUgaCode(raw.code);
   return {
-    id: raw.id,
-    code: normCode(raw.code),
+    id: slug(code),
+    code,
     title: raw.title,
     credits: Number.isFinite(raw.credits) ? raw.credits : 3,
+    creditsMax: Number.isFinite(raw.creditsMax) ? raw.creditsMax : raw.credits,
     description: raw.description ?? '',
     cluster: raw.cluster,
     requirementIds: [],
@@ -183,12 +214,45 @@ function parsePrerequisite(text: string, byCode: Map<string, Course>): PlanPrere
 
 function creditChoice(row: RawUgaRequirementCourse): CourseChoice {
   return {
-    codes: [normCode(row.code)],
+    codes: [canonicalUgaCode(row.code)],
     title: row.title,
     credits: row.credits,
     creditsMax: row.credits,
     substitutes: [],
   };
+}
+
+/** Expand "CSCI 4XXX" into the undergraduate courses that can fill the pool. */
+function choicesFor(
+  group: RawUgaRequirementGroup,
+  byCode: Map<string, Course>,
+): CourseChoice[] {
+  const choices: CourseChoice[] = [];
+  const seen = new Set<string>();
+  for (const row of group.courses) {
+    const wildcard = canonicalUgaCode(row.code).match(
+      /^([A-Z]{2,5})\s+([1-9])XXX$/,
+    );
+    const rows = wildcard
+      ? [...byCode.values()]
+          .filter((course) =>
+            course.code.startsWith(`${wildcard[1]} ${wildcard[2]}`),
+          )
+          .map((course) => ({
+            code: course.code,
+            title: course.title,
+            credits: course.credits,
+          }))
+      : [row];
+    for (const candidate of rows) {
+      const choice = creditChoice(candidate);
+      const code = choice.codes[0];
+      if (!code || seen.has(code)) continue;
+      seen.add(code);
+      choices.push(choice);
+    }
+  }
+  return choices;
 }
 
 function minimumGroupHours(group: RawUgaRequirementGroup): number {
@@ -199,41 +263,102 @@ function minimumGroupHours(group: RawUgaRequirementGroup): number {
     .reduce((sum, course) => sum + course.credits, 0);
 }
 
-function adaptProgram(program: UgaProgram, byCode: Map<string, Course>): UgaLoadedProgram {
+function statedGroupHours(group: RawUgaRequirementGroup): number {
+  if (group.hours != null) return group.hours;
+  if (group.choose !== null) return minimumGroupHours(group);
+  return group.courses.reduce((sum, course) => sum + course.credits, 0);
+}
+
+function adaptProgram(
+  program: UgaProgram,
+  byCode: Map<string, Course>,
+): UgaLoadedProgram {
   const blocks: RequirementBlock[] = [];
   const areas: RequirementArea[] = [];
+  const fixedRequirementCodes = new Set<string>();
 
   program.areas.forEach((area, areaIndex) => {
     const areaId = `${program.id}::${areaIndex}`;
     const progressGroups: RequirementGroup[] = [];
-    const reservedByExplicitChoices = area.groups.reduce(
-      (sum, group) => sum + minimumGroupHours(group),
-      0,
-    );
-
     area.groups.forEach((group, groupIndex) => {
       if (group.courses.length === 0) return;
+      const representedBefore = area.groups
+        .slice(0, groupIndex)
+        .reduce((sum, earlier) => sum + statedGroupHours(earlier), 0);
+      // Degree pages repeat the full campus Core Courses list after their own
+      // preferred rows. Once those rows already fill the area, the campus list
+      // is a reference list, not an additional requirement.
+      if (/core courses?/i.test(group.label) && representedBefore >= area.hours)
+        return;
       const id = `${areaId}::${groupIndex}`;
-      const choices = group.courses.map(creditChoice);
-      const listedHours = group.courses.reduce((sum, course) => sum + course.credits, 0);
+      let choices = choicesFor(group, byCode);
+      const listedHours = group.courses.reduce(
+        (sum, course) => sum + course.credits,
+        0,
+      );
       const poolWords = `${area.label} ${group.label}`;
       const isPool =
-        group.choose === null &&
+        (group.lists?.some((list) => list.codes.length > 0) ?? false) ||
+        (group.choose === null &&
         area.hours > 0 &&
-        (listedHours > area.hours + 4 || /elective|restricted|choose|select|experiential/i.test(poolWords));
-      const poolHours = Math.max(1, area.hours - reservedByExplicitChoices);
+        (group.hours != null ||
+          listedHours > area.hours + 4 ||
+          /elective|restricted|choose|select|experiential/i.test(poolWords)));
+      // A required course cannot also fill a later elective pool. UGA repeats
+      // those codes inside broad campus and subject lists, so remove them before
+      // the pool reaches the scheduler instead of relying on display-time math.
+      if (isPool) {
+        const excluded = new Set(
+          (area.excludeCodes ?? []).map(canonicalUgaCode),
+        );
+        choices = choices.filter((choice) =>
+          choice.codes.every(
+            (code) => !fixedRequirementCodes.has(code) && !excluded.has(code),
+          ),
+        );
+      }
+      const poolHours =
+        group.hours ?? Math.max(1, area.hours - representedBefore);
       let rule: RequirementRule;
 
-      if (group.choose !== null) {
+      if (group.choose !== null && !isPool) {
         rule = { kind: 'choose', n: Math.min(group.choose, choices.length), choices };
       } else if (isPool) {
+        const allowed = new Set(choices.flatMap((choice) => choice.codes));
+        const lists = (group.lists ?? [])
+          .map((list) => ({
+            label: list.label,
+            codes: list.codes.map(canonicalUgaCode).filter((code) => allowed.has(code)),
+          }))
+          .filter((list) => list.codes.length > 0);
+        const poolLists = lists.length
+          ? lists
+          : [{ label: group.label || area.label, codes: [...allowed] }];
+        const constraints =
+          group.minimumAreas || group.upperDivisionHours
+            ? [
+                {
+                  text:
+                    group.note ||
+                    `Choose from at least ${group.minimumAreas ?? 0} named areas.`,
+                  n: group.minimumAreas ?? 0,
+                  lists: poolLists,
+                  single: false,
+                  distinctLists: Boolean(group.minimumAreas),
+                  hours: group.upperDivisionHours ?? undefined,
+                  hourCodes: choices
+                    .flatMap((choice) => choice.codes)
+                    .filter((code) => Number(code.match(/\b(\d)/)?.[1] ?? 0) >= 3),
+                },
+              ]
+            : [];
         rule = {
           kind: 'pool',
-          hours: poolHours,
-          n: null,
+          hours: group.choose === null ? poolHours : null,
+          n: group.choose,
           choices,
-          lists: [{ label: group.label || area.label, codes: choices.flatMap((choice) => choice.codes) }],
-          constraints: [],
+          lists: poolLists,
+          constraints,
           from: 'group',
           label: group.label || area.label,
         };
@@ -249,20 +374,24 @@ function adaptProgram(program: UgaProgram, byCode: Map<string, Course>): UgaLoad
         hours: isPool ? poolHours : null,
         hoursMax: isPool ? poolHours : null,
         rule,
-        note: '',
+        note: group.note ?? '',
         url: `https://bulletin.uga.edu/Program/Details/${program.id}?IDc=${program.college}`,
       });
 
       progressGroups.push({
         label: group.label,
         choose: group.choose,
-        courses: group.courses.map((course) => ({
-          code: normCode(course.code),
-          title: course.title,
-          credits: course.credits,
+        courses: choices.map((choice) => ({
+          code: choice.codes[0] ?? '',
+          title: choice.title,
+          credits:
+            choice.credits ?? byCode.get(choice.codes[0] ?? '')?.credits ?? 3,
         })),
         cap: isPool
-          ? { hours: poolHours, courses: null }
+          ? {
+              hours: group.choose === null ? poolHours : null,
+              courses: group.choose,
+            }
           : group.choose !== null
             ? { hours: null, courses: group.choose }
             : null,
@@ -276,24 +405,46 @@ function adaptProgram(program: UgaProgram, byCode: Map<string, Course>): UgaLoad
           else if (course && !isPool) course.pathwayRole = 'required';
         }
       }
+      if (!isPool) {
+        for (const choice of choices) {
+          for (const code of choice.codes) fixedRequirementCodes.add(code);
+        }
+      }
     });
 
-    const representedHours = area.groups.reduce((sum, group) => {
+    const representedHours = area.groups.reduce((sum, group, groupIndex) => {
       if (group.courses.length === 0) return sum;
-      const listed = group.courses.reduce((hours, course) => hours + course.credits, 0);
+      const representedBefore = area.groups
+        .slice(0, groupIndex)
+        .reduce((hours, earlier) => hours + statedGroupHours(earlier), 0);
+      if (/core courses?/i.test(group.label) && representedBefore >= area.hours)
+        return sum;
+      const listed = group.courses.reduce(
+        (hours, course) => hours + course.credits,
+        0,
+      );
       if (group.choose !== null) return sum + minimumGroupHours(group);
-      if (listed > area.hours + 4 || /elective|restricted|choose|select|experiential/i.test(`${area.label} ${group.label}`)) {
+      if (group.hours != null) return sum + group.hours;
+      if (
+        listed > area.hours + 4 ||
+        /elective|restricted|choose|select|experiential/i.test(
+          `${area.label} ${group.label}`,
+        )
+      ) {
         return area.hours;
       }
       return sum + listed;
     }, 0);
     if (representedHours < area.hours) {
       const missing = area.hours - representedHours;
+      const explicitElective = /^(?:general|free) electives?\b/i.test(
+        area.label,
+      );
       blocks.push({
         id: `${areaId}::unlisted`,
         areaId,
         areaLabel: area.label,
-        label: `${area.label} courses not exposed by the parser`,
+        label: area.label,
         hours: missing,
         hoursMax: missing,
         rule: {
@@ -301,6 +452,7 @@ function adaptProgram(program: UgaProgram, byCode: Map<string, Course>): UgaLoad
           hours: missing,
           genEd: null,
           label: area.label,
+          source: explicitElective ? 'explicit-elective' : 'parser-gap',
         },
         note: '',
         url: `https://bulletin.uga.edu/Program/Details/${program.id}?IDc=${program.college}`,
@@ -324,6 +476,10 @@ function adaptProgram(program: UgaProgram, byCode: Map<string, Course>): UgaLoad
     summary: program,
     program: adapted,
     blocks,
+    electiveHours: program.areas
+      .filter((area) => /^(?:general|free) electives?\b/i.test(area.label))
+      .reduce((sum, area) => sum + area.hours, 0),
+    fillToDegreeTotal: program.id === '96447',
     url: `https://bulletin.uga.edu/Program/Details/${program.id}?IDc=${program.college}`,
   };
 }
@@ -419,6 +575,29 @@ export function loadUgaProgram(data: UgaData, program: UgaProgram): UgaLoadedPro
   for (const course of data.courses) {
     course.requirementIds = [];
     course.pathwayRole = undefined;
+  }
+  // The degree table publishes authoritative hours for every course it names.
+  // Apply those rows to the map catalog before planning. This also repairs old
+  // snapshots produced while the course scraper incorrectly defaulted every
+  // UGA course to three credits.
+  for (const area of program.areas) {
+    for (const group of area.groups) {
+      for (const row of group.courses) {
+        if (/\b[1-9]XXX\b/.test(row.code)) continue;
+        const code = canonicalUgaCode(row.code);
+        const course = data.byCode.get(code);
+        if (!course || !Number.isFinite(row.credits)) continue;
+        course.credits = row.credits;
+        course.creditsMax = row.credits;
+        data.context.creditRanges?.set(code, {
+          credits: row.credits,
+          min: row.credits,
+          max: row.credits,
+          variable: false,
+          known: true,
+        });
+      }
+    }
   }
   return adaptProgram(program, data.byCode);
 }

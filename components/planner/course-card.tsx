@@ -8,7 +8,6 @@ import {
   LockKeyhole,
   MoreHorizontal,
   MoveRight,
-  Shuffle,
   Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -26,6 +25,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { clusterColor } from './cluster-color';
+import { ReplacementPicker } from './replacement-picker';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 
 /**
@@ -49,6 +49,7 @@ interface CourseCardProps {
   term: PlanTerm;
   allTerms: PlanTerm[];
   selected: boolean;
+  dropPosition?: 'before' | 'after';
   issues: PlanIssue[];
   electiveOf?: ElectiveOf;
   /** Opens the chooser for an elective slot. The card body does this in place of selecting. */
@@ -56,7 +57,15 @@ interface CourseCardProps {
   onSelect: (courseId: string, termId: string) => void;
   onMove: (courseId: string, fromTermId: string, toTermId: string) => void;
   onRemove: (courseId: string, termId: string) => void;
-  onFindAlternatives: (courseId: string, termId: string) => void;
+  replacement: {
+    active: boolean;
+    label: string;
+    options: Course[];
+    onLoad: () => void;
+    onPick: (courseId: string) => void;
+    onShowCourse: (courseId: string) => void;
+    onShowAll: () => void;
+  };
 }
 
 /** "3 cr", or "1 to 4 cr" for the 1,829 Illinois courses with a range. */
@@ -70,20 +79,29 @@ export function CourseCard({
   term,
   allTerms,
   selected,
+  dropPosition,
   issues,
   electiveOf,
   onChoose,
   onSelect,
   onMove,
   onRemove,
-  onFindAlternatives,
+  replacement,
 }: CourseCardProps) {
-  const highestIssue = issues.find((issue) => issue.severity === 'error') ?? issues[0];
-
   return (
+    // Drag is progressive enhancement; every action also has a keyboard control.
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <article
       id={`planned-${term.id}-${course.id}`}
       className={cn('course-card group', selected && 'course-card-selected')}
+      data-course-id={course.id}
+      data-drop-position={dropPosition}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData('application/x-course-id', course.id);
+        event.dataTransfer.setData('application/x-term-id', term.id);
+        event.dataTransfer.effectAllowed = 'move';
+      }}
     >
       <button
         type="button"
@@ -136,25 +154,30 @@ export function CourseCard({
                   : `${electiveOf.label}. ${electiveOf.detail}`
               }
             >
-              <ListChecks /> {electiveOf.kind === 'elective' ? 'elective · tap to choose' : 'from a list'}
-            </span>
-          )}
-          {highestIssue && (
-            <span
-              className={cn(
-                'course-check',
-                highestIssue.severity === 'error' ? 'text-destructive' : 'text-warning',
-              )}
-              title={highestIssue.message}
-            >
-              {highestIssue.severity === 'error' ? <AlertCircle /> : <CircleAlert />}
-              check
+              <ListChecks /> {electiveOf.kind === 'elective' ? 'elective' : 'from a list'}
             </span>
           )}
           <span className="course-card-credits">{creditLabel(course)}</span>
         </span>
         <span className="course-card-title">{course.title}</span>
+        {issues.length > 0 && (
+          <span className="course-card-issues">
+            {issues.map((issue) => (
+              <span
+                key={issue.id}
+                className={cn('course-card-issue', `is-${issue.severity}`)}
+              >
+                {issue.severity === 'error' ? <AlertCircle /> : <CircleAlert />}
+                <span>
+                  <strong>{issue.title}</strong>
+                  {issue.message}
+                </span>
+              </span>
+            ))}
+          </span>
+        )}
       </button>
+      <ReplacementPicker course={course} {...replacement} />
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={`Options for ${course.code}`}
@@ -189,9 +212,6 @@ export function CourseCard({
                 ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
-          <DropdownMenuItem onClick={() => onFindAlternatives(course.id, term.id)}>
-            <Shuffle /> Find a replacement
-          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"

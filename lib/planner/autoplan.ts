@@ -70,6 +70,12 @@ export interface PlanPoolConstraint {
   n: number;
   lists: PlanPoolList[];
   single: boolean;
+  /** Count represented named lists rather than courses in their union. */
+  distinctLists?: boolean;
+  /** Optional credit-hour floor inside `hourCodes`. */
+  hours?: number;
+  /** Courses whose credit contributes to `hours`. */
+  hourCodes?: string[];
 }
 
 export type PlanRule =
@@ -89,7 +95,13 @@ export type PlanRule =
       constraints: PlanPoolConstraint[];
       label: string;
     }
-  | { kind: 'hours'; hours: number; genEd: string[] | null; label: string }
+  | {
+      kind: 'hours';
+      hours: number;
+      genEd: string[] | null;
+      label: string;
+      source?: 'catalog' | 'explicit-elective' | 'parser-gap';
+    }
   /**
    * One general education category, sized in hours or in courses or both.
    *
@@ -354,6 +366,20 @@ export interface AutoplanInput {
    * three-credit last term. Null when the page publishes none.
    */
   degreeTotal?: number | null;
+  /**
+   * Maximum unnamed elective hours the catalog explicitly permits. When this
+   * is a number, the planner stops there instead of using electives to conceal
+   * a requirement parser gap. Omit it for catalogs whose degree total is the
+   * only published boundary.
+   */
+  electiveHoursLimit?: number | null;
+  /**
+   * Continue to the published degree total after the explicit elective space
+   * is full. Used only for a reviewed program whose overlapping and
+   * college-wide requirements make the area subtotals smaller than 120 unique
+   * credits; the extra courses remain visibly editable electives.
+   */
+  fillToDegreeTotal?: boolean;
   /** The student's own words about what they study and want, for ranking elective picks. */
   interests?: string;
   /** The degree's name, "Psychology, BSLAS", which names the major better than a thin page does. */
@@ -460,6 +486,9 @@ export interface PoolReport {
   constraints: Array<{
     text: string;
     n: number;
+    count: number;
+    hoursTarget: number | null;
+    hours: number;
     met: boolean;
     /** The list the courses came from, when the sentence asks for a single one. */
     from: string | null;
@@ -1059,6 +1088,17 @@ function buildHeights(
 // Credits.
 // ---------------------------------------------------------------------------
 
+/** Fallback credit lookup, built at most once for a catalog context. */
+const creditCourseIndexes = new WeakMap<PlanningContext, Map<string, Course>>();
+
+function creditCourseIndex(ctx: PlanningContext): Map<string, Course> {
+  const cached = creditCourseIndexes.get(ctx);
+  if (cached) return cached;
+  const created = new Map(ctx.courses.map((course) => [normaliseCode(course.code), course]));
+  creditCourseIndexes.set(ctx, created);
+  return created;
+}
+
 /**
  * Credits for a set of courses, as a range.
  *
@@ -1075,7 +1115,7 @@ export function planCreditRange(
   pinned?: Map<string, number>,
 ): CreditTotal {
   const ranges = ctx.creditRanges;
-  const byCode = new Map(ctx.courses.map((c) => [normaliseCode(c.code), c]));
+  let byCode: Map<string, Course> | null = null;
   let min = 0;
   let max = 0;
   let unknown = 0;
@@ -1100,6 +1140,10 @@ export function planCreditRange(
       if (range.variable) variable = true;
       continue;
     }
+    // Most full catalog contexts publish a range for every course. Build the
+    // fallback index only for a context that actually has a gap, and reuse it
+    // across the many term totals computed while balancing a plan.
+    byCode ??= creditCourseIndex(ctx);
     const course = byCode.get(code);
     if (!course) {
       unknown += 1;
@@ -1506,13 +1550,30 @@ function fillPool(slot: PlanSlot, pool: PoolContext): PoolFill {
    */
   const ordered = (slot.constraints ?? [])
     .slice()
-    .sort((a, b) => Number(b.single) - Number(a.single) || b.n - a.n);
+    .sort(
+      (a, b) =>
+        Number(Boolean(b.distinctLists)) - Number(Boolean(a.distinctLists)) ||
+        Number(b.single) - Number(a.single) ||
+        (b.hours ?? 0) - (a.hours ?? 0) ||
+        b.n - a.n,
+    );
 
   for (const c of ordered) {
     const lists = c.lists.map((l) => ({ label: l.label, codes: new Set(l.codes.map(normaliseCode)) }));
     if (lists.length === 0) continue;
 
-    if (c.single && lists.length > 1) {
+    if (c.distinctLists) {
+      while (constraintStatus(c, held, pool.creditsOf).count < c.n) {
+        const before = constraintStatus(c, held, pool.creditsOf).count;
+        const next = openBy(pool.order).find((code) => {
+          const trial = new Set(held);
+          trial.add(code);
+          return constraintStatus(c, trial, pool.creditsOf).count > before;
+        });
+        if (!next) break;
+        take(next);
+      }
+    } else if (c.single && lists.length > 1) {
       let best: { fill: string[] } | null = null;
       for (const list of lists) {
         const already = [...held].filter((code) => list.codes.has(code)).length;
@@ -1528,14 +1589,27 @@ function fillPool(slot: PlanSlot, pool: PoolContext): PoolFill {
       // states is one an advisor sends back.
       if (!best) continue;
       for (const code of best.fill) take(code);
-      continue;
+    } else {
+      const union = new Set(lists.flatMap((l) => [...l.codes]));
+      const already = [...held].filter((code) => union.has(code)).length;
+      const need = c.n - already;
+      if (need > 0) {
+        for (const code of openBy(pool.order, union).slice(0, need)) take(code);
+      }
     }
 
-    const union = new Set(lists.flatMap((l) => [...l.codes]));
-    const already = [...held].filter((code) => union.has(code)).length;
-    const need = c.n - already;
-    if (need <= 0) continue;
-    for (const code of openBy(pool.order, union).slice(0, need)) take(code);
+    if (c.hours && c.hours > 0) {
+      const hourCodes = new Set((c.hourCodes ?? []).map(normaliseCode));
+      const hoursHeld = () =>
+        [...held]
+          .filter((code) => hourCodes.has(code))
+          .reduce((sum, code) => sum + pool.creditsOf(code), 0);
+      while (hoursHeld() < c.hours) {
+        const next = openBy(pool.order, hourCodes)[0];
+        if (!next) break;
+        take(next);
+      }
+    }
   }
 
   const hoursHeld = (): number => [...held].reduce((sum, code) => sum + pool.creditsOf(code), 0);
@@ -1563,7 +1637,7 @@ function fillPool(slot: PlanSlot, pool: PoolContext): PoolFill {
     constraints: (slot.constraints ?? []).map((c) => ({
       text: c.text,
       n: c.n,
-      ...constraintStatus(c, held),
+      ...constraintStatus(c, held, pool.creditsOf),
     })),
   };
 }
@@ -1583,9 +1657,53 @@ function fillPool(slot: PlanSlot, pool: PoolContext): PoolFill {
 function constraintStatus(
   c: PlanPoolConstraint,
   held: Set<string>,
-): { met: boolean; from: string | null; picked: string[] } {
+  creditsOf: (code: string) => number = () => 0,
+): {
+  met: boolean;
+  from: string | null;
+  picked: string[];
+  count: number;
+  hoursTarget: number | null;
+  hours: number;
+} {
   const lists = c.lists.map((l) => ({ label: l.label, codes: new Set(l.codes.map(normaliseCode)) }));
-  if (lists.length === 0) return { met: true, from: null, picked: [] };
+  if (lists.length === 0)
+    return { met: true, from: null, picked: [], count: 0, hoursTarget: c.hours ?? null, hours: 0 };
+
+  const hourCodes = new Set((c.hourCodes ?? []).map(normaliseCode));
+  const hours = [...held]
+    .filter((code) => hourCodes.has(code))
+    .reduce((sum, code) => sum + creditsOf(code), 0);
+  const hoursMet = c.hours === undefined || hours >= c.hours;
+
+  if (c.distinctLists) {
+    const matchedCourse = new Map<string, number>();
+    const match = (listIndex: number, seen: Set<string>): boolean => {
+      for (const code of [...held].sort()) {
+        if (seen.has(code) || !lists[listIndex].codes.has(code)) continue;
+        seen.add(code);
+        const previous = matchedCourse.get(code);
+        if (previous === undefined || match(previous, seen)) {
+          matchedCourse.set(code, listIndex);
+          return true;
+        }
+      }
+      return false;
+    };
+    let count = 0;
+    for (let index = 0; index < lists.length; index += 1) {
+      if (match(index, new Set<string>())) count += 1;
+    }
+    const picked = [...matchedCourse.keys()].sort();
+    return {
+      met: count >= c.n && hoursMet,
+      from: null,
+      picked,
+      count,
+      hoursTarget: c.hours ?? null,
+      hours,
+    };
+  }
 
   if (c.single && lists.length > 1) {
     let best: { label: string; picked: string[] } = { label: lists[0].label, picked: [] };
@@ -1594,15 +1712,40 @@ function constraintStatus(
       if (picked.length > best.picked.length) best = { label: list.label, picked };
     }
     return {
-      met: best.picked.length >= c.n,
+      met: best.picked.length >= c.n && hoursMet,
       from: best.picked.length > 0 ? best.label : null,
       picked: best.picked,
+      count: best.picked.length,
+      hoursTarget: c.hours ?? null,
+      hours,
     };
   }
 
   const union = new Set(lists.flatMap((l) => [...l.codes]));
   const picked = [...held].filter((code) => union.has(code)).sort();
-  return { met: picked.length >= c.n, from: lists.length === 1 ? lists[0].label : null, picked };
+  return {
+    met: picked.length >= c.n && hoursMet,
+    from: lists.length === 1 ? lists[0].label : null,
+    picked,
+    count: picked.length,
+    hoursTarget: c.hours ?? null,
+    hours,
+  };
+}
+
+function constraintProgress(c: {
+  n: number;
+  count: number;
+  hoursTarget: number | null;
+  hours: number;
+}): string {
+  const parts = [
+    c.n > 0 ? `${c.count} of ${c.n} required selections` : null,
+    c.hoursTarget !== null
+      ? `${c.hours} of ${c.hoursTarget} upper-division hours`
+      : null,
+  ].filter(Boolean);
+  return `This plan has ${parts.join(' and ')}`;
 }
 
 /** Fewest new courses wins, then the cheaper set of them. Total, so it is stable. */
@@ -1623,8 +1766,20 @@ function cheaperFill(
 // Terms.
 // ---------------------------------------------------------------------------
 
-function buildHorizon(horizon: Horizon): Array<{ id: string; label: string; season: SemesterSeason; calendarYear: number; index: number }> {
-  const out: Array<{ id: string; label: string; season: SemesterSeason; calendarYear: number; index: number }> = [];
+function buildHorizon(horizon: Horizon): Array<{
+  id: string;
+  label: string;
+  season: SemesterSeason;
+  calendarYear: number;
+  index: number;
+}> {
+  const out: Array<{
+    id: string;
+    label: string;
+    season: SemesterSeason;
+    calendarYear: number;
+    index: number;
+  }> = [];
   let season = horizon.startSeason;
   let year = horizon.startYear;
   // A guard rather than a limit anybody should hit: eight years of terms is far
@@ -1840,14 +1995,24 @@ function subjectRoomLeft(subject: string, taken: Map<string, number>, primary: s
 }
 
 /** The catalog, best elective first, minus what the caller rules out. */
-function rankedElectivePool(ctx: PlanningContext, s: ElectiveScoring, exclude: (code: string) => boolean): string[] {
+function rankedElectivePool(
+  ctx: PlanningContext,
+  s: ElectiveScoring,
+  exclude: (code: string) => boolean,
+  limit = 800,
+): string[] {
   return ctx.courses
     .map((c) => normaliseCode(c.code))
+    // Both supported catalogs include graduate courses. They cannot fill an
+    // undergraduate degree and scoring them made initial UGA generation sort
+    // thousands of candidates it would reject later anyway. courseLevel maps
+    // Illinois 500-level and UGA 5000-level numbers to the same 500 threshold.
+    .filter((code) => courseLevel(code) === 0 || courseLevel(code) < 500)
     .filter((code) => !exclude(code))
     .map((code) => ({ code, score: scoreElective(code, s) }))
     .filter((c) => Number.isFinite(c.score))
     .sort((a, b) => b.score - a.score || courseLevel(a.code) - courseLevel(b.code) || a.code.localeCompare(b.code))
-    .slice(0, 800)
+    .slice(0, limit)
     .map((c) => c.code);
 }
 
@@ -1879,6 +2044,8 @@ export function electiveOptions(input: {
   prior: PriorCredit;
   interests?: string;
   programName?: string;
+  /** Restrict the eligibility check to one published requirement list. */
+  candidateCodes?: ReadonlySet<string>;
   limit?: number;
   standingHours?: StandingThresholds;
 }): ElectiveOption[] {
@@ -1946,7 +2113,16 @@ export function electiveOptions(input: {
     creditRanges: ctx.creditRanges,
     creditsOf,
   };
-  const pool = rankedElectivePool(ctx, scoring, (code) => onBoard.has(code) || held.has(code) || creditsOf(code) <= 0);
+  const pool = rankedElectivePool(
+    ctx,
+    scoring,
+    (code) =>
+      onBoard.has(code) ||
+      held.has(code) ||
+      creditsOf(code) <= 0 ||
+      (input.candidateCodes !== undefined && !input.candidateCodes.has(code)),
+    Math.max(800, input.limit ?? 60),
+  );
   const out: ElectiveOption[] = [];
   for (const code of pool) {
     const course = byCode.get(code);
@@ -2375,16 +2551,31 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
       continue;
     }
 
-    if (requirement.rule.kind === 'hours' && (!requirement.rule.genEd || requirement.rule.genEd.length === 0)) {
-      const filled = (input.degreeTotal ?? null) !== null;
+    if (
+      requirement.rule.kind === 'hours' &&
+      (!requirement.rule.genEd || requirement.rule.genEd.length === 0)
+    ) {
+      const explicitElective = requirement.rule.source === 'explicit-elective';
+      const parserGap = requirement.rule.source === 'parser-gap';
+      const filled =
+        explicitElective ||
+        (!parserGap && (input.degreeTotal ?? null) !== null);
       unsatisfied.push({
         requirementId: requirement.id,
         areaLabel: requirement.areaLabel,
         label: requirement.label || requirement.areaLabel,
-        reason: filled ? 'filled-by-electives' : 'no-course-data',
-        message: filled
-          ? `${requirement.rule.hours} hours the page does not name courses for. The plan fills them with elective slots; tap any slot to choose what goes there.`
-          : `${requirement.rule.hours} hours. The page does not say which courses count.`,
+        reason: parserGap
+          ? 'no-course-data'
+          : filled
+            ? 'filled-by-electives'
+            : 'no-course-data',
+        message: parserGap
+          ? `This draft is incomplete. It could not read ${requirement.rule.hours} required credit ${requirement.rule.hours === 1 ? 'hour' : 'hours'} from the catalog, and it has not replaced them with electives.`
+          : explicitElective
+            ? `${requirement.rule.hours} general-elective credit ${requirement.rule.hours === 1 ? 'hour is' : 'hours are'} included in the plan. Each elective card can be changed to another eligible course.`
+            : filled
+              ? `${requirement.rule.hours} credit ${requirement.rule.hours === 1 ? 'hour is' : 'hours are'} open on the catalog page. The plan uses editable elective cards for them.`
+              : `The catalog requires ${requirement.rule.hours} credit ${requirement.rule.hours === 1 ? 'hour' : 'hours'} here but does not identify the courses that count.`,
         url: requirement.url,
       });
       continue;
@@ -3304,7 +3495,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
     const constraints = (slot.constraints ?? []).map((c) => ({
       text: c.text,
       n: c.n,
-      ...constraintStatus(c, heldSet),
+      ...constraintStatus(c, heldSet, creditsOf),
     }));
     return {
       requirementId: slot.requirementId,
@@ -3388,7 +3579,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
         label: pool.label,
         reason: 'constraint-unmet',
         // The sentence, then the count, and no attempt to explain it away.
-        message: `${c.text} This plan has ${c.picked.length} of ${c.n}.`,
+        message: `${c.text} ${constraintProgress(c)}.`,
         url: pool.url,
       });
     }
@@ -3461,18 +3652,37 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
     };
     const plannedAll = new Set<string>([...placed.values()].flat());
     const perSubject = new Map<string, number>();
-    const candidates = rankedElectivePool(ctx, scoring, (code) => plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0);
-    let total = priorCreditTotal + [...placed.values()].flat().reduce((sum, code) => sum + creditsOf(code), 0);
+    const candidates = rankedElectivePool(
+      ctx,
+      scoring,
+      (code) =>
+        plannedAll.has(code) ||
+        earned.has(code) ||
+        exempt.has(code) ||
+        creditsOf(code) <= 0,
+    );
+    let total =
+      priorCreditTotal +
+      [...placed.values()]
+        .flat()
+        .reduce((sum, code) => sum + creditsOf(code), 0);
+    const electiveTarget =
+      typeof input.electiveHoursLimit === 'number' && !input.fillToDegreeTotal
+        ? Math.min(
+            degreeTotalPublished,
+            total + Math.max(0, input.electiveHoursLimit),
+          )
+        : degreeTotalPublished;
 
     for (const ceiling of [overallAim, credits.max]) {
       let progress = true;
-      while (total < degreeTotalPublished && progress) {
+      while (total < electiveTarget && progress) {
         progress = false;
         const order = fillTerms
           .slice()
           .sort((a, b) => planCreditRange(placed.get(a.id) ?? [], ctx).min - planCreditRange(placed.get(b.id) ?? [], ctx).min || a.index - b.index);
         for (const term of order) {
-          if (total >= degreeTotalPublished) break;
+          if (total >= electiveTarget) break;
           const here = placed.get(term.id) ?? [];
           placed.set(term.id, here);
           const running = planCreditRange(here, ctx).min;
@@ -3529,9 +3739,10 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
      */
     const usedTerms = terms.filter((term) => (placed.get(term.id) ?? []).length > 0);
     let topped = true;
-    while (topped) {
+    while (topped && total < electiveTarget) {
       topped = false;
       for (const term of usedTerms) {
+        if (total >= electiveTarget) break;
         const here = placed.get(term.id) ?? [];
         const running = planCreditRange(here, ctx).min;
         if (running >= credits.min) continue;
@@ -3589,13 +3800,27 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
       notes.push(`Terms aim for about ${overallAim} credits, an even share of the ${remainingDegree} credits left toward the ${degreeTotalPublished} this degree takes, over ${fillTerms.length} terms. Set a number in Preferences to aim higher or lower.`);
     }
     if (electives.length > 0) {
+      const electiveCredits = electives.reduce(
+        (sum, elective) => sum + creditsOf(elective.code),
+        0,
+      );
+      const beyondPublishedElectives =
+        typeof input.electiveHoursLimit === 'number'
+          ? Math.max(0, electiveCredits - input.electiveHoursLimit)
+          : 0;
       notes.push(
-        `${electives.length} ${electives.length === 1 ? 'slot is an elective' : 'slots are electives'} that fill the ${degreeTotalPublished} credits this degree takes beyond what its page names. Each holds a suggested course; tap it to choose from everything you could take that term.`,
+        typeof input.electiveHoursLimit === 'number' && beyondPublishedElectives > 0
+          ? `${input.electiveHoursLimit} elective credits fill the general-elective space published for this degree. ${beyondPublishedElectives} additional editable credits bring the plan to ${degreeTotalPublished}; they cover overlapping core/major credit and college-wide requirements that this degree page does not enumerate. Confirm those ${beyondPublishedElectives} credits in DegreeWorks or with an advisor.`
+          : typeof input.electiveHoursLimit === 'number'
+          ? `${electives.length} ${electives.length === 1 ? 'editable course fills' : 'editable courses fill'} the general-elective space published for this degree. Tap any elective card to choose another eligible course.`
+          : `${electives.length} ${electives.length === 1 ? 'editable elective fills' : 'editable electives fill'} the difference between the named requirements and the ${degreeTotalPublished}-credit degree total.`,
       );
     }
     if (total < degreeTotalPublished) {
       notes.push(
-        `This plan reaches ${Math.round(total)} of the ${degreeTotalPublished} credits the degree takes. Nothing else eligible fit before ${input.horizon.gradSeason} ${input.horizon.gradYear}.`,
+        typeof input.electiveHoursLimit === 'number' && !input.fillToDegreeTotal
+          ? `This draft schedules ${Math.round(total)} of ${degreeTotalPublished} credits. It stops here instead of using extra electives to cover requirements the catalog data could not identify.`
+          : `This plan reaches ${Math.round(total)} of the ${degreeTotalPublished} credits the degree takes. Nothing else eligible fit before ${input.horizon.gradSeason} ${input.horizon.gradYear}.`,
       );
     }
   }

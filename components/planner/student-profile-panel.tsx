@@ -9,7 +9,7 @@
  * 888px of panel on arrival for settings almost nobody changes.
  */
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import type { RequirementArea } from '@/lib/planner/scheduler';
@@ -60,6 +60,38 @@ interface RailProps {
   pools?: ReactNode;
   /** The transcript upload, rendered by the caller for the same reason the pools are. */
   transcript?: ReactNode;
+}
+
+/**
+ * Keep free-form typing local until the student leaves the field.
+ *
+ * The committed value changes elective ranking. Sending every keystroke to the
+ * workspace made an open replacement picker rescore the full catalog while the
+ * textarea was still handling its own change event, which was both slow and
+ * could drive React into a nested-update loop.
+ */
+function CareerInterestsField({
+  initialValue,
+  onCommit,
+}: {
+  initialValue: string;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(initialValue);
+
+  return (
+    <label className="rail-field">
+      <span>What you want to be doing after</span>
+      <textarea
+        rows={3}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          if (draft !== initialValue) onCommit(draft);
+        }}
+      />
+    </label>
+  );
 }
 
 export function StudentProfilePanel({
@@ -144,7 +176,11 @@ export function StudentProfilePanel({
                 {/* No bar without a target. An area whose hours the degree page
                     does not publish has nothing to be a fraction of, and a bar
                     stuck at zero next to 73 earned hours reads as no progress. */}
-                <span>{row.area.hours ? `${row.earned}/${row.area.hours}` : `${row.earned} hr`}</span>
+                <span>
+                  {row.area.hours
+                    ? `${row.earned}/${row.area.hours} cr`
+                    : `${row.earned} cr`}
+                </span>
               </div>
               {row.area.hours > 0 && <Bar percent={row.percent} />}
             </div>
@@ -162,7 +198,11 @@ export function StudentProfilePanel({
                 >
                   No heading published
                 </span>
-                <span>{row.area.hours ? `${row.earned}/${row.area.hours}` : `${row.earned} hr`}</span>
+                <span>
+                  {row.area.hours
+                    ? `${row.earned}/${row.area.hours} cr`
+                    : `${row.earned} cr`}
+                </span>
               </div>
               {row.area.hours > 0 && <Bar percent={row.percent} />}
             </div>
@@ -235,16 +275,13 @@ export function StudentProfilePanel({
           after changing these. Your graduation date comes first, so a term goes past the number
           you set only when the degree would not fit in time otherwise, and never past 18.
         </p>
-        <label className="rail-field">
-          <span>What you want to be doing after</span>
-          <textarea
-            rows={3}
-            value={careerInterests}
-            onChange={(event) => onCareerChange(event.target.value)}
-          />
-        </label>
+        <CareerInterestsField
+          key={careerInterests}
+          initialValue={careerInterests}
+          onCommit={onCareerChange}
+        />
         <p className="rail-field" style={{ fontSize: 'var(--fs-micro)', color: '#6f8098' }}>
-          Written down, not yet used by the scheduler.
+          Used to rank elective suggestions after you press Rebuild.
         </p>
       </details>
 

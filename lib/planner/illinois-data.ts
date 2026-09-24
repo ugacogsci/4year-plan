@@ -513,6 +513,12 @@ export interface PoolConstraint {
   lists: PoolList[];
   /** True when all n have to come from ONE of `lists` rather than spread across them. */
   single: boolean;
+  /** Count how many named lists are represented, assigning each course once. */
+  distinctLists?: boolean;
+  /** Optional credit-hour floor inside `hourCodes`. */
+  hours?: number;
+  /** Courses whose credit contributes to `hours`. */
+  hourCodes?: string[];
 }
 
 export type RequirementRule =
@@ -544,7 +550,14 @@ export type RequirementRule =
       from: 'group' | 'area';
       label: string;
     }
-  | { kind: 'hours'; hours: number; genEd: string[] | null; label: string }
+  | {
+      kind: 'hours';
+      hours: number;
+      genEd: string[] | null;
+      label: string;
+      /** Why there is an hours-only block, so the UI does not call missing parser data an elective. */
+      source?: 'catalog' | 'explicit-elective' | 'parser-gap';
+    }
   /**
    * One campus general education category, as the degree page states it.
    *

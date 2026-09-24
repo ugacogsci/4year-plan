@@ -39,12 +39,54 @@ import type { PoolConstraint, RequirementBlock } from '@/lib/planner/illinois-da
 function constraintOnBoard(
   constraint: PoolConstraint,
   held: Set<string>,
-): { met: boolean; from: string | null; picked: string[] } {
+  context: PlanningContext,
+): {
+  met: boolean;
+  from: string | null;
+  picked: string[];
+  count: number;
+  hoursTarget: number | null;
+  hours: number;
+} {
   const lists = constraint.lists.map((list) => ({
     label: list.label,
     codes: new Set(list.codes.map(normaliseCode)),
   }));
-  if (lists.length === 0) return { met: true, from: null, picked: [] };
+  if (lists.length === 0)
+    return { met: true, from: null, picked: [], count: 0, hoursTarget: constraint.hours ?? null, hours: 0 };
+
+  const hourCodes = new Set((constraint.hourCodes ?? []).map(normaliseCode));
+  const hourCourses = [...held].filter((code) => hourCodes.has(code));
+  const hours = planCreditRange(hourCourses, context).min;
+  const hoursMet = constraint.hours === undefined || hours >= constraint.hours;
+
+  if (constraint.distinctLists) {
+    const matchedCourse = new Map<string, number>();
+    const match = (listIndex: number, seen: Set<string>): boolean => {
+      for (const code of [...held].sort()) {
+        if (seen.has(code) || !lists[listIndex].codes.has(code)) continue;
+        seen.add(code);
+        const previous = matchedCourse.get(code);
+        if (previous === undefined || match(previous, seen)) {
+          matchedCourse.set(code, listIndex);
+          return true;
+        }
+      }
+      return false;
+    };
+    let count = 0;
+    for (let index = 0; index < lists.length; index += 1) {
+      if (match(index, new Set<string>())) count += 1;
+    }
+    return {
+      met: count >= constraint.n && hoursMet,
+      from: null,
+      picked: [...matchedCourse.keys()].sort(),
+      count,
+      hoursTarget: constraint.hours ?? null,
+      hours,
+    };
+  }
 
   if (constraint.single && lists.length > 1) {
     let best: { label: string; picked: string[] } = { label: lists[0].label, picked: [] };
@@ -53,19 +95,42 @@ function constraintOnBoard(
       if (picked.length > best.picked.length) best = { label: list.label, picked };
     }
     return {
-      met: best.picked.length >= constraint.n,
+      met: best.picked.length >= constraint.n && hoursMet,
       from: best.picked.length > 0 ? best.label : null,
       picked: best.picked,
+      count: best.picked.length,
+      hoursTarget: constraint.hours ?? null,
+      hours,
     };
   }
 
   const union = new Set(lists.flatMap((list) => [...list.codes]));
   const picked = [...held].filter((code) => union.has(code)).sort();
   return {
-    met: picked.length >= constraint.n,
+    met: picked.length >= constraint.n && hoursMet,
     from: lists.length === 1 ? lists[0].label : null,
     picked,
+    count: picked.length,
+    hoursTarget: constraint.hours ?? null,
+    hours,
   };
+}
+
+function constraintProgress(constraint: {
+  n: number;
+  count: number;
+  hoursTarget: number | null;
+  hours: number;
+}): string {
+  const parts = [
+    constraint.n > 0
+      ? `${constraint.count} of ${constraint.n} required selections`
+      : null,
+    constraint.hoursTarget !== null
+      ? `${constraint.hours} of ${constraint.hoursTarget} upper-division hours`
+      : null,
+  ].filter(Boolean);
+  return `This plan has ${parts.join(' and ')}`;
 }
 
 /** Every code a pool's catalog list names, whether or not the snapshot has it. */
@@ -152,7 +217,7 @@ export function livePools({
     const block = blockById.get(pool.requirementId);
     const constraints =
       block && block.rule.kind === 'pool'
-        ? block.rule.constraints.map((c) => ({ text: c.text, n: c.n, ...constraintOnBoard(c, heldSet) }))
+        ? block.rule.constraints.map((c) => ({ text: c.text, n: c.n, ...constraintOnBoard(c, heldSet, context) }))
         : pool.constraints;
 
     /**
@@ -232,7 +297,7 @@ export function poolShortfalls(pools: PoolReport[]): UnsatisfiedRequirement[] {
         areaLabel: pool.areaLabel,
         label: pool.label,
         // The sentence, then the count, and no attempt to explain it away.
-        message: `${constraint.text} This plan has ${constraint.picked.length} of ${constraint.n}.`,
+        message: `${constraint.text} ${constraintProgress(constraint)}.`,
         reason: 'constraint-unmet',
         url: pool.url,
       });

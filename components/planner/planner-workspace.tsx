@@ -25,7 +25,6 @@ import {
   ChevronDown,
   Info,
   Save,
-  Sparkles,
   Undo2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -39,7 +38,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { BotLauncher, BotPanel } from './advisor';
 import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
-import { groupIssues, PlanHealthList } from './plan-health';
+import { groupIssues, isTermIssue, PlanHealthList } from './plan-health';
 import { SemesterColumn } from './semester-column';
 import { StudentProfilePanel, type AreaRow } from './student-profile-panel';
 import {
@@ -88,12 +87,14 @@ import {
   isPlanState,
 } from '@/lib/planner/rules';
 import type { Course, PlanIssue, PlanState } from '@/lib/planner/types';
-import { clearAnswers, schoolById, summarize, type OnboardingAnswers } from '@/lib/planner/onboarding';
+import { clearAnswers, schoolById, type OnboardingAnswers } from '@/lib/planner/onboarding';
 import { normalizeCourseCode, transcriptCodes } from '@/lib/planner/transcript';
+import { degreeCompletionIssue } from '@/lib/planner/completion';
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail } from '@/lib/planner/illinois-load';
 import type { AdvisorExecutor } from '@/lib/planner/advisor';
+import type { RequirementBlock } from '@/lib/planner/illinois-data';
 
 const STORAGE_KEY = 'four-year-planner-v3';
 
@@ -131,10 +132,111 @@ function calendarYearOf(term: { id: string; label: string; year: number }): numb
 }
 
 
-/** What the constellation paints. See mapCourses below for why it is bounded. */
-const MAP_LIMIT = 240;
-
 const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
+
+interface ReplacementScope {
+  /** Null means a true open elective; a set means stay inside this requirement. */
+  codes: Set<string> | null;
+  label: string;
+}
+
+function choiceCodes(block: RequirementBlock): Set<string> {
+  const out = new Set<string>();
+  if (block.rule.kind !== 'all' && block.rule.kind !== 'choose' && block.rule.kind !== 'pool') {
+    return out;
+  }
+  for (const choice of block.rule.choices) {
+    for (const code of [...choice.codes, ...choice.substitutes]) out.add(normCode(code));
+  }
+  return out;
+}
+
+/** The academically meaningful boundary around one replacement list. */
+function replacementScope(input: {
+  course: Course;
+  blocks: RequirementBlock[];
+  pools: PoolReport[];
+  isOpenElective: boolean;
+  isPrerequisite: boolean;
+  catalog: Course[];
+}): ReplacementScope {
+  const code = normCode(input.course.code);
+  if (input.isOpenElective) {
+    return {
+      codes: null,
+      label: 'Any course that fits this term and still counts toward the degree total.',
+    };
+  }
+
+  // A replacement also has to preserve downstream prerequisites. Until the
+  // planner can re-solve those dependencies after a swap, do not offer a
+  // same-area course that would make a later card invalid.
+  if (input.isPrerequisite) {
+    return {
+      codes: new Set([code]),
+      label: 'This course is needed as a prerequisite for another course in the plan.',
+    };
+  }
+
+  const pool = input.pools.find((candidate) =>
+    candidate.picked.some((picked) => normCode(picked) === code),
+  );
+  if (pool) {
+    const block = input.blocks.find((candidate) => candidate.id === pool.requirementId);
+    const codes = block ? choiceCodes(block) : new Set(
+      [...pool.picked, ...pool.alternatives, ...pool.fromPriorCredit].map(normCode),
+    );
+    return { codes, label: `Courses published for ${pool.label}.` };
+  }
+
+  // An "all" row is the narrowest rule: only the alternatives printed on
+  // that row can stand in for it. Check these before broader choose/pool lists.
+  for (const block of input.blocks) {
+    if (block.rule.kind !== 'all') continue;
+    const row = block.rule.choices.find((choice) =>
+      [...choice.codes, ...choice.substitutes].some((candidate) => normCode(candidate) === code),
+    );
+    if (!row) continue;
+    return {
+      codes: new Set([...row.codes, ...row.substitutes].map(normCode)),
+      label: `Catalog-listed alternatives for ${block.label || block.areaLabel}.`,
+    };
+  }
+
+  for (const block of input.blocks) {
+    if (block.rule.kind !== 'choose' && block.rule.kind !== 'pool') continue;
+    const codes = choiceCodes(block);
+    if (codes.has(code)) {
+      return { codes, label: `Courses published for ${block.label || block.areaLabel}.` };
+    }
+  }
+
+  // General education choices are attached to an area rather than an
+  // explicit course list. Courses tagged for the same area are the honest set.
+  for (const block of input.blocks) {
+    if (block.rule.kind !== 'gened') continue;
+    if (!input.course.requirementIds.includes(block.areaId) &&
+        !input.course.requirementIds.includes(block.id)) continue;
+    const codes = input.catalog
+      .filter((candidate) =>
+        candidate.requirementIds.includes(block.areaId) || candidate.requirementIds.includes(block.id),
+      )
+      .map((candidate) => normCode(candidate.code));
+    return { codes: new Set(codes), label: `Courses that fulfill ${block.label || block.areaLabel}.` };
+  }
+
+  if (input.course.pathwayRole === 'required') {
+    return {
+      codes: new Set([code]),
+      label: 'This course is fixed by the published degree requirements.',
+    };
+  }
+
+  return {
+    codes: null,
+    label: 'Other courses that fit this term and count toward the degree total.',
+  };
+}
 
 /**
  * autoplan's NotPlaced reasons, in the product's own words.
@@ -257,6 +359,7 @@ export function PlannerWorkspace({
   const [minimumTermCredits, setMinimumTermCredits] = useState(12);
   /** The elective slot being chosen for, if any. Drives the finder's list. */
   const [chooser, setChooser] = useState<{ termId: string; courseId: string } | null>(null);
+  const [chooserOnMap, setChooserOnMap] = useState(false);
   /**
    * The board as of the last commit, for the advisor's tools.
    *
@@ -457,23 +560,44 @@ export function PlannerWorkspace({
       year: term?.year ?? new Date().getFullYear(),
     });
 
-    const generated = generatePlan({
-      requirements: loaded.blocks,
-      context,
-      prior,
-      horizon,
-      preferences: { creditsPerTerm: { min: minimumTermCredits, target: targetTermCredits, max: 18 } },
-      programId: loaded.summary.id,
-      // The published total is what the plan must reach; the blocks alone
-      // name 82 of Finance's 124 credits. The student's own words rank the
-      // electives that fill the rest.
-      degreeTotal: loaded.summary.totalCredits ?? loaded.program.totalCredits ?? null,
-      interests: [answers?.studying ?? '', answers?.after ?? '', careerInterests].join(' '),
-      programName: loaded.program.name,
-    });
+    let generated: GeneratedPlan;
+    try {
+      generated = generatePlan({
+        requirements: loaded.blocks,
+        context,
+        prior,
+        horizon,
+        preferences: { creditsPerTerm: { min: minimumTermCredits, target: targetTermCredits, max: 18 } },
+        programId: loaded.summary.id,
+        // The published total is what the plan must reach; the blocks alone
+        // name 82 of Finance's 124 credits. The student's own words rank the
+        // electives that fill the rest.
+        degreeTotal:
+          loaded.summary.totalCredits ?? loaded.program.totalCredits ?? null,
+        electiveHoursLimit:
+          isUga && 'electiveHours' in loaded ? loaded.electiveHours : undefined,
+        fillToDegreeTotal:
+          isUga && 'fillToDegreeTotal' in loaded
+            ? loaded.fillToDegreeTotal
+            : undefined,
+        interests: [
+          answers?.studying ?? '',
+          answers?.after ?? '',
+          careerInterests,
+        ].join(' '),
+        programName: loaded.program.name,
+      });
+    } catch (error) {
+      console.error('Could not generate plan', error);
+      setStatus(
+        `The draft could not be generated: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+      return;
+    }
 
     setPlan(generated.plan);
     setChooser(null);
+    setChooserOnMap(false);
     setTargetTermId(generated.plan.terms[0]?.id ?? '');
     setPlanNotes(generated.notes);
     /**
@@ -490,12 +614,30 @@ export function PlannerWorkspace({
       firstTermId: generated.plan.terms[0]?.id ?? '',
     });
     setUndoStack([]);
+    const needsAttention =
+      generated.notPlaced.length > 0 ||
+      generated.unsatisfied.some(
+        (row) =>
+          row.reason !== 'filled-by-electives' && row.reason !== 'not-parsed',
+      );
     setStatus(
-      generated.unsatisfied.length || generated.notPlaced.length
-        ? 'Plan built. Open the review list to see what it could not do.'
-        : 'Plan built. Nothing to review.',
+      needsAttention
+        ? 'Draft built. Review the items that still need attention.'
+        : 'Plan built. Nothing needs attention.',
     );
-  }, [isCatalogSchool, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests]);
+  }, [
+    isCatalogSchool,
+    isUga,
+    core,
+    context,
+    loaded,
+    answers,
+    byCode,
+    minimumTermCredits,
+    targetTermCredits,
+    examCredit,
+    careerInterests,
+  ]);
 
   useEffect(() => {
     if (plan) return;
@@ -615,19 +757,6 @@ export function PlannerWorkspace({
     ];
   }, [report, pools]);
 
-  const issues = useMemo(() => {
-    if (!plan) return [];
-    const validation = context
-      ? validatePlan(plan, context, { minimumTermCredits }).filter(
-          (issue) => !isUga || !issue.id.startsWith('ap-weighed-'),
-        )
-      : [];
-    const rows = context
-      ? [...unmet, ...validation]
-      : getPlanIssues(plan, catalog, { minimumTermCredits });
-    return rows.map((issue) => ({ ...issue, message: withCourseCodes(issue.message) }));
-  }, [plan, context, isUga, unmet, minimumTermCredits, catalog]);
-
   /** The degree on screen, from whichever source this school has. */
   const activeProgramName =
     loaded?.program.name ?? programOptions.find((p) => p.id === programId)?.name ?? null;
@@ -724,8 +853,93 @@ export function PlannerWorkspace({
         if (course) have.add(normCode(course.code));
       }
     }
-    return areaProgress(loaded.program, have, isIllinois ? (core?.equivalents ?? undefined) : undefined);
-  }, [loaded, plan, completedCodes, courseIndex, isIllinois, core]);
+    const progress = areaProgress(
+      loaded.program,
+      have,
+      isIllinois ? (core?.equivalents ?? undefined) : undefined,
+      { allowCrossAreaOverlap: isUga },
+    );
+    if (!isUga) return progress;
+
+    // UGA's General Electives row is the degree credit left after the named
+    // areas have claimed their capped hours. That includes editable elective
+    // cards and the extra hour of a four-credit course filling a three-credit
+    // area. Counting only cards labelled "elective" understated this row even
+    // when the board had reached the published degree total.
+    const namedCredits = progress
+      .filter((row) => !/^(?:general|free) electives?\b/i.test(row.area.label))
+      .reduce((sum, row) => sum + row.earned, 0);
+    const unassignedCredits = Math.max(0, credits.total.min - namedCredits);
+    return progress.map((row) => {
+      if (!/^(?:general|free) electives?\b/i.test(row.area.label)) return row;
+      const earned = Math.min(row.area.hours, unassignedCredits);
+      return {
+        ...row,
+        earned,
+        percent: row.area.hours
+          ? Math.round((earned / row.area.hours) * 100)
+          : 0,
+        satisfied: row.area.hours > 0 && earned >= row.area.hours,
+      };
+    });
+  }, [
+    loaded,
+    plan,
+    completedCodes,
+    courseIndex,
+    isIllinois,
+    isUga,
+    core,
+    credits.total.min,
+  ]);
+
+  /**
+   * The review list follows the edited board, not only the generation report.
+   * A plan may be valid when generated and stop being valid after a course is
+   * removed or replaced, so the first red row gives the overall consequence
+   * before the specific prerequisite and requirement details below it.
+   */
+  const issues = useMemo(() => {
+    if (!plan) return [];
+    const validation = context
+      ? validatePlan(plan, context, { minimumTermCredits }).filter(
+          (issue) => !isUga || !issue.id.startsWith('ap-weighed-'),
+        )
+      : [];
+    const rows = context
+      ? [...unmet, ...validation]
+      : getPlanIssues(plan, catalog, { minimumTermCredits });
+    const currentCredits = context ? credits.total.min : getPlanCredits(plan, catalog).total;
+    const incompleteAreas = areas.filter((row) => row.area.hours > 0 && !row.satisfied);
+    const incompletePools = pools.filter(
+      (pool) =>
+        (pool.hoursTarget !== null && pool.hours < pool.hoursTarget) ||
+        (pool.countTarget !== null && pool.count < pool.countTarget),
+    );
+    const completionIssue = degreeCompletionIssue({
+      currentCredits,
+      requiredCredits: activeProgramTotal,
+      incompleteRequirementNames: [
+        ...incompleteAreas.map((row) => row.area.label).filter(Boolean),
+        ...incompletePools.map((pool) => pool.label).filter(Boolean),
+      ],
+      termId: plan.terms[0]?.id ?? '',
+    });
+    return [completionIssue, ...rows]
+      .filter((issue): issue is PlanIssue => Boolean(issue))
+      .map((issue) => ({ ...issue, message: withCourseCodes(issue.message) }));
+  }, [
+    plan,
+    context,
+    isUga,
+    unmet,
+    minimumTermCredits,
+    catalog,
+    credits.total.min,
+    activeProgramTotal,
+    areas,
+    pools,
+  ]);
 
   /**
    * Which pool each planned course is filling, and what that pool still wants.
@@ -761,14 +975,6 @@ export function PlannerWorkspace({
     return map;
   }, [pools, byCode, report]);
 
-  /**
-   * What the map paints, in priority order, capped at 240.
-   *
-   * The old slice took every Nth course out of the catalog and labelled the
-   * result "881 courses", which reads as the whole catalog and is not. A map a
-   * student can act on shows what their own degree and their own search point
-   * at, and the count below it says how many of how many.
-   */
   /** Whether the query matches anything at all, so the panel can say when it does not. */
   const searchHits = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -783,8 +989,7 @@ export function PlannerWorkspace({
    *
    * The map answers a search by lighting dots, and forty accountancy courses
    * light one cluster the size of a thumbnail. The list is the same matches
-   * with their codes and titles, catalog-wide rather than capped at the 240 the
-   * map paints. Code matches first, because a student who typed "ACCY 3" wants
+   * with their codes and titles. Code matches first, because a student who typed "ACCY 3" wants
    * ACCY 301 above a title that mentions accountancy.
    */
   const searchResults = useMemo((): Course[] => {
@@ -801,40 +1006,6 @@ export function PlannerWorkspace({
     }
     return [...byCodeHit, ...byTitleHit, ...bySubjectHit].slice(0, 80);
   }, [catalog, searchQuery]);
-
-  const mapCourses = useMemo(() => {
-    const picked = new Map<string, Course>();
-    const take = (c?: Course) => {
-      if (c && !picked.has(c.id)) picked.set(c.id, c);
-    };
-    plannedCourseIds.forEach((id) => take(courseIndex.get(id)));
-
-    // What the student searched for goes on before the degree fill, not after.
-    // The degree lists alone exhaust MAP_LIMIT on Computer Science, so the
-    // search loop used to break on its first iteration and 5,870 of the 6,110
-    // courses could never be found at all. A search that silently returns the
-    // same 240 dots is worse than no search.
-    const query = searchQuery.trim().toLowerCase();
-    if (query) {
-      for (const course of catalog) {
-        if (picked.size >= MAP_LIMIT) break;
-        if (matchesQuery(course, query)) take(course);
-      }
-    }
-
-    if (loaded) {
-      const wanted = new Set(loaded.blocks.map((b) => b.areaId));
-      for (const course of catalog) {
-        if (picked.size >= MAP_LIMIT) break;
-        if (course.requirementIds.some((id) => wanted.has(id))) take(course);
-      }
-    }
-    for (const course of catalog) {
-      if (picked.size >= MAP_LIMIT) break;
-      take(course);
-    }
-    return [...picked.values()];
-  }, [catalog, courseIndex, loaded, plannedCourseIds, searchQuery]);
 
   const selectedCourse = selectedCourseId ? courseIndex.get(selectedCourseId) : undefined;
 
@@ -874,12 +1045,25 @@ export function PlannerWorkspace({
   }
 
   /**
-   * The slot's chooser: everything the student could take in that term, best
-   * fit first, read off the board as it stands. Built only while a slot is open,
-   * because it walks the whole catalog against the board's prerequisites.
+   * Eligible replacements for one card. First establish which published
+   * requirement the card is filling, then apply the term's prerequisite,
+   * offering, standing, duplicate-credit and already-planned checks.
    */
-  const chooserOptions = useMemo((): Course[] => {
-    if (!chooser || !plan || !context || !loaded) return [];
+  const chooserData = useMemo((): { label: string; options: Course[] } | null => {
+    if (!chooser || !plan || !context || !loaded) return null;
+    const oldCourse = courseIndex.get(chooser.courseId);
+    if (!oldCourse) return null;
+    const isPrerequisite = plan.terms.some((term) =>
+      term.courseIds.some((id) => courseIndex.get(id)?.prerequisites.includes(oldCourse.id)),
+    );
+    const scope = replacementScope({
+      course: oldCourse,
+      blocks: loaded.blocks,
+      pools,
+      isOpenElective: electiveOf.get(oldCourse.id)?.kind === 'elective',
+      isPrerequisite,
+      catalog,
+    });
     const prior = readPriorCredit(
       answers?.transferText ?? '',
       answers?.exams.length ?? 0,
@@ -888,23 +1072,77 @@ export function PlannerWorkspace({
       Boolean(answers?.transcript),
       examElectiveHours(answers?.exams ?? [], examCredit.entries),
     );
-    return electiveOptions({
+    const planWithoutCourse: PlanState = {
+      ...plan,
+      terms: plan.terms.map((term) =>
+        term.id === chooser.termId
+          ? { ...term, courseIds: term.courseIds.filter((id) => id !== chooser.courseId) }
+          : term,
+      ),
+    };
+    const options = electiveOptions({
       context,
       requirements: loaded.blocks,
-      plan,
+      plan: planWithoutCourse,
       termId: chooser.termId,
       prior,
-      interests: [answers?.studying ?? '', answers?.after ?? '', careerInterests].join(' '),
+      // Replacements are constrained by the requirement and term. Career text
+      // influences the next generated plan, but should not rescore an already
+      // open chooser while the student is editing that text.
+      interests: [answers?.studying ?? '', answers?.after ?? ''].join(' '),
       programName: loaded.program.name,
-      limit: 80,
+      candidateCodes: scope.codes ?? undefined,
+      limit: scope.codes === null ? catalog.length : Math.max(800, scope.codes.size),
     })
+      .filter((option) => normCode(option.code) !== normCode(oldCourse.code))
+      .filter((option) => scope.codes === null || scope.codes.has(normCode(option.code)))
       .map((option) => byCode.get(normCode(option.code)))
       .filter((course): course is Course => Boolean(course));
-  }, [chooser, plan, context, loaded, answers, byCode, examCredit, careerInterests]);
+    return { label: scope.label, options };
+  }, [
+    chooser,
+    plan,
+    context,
+    loaded,
+    courseIndex,
+    pools,
+    electiveOf,
+    catalog,
+    answers,
+    byCode,
+    examCredit,
+  ]);
+
+  const chooserOptions = chooserData?.options ?? [];
+  const replacementCourseIds = useMemo(
+    () => new Set((chooserOnMap ? chooserData?.options ?? [] : []).map((course) => course.id)),
+    [chooserData, chooserOnMap],
+  );
+
+  function prepareReplacement(courseId: string, termId: string) {
+    setChooser({ termId, courseId });
+    setChooserOnMap(false);
+  }
 
   function openChooser(courseId: string, termId: string) {
-    setChooser({ termId, courseId });
+    prepareReplacement(courseId, termId);
     setSearchQuery('');
+    setChooserOnMap(true);
+    setFinderOpen(true);
+  }
+
+  function showReplacementCourse(courseId: string) {
+    const course = courseIndex.get(courseId);
+    if (!course) return;
+    setSelectedCourseId(courseId);
+    setSearchQuery(course.code);
+    setChooserOnMap(true);
+    setFinderOpen(true);
+  }
+
+  function showReplacements() {
+    setSearchQuery('');
+    setChooserOnMap(true);
     setFinderOpen(true);
   }
 
@@ -924,9 +1162,12 @@ export function PlannerWorkspace({
         t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === oldId ? newId : id)) } : t,
       ),
     });
-    // The slot stays an elective slot, now holding what the student chose.
-    noteElectiveSwap(oldCourse?.code ?? '', course.code, 'You chose it for this elective slot.');
+    // A true open-elective card remains an open-elective card after a swap.
+    if (oldCourse && electiveOf.get(oldCourse.id)?.kind === 'elective') {
+      noteElectiveSwap(oldCourse.code, course.code, 'You chose it for this elective slot.');
+    }
     setChooser(null);
+    setChooserOnMap(false);
     setSelectedCourseId(newId);
     setStatus(`${course.code} replaces ${oldCourse?.code ?? 'the elective'} in ${plan.terms.find((t) => t.id === termId)?.label ?? 'that term'}.`);
   }
@@ -960,26 +1201,49 @@ export function PlannerWorkspace({
     setStatus(`${course?.code ?? 'Course'} removed.`);
   }
 
-  function moveCourse(courseId: string, fromTermId: string, toTermId: string) {
-    if (!plan || fromTermId === toTermId) return;
+  function moveCourse(
+    courseId: string,
+    fromTermId: string,
+    toTermId: string,
+    targetCourseId?: string,
+    placeAfter = false,
+  ) {
+    if (!plan || targetCourseId === courseId) return;
     const destination = plan.terms.find((t) => t.id === toTermId);
     if (!destination) return;
     const course = courseIndex.get(courseId);
+    const reordered = destination.courseIds.filter((id) => id !== courseId);
+    const targetIndex = targetCourseId ? reordered.indexOf(targetCourseId) : -1;
+    if (targetIndex === -1) reordered.push(courseId);
+    else reordered.splice(targetIndex + (placeAfter ? 1 : 0), 0, courseId);
+    if (
+      fromTermId === toTermId &&
+      destination.courseIds.every((id, index) => reordered[index] === id)
+    ) {
+      return;
+    }
     commit({
       ...plan,
       terms: plan.terms.map((term) => {
+        if (fromTermId === toTermId && term.id === toTermId) {
+          return { ...term, courseIds: reordered };
+        }
         if (term.id === fromTermId) {
           return { ...term, courseIds: term.courseIds.filter((id) => id !== courseId) };
         }
         if (term.id === toTermId) {
-          return { ...term, courseIds: [...term.courseIds, courseId] };
+          return { ...term, courseIds: reordered };
         }
         return term;
       }),
     });
     setSelectedCourseId(courseId);
     setFocusTermId(toTermId);
-    setStatus(`${course?.code ?? 'Course'} moved to ${destination.label}.`);
+    setStatus(
+      fromTermId === toTermId
+        ? `${course?.code ?? 'Course'} reordered within ${destination.label}.`
+        : `${course?.code ?? 'Course'} moved to ${destination.label}.`,
+    );
   }
 
   function selectPlanned(courseId: string, termId: string) {
@@ -1554,7 +1818,9 @@ export function PlannerWorkspace({
     );
   }
 
-  const grouped = groupIssues(issues);
+  const grouped = groupIssues(
+    issues.filter((issue) => !issue.courseId && !isTermIssue(issue)),
+  );
   const actionable = grouped.filter((g) => g.severity !== 'info').length;
   const errors = grouped.filter((g) => g.severity === 'error').length;
   const warnings = grouped.filter((g) => g.severity === 'warning').length;
@@ -1566,8 +1832,8 @@ export function PlannerWorkspace({
     ...(core?.meta?.notes ?? []).map(studentWording),
     ...(isUga
       ? [
-          'UGA requirements and prerequisite sentences were mechanically parsed from the Bulletin. Confirm the finished plan in DegreeWorks with an advisor.',
-          'UGA offering terms are catalog patterns, not live section availability. Grade history, instructors, meeting times, rooms, and open seats are not loaded in this prototype.',
+          'This planning draft uses requirements and prerequisites from the UGA Bulletin. DegreeWorks and your advisor remain the official check for graduation.',
+          'Course availability is based on catalog patterns, not live registration. This prototype does not yet know current instructors, meeting times, rooms, or open seats.',
         ]
       : []),
     'Prerequisites are parsed from catalog sentences. Anything about placement or consent is not checked here.',
@@ -1638,7 +1904,7 @@ export function PlannerWorkspace({
         portal={school?.portal ?? 'your student portal'}
         programName={activeProgramName}
         programUrl={loaded?.url ?? null}
-        digest={answers ? summarize(answers) : ''}
+        digest={answers ? [school?.short, activeProgramName].filter(Boolean).join(' · ') : ''}
         onStartOver={startOver}
         plannedCredits={totalCredits}
         creditNote={creditNote}
@@ -1730,7 +1996,7 @@ export function PlannerWorkspace({
                   for problems that were not there. */}
               {grouped.length === 0 ? (
                 <>
-                  <CheckCircle2 /> Nothing to review
+                  <CheckCircle2 /> No plan-wide notes
                 </>
               ) : actionable === 0 ? (
                 <>
@@ -1749,7 +2015,7 @@ export function PlannerWorkspace({
           </Popover>
 
           <Button variant="outline" onClick={buildPlan} disabled={programBusy}>
-            <Sparkles /> Rebuild
+            Rebuild
           </Button>
         </div>
 
@@ -1810,7 +2076,20 @@ export function PlannerWorkspace({
                 onRemoveCourse={removeCourse}
                 onAddCourse={openFinderFor}
                 onDropCourse={addCourse}
-                onFindAlternatives={selectPlanned}
+                replacement={
+                  chooser && chooserData
+                    ? {
+                        courseId: chooser.courseId,
+                        termId: chooser.termId,
+                        label: chooserData.label,
+                        options: chooserData.options,
+                      }
+                    : null
+                }
+                onPrepareReplacement={prepareReplacement}
+                onReplaceCourse={chooseElective}
+                onShowReplacementCourse={showReplacementCourse}
+                onShowReplacements={showReplacements}
                 onChooseElective={openChooser}
                 electiveOf={electiveOf}
               />
@@ -1823,17 +2102,20 @@ export function PlannerWorkspace({
         searchHits={searchHits}
         results={searchResults}
         chooser={
-          chooser && plan
+          chooser && chooserOnMap && plan
             ? {
                 termLabel: plan.terms.find((t) => t.id === chooser.termId)?.label ?? 'that term',
                 replacing: courseIndex.get(chooser.courseId)?.code ?? 'the elective',
                 options: chooserOptions,
                 onPick: (courseId) => chooseElective(chooser.termId, chooser.courseId, courseId),
-                onCancel: () => setChooser(null),
+                onCancel: () => {
+                  setChooser(null);
+                  setChooserOnMap(false);
+                },
               }
             : null
         }
-        courses={mapCourses}
+        courses={catalog}
         catalogSize={catalog.length}
         core={core}
         schoolId={school?.id ?? null}
@@ -1850,6 +2132,8 @@ export function PlannerWorkspace({
         onTargetTermChange={setTargetTermId}
         onSelectCourse={setSelectedCourseId}
         onAddCourse={addCourse}
+        onRemoveCourse={removeCourse}
+        highlightedCourseIds={replacementCourseIds}
       />
 
       {/**

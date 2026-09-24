@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { CircleAlert, Plus } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CircleAlert, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 import { CourseCard, type ElectiveOf } from './course-card';
+import { isTermIssue } from './plan-health';
 
 interface SemesterColumnProps {
   term: PlanTerm;
@@ -14,11 +15,26 @@ interface SemesterColumnProps {
   issues: PlanIssue[];
   selectedCourseId: string | null;
   onSelectCourse: (courseId: string, termId: string) => void;
-  onMoveCourse: (courseId: string, fromTermId: string, toTermId: string) => void;
+  onMoveCourse: (
+    courseId: string,
+    fromTermId: string,
+    toTermId: string,
+    targetCourseId?: string,
+    placeAfter?: boolean,
+  ) => void;
   onRemoveCourse: (courseId: string, termId: string) => void;
   onAddCourse: (termId: string) => void;
   onDropCourse: (courseId: string, termId: string) => void;
-  onFindAlternatives: (courseId: string, termId: string) => void;
+  replacement: {
+    courseId: string;
+    termId: string;
+    label: string;
+    options: Course[];
+  } | null;
+  onPrepareReplacement: (courseId: string, termId: string) => void;
+  onReplaceCourse: (termId: string, oldId: string, newId: string) => void;
+  onShowReplacementCourse: (courseId: string) => void;
+  onShowReplacements: () => void;
   /** Opens the chooser for an elective slot. */
   onChooseElective?: (courseId: string, termId: string) => void;
   /** Which elective pool a course is filling, by course id. Empty for most. */
@@ -39,13 +55,35 @@ export function SemesterColumn({
   onRemoveCourse,
   onAddCourse,
   onDropCourse,
-  onFindAlternatives,
+  replacement,
+  onPrepareReplacement,
+  onReplaceCourse,
+  onShowReplacementCourse,
+  onShowReplacements,
   onChooseElective,
   electiveOf,
   credits,
   heavy,
 }: SemesterColumnProps) {
   const [dropActive, setDropActive] = useState(false);
+  const [dropPosition, setDropPosition] = useState<{
+    courseId: string;
+    placeAfter: boolean;
+  } | null>(null);
+  const termIssues = issues.filter(
+    (issue) => !issue.courseId && issue.termId === term.id && isTermIssue(issue),
+  );
+
+  function placementAt(target: EventTarget | null, pointerY: number) {
+    const card = target instanceof Element
+      ? target.closest<HTMLElement>('.course-card')
+      : null;
+    if (!card) return null;
+    const courseId = card.dataset.courseId;
+    if (!courseId) return null;
+    const bounds = card.getBoundingClientRect();
+    return { courseId, placeAfter: pointerY > bounds.top + bounds.height / 2 };
+  }
 
   return (
     // Drag and drop is progressive enhancement; every move is also in the card menu.
@@ -75,22 +113,41 @@ export function SemesterColumn({
           ? 'move'
           : 'copy';
         setDropActive(true);
+        if (event.dataTransfer.types.includes('application/x-term-id')) {
+          const next = placementAt(event.target, event.clientY);
+          setDropPosition((current) =>
+            current?.courseId === next?.courseId && current?.placeAfter === next?.placeAfter
+              ? current
+              : next,
+          );
+        } else {
+          setDropPosition(null);
+        }
       }}
       onDragLeave={(event) => {
         // Moving onto a child fires dragleave on the parent. Without this check
         // the outline flickers off the moment the pointer crosses a card.
         if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
         setDropActive(false);
+        setDropPosition(null);
       }}
       onDrop={(event) => {
         event.preventDefault();
         setDropActive(false);
+        const placement = placementAt(event.target, event.clientY);
+        setDropPosition(null);
         const courseId = event.dataTransfer.getData('application/x-course-id');
         const fromTermId = event.dataTransfer.getData('application/x-term-id');
         if (courseId && !fromTermId) {
           onDropCourse(courseId, term.id);
-        } else if (courseId && fromTermId && fromTermId !== term.id) {
-          onMoveCourse(courseId, fromTermId, term.id);
+        } else if (courseId && fromTermId) {
+          onMoveCourse(
+            courseId,
+            fromTermId,
+            term.id,
+            placement?.courseId,
+            placement?.placeAfter,
+          );
         }
       }}
     >
@@ -109,6 +166,29 @@ export function SemesterColumn({
         </p>
       </header>
 
+      {termIssues.length > 0 && (
+        <div className="semester-issues" aria-label={`${term.label} notes`}>
+          {termIssues.map((issue) => (
+            <div
+              key={issue.id}
+              className={cn('semester-issue', `is-${issue.severity}`)}
+            >
+              {issue.severity === 'error' ? (
+                <AlertCircle />
+              ) : issue.severity === 'warning' ? (
+                <AlertTriangle />
+              ) : (
+                <CircleAlert />
+              )}
+              <span>
+                <strong>{issue.title}</strong>
+                {issue.message}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="semester-courses">
         {term.courseIds.map((courseId) => {
           const course = courseIndex.get(courseId);
@@ -120,6 +200,13 @@ export function SemesterColumn({
               term={term}
               allTerms={allTerms}
               selected={selectedCourseId === courseId}
+              dropPosition={
+                dropPosition?.courseId === courseId
+                  ? dropPosition.placeAfter
+                    ? 'after'
+                    : 'before'
+                  : undefined
+              }
               issues={issues.filter(
                 (issue) => issue.courseId === courseId && issue.termId === term.id,
               )}
@@ -128,7 +215,22 @@ export function SemesterColumn({
               onSelect={onSelectCourse}
               onMove={onMoveCourse}
               onRemove={onRemoveCourse}
-              onFindAlternatives={onFindAlternatives}
+              replacement={{
+                active:
+                  replacement?.courseId === course.id && replacement.termId === term.id,
+                label:
+                  replacement?.courseId === course.id && replacement.termId === term.id
+                    ? replacement.label
+                    : 'Courses that satisfy the same part of your plan.',
+                options:
+                  replacement?.courseId === course.id && replacement.termId === term.id
+                    ? replacement.options
+                    : [],
+                onLoad: () => onPrepareReplacement(course.id, term.id),
+                onPick: (newId) => onReplaceCourse(term.id, course.id, newId),
+                onShowCourse: onShowReplacementCourse,
+                onShowAll: onShowReplacements,
+              }}
             />
           );
         })}

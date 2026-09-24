@@ -1017,6 +1017,56 @@ p.requirement-unnamed {
   height: 12px;
 }
 
+.semester-issues {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 5px;
+  padding: 8px 8px 0;
+}
+
+.semester-issue {
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 7px;
+  border: 1px solid #4e4026;
+  border-radius: 4px;
+  background: #19160f;
+  color: #d8c39e;
+  font-size: var(--fs-micro);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.semester-issue > svg {
+  width: 12px;
+  height: 12px;
+  margin-top: 1px;
+  color: var(--warning);
+}
+
+.semester-issue span {
+  min-width: 0;
+}
+
+.semester-issue strong {
+  display: block;
+  margin-bottom: 1px;
+  color: #f0dfbf;
+}
+
+.semester-issue.is-error {
+  border-color: #59302e;
+  background: #1d1112;
+  color: #e4aaa4;
+}
+
+.semester-issue.is-error > svg,
+.semester-issue.is-error strong {
+  color: #f1c0bb;
+}
+
 .semester-courses {
   flex: 1 1 auto;
   min-height: 120px;
@@ -1035,15 +1085,23 @@ p.requirement-unnamed {
    layout uses, that pushed the card 112px past the column's right edge and cut
    the credit hours off every card in the leftmost one. */
 .course-card {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: 22px 6px minmax(0, 1fr) 26px;
+  grid-template-rows: auto auto;
+  align-items: start;
   gap: 6px;
   min-width: 0;
   min-height: 52px;
   padding: 7px 7px 7px 0;
+  overflow: hidden;
   border: 1px solid #1c2636;
   border-radius: 5px;
   background: #0b1320;
+  cursor: grab;
+}
+
+.course-card:active {
+  cursor: grabbing;
 }
 
 .course-card:hover {
@@ -1055,10 +1113,19 @@ p.requirement-unnamed {
   background: #0e1a28;
 }
 
+.course-card[data-drop-position='before'] {
+  box-shadow: inset 0 3px 0 var(--accent-blue);
+}
+
+.course-card[data-drop-position='after'] {
+  box-shadow: inset 0 -3px 0 var(--accent-blue);
+}
+
 /* 24px wide for the same reason as .pool-add, and it comes out of the
    card's left padding rather than out of the course title. */
 .course-drag-handle {
-  flex: 0 0 auto;
+  grid-column: 1;
+  grid-row: 1 / 3;
   display: grid;
   place-items: center;
   width: 24px;
@@ -1079,7 +1146,8 @@ p.requirement-unnamed {
 }
 
 .course-cluster-dot {
-  flex: 0 0 auto;
+  grid-column: 2;
+  grid-row: 1;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -1090,8 +1158,10 @@ p.requirement-unnamed {
 /* overflow:hidden so a code longer than the column clips at the card's edge
    instead of painting over the credits and the menu button. */
 .course-card-body {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  width: 100%;
   min-width: 0;
-  flex: 1 1 auto;
   overflow: hidden;
   text-align: left;
   background: none;
@@ -1109,6 +1179,7 @@ p.requirement-unnamed {
   align-items: center;
   gap: 2px 6px;
   min-width: 0;
+  max-width: 100%;
 }
 
 /* A course code is one word. It was wrapping to "ENG / 100" in the narrower
@@ -1133,6 +1204,7 @@ p.requirement-unnamed {
   font-size: var(--fs-micro);
   color: var(--ink-dim);
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .course-required svg,
@@ -1147,9 +1219,83 @@ p.requirement-unnamed {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: var(--fs-body);
   line-height: 1.35;
   color: #93a4bb;
+}
+
+.course-card-issues {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.course-card-issue {
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr);
+  gap: 5px;
+  padding: 5px 6px;
+  border: 1px solid #47382a;
+  border-radius: 4px;
+  background: #19150f;
+  color: #d8c39e;
+  font-size: var(--fs-micro);
+  line-height: 1.35;
+  white-space: normal;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.course-card-issue svg {
+  width: 12px;
+  height: 12px;
+  margin-top: 1px;
+}
+
+.course-card-issue strong {
+  display: block;
+  margin-bottom: 1px;
+  color: #f0dfbf;
+  overflow-wrap: anywhere;
+}
+
+.course-card-issue.is-error {
+  border-color: #59302e;
+  background: #1d1112;
+  color: #e4aaa4;
+}
+
+.course-card-issue.is-error strong {
+  color: #f1c0bb;
+}
+
+.course-card-issue.is-info {
+  border-color: #263a4f;
+  background: #0d1722;
+  color: #a9c2dc;
+}
+
+.course-replace-trigger {
+  grid-column: 4;
+  grid-row: 1;
+  width: 26px;
+  height: 26px;
+  color: #71849c;
+}
+
+.course-card > [data-slot="dropdown-menu-trigger"] {
+  grid-column: 4;
+  grid-row: 2;
+  width: 26px;
+  height: 26px;
+}
+
+.course-replace-trigger:hover,
+.course-replace-trigger:focus-visible {
+  color: #d9e5f2;
 }
 
 /* margin-left:auto keeps the hours at the right end of whichever line they end
@@ -1404,6 +1550,14 @@ p.requirement-unnamed {
   padding: 0;
 }
 
+.map-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 .map-paths {
   position: absolute;
   inset: 0;
@@ -1420,12 +1574,12 @@ p.requirement-unnamed {
 /* The one control on this screen under the 24px target minimum, and it stays
    that way on purpose.
 
-   240 nodes share a stage about 360 by 400, which is roughly 25px of room
-   each. At 24px square the hit areas would tile and overlap, so in the dense
-   middle of the map a click would land on a neighbour rather than on the
-   course under the cursor: bigger targets, worse aim. The position is also the
-   information here, since it comes out of the sentence embedding, so it cannot
-   be spread out to make room.
+   The canvas paints the complete catalog, while up to 240 selected, planned,
+   searched, or replacement nodes become controls. At 24px square their hit
+   areas would tile and overlap in the dense middle, so a click would land on a
+   neighbour rather than on the course under the cursor: bigger targets, worse
+   aim. The position is also the information here, since it comes out of the
+   sentence embedding, so it cannot be spread out to make room.
 
    Every course on the map is reachable at full size from the finder's own list
    beside it, which is how WCAG 2.5.8 is satisfied: the same job is done by a
@@ -1479,6 +1633,33 @@ p.requirement-unnamed {
 
 .map-course-node.is-search-muted {
   opacity: 0.2;
+}
+
+.map-stage.is-remove-target {
+  border-color: #d56f65;
+  box-shadow: inset 0 0 0 1px rgba(213, 111, 101, 0.34);
+}
+
+.map-remove-target {
+  position: absolute;
+  inset: 12px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  border: 1px dashed #d56f65;
+  border-radius: 6px;
+  background: rgba(24, 8, 10, 0.9);
+  color: #f0b3ad;
+  font-size: var(--fs-body);
+  font-weight: 650;
+  pointer-events: none;
+}
+
+.map-remove-target svg {
+  width: 20px;
+  height: 20px;
 }
 
 .map-node-label {
@@ -1954,13 +2135,14 @@ p.requirement-unnamed {
 .map-layer {
   position: absolute;
   inset: 0;
+  z-index: 1;
   transform-origin: 0 0;
   will-change: transform;
 }
 /* Dots and labels keep their screen size at any zoom; only the distances grow. */
 .map-layer .map-course-node { transform: translate(-50%, -50%) scale(var(--inv, 1)); }
-.map-stage.is-zoomed { cursor: grab; }
-.map-stage.is-zoomed:active { cursor: grabbing; }
+.map-stage.is-pannable { cursor: grab; }
+.map-stage.is-pannable:active { cursor: grabbing; }
 .map-stage .map-course-node { cursor: grab; }
 .map-zoom {
   position: absolute; right: 8px; top: 8px; z-index: 2;
@@ -2018,6 +2200,160 @@ p.requirement-unnamed {
   padding: 4px 9px; color: #b6c4d6; font: inherit; font-size: var(--fs-micro); cursor: pointer;
 }
 .finder-chooser button:hover { color: #eef3fa; border-color: #4a5b73; }
+
+/* ---- Requirement-aware replacement picker ------------------------------- */
+.replacement-popover {
+  width: min(390px, calc(100vw - 24px));
+  gap: 8px;
+  border-radius: 7px;
+}
+
+.replacement-search {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid #2a3749;
+  border-radius: 6px;
+  background: #080f1a;
+  color: #71849c;
+}
+
+.replacement-search:focus-within {
+  border-color: #4c84a6;
+}
+
+.replacement-search svg {
+  width: 14px;
+  height: 14px;
+}
+
+.replacement-search input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #e5edf6;
+  font: inherit;
+  font-size: var(--fs-body);
+}
+
+.replacement-list {
+  max-height: 310px;
+  overflow-y: auto;
+  display: grid;
+  gap: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: #2b3648 transparent;
+}
+
+.replacement-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: stretch;
+  gap: 3px;
+  border-radius: 5px;
+}
+
+.replacement-row:hover {
+  background: #0e1928;
+}
+
+.replacement-pick {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 6px;
+  border: 0;
+  background: none;
+  color: #cbd7e6;
+  text-align: left;
+  cursor: pointer;
+}
+
+.replacement-pick > span:nth-child(2) {
+  min-width: 0;
+}
+
+.replacement-pick strong,
+.replacement-pick small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replacement-pick strong {
+  color: #eef3fa;
+  font-size: var(--fs-body);
+}
+
+.replacement-pick small,
+.replacement-pick > span:last-child {
+  color: #7f93ab;
+  font-size: var(--fs-micro);
+}
+
+.replacement-pick > span:last-child {
+  white-space: nowrap;
+}
+
+.replacement-locate {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  border: 0;
+  background: none;
+  color: #71849c;
+  cursor: pointer;
+}
+
+.replacement-locate:hover,
+.replacement-locate:focus-visible {
+  color: #68c3ef;
+}
+
+.replacement-locate svg {
+  width: 14px;
+  height: 14px;
+}
+
+.replacement-empty {
+  margin: 0;
+  padding: 14px 10px;
+  color: #8fa1b8;
+  font-size: var(--fs-body);
+  line-height: 1.45;
+}
+
+.replacement-show-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid #2a3749;
+  border-radius: 6px;
+  background: #0b1421;
+  color: #b8c7d9;
+  font: inherit;
+  font-size: var(--fs-body);
+  cursor: pointer;
+}
+
+.replacement-show-all:hover {
+  border-color: #3f5872;
+  color: #edf4fb;
+}
+
+.replacement-show-all svg {
+  width: 14px;
+  height: 14px;
+}
 
 /* ---- The bot: ALMA at Illinois -------------------------------------------
    A button in the board's toolbar and a column beside the board. Neither is

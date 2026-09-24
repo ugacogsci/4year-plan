@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
-import { Check, ChevronRight, Maximize2, Minus, Plus, Search, X } from 'lucide-react';
+import { Check, ChevronRight, Maximize2, Minus, Plus, Search, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
@@ -14,7 +14,7 @@ import type { SchoolId } from '@/lib/planner/onboarding';
 import type { Course, MapPosition, PlanTerm } from '@/lib/planner/types';
 
 interface CourseExplorerProps {
-  /** The bounded set the map paints, chosen by the workspace. */
+  /** The whole catalog. The canvas paints every course; only active nodes use DOM controls. */
   courses: Course[];
   /** Everything in the catalog, so the count can say what it is showing. */
   catalogSize: number;
@@ -24,12 +24,11 @@ interface CourseExplorerProps {
   plannedCourseIds: Set<string>;
   completedCodes: Set<string>;
   selectedCourseId: string | null;
+  /** Requirement-valid replacements to light together on the map. */
+  highlightedCourseIds: Set<string>;
   targetTermId: string;
   searchQuery: string;
-  /** How many courses in the WHOLE catalog match the query, not just the ones
-   *  drawn. Null when there is no query. The map draws at most 240 dots, so
-   *  "nothing matched" and "your match did not make the cut" look identical
-   *  on screen and need to be said apart. */
+  /** How many courses in the whole catalog match the query. Null without one. */
   searchHits: number | null;
   /** The matches as a list, catalog-wide, best first. Empty without a query. */
   results: Course[];
@@ -52,6 +51,7 @@ interface CourseExplorerProps {
   onTargetTermChange: (termId: string) => void;
   onSelectCourse: (courseId: string) => void;
   onAddCourse: (courseId: string, termId: string) => void;
+  onRemoveCourse: (courseId: string, termId: string) => void;
 }
 
 /**
@@ -66,8 +66,10 @@ interface View {
 
 const HOME: View = { k: 1, x: 0, y: 0 };
 const MAX_ZOOM = 14;
-/** Past this every dot shows its code, because there is room for it to. */
-const LABEL_ZOOM = 3.5;
+/** Empty stage space allowed beyond each map edge while panning. */
+const MAP_OVERSCROLL = 0.18;
+/** Planned courses gain labels only once there is genuinely room around them. */
+const LABEL_ZOOM = 7;
 
 export function CourseExplorer({
   courses,
@@ -78,6 +80,7 @@ export function CourseExplorer({
   plannedCourseIds,
   completedCodes,
   selectedCourseId,
+  highlightedCourseIds,
   targetTermId,
   searchQuery,
   searchHits,
@@ -90,14 +93,19 @@ export function CourseExplorer({
   onTargetTermChange,
   onSelectCourse,
   onAddCourse,
+  onRemoveCourse,
 }: CourseExplorerProps) {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [deptQuery, setDeptQuery] = useState('');
   const [view, setView] = useState<View>(HOME);
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+  const [dropActive, setDropActive] = useState(false);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pan = useRef<{ pointerId: number; startX: number; startY: number; from: View } | null>(null);
+  const press = useRef<{ pointerId: number; startX: number; startY: number; moved: boolean } | null>(null);
 
-  /** Departments present in the painted set, most courses first. */
+  /** Departments in the catalog, most courses first. */
   const departments = useMemo(() => {
     const counts = new Map<string, number>();
     for (const c of courses) counts.set(c.cluster, (counts.get(c.cluster) ?? 0) + 1);
@@ -105,6 +113,10 @@ export function CourseExplorer({
   }, [courses]);
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
+  const courseById = useMemo(
+    () => new Map(courses.map((course) => [course.id, course])),
+    [courses],
+  );
   const positions = useMemo(
     () =>
       new Map(
@@ -127,22 +139,135 @@ export function CourseExplorer({
     [visible, normalizedQuery],
   );
 
+  const framedIds = useMemo(() => {
+    if (normalizedQuery) return matching;
+    if (highlightedCourseIds.size === 0) return null;
+    return new Set(visible.filter((course) => highlightedCourseIds.has(course.id)).map((course) => course.id));
+  }, [highlightedCourseIds, matching, normalizedQuery, visible]);
+
+  /**
+   * Canvas carries the complete constellation. DOM nodes are reserved for the
+   * courses a student is actively working with so 14,000 accessible buttons do
+   * not freeze the finder. Clicking any canvas dot promotes it to a draggable
+   * DOM node.
+   */
+  const interactiveCourses = useMemo(() => {
+    const picked = new Map<string, Course>();
+    const take = (course: Course | undefined) => {
+      if (course) picked.set(course.id, course);
+    };
+    take(selectedCourseId ? courseById.get(selectedCourseId) : undefined);
+    for (const course of courses) if (plannedCourseIds.has(course.id)) take(course);
+    if (normalizedQuery) {
+      for (const course of visible) {
+        if (matching.has(course.id)) take(course);
+        if (picked.size >= 180) break;
+      }
+    }
+    if (highlightedCourseIds.size > 0) {
+      for (const course of visible) {
+        if (highlightedCourseIds.has(course.id)) take(course);
+        if (picked.size >= 240) break;
+      }
+    }
+    return [...picked.values()];
+  }, [courseById, courses, highlightedCourseIds, matching, normalizedQuery, plannedCourseIds, selectedCourseId, visible]);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = Math.round(entry.contentRect.width);
+      const height = Math.round(entry.contentRect.height);
+      setStageSize((current) =>
+        current.width === width && current.height === height ? current : { width, height },
+      );
+    });
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [open]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const { width, height } = stageSize;
+    if (!canvas || width === 0 || height === 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    const point = (course: Course) => {
+      const p = positions.get(course.id)!;
+      return {
+        x: ((p.x / 100) * width) * view.k + view.x,
+        y: ((p.y / 100) * height) * view.k + view.y,
+      };
+    };
+    const onScreen = ({ x, y }: { x: number; y: number }, pad = 8) =>
+      x >= -pad && x <= width + pad && y >= -pad && y <= height + pad;
+
+    // Draw the prerequisite constellation only around courses already in the
+    // plan or selected. Drawing every catalog edge makes the semantic shape
+    // unreadable, while these are the paths the student can act on.
+    ctx.strokeStyle = 'rgba(121, 161, 204, 0.19)';
+    ctx.lineWidth = 1;
+    for (const course of visible) {
+      if (course.id !== selectedCourseId && !plannedCourseIds.has(course.id)) continue;
+      const to = point(course);
+      for (const prerequisiteId of course.prerequisites) {
+        const prerequisite = courseById.get(prerequisiteId);
+        if (!prerequisite || !positions.has(prerequisite.id)) continue;
+        const from = point(prerequisite);
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+      }
+    }
+
+    for (const course of visible) {
+      const p = point(course);
+      if (!onScreen(p)) continue;
+      const searchMuted = normalizedQuery && !matching.has(course.id);
+      const choiceMuted = !normalizedQuery && highlightedCourseIds.size > 0 && !highlightedCourseIds.has(course.id);
+      const highlighted = highlightedCourseIds.has(course.id) || matching.has(course.id) && Boolean(normalizedQuery);
+      const planned = plannedCourseIds.has(course.id);
+      const selected = course.id === selectedCourseId;
+      ctx.globalAlpha = searchMuted || choiceMuted ? 0.08 : highlighted ? 0.95 : 0.56;
+      ctx.fillStyle = clusterColor(course.cluster);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, selected ? 5 : planned ? 4 : highlighted ? 2.8 : 1.7, 0, Math.PI * 2);
+      ctx.fill();
+      if (selected || planned) {
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = selected ? '#68c3ef' : '#67d7a1';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    ctx.globalAlpha = 1;
+  }, [courseById, highlightedCourseIds, matching, normalizedQuery, plannedCourseIds, positions, selectedCourseId, stageSize, view, visible]);
+
   /**
    * A search moves the map to its matches.
    *
    * Forty accountancy courses sit in one cluster the size of a thumbnail, and
-   * lighting them up at full zoom-out showed a bright smudge with two labels
-   * on top of each other. The stage now frames the matches so the dots have
-   * room and every one carries its code. Clearing the search goes home.
+   * lighting them up at full zoom-out showed a bright smudge. The stage now
+   * frames the matches; the adjacent results list carries every code without
+   * stacking text on top of nearby dots. Clearing the search goes home.
    */
   useEffect(() => {
-    if (!normalizedQuery) {
+    if (!framedIds) {
       // oxlint-disable-next-line react/react-compiler
       setView(HOME);
       return;
     }
     const stage = stageRef.current;
-    if (!stage || matching.size === 0) return;
+    if (!stage || framedIds.size === 0) return;
     const { width, height } = stage.getBoundingClientRect();
     if (width === 0 || height === 0) return;
     /**
@@ -156,7 +281,7 @@ export function CourseExplorer({
      */
     const xs: number[] = [];
     const ys: number[] = [];
-    for (const id of matching) {
+    for (const id of framedIds) {
       const p = positions.get(id);
       if (!p) continue;
       xs.push(p.x);
@@ -185,9 +310,9 @@ export function CourseExplorer({
      */
     // oxlint-disable-next-line react/react-compiler
     setView(clampView({ k, x: width / 2 - cx * k, y: height / 2 - cy * k }, width, height));
-    // `matching` is memoised on the painted set and the query, so this runs
+    // `matching` is memoised on the catalog and the query, so this runs
     // when the matches change and not on every render.
-  }, [matching, normalizedQuery, positions]);
+  }, [framedIds, positions]);
 
   /**
    * Wheel zoom, around the cursor. A native listener because React registers
@@ -216,13 +341,25 @@ export function CourseExplorer({
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    // A dot is dragged into a semester; only the space between dots pans.
-    if ((event.target as HTMLElement).closest('.map-course-node')) return;
-    if (view.k === 1) return;
+    // A dot is dragged into a semester and the corner buttons control the
+    // view; only the empty space between them starts a pan. Capturing a zoom
+    // button's pointer here prevents its click from ever reaching the button.
+    if ((event.target as HTMLElement).closest('.map-course-node, .map-zoom')) return;
+    press.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
     pan.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, from: view };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const down = press.current;
+    if (down && down.pointerId === event.pointerId &&
+        Math.hypot(event.clientX - down.startX, event.clientY - down.startY) > 4) {
+      down.moved = true;
+    }
     const p = pan.current;
     const stage = stageRef.current;
     if (!p || !stage || p.pointerId !== event.pointerId) return;
@@ -230,10 +367,32 @@ export function CourseExplorer({
     setView(clampView({ k: p.from.k, x: p.from.x + event.clientX - p.startX, y: p.from.y + event.clientY - p.startY }, width, height));
   }
   function onPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const down = press.current;
+    const stage = stageRef.current;
+    if (down?.pointerId === event.pointerId && !down.moved && stage) {
+      const rect = stage.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      let nearest: Course | null = null;
+      let distance = 14;
+      for (const course of visible) {
+        const position = positions.get(course.id);
+        if (!position) continue;
+        const px = ((position.x / 100) * rect.width) * view.k + view.x;
+        const py = ((position.y / 100) * rect.height) * view.k + view.y;
+        const next = Math.hypot(px - x, py - y);
+        if (next < distance) {
+          nearest = course;
+          distance = next;
+        }
+      }
+      if (nearest) onSelectCourse(nearest.id);
+    }
+    press.current = null;
     if (pan.current?.pointerId === event.pointerId) pan.current = null;
   }
 
-  const selected = courses.find((c) => c.id === selectedCourseId) ?? null;
+  const selected = selectedCourseId ? courseById.get(selectedCourseId) ?? null : null;
   const targetLabel =
     targetTermId === 'completed'
       ? 'Prior coursework'
@@ -265,9 +424,14 @@ export function CourseExplorer({
   }
 
   const zoomed = view.k > 1.01;
-  // In chooser mode the list is the slot's options until the student searches,
-  // and adding anything puts it in the slot.
-  const listRows = chooser && !normalizedQuery ? chooser.options : results;
+  const awayFromHome = zoomed || Math.abs(view.x) > 0.5 || Math.abs(view.y) > 0.5;
+  // In chooser mode search stays inside the requirement-valid replacement
+  // list. A global search here used to let a student replace a required course
+  // with something that merely fit in the same semester.
+  const chooserMatches = chooser
+    ? chooser.options.filter((course) => !normalizedQuery || courseMatches(course, normalizedQuery))
+    : [];
+  const listRows = chooser ? chooserMatches.slice(0, 100) : results;
   const showList = chooser ? listRows.length > 0 : Boolean(normalizedQuery) && results.length > 0;
   const add = (courseId: string) => (chooser ? chooser.onPick(courseId) : onAddCourse(courseId, targetTermId));
   const addLabel = chooser ? `into ${chooser.termLabel}` : `to ${targetLabel}`;
@@ -290,8 +454,8 @@ export function CourseExplorer({
       {chooser && (
         <div className="finder-chooser">
           <p>
-            Choosing an elective for <strong>{chooser.termLabel}</strong>, in place of{' '}
-            <strong>{chooser.replacing}</strong>. Pick one below, or search for anything else.
+            Replacing <strong>{chooser.replacing}</strong> in <strong>{chooser.termLabel}</strong>.
+            Every choice below fits the same requirement and the selected term.
           </p>
           <button type="button" onClick={chooser.onCancel}>
             Keep {chooser.replacing}
@@ -303,7 +467,7 @@ export function CourseExplorer({
         <input
           aria-label="Search courses"
           value={searchQuery}
-          placeholder={chooser ? 'Search for something else' : 'Search a code or a title'}
+          placeholder={chooser ? 'Search these replacements' : 'Search a code or a title'}
           onChange={(event) => onSearchChange(event.target.value)}
         />
       </div>
@@ -315,8 +479,8 @@ export function CourseExplorer({
           <PopoverTrigger
             render={
               <button type="button" className="dept-chip">
-                {/* "on the map", because the map paints 240 of 6,110 courses and
-                    a bare "Departments (9)" reads as Illinois having nine. */}
+                {/* "on the map" distinguishes this spatial filter from the
+                    department choices elsewhere in the planner. */}
                 {departments.length} departments on the map
               </button>
             }
@@ -359,15 +523,36 @@ export function CourseExplorer({
       </div>
 
       <div
-        className={cn('map-stage', zoomed && 'is-zoomed')}
+        className={cn('map-stage', 'is-pannable', dropActive && 'is-remove-target')}
         aria-label="Semantic course map"
         ref={stageRef}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerCancel={() => {
+          press.current = null;
+          pan.current = null;
+        }}
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes('application/x-term-id')) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          setDropActive(true);
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+          setDropActive(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDropActive(false);
+          const courseId = event.dataTransfer.getData('application/x-course-id');
+          const termId = event.dataTransfer.getData('application/x-term-id');
+          if (courseId && termId) onRemoveCourse(courseId, termId);
+        }}
       >
         <fieldset className="map-field" aria-label="Course nodes">
+          <canvas ref={canvasRef} className="map-canvas" aria-hidden="true" />
           <div
             className="map-layer"
             style={
@@ -377,30 +562,20 @@ export function CourseExplorer({
               } as CSSProperties
             }
           >
-            <svg className="map-paths" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-              {courses.flatMap((course) =>
-                course.prerequisites.map((prerequisiteId) => {
-                  const from = positions.get(prerequisiteId);
-                  const to = positions.get(course.id);
-                  if (!from || !to) return null;
-                  return (
-                    <line
-                      key={`${prerequisiteId}-${course.id}`}
-                      x1={from.x}
-                      y1={from.y}
-                      x2={to.x}
-                      y2={to.y}
-                    />
-                  );
-                }),
-              )}
-            </svg>
-
-            {visible.map((course) => {
+            {interactiveCourses.map((course) => {
+              if (hidden.has(course.cluster)) return null;
               const position = positions.get(course.id)!;
               const isSelected = course.id === selectedCourseId;
               const isMatch = matching.has(course.id);
-              const labelled = isSelected || (normalizedQuery ? isMatch : view.k >= LABEL_ZOOM);
+              const isChoice = highlightedCourseIds.has(course.id);
+              const labelled =
+                isSelected ||
+                (!normalizedQuery &&
+                  highlightedCourseIds.size === 0 &&
+                  plannedCourseIds.has(course.id) &&
+                  view.k >= LABEL_ZOOM) ||
+                (Boolean(normalizedQuery) && isMatch && matching.size <= 30) ||
+                (isChoice && highlightedCourseIds.size <= 30 && view.k >= LABEL_ZOOM);
               return (
                 <button
                   key={course.id}
@@ -415,6 +590,7 @@ export function CourseExplorer({
                     plannedCourseIds.has(course.id) && 'is-planned',
                     course.pathwayRole === 'required' && 'is-required',
                     normalizedQuery && !isMatch && 'is-search-muted',
+                    highlightedCourseIds.size > 0 && !isChoice && 'is-search-muted',
                   )}
                   style={
                     {
@@ -444,6 +620,13 @@ export function CourseExplorer({
           </div>
         </fieldset>
 
+        {dropActive && (
+          <div className="map-remove-target" aria-hidden="true">
+            <Trash2 />
+            <span>Drop here to remove from the plan</span>
+          </div>
+        )}
+
         <div className="map-zoom" aria-label="Zoom">
           <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoomBy(1.6)}>
             <Plus aria-hidden="true" />
@@ -455,7 +638,7 @@ export function CourseExplorer({
             type="button"
             aria-label="Show the whole map"
             title="Show the whole map"
-            disabled={!zoomed}
+            disabled={!awayFromHome}
             onClick={() => setView(HOME)}
           >
             <Maximize2 aria-hidden="true" />
@@ -468,9 +651,11 @@ export function CourseExplorer({
           <>No course matches that. Try a code like CS 225, or part of a title.</>
         ) : (
           <>
-            {visible.length.toLocaleString()} of {catalogSize.toLocaleString()} shown.{' '}
-            {zoomed ? 'Scroll to zoom, drag the space between dots to move. ' : 'Scroll on the map to zoom. '}
-            {dragUsable ? 'Drag a dot into a semester.' : 'Drag works on a wider screen. Use Add to here.'}
+            {visible.length.toLocaleString()} of {catalogSize.toLocaleString()} courses on the map.{' '}
+            Scroll to zoom, or drag the space between dots to move.{' '}
+            {dragUsable
+              ? 'Click any dot to select it, then drag the highlighted dot into a semester. Drag a plan card back here to remove it.'
+              : 'Click any dot to select it, then use Add to here.'}
           </>
         )}
       </p>
@@ -479,7 +664,9 @@ export function CourseExplorer({
         <div className="finder-results" aria-label={chooser ? 'Courses for this slot' : 'Matching courses'}>
           <p className="finder-results-head">
             {chooser && !normalizedQuery
-              ? `${listRows.length} courses you could take in ${chooser.termLabel}, best fit first`
+              ? `${chooserMatches.length.toLocaleString()} eligible replacements, best fit first`
+              : chooser
+                ? `${chooserMatches.length.toLocaleString()} matching replacements`
               : searchHits === null || searchHits <= results.length
                 ? `${results.length} ${results.length === 1 ? 'match' : 'matches'}`
                 : `First ${results.length} of ${searchHits.toLocaleString()} matches`}
@@ -581,13 +768,15 @@ function creditLabel(course: Course): string {
 
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 
-/** Keep the layer covering the stage: no blank space at any edge, ever. */
+/** Keep some map visible while allowing room beyond every edge. */
 function clampView(v: View, width: number, height: number): View {
   const k = clamp(v.k, 1, MAX_ZOOM);
+  const padX = width * MAP_OVERSCROLL;
+  const padY = height * MAP_OVERSCROLL;
   return {
     k,
-    x: clamp(v.x, width - width * k, 0),
-    y: clamp(v.y, height - height * k, 0),
+    x: clamp(v.x, width - width * k - padX, padX),
+    y: clamp(v.y, height - height * k - padY, padY),
   };
 }
 
