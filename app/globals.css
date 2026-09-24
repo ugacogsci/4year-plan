@@ -385,6 +385,25 @@ button:disabled {
   color: #eef3fa;
 }
 
+.completed-course-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 70px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.completed-course-list span {
+  padding: 2px 5px;
+  border: 1px solid #26354a;
+  border-radius: 3px;
+  background: #0b1320;
+  color: #aebdd0;
+  font-size: var(--fs-micro);
+  white-space: nowrap;
+}
+
 /* The single column is written out as minmax(0, 1fr), not left to `auto`.
 
    An auto track is floored at the min-content size of what is in it, and
@@ -787,6 +806,75 @@ p.requirement-unnamed {
   overflow: hidden;
 }
 
+.plan-tabs {
+  flex: 0 0 34px;
+  display: flex;
+  align-items: end;
+  gap: 2px;
+  min-width: 0;
+  padding: 5px 12px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  background: #080e18;
+  scrollbar-width: thin;
+}
+
+.plan-tab-shell {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 29px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+  color: #71849c;
+}
+
+.plan-tab-shell[data-active='true'] {
+  border-color: #26354a;
+  background: #0d1725;
+  color: #eef3fa;
+}
+
+.plan-tab-button,
+.plan-tab-close,
+.plan-tab-add {
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.plan-tab-button {
+  height: 100%;
+  padding: 0 5px 0 9px;
+  font-size: var(--fs-micro);
+}
+
+.plan-tab-close,
+.plan-tab-add {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+
+.plan-tab-close svg,
+.plan-tab-add svg {
+  width: 13px;
+  height: 13px;
+}
+
+.plan-tab-close:disabled {
+  visibility: hidden;
+}
+
+.plan-tab-shell:hover,
+.plan-tab-add:hover:not(:disabled) {
+  color: #dbe4f0;
+}
+
 .board-bar {
   flex: 0 0 44px;
   display: flex;
@@ -964,7 +1052,9 @@ p.requirement-unnamed {
 }
 
 .semester-column {
-  flex: 0 0 var(--col-w);
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--col-w);
   min-width: 0;
   scroll-snap-align: start;
   display: flex;
@@ -1001,6 +1091,35 @@ p.requirement-unnamed {
   font-size: var(--fs-ui);
   font-weight: 650;
   color: #eef3fa;
+}
+
+.semester-resize-handle {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: -5px;
+  bottom: 0;
+  width: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.semester-resize-handle span {
+  position: absolute;
+  top: 42%;
+  right: 3px;
+  width: 2px;
+  height: 34px;
+  border-radius: 2px;
+  background: #2b3b50;
+}
+
+.semester-resize-handle:hover span,
+.semester-resize-handle:focus-visible span {
+  background: var(--accent-blue);
 }
 
 .semester-credit-count {
@@ -1085,14 +1204,15 @@ p.requirement-unnamed {
    layout uses, that pushed the card 112px past the column's right edge and cut
    the credit hours off every card in the leftmost one. */
 .course-card {
+  position: relative;
   display: grid;
   grid-template-columns: 22px 6px minmax(0, 1fr) 26px;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto auto auto;
   align-items: start;
   gap: 6px;
   min-width: 0;
-  min-height: 52px;
-  padding: 7px 7px 7px 0;
+  min-height: 104px;
+  padding: 7px 7px 11px 0;
   overflow: hidden;
   border: 1px solid #1c2636;
   border-radius: 5px;
@@ -1125,7 +1245,7 @@ p.requirement-unnamed {
    card's left padding rather than out of the course title. */
 .course-drag-handle {
   grid-column: 1;
-  grid-row: 1 / 3;
+  grid-row: 1 / 4;
   display: grid;
   place-items: center;
   width: 24px;
@@ -1162,12 +1282,25 @@ p.requirement-unnamed {
   grid-row: 1 / 3;
   width: 100%;
   min-width: 0;
-  overflow: hidden;
+  max-height: 66px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #2b3648 transparent;
   text-align: left;
   background: none;
   border: 0;
   padding: 0;
   color: inherit;
+}
+
+.course-card[data-resized='true'] {
+  grid-template-rows: minmax(0, 1fr) auto auto;
+}
+
+.course-card[data-resized='true'] .course-card-body {
+  height: 100%;
+  max-height: none;
 }
 
 /* Wraps, because this row holds the code, the badges and the credit hours, and
@@ -1215,10 +1348,9 @@ p.requirement-unnamed {
 }
 
 .course-card-title {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  display: block;
+  min-width: 0;
+  margin-top: 2px;
   overflow-wrap: anywhere;
   word-break: break-word;
   font-size: var(--fs-body);
@@ -1293,18 +1425,71 @@ p.requirement-unnamed {
   height: 26px;
 }
 
+.course-complete-button {
+  grid-column: 3;
+  grid-row: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  min-height: 24px;
+  padding: 1px 4px;
+  border: 0;
+  background: none;
+  color: #70849b;
+  font-size: 12px;
+  font-weight: 450;
+  cursor: pointer;
+}
+
+.course-complete-button:hover,
+.course-complete-button:focus-visible {
+  color: #b9d8c8;
+}
+
+.course-complete-button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.course-resize-handle {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.course-resize-handle span {
+  display: block;
+  width: 34px;
+  height: 2px;
+  margin: 3px auto;
+  border-radius: 2px;
+  background: #2b3b50;
+}
+
+.course-resize-handle:hover span,
+.course-resize-handle:focus-visible span {
+  background: var(--accent-blue);
+}
+
 .course-replace-trigger:hover,
 .course-replace-trigger:focus-visible {
   color: #d9e5f2;
 }
 
-/* margin-left:auto keeps the hours at the right end of whichever line they end
-   up on, which is where they sat when they were a sibling of the card body. */
 .course-card-credits {
-  flex: 0 0 auto;
-  margin-left: auto;
-  font-size: var(--fs-micro);
-  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: #718096;
   white-space: nowrap;
 }
 

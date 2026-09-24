@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { AlertCircle, AlertTriangle, CircleAlert, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -23,6 +23,7 @@ interface SemesterColumnProps {
     placeAfter?: boolean,
   ) => void;
   onRemoveCourse: (courseId: string, termId: string) => void;
+  onMarkCourseCompleted: (courseId: string, termId: string) => void;
   onAddCourse: (termId: string) => void;
   onDropCourse: (courseId: string, termId: string) => void;
   replacement: {
@@ -42,6 +43,8 @@ interface SemesterColumnProps {
   /** Low end of the term's credit range, already summed by the caller. */
   credits: string;
   heavy: boolean;
+  width?: number;
+  onWidthChange: (termId: string, width: number) => void;
 }
 
 export function SemesterColumn({
@@ -53,6 +56,7 @@ export function SemesterColumn({
   onSelectCourse,
   onMoveCourse,
   onRemoveCourse,
+  onMarkCourseCompleted,
   onAddCourse,
   onDropCourse,
   replacement,
@@ -64,7 +68,11 @@ export function SemesterColumn({
   electiveOf,
   credits,
   heavy,
+  width,
+  onWidthChange,
 }: SemesterColumnProps) {
+  const columnRef = useRef<HTMLElement | null>(null);
+  const resizeStart = useRef<{ pointerId: number; x: number; width: number } | null>(null);
   const [dropActive, setDropActive] = useState(false);
   const [dropPosition, setDropPosition] = useState<{
     courseId: string;
@@ -73,6 +81,10 @@ export function SemesterColumn({
   const termIssues = issues.filter(
     (issue) => !issue.courseId && issue.termId === term.id && isTermIssue(issue),
   );
+
+  function resizeTo(nextWidth: number) {
+    onWidthChange(term.id, Math.max(220, Math.min(560, Math.round(nextWidth))));
+  }
 
   function placementAt(target: EventTarget | null, pointerY: number) {
     const card = target instanceof Element
@@ -89,10 +101,12 @@ export function SemesterColumn({
     // Drag and drop is progressive enhancement; every move is also in the card menu.
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <section
+      ref={columnRef}
       id={`term-${term.id}`}
       className="semester-column"
       aria-label={term.label}
       data-drop-active={dropActive ? 'true' : undefined}
+      style={width === undefined ? undefined : { width: `${width}px` }}
       onDragOver={(event) => {
         /**
          * getData is blocked during dragover for security, but types is not, so
@@ -215,6 +229,7 @@ export function SemesterColumn({
               onSelect={onSelectCourse}
               onMove={onMoveCourse}
               onRemove={onRemoveCourse}
+              onMarkCompleted={onMarkCourseCompleted}
               replacement={{
                 active:
                   replacement?.courseId === course.id && replacement.termId === term.id,
@@ -243,6 +258,44 @@ export function SemesterColumn({
           <Plus /> Add a course
         </Button>
       </div>
+      <button
+        type="button"
+        className="semester-resize-handle"
+        aria-label={`Resize ${term.label} horizontally`}
+        title="Drag to resize semester width"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          const currentWidth = columnRef.current?.getBoundingClientRect().width;
+          if (!currentWidth) return;
+          resizeStart.current = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            width: currentWidth,
+          };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const start = resizeStart.current;
+          if (!start || start.pointerId !== event.pointerId) return;
+          resizeTo(start.width + event.clientX - start.x);
+        }}
+        onPointerUp={(event) => {
+          if (resizeStart.current?.pointerId !== event.pointerId) return;
+          resizeStart.current = null;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={() => {
+          resizeStart.current = null;
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+          event.preventDefault();
+          const currentWidth = width ?? columnRef.current?.getBoundingClientRect().width ?? 260;
+          resizeTo(currentWidth + (event.key === 'ArrowRight' ? 20 : -20));
+        }}
+      >
+        <span aria-hidden="true" />
+      </button>
     </section>
   );
 }

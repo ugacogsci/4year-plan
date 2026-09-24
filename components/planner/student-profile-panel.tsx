@@ -38,6 +38,7 @@ interface RailProps {
   creditNote?: string | null;
   degreeTotal: number | null;
   priorCount: number;
+  priorCourses: Array<{ code: string; title: string }>;
   areas: AreaRow[];
   programs: ProgramOption[];
   programIds: string[];
@@ -106,6 +107,7 @@ export function StudentProfilePanel({
   creditNote,
   degreeTotal,
   priorCount,
+  priorCourses,
   areas,
   programs,
   programIds,
@@ -163,6 +165,15 @@ export function StudentProfilePanel({
           <span>Already taken</span>
           <span>{priorCount} course{priorCount === 1 ? '' : 's'}</span>
         </div>
+        {priorCourses.length > 0 && (
+          <div className="completed-course-list" aria-label="Classes already taken">
+            {priorCourses.map((course) => (
+              <span key={course.code} title={course.title}>
+                {course.code}
+              </span>
+            ))}
+          </div>
+        )}
         {transcript}
         {creditNote && <p className="rail-credit-note">{creditNote}</p>}
       </div>

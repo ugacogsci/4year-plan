@@ -1,7 +1,9 @@
 'use client';
 
+import { useRef, useState } from 'react';
 import {
   AlertCircle,
+  Check,
   CircleAlert,
   GripVertical,
   ListChecks,
@@ -57,6 +59,7 @@ interface CourseCardProps {
   onSelect: (courseId: string, termId: string) => void;
   onMove: (courseId: string, fromTermId: string, toTermId: string) => void;
   onRemove: (courseId: string, termId: string) => void;
+  onMarkCompleted: (courseId: string, termId: string) => void;
   replacement: {
     active: boolean;
     label: string;
@@ -86,16 +89,28 @@ export function CourseCard({
   onSelect,
   onMove,
   onRemove,
+  onMarkCompleted,
   replacement,
 }: CourseCardProps) {
+  const cardRef = useRef<HTMLElement | null>(null);
+  const resizeStart = useRef<{ pointerId: number; y: number; height: number } | null>(null);
+  const [cardHeight, setCardHeight] = useState<number | null>(null);
+
+  function resizeTo(height: number) {
+    setCardHeight(Math.max(104, Math.min(440, Math.round(height))));
+  }
+
   return (
     // Drag is progressive enhancement; every action also has a keyboard control.
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <article
+      ref={cardRef}
       id={`planned-${term.id}-${course.id}`}
       className={cn('course-card group', selected && 'course-card-selected')}
       data-course-id={course.id}
       data-drop-position={dropPosition}
+      data-resized={cardHeight !== null ? 'true' : undefined}
+      style={cardHeight === null ? undefined : { height: `${cardHeight}px` }}
       draggable
       onDragStart={(event) => {
         event.dataTransfer.setData('application/x-course-id', course.id);
@@ -130,16 +145,9 @@ export function CourseCard({
             : onSelect(course.id, term.id)
         }
       >
-        {/* The credit hours are the last thing on this row rather than a
-            sibling of this button.
-            Outside it they were one more thing the card's single line had to
-            fit, and in the 228px columns the 768px layout uses it could not:
-            the card held its own min-content width, ran 112px past the column,
-            and the credits on every card in the leftmost column were clipped
-            off. On this row they keep their place at the right and wrap under
-            the code when the column is too narrow for both. */}
         <span className="course-card-code-row">
           <span className="course-card-code">{course.code}</span>
+          <span className="course-card-credits">{creditLabel(course)}</span>
           {course.pathwayRole === 'required' && !electiveOf && (
             <span className="course-required" title="Required by this degree">
               <LockKeyhole /> required
@@ -157,7 +165,6 @@ export function CourseCard({
               <ListChecks /> {electiveOf.kind === 'elective' ? 'elective' : 'from a list'}
             </span>
           )}
-          <span className="course-card-credits">{creditLabel(course)}</span>
         </span>
         <span className="course-card-title">{course.title}</span>
         {issues.length > 0 && (
@@ -176,6 +183,14 @@ export function CourseCard({
             ))}
           </span>
         )}
+      </button>
+      <button
+        type="button"
+        className="course-complete-button"
+        onClick={() => onMarkCompleted(course.id, term.id)}
+        title={`Mark ${course.code} as already taken`}
+      >
+        <Check aria-hidden="true" /> Already taken
       </button>
       <ReplacementPicker course={course} {...replacement} />
       <DropdownMenu>
@@ -221,6 +236,43 @@ export function CourseCard({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <button
+        type="button"
+        className="course-resize-handle"
+        aria-label={`Resize ${course.code} card vertically`}
+        title="Drag to resize course card"
+        draggable={false}
+        onDragStart={(event) => event.preventDefault()}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const height = cardRef.current?.getBoundingClientRect().height;
+          if (!height) return;
+          resizeStart.current = { pointerId: event.pointerId, y: event.clientY, height };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const start = resizeStart.current;
+          if (!start || start.pointerId !== event.pointerId) return;
+          resizeTo(start.height + event.clientY - start.y);
+        }}
+        onPointerUp={(event) => {
+          if (resizeStart.current?.pointerId !== event.pointerId) return;
+          resizeStart.current = null;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={() => {
+          resizeStart.current = null;
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+          event.preventDefault();
+          const height = cardHeight ?? cardRef.current?.getBoundingClientRect().height ?? 104;
+          resizeTo(height + (event.key === 'ArrowDown' ? 16 : -16));
+        }}
+      >
+        <span aria-hidden="true" />
+      </button>
     </article>
   );
 }

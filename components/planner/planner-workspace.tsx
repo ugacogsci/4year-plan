@@ -24,8 +24,10 @@ import {
   CheckCircle2,
   ChevronDown,
   Info,
+  Plus,
   Save,
   Undo2,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -304,6 +306,14 @@ interface Stored {
   /** Null, or absent on boards saved before the control existed, means balanced. */
   targetTermCredits?: number | null;
   careerInterests: string;
+  plans?: PlanTab[];
+  activePlanId?: string;
+}
+
+interface PlanTab {
+  id: string;
+  name: string;
+  plan: PlanState;
 }
 
 type SourceProgram = LoadedProgram | UgaLoadedProgram;
@@ -417,6 +427,9 @@ export function PlannerWorkspace({
   const examCredit = useExamCredit(school);
 
   const [plan, setPlan] = useState<PlanState | null>(null);
+  const [planTabs, setPlanTabs] = useState<PlanTab[]>([]);
+  const [activePlanId, setActivePlanId] = useState('plan-1');
+  const [termWidths, setTermWidths] = useState<Record<string, number>>({});
   const [undoStack, setUndoStack] = useState<PlanState[]>([]);
   const [programIds, setProgramIds] = useState<string[]>(() => answers?.programIds ?? []);
   const programId = programIds[0] ?? null;
@@ -534,8 +547,23 @@ export function PlannerWorkspace({
     setPlan(null);
     setReport(null);
     setPlanNotes([]);
+    setPlanTabs([]);
+    setActivePlanId('plan-1');
+    setTermWidths({});
     if (answers && onAnswersChange) onAnswersChange({ ...answers, programIds: ids });
   }, [answers, onAnswersChange]);
+
+  const replaceActivePlan = useCallback((next: PlanState) => {
+    setPlan(next);
+    setPlanTabs((current) => {
+      if (current.length === 0) {
+        return [{ id: activePlanId, name: 'Plan 1', plan: next }];
+      }
+      return current.map((candidate) =>
+        candidate.id === activePlanId ? { ...candidate, plan: next } : candidate,
+      );
+    });
+  }, [activePlanId]);
 
   // ---- restore -------------------------------------------------------------
 
@@ -625,7 +653,7 @@ export function PlannerWorkspace({
   const buildPlan = useCallback(() => {
     if (!isCatalogSchool) {
       const sample = createSamplePlan();
-      setPlan(sample);
+      replaceActivePlan(sample);
       setPlanNotes([]);
       setReport(null);
       setTargetTermId(sample.terms[0]?.id ?? '');
@@ -691,7 +719,7 @@ export function PlannerWorkspace({
       return;
     }
 
-    setPlan(generated.plan);
+    replaceActivePlan(generated.plan);
     setChooser(null);
     setChooserOnMap(false);
     setTargetTermId(generated.plan.terms[0]?.id ?? '');
@@ -733,6 +761,7 @@ export function PlannerWorkspace({
     targetTermCredits,
     examCredit,
     careerInterests,
+    replaceActivePlan,
   ]);
 
   useEffect(() => {
@@ -741,8 +770,29 @@ export function PlannerWorkspace({
     if (restored.current) {
       const saved = restored.current;
       restored.current = null;
-      setPlan(saved.plan);
-      setTargetTermId(saved.plan.terms[0]?.id ?? '');
+      const savedPlans = (saved.plans ?? []).filter(
+        (candidate) =>
+          candidate &&
+          typeof candidate.id === 'string' &&
+          typeof candidate.name === 'string' &&
+          isPlanState(candidate.plan),
+      );
+      const activeId = savedPlans.some(
+        (candidate) => candidate.id === saved.activePlanId,
+      )
+        ? (saved.activePlanId as string)
+        : savedPlans[0]?.id ?? 'plan-1';
+      const activePlan =
+        savedPlans.find((candidate) => candidate.id === activeId)?.plan ??
+        saved.plan;
+      setPlanTabs(
+        savedPlans.length > 0
+          ? savedPlans
+          : [{ id: activeId, name: 'Plan 1', plan: activePlan }],
+      );
+      setActivePlanId(activeId);
+      setPlan(activePlan);
+      setTargetTermId(activePlan.terms[0]?.id ?? '');
       setStatus('Your saved plan, restored from this device.');
       return;
     }
@@ -765,6 +815,15 @@ export function PlannerWorkspace({
     }
     return out;
   }, [plan, courseIndex]);
+
+  const completedCourses = useMemo(
+    () =>
+      (plan?.completedCourseIds ?? [])
+        .map((id) => courseIndex.get(id))
+        .filter((course): course is Course => Boolean(course))
+        .map((course) => ({ code: course.code, title: course.title })),
+    [plan, courseIndex],
+  );
 
   /** Every course code on the board, in term order. */
   const boardCodes = useMemo(() => {
@@ -1110,10 +1169,95 @@ export function PlannerWorkspace({
 
   // ---- plan edits -----------------------------------------------------------
 
+  const clonePlan = (source: PlanState): PlanState => ({
+    ...source,
+    completedCourseIds: [...source.completedCourseIds],
+    terms: source.terms.map((term) => ({
+      ...term,
+      courseIds: [...term.courseIds],
+    })),
+  });
+
+  function switchPlanTab(id: string) {
+    if (id === activePlanId) return;
+    const target = planTabs.find((candidate) => candidate.id === id);
+    if (!target) return;
+    setActivePlanId(id);
+    setPlan(target.plan);
+    setUndoStack([]);
+    setSelectedCourseId(null);
+    setFocusTermId(null);
+    setTargetTermId(target.plan.terms[0]?.id ?? '');
+    setStatus(`${target.name} is open.`);
+  }
+
+  function duplicatePlanTab() {
+    if (!plan) return;
+    const used = new Set(planTabs.map((candidate) => candidate.name));
+    let number = planTabs.length + 1;
+    while (used.has(`Plan ${number}`)) number += 1;
+    const copy = clonePlan(plan);
+    const id = `plan-${Date.now().toString(36)}-${number}`;
+    setPlanTabs((current) => [
+      ...current.map((candidate) =>
+        candidate.id === activePlanId ? { ...candidate, plan } : candidate,
+      ),
+      { id, name: `Plan ${number}`, plan: copy },
+    ]);
+    setActivePlanId(id);
+    setPlan(copy);
+    setUndoStack([]);
+    setSelectedCourseId(null);
+    setStatus(`Plan ${number} created from the current plan.`);
+  }
+
+  function closePlanTab(id: string) {
+    if (planTabs.length <= 1) return;
+    const index = planTabs.findIndex((candidate) => candidate.id === id);
+    if (index < 0) return;
+    const remaining = planTabs.filter((candidate) => candidate.id !== id);
+    setPlanTabs(remaining);
+    if (id !== activePlanId) return;
+    const next = remaining[Math.min(index, remaining.length - 1)];
+    setActivePlanId(next.id);
+    setPlan(next.plan);
+    setUndoStack([]);
+    setSelectedCourseId(null);
+    setTargetTermId(next.plan.terms[0]?.id ?? '');
+    setStatus(`${next.name} is open.`);
+  }
+
+  function resizeTerm(termId: string, width: number) {
+    setTermWidths((current) =>
+      current[termId] === width ? current : { ...current, [termId]: width },
+    );
+  }
+
   function commit(next: PlanState) {
     if (!plan) return;
     setUndoStack((current) => [...current.slice(-19), plan]);
-    setPlan(next);
+    replaceActivePlan(next);
+  }
+
+  function markCourseCompleted(courseId: string, termId: string) {
+    if (!plan) return;
+    const course = courseIndex.get(courseId);
+    if (!course) return;
+    commit({
+      ...plan,
+      completedCourseIds: plan.completedCourseIds.includes(courseId)
+        ? plan.completedCourseIds
+        : [...plan.completedCourseIds, courseId],
+      terms: plan.terms.map((term) => ({
+        ...term,
+        courseIds: term.courseIds.filter((id) => id !== courseId),
+      })),
+    });
+    setSelectedCourseId(null);
+    setFocusTermId(null);
+    setStatus(
+      `${course.code} is now already taken. It was removed from ${plan.terms.find((term) => term.id === termId)?.label ?? 'the schedule'} and still counts toward your requirements.`,
+    );
   }
 
   function addCourse(courseId: string, termId: string) {
@@ -1737,7 +1881,7 @@ export function PlannerWorkspace({
   function undo() {
     const previous = undoStack.at(-1);
     if (!previous) return;
-    setPlan(previous);
+    replaceActivePlan(previous);
     setUndoStack((current) => current.slice(0, -1));
     setStatus('Last change undone.');
   }
@@ -1753,6 +1897,10 @@ export function PlannerWorkspace({
       minimumTermCredits,
       targetTermCredits,
       careerInterests,
+      plans: planTabs.map((candidate) =>
+        candidate.id === activePlanId ? { ...candidate, plan } : candidate,
+      ),
+      activePlanId,
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
     setStatus('Saved on this device.');
@@ -1760,7 +1908,16 @@ export function PlannerWorkspace({
 
   function exportPlan() {
     if (!plan) return;
-    const blob = new Blob([JSON.stringify({ school: school?.id, programIds, programId, plan }, null, 2)], {
+    const blob = new Blob([JSON.stringify({
+      school: school?.id,
+      programIds,
+      programId,
+      plan,
+      plans: planTabs.map((candidate) =>
+        candidate.id === activePlanId ? { ...candidate, plan } : candidate,
+      ),
+      activePlanId,
+    }, null, 2)], {
       type: 'application/json',
     });
     const a = document.createElement('a');
@@ -1785,6 +1942,8 @@ export function PlannerWorkspace({
         };
         if (isPlanState(parsed.plan)) {
           setPlan(parsed.plan);
+          setPlanTabs([{ id: 'plan-1', name: 'Plan 1', plan: parsed.plan }]);
+          setActivePlanId('plan-1');
           setStatus('Plan loaded from the file.');
         }
         if (Array.isArray(parsed.programIds) && parsed.programIds.every((id) => typeof id === 'string')) {
@@ -2015,6 +2174,7 @@ export function PlannerWorkspace({
         creditNote={creditNote}
         degreeTotal={activeProgramTotal}
         priorCount={plan?.completedCourseIds.length ?? 0}
+        priorCourses={completedCourses}
         transcript={
           <TranscriptUpload
             school={school}
@@ -2026,6 +2186,8 @@ export function PlannerWorkspace({
               // Prior credit changed, so the board is rebuilt from it. The same
               // move as choosing a different degree.
               setPlan(null);
+              setPlanTabs([]);
+              setActivePlanId('plan-1');
             }}
           />
         }
@@ -2060,6 +2222,45 @@ export function PlannerWorkspace({
       />
 
       <section className="board-region" aria-label="Your semesters">
+        <div className="plan-tabs" role="tablist" aria-label="Degree plan alternatives">
+          {planTabs.map((candidate) => (
+            <div
+              key={candidate.id}
+              className="plan-tab-shell"
+              data-active={candidate.id === activePlanId ? 'true' : undefined}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={candidate.id === activePlanId}
+                className="plan-tab-button"
+                onClick={() => switchPlanTab(candidate.id)}
+              >
+                {candidate.name}
+              </button>
+              <button
+                type="button"
+                className="plan-tab-close"
+                aria-label={`Close ${candidate.name}`}
+                title={`Close ${candidate.name}`}
+                disabled={planTabs.length <= 1}
+                onClick={() => closePlanTab(candidate.id)}
+              >
+                <X />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="plan-tab-add"
+            aria-label="Create another plan from this one"
+            title="Duplicate this plan to compare another path"
+            disabled={!plan}
+            onClick={duplicatePlanTab}
+          >
+            <Plus />
+          </button>
+        </div>
         <div className="board-bar">
           <div className="board-bar-facts">
             <strong>{activeProgramName ?? 'Your plan'}</strong>
@@ -2126,7 +2327,14 @@ export function PlannerWorkspace({
           <div className="year-ruler" aria-hidden="true" ref={rulerRef}>
             <div className="year-ruler-track">
               {years.map((year) => {
-                const count = plan.terms.filter((t) => t.year === year).length;
+                const termsInYear = plan.terms.filter((t) => t.year === year);
+                const count = termsInYear.length;
+                const custom = termsInYear.filter((term) => termWidths[term.id] !== undefined);
+                const customWidth = custom.reduce(
+                  (sum, term) => sum + (termWidths[term.id] ?? 0),
+                  0,
+                );
+                const defaults = count - custom.length;
                 return (
                   /* Measured in the same two tokens the board's columns use, so
                      that a breakpoint which narrows a column moves the year
@@ -2136,10 +2344,10 @@ export function PlannerWorkspace({
                   <span
                     key={year}
                     style={{
-                      width: `calc(${count} * var(--col-w) + ${count - 1} * var(--col-gap))`,
+                      width: `calc(${defaults} * var(--col-w) + ${customWidth}px + ${count - 1} * var(--col-gap))`,
                     }}
                   >
-                    {year}
+                    Year {year}
                   </span>
                 );
               })}
@@ -2174,6 +2382,7 @@ export function PlannerWorkspace({
                 onSelectCourse={selectPlanned}
                 onMoveCourse={moveCourse}
                 onRemoveCourse={removeCourse}
+                onMarkCourseCompleted={markCourseCompleted}
                 onAddCourse={openFinderFor}
                 onDropCourse={addCourse}
                 replacement={
@@ -2192,6 +2401,8 @@ export function PlannerWorkspace({
                 onShowReplacements={showReplacements}
                 onChooseElective={openChooser}
                 electiveOf={electiveOf}
+                width={termWidths[term.id]}
+                onWidthChange={resizeTerm}
               />
             );
           })}
