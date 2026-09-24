@@ -505,6 +505,12 @@ export interface AutoplanInput {
   degreeTotal?: number | null;
   /** The student's own words about what they study and want, for ranking elective picks. */
   interests?: string;
+  /**
+   * What the student said they want to do after they graduate, alone: the
+   * only text career tracks and interest topics are read from. See
+   * careerProfileOf.
+   */
+  career?: string;
   /** The degree's name, "Psychology, BSLAS", which names the major better than a thin page does. */
   programName?: string;
   /** The college the degree sits in, as the catalog codes it: "bus", "engineering", "las", "aces", "faa", "media", "education", "ahs", "socw", "ischool". */
@@ -2263,6 +2269,8 @@ export function qualityScorer(input: {
   context: PlanningContext;
   requirements: PlanRequirement[];
   interests?: string;
+  /** The career words alone, as AutoplanInput.career. */
+  career?: string;
   programName?: string;
   priorities?: Priorities;
   carriedCodes?: Iterable<string>;
@@ -2276,7 +2284,7 @@ export function qualityScorer(input: {
   return qualityFor(ctx, byCode, {
     priorities: input.priorities,
     interestWords: interestWordsOf(input.interests),
-    profile: interestProfileOf(input.interests),
+    profile: careerProfileOf(input),
     primarySubject: majors.primary,
     degreeSubjects: majors.subjects,
     wantedTags,
@@ -2549,6 +2557,19 @@ export function interestProfileOf(text: string | undefined): InterestProfile {
 }
 
 /**
+ * The goals a plan is built for: read from what the student said they want to
+ * do, never from the name of what they study. `interests` joins the two for
+ * the free words, and read whole it gave every Psychology student with an
+ * empty "after" answer a counseling goal (PSYC 238 Psychopathology and SOCW
+ * 200 booked as "named for the goal you gave") and every Computer Science
+ * student a software engineering one; 106 of 308 program names named a topic
+ * on their own. Callers that pass no `career` are read the old way.
+ */
+function careerProfileOf(input: { interests?: string; career?: string }): InterestProfile {
+  return interestProfileOf(input.career ?? input.interests);
+}
+
+/**
  * Whether a course's level fits the hours a student will have: 300-level from
  * sophomore standing, 400-level from junior. Illinois prints this as a rule for
  * only some courses, but a first-year student in FIN 442 is a plan no advisor
@@ -2786,6 +2807,8 @@ export function electiveOptions(input: {
   termId: string;
   prior: PriorCredit;
   interests?: string;
+  /** The career words alone, as AutoplanInput.career. */
+  career?: string;
   programName?: string;
   priorities?: Priorities;
   programCollege?: string;
@@ -2877,7 +2900,7 @@ export function electiveOptions(input: {
     quality: qualityFor(ctx, byCode, {
       priorities: input.priorities,
       interestWords: interestWordsOf(input.interests),
-    profile: interestProfileOf(input.interests),
+    profile: careerProfileOf(input),
       primarySubject: majors.primary,
       degreeSubjects: majors.subjects,
       wantedTags,
@@ -3474,7 +3497,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const qualityAtPlacement = qualityFor(ctx, byCode, {
     priorities: prefs.priorities,
     interestWords: interestWordsOf(input.interests),
-    profile: interestProfileOf(input.interests),
+    profile: careerProfileOf(input),
     primarySubject: majorsForRank.primary,
     degreeSubjects: majorsForRank.subjects,
     wantedTags: genEdTagsOf(input.requirements),
@@ -3492,7 +3515,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const rankGenEd = makeRanker(ctx, byCode, rankDepth, policy, qualityFor(ctx, byCode, {
     priorities: { ...genEdPriorities, coverage: 0 },
     interestWords: interestWordsOf(input.interests),
-    profile: interestProfileOf(input.interests),
+    profile: careerProfileOf(input),
     primarySubject: majorsForRank.primary,
     degreeSubjects: majorsForRank.subjects,
     wantedTags: new Set(),
@@ -5508,7 +5531,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       quality: qualityFor(ctx, byCode, {
         priorities: prefs.priorities,
         interestWords: interestWordsOf(input.interests),
-    profile: interestProfileOf(input.interests),
+    profile: careerProfileOf(input),
         primarySubject: majors.primary,
         degreeSubjects: majors.subjects,
         wantedTags: stillWanted,
@@ -5556,7 +5579,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * thirty hours of electives got two meteorology courses and no physics;
      * physical therapy schools ask for PHYS 101 and 102.
      */
-    const tracks = interestProfileOf(input.interests).tracks;
+    const tracks = careerProfileOf(input).tracks;
     const trackWanted = new Map<string, { track: string; why: string }>();
     const trackHeld: string[] = [];
     // Required before strongly recommended, whatever order the guide lists

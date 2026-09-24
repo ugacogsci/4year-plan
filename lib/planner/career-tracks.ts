@@ -933,14 +933,21 @@ export const INTEREST_TOPICS: InterestTopic[] = [
   {
     id: 'clinical-psychology',
     label: 'psychology/counseling/therapy',
+    // Not bare "psychology" or "psych": that is the name of a major and of
+    // half a dozen careers. A Psychology student who wrote "HR, industrial
+    // organizational psychology" was booked PSYC 238 Psychopathology and PSYC
+    // 379 Clinical Lab as "named for the goal you gave". "Psychologist" alone
+    // stays, since most students who say it mean a clinician, and the
+    // research and workplace kinds are blanked out below.
     detect: [
       r`\btherap(y|ist|ists)\b`,
       r`\bpsychotherap(y|ist|ists)\b`,
       r`\bcounsel(ing|ling|or|ors|lor|lors)\b`,
       r`\bmental\s+health\b`,
-      r`\bclinical\s+psych(ology|ologist|ologists)?\b`,
-      r`\bpsycholog(y|ist|ists|ical)\b`,
-      r`\bpsych\b`,
+      // "clinical/community psychology" is how the Psychology concentration names it.
+      r`\b(clinical|counseling|counselling|school|child|abnormal)([-\s/]+(and\s+|&\s*)?(community|counseling|counselling|clinical))?\s+psych(ology|ologist|ologists)?\b`,
+      r`\bpsychologists?\b`,
+      r`\bpsy\.?\s?d\b`,
       r`\bpsychiatr(y|ist|ists|ic)\b`,
       r`\bsocial\s+work(er|ers)?\b`,
       r`\blcsw\b`,
@@ -957,10 +964,47 @@ export const INTEREST_TOPICS: InterestTopic[] = [
       // those two stay.
       r`\b(academic|admissions?|transfer|orientation|financial\s+aid|study\s+abroad|residence|resident)\s+counsel(ing|ling|or|ors|lor|lors)\b`,
       r`\bcounsel(ing|ling)\s+(center|centre|services)\b`,
+      // "An industrial-organizational psychologist", "a cognitive
+      // psychologist": psychology that is not therapy.
+      r`\b(industrial|organi[sz]ational|i\s*[-/]\s*o|io|cognitive|developmental|social|experimental|research|quantitative|engineering|consumer|sports?|evolutionary|comparative)([-\s/]+(and\s+|&\s*)?(industrial|organi[sz]ational|cognitive|developmental|social))?[-\s/]+psych(ology|ologist|ologists)?\b`,
     ],
     words: ['psychopathology', 'psychotherapy', 'counseling', 'mental health', 'clinical/abnormal', 'clin/comm', 'community psych', 'personality'],
     subjects: ['PSYC', 'SOCW'],
     courses: ['PSYC 100', 'PSYC 238', 'PSYC 324', 'PSYC 336', 'PSYC 379', 'PSYC 420', 'PSYC 365', 'SOCW 200'],
+  },
+  // Added for the Psychology student who wants HR, industrial-organizational
+  // psychology: no topic named the workplace side, so the clinical one took
+  // the words. Illinois teaches it in PSYC (245 Industrial Org Psych, 455
+  // Organizational Psych, 475 Personnel Psych), in LER, the School of Labor
+  // and Employment Relations (182 Introduction to Human Resource, 228 Human
+  // Resources Career Development, 358 HR Leadership & Org Development), and in
+  // BADM (310 Mgmt and Organizational Beh, 313 Strategic Human Resource
+  // Management).
+  {
+    id: 'io-psychology-hr',
+    label: 'industrial-organizational psychology/HR',
+    detect: [
+      r`\bindustrial[-\s/]*(and\s+|&\s*)?organi[sz]ational\b`,
+      r`\b(i\s*[-/]\s*o|io)\s+psych(ology|ologist|ologists)?\b`,
+      r`\borgani[sz]ational\s+(psychology|psychologist|psychologists|behaviou?r|development|effectiveness)\b`,
+      r`\bhuman\s+resources?\b`,
+      r`\bhr\b`,
+      r`\bpeople\s+(analytics|operations|ops)\b`,
+      r`\btalent\s+(acquisition|management|development)\b`,
+      r`\brecruiters?\b`,
+      r`\b(labor|labour|employment|employee|industrial)\s+relations\b`,
+      r`\bpersonnel\b`,
+      r`\bworkplace\s+(psychology|behaviou?r|culture)\b`,
+    ],
+    // "hr" is also hours: "15 hr semesters", "12 credit hr", "an hr a week".
+    unless: [
+      r`\b\d+(\.\d+)?\s*-?\s*(credit\s+|cr\s+)?hrs?\b`,
+      r`\b(credit|contact|office|per|rush|happy|twelve|fifteen|sixteen|seventeen|eighteen)\s+hrs?\b`,
+      r`\bhrs?\s+(a|per|each|every)\s+(week|day|term|semester)\b`,
+    ],
+    words: ['industrial org', 'organizational psych', 'organizational beh', 'personnel', 'human resource', 'hr leadership'],
+    subjects: [],
+    courses: ['PSYC 245', 'PSYC 455', 'PSYC 475', 'LER 182', 'LER 228', 'LER 358', 'BADM 310', 'BADM 313'],
   },
   {
     id: 'neuroscience',
@@ -1230,32 +1274,75 @@ function masked(text: string, unless: string[] | undefined): string {
  * whether law school is for me" keep both goals: the student is weighing them.
  */
 const CLAUSE_BREAK = /[.;!?\n,]|\b(but|however|though|although|now)\b/g;
-const NEGATION = /\b(not|never|no longer|no (interest|desire|plans?)|don't|dont|do not|doesn't|doesnt|didn't|didnt|won't|wont|wouldn't|hate|dislike|rather than|instead of|anything but|other than|except|quit|quitting|dropped|dropping|switched (out of|from|away from)|used to)\b/;
+const NEGATION = /\b(not|never|no longer|no way|no (interest|desire|plans?)|don't|dont|do not|doesn't|doesnt|didn't|didnt|won't|wont|wouldn't|hate|dislike|rather than|instead of|anything but|other than|except|quit|quitting|dropped|dropping|switched (out of|from|away from)|used to|done with|gave up( on)?|giving up( on)?|(never\s?mind|changed my mind|forget) (about|on|regarding))\b/;
 const DOUBT = /\b(not sure|not certain|not decided|not yet|don't know|dont know|do not know|not only|not just|or not|if|whether|undecided)\b/;
+/* "no med school for me", "no more pre-med": a bare "no" counts only right before the goal, so "no idea, maybe med school" keeps it. */
+const NO_RIGHT_BEFORE = /\bno(\s+more)?\s*$/;
+/*
+ * A refusal after the goal: "med school is not for me", "law school isn't my
+ * thing", "pre-med? nah", "PT? No." Up to two more words of the goal's own
+ * phrase come first, so the "law" of "law school is not for me" is refused
+ * with it. A "no" on its own needs the punctuation, so "UX, no question"
+ * keeps UX.
+ */
+const REFUSED_AFTER = new RegExp(
+  r`^([-\s]+[\w'-]+){0,2}?\s*[?,:-]?\s*((is|are|was|seems)\s+)?(not|isn't|isnt|wasn't|wasnt|aren't|arent|no\s+longer)\s+(really\s+|actually\s+|for\s+sure\s+)?(for\s+me|my\s+thing|happening|an\s+option|the\s+plan|what\s+i\s+want)\b` +
+    r`|^([-\s]+[\w'-]+){0,2}?\s*[?,:-]\s*(nope|nah|no)(?=\s*([,.;!?]|$))`,
+);
+/*
+ * A refusal that also takes back what came before it. "I want to go to med
+ * school but not to be a surgeon" refuses surgery and keeps medicine; "I'm
+ * not pre-med anymore", "no med school for me" and "actually I don't want
+ * law" take the goal back wherever it was said earlier, which is what a
+ * student means when ALMA's stored words still hold last week's "pre-med".
+ */
+const RETRACT = /\b(anymore|any\s+more|no\s+longer|for\s+me|actually|instead|used\s+to|switch(ed|ing)|drop(ped|ping)|quit(ting)?|gave\s+up|giving\s+up|done\s+with|never\s?mind|changed\s+my\s+mind|forget\s+about|decided)\b/;
+
+/*
+ * Changing one's mind about everything said so far: "physical therapy school,
+ * actually I changed my mind, I'd rather do sports management", "pre-med
+ * never mind, not pre-med". Whatever came before the last of these is not a
+ * goal any more. "I've never changed my mind" is not one, and "never mind
+ * about pre-med" takes back pre-med alone (NEGATION above).
+ */
+const CHANGED_MIND = /(?<!\b(never|not|haven't|havent|hasn't|hasnt|didn't|didnt|don't|dont|won't|wont|wouldn't|wouldnt|can't|cant)\s+)\b(never\s?mind|changed\s+my\s+mind|change\s+of\s+heart|scratch\s+that|on\s+second\s+thoughts?)\b(?!\s+(about|on|regarding|with)\b)/g;
+
+/** `text` with everything up to the end of the last change of mind blanked, indices kept. */
+function afterChangeOfMind(text: string): string {
+  let end = 0;
+  for (const m of text.matchAll(CHANGED_MIND)) end = (m.index ?? 0) + m[0].length;
+  return end === 0 ? text : ' '.repeat(end) + text.slice(end);
+}
 
 /*
  * Someone else's job is not the student's goal. "My dad is a lawyer but I want
- * engineering" and "my roommate is premed" name a career right after a
- * relative or friend and a verb, so the match is dropped. It stays when the
- * sentence goes on to claim it ("my mom is a nurse so I want to be one"),
- * and a second mention in the student's own voice is found on its own ("my
- * dad's a doctor so I've always wanted to be a doctor").
+ * engineering", "my roommate is premed" and "my sister wants to be a lawyer"
+ * name a career right after a relative or friend and a verb, so the match is
+ * dropped. It stays when the sentence goes on to claim it ("my mom is a nurse
+ * so I want to be one"), and a second mention in the student's own voice is
+ * found on its own ("my dad's a doctor so I've always wanted to be a doctor").
  */
-const SOMEONE_ELSE = /\b(mom|mother|mum|dad|father|parents?|step-?(mom|mother|dad|father)|sister|brother|siblings?|aunt|uncle|grandma|grandmother|grandpa|grandfather|grandparents?|cousin|friend|roommate|boyfriend|girlfriend|wife|husband|family|neighbor)s?([-\s]in[-\s]laws?)?('s|\s+(is|was|are|were|became|has been|had been|works as|worked as|works in|worked in))\s+(an?\s+)?([\w-]+\s+){0,2}$/;
+const SOMEONE_ELSE = /\b(mom|mother|mum|dad|father|parents?|step-?(mom|mother|dad|father)|sister|brother|siblings?|aunt|uncle|grandma|grandmother|grandpa|grandfather|grandparents?|cousin|friend|roommate|boyfriend|girlfriend|wife|husband|family|neighbor)s?([-\s]in[-\s]laws?)?('s|\s+(is|was|are|were|became|has been|had been|works as|worked as|works in|worked in|wants? to be|wanted to be|wants? to go to|wanted to go to|goes|went|got into|gets into|studies|studied|applies|applied|attends|attended))\s+(an?\s+)?([\w-]+\s+){0,2}$/;
 const ME_TOO = /\b(too|also|as well|like (him|her|them)|same|follow(ing)? in|so (am|do|will) i|(be|become|becoming) one)\b/;
 
-function negated(text: string, index: number): boolean {
-  const before = text.slice(0, index);
+/** Whether the student refuses the goal matched at [index, end), and whether that refusal takes back earlier mentions. */
+function stance(text: string, index: number, end: number): { negated: boolean; retracts: boolean } {
+  // The whole word is judged, not the part a pattern matched: the law topic
+  // matches the "law" of "pre-law", and "my sister is pre-" is no relative
+  // and a verb, so "my sister is pre-law" gave the student a law topic.
+  const wordStart = index - (text.slice(0, index).match(/[\w'-]*$/)?.[0].length ?? 0);
+  const before = text.slice(0, wordStart);
   let start = 0;
   for (const m of before.matchAll(CLAUSE_BREAK)) start = (m.index ?? 0) + m[0].length;
   const clause = before.slice(start);
-  if (SOMEONE_ELSE.test(clause)) {
-    const rest = text.slice(index).split(/[.;!?\n]/)[0];
-    if (!ME_TOO.test(rest)) return true;
-  }
+  const sentence = text.slice(index).split(/[.;!?\n]/)[0];
+  if (SOMEONE_ELSE.test(clause) && !ME_TOO.test(sentence)) return { negated: true, retracts: false };
   const words = clause.trim().split(/\s+/).filter(Boolean);
   const near = words.slice(-8).join(' ');
-  return NEGATION.test(near) && !DOUBT.test(near);
+  // Not cut at "?": "pre-med? nah" answers its own question.
+  const after = text.slice(end).split(/[.;!\n]/)[0];
+  const negated = (NEGATION.test(near) && !DOUBT.test(near)) || NO_RIGHT_BEFORE.test(clause) || REFUSED_AFTER.test(after);
+  return { negated, retracts: negated && (RETRACT.test(near) || RETRACT.test(after)) };
 }
 
 /*
@@ -1277,20 +1364,27 @@ const NOT_A_GOAL: string[] = [
   r`\b(go|going|went|goes|get|getting|got)\s+to\s+therapy\b`,
 ];
 
-/** Where the student first names this, or -1: the earliest match not masked away and not negated. */
+/**
+ * Where the student names this as their own goal, or -1: the earliest match
+ * not masked away and not refused, after the last mention that takes it back.
+ * "pre-med ... actually I don't want to do pre-med anymore, I want UX
+ * research" names pre-med twice and keeps neither.
+ */
 function firstMention(text: string, detect: string[], unless: string[] | undefined): number {
   const t = masked(text, unless);
-  let best = -1;
+  const kept: number[] = [];
+  let takenBack = -1;
   for (const source of detect) {
     for (const m of t.matchAll(compiled(source))) {
       if (m[0].length === 0) continue;
       const at = m.index ?? 0;
-      if (negated(t, at)) continue;
-      if (best === -1 || at < best) best = at;
-      break;
+      const { negated, retracts } = stance(t, at, at + m[0].length);
+      if (retracts) takenBack = Math.max(takenBack, at);
+      if (!negated) kept.push(at);
     }
   }
-  return best;
+  const after = kept.filter((at) => at > takenBack);
+  return after.length > 0 ? Math.min(...after) : -1;
 }
 
 function pushAll(into: string[], seen: Set<string>, items: Iterable<string>): void {
@@ -1315,9 +1409,14 @@ function pushAll(into: string[], seen: Set<string>, items: Iterable<string>): vo
  * `topics`, `words` and `subjects` but not repeated in `heard`, so the bot
  * does not read back "pre-law, law/legal". Deterministic: the same text always
  * gives the same profile.
+ *
+ * `text` is what the student said they want to do, not what they study: the
+ * name of a major is not a goal ("Psychology" is not counseling, "Computer
+ * science" is not software engineering), so callers pass the career words
+ * alone (see interestProfileOf in autoplan.ts).
  */
 export function interestProfile(text: string): InterestProfile {
-  const t = masked(normalize(text ?? ''), NOT_A_GOAL);
+  const t = masked(afterChangeOfMind(normalize(text ?? '')), NOT_A_GOAL);
   const byPosition = <T extends { detect: string[]; unless?: string[] }>(list: T[]) =>
     list
       .map((item, order) => ({ item, order, at: firstMention(t, item.detect, item.unless) }))
@@ -1352,4 +1451,61 @@ export function interestProfile(text: string): InterestProfile {
 
   const heard = [...tracks.map((tr) => tr.id), ...named.filter((x) => !covered.has(x.id)).map((x) => x.label)];
   return { tracks, topics, words, subjects, courses, heard };
+}
+
+/** How ALMA's set_priorities writes the student's new words into the stored career words. */
+export type InterestsMode = 'add' | 'replace' | 'clear';
+
+/**
+ * The career words to store once the student has said `said`.
+ *
+ *   add      appended as a sentence of its own, unless the words are
+ *            already there and would change nothing heard
+ *   replace  the new words alone: the student changed their goal
+ *   clear    nothing: the student dropped their goal and named no other
+ *
+ * Appending was the only choice, so "pre-med" stored first and "I want UX
+ * research instead" said later kept the pre-medicine track, and its first
+ * claim on the free electives, on every rebuild. Replace with no words keeps
+ * what is stored; there is nothing to replace it with.
+ *
+ * Each call is its own sentence: joined with a bare space, "not pre-med
+ * anymore" and a later "pre-med" read as one clause and the "not" refused the
+ * goal the student had just taken up again.
+ */
+export function careerWordsAfter(current: string, said: string, mode: InterestsMode): string {
+  const words = said.trim();
+  const now = current.trim();
+  if (mode === 'clear') return '';
+  if (!words) return now;
+  if (mode === 'replace' || !now) return words;
+  const appended = `${now}${/[.!?;]$/.test(now) ? '' : '.'} ${words}`;
+  const heardSame = JSON.stringify(interestProfile(now).heard) === JSON.stringify(interestProfile(appended).heard);
+  return now.toLowerCase().includes(words.toLowerCase()) && heardSame ? now : appended;
+}
+
+/**
+ * Where each course a track marks required stands: planned (with the term
+ * `plannedIn` names), already held, or missing. A row of alternatives ("MCB
+ * 150 or IB 150") is one course, reported under the code that is there.
+ *
+ * For ALMA after a goal is said in chat: a Kinesiology student who told it
+ * "I'm pre-PT" got three track courses from the re-pick where a Rebuild books
+ * twelve, and ALMA had no way to know the other nine were missing.
+ */
+export function trackRequiredStatus(
+  track: CareerTrack,
+  plannedIn: (code: string) => string | null,
+  held: (code: string) => boolean,
+): { planned: string[]; held: string[]; missing: string[] } {
+  const out = { planned: [] as string[], held: [] as string[], missing: [] as string[] };
+  for (const need of track.courses) {
+    if (need.need !== 'required') continue;
+    const taken = need.codes.find(held);
+    const placed = need.codes.map((code) => ({ code, term: plannedIn(code) })).find((x) => x.term !== null);
+    if (taken) out.held.push(taken);
+    else if (placed) out.planned.push(`${placed.code} in ${placed.term}`);
+    else out.missing.push(need.codes.join(' or '));
+  }
+  return out;
 }

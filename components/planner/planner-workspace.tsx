@@ -81,6 +81,7 @@ import {
   type UnsatisfiedRequirement,
 } from '@/lib/planner/autoplan';
 import { livePools, poolShortfalls } from './live-pools';
+import { careerWordsAfter, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
 import { describeExcellent, interestWordsFrom } from '@/lib/planner/quality';
 import {
   DEFAULT_PRIORITIES,
@@ -246,6 +247,8 @@ interface Stored {
   /** Null, or absent on boards saved before the control existed, means balanced. */
   targetTermCredits?: number | null;
   careerInterests: string;
+  /** True when the student dropped their goal; absent on boards saved before ALMA could. */
+  careerCleared?: boolean;
   /** Absent on boards saved before the knobs existed, which means balanced. */
   priorities?: Priorities;
   /** Absent on boards saved before ALMA could shape the timeline. */
@@ -309,10 +312,23 @@ function describeShape(shape: PlanShape): string {
   return parts.length > 0 ? ` Shape set with the student: ${parts.join('; ')}.` : '';
 }
 
-/** What the planner could make of a student's words about what they want, for ALMA to say back. */
+/** What the planner could make of a student's words about what they want to do, for ALMA to say back. */
 function heardInterests(text: string): string[] {
   const profile = interestProfileOf(text);
   return profile.heard.length > 0 ? profile.heard : interestWordsFrom(text);
+}
+
+/**
+ * What the student said they study and want to do, for ALMA's board
+ * description, with the goals the planner reads from the career words. ALMA
+ * could not see that "pre-med" was still stored after the student moved on to
+ * UX research, and the pre-medicine track kept first claim on the electives.
+ */
+function describeGoals(studying: string, career: string): string {
+  const profile = interestProfileOf(career);
+  const tracks = profile.tracks.map((track) => track.name);
+  const topics = profile.topics.map((topic) => topic.label);
+  return `What the student said they study: ${studying.trim() || 'nothing yet'}. Career words the planner reads goals from: ${career.trim() ? `"${career.trim()}"` : 'none'}. Career tracks active: ${tracks.join(', ') || 'none'}. Interest topics active: ${topics.join(', ') || 'none'}.`;
 }
 
 export function PlannerWorkspace({
@@ -392,16 +408,25 @@ export function PlannerWorkspace({
   const [priorities, setPriorities] = useState<Priorities>(DEFAULT_PRIORITIES);
 
   const [careerInterests, setCareerInterests] = useState(answers?.after ?? '');
+  /**
+   * The student dropped their goal through ALMA. careerInterests starts as the
+   * About-you "after" answer and an empty one falls back to it, so without
+   * this a student who said "I'm not pre-med anymore" saw the rail cleared
+   * while the planner went on reading "pre-med" from About you.
+   */
+  const [careerCleared, setCareerCleared] = useState(false);
+  /** What the student said they want to do: the only words career tracks and topics are read from. */
+  const careerText = careerInterests || (careerCleared ? '' : answers?.after || '');
   const [planShape, setPlanShape] = useState<PlanShape>(NO_SHAPE);
   /** Set by ALMA's set_plan_shape so the next shape change rebuilds the board. */
   const rebuildForShape = useRef(false);
   // The latest values, for tool calls that run between renders.
   const planShapeRef = useRef(planShape);
-  const careerInterestsRef = useRef(careerInterests);
+  const careerTextRef = useRef(careerText);
   useEffect(() => {
     planShapeRef.current = planShape;
-    careerInterestsRef.current = careerInterests;
-  }, [planShape, careerInterests]);
+    careerTextRef.current = careerText;
+  }, [planShape, careerText]);
   const [status_, setStatus] = useState('');
   /**
    * The status line is read by screen readers and nobody else. Anything a
@@ -498,6 +523,7 @@ export function PlannerWorkspace({
       setPlanShape(parsed.planShape ?? NO_SHAPE);
       setPriorities(normalizePriorities(parsed.priorities));
       if (parsed.careerInterests) setCareerInterests(parsed.careerInterests);
+      setCareerCleared(parsed.careerCleared === true);
     } catch {
       /* a corrupt entry is not worth failing the app over; a fresh plan follows */
     }
@@ -673,7 +699,10 @@ export function PlannerWorkspace({
       // A published total of 0 is a page the crawl could not read a total from,
       // not a degree of no credits: English BALAS planned 2 terms and 28 hours.
       degreeTotal: publishedTotal || (isIllinois ? 120 : null),
-      interests: [answers?.studying ?? '', careerInterests || answers?.after || ''].join(' '),
+      interests: [answers?.studying ?? '', careerText].join(' '),
+      // Goals come from what the student wants to do, never from the major's
+      // name: "Psychology" alone was booking psychopathology as their goal.
+      career: careerText,
       programName: loaded.program.name,
       programCollege: loaded.program.college,
       admissionRoute,
@@ -772,7 +801,7 @@ export function PlannerWorkspace({
         ? 'Plan built. Open the review list to see what it could not do.'
         : 'Plan built. Nothing to review.',
     );
-  }, [isCatalogSchool, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, priorities, admissionRoute, isIllinois, exams, examsAligned, catalogCredits, planShape]);
+  }, [isCatalogSchool, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, priorities, admissionRoute, isIllinois, exams, examsAligned, catalogCredits, planShape]);
 
   /**
    * Credit that changes after the board exists rebuilds the board.
@@ -1380,8 +1409,9 @@ export function PlannerWorkspace({
     [answers, byCode, examCredit, exams, catalogCredits],
   );
   // careerInterests starts as the 'after' answer and replaces it once edited;
-  // joining both counted the same words twice.
-  const interestsText = [answers?.studying ?? '', careerInterests || answers?.after || ''].join(' ');
+  // joining both counted the same words twice. The studying answer adds free
+  // words and subjects here; goals are read from careerText alone.
+  const interestsText = [answers?.studying ?? '', careerText].join(' ');
 
   const chooserOptions = useMemo((): { options: Course[]; whys: Map<string, string> } => {
     if (!chooser || !plan || !context || !loaded) return { options: [], whys: new Map() };
@@ -1394,6 +1424,7 @@ export function PlannerWorkspace({
       termId: chooser.termId,
       prior: priorForOptions,
       interests: interestsText,
+      career: careerText,
       programName: loaded.program.name,
       programCollege: loaded.program.college,
       priorities,
@@ -1405,7 +1436,7 @@ export function PlannerWorkspace({
       whys.set(course.id, option.reasons.length > 0 ? option.reasons.slice(0, 3).join('; ') : option.why);
     }
     return { options, whys };
-  }, [chooser, plan, context, loaded, byCode, priorForOptions, interestsText, priorities]);
+  }, [chooser, plan, context, loaded, byCode, priorForOptions, interestsText, careerText, priorities]);
 
   function openChooser(courseId: string, termId: string) {
     setChooser({ termId, courseId });
@@ -1524,12 +1555,13 @@ export function PlannerWorkspace({
             context,
             requirements: loaded.blocks,
             interests: interestsText,
+            career: careerText,
             programName: loaded.program.name,
             priorities,
             carriedCodes: [...boardCodes, ...completedCodes],
           })
         : null,
-    [context, loaded, interestsText, priorities, boardCodes, completedCodes],
+    [context, loaded, interestsText, careerText, priorities, boardCodes, completedCodes],
   );
 
   /**
@@ -1555,6 +1587,7 @@ export function PlannerWorkspace({
     quality,
     priorForOptions,
     interestsText,
+    careerText,
     pools,
     language: report?.language ?? null,
     admission: report?.admission ?? null,
@@ -1583,6 +1616,7 @@ export function PlannerWorkspace({
       quality,
       priorForOptions,
       interestsText,
+      careerText,
       pools,
       language: report?.language ?? null,
       admission: report?.admission ?? null,
@@ -1650,7 +1684,7 @@ export function PlannerWorkspace({
     const mine = categories.filter((tags) => tags.some((t) => me.tags.includes(t)));
     if (mine.length === 0) return [];
     const scorer = priorities
-      ? qualityScorer({ context: L.context, requirements: L.loaded.blocks, interests: L.interestsText, programName: L.loaded.program.name, priorities, carriedCodes: [...board.terms.flatMap((t) => t.courseIds).map((id) => L.courseIndex.get(id)?.code ?? ''), ...L.completedCodes] })
+      ? qualityScorer({ context: L.context, requirements: L.loaded.blocks, interests: L.interestsText, career: L.careerText, programName: L.loaded.program.name, priorities, carriedCodes: [...board.terms.flatMap((t) => t.courseIds).map((id) => L.courseIndex.get(id)?.code ?? ''), ...L.completedCodes] })
       : L.quality;
     if (!scorer) return [];
     const onBoard = new Set(board.terms.flatMap((t) => t.courseIds));
@@ -1717,6 +1751,7 @@ export function PlannerWorkspace({
         termId,
         prior: L.priorForOptions,
         interests: L.interestsText,
+        career: L.careerText,
         programName: L.loaded.program.name,
         programCollege: L.loaded.program.college,
         priorities: L.priorities,
@@ -1843,6 +1878,7 @@ export function PlannerWorkspace({
       context: L.context,
       requirements: L.loaded.blocks,
       interests: L.interestsText,
+      career: L.careerText,
       programName: L.loaded.program.name,
       priorities: next,
       carriedCodes: [
@@ -1864,7 +1900,7 @@ export function PlannerWorkspace({
     // Required track courses are also never re-picked away for a lighter one.
     const trackCodes = new Set<string>();
     const added: Array<{ code: string; why: string }> = [];
-    const tracks = interestProfileOf(L.interestsText).tracks;
+    const tracks = interestProfileOf(L.careerText).tracks;
     if (tracks.length > 0) {
       const onBoard = () =>
         new Set([...L.completedCodes, ...working.terms.flatMap((t) => t.courseIds).map((id) => normCode(L.courseIndex.get(id)?.code ?? ''))]);
@@ -1977,6 +2013,7 @@ export function PlannerWorkspace({
             termId: term.id,
             prior: L.priorForOptions,
             interests: L.interestsText,
+            career: L.careerText,
             programName: L.loaded.program.name,
             programCollege: L.loaded.program.college,
             priorities: next,
@@ -2069,8 +2106,9 @@ export function PlannerWorkspace({
     lines.push(`Already taken, counted but not on the board: ${taken.length > 0 ? taken.join(', ') : 'none'}.`);
     lines.push(describeCredit(L.answers?.transcript ?? null, L.priorForOptions, L.report?.residency ?? null));
     lines.push(
-      `Credit load: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'an even share of what is left'}, never above 18.${describeShape(planShapeRef.current)} Section times on cards come from ${L.core?.meta?.term?.label ?? 'one crawled term'}. What the student said they study and want: ${L.interestsText.trim() || 'nothing yet'}.`,
+      `Credit load: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'an even share of what is left'}, never above 18.${describeShape(planShapeRef.current)} Section times on cards come from ${L.core?.meta?.term?.label ?? 'one crawled term'}.`,
     );
+    lines.push(describeGoals(L.answers?.studying ?? '', L.careerText));
     lines.push(`Priorities, which decide the elective picks and the order of choices: ${describePriorities(L.priorities)}`);
     if (L.language) lines.push(`Language requirement: ${L.language.name}, semesters ${L.language.completed + 1} to ${L.language.semesters} planned (${L.language.codes.join(', ')}). ${L.language.why}`);
     if (L.admission) lines.push(`Getting into ${L.admission.name} (${L.admission.path}): the student is not in this college yet. Its courses (${L.admission.codes.join(', ')}) are placed first, due by ${L.admission.requiredBy}. ${L.admission.eligibility.join(' ')} Source: ${L.admission.source}`);
@@ -2633,19 +2671,49 @@ export function PlannerWorkspace({
          * planner reads them. Before this, "I want to go into machine
          * learning" said in chat never reached the scorer: set_priorities had
          * no field for it and the only place it could go was the rail.
+         *
+         * Added to what is stored unless ALMA says the goal changed (replace)
+         * or was dropped (clear): "pre-med" stored first and "I want UX
+         * research instead" said later kept the pre-medicine track on every
+         * rebuild.
          */
+        const mode: InterestsMode = input.interests_mode === 'replace' || input.interests_mode === 'clear' ? input.interests_mode : 'add';
+        const said = typeof input.interests === 'string' ? input.interests.trim() : '';
+        const tracksBefore = interestProfileOf(careerTextRef.current).tracks;
         let heard: string[] | null = null;
-        if (typeof input.interests === 'string' && input.interests.trim()) {
-          const said = input.interests.trim();
-          const current = careerInterestsRef.current;
-          const merged = current.toLowerCase().includes(said.toLowerCase()) ? current : `${current} ${said}`.trim();
-          setCareerInterests(merged);
-          careerInterestsRef.current = merged;
-          const text = [L.answers?.studying ?? '', merged].join(' ');
-          live.current = { ...live.current, interestsText: text };
-          heard = heardInterests(text);
+        let stored: string | null = null;
+        if (said || mode === 'clear') {
+          stored = careerWordsAfter(careerTextRef.current, said, mode);
+          setCareerInterests(stored);
+          setCareerCleared(stored === '');
+          careerTextRef.current = stored;
+          live.current = { ...live.current, interestsText: [L.answers?.studying ?? '', stored].join(' '), careerText: stored };
+          if (said) heard = heardInterests(stored);
         }
         const repicked = input.repick === false ? [] : repickElectives(next);
+        const profile = interestProfileOf(live.current.careerText);
+        const dropped = tracksBefore.filter((track) => !profile.tracks.includes(track)).map((track) => track.name);
+        /**
+         * The re-pick books a track's required courses first, one slot at a
+         * time, and brought three of the twelve a Rebuild books for a pre-PT
+         * Kinesiology student. So the result says which are on the board and
+         * which are not, and ALMA offers a Rebuild for the rest.
+         */
+        let trackCourses: Array<{ track: string; on_the_board: string[]; already_taken: string[]; not_on_the_board: string[] }> = [];
+        if (heard !== null && profile.tracks.length > 0) {
+          const termOf = new Map<string, string>();
+          for (const term of planRef.current?.terms ?? []) {
+            for (const id of term.courseIds) {
+              const course = L.courseIndex.get(id);
+              if (course) termOf.set(normCode(course.code), term.label);
+            }
+          }
+          trackCourses = profile.tracks.map((track) => {
+            const status = trackRequiredStatus(track, (code) => termOf.get(normCode(code)) ?? null, (code) => L.completedCodes.has(normCode(code)));
+            return { track: track.name, on_the_board: status.planned, already_taken: status.held, not_on_the_board: status.missing };
+          });
+        }
+        const missingTrackCourses = trackCourses.some((t) => t.not_on_the_board.length > 0);
         if (repicked.length > 0) {
           notify(
             `ALMA re-picked ${repicked.length} ${plural(repicked.length, 'course')}`,
@@ -2656,17 +2724,33 @@ export function PlannerWorkspace({
         } else {
           notify('ALMA updated your priorities', 'Every pick already held the best course for them.', 'info');
         }
+        const interestsNotes = [
+          mode === 'replace' && !said ? 'interests_mode replace needs the new words in interests, so the stored career words were kept; use clear to drop the goal.' : null,
+          dropped.length > 0 ? `No longer a goal: ${dropped.join(', ')}. Courses booked for it that are still on the board are ordinary elective slots now, and pressing Rebuild plans without them; say so.` : null,
+          missingTrackCourses
+            ? 'track_courses lists each course the track requires: on the board, already taken, or not on the board. The re-pick books them first, but only into elective slots it can swap. Tell the student which are not on the board, and that pressing Rebuild books the track\'s required courses before any other elective and places them earliest; the plan\'s notes name any it still cannot fit, and a Rebuild replaces their own edits to the board.'
+            : null,
+        ].filter(Boolean);
         return {
           ok: true,
           priorities: describePriorities(next),
           ...(heard !== null ? { interests_heard: heard.length > 0 ? heard : 'nothing the planner can match to courses; use search_courses for this topic and replace elective slots by hand' } : {}),
+          ...(stored !== null || (mode === 'replace' && !said)
+            ? {
+                career_words: live.current.careerText || 'none',
+                active_tracks: profile.tracks.map((track) => track.name),
+                active_topics: profile.topics.map((topic) => topic.label),
+              }
+            : {}),
+          ...(trackCourses.length > 0 ? { track_courses: trackCourses } : {}),
           repicked,
           note:
-            repicked.length > 0
+            (repicked.length > 0
               ? `The courses listed were swapped; required courses and anything the student added were not touched. Tell the student each swap and its reason.${repicked.some((c) => c.why.startsWith('For ')) ? ' Swaps whose reason starts "For <track>" book a course the career track requires (an entry with an empty "from" was added beside its lecture); these come before a wish for lighter electives, so say that once, and say the other picks were kept light.' : ''}`
               : input.repick === false
                 ? 'Saved. The board was not re-picked.'
-                : 'Saved. Every one of the planner\'s picks already held the best course under these priorities, so nothing on the board moved.',
+                : 'Saved. Every one of the planner\'s picks already held the best course under these priorities, so nothing on the board moved.') +
+            (interestsNotes.length > 0 ? ` ${interestsNotes.join(' ')}` : ''),
         };
       }
       case 'set_plan_shape': {
@@ -2893,6 +2977,7 @@ export function PlannerWorkspace({
       minimumTermCredits,
       targetTermCredits,
       careerInterests,
+      careerCleared,
       priorities,
       planShape,
     };
