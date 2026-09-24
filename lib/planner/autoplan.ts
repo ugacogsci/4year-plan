@@ -6930,6 +6930,45 @@ export interface ValidateOptions {
    * "under your credit target".
    */
   away?: Array<{ season: SemesterSeason; year: number; credits?: number; kind?: AwayKind | null }>;
+  /**
+   * The language sequence the plan booked (GeneratedPlan.language), for the
+   * LAS and iSchool rule that a student past 60 hours takes a language course
+   * every fall and spring until the requirement is done. Null or absent when
+   * no language is owed; the rule is read only for those two colleges.
+   */
+  language?: Pick<LanguagePlan, 'name' | 'semesters' | 'completed' | 'codes'> | null;
+}
+
+/**
+ * Colleges that ask for a language course every fall and spring once a
+ * student is past 60 hours and the requirement is still open, with the page
+ * that says so. LAS's is its academic progress rule; the iSchool follows it.
+ */
+const LANGUAGE_EVERY_TERM: Record<string, { name: string; source: string }> = {
+  las: { name: 'LAS', source: 'las.illinois.edu/academics/standing/progress' },
+  ischool: { name: 'The iSchool', source: 'ischool.illinois.edu/academics/undergraduate/advising/academic-progress' },
+};
+const LANGUAGE_EVERY_TERM_HOURS = 60;
+
+/**
+ * Each language course's semester in the registrar's table (0 is the first),
+ * the highest where a course sits at two levels (SPAN 122 counts as two), with
+ * the plan's own booked sequence added so a board is read even without the
+ * table.
+ */
+function languageLevels(table: LanguageTable | undefined, booked: Pick<LanguagePlan, 'completed' | 'codes'>): Map<string, number> {
+  const out = new Map<string, number>();
+  const note = (raw: string, level: number) => {
+    const code = normaliseCode(raw);
+    out.set(code, Math.max(out.get(code) ?? -1, level));
+  };
+  for (const language of table?.languages ?? []) {
+    language.levels.forEach((options, level) => {
+      for (const option of options) for (const code of option) note(code, level);
+    });
+  }
+  booked.codes.forEach((code, i) => note(code, booked.completed + i));
+  return out;
 }
 
 /**
@@ -7057,6 +7096,37 @@ export function validatePlan(
     const year = term.label.match(/\b(20\d\d)\b/);
     return year ? calendarOrd(term.season, Number(year[1])) : null;
   };
+  const isAway = (term: PlanTerm) => {
+    const at = calendarOf(term);
+    return at !== null && awayList.some((a) => calendarOrd(a.season, a.year) === at);
+  };
+  /**
+   * Composition I belongs to the first year: the campus's Composition I page
+   * says a student takes it "in your first year at Illinois"
+   * (citl.illinois.edu/placement-testing/information-about-composition-i),
+   * and generatePlan books it by the second term. A student who drags RHET
+   * 105 to a junior fall breaks that without any other check noticing, so a
+   * Composition I course from the third fall or spring on campus onward is
+   * flagged. The summer after the first spring still counts as year one.
+   */
+  const regularTerms = plan.terms.filter((t) => t.season !== 'Summer' && !isAway(t));
+  const compositionDue = regularTerms.length >= 3 ? plan.terms.indexOf(regularTerms[2]) : Number.POSITIVE_INFINITY;
+  /**
+   * LAS and the iSchool: past 60 hours, a language course every fall and
+   * spring until the requirement is done. The plan books the sequence from
+   * the first term, so a generated board never trips this; a student who
+   * moves SPAN 202 to a senior fall and leaves the junior year without a
+   * language does, and the review says which term.
+   */
+  const everyTerm = options?.language && options.language.codes.length > 0 ? LANGUAGE_EVERY_TERM[options.programCollege ?? ''] ?? null : null;
+  const languageRule = everyTerm && options?.language
+    ? { college: everyTerm.name, source: everyTerm.source, language: options.language.name, final: options.language.semesters - 1, levelOf: languageLevels(ctx.languages, options.language) }
+    : null;
+  const finishesLanguage = (code: string) => languageRule !== null && (languageRule.levelOf.get(code) ?? -1) >= languageRule.final;
+  let languageDone = languageRule === null || plan.completedCourseIds.some((id) => {
+    const code = codeOf(id);
+    return code !== null && finishesLanguage(code);
+  });
   let awayCounted = 0;
   for (const term of plan.terms) {
     const at = calendarOf(term);
@@ -7095,6 +7165,34 @@ export function validatePlan(
         severity: 'warning',
         title: 'Below your credit target',
         message: `${term.label} is ${describeCreditTotal(termCredits)}, under the ${options.minimumTermCredits} you set.`,
+        termId: term.id,
+      });
+    }
+    if (plan.terms.indexOf(term) >= compositionDue) {
+      for (const courseId of term.courseIds) {
+        const course = byId.get(courseId);
+        if (!course?.tags.includes('Composition I')) continue;
+        issues.push({
+          id: `ap-comp1-late-${term.id}-${courseId}`,
+          severity: 'warning',
+          title: 'Composition I after the first year',
+          message: `${normaliseCode(course.code)} is in ${term.label}. Illinois asks for Composition I in the first year (citl.illinois.edu/placement-testing/information-about-composition-i); ${regularTerms[0].label} or ${regularTerms[1].label} keeps it there.`,
+          termId: term.id,
+          courseId,
+        });
+      }
+    }
+    if (languageRule && !languageDone && term.season !== 'Summer' && !awayHere && hoursBefore >= LANGUAGE_EVERY_TERM_HOURS && !codes.some((code) => languageRule.levelOf.has(code))) {
+      const finishing = plan.terms.find((t) => t.courseIds.some((id) => {
+        const code = codeOf(id);
+        return code !== null && finishesLanguage(code);
+      }));
+      const last = finishing?.courseIds.map(codeOf).find((code): code is string => code !== null && finishesLanguage(code));
+      issues.push({
+        id: `ap-language-gap-${term.id}`,
+        severity: 'warning',
+        title: 'No language course after 60 hours',
+        message: `${term.label} comes after ${Math.round(hoursBefore)} earned hours and holds no language course while the language requirement is still open (${last && finishing ? `${last}, which finishes it, is in ${finishing.label}` : `nothing on the board finishes the ${languageRule.language} sequence`}). ${languageRule.college} asks a student past 60 hours to take a language course every fall and spring until the requirement is done (${languageRule.source}).`,
         termId: term.id,
       });
     }
@@ -7399,6 +7497,7 @@ export function validatePlan(
 
     for (const code of codes) for (const equiv of expandEquivalents(code, equivalents)) earlier.add(equiv);
     hoursBefore += termCredits.min;
+    if (codes.some(finishesLanguage)) languageDone = true;
   }
 
   return issues;
