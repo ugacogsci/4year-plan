@@ -48,6 +48,7 @@ import {
   type RequirementBlock,
 } from '@/lib/planner/illinois-data';
 import type {
+  AwayKind,
   PlanningContext,
   PlanPrereq,
   PlanRequirement,
@@ -512,6 +513,17 @@ const AWAY_CUE = /\b(abroad|overseas|co-?op(?:s|p?ing|p?ed)?\b|co op|cooperative
  */
 const WHOLE_YEAR_AWAY = /\b(gap year|year (?:abroad|off|away|overseas)|(?:full|whole|entire|academic) year|for (?:a|one|the)(?: full| whole| academic)? year)\b/i;
 /**
+ * What the time away is, from the word that named it. It decides what the
+ * term earns: a semester abroad normally carries a full load of approved
+ * credit, a co-op, an internship or a gap term nothing.
+ */
+function awayKindOf(word: string): AwayKind {
+  if (/abroad|overseas|exchange/i.test(word)) return 'study_abroad';
+  if (/co-?op|co op|cooperative/i.test(word)) return 'co_op';
+  if (/intern|extern/i.test(word)) return 'internship';
+  return 'gap';
+}
+/**
  * What makes a summer date a summer of classes ("summer 2027 classes", "take
  * courses in summer 2028"). Read only for summer dates: summers are planned
  * only when the student asks for one, and a summer named with none of these
@@ -599,7 +611,7 @@ function cueOfDate(
   prevEnd: number,
   nextAt: number,
   startsNow: boolean,
-): { cue: DateCue; wholeYear: boolean; fromAfter: boolean } {
+): { cue: DateCue; wholeYear: boolean; fromAfter: boolean; kind: AwayKind | null } {
   const window = timeline.slice(Math.max(0, date.at - 70, prevEnd), date.at);
   const cut = Math.max(window.search(/[.;!?][^.;!?]*$/), ...[...window.matchAll(/\b(and|but)\b/gi)].map((b) => b.index ?? -1));
   const clause = cut >= 0 ? window.slice(cut) : window;
@@ -680,10 +692,14 @@ function cueOfDate(
   const firstAway = clause.search(AWAY_CUE);
   const lead = firstAway >= 0 ? clause.slice(0, firstAway) : clause;
   const phrase = clause.slice(Math.max(0, lead.search(/(?:[,;:]|\bthen\b)[^,;:]*$/)));
+  // The away word nearest the date names the kind: "taking spring 2028 off"
+  // is a gap term, "study abroad spring 2029" a semester abroad.
+  const nearest = /^\s*(off|abroad|away|overseas)\b/i.exec(after)?.[1] ?? [...clause.matchAll(AWAY_CUE)].pop()?.[0] ?? [...after.matchAll(AWAY_CUE)][0]?.[0] ?? '';
   return {
     cue,
     wholeYear: cue === 'away' && WHOLE_YEAR_AWAY.test(`${phrase} ${after}`),
     fromAfter: cue !== null && !fromClause,
+    kind: cue === 'away' ? awayKindOf(nearest) : null,
   };
 }
 
@@ -790,7 +806,7 @@ export function readHorizon(
   gradSeason: SemesterSeason;
   gradYear: number;
   stated: boolean;
-  away: Array<{ season: SemesterSeason; year: number }>;
+  away: Array<{ season: SemesterSeason; year: number; kind: AwayKind }>;
   summers: number[];
 } {
   const ordOf = (season: SemesterSeason, year: number) => year * 3 + (season === 'Spring' ? 0 : season === 'Summer' ? 1 : 2);
@@ -831,7 +847,7 @@ export function readHorizon(
   }
   dates.sort((a, b) => a.at - b.at);
 
-  type Found = { season: SemesterSeason; year: number; cue: DateCue; wholeYear: boolean };
+  type Found = { season: SemesterSeason; year: number; cue: DateCue; wholeYear: boolean; kind: AwayKind | null };
   const found: Found[] = [];
   // What a date takes from the list it is in. A summer of classes passes only
   // to another summer: in "classes in summer 2027 and fall 2028" the fall is
@@ -847,7 +863,7 @@ export function readHorizon(
     const prev = i > 0 ? dates[i - 1] : null;
     const before = i > 0 ? found[i - 1] : null;
     const read = cueOfDate(timeline, d, prev?.end ?? 0, dates[i + 1]?.at ?? timeline.length, ordOf(d.season, d.year) <= nowOrd);
-    let { cue, wholeYear } = read;
+    let { cue, wholeYear, kind } = read;
     const { fromAfter } = read;
     const between = prev ? timeline.slice(prev.end, d.at) : '';
     const chain = pending;
@@ -859,8 +875,12 @@ export function readHorizon(
       // date, read as the start, moved a freshman's plan two years out). A
       // range that begins in the past is history, not a plan.
       if (before.cue === 'away' || (before.cue === null && cue === 'away')) {
-        if (before.cue === null) before.cue = 'away';
+        if (before.cue === null) {
+          before.cue = 'away';
+          before.kind = kind;
+        }
         cue = 'away';
+        kind = before.kind ?? kind;
         wholeYear = false;
       } else {
         if (before.cue === null) before.cue = 'start';
@@ -877,9 +897,11 @@ export function readHorizon(
       head.wholeYear = false;
       for (const p of chain?.items ?? []) {
         p.cue = inherit(head.cue, p.season);
+        p.kind = head.kind;
         p.wholeYear = false;
       }
       cue = inherit(head.cue, d.season);
+      kind = head.kind;
       wholeYear = false;
     } else if (fromAfter && before?.cue === null && LIST_JOIN.test(between)) {
       // The word can come after the whole list: "summer 2027 and summer 2028
@@ -888,12 +910,13 @@ export function readHorizon(
       wholeYear = false;
       for (let j = i - 1; j >= 0 && found[j].cue === null; j--) {
         found[j].cue = inherit(cue, found[j].season);
+        found[j].kind = kind;
         const join = j > 0 ? timeline.slice(dates[j - 1].end, dates[j].at) : '';
         if (!LIST_JOIN.test(join) && !COMMA_JOIN.test(join)) break;
       }
     }
     if (cue === null && d.relative) cue = 'start';
-    const entry: Found = { season: d.season, year: d.year, cue, wholeYear };
+    const entry: Found = { season: d.season, year: d.year, cue, wholeYear, kind: cue === 'away' ? (kind ?? 'gap') : null };
     found.push(entry);
     const head = before?.cue === 'away' || before?.cue === 'summer' ? before : chain?.head;
     if (cue === null && head && COMMA_JOIN.test(between)) {
@@ -910,7 +933,7 @@ export function readHorizon(
     const before = timeline.slice(Math.max(0, (m.index ?? 0) + m[0].length - 14), (m.index ?? 0) + m[0].length);
     if (/\b(fall|spring|summer|may|december|dec|august|aug)\b/i.test(before)) continue;
     if (OTHER_SCHOOL.test(m[0]) || m[0].search(AWAY_CUE) >= 0) continue;
-    found.push({ season: 'Spring', year, cue: 'grad', wholeYear: false });
+    found.push({ season: 'Spring', year, cue: 'grad', wholeYear: false, kind: null });
   }
 
   // A start in the past is where the student began; the plan starts now. The
@@ -961,12 +984,14 @@ export function readHorizon(
 
   // Terms away inside the plan, in order. A summer away (the summer
   // internship) is not a fall or spring lost, so it is not listed.
-  const awayBy = new Map<number, { season: SemesterSeason; year: number }>();
+  // Each carries what kind of time away it is ("abroad", "co-op"), which
+  // decides what the term earns.
+  const awayBy = new Map<number, { season: SemesterSeason; year: number; kind: AwayKind }>();
   for (const f of found) {
     if (f.cue !== 'away' || f.season === 'Summer') continue;
     for (const t of f.wholeYear ? [{ season: f.season, year: f.year }, stepTerms(f.season, f.year, 1)] : [{ season: f.season, year: f.year }]) {
       const o = ordOf(t.season, t.year);
-      if (o >= startOrd && o <= gradOrd) awayBy.set(o, t);
+      if (o >= startOrd && o <= gradOrd) awayBy.set(o, { ...t, kind: f.kind ?? 'gap' });
     }
   }
   const away = [...awayBy.entries()].sort((a, b) => a[0] - b[0]).map(([, t]) => t);
@@ -984,11 +1009,23 @@ export function readHorizon(
     const leadCut = Math.max(lead.search(/[.;!?,][^.;!?,]*$/), ...[...lead.matchAll(/\b(but|and|so)\b/gi)].map((b) => b.index ?? -1));
     if (NEGATION.test(leadCut >= 0 ? lead.slice(leadCut) : lead)) continue;
     if (NEGATION.test(timeline.slice(at + m[0].length).match(AFTER_ASK)?.[0] ?? '')) continue;
-    const years = timeline.slice(at + m[0].length).match(/^\s*(?:(?:in|during|for)\s+)?(?:of\s+)?(20\d\d(?:\s*(?:,|and|&|or)\s*20\d\d)*)\b/i);
+    // "summer classes in 2027", and "summer classes in summer 2027", which
+    // read as every summer until the word "summer" before the year was
+    // allowed: a Finance freshman with an internship in Summer 2028 got
+    // classes booked in a Summer 2029 they never named.
+    const years = timeline
+      .slice(at + m[0].length)
+      .match(/^\s*(?:(?:in|during|for)\s+)?(?:(?:the\s+)?summers?\s+)?(?:of\s+)?((?:'\d{2}|20\d\d)(?:\s*(?:,|and|&|or)\s*(?:summer\s+)?(?:of\s+)?(?:'\d{2}|20\d\d))*)(?!\d)/i);
     if (years) {
-      for (const y of years[1].match(/20\d\d/g) ?? []) summerSet.add(Number(y));
+      for (const y of years[1].match(/'\d{2}|20\d\d/g) ?? []) summerSet.add(y.startsWith("'") ? 2000 + Number(y.slice(1)) : Number(y));
       continue;
     }
+    // A summer of classes dated elsewhere in the same sentence ("I'll take
+    // summer classes, probably summer 2027") is that summer, not every one.
+    const sentenceStart = Math.max(0, timeline.slice(0, at).search(/[.;!?][^.;!?]*$/) + 1);
+    const nextStop = timeline.slice(at).search(/[.;!?]/);
+    const sentenceEnd = nextStop >= 0 ? at + nextStop : timeline.length;
+    if (dates.some((d, i) => found[i]?.cue === 'summer' && d.at >= sentenceStart && d.at < sentenceEnd)) continue;
     for (let y = startYear; y <= gradYear; y++) {
       const o = ordOf('Summer', y);
       if (o > startOrd && o < gradOrd) summerSet.add(y);

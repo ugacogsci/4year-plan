@@ -427,13 +427,56 @@ export interface Horizon {
    * Terms the student is away from campus: study abroad, a co-op, a gap
    * semester. The plan keeps the term in the calendar and books nothing in it.
    * "I'm studying abroad spring 2029" is a term away, never a graduation date.
+   * A term abroad can still earn hours (see AwayTerm); a plain entry earns none.
    */
-  away?: Array<{ season: SemesterSeason; year: number }>;
+  away?: AwayTerm[];
   /**
    * Summer terms the student will take classes in. Fall and spring are always
    * planned; a summer only when the student asks for it, and at a summer load.
    */
   summers?: number[];
+}
+
+/** What a term away is, which decides what it earns when the student names no hours. */
+export type AwayKind = 'study_abroad' | 'co_op' | 'internship' | 'gap';
+
+/**
+ * One fall or spring term off campus.
+ *
+ * A semester abroad is not a semester lost: Illinois study abroad normally
+ * earns twelve to eighteen hours, approved course by course before departure,
+ * that count as electives or general education. Planned as nothing, a
+ * Psychology freshman abroad in Spring 2028 had every other term pushed to 18
+ * to make up hours the term abroad would have earned. A co-op, an internship
+ * or a gap term earns nothing unless the student says it does.
+ */
+export interface AwayTerm {
+  season: SemesterSeason;
+  year: number;
+  /** Absent on older callers and plain entries, which earn nothing. */
+  kind?: AwayKind;
+  /** Hours the term is expected to earn. Absent: STUDY_ABROAD_HOURS for study abroad, 0 otherwise. */
+  credits?: number;
+}
+
+/**
+ * The hours a term away counts for: what the student said, else fifteen for a
+ * semester abroad and nothing for anything else, never past the eighteen LAS
+ * allows abroad in one semester (las.illinois.edu/academics/requirements/special/studyabroad).
+ */
+export function awayCredits(term: AwayTerm): number {
+  const said = typeof term.credits === 'number' && Number.isFinite(term.credits) ? term.credits : term.kind === 'study_abroad' ? STUDY_ABROAD_HOURS : 0;
+  return Math.max(0, Math.min(ABROAD_MAX_HOURS, Math.round(said)));
+}
+
+/** How a term away reads in a sentence: "study abroad", "a co-op". */
+function awayWord(term: AwayTerm): string {
+  return term.kind === 'study_abroad' ? 'study abroad' : term.kind === 'co_op' ? 'a co-op' : term.kind === 'internship' ? 'an internship' : term.kind === 'gap' ? 'a gap term' : 'time away';
+}
+
+/** "Spring 2029 (a co-op)", or just "Spring 2029" when nothing says what it is. */
+function awayNamed(term: AwayTerm): string {
+  return term.kind ? `${term.season} ${term.year} (${awayWord(term)})` : `${term.season} ${term.year}`;
 }
 
 export interface PlanPreferences {
@@ -755,9 +798,18 @@ export interface GeneratedPlan {
    * graduate on.
    */
   residency?: ResidencyReport | null;
+  /**
+   * The terms away inside the plan, each with what it earns. They have no
+   * column on the board, so the board and the validator read them from here:
+   * a semester abroad counts toward the total and toward class standing from
+   * the term after it.
+   */
+  away?: Array<{ label: string; season: SemesterSeason; year: number; kind: AwayKind | null; credits: number }>;
   credits: {
     planned: CreditTotal;
     prior: number;
+    /** Hours expected from terms away (study abroad), already in `total`. Absent means none. */
+    away?: number;
     /**
      * Everything that counts toward the degree: what the student already has
      * plus what this plan schedules.
@@ -829,6 +881,20 @@ const DEFAULT_CREDITS: { min: number; target: number | null; max: number } = { m
  */
 const NORMAL_LOAD = 15;
 const DEFAULT_MAX_HARD = 2;
+/**
+ * Hours a semester abroad earns when the student names none: a normal load,
+ * inside the twelve to eighteen Illinois programs award. LAS allows at most
+ * eighteen abroad in one semester.
+ */
+const STUDY_ABROAD_HOURS = 15;
+const ABROAD_MAX_HOURS = 18;
+/**
+ * Hardest-band courses a summer term may hold. A summer session runs a
+ * semester's material in a fraction of the weeks, and a Summer 2028 holding
+ * MCB 250 and CHEM 232 together was six credits the grade history calls
+ * brutal.
+ */
+const SUMMER_MAX_HARD = 1;
 
 // ---------------------------------------------------------------------------
 // Small shared helpers.
@@ -1385,8 +1451,14 @@ export function describeCreditProgress(
 ): string {
   const total = describeCreditTotal(credits.total);
   const head = degreeTotal === null ? total : `${total} of the ${degreeTotal} this degree takes`;
-  if (credits.prior <= 0) return head;
-  return `${head}. ${credits.prior} of those you already have, ${describeCreditTotal(credits.planned)} are in the plan.`;
+  const away = credits.away ?? 0;
+  if (credits.prior <= 0 && away <= 0) return head;
+  const parts = [
+    credits.prior > 0 ? `${credits.prior} of those you already have` : null,
+    away > 0 ? `${away} are expected from your time abroad` : null,
+    `${describeCreditTotal(credits.planned)} are in the plan`,
+  ].filter(Boolean);
+  return `${head}. ${parts.join(', ')}.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1940,6 +2012,55 @@ function outOfSeason(course: { offeredIn: SemesterSeason[] } | undefined, season
 /** A summer term's load: an aim and a ceiling well under a fall or spring. */
 const SUMMER_AIM = 6;
 const SUMMER_MAX = 9;
+
+/** Fall and spring terms as consecutive numbers, summers skipped: Spring 2027 then Fall 2027. */
+const regularOrd = (season: SemesterSeason, year: number): number => year * 2 + (season === 'Fall' ? 1 : 0);
+const fromRegularOrd = (ord: number): { season: SemesterSeason; year: number } => ({ season: ord % 2 ? 'Fall' : 'Spring', year: Math.floor(ord / 2) });
+/** Every term in calendar order, summers included: Spring, Summer, Fall. */
+const calendarOrd = (season: SemesterSeason, year: number): number => year * 3 + (season === 'Spring' ? 0 : season === 'Summer' ? 1 : 2);
+
+/** The fall and spring terms away between a horizon's start and its end, in order. */
+function awayWithin(horizon: Horizon): AwayTerm[] {
+  const start = calendarOrd(horizon.startSeason, horizon.startYear);
+  const end = calendarOrd(horizon.gradSeason, horizon.gradYear);
+  const seen = new Set<number>();
+  return (horizon.away ?? [])
+    .filter((a) => a.season !== 'Summer')
+    .filter((a) => {
+      const o = calendarOrd(a.season, a.year);
+      if (o < start || o > end || seen.has(o)) return false;
+      seen.add(o);
+      return true;
+    })
+    .sort((a, b) => calendarOrd(a.season, a.year) - calendarOrd(b.season, b.year));
+}
+
+/**
+ * The end of a plan the student did not date, moved past their time away.
+ *
+ * A default of four years is eight fall and spring terms on campus. "Starting
+ * fall 2026, taking a gap year in fall 2028" left the end at Spring 2030, so
+ * a Molecular and Cellular Biology plan got six terms of eighteen, stopped at
+ * 108 of 120, and told the student a finish date they never gave was out of
+ * reach. Each term away inside the default moves the end one fall or spring
+ * later. A date the student stated is kept as it is.
+ */
+export function extendForAway(horizon: Horizon): Horizon {
+  if (horizon.stated === true) return horizon;
+  const away = new Set(awayWithin({ ...horizon, gradYear: horizon.gradYear + 8 }).map((a) => regularOrd(a.season, a.year)));
+  if (away.size === 0) return horizon;
+  const start = regularOrd(horizon.startSeason === 'Summer' ? 'Fall' : horizon.startSeason, horizon.startYear);
+  const end = regularOrd(horizon.gradSeason === 'Summer' ? 'Spring' : horizon.gradSeason, horizon.gradYear);
+  let last = start - 1;
+  for (let o = start, campus = 0; campus < end - start + 1 && o < start + 40; o += 1) {
+    if (away.has(o)) continue;
+    campus += 1;
+    last = o;
+  }
+  if (last <= end) return horizon;
+  const t = fromRegularOrd(last);
+  return { ...horizon, gradSeason: t.season, gradYear: t.year };
+}
 
 /**
  * The terms a plan is built over, in calendar order.
@@ -3393,7 +3514,29 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
       `Getting into ${route.name}: ${route.path} is an application with its own rules, not part of the degree page. ${route.eligibility.join(' ')} The courses it asks for by ${route.requiredBy} are placed first in this plan. Source: ${route.source}`,
     );
   }
-  if (fitted.note) result.notes.push(fitted.note);
+  const fitNote = fitted.note?.(result) ?? null;
+  if (fitNote) result.notes.push(fitNote);
+  /**
+   * A date the student named is kept whatever time away sits inside it, and
+   * the plan says what that costs. "Graduate spring 2030, co-op spring 2029"
+   * is seven terms on campus doing eight terms' work, and the student should
+   * hear it from the plan rather than work it out from a board of eighteens.
+   * A semester abroad that earns a full load costs nothing.
+   */
+  if (raw.horizon.stated === true) {
+    const within = awayWithin(raw.horizon);
+    const lost = within.filter((a) => awayCredits(a) < 12);
+    if (lost.length > 0) {
+      const start = regularOrd(raw.horizon.startSeason === 'Summer' ? 'Fall' : raw.horizon.startSeason, raw.horizon.startYear);
+      const end = regularOrd(raw.horizon.gradSeason === 'Summer' ? 'Spring' : raw.horizon.gradSeason, raw.horizon.gradYear);
+      const campus = Math.max(0, end - start + 1 - within.length);
+      const named = lost.map(awayNamed).join(', ');
+      const summers = (raw.horizon.summers ?? []).length > 0;
+      result.notes.push(
+        `Time away in ${named} costs this plan ${lost.length === 1 ? 'a term' : `${lost.length} terms`}: ${campus} fall and spring ${campus === 1 ? 'term' : 'terms'} on campus remain before the ${raw.horizon.gradSeason} ${raw.horizon.gradYear} you asked for, and they carry its share. ${summers ? 'The summers you asked for take some of it.' : 'Summer classes can take some of it without moving the date.'}`,
+      );
+    }
+  }
   if (counted?.note) result.notes.push(counted.note);
   result.residency = raw.residency ? residencyReport(raw.residency, result, raw.context) : null;
   if (result.residency?.shortfall) result.notes.push(result.residency.shortfall);
@@ -3594,6 +3737,23 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * reports the course as unplaceable in the same breath.
    */
   const terms = buildHorizon(input.horizon);
+  /**
+   * The terms away inside this horizon and what each earns. They have no
+   * column, so their hours are counted here: toward the total, and toward
+   * class standing in every term after them. A Psychology student back from
+   * a Spring 2028 abroad at 15 hours registers for Fall 2028 with those
+   * hours, the way the registrar counts them once the credit posts.
+   */
+  const awayTerms = awayWithin(input.horizon);
+  const awayCreditTotal = awayTerms.reduce((sum, a) => sum + awayCredits(a), 0);
+  const awayBefore = terms.map((t) =>
+    awayTerms.filter((a) => calendarOrd(a.season, a.year) < calendarOrd(t.season, t.calendarYear)).reduce((sum, a) => sum + awayCredits(a), 0),
+  );
+  const isSummer = (term: { season: SemesterSeason }) => term.season === 'Summer';
+  /** The most hardest-band courses a term may hold: one in a summer, the student's setting otherwise. */
+  const hardCapOf = (term: { season: SemesterSeason }) => (isSummer(term) ? Math.min(maxHard, SUMMER_MAX_HARD) : maxHard);
+  /** The most credits a term may hold: a summer's ceiling, or the student's maximum. */
+  const creditCapOf = (term: { season: SemesterSeason }) => (isSummer(term) ? Math.min(credits.max, SUMMER_MAX) : credits.max);
 
   const creditsOf = (code: string): number => {
     const range = ctx.creditRanges?.get(code);
@@ -4758,6 +4918,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   /** No slack left: this is the last term the course can start in and still finish its chain. */
   const urgentAt = (code: string, termIndex: number): boolean => termIndex >= (latestStart.get(code) ?? terms.length);
   let orderingTerm = 0;
+  let orderingSummer = false;
   /**
    * Courses chosen for a general education category. They have no chains,
    * so "shallowest first" put them ahead of every second-year major course
@@ -4796,6 +4957,24 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     // Then a language sequence, so its semesters run back to back.
     const seqDiff = (sequenceFirst.has(b) ? 1 : 0) - (sequenceFirst.has(a) ? 1 : 0);
     if (seqDiff !== 0) return seqDiff;
+    /**
+     * A summer takes the light courses. Organic chemistry and MCB 250 went
+     * into one six-credit Summer 2028 because the order below is by chain
+     * length, which is the order for a fall or spring. In a summer a course
+     * outside the hardest band comes first, then a general education pick,
+     * then the lighter by grade history, an ungraded course weighed at the
+     * harder band. The chain still moves: a summer is an extra term, and the
+     * fall after it holds what the summer did not.
+     */
+    if (orderingSummer) {
+      const hardDiff = (isHard(a) ? 1 : 0) - (isHard(b) ? 1 : 0);
+      if (hardDiff !== 0) return hardDiff;
+      const fillerDiff = (genEdPick.has(b) ? 1 : 0) - (genEdPick.has(a) ? 1 : 0);
+      if (fillerDiff !== 0) return fillerDiff;
+      const unweighed = (ctx.bands ?? FALLBACK_BANDS).harder;
+      const lightDiff = (grades.get(a)?.difficulty ?? unweighed) - (grades.get(b)?.difficulty ?? unweighed);
+      if (lightDiff !== 0) return lightDiff;
+    }
     if (genEdHere >= 2) {
       const geDiff = (genEdPick.has(a) ? 1 : 0) - (genEdPick.has(b) ? 1 : 0);
       if (geDiff !== 0) return geDiff;
@@ -4827,6 +5006,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const termNotes = new Map<string, string[]>();
     const earlier = new Set<string>(satisfiedForPrereq);
     let hoursBefore = priorCreditTotal;
+    /**
+     * The hours a student will have by a term at this pass's pace: a summer
+     * at its own aim rather than a fall's, and the hours abroad before it.
+     * Counting a summer as a full term had a 400-level course waiting for
+     * junior hours that a plan with two six-credit summers had not reached.
+     */
+    const paceBefore = (index: number) =>
+      priorCreditTotal + awayBefore[index] + terms.slice(0, index).reduce((sum, t) => sum + (isSummer(t) ? Math.min(cap, SUMMER_AIM) : Math.min(cap, credits.max)), 0);
 
     for (const term of terms) {
       const here: string[] = [];
@@ -4834,6 +5021,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const noteList: string[] = [];
       const isLastTerm = term.index === terms.length - 1;
       let hardHere = 0;
+      // Hours abroad since the last term count from this one on.
+      hoursBefore += awayBefore[term.index] - (term.index > 0 ? awayBefore[term.index - 1] : 0);
 
       genEdHere = 0;
       /**
@@ -4891,6 +5080,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        */
       const urgent = (code: string): boolean => urgentAt(code, term.index);
       orderingTerm = term.index;
+      orderingSummer = isSummer(term);
 
       const allowedHere = (code: string): boolean => {
         const course = byCode.get(code);
@@ -4912,7 +5102,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
          * The estimate is the smaller of the aim and the maximum per term
          * before this one, on top of what the student walked in with.
          */
-        const hoursByNow = Math.max(hoursBefore, priorCreditTotal + term.index * Math.min(cap, credits.max));
+        const hoursByNow = Math.max(hoursBefore, paceBefore(term.index));
         if (!relaxLevel && !levelFits(code, hoursByNow, standingHours) && !isLastTerm && !urgent(code)) { debug(code, term.label, `level ${courseLevel(code)} waits for hours (${Math.round(hoursByNow)} by now), slack left`); return false; }
         // Offering is a hard constraint only where the catalog actually
         // publishes a term. Illinois publishes none, and refusing a course a
@@ -4938,6 +5128,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // dropping the course, because a course that never gets placed costs
         // a student a semester and a heavy last term costs them a hard spring.
         if (!isLastTerm && isHard(code) && hardHere >= maxHard && !urgent(code)) { debug(code, term.label, `already ${hardHere} hardest-band courses here`); return false; }
+        // A summer's cap has no exemption, last term and no slack included:
+        // the fall or spring after it is where a second hard course goes.
+        if (isSummer(term) && isHard(code) && hardHere >= hardCapOf(term)) { debug(code, term.label, `a summer already holds ${hardHere} hardest-band course`); return false; }
         return true;
       };
 
@@ -5078,7 +5271,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       }
 
       const termCredits = planCreditRange(here, ctx);
-      if (here.length > 0 && termCredits.min < credits.min) {
+      // A summer is under the fall and spring minimum by design.
+      if (here.length > 0 && termCredits.min < credits.min && !isSummer(term)) {
         /**
          * Why a light term is light, where the reason is a rule and not a gap.
          *
@@ -5141,13 +5335,44 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * extra year of tuition for a student who could finish in three, and left a
    * senior year of twelve-credit terms. Prerequisite chains can still push a
    * course past this count; the fill then works with the terms actually used.
+   *
+   * Counted in fall and spring terms, with each summer carrying its own
+   * smaller share. A four-year plan with summers 2027 and 2028 is ten terms,
+   * and counting all ten as full terms budgeted the first eight of them:
+   * every fall and spring to Spring 2029 at 18, the summers at 6, and Fall
+   * 2029 and Spring 2030 empty. The student asked for summers to make their
+   * terms lighter and got the opposite, a year early. Summers lighten the
+   * falls and springs; they never shorten the plan by themselves.
    */
-  const remainingDegree = input.degreeTotal != null ? Math.max(0, input.degreeTotal - priorCreditTotal) : null;
-  const termsNeeded =
-    remainingDegree === null || terms.length === 0
-      ? terms.length
-      : Math.max(1, Math.min(terms.length, Math.ceil(remainingDegree / Math.max(credits.target ?? NORMAL_LOAD, credits.min))));
-  const spread = termsNeeded > 0 ? Math.ceil(load / termsNeeded) : credits.min;
+  const remainingDegree = input.degreeTotal != null ? Math.max(0, input.degreeTotal - priorCreditTotal - awayCreditTotal) : null;
+  const regularTerms = terms.filter((t) => !isSummer(t));
+  /** How many terms from the start hold the first `n` falls and springs, with the summers between them. */
+  const throughRegular = (n: number): number => (n >= regularTerms.length ? terms.length : n <= 0 ? 0 : regularTerms[n - 1].index + 1);
+  /** The falls and springs, and the summers, among the first `count` terms. */
+  const shapeOf = (count: number) => {
+    const summers = terms.slice(0, count).filter(isSummer).length;
+    return { summers, regular: Math.min(count, terms.length) - summers };
+  };
+  /** "8 terms", or "8 fall and spring terms and 2 summers" when there are summers. */
+  const termsPhrase = (count: number): string => {
+    const s = shapeOf(count);
+    return s.summers === 0 ? `${s.regular} terms` : `${s.regular} fall and spring ${s.regular === 1 ? 'term' : 'terms'} and ${s.summers} ${s.summers === 1 ? 'summer' : 'summers'}`;
+  };
+  /**
+   * Never fewer falls and springs than come before the last semester abroad
+   * that earns hours: a plan whose courses stop two terms before the student
+   * leaves has them idle, and a board with an empty spring before a fall
+   * abroad reads as a term off nobody asked for.
+   */
+  const lastAbroadAt = Math.max(-1, ...awayTerms.filter((a) => awayCredits(a) > 0).map((a) => calendarOrd(a.season, a.year)));
+  const regularBeforeAbroad = regularTerms.filter((t) => calendarOrd(t.season, t.calendarYear) < lastAbroadAt).length;
+  const regularNeeded =
+    remainingDegree === null || regularTerms.length === 0
+      ? regularTerms.length
+      : Math.max(1, regularBeforeAbroad, Math.min(regularTerms.length, Math.ceil(remainingDegree / Math.max(credits.target ?? NORMAL_LOAD, credits.min))));
+  const termsNeeded = remainingDegree === null ? terms.length : throughRegular(regularNeeded);
+  const neededShape = shapeOf(termsNeeded);
+  const spread = termsNeeded > 0 ? Math.ceil(Math.max(0, load - neededShape.summers * SUMMER_AIM) / Math.max(1, neededShape.regular)) : credits.min;
   const aim = Math.min(credits.max, Math.max(wanted, spread, credits.min));
   let placement = place(aim);
   if (placement.remaining.size > 0 && aim < credits.max) {
@@ -5164,9 +5389,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     // term (Civil Engineering's does) leaves courses over, and those are
     // reported on their own rows rather than claimed here.
     if (credits.target !== null && aim > credits.target) {
-      notes.push(`Terms aim for about ${aim} credits rather than the ${credits.target} you asked for, because ${load} credits of coursework are left for the ${terms.length} terms before ${input.horizon.gradSeason} ${input.horizon.gradYear}.`);
+      notes.push(`Terms aim for about ${aim} credits rather than the ${credits.target} you asked for, because ${load} credits of coursework are left for the ${termsPhrase(terms.length)} before ${input.horizon.gradSeason} ${input.horizon.gradYear}.`);
     } else if (credits.target === null) {
-      notes.push(`Terms aim for about ${aim} credits, an even share of the ${load} credits of coursework left for ${terms.length} terms. Set a number in Preferences to aim higher or lower.`);
+      notes.push(`Terms aim for about ${aim} credits, an even share of the ${load} credits of coursework left for ${termsPhrase(terms.length)}. Set a number in Preferences to aim higher or lower.`);
     }
   }
   const { placed, termNotes, remaining, earlier, hoursBefore } = placement;
@@ -5183,7 +5408,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   {
     const placedAll = () => new Set([...placed.values()].flat());
     const hoursAt = (index: number) => {
-      let h = priorCreditTotal;
+      let h = priorCreditTotal + (awayBefore[index] ?? awayCreditTotal);
       for (const t of terms) if (t.index < index) h += planCreditRange(placed.get(t.id) ?? [], ctx).min;
       return h;
     };
@@ -5210,8 +5435,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (term.index > lastUsed) break;
           const here = placed.get(term.id) ?? [];
           if (outOfSeason(course, term.season, published.has(alt))) continue;
-          if (planCreditRange(here, ctx).min + creditsOf(alt) > credits.max) continue;
-          if (isHard(alt) && here.filter(isHard).length >= maxHard && term.index < terms.length - 1) continue;
+          if (planCreditRange(here, ctx).min + creditsOf(alt) > creditCapOf(term)) continue;
+          if (isHard(alt) && here.filter(isHard).length >= hardCapOf(term) && (isSummer(term) || term.index < terms.length - 1)) continue;
           const hours = hoursAt(term.index);
           if (!standingMet(alt, hours) || !levelFits(alt, hours, standingHours)) continue;
           const same = new Set<string>();
@@ -5480,11 +5705,22 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     // left, eleven terms is 132 hours before anything is added, and the
     // top-up then padded every one of them to 12. The aim above stays as it
     // was; only the terms the fill spreads over are capped.
-    const fillable = remainingDegree !== null ? Math.max(1, Math.floor(remainingDegree / Math.max(1, credits.min))) : termsNeeded;
-    const fillTerms = terms.slice(0, Math.max(Math.min(termsNeeded, fillable), lastRequired + 1));
+    // Counted in falls and springs, since only they are padded to the minimum.
+    const fillable = Math.max(1, Math.floor(remainingDegree / Math.max(1, credits.min)));
+    // Every fall and spring before a semester abroad stays in play, even
+    // where the minimum then adds hours: the other choice is an empty term
+    // between the last course and the flight.
+    const fillTerms = terms.slice(0, Math.max(throughRegular(Math.max(Math.min(regularNeeded, fillable), regularBeforeAbroad)), lastRequired + 1));
+    /**
+     * The aim is a fall and spring aim: what is left after each summer takes
+     * its own six, shared over the falls and springs. Four years with two
+     * summers is (120 - 12) / 8, about 14 a term, where it read "about 15"
+     * over boards of 18.
+     */
+    const fillShape = shapeOf(fillTerms.length);
     const overallAim = Math.min(
       credits.max,
-      Math.max(credits.target ?? credits.min, Math.ceil(remainingDegree / Math.max(1, fillTerms.length)), credits.min),
+      Math.max(credits.target ?? credits.min, Math.ceil(Math.max(0, remainingDegree - fillShape.summers * SUMMER_AIM) / Math.max(1, fillShape.regular)), credits.min),
     );
     const majors = degreeSubjectsOf(input.requirements, input.programName);
     const stillWanted = new Set<string>();
@@ -5517,7 +5753,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const plannedAll = new Set<string>([...placed.values()].flat());
     const perSubject = new Map<string, number>();
     const candidates = rankedElectivePool(ctx, scoring, (code) => plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who));
-    let total = priorCreditTotal + [...placed.values()].flat().reduce((sum, code) => sum + creditsOf(code), 0);
+    let total = priorCreditTotal + awayCreditTotal + [...placed.values()].flat().reduce((sum, code) => sum + creditsOf(code), 0);
     /**
      * Hours the page wants at a level it names, by floor.
      *
@@ -5582,7 +5818,17 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       return atLevel ?? candidates.find(fits);
     };
 
-    for (const ceiling of [overallAim, credits.max]) {
+    /**
+     * Three sets of rounds: at the aim, then falls and springs up to the
+     * maximum, and last, only while the plan is still short of its total,
+     * summers up to their ceiling. A Kinesiology student graduating in Summer
+     * 2029 was left at 114 of 120 with that summer at six credits and the
+     * note blaming eligibility; the summer had three more to give.
+     */
+    const rounds: Array<[number, number]> = [[overallAim, SUMMER_AIM], [credits.max, SUMMER_AIM], [credits.max, SUMMER_MAX]];
+    for (const [ceiling, summerCeiling] of rounds) {
+      const summersOnly = summerCeiling > SUMMER_AIM;
+      if (summersOnly && fillShape.summers === 0) continue;
       let progress = true;
       while (total < degreeTotalPublished && progress) {
         progress = false;
@@ -5591,19 +5837,19 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // it evens the plan out rather than beside the hardest courses.
         const termDifficulty = (term: (typeof terms)[number]) => termLoad(placed.get(term.id) ?? [], grades).avgDifficulty ?? 0;
         const order = fillTerms
-          .slice()
+          .filter((term) => !summersOnly || isSummer(term))
           .sort((a, b) => planCreditRange(placed.get(a.id) ?? [], ctx).min - planCreditRange(placed.get(b.id) ?? [], ctx).min || termDifficulty(a) - termDifficulty(b) || a.index - b.index);
         for (const term of order) {
           if (total >= degreeTotalPublished) break;
           const here = placed.get(term.id) ?? [];
           placed.set(term.id, here);
           const running = planCreditRange(here, ctx).min;
-          const termCeiling = term.season === 'Summer' ? Math.min(ceiling, SUMMER_AIM) : ceiling;
+          const termCeiling = isSummer(term) ? Math.min(ceiling, summerCeiling) : ceiling;
           if (running >= termCeiling) continue;
           // What is earlier depends on what the last round added, so it is
           // rebuilt for every attempt rather than carried.
           const earlierSet = new Set<string>(satisfiedForPrereq);
-          let hoursSoFar = priorCreditTotal;
+          let hoursSoFar = priorCreditTotal + awayBefore[term.index];
           for (const other of terms) {
             if (other.index >= term.index) break;
             const codes = placed.get(other.id) ?? [];
@@ -5624,7 +5870,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             if (outOfSeason(course, term.season, published.has(code))) return false;
             if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
             // No last-term exemption here: an elective is never forced into a term.
-            if (isHard(code) && hardHere >= maxHard) return false;
+            if (isHard(code) && hardHere >= hardCapOf(term)) return false;
             if (conflictWith(code, conflicts, [earned, chosen, plannedAll]) !== null) return false;
             if (expandEquivalents(code, equivalents).some((twin) => twin !== code && (plannedAll.has(twin) || earned.has(twin)))) return false;
             return electivePrereqsMet(match(ctx.prereqs?.get(code), earlierSet, sameTerm, equivalents));
@@ -5632,7 +5878,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           // A term already heavy by grade history takes a light elective when
           // one fits, so the planner's own picks do not stack on the hardest
           // courses the degree requires.
-          const heavyHere = ['heavy', 'brutal'].includes(bandVerdictFor(hardHere, termLoad(here, grades).avgDifficulty, (ctx.bands ?? FALLBACK_BANDS)));
+          // A summer takes the light one too, whatever it already holds.
+          const heavyHere = isSummer(term) || ['heavy', 'brutal'].includes(bandVerdictFor(hardHere, termLoad(here, grades).avgDifficulty, (ctx.bands ?? FALLBACK_BANDS)));
           const lighter = (code: string) => (grades.get(code)?.difficulty ?? 0) < (ctx.bands ?? FALLBACK_BANDS).harder;
           const pick = (heavyHere ? pickFrom((code) => lighter(code) && fitsHere(code)) : undefined) ?? pickFrom(fitsHere);
           if (!pick) continue;
@@ -5669,7 +5916,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // A summer term is never topped up to the fall and spring minimum.
         if (term.season === 'Summer' || running >= credits.min) continue;
         const earlierSet = new Set<string>(satisfiedForPrereq);
-        let hoursSoFar = priorCreditTotal;
+        let hoursSoFar = priorCreditTotal + awayBefore[term.index];
         for (const other of terms) {
           if (other.index >= term.index) break;
           const codes = placed.get(other.id) ?? [];
@@ -5737,7 +5984,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         if (term.index > lastUsedTerm) break;
         const here = placed.get(term.id) ?? [];
         if (outOfSeason(course, term.season, published.has(code))) continue;
-        let hours = priorCreditTotal;
+        let hours = priorCreditTotal + awayBefore[term.index];
         const before = new Set<string>(satisfiedForPrereq);
         for (const other of terms) {
           if (other.index >= term.index) break;
@@ -5766,7 +6013,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         }
         if (running + creditsOf(code) > max) continue;
         const hardAfter = here.filter((c) => !out.includes(c)).filter(isHard).length;
-        if (isHard(code) && hardAfter >= maxHard) continue;
+        if (isHard(code) && hardAfter >= hardCapOf(term)) continue;
         for (const c of out) {
           plannedAll.delete(c);
           chosen.delete(c);
@@ -5806,10 +6053,13 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         termNotes.set(term.id, (termNotes.get(term.id) ?? []).filter((n) => !/below the \d+ you asked for/.test(n)));
       }
     }
+    // The summers' share is named, so "about 14" reads against falls and
+    // springs rather than against a six-credit summer.
+    const summerShare = fillShape.summers > 0 ? `, each summer taking about ${SUMMER_AIM}` : '';
     if (credits.target !== null && overallAim > credits.target) {
-      notes.push(`Terms aim for about ${overallAim} credits rather than the ${credits.target} you asked for, because ${remainingDegree} credits are left toward the ${degreeTotalPublished} this degree takes, over ${fillTerms.length} terms before ${input.horizon.gradSeason} ${input.horizon.gradYear}.`);
+      notes.push(`Terms aim for about ${overallAim} credits rather than the ${credits.target} you asked for, because ${remainingDegree} credits are left toward the ${degreeTotalPublished} this degree takes, over ${termsPhrase(fillTerms.length)} before ${input.horizon.gradSeason} ${input.horizon.gradYear}${summerShare}.`);
     } else if (credits.target === null) {
-      notes.push(`Terms aim for about ${overallAim} credits, an even share of the ${remainingDegree} credits left toward the ${degreeTotalPublished} this degree takes, over ${fillTerms.length} terms. Set a number in Preferences to aim higher or lower.`);
+      notes.push(`Terms aim for about ${overallAim} credits, an even share of the ${remainingDegree} credits left toward the ${degreeTotalPublished} this degree takes, over ${termsPhrase(fillTerms.length)}${summerShare}. Set a number in Preferences to aim higher or lower.`);
     }
     if (electives.length > 0) {
       notes.push(
@@ -5821,11 +6071,18 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       // changes it: a finish date two years out with 76 hours left is four
       // terms of 18, 72 hours, and "nothing else fit" left the student
       // guessing why.
-      const capacity = fillTerms.length * credits.max;
-      const needed = degreeTotalPublished - priorCreditTotal;
+      // A summer holds a summer's ceiling, not a fall's: counting it at 18
+      // made a Summer 2029 finish look roomy enough, and the note blamed
+      // eligibility for a gap the calendar made.
+      const summerMax = Math.min(credits.max, SUMMER_MAX);
+      const capacity = fillShape.regular * credits.max + fillShape.summers * summerMax;
+      const needed = degreeTotalPublished - priorCreditTotal - awayCreditTotal;
+      const holds = fillShape.summers === 0
+        ? `${fillTerms.length} ${fillTerms.length === 1 ? 'term holds' : 'terms hold'} at most ${capacity} at ${credits.max} each`
+        : `${fillShape.regular} fall and spring ${fillShape.regular === 1 ? 'term' : 'terms'} at ${credits.max} and ${fillShape.summers} ${fillShape.summers === 1 ? 'summer' : 'summers'} at ${summerMax} hold at most ${capacity}`;
       notes.push(
         needed > capacity
-          ? `Finishing by ${input.horizon.gradSeason} ${input.horizon.gradYear} needs ${Math.round(needed)} more credits, and ${fillTerms.length} ${fillTerms.length === 1 ? 'term holds' : 'terms hold'} at most ${capacity} at ${credits.max} each. This plan reaches ${Math.round(total)} of ${degreeTotalPublished}; a summer session, one more term, or a later finish date closes the gap.`
+          ? `Finishing by ${input.horizon.gradSeason} ${input.horizon.gradYear} needs ${Math.round(needed)} more credits, and ${holds}. This plan reaches ${Math.round(total)} of ${degreeTotalPublished}; ${fillShape.summers === 0 ? 'a summer session, one more term, or a later finish date' : 'one more term or a later finish date'} closes the gap.`
           : `This plan reaches ${Math.round(total)} of the ${degreeTotalPublished} credits the degree takes. Nothing else eligible fit before ${input.horizon.gradSeason} ${input.horizon.gradYear}.`,
       );
     }
@@ -5853,7 +6110,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     };
     const creditsIn = (index: number) => planCreditRange(placed.get(terms[index].id) ?? [], ctx).min;
     const hoursBeforeIndex = (index: number) => {
-      let h = priorCreditTotal;
+      let h = priorCreditTotal + (awayBefore[index] ?? awayCreditTotal);
       for (let i = 0; i < index; i += 1) h += creditsIn(i);
       return h;
     };
@@ -5874,9 +6131,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const hardIn = (index: number) => (placed.get(terms[index].id) ?? []).filter(isHard).length;
     const fitsAt = (code: string, index: number) => {
       const worth = creditsOf(code);
-      if (creditsIn(index) + worth > credits.max) return false;
+      if (creditsIn(index) + worth > creditCapOf(terms[index])) return false;
       if (!seasonFits(code, index)) return false;
-      if (isHard(code) && hardIn(index) >= maxHard) return false;
+      if (isHard(code) && hardIn(index) >= hardCapOf(terms[index])) return false;
       const hours = hoursBeforeIndex(index);
       if (!standingMet(code, hours) || !levelFits(code, hours, standingHours)) return false;
       return match(ctx.prereqs?.get(code), setBefore(index), setIn(index), equivalents).missing.length === 0;
@@ -5929,8 +6186,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
               const hours = hoursBeforeIndex(j) - creditsOf(code);
               if (hours < need) continue;
               const worth = creditsOf(code);
-              if (creditsIn(j) + worth > credits.max || !seasonFits(code, j)) continue;
-              if (isHard(code) && hardIn(j) >= maxHard && j < terms.length - 1) continue;
+              if (creditsIn(j) + worth > creditCapOf(terms[j]) || !seasonFits(code, j)) continue;
+              if (isHard(code) && hardIn(j) >= hardCapOf(terms[j]) && (isSummer(terms[j]) || j < terms.length - 1)) continue;
               move(code, i, j);
               done = true;
             }
@@ -5945,7 +6202,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
               if (neededBy(code, j)) break;
               for (const other of placed.get(terms[j].id) ?? []) {
                 if (needFor(other) !== null) continue;
-                const room = (index: number, out: string, add: string) => creditsIn(index) - creditsOf(out) + creditsOf(add) <= credits.max;
+                const room = (index: number, out: string, add: string) => creditsIn(index) - creditsOf(out) + creditsOf(add) <= creditCapOf(terms[index]);
                 if (!room(i, code, other) || !room(j, other, code)) continue;
                 if (!seasonFits(other, i) || !seasonFits(code, j)) continue;
                 move(code, i, j);
@@ -5954,8 +6211,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
                   hoursBeforeIndex(j) >= need &&
                   match(ctx.prereqs?.get(other), setBefore(i), setIn(i), equivalents).missing.length === 0 &&
                   levelFits(other, hoursBeforeIndex(i), standingHours) &&
-                  !(isHard(code) && hardIn(j) > maxHard && j < terms.length - 1) &&
-                  !(isHard(other) && hardIn(i) > maxHard);
+                  !(isHard(code) && hardIn(j) > hardCapOf(terms[j]) && (isSummer(terms[j]) || j < terms.length - 1)) &&
+                  !(isHard(other) && hardIn(i) > hardCapOf(terms[i]));
                 if (ok) {
                   done = true;
                   break;
@@ -5975,7 +6232,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             const short = need - hoursBeforeIndex(i);
             const onBoard = new Set([...placed.values()].flat());
             for (let k = i - 1; k >= 0 && !done; k -= 1) {
-              const room = credits.max - creditsIn(k);
+              const room = creditCapOf(terms[k]) - creditsIn(k);
               if (room < short) continue;
               const pick = ctx.courses
                 .map((c) => normaliseCode(c.code))
@@ -6005,6 +6262,15 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   }
 
   // --- report --------------------------------------------------------------
+  /**
+   * The year of study, from the calendar: the academic year a term falls in,
+   * counted from the one the plan starts in, a summer belonging to the year
+   * before it. Counting term positions instead labelled a Fall 2028 after two
+   * summers as year four, and a Spring 2030 after a gap year as year three.
+   */
+  const academicYearOf = (season: SemesterSeason, year: number) => (season === 'Fall' ? year : year - 1);
+  const firstAcademicYear = input.horizon.startSeason === 'Summer' ? input.horizon.startYear : academicYearOf(input.horizon.startSeason, input.horizon.startYear);
+  const studyYearOf = (term: (typeof terms)[number]) => academicYearOf(term.season, term.calendarYear) - firstAcademicYear + 1;
   const everyTerm: PlannedTerm[] = terms.map((term) => {
     const codes = placed.get(term.id) ?? [];
     const load = termLoad(codes, grades);
@@ -6018,10 +6284,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       id: term.id,
       label: term.label,
       season: term.season,
-      // PlanTerm.year is typed 1 to 4. A plan longer than eight terms is still
-      // generated and still correct; only the year label saturates, and the
-      // note below says so rather than the plan quietly pretending it is shorter.
-      year: Math.min(4, Math.floor(term.index / 2) + 1),
+      // PlanTerm.year is typed 1 to 4. A plan that runs into a fifth year is
+      // still generated and still correct; only the year label saturates, and
+      // the note below says so rather than the plan quietly pretending it is
+      // shorter.
+      year: Math.max(1, Math.min(4, studyYearOf(term))),
       index: term.index,
       codes,
       credits: planCreditRange(codes, ctx),
@@ -6059,14 +6326,95 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   });
   const plannedTerms = lastUsed < 0 ? everyTerm.slice(0, 1) : everyTerm.slice(0, lastUsed + 1);
   if (lastUsed >= 0 && lastUsed < everyTerm.length - 1) {
-    const spare = everyTerm.length - 1 - lastUsed;
-    notes.push(
-      `This plan finishes in ${everyTerm[lastUsed].label}, ${spare} term${spare === 1 ? '' : 's'} before the ${input.horizon.gradSeason} ${input.horizon.gradYear} you asked for.`,
-    );
+    // A semester abroad that earns hours after the last course is the last
+    // term: the plan finishes there, not in the empty fall after it.
+    const lastAt = calendarOrd(terms[lastUsed].season, terms[lastUsed].calendarYear);
+    const abroadAfter = awayTerms.filter((a) => awayCredits(a) > 0 && calendarOrd(a.season, a.year) > lastAt);
+    const lastAbroad = abroadAfter[abroadAfter.length - 1];
+    const finishAt = lastAbroad ? calendarOrd(lastAbroad.season, lastAbroad.year) : lastAt;
+    // Falls and springs saved, and a summer only when it was the finish the
+    // student named: an unused summer in the middle is not a term earlier.
+    const spare = terms
+      .filter((t) => calendarOrd(t.season, t.calendarYear) > finishAt)
+      .filter((t) => t.season !== 'Summer' || (t.index === terms.length - 1 && input.horizon.gradSeason === 'Summer')).length;
+    // "You asked for" only when they did. A default end the student never
+    // gave, read back to them as their own, is a date they will go looking
+    // for in what they wrote.
+    if (spare > 0) {
+      const finishes = lastAbroad
+        ? `This plan's courses end in ${everyTerm[lastUsed].label}, and ${awayNamed(lastAbroad)} after them is your last term, so it finishes in ${lastAbroad.season} ${lastAbroad.year}`
+        : `This plan finishes in ${everyTerm[lastUsed].label}`;
+      notes.push(
+        input.horizon.stated === true
+          ? `${finishes}, ${spare} term${spare === 1 ? '' : 's'} before the ${input.horizon.gradSeason} ${input.horizon.gradYear} you asked for.`
+          : `${finishes}, ${spare} term${spare === 1 ? '' : 's'} before ${input.horizon.gradSeason} ${input.horizon.gradYear}, because the courses left run out sooner.`,
+      );
+    }
   }
 
-  if (plannedTerms.length > 8) {
-    notes.push(`This plan runs ${plannedTerms.length} terms. The board labels everything past the eighth as year four.`);
+  // Past the fourth academic year, counted on the calendar; the count in the
+  // note is falls and springs, since summers never made a plan longer.
+  const furthestYear = Math.max(0, ...plannedTerms.map((t) => studyYearOf(terms[t.index])));
+  if (furthestYear > 4) {
+    const regularCount = plannedTerms.filter((t) => t.season !== 'Summer').length;
+    const YEAR_WORD = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+    notes.push(`This plan runs ${regularCount} fall and spring ${regularCount === 1 ? 'term' : 'terms'} and reaches a ${YEAR_WORD[furthestYear - 1] ?? `year ${furthestYear}`} year. The board labels everything past the fourth year as year four.`);
+  }
+
+  /**
+   * A hard required course in a summer. The placer keeps it to one and puts
+   * light courses there first, but a chain can still leave MATH 241 in the
+   * only summer before the fall that needs it, and the student should hear
+   * that a summer session is the compressed version of that course.
+   */
+  const electiveCodes = new Set(electives.map((e) => e.code));
+  for (const term of plannedTerms) {
+    if (term.season !== 'Summer') continue;
+    for (const code of term.load.hard.filter((c) => !electiveCodes.has(c))) {
+      const req = requirementById.get(chosen.get(code)?.requirementId ?? '');
+      const why = req?.rule.kind === 'all' ? 'required' : req ? `booked for ${req.label || req.areaLabel}` : 'needed first by a later course';
+      notes.push(`${code} (${why}) is in the hardest band at this school and planned in ${term.label}. A summer session covers a semester's course in a few weeks, so give that summer to it alone, or move it to a fall or spring if the terms around allow.`);
+    }
+  }
+
+  /**
+   * Each term away, named, with what it earns. The column is not on the
+   * board, so without this a student abroad in Spring 2029 saw the term
+   * vanish and the terms after it at 16 to 18 with nothing saying why.
+   */
+  for (const away of awayTerms) {
+    const hours = awayCredits(away);
+    const label = `${away.season} ${away.year}`;
+    const capped = typeof away.credits === 'number' && away.credits > ABROAD_MAX_HOURS ? ` It is counted at ${ABROAD_MAX_HOURS}, the most LAS allows abroad in one semester.` : '';
+    notes.push(
+      hours > 0 && away.kind === 'study_abroad'
+        ? `${label}: study abroad. Nothing is booked on campus that term, and about ${hours} hours count toward the ${degreeTotalPublished ?? 'degree'} total as approved study-abroad credit: electives or general education once each course is approved in the Course Approval Database before you leave, never a required course in your major. The credit option is chosen before departure and is binding.${capped} Source: https://studyabroad.illinois.edu/outgoing-students/course-approval-process/`
+        : hours > 0
+          ? `${label}: ${awayWord(away)}. Nothing is booked on campus that term; the ${hours} hours you expect from it count toward the total as elective credit, so confirm with your advisor that they will.${capped}`
+          : `${label}: ${awayWord(away)}. Nothing is booked that term and it earns no hours toward the degree, so the terms on campus carry its share.`,
+    );
+  }
+  /**
+   * LAS counts study abroad toward residency only when 30 of the last 60
+   * hours are taken on campus (las.illinois.edu/academics/requirements/special/studyabroad).
+   * A senior year abroad at eighteen hours a term leaves 24 of the last 60 here.
+   */
+  if (awayCreditTotal > 0 && (input.programCollege ?? '').toLowerCase() === 'las') {
+    const lastHours = [
+      ...plannedTerms.map((t) => ({ at: calendarOrd(t.season, terms[t.index].calendarYear), hours: t.credits.min, campus: true })),
+      ...awayTerms.map((a) => ({ at: calendarOrd(a.season, a.year), hours: awayCredits(a), campus: false })),
+    ].sort((a, b) => b.at - a.at);
+    let counted = 0;
+    let onCampus = 0;
+    for (const t of lastHours) {
+      if (counted >= 60) break;
+      const take = Math.min(t.hours, 60 - counted);
+      counted += take;
+      if (t.campus) onCampus += take;
+    }
+    if (counted >= 60 && onCampus < 30) {
+      notes.push(`LAS counts study abroad toward residency only when 30 of your last 60 hours are taken on campus, and in this plan ${onCampus} of the last 60 are. Go abroad earlier, or ask your LAS advisor before you commit to the dates. Source: https://las.illinois.edu/academics/requirements/special/studyabroad`);
+    }
   }
 
   const placedCodes = plannedTerms.flatMap((t) => t.codes);
@@ -6078,8 +6426,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the plan's because a course already taken has a grade and therefore hours.
    */
   const totalCredits: CreditTotal = {
-    min: plannedCredits.min + priorCredits,
-    max: plannedCredits.max + priorCredits,
+    min: plannedCredits.min + priorCredits + awayCreditTotal,
+    max: plannedCredits.max + priorCredits + awayCreditTotal,
     variable: plannedCredits.variable,
     unknown: plannedCredits.unknown,
   };
@@ -6091,7 +6439,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
 
   const unaccounted = degreeTotal === null
     ? null
-    : Math.max(0, degreeTotal - (plannedCredits.min + priorCredits));
+    : Math.max(0, degreeTotal - (plannedCredits.min + priorCredits + awayCreditTotal));
 
   const snapshot = ctx.snapshotTerm ?? null;
   const offeringUnknown: string[] = [];
@@ -6181,7 +6529,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     electives,
     language: null,
     admission: null,
-    credits: { planned: plannedCredits, prior: priorCredits, total: totalCredits, degreeTotal, unaccounted },
+    away: awayTerms.map((a) => ({ label: `${a.season} ${a.year}`, season: a.season, year: a.year, kind: a.kind ?? null, credits: awayCredits(a) })),
+    credits: { planned: plannedCredits, prior: priorCredits, ...(awayCreditTotal > 0 ? { away: awayCreditTotal } : {}), total: totalCredits, degreeTotal, unaccounted },
     offering: { unknown: offeringUnknown, seenOnlyInSnapshot, message: offeringMessage },
     notes,
     partsOfTerm,
@@ -6210,6 +6559,12 @@ export interface ValidateOptions {
    * none of the 30 hours they arrived with.
    */
   priorCredits?: number;
+  /**
+   * The plan's terms away (GeneratedPlan.away). Their hours count toward
+   * standing from the term after them, and a term that is away is never
+   * "under your credit target".
+   */
+  away?: Array<{ season: SemesterSeason; year: number; credits?: number; kind?: AwayKind | null }>;
 }
 
 /**
@@ -6328,7 +6683,23 @@ export function validatePlan(
     }
   }
 
+  /**
+   * Where each board term sits on the calendar, from its label ("Fall 2028"),
+   * so hours abroad land before the terms after them.
+   */
+  const awayList = (options?.away ?? []).filter((a) => a.season !== 'Summer');
+  const calendarOf = (term: PlanTerm): number | null => {
+    const year = term.label.match(/\b(20\d\d)\b/);
+    return year ? calendarOrd(term.season, Number(year[1])) : null;
+  };
+  let awayCounted = 0;
   for (const term of plan.terms) {
+    const at = calendarOf(term);
+    if (at !== null) {
+      const abroad = awayList.filter((a) => calendarOrd(a.season, a.year) < at).reduce((sum, a) => sum + awayCredits({ ...a, kind: a.kind ?? undefined }), 0);
+      hoursBefore += abroad - awayCounted;
+      awayCounted = abroad;
+    }
     const codes: string[] = [];
     const sameTerm = new Set<string>();
     for (const courseId of term.courseIds) {
@@ -6349,7 +6720,11 @@ export function validatePlan(
         termId: term.id,
       });
     }
-    if (options?.minimumTermCredits && termCredits.max < options.minimumTermCredits) {
+    // A summer is under the fall and spring minimum by design, and a term the
+    // student is away holds nothing on purpose. An empty fall or spring that
+    // is not away is still reported: that is a term with no enrolment.
+    const awayHere = at !== null && awayList.some((a) => calendarOrd(a.season, a.year) === at);
+    if (options?.minimumTermCredits && termCredits.max < options.minimumTermCredits && term.season !== 'Summer' && !awayHere) {
       issues.push({
         id: `ap-minimum-${term.id}`,
         severity: 'warning',
@@ -6385,12 +6760,14 @@ export function validatePlan(
           const d = grades.get(code)?.difficulty;
           return d !== null && d !== undefined && d >= hardCut;
         });
-    if (hard.length > maxHard) {
+    // One in a summer: the session is a fraction of a semester's weeks.
+    const hardCap = term.season === 'Summer' ? Math.min(maxHard, SUMMER_MAX_HARD) : maxHard;
+    if (hard.length > hardCap) {
       issues.push({
         id: `ap-hard-${term.id}`,
         severity: 'warning',
         title: 'Several hard courses together',
-        message: `${term.label} has ${hard.length} courses in the hardest band at this school: ${hard.join(', ')}. That is past grades, not a prediction.`,
+        message: `${term.label} has ${hard.length} courses in the hardest band at this school: ${hard.join(', ')}.${term.season === 'Summer' ? ' A summer session covers each in a few weeks.' : ''} That is past grades, not a prediction.`,
         termId: term.id,
       });
     }
@@ -6700,32 +7077,113 @@ function residencyReport(rule: ResidencyRule, plan: GeneratedPlan, ctx: Planning
  * ends when the work does, at the aim they set per term (fifteen unless they
  * said otherwise), never fewer than two terms. A date the student stated is
  * kept: the date outranks the hours, and the note names the setting.
+ *
+ * Terms are counted on campus. A term away is stepped over, and what a
+ * semester abroad earns counts like credit in hand from then on: a Computer
+ * Science student with 41 AP hours and a spring abroad was told "6 terms,
+ * ends Spring 2029" over a board of five, whose sixth term was the one
+ * abroad. Summers are not counted toward the end at all; a student who asks
+ * for summer classes gets lighter falls and springs, not an earlier finish,
+ * unless they say so.
  */
-function fitHorizonToCredit(raw: AutoplanInput, prior: PriorCredit, extraTerms = 0): { horizon: Horizon; note: string | null; shortened: boolean } {
-  const horizon = raw.horizon;
+function fitHorizonToCredit(raw: AutoplanInput, prior: PriorCredit, extraTerms = 0): { horizon: Horizon; note: ((plan: GeneratedPlan) => string | null) | null; shortened: boolean } {
+  const given = raw.horizon;
+  if (given.stated === true) return { horizon: given, note: null, shortened: false };
   const total = raw.degreeTotal ?? null;
-  if (horizon.stated === true || total === null) return { horizon, note: null, shortened: false };
+  const startOrd = regularOrd(given.startSeason === 'Summer' ? 'Fall' : given.startSeason, given.startYear);
+  const endOrd = regularOrd(given.gradSeason === 'Summer' ? 'Spring' : given.gradSeason, given.gradYear);
+  const defaultTerms = endOrd - startOrd + 1;
+  const awayAt = new Map(awayWithin({ ...given, gradYear: given.gradYear + 8 }).map((a) => [regularOrd(a.season, a.year), a]));
   const byCode = new Map(raw.context.courses.map((c) => [normaliseCode(c.code), c]));
   const held = prior.courseCodes.reduce((sum, code) => sum + (byCode.get(normaliseCode(code))?.credits ?? 0), 0) + prior.unmatchedCredits;
-  const remaining = total - held;
-  if (remaining <= 0) return { horizon, note: null, shortened: false };
+  const remaining = total === null ? null : total - held;
   // Balanced terms by default: the student's own aim when they set one, else fifteen, never the maximum.
-  const aim = raw.preferences?.creditsPerTerm?.target ?? 15;
-  const needed = Math.max(2, Math.ceil(remaining / Math.max(12, aim))) + extraTerms;
-  const seasons: SemesterSeason[] = ['Spring', 'Fall'];
-  const ord = (season: SemesterSeason, year: number) => year * 2 + (season === 'Fall' ? 1 : 0);
-  const startOrd = ord(horizon.startSeason === 'Summer' ? 'Fall' : horizon.startSeason, horizon.startYear);
-  const endOrd = ord(horizon.gradSeason === 'Summer' ? 'Spring' : horizon.gradSeason, horizon.gradYear);
-  const defaultTerms = endOrd - startOrd + 1;
-  if (needed >= defaultTerms) return { horizon, note: null, shortened: false };
-  const lastOrd = startOrd + needed - 1;
-  const gradSeason = seasons[lastOrd % 2];
-  const gradYear = Math.floor(lastOrd / 2);
+  const aim = Math.max(12, raw.preferences?.creditsPerTerm?.target ?? 15);
+  /**
+   * Walk forward from the start: a campus term adds a term's aim, a term away
+   * what it earns. The plan ends at the first campus term that covers what
+   * is left, and never past the default's own count of campus terms.
+   */
+  let needed = defaultTerms;
+  if (remaining !== null && remaining > 0) {
+    let covered = 0;
+    let campus = 0;
+    for (let o = startOrd; campus < defaultTerms && o < startOrd + 40; o += 1) {
+      const away = awayAt.get(o);
+      if (away) { covered += awayCredits(away); continue; }
+      campus += 1;
+      covered += aim;
+      if (campus >= 2 && covered >= remaining) break;
+    }
+    needed = Math.min(defaultTerms, campus + extraTerms);
+  }
+  let lastOrd = startOrd - 1;
+  for (let o = startOrd, campus = 0; campus < needed && o < startOrd + 40; o += 1) {
+    if (awayAt.has(o)) continue;
+    campus += 1;
+    lastOrd = o;
+  }
+  /**
+   * Time away the student named inside the usual years but after the work
+   * runs out. A semester abroad that earns hours stays in the plan as its
+   * last term: a Psychology transfer with sixty hours, abroad in Fall 2028,
+   * was planned to end in Spring 2028 and never told the term abroad had
+   * fallen off the end. Time away that earns nothing is left after the end,
+   * and the note names it.
+   */
+  const pastEnd = [...awayAt.entries()].filter(([o]) => o > lastOrd && o <= endOrd).sort((a, b) => a[0] - b[0]);
+  const creditedPast = pastEnd.filter(([, a]) => awayCredits(a) > 0);
+  if (creditedPast.length > 0 && lastOrd < endOrd) lastOrd = creditedPast[creditedPast.length - 1][0];
+  const leftAfter = pastEnd.filter(([o]) => o > lastOrd).map(([, a]) => a);
+  if (lastOrd === endOrd) return { horizon: given, note: null, shortened: false };
+  const end = fromRegularOrd(lastOrd);
+  const horizon: Horizon = { ...given, gradSeason: end.season, gradYear: end.year };
+  const awayBefore = [...awayAt.entries()].filter(([o]) => o >= startOrd && o <= lastOrd).map(([, a]) => a);
+  const named = awayBefore.map(awayNamed).join(', ');
+  const givenEnd = calendarOrd(given.gradSeason, given.gradYear);
+  // The note is written from the board that was built, not from this walk:
+  // a plan whose required courses end a term sooner has fewer terms than the
+  // walk counted, and saying "6 terms" over a board of five is the mistake
+  // this note used to make.
+  if (lastOrd > endOrd) {
+    return {
+      horizon,
+      note: (plan) => {
+        const finish = finishOf(plan);
+        if (finish.at <= givenEnd) return null;
+        return `With ${named} away, this plan ends ${finish.label} rather than ${given.gradSeason} ${given.gradYear}, so you still have ${finish.campus} fall and spring terms on campus at the usual pace. Say when you want to finish under About you to keep the earlier date; summer classes can make up the time away.`;
+      },
+      shortened: false,
+    };
+  }
+  const abroad = awayBefore.reduce((sum, a) => sum + awayCredits(a), 0);
+  const whose = held > 0 && abroad > 0 ? 'Your credit and the hours abroad leave' : held > 0 ? 'Your credit leaves' : 'The hours abroad leave';
   return {
-    horizon: { ...horizon, gradSeason, gradYear },
-    note: `Your credit leaves about ${remaining} hours of the ${total}, so this plan runs ${needed} terms and ends ${gradSeason} ${gradYear} instead of the usual four years. Say when you want to finish under About you to plan to a date instead.`,
+    horizon,
+    note: (plan) => {
+      const finish = finishOf(plan);
+      const after = leftAfter.length > 0 ? ` It finishes before ${leftAfter.map(awayNamed).join(', ')}, so that time away comes after you graduate unless you plan to a later date.` : '';
+      return `${whose} about ${Math.max(0, (remaining ?? 0) - abroad)} hours of the ${total} to take here, so this plan runs ${finish.campus} ${finish.campus === 1 ? 'term' : 'terms'} on campus and ends ${finish.label} instead of the usual four years.${after} Say when you want to finish under About you to plan to a date instead.`;
+    },
     shortened: true,
   };
+}
+
+/**
+ * Where a built plan ends and how many falls and springs it spends on
+ * campus. A semester abroad that earns hours after the last term with
+ * courses is the last term itself: a Computer Science student whose courses
+ * are done by Fall 2028 and who is abroad in Spring 2029 finishes in Spring
+ * 2029, not in a Fall 2029 the board leaves empty.
+ */
+function finishOf(plan: GeneratedPlan): { label: string; at: number; campus: number } {
+  const campus = plan.terms.filter((t) => t.season !== 'Summer').length;
+  const last = plan.terms[plan.terms.length - 1];
+  const lastYear = Number(last?.label.match(/\b(20\d\d)\b/)?.[1] ?? 0);
+  const lastAt = last ? calendarOrd(last.season, lastYear) : -1;
+  const after = (plan.away ?? []).filter((a) => a.credits > 0 && calendarOrd(a.season, a.year) > lastAt);
+  const final = after[after.length - 1];
+  return final ? { label: final.label, at: calendarOrd(final.season, final.year), campus } : { label: last?.label ?? '', at: lastAt, campus };
 }
 
 /** Whether a plan left a requirement or course out because the terms ran out, not because of data. */

@@ -66,12 +66,16 @@ import {
   interestProfileOf,
   offeredLine,
   qualityScorer,
+  awayCredits,
   describeCreditProgress,
   describeCreditTotal,
+  extendForAway,
   generatePlan,
   planCreditRange,
   validatePlan,
   type AutoplanInput,
+  type AwayKind,
+  type AwayTerm,
   type CreditTotal,
   type GeneratedPlan,
   type LanguagePlan,
@@ -235,6 +239,8 @@ interface PlanReport {
   addedPrerequisites: Array<{ code: string; requiredBy: string }>;
   /** The planner's picks for general education categories, each with its category. */
   genEdPicks: NonNullable<GeneratedPlan['genEdPicks']>;
+  /** Terms away and what each earns. They have no column, so the headline and the validator read them here. */
+  away?: NonNullable<GeneratedPlan['away']>;
 }
 
 interface Stored {
@@ -260,12 +266,14 @@ interface Stored {
  */
 interface PlanShape {
   finish: { season: SemesterSeason; year: number } | null;
-  away: Array<{ season: SemesterSeason; year: number }>;
+  /** Each may say what it is and what it earns; a plain term (older saves) earns nothing. */
+  away: AwayTerm[];
   summers: number[];
   spreadHard: boolean;
 }
 
 const NO_SHAPE: PlanShape = { finish: null, away: [], summers: [], spreadHard: false };
+const AWAY_KINDS: AwayKind[] = ['study_abroad', 'co_op', 'internship', 'gap'];
 
 /**
  * When a course meets, for ALMA. The card's "earliest section 8:00AM" made
@@ -298,11 +306,17 @@ function sectionTimes(rows: Array<{ type: string | null; days: string | null; st
   };
 }
 
+/** "Spring 2029 (study abroad, 15 hours)", for ALMA. */
+function describeAway(a: AwayTerm): string {
+  const what = a.kind ? `${a.kind.replace('_', ' ').replace('co op', 'co-op')}, ` : '';
+  return `${a.season} ${a.year} (${what}${awayCredits(a)} hours)`;
+}
+
 /** The plan shape in a sentence for ALMA's board description. Empty when nothing is set. */
 function describeShape(shape: PlanShape): string {
   const parts = [
     shape.finish ? `finish by ${shape.finish.season} ${shape.finish.year}` : null,
-    shape.away.length > 0 ? `away ${shape.away.map((a) => `${a.season} ${a.year}`).join(', ')}` : null,
+    shape.away.length > 0 ? `away ${shape.away.map(describeAway).join(', ')}` : null,
     shape.summers.length > 0 ? `summer classes in ${shape.summers.join(', ')}` : null,
     shape.spreadHard ? 'hard courses spread one a term where possible' : null,
   ].filter(Boolean);
@@ -625,39 +639,7 @@ export function PlannerWorkspace({
       answers?.languageYears ?? null,
       answers?.language ?? null,
     ), answers, exams, examCredit.entries, catalogCredits);
-    const term = core?.meta?.term;
-    const read = readHorizon(answers?.timeline ?? '', {
-      season: 'Fall',
-      year: term?.year ?? new Date().getFullYear(),
-    });
-    /**
-     * A record with courses in progress in the plan's first term means the
-     * student is taking that term now: those courses are counted as done, so
-     * planning another full load in the same term books the term twice. The
-     * plan starts the term after the last one in progress.
-     */
-    const busy = latestInProgressTerm(answers?.transcript);
-    const startOrd = termOrd(read.startSeason, read.startYear);
-    const horizon: Horizon = { ...read };
-    // What the student asked ALMA for wins over what the About-you words said.
-    if (planShape.finish) {
-      horizon.gradSeason = planShape.finish.season;
-      horizon.gradYear = planShape.finish.year;
-      horizon.stated = true;
-    }
-    const sameTerm = (a: { season: SemesterSeason; year: number }, b: { season: SemesterSeason; year: number }) => a.season === b.season && a.year === b.year;
-    horizon.away = [...(horizon.away ?? []), ...planShape.away.filter((a) => !(horizon.away ?? []).some((b) => sameTerm(a, b)))];
-    horizon.summers = [...new Set([...(horizon.summers ?? []), ...planShape.summers])];
-    if (busy && termOrd(busy.season, busy.year) >= startOrd) {
-      const next = busy.season === 'Fall' ? { season: 'Spring' as const, year: busy.year + 1 } : { season: 'Fall' as const, year: busy.year };
-      horizon.startSeason = next.season;
-      horizon.startYear = next.year;
-      if (termOrd(horizon.gradSeason, horizon.gradYear) <= termOrd(next.season, next.year)) {
-        horizon.gradSeason = 'Spring';
-        horizon.gradYear = next.year + 4;
-        horizon.stated = false;
-      }
-    }
+    const horizon = horizonFor(answers, core?.meta?.term?.year ?? new Date().getFullYear(), planShape);
 
     const publishedTotal = loaded.summary.totalCredits || loaded.program.totalCredits || null;
     const planInput: AutoplanInput = {
@@ -763,6 +745,7 @@ export function PlannerWorkspace({
       bookedFor: generated.bookedFor ?? {},
       addedPrerequisites: generated.addedPrerequisites,
       genEdPicks: generated.genEdPicks ?? [],
+      away: generated.away ?? [],
       firstTermId: generated.plan.terms[0]?.id ?? '',
     });
     studentAdded.current = new Set();
@@ -1017,7 +1000,7 @@ export function PlannerWorkspace({
   const issues = useMemo(() => {
     if (!plan) return [];
     const validation = context
-      ? validatePlan(plan, context, { minimumTermCredits, programName: loaded?.program.name, programCollege: loaded?.program.college, priorCredits: priorCreditHours }).filter(
+      ? validatePlan(plan, context, { minimumTermCredits, programName: loaded?.program.name, programCollege: loaded?.program.college, priorCredits: priorCreditHours, away: report?.away }).filter(
           (issue) => !isUga || !issue.id.startsWith('ap-weighed-'),
         )
       : [];
@@ -1025,7 +1008,7 @@ export function PlannerWorkspace({
       ? [...unmet, ...validation]
       : getPlanIssues(plan, catalog, { minimumTermCredits });
     return rows.map((issue) => ({ ...issue, message: withCourseCodes(issue.message) }));
-  }, [plan, context, isUga, unmet, minimumTermCredits, catalog, loaded, priorCreditHours]);
+  }, [plan, context, isUga, unmet, minimumTermCredits, catalog, loaded, priorCreditHours, report]);
 
   /** The degree on screen, from whichever source this school has. */
   const activeProgramName =
@@ -1074,18 +1057,22 @@ export function PlannerWorkspace({
     const planned = planCreditRange(boardCodes, context);
     // Everything the student holds, counted once (see priorCreditHours).
     const prior = priorCreditHours;
+    // A semester abroad has no column but earns its hours, and the plan
+    // reached its total counting them.
+    const away = (report?.away ?? []).reduce((sum, a) => sum + a.credits, 0);
     return {
       planned,
       prior,
+      ...(away > 0 ? { away } : {}),
       total: {
-        min: planned.min + prior,
-        max: planned.max + prior,
+        min: planned.min + prior + away,
+        max: planned.max + prior + away,
         variable: planned.variable,
         unknown: planned.unknown,
       },
       ...shell,
     };
-  }, [plan, context, boardCodes, activeProgramTotal, priorCreditHours]);
+  }, [plan, context, boardCodes, activeProgramTotal, priorCreditHours, report]);
 
   /** The short form, for the board bar and the rail's big number. */
   const totalCredits = useMemo(() => {
@@ -1104,7 +1091,7 @@ export function PlannerWorkspace({
    * noise.
    */
   const creditNote =
-    context && credits.prior > 0
+    context && (credits.prior > 0 || (credits.away ?? 0) > 0)
       ? describeCreditProgress(credits, activeProgramTotal)
       : null;
 
@@ -1599,7 +1586,7 @@ export function PlannerWorkspace({
     const L = live.current;
     const ctx = L.context;
     if (!ctx) return { blocking: ['The catalog is not loaded yet.'], warnings: [] as string[], credits: '' };
-    const found = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18, programName: L.loaded?.program.name, programCollege: L.loaded?.program.college, priorCredits: L.priorCreditHours });
+    const found = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18, programName: L.loaded?.program.name, programCollege: L.loaded?.program.college, priorCredits: L.priorCreditHours, away: L.report?.away });
     const mine = found.filter((i) => i.courseId === course.id && i.termId === termId);
     const blocking = mine
       .filter((i) => /^ap-(prereq-(?!check)|standing-|exclusion-|duplicate-)/.test(i.id) && i.severity !== 'info')
@@ -2214,7 +2201,15 @@ export function PlannerWorkspace({
      */
     const underMinimum = (next: PlanState, termId: string) => {
       const t = next.terms.find((x) => x.id === termId);
-      if (!t || t.courseIds.length === 0) return {};
+      // A summer carries 9 credits at most by design, and a term away holds
+      // nothing on purpose; neither is "under the minimum".
+      if (!t || t.season === 'Summer') return {};
+      if ((L.report?.away ?? []).some((a) => a.label === t.label)) return {};
+      // An emptied fall or spring is the strongest case, not a quiet one: no
+      // enrolment at all that term.
+      if (t.courseIds.length === 0) {
+        return { below_minimum: `${t.label} now holds nothing, which is a fall or spring with no enrolment. Say so; offer to move a course back, or if the student means to be away that term, set it with set_plan_shape away.` };
+      }
       const range = planCreditRange(t.courseIds.map((id) => L.courseIndex.get(id)?.code ?? ''), ctx);
       return range.max < L.minimumTermCredits
         ? { below_minimum: `${t.label} now holds ${describeCreditTotal(range)}, under the ${L.minimumTermCredits} the student set as a minimum. Say so and offer an elective to bring it back up.` }
@@ -2361,7 +2356,7 @@ export function PlannerWorkspace({
         const stop = guard(c, 'removed');
         if (stop) return stop;
         const candidate = without(board, c.id);
-        const knockOn = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18, programName: L.loaded?.program.name, programCollege: L.loaded?.program.college, priorCredits: L.priorCreditHours })
+        const knockOn = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18, programName: L.loaded?.program.name, programCollege: L.loaded?.program.college, priorCredits: L.priorCreditHours, away: L.report?.away })
           .filter((i) => i.severity === 'error' && /^ap-prereq-(?!check)/.test(i.id))
           .map((i) => i.message);
         apply(candidate, t.id, null, `${c.code} removed from ${t.label} by ${botName}.`);
@@ -2516,8 +2511,8 @@ export function PlannerWorkspace({
             candidate = withCourseIn(without(candidate, c.id), c.id, to.id); applied.push(`move ${c.code} from ${from.label} to ${to.label}`);
           } else refused.push(`${c.code}: unknown op ${op}`);
         }
-        const before = validatePlan(board, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18, programName: L.loaded?.program.name, programCollege: L.loaded?.program.college, priorCredits: L.priorCreditHours });
-        const after = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18, programName: L.loaded?.program.name, programCollege: L.loaded?.program.college, priorCredits: L.priorCreditHours });
+        const before = validatePlan(board, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18, programName: L.loaded?.program.name, programCollege: L.loaded?.program.college, priorCredits: L.priorCreditHours, away: L.report?.away });
+        const after = validatePlan(candidate, ctx, { minimumTermCredits: L.minimumTermCredits, maxTermCredits: 18, programName: L.loaded?.program.name, programCollege: L.loaded?.program.college, priorCredits: L.priorCreditHours, away: L.report?.away });
         const keyOf = (i: PlanIssue) => `${i.id}|${i.message}`;
         const was = new Set(before.map(keyOf));
         const newIssues = after.filter((i) => !was.has(keyOf(i)) && i.severity !== 'info').map((i) => `${i.severity}: ${i.message}`);
@@ -2700,10 +2695,25 @@ export function PlannerWorkspace({
             else problems.push('finish must be a term like "Spring 2029".');
           }
         }
+        /**
+         * A term away is "Spring 2029", or { term, kind, credits }: a
+         * semester abroad earns 15 hours unless the student says otherwise,
+         * anything else nothing unless they say so.
+         */
+        const awayOf = (raw: unknown): AwayTerm | null => {
+          const given = typeof raw === 'string' ? { term: raw } : raw && typeof raw === 'object' ? (raw as { term?: unknown; kind?: unknown; credits?: unknown }) : null;
+          const t = given ? termOfWords(given.term) : null;
+          if (!given || !t || t.season === 'Summer') return null;
+          const kind = AWAY_KINDS.find((k) => k === given.kind);
+          if (given.kind !== undefined && given.kind !== null && !kind) return null;
+          const hours = given.credits === undefined || given.credits === null ? undefined : Number(given.credits);
+          if (hours !== undefined && !(Number.isInteger(hours) && hours >= 0 && hours <= 18)) return null;
+          return { ...t, ...(kind ? { kind } : {}), ...(hours !== undefined ? { credits: hours } : {}) };
+        };
         if (Array.isArray(input.away)) {
-          const terms = input.away.map(termOfWords);
-          if (terms.every((t) => t && t.season !== 'Summer')) nextShape.away = terms as Array<{ season: SemesterSeason; year: number }>;
-          else problems.push('away must be fall or spring terms like "Spring 2029".');
+          const terms = input.away.map(awayOf);
+          if (terms.every((t) => t !== null)) nextShape.away = terms as AwayTerm[];
+          else problems.push('away must be fall or spring terms like "Spring 2029", or objects like {"term": "Spring 2029", "kind": "study_abroad", "credits": 15} with kind study_abroad, co_op, internship or gap and credits from 0 to 18.');
         }
         if (Array.isArray(input.summers)) {
           const years = input.summers.map((v) => (typeof v === 'number' ? v : Number(String(v).replace(/^summer\s+/i, ''))));
@@ -2711,6 +2721,27 @@ export function PlannerWorkspace({
           else problems.push('summers must be years like 2027 or terms like "Summer 2027".');
         }
         if (input.spread_hard !== undefined) nextShape.spreadHard = input.spread_hard === true;
+        /**
+         * Terms outside the plan are refused, not saved. "Away Spring 2035"
+         * and "summers 2032" came back ok, the board rebuilt identical to the
+         * default, and ALMA told the student it was done. The range is the
+         * one the build will use: the finish (the new one, if this call sets
+         * it), moved past terms away when the student never dated it.
+         */
+        if (problems.length === 0 && (Array.isArray(input.away) || Array.isArray(input.summers) || input.finish !== undefined)) {
+          const span = extendForAway(horizonFor(L.answers, L.core?.meta?.term?.year ?? new Date().getFullYear(), { ...nextShape, summers: [] }));
+          const first = termOrd(span.startSeason, span.startYear);
+          const last = termOrd(span.gradSeason, span.gradYear);
+          const range = `${span.startSeason} ${span.startYear} to ${span.gradSeason} ${span.gradYear}`;
+          for (const a of nextShape.away) {
+            const at = termOrd(a.season, a.year);
+            if (at < first || at > last) problems.push(`${a.season} ${a.year} is outside this plan, which runs ${range}, so it cannot be a term away. Check the term with the student, or set finish as well if the plan should run past it.`);
+          }
+          for (const y of nextShape.summers) {
+            const at = termOrd('Summer', y);
+            if (at <= first || at > last) problems.push(`Summer ${y} is outside this plan, which runs ${range}; a summer of classes has to come after the first term and no later than the finish.`);
+          }
+        }
         if (problems.length > 0) return { ok: false, reason: problems.join(' ') };
         const changed =
           JSON.stringify(nextShape) !== JSON.stringify(planShapeRef.current) || nextMin !== L.minimumTermCredits || nextTarget !== (L.targetTermCredits ?? null);
@@ -2732,11 +2763,11 @@ export function PlannerWorkspace({
           summary: [
             `at least ${nextMin} credits a term, aim ${nextTarget ?? 'an even share'}`,
             nextShape.finish ? `finish by ${nextShape.finish.season} ${nextShape.finish.year}` : 'finish date from what the student said',
-            nextShape.away.length > 0 ? `away: ${nextShape.away.map((a) => `${a.season} ${a.year}`).join(', ')}` : null,
+            nextShape.away.length > 0 ? `away: ${nextShape.away.map(describeAway).join(', ')}` : null,
             nextShape.summers.length > 0 ? `summer classes: ${nextShape.summers.join(', ')}` : null,
             nextShape.spreadHard ? 'hard courses spread one a term where the degree allows' : null,
           ].filter(Boolean).join('; '),
-          note: 'The board rebuilds now. Call review_board next and tell the student what changed: the terms, the credits per term, and any note the plan adds (a lighter load needs a later finish; a term away is left empty; a summer carries at most 9 credits).',
+          note: 'The board rebuilds now. Call review_board next and tell the student what changed: the terms, the credits per term, and any note the plan adds (a lighter load needs a later finish; a term away is left empty on the board, and a semester abroad counts its hours toward the total; a summer carries at most 9 credits; summers make falls and springs lighter, so if the student wanted to finish earlier instead, confirm it and set finish).',
         };
       }
       case 'exam_credit': {
@@ -3587,6 +3618,55 @@ function priorHoursOf(
 
 function termOrd(season: SemesterSeason, year: number): number {
   return year * 3 + (season === 'Spring' ? 0 : season === 'Summer' ? 1 : 2);
+}
+
+/**
+ * The horizon a build plans over: the student's own words, what they asked
+ * ALMA for on top, and a start moved past a term they are taking now. One
+ * function, so set_plan_shape checks a term against the range the build will
+ * use rather than a copy of it.
+ */
+function horizonFor(answers: OnboardingAnswers | null | undefined, nowYear: number, shape: PlanShape): Horizon {
+  const read = readHorizon(answers?.timeline ?? '', { season: 'Fall', year: nowYear });
+  /**
+   * A record with courses in progress in the plan's first term means the
+   * student is taking that term now: those courses are counted as done, so
+   * planning another full load in the same term books the term twice. The
+   * plan starts the term after the last one in progress.
+   */
+  const busy = latestInProgressTerm(answers?.transcript);
+  const startOrd = termOrd(read.startSeason, read.startYear);
+  const horizon: Horizon = { ...read };
+  // What the student asked ALMA for wins over what the About-you words said.
+  if (shape.finish) {
+    horizon.gradSeason = shape.finish.season;
+    horizon.gradYear = shape.finish.year;
+    horizon.stated = true;
+  }
+  // A term ALMA was told about replaces what About you said of the same term
+  // ("it's a co-op, not abroad" changes what the term earns), and a plain
+  // "Spring 2029" from ALMA keeps what About you said it was.
+  const sameTerm = (a: { season: SemesterSeason; year: number }, b: { season: SemesterSeason; year: number }) => a.season === b.season && a.year === b.year;
+  const said = horizon.away ?? [];
+  horizon.away = [
+    ...said.filter((a) => !shape.away.some((b) => sameTerm(a, b))),
+    ...shape.away.map((a) => {
+      const before = said.find((b) => sameTerm(a, b));
+      return before && a.kind === undefined && a.credits === undefined ? { ...before, ...a } : a;
+    }),
+  ];
+  horizon.summers = [...new Set([...(horizon.summers ?? []), ...shape.summers])];
+  if (busy && termOrd(busy.season, busy.year) >= startOrd) {
+    const next = busy.season === 'Fall' ? { season: 'Spring' as const, year: busy.year + 1 } : { season: 'Fall' as const, year: busy.year };
+    horizon.startSeason = next.season;
+    horizon.startYear = next.year;
+    if (termOrd(horizon.gradSeason, horizon.gradYear) <= termOrd(next.season, next.year)) {
+      horizon.gradSeason = 'Spring';
+      horizon.gradYear = next.year + 4;
+      horizon.stated = false;
+    }
+  }
+  return horizon;
 }
 
 /** The latest term with a course the student is taking now, from their record. */
