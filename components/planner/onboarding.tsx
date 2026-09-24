@@ -1,8 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ProgramPicker, type ProgramOption } from './program-picker';
 import { PriorCredit } from './prior-credit';
+import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
+import {
+  ugaSelectionRequirements,
+  type UgaProgram,
+  type UgaSelectionRequirement,
+} from './uga-source';
 import {
   EMPTY_ANSWERS,
   questionsFor,
@@ -31,7 +37,19 @@ function priorSummary(a: OnboardingAnswers): string {
     parts.push(`${fromTranscript} course${fromTranscript === 1 ? '' : 's'} from your transcript`);
   }
   if (a.exams.length > 0) parts.push(`${a.exams.length} exam${a.exams.length === 1 ? '' : 's'} added`);
+  if (a.alreadyTakenCourseCodes.length > 0) {
+    parts.push(
+      `${a.alreadyTakenCourseCodes.length} UGA course${a.alreadyTakenCourseCodes.length === 1 ? '' : 's'} added`,
+    );
+  }
   return parts.length > 0 ? parts.join(' · ') : 'Nothing added yet';
+}
+
+interface ProgramCatalog {
+  majors: ProgramOption[];
+  minors: ProgramOption[];
+  certificates: ProgramOption[];
+  requirements: UgaSelectionRequirement[];
 }
 
 export function Onboarding({
@@ -56,7 +74,7 @@ export function Onboarding({
   const ready = readySchools();
   const onlySchool = ready.length === 1 ? ready[0] : null;
   const [step, setStep] = useState(onlySchool ? 1 : 0);
-  const [programs, setPrograms] = useState<ProgramOption[] | null>(null);
+  const [catalog, setCatalog] = useState<ProgramCatalog | null>(null);
   const [answers, setAnswers] = useState<OnboardingAnswers>(() => {
     const base = initial ? { ...EMPTY_ANSWERS, ...initial } : EMPTY_ANSWERS;
     return onlySchool
@@ -67,6 +85,18 @@ export function Onboarding({
   const school = schoolById(answers.schoolId);
   const questions = questionsFor(school);
   const answered = questions.filter((q) => answers[q.key].trim().length > 0).length;
+  const emphasisRequirements = useMemo(
+    () =>
+      (catalog?.requirements ?? []).filter((requirement) =>
+        answers.programIds.includes(requirement.programId),
+      ),
+    [catalog, answers.programIds],
+  );
+  const emphasesComplete = emphasisSelectionsComplete(
+    emphasisRequirements,
+    answers.emphasisSelections,
+  );
+  const programChoicesReady = answers.schoolId !== 'uga' || catalog !== null;
 
   useEffect(() => {
     if (!answers.schoolId) return;
@@ -76,23 +106,36 @@ export function Onboarding({
       .then((response) => (response.ok ? response.json() : null))
       .then((raw: unknown) => {
         if (cancelled) return;
-        const rows = answers.schoolId === 'uga'
-          ? ((raw as { programs?: Array<{ id: string; name: string; degree: string; areas: unknown[] }> } | null)?.programs ?? [])
-              .filter((program) => program.areas.length > 0 && (program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree)))
-          : (Array.isArray(raw) ? raw : [])
-              .filter((program: { degree?: string; dataStatus?: string; courseCount?: number }) =>
-                /^(AB|BA|BS|BFA|BLA|BMUS|BSLAS|BSW)$/i.test(program.degree ?? '') &&
-                program.dataStatus === 'catalog' &&
-                (program.courseCount ?? 0) > 0,
-              );
-        setPrograms(
-          rows
-            .map((program: { id: string; name: string }) => ({ id: program.id, name: program.name }))
-            .sort((a: ProgramOption, b: ProgramOption) => a.name.localeCompare(b.name)),
-        );
+        if (answers.schoolId === 'uga') {
+          const rows = ((raw as { programs?: UgaProgram[] } | null)?.programs ?? [])
+            .filter((program) => program.areas.length > 0);
+          const options = (programs: UgaProgram[]) =>
+            programs
+              .map((program) => ({ id: program.id, name: program.name }))
+              .sort((a, b) => a.name.localeCompare(b.name));
+          const majors = rows.filter(
+            (program) => program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree),
+          );
+          setCatalog({
+            majors: options(majors),
+            minors: options(rows.filter((program) => program.degree === 'MINOR' && program.areaHours > 0)),
+            certificates: options(rows.filter((program) => program.degree === 'CERT-UG' && program.areaHours > 0)),
+            requirements: majors.flatMap(ugaSelectionRequirements),
+          });
+          return;
+        }
+        const majors = (Array.isArray(raw) ? raw : [])
+          .filter((program: { degree?: string; dataStatus?: string; courseCount?: number }) =>
+            /^(AB|BA|BS|BFA|BLA|BMUS|BSLAS|BSW)$/i.test(program.degree ?? '') &&
+            program.dataStatus === 'catalog' &&
+            (program.courseCount ?? 0) > 0,
+          )
+          .map((program: { id: string; name: string }) => ({ id: program.id, name: program.name }))
+          .sort((a: ProgramOption, b: ProgramOption) => a.name.localeCompare(b.name));
+        setCatalog({ majors, minors: [], certificates: [], requirements: [] });
       })
       .catch(() => {
-        if (!cancelled) setPrograms([]);
+        if (!cancelled) setCatalog({ majors: [], minors: [], certificates: [], requirements: [] });
       });
     return () => {
       cancelled = true;
@@ -100,11 +143,15 @@ export function Onboarding({
   }, [answers.schoolId]);
 
   function pick(id: SchoolId) {
-    if (answers.schoolId !== id) setPrograms(null);
+    if (answers.schoolId !== id) setCatalog(null);
     setAnswers((a) => ({
       ...a,
       schoolId: id,
       programIds: a.schoolId === id ? a.programIds : [],
+      minorIds: a.schoolId === id ? a.minorIds : [],
+      certificateIds: a.schoolId === id ? a.certificateIds : [],
+      emphasisSelections: a.schoolId === id ? a.emphasisSelections : {},
+      alreadyTakenCourseCodes: a.schoolId === id ? a.alreadyTakenCourseCodes : [],
     }));
   }
 
@@ -126,7 +173,7 @@ export function Onboarding({
           ))}
         </ol>
 
-        {onResume && step < 4 && (
+        {onResume && programChoicesReady && emphasesComplete && step < 4 && (
           <p className="onb-resume">
             Your answers from last time are filled in below.{' '}
             <button type="button" onClick={onResume}>
@@ -172,24 +219,68 @@ export function Onboarding({
 
         {step === 1 && (
           <section className="onb-step">
-            <h1>Choose your major{answers.programIds.length > 1 ? 's' : ''}.</h1>
+            <h1>Choose your programs.</h1>
             <p className="onb-sub">
-              Select your declared or intended major. Add another to build a double-major plan.
+              Select every declared or intended major, then add any minor, certificate, or required program path.
             </p>
-            <ProgramPicker
-              options={programs ?? []}
-              selectedIds={answers.programIds}
-              onChange={(programIds) => setAnswers((current) => ({ ...current, programIds }))}
-              loading={programs === null}
-            />
+            <div className="onb-program-groups">
+              <section>
+                <h2>Majors</h2>
+                <ProgramPicker
+                  options={catalog?.majors ?? []}
+                  selectedIds={answers.programIds}
+                  onChange={(programIds) => setAnswers((current) => ({ ...current, programIds }))}
+                  loading={catalog === null}
+                />
+              </section>
+              {answers.schoolId === 'uga' && (
+                <>
+                  <section>
+                    <h2>Minors</h2>
+                    <ProgramPicker
+                      options={catalog?.minors ?? []}
+                      selectedIds={answers.minorIds}
+                      onChange={(minorIds) => setAnswers((current) => ({ ...current, minorIds }))}
+                      loading={catalog === null}
+                      kindLabel="minor"
+                      emptyMessage="No parsed UGA minors are available."
+                    />
+                  </section>
+                  <section>
+                    <h2>Certificates</h2>
+                    <ProgramPicker
+                      options={catalog?.certificates ?? []}
+                      selectedIds={answers.certificateIds}
+                      onChange={(certificateIds) => setAnswers((current) => ({ ...current, certificateIds }))}
+                      loading={catalog === null}
+                      kindLabel="certificate"
+                      emptyMessage="No parsed UGA certificates are available."
+                    />
+                  </section>
+                </>
+              )}
+              <EmphasisPicker
+                requirements={emphasisRequirements}
+                selections={answers.emphasisSelections}
+                onChange={(emphasisSelections) =>
+                  setAnswers((current) => ({ ...current, emphasisSelections }))
+                }
+              />
+            </div>
             <div className="onb-actions">
               {!onlySchool && <button className="onb-back" onClick={() => setStep(0)}>Back</button>}
               <span className="onb-count">
                 {answers.programIds.length === 0
                   ? 'Choose at least one major'
+                  : !emphasesComplete
+                    ? 'Complete the required program choices'
                   : `${answers.programIds.length} major${answers.programIds.length === 1 ? '' : 's'} selected`}
               </span>
-              <button className="onb-next" onClick={() => setStep(2)} disabled={answers.programIds.length === 0}>
+              <button
+                className="onb-next"
+                onClick={() => setStep(2)}
+                disabled={answers.programIds.length === 0 || !programChoicesReady || !emphasesComplete}
+              >
                 Continue
               </button>
             </div>
@@ -243,6 +334,10 @@ export function Onboarding({
               onChange={(next) => setAnswers((a) => ({ ...a, ...next }))}
               transcript={answers.transcript ?? null}
               onTranscriptChange={(transcript) => setAnswers((a) => ({ ...a, transcript }))}
+              alreadyTakenCourseCodes={answers.alreadyTakenCourseCodes}
+              onAlreadyTakenChange={(alreadyTakenCourseCodes) =>
+                setAnswers((a) => ({ ...a, alreadyTakenCourseCodes }))
+              }
             />
             <div className="onb-actions">
               <button className="onb-back" onClick={() => setStep(2)}>Back</button>

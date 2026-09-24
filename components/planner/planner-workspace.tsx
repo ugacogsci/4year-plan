@@ -44,6 +44,7 @@ import { groupIssues, isTermIssue, PlanHealthList } from './plan-health';
 import { SemesterColumn } from './semester-column';
 import { StudentProfilePanel, type AreaRow } from './student-profile-panel';
 import { ProgramPicker } from './program-picker';
+import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
 import {
   buildContext,
   loadFullIllinois,
@@ -56,6 +57,7 @@ import {
 } from './illinois-source';
 import {
   loadUgaProgram,
+  ugaSelectionRequirements,
   useUgaData,
   type UgaLoadedProgram,
 } from './uga-source';
@@ -299,6 +301,9 @@ interface Stored {
   schemaVersion: 3;
   schoolId: string;
   programIds?: string[];
+  minorIds?: string[];
+  certificateIds?: string[];
+  emphasisSelections?: Record<string, string[]>;
   /** Kept so plans saved by the previous release still open. */
   programId: string | null;
   plan: PlanState;
@@ -314,6 +319,11 @@ interface PlanTab {
   id: string;
   name: string;
   plan: PlanState;
+}
+
+interface UndoSnapshot {
+  plan: PlanState;
+  alreadyTakenCourseCodes: string[];
 }
 
 type SourceProgram = LoadedProgram | UgaLoadedProgram;
@@ -430,10 +440,24 @@ export function PlannerWorkspace({
   const [planTabs, setPlanTabs] = useState<PlanTab[]>([]);
   const [activePlanId, setActivePlanId] = useState('plan-1');
   const [termWidths, setTermWidths] = useState<Record<string, number>>({});
-  const [undoStack, setUndoStack] = useState<PlanState[]>([]);
+  const [undoStack, setUndoStack] = useState<UndoSnapshot[]>([]);
   const [programIds, setProgramIds] = useState<string[]>(() => answers?.programIds ?? []);
+  const [minorIds, setMinorIds] = useState<string[]>(() => answers?.minorIds ?? []);
+  const [certificateIds, setCertificateIds] = useState<string[]>(() => answers?.certificateIds ?? []);
   const programId = programIds[0] ?? null;
-  const programKey = programIds.join('|');
+  const emphasisKey = JSON.stringify(
+    Object.entries(answers?.emphasisSelections ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+  );
+  const selectedProgramIds = useMemo(
+    () => [...programIds, ...minorIds, ...certificateIds],
+    [programIds, minorIds, certificateIds],
+  );
+  const programKey = [
+    `major:${programIds.join(',')}`,
+    `minor:${minorIds.join(',')}`,
+    `certificate:${certificateIds.join(',')}`,
+    `emphasis:${emphasisKey}`,
+  ].join('|');
   /**
    * The degree page, tagged with the degree it belongs to.
    *
@@ -537,12 +561,47 @@ export function PlannerWorkspace({
         .map((p) => ({ id: p.id, name: p.name }))
         .sort((a, b) => a.name.localeCompare(b.name));
     }
-    if (isUga) return (uga?.programs ?? []).map((program) => ({ id: program.id, name: program.name }));
+    if (isUga) {
+      return (uga?.programs ?? [])
+        .filter((program) => program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree))
+        .map((program) => ({ id: program.id, name: program.name }));
+    }
     return samplePrograms.map((p) => ({ id: p.id, name: `${p.name}, ${p.degree}` }));
   }, [isIllinois, isUga, core, uga]);
 
-  const changePrograms = useCallback((ids: string[]) => {
-    setProgramIds(ids);
+  const minorOptions = useMemo(
+    () =>
+      isUga
+        ? (uga?.programs ?? [])
+            .filter((program) => program.degree === 'MINOR' && program.areaHours > 0)
+            .map((program) => ({ id: program.id, name: program.name }))
+        : [],
+    [isUga, uga],
+  );
+  const certificateOptions = useMemo(
+    () =>
+      isUga
+        ? (uga?.programs ?? [])
+            .filter((program) => program.degree === 'CERT-UG' && program.areaHours > 0)
+            .map((program) => ({ id: program.id, name: program.name }))
+        : [],
+    [isUga, uga],
+  );
+  const emphasisRequirements = useMemo(
+    () =>
+      isUga
+        ? (uga?.programs ?? [])
+            .filter((program) => programIds.includes(program.id))
+            .flatMap(ugaSelectionRequirements)
+        : [],
+    [isUga, uga, programIds],
+  );
+  const emphasesComplete = emphasisSelectionsComplete(
+    emphasisRequirements,
+    answers?.emphasisSelections ?? {},
+  );
+
+  const resetProgramPlan = useCallback(() => {
     setFetched(null);
     setPlan(null);
     setReport(null);
@@ -550,8 +609,38 @@ export function PlannerWorkspace({
     setPlanTabs([]);
     setActivePlanId('plan-1');
     setTermWidths({});
-    if (answers && onAnswersChange) onAnswersChange({ ...answers, programIds: ids });
-  }, [answers, onAnswersChange]);
+  }, []);
+
+  const changePrograms = useCallback((ids: string[]) => {
+    setProgramIds(ids);
+    resetProgramPlan();
+    if (answers && onAnswersChange) {
+      const selected = new Set(ids);
+      const emphasisSelections = Object.fromEntries(
+        Object.entries(answers.emphasisSelections).filter(([key]) =>
+          [...selected].some((id) => key.startsWith(`${id}::`)),
+        ),
+      );
+      onAnswersChange({ ...answers, programIds: ids, emphasisSelections });
+    }
+  }, [answers, onAnswersChange, resetProgramPlan]);
+
+  const changeMinors = useCallback((ids: string[]) => {
+    setMinorIds(ids);
+    resetProgramPlan();
+    if (answers && onAnswersChange) onAnswersChange({ ...answers, minorIds: ids });
+  }, [answers, onAnswersChange, resetProgramPlan]);
+
+  const changeCertificates = useCallback((ids: string[]) => {
+    setCertificateIds(ids);
+    resetProgramPlan();
+    if (answers && onAnswersChange) onAnswersChange({ ...answers, certificateIds: ids });
+  }, [answers, onAnswersChange, resetProgramPlan]);
+
+  const changeEmphases = useCallback((emphasisSelections: Record<string, string[]>) => {
+    resetProgramPlan();
+    if (answers && onAnswersChange) onAnswersChange({ ...answers, emphasisSelections });
+  }, [answers, onAnswersChange, resetProgramPlan]);
 
   const replaceActivePlan = useCallback((next: PlanState) => {
     setPlan(next);
@@ -579,7 +668,17 @@ export function PlannerWorkspace({
         : parsed.programId
           ? [parsed.programId]
           : [];
-      if (savedProgramIds.join('|') !== programKey) return;
+      const savedMinorIds = Array.isArray(parsed.minorIds) ? parsed.minorIds : [];
+      const savedCertificateIds = Array.isArray(parsed.certificateIds) ? parsed.certificateIds : [];
+      const savedEmphasisKey = JSON.stringify(
+        Object.entries(parsed.emphasisSelections ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+      );
+      if (
+        savedProgramIds.join('|') !== programIds.join('|') ||
+        savedMinorIds.join('|') !== minorIds.join('|') ||
+        savedCertificateIds.join('|') !== certificateIds.join('|') ||
+        savedEmphasisKey !== emphasisKey
+      ) return;
       restored.current = parsed as Stored;
       /**
        * Set here and not derived, because localStorage cannot be read while
@@ -595,21 +694,25 @@ export function PlannerWorkspace({
     } catch {
       /* a corrupt entry is not worth failing the app over; a fresh plan follows */
     }
-  }, [school, programKey]);
+  }, [school, programKey, programIds, minorIds, certificateIds, emphasisKey]);
 
   // ---- load the explicitly selected degree pages ---------------------------
 
   useEffect(() => {
     if (programIds.length === 0) return;
+    if (isUga && !emphasesComplete) return;
     if (isUga && uga) {
-      const selected = programIds
+      const selected = selectedProgramIds
         .map((id) => uga.programs.find((candidate) => candidate.id === id))
         .filter((program): program is NonNullable<typeof program> => Boolean(program));
       const sources = selected.map((program, index) =>
-        loadUgaProgram(uga, program, { resetRequirements: index === 0 }),
+        loadUgaProgram(uga, program, {
+          resetRequirements: index === 0,
+          emphasisSelections: answers?.emphasisSelections,
+        }),
       );
       // oxlint-disable-next-line react/react-compiler
-      setFetched({ key: programKey, value: sources.length === programIds.length ? combinePrograms(sources) : null });
+      setFetched({ key: programKey, value: sources.length === selectedProgramIds.length ? combinePrograms(sources) : null });
       return;
     }
     if (!isIllinois || !core) return;
@@ -635,7 +738,7 @@ export function PlannerWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [isIllinois, isUga, core, uga, programIds, programKey]);
+  }, [isIllinois, isUga, core, uga, programIds, selectedProgramIds, programKey, emphasisKey, answers?.emphasisSelections, emphasesComplete]);
 
   const loaded = fetched?.key === programKey ? fetched.value : null;
   const programBusy = Boolean(isCatalogSchool && programIds.length > 0) && fetched?.key !== programKey;
@@ -674,7 +777,11 @@ export function PlannerWorkspace({
       // still be planned as though they were starting from nothing. The
       // transcript's lines ride in the same list, already matched against the
       // catalog and checked by the student when they reviewed the reading.
-      [...examCourses(answers?.exams ?? [], examCredit.entries), ...transcriptCodes(answers?.transcript)],
+      [
+        ...examCourses(answers?.exams ?? [], examCredit.entries),
+        ...transcriptCodes(answers?.transcript),
+        ...(answers?.alreadyTakenCourseCodes ?? []),
+      ],
       Boolean(answers?.transcript),
       examElectiveHours(answers?.exams ?? [], examCredit.entries),
     );
@@ -1233,26 +1340,39 @@ export function PlannerWorkspace({
     );
   }
 
-  function commit(next: PlanState) {
+  function commit(next: PlanState, nextAlreadyTakenCourseCodes?: string[]) {
     if (!plan) return;
-    setUndoStack((current) => [...current.slice(-19), plan]);
+    setUndoStack((current) => [
+      ...current.slice(-19),
+      { plan, alreadyTakenCourseCodes: answers?.alreadyTakenCourseCodes ?? [] },
+    ]);
     replaceActivePlan(next);
+    if (nextAlreadyTakenCourseCodes && answers && onAnswersChange) {
+      onAnswersChange({ ...answers, alreadyTakenCourseCodes: nextAlreadyTakenCourseCodes });
+    }
   }
 
   function markCourseCompleted(courseId: string, termId: string) {
     if (!plan) return;
     const course = courseIndex.get(courseId);
     if (!course) return;
-    commit({
-      ...plan,
-      completedCourseIds: plan.completedCourseIds.includes(courseId)
-        ? plan.completedCourseIds
-        : [...plan.completedCourseIds, courseId],
-      terms: plan.terms.map((term) => ({
-        ...term,
-        courseIds: term.courseIds.filter((id) => id !== courseId),
-      })),
-    });
+    const completedCodes = [...new Set([
+      ...(answers?.alreadyTakenCourseCodes ?? []),
+      course.code,
+    ])];
+    commit(
+      {
+        ...plan,
+        completedCourseIds: plan.completedCourseIds.includes(courseId)
+          ? plan.completedCourseIds
+          : [...plan.completedCourseIds, courseId],
+        terms: plan.terms.map((term) => ({
+          ...term,
+          courseIds: term.courseIds.filter((id) => id !== courseId),
+        })),
+      },
+      completedCodes,
+    );
     setSelectedCourseId(null);
     setFocusTermId(null);
     setStatus(
@@ -1268,15 +1388,19 @@ export function PlannerWorkspace({
       setStatus(`${course.code} is already in the plan.`);
       return;
     }
+    const asCompleted = termId === 'completed';
     commit(
-      termId === 'completed'
+      asCompleted
         ? { ...plan, completedCourseIds: [...plan.completedCourseIds, courseId] }
         : {
             ...plan,
             terms: plan.terms.map((term) =>
               term.id === termId ? { ...term, courseIds: [...term.courseIds, courseId] } : term,
             ),
-          },
+      },
+      asCompleted
+        ? [...new Set([...(answers?.alreadyTakenCourseCodes ?? []), course.code])]
+        : undefined,
     );
     setSelectedCourseId(courseId);
     setFocusTermId(termId === 'completed' ? null : termId);
@@ -1311,7 +1435,11 @@ export function PlannerWorkspace({
       answers?.transferText ?? '',
       answers?.exams.length ?? 0,
       byCode,
-      [...examCourses(answers?.exams ?? [], examCredit.entries), ...transcriptCodes(answers?.transcript)],
+      [
+        ...examCourses(answers?.exams ?? [], examCredit.entries),
+        ...transcriptCodes(answers?.transcript),
+        ...(answers?.alreadyTakenCourseCodes ?? []),
+      ],
       Boolean(answers?.transcript),
       examElectiveHours(answers?.exams ?? [], examCredit.entries),
     );
@@ -1881,7 +2009,13 @@ export function PlannerWorkspace({
   function undo() {
     const previous = undoStack.at(-1);
     if (!previous) return;
-    replaceActivePlan(previous);
+    replaceActivePlan(previous.plan);
+    if (answers && onAnswersChange) {
+      onAnswersChange({
+        ...answers,
+        alreadyTakenCourseCodes: previous.alreadyTakenCourseCodes,
+      });
+    }
     setUndoStack((current) => current.slice(0, -1));
     setStatus('Last change undone.');
   }
@@ -1892,6 +2026,9 @@ export function PlannerWorkspace({
       schemaVersion: 3,
       schoolId: school?.id ?? '',
       programIds,
+      minorIds,
+      certificateIds,
+      emphasisSelections: answers?.emphasisSelections ?? {},
       programId,
       plan,
       minimumTermCredits,
@@ -1911,6 +2048,9 @@ export function PlannerWorkspace({
     const blob = new Blob([JSON.stringify({
       school: school?.id,
       programIds,
+      minorIds,
+      certificateIds,
+      emphasisSelections: answers?.emphasisSelections ?? {},
       programId,
       plan,
       plans: planTabs.map((candidate) =>
@@ -1939,6 +2079,9 @@ export function PlannerWorkspace({
           plan?: unknown;
           programId?: unknown;
           programIds?: unknown;
+          minorIds?: unknown;
+          certificateIds?: unknown;
+          emphasisSelections?: unknown;
         };
         if (isPlanState(parsed.plan)) {
           setPlan(parsed.plan);
@@ -1951,6 +2094,12 @@ export function PlannerWorkspace({
         } else if (typeof parsed.programId === 'string') {
           setProgramIds([parsed.programId]);
         }
+        if (Array.isArray(parsed.minorIds) && parsed.minorIds.every((id) => typeof id === 'string')) {
+          setMinorIds(parsed.minorIds);
+        }
+        if (Array.isArray(parsed.certificateIds) && parsed.certificateIds.every((id) => typeof id === 'string')) {
+          setCertificateIds(parsed.certificateIds);
+        }
       } catch {
         setStatus('That file could not be read as a plan.');
       }
@@ -1960,7 +2109,14 @@ export function PlannerWorkspace({
 
   async function sharePlan() {
     if (!plan) return;
-    const encoded = btoa(encodeURIComponent(JSON.stringify({ programIds, programId, plan })));
+    const encoded = btoa(encodeURIComponent(JSON.stringify({
+      programIds,
+      minorIds,
+      certificateIds,
+      emphasisSelections: answers?.emphasisSelections ?? {},
+      programId,
+      plan,
+    })));
     try {
       await navigator.clipboard.writeText(
         `${window.location.origin}${window.location.pathname}#plan=${encoded}`,
@@ -2077,6 +2233,24 @@ export function PlannerWorkspace({
     );
   }
 
+  if (isUga && !emphasesComplete) {
+    return (
+      <main className="planner-loading">
+        <div>
+          <h1>Choose your required program paths</h1>
+          <p>
+            This degree has named choices that change which courses belong in the plan. Select them before the schedule is generated.
+          </p>
+          <EmphasisPicker
+            requirements={emphasisRequirements}
+            selections={answers?.emphasisSelections ?? {}}
+            onChange={changeEmphases}
+          />
+        </div>
+      </main>
+    );
+  }
+
   const grouped = groupIssues(
     issues.filter((issue) => !issue.courseId && !isTermIssue(issue)),
   );
@@ -2098,6 +2272,11 @@ export function PlannerWorkspace({
     ...(programIds.length > 1
       ? [
           'This double-major draft combines every named requirement from the selected degree pages and counts shared courses once. College residency rules and whether the pairing is one degree or two still need advisor confirmation.',
+        ]
+      : []),
+    ...(minorIds.length + certificateIds.length > 0
+      ? [
+          'Selected minors and certificates are planned from their published requirement pages and share courses where the catalog allows. Residency, grade, and application rules still need advisor confirmation.',
         ]
       : []),
     'Prerequisites are parsed from catalog sentences. Anything about placement or consent is not checked here.',
@@ -2195,6 +2374,15 @@ export function PlannerWorkspace({
         programs={programOptions}
         programIds={programIds}
         onProgramsChange={changePrograms}
+        minors={minorOptions}
+        minorIds={minorIds}
+        onMinorsChange={changeMinors}
+        certificates={certificateOptions}
+        certificateIds={certificateIds}
+        onCertificatesChange={changeCertificates}
+        emphasisRequirements={emphasisRequirements}
+        emphasisSelections={answers?.emphasisSelections ?? {}}
+        onEmphasisChange={changeEmphases}
         minimumTermCredits={minimumTermCredits}
         onMinimumChange={setMinimumTermCredits}
         targetTermCredits={targetTermCredits}

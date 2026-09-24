@@ -42,6 +42,188 @@ const clean = (h) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const undergraduateDegree = (degree) =>
+  degree === 'AB' || /^B[A-Z]+$/.test(degree);
+
+/**
+ * Areas of emphasis are not ordinary optional prose. Some programs require
+ * one, while others let a student add one to the base major. Keep their names
+ * and course pools separate so setup can ask the student explicitly and the
+ * planner can constrain the matching requirement instead of mixing every
+ * emphasis into one elective list.
+ */
+function parseEmphases(html) {
+  const flat = clean(html);
+  const paragraphTexts = [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
+    .map((match) => clean(match[1]))
+    .filter(Boolean);
+  const headingElements = [...html.matchAll(/<h[3-6]\b[^>]*>([\s\S]*?)<\/h[3-6]>/gi)]
+    .map((match) => ({
+      at: match.index ?? 0,
+      end: (match.index ?? 0) + match[0].length,
+      label: clean(match[1]),
+    }));
+  const elements = [];
+  for (const match of html.matchAll(/<(p|h[3-6])\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
+    const text = clean(match[2]);
+    const named = text.match(
+      /^Area of Emphasis(?:\s+in|\s*[-:])\s+(.+?)(?:\s*\(\s*Optional\s*\))?$/i,
+    );
+    if (!named) continue;
+    const label = clean(named[1]).replace(/\s*\(\d+(?:\s*-\s*\d+)?\s*hours?\)\s*$/i, '');
+    if (
+      !label ||
+      label.length > 100 ||
+      /\b(?:should|must|will|may|recognition|completion|requirements?)\b/i.test(label)
+    ) continue;
+    elements.push({ at: match.index ?? 0, end: (match.index ?? 0) + match[0].length, label });
+  }
+
+  const fourYearAt = html.search(/<h4\b[^>]*id=["']Four-Year Program of Study["']/i);
+  const requiredPathText = paragraphTexts.find((text) =>
+    /^Complete one of the following\s*:/i.test(text) ||
+    /^Complete the .{0,100}\btrack\b\s+OR\s+the Area of Emphasis/i.test(text),
+  ) ?? '';
+  if (requiredPathText) {
+    for (const heading of headingElements) {
+      if (!/\bTrack$/i.test(heading.label)) continue;
+      if (!requiredPathText.toLowerCase().includes(heading.label.toLowerCase())) continue;
+      elements.push(heading);
+    }
+  }
+  const markers = elements
+    .filter((element) => fourYearAt < 0 || element.at < fourYearAt)
+    .filter(
+      (element, index, all) =>
+        all.findIndex((candidate) => candidate.at === element.at && candidate.label === element.label) === index,
+    )
+    .sort((left, right) => left.at - right.at);
+  if (markers.length === 0) return [];
+
+  const requiredText =
+    flat.match(/Complete one of the following areas of emphasis\.?/i)?.[0] ??
+    flat.match(/There (?:are|is) .{0,80}areas? of emphasis to choose from within this major\.?/i)?.[0] ??
+    flat.match(/(?:must|required to) (?:select|choose|complete).{0,80}area of emphasis\.?/i)?.[0] ??
+    requiredPathText ??
+    '';
+  const optionalText =
+    flat.match(/Students? (?:may|have the option to).{0,100}(?:area|areas) of emphasis\.?/i)?.[0] ??
+    flat.match(/may elect to specialize.{0,100}(?:area|areas) of emphasis\.?/i)?.[0] ??
+    '';
+  const minimum = requiredText ? 1 : 0;
+
+  const areaHeadings = [...html.matchAll(/<h4\b[^>]*>([\s\S]*?)<\/h4>/gi)].map((match) => {
+    const text = clean(match[1]);
+    const hours = Number(text.match(/\((\d+)(?:\s*-\s*\d+)?\s*hours?\)/i)?.[1] ?? 0);
+    return {
+      at: match.index ?? 0,
+      end: (match.index ?? 0) + match[0].length,
+      label: text.replace(/\s*\(\d+(?:\s*-\s*\d+)?\s*hours?\)\s*$/i, ''),
+      hours,
+    };
+  });
+
+  const parsedOptions = markers.map((marker, index) => {
+    const nextArea = areaHeadings.find((heading) => heading.at > marker.at)?.at ?? html.length;
+    const next = Math.min(markers[index + 1]?.at ?? html.length, nextArea, fourYearAt < 0 ? html.length : fourYearAt);
+    const segment = html.slice(marker.end, next);
+    const courses = [];
+    for (const table of segment.matchAll(/<table[\s\S]*?<\/table>/gi)) {
+      for (const row of table[0].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+        const cells = [...row[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => clean(cell[1]));
+        const codeMatch = (cells[0] ?? '').toUpperCase().match(
+          /^([A-Z]{2,5})(?:\([A-Z]{2,5}\))*\s+(\d{4}[A-Z]?)/,
+        );
+        if (!codeMatch) continue;
+        const code = `${codeMatch[1]} ${codeMatch[2]}`;
+        if (courses.some((course) => course.code === code)) continue;
+        const credits = Number((cells[2] ?? '').match(/\d+(?:\.\d+)?/)?.[0] ?? 3);
+        courses.push({ code, title: cells[1] ?? code, credits });
+      }
+    }
+    for (const prefix of segment.matchAll(
+      /coursePrefix=([A-Z]{2,5})[\s\S]{0,220}?prefix\s+courses?\s+at\s+the\s+(\d)000-level(?:\s+(?:or|and)\s+above)?/gi,
+    )) {
+      const code = `${prefix[1].toUpperCase()} ${prefix[2]}XXX`;
+      if (!courses.some((course) => course.code === code)) {
+        courses.push({ code, title: `${prefix[1].toUpperCase()} ${prefix[2]}000-level or higher courses`, credits: 0 });
+      }
+    }
+    const precedingArea = [...areaHeadings].reverse().find((heading) => heading.at < marker.at) ?? null;
+    const precedingOptionHeading = [...headingElements].reverse().find(
+      (heading) =>
+        heading.at < marker.at &&
+        heading.at > (precedingArea?.at ?? -1) &&
+        /\(\d+(?:\s*-\s*\d+)?\s*hours?\)/i.test(heading.label),
+    );
+    const headingHours = Number(
+      precedingOptionHeading?.label.match(/\((\d+)(?:\s*-\s*\d+)?\s*hours?\)/i)?.[1] ?? 0,
+    );
+    const statedHours = Number(
+      clean(segment).match(/Choose\s+(\d+)(?:\s+to\s+\d+)?\s+credit\s+hours?/i)?.[1] ?? 0,
+    );
+    return {
+      id: marker.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+      label: marker.label,
+      hours: statedHours || headingHours || precedingArea?.hours || null,
+      areaLabel: precedingArea?.label ?? null,
+      courses,
+      parts: [{
+        areaLabel: precedingArea?.label ?? null,
+        hours: statedHours || headingHours || null,
+        replaceArea: precedingArea
+          ? !/<table[\s\S]*?<\/table>/i.test(html.slice(precedingArea.end, marker.at))
+          : false,
+        courses,
+      }],
+    };
+  });
+
+  const optionKey = (label) => label
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\b(?:only|hours?)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  const optionOrder = [];
+  const optionsByKey = new Map();
+  for (const option of parsedOptions) {
+    const key = optionKey(option.label);
+    if (!key) continue;
+    if (!optionsByKey.has(key)) optionOrder.push(key);
+    const previous = optionsByKey.get(key);
+    if (!previous) {
+      optionsByKey.set(key, option);
+      continue;
+    }
+    const parts = [...previous.parts, ...option.parts];
+    const courses = parts.flatMap((part) => part.courses).filter(
+      (course, index, all) => all.findIndex((candidate) => candidate.code === course.code) === index,
+    );
+    optionsByKey.set(key, {
+      ...previous,
+      hours: Math.max(previous.hours ?? 0, option.hours ?? 0) || null,
+      areaLabel: parts.every((part) => part.areaLabel === parts[0].areaLabel) ? parts[0].areaLabel : null,
+      courses,
+      parts,
+    });
+  }
+  const options = optionOrder.map((key) => optionsByKey.get(key));
+  const maximum = /multiple areas of emphasis/i.test(flat) ? options.length : 1;
+  const includesTrack = markers.some((marker) => /\bTrack$/i.test(marker.label));
+
+  const areaLabels = new Set(options.map((option) => option.areaLabel).filter(Boolean));
+  return [{
+    id: includesTrack ? 'degree-path' : 'areas-of-emphasis',
+    label: includesTrack ? 'Degree path' : 'Areas of emphasis',
+    minimum,
+    maximum,
+    note: requiredText || optionalText || 'Select an area of emphasis if you plan to complete one.',
+    replacesArea: minimum > 0 && areaLabels.size === 1 ? [...areaLabels][0] : null,
+    options,
+  }];
+}
+
 async function listPage(page) {
   const res = await fetch(`${BASE}/Program/_ViewAllPrograms`, {
     method: "POST",
@@ -510,6 +692,7 @@ const run = async () => {
   const onlyId = process.argv.includes('--id')
     ? process.argv[process.argv.indexOf('--id') + 1]
     : null;
+  const undergraduateOnly = process.argv.includes('--undergraduate');
   const limit = process.argv.includes('--limit')
     ? Number(process.argv[process.argv.indexOf('--limit') + 1])
     : Infinity;
@@ -522,6 +705,10 @@ const run = async () => {
     const found = existing?.programs?.find((program) => program.id === onlyId);
     if (!found) throw new Error(`Program ${onlyId} is not in ${OUT}`);
     seen.set(found.id, found);
+  } else if (undergraduateOnly && existing) {
+    for (const program of existing.programs.filter((candidate) => undergraduateDegree(candidate.degree))) {
+      seen.set(program.id, program);
+    }
   } else {
     process.stdout.write('listing programs');
     for (let page = 1; page <= 200; page++) {
@@ -558,14 +745,16 @@ const run = async () => {
       const html = await res.text();
       const title = clean(html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/)?.[1] ?? p.name ?? "");
       const { areas, totalCredits } = parseDetail(html);
+      const emphasisGroups = parseEmphases(html);
       if (areas.length) withReq++;
       out.push({
         id: p.id, college: p.college, degree: p.degree, name: title, areas,
         totalCredits,
         areaHours: areas.reduce((sum, a) => sum + (a.hours || 0), 0),
+        emphasisGroups,
       });
     } catch {
-      out.push({ id: p.id, college: p.college, degree: p.degree, name: p.name ?? "", areas: [], totalCredits: null, areaHours: 0 });
+      out.push({ id: p.id, college: p.college, degree: p.degree, name: p.name ?? "", areas: [], totalCredits: null, areaHours: 0, emphasisGroups: [] });
     }
     if (i % 25 === 0 || i === programs.length) {
       process.stdout.write(`\r  ${i}/${programs.length} fetched, ${withReq} with requirements   `);
@@ -574,7 +763,7 @@ const run = async () => {
   }
 
   const finalPrograms =
-    onlyId && existing
+    (onlyId || undergraduateOnly) && existing
       ? existing.programs.map(
           (program) => out.find((fresh) => fresh.id === program.id) ?? program,
         )

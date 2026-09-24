@@ -13,6 +13,8 @@ import { useState, type ReactNode } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { RequirementArea } from '@/lib/planner/scheduler';
 import { ProgramPicker, type ProgramOption } from './program-picker';
+import { EmphasisPicker } from './emphasis-picker';
+import type { UgaSelectionRequirement } from './uga-source';
 
 export interface AreaRow {
   area: RequirementArea;
@@ -43,6 +45,15 @@ interface RailProps {
   programs: ProgramOption[];
   programIds: string[];
   onProgramsChange: (ids: string[]) => void;
+  minors: ProgramOption[];
+  minorIds: string[];
+  onMinorsChange: (ids: string[]) => void;
+  certificates: ProgramOption[];
+  certificateIds: string[];
+  onCertificatesChange: (ids: string[]) => void;
+  emphasisRequirements: UgaSelectionRequirement[];
+  emphasisSelections: Record<string, string[]>;
+  onEmphasisChange: (next: Record<string, string[]>) => void;
   minimumTermCredits: number;
   onMinimumChange: (value: number) => void;
   /** What a term should hold, or null for an even spread. The scheduler goes past it only to fit the degree in time. */
@@ -112,6 +123,15 @@ export function StudentProfilePanel({
   programs,
   programIds,
   onProgramsChange,
+  minors,
+  minorIds,
+  onMinorsChange,
+  certificates,
+  certificateIds,
+  onCertificatesChange,
+  emphasisRequirements,
+  emphasisSelections,
+  onEmphasisChange,
   minimumTermCredits,
   onMinimumChange,
   targetTermCredits,
@@ -231,12 +251,43 @@ export function StudentProfilePanel({
       {pools}
 
       <details className="rail-section">
-        <summary>Majors</summary>
+        <summary>Programs</summary>
+        <span className="rail-program-label">Majors</span>
         <ProgramPicker
           compact
           options={programs}
           selectedIds={programIds}
           onChange={onProgramsChange}
+        />
+        {minors.length > 0 && (
+          <>
+            <span className="rail-program-label">Minors</span>
+            <ProgramPicker
+              compact
+              kindLabel="minor"
+              options={minors}
+              selectedIds={minorIds}
+              onChange={onMinorsChange}
+            />
+          </>
+        )}
+        {certificates.length > 0 && (
+          <>
+            <span className="rail-program-label">Certificates</span>
+            <ProgramPicker
+              compact
+              kindLabel="certificate"
+              options={certificates}
+              selectedIds={certificateIds}
+              onChange={onCertificatesChange}
+            />
+          </>
+        )}
+        <EmphasisPicker
+          compact
+          requirements={emphasisRequirements}
+          selections={emphasisSelections}
+          onChange={onEmphasisChange}
         />
         {programUrls.length > 0 && (
           <p className="rail-note program-catalog-links" style={{ margin: 0, paddingTop: 0, border: 0 }}>

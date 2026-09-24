@@ -300,3 +300,111 @@ assert.equal(englishElectives?.groups[0]?.hours, 15);
 console.log(
   'UGA representative plans checked: Psychology, Finance, Biology, and English retain their published totals and key requirement blocks.',
 );
+
+const undergraduateDegrees = (degree) =>
+  degree === 'AB' || /^B[A-Z]+$/.test(degree);
+const collegeCourseChecks = {
+  ARTS: 'AFAM 3880',
+  BUS: 'ACCT 2101',
+  CAES: 'AAEC 2580',
+  ECOL: 'ECOL 2550',
+  EDCN: 'EDSE 2000',
+  ENV: 'LAND 2010',
+  FCS: 'FHCE 1110',
+  FENGR: 'AENG 2100',
+  FRS: 'FANR 3950',
+  JOUR: 'ADPR 3110',
+  PBHL: 'EPID 4070',
+  PHAR: 'BCMB 3100',
+  SPIA: 'INTL 1100',
+  SSW: 'SOWK 2154',
+  VET: 'VPHY 3107L',
+};
+for (const [college, code] of Object.entries(collegeCourseChecks)) {
+  assert(catalogCodes.has(code), `${college} representative ${code} is missing from the course catalog`);
+  const programUsesCourse = file.programs
+    .filter((candidate) => candidate.college === college && undergraduateDegrees(candidate.degree))
+    .some((candidate) =>
+      candidate.areas.some((candidateArea) =>
+        candidateArea.groups.some((group) =>
+          group.courses.some((course) => canonical(course.code) === code),
+        ),
+      ),
+    );
+  assert(programUsesCourse, `${college} undergraduate requirements no longer reference ${code}`);
+}
+assert.deepEqual(
+  [...new Set(
+    file.programs
+      .filter((candidate) => undergraduateDegrees(candidate.degree) && candidate.areas.length > 0)
+      .map((candidate) => candidate.college),
+  )].sort((left, right) => left.localeCompare(right)),
+  Object.keys(collegeCourseChecks).sort((left, right) => left.localeCompare(right)),
+  'Every UGA college with a parsed undergraduate major must have a representative course check',
+);
+
+const parsedMinors = file.programs.filter(
+  (candidate) => candidate.degree === 'MINOR' && candidate.areaHours > 0,
+);
+const parsedCertificates = file.programs.filter(
+  (candidate) => candidate.degree === 'CERT-UG' && candidate.areaHours > 0,
+);
+assert(parsedMinors.length > 100, 'The UGA minor catalog is unexpectedly sparse');
+assert(parsedCertificates.length > 50, 'The UGA undergraduate certificate catalog is unexpectedly sparse');
+
+const requiredEmphasisPrograms = file.programs.filter((candidate) =>
+  candidate.emphasisGroups?.some((group) => group.minimum > 0),
+);
+assert(
+  requiredEmphasisPrograms.some((candidate) => candidate.id === '47637'),
+  'Applied Biotechnology must require an emphasis selection',
+);
+assert(
+  requiredEmphasisPrograms.some((candidate) => candidate.id === '28389'),
+  'Pharmaceutical and Biomedical Sciences must require an emphasis selection',
+);
+const classics = file.programs.find((candidate) => candidate.id === '82769');
+assert(
+  classics?.emphasisGroups?.[0]?.options.every((option) => option.courses.length > 0),
+  'Every required Classics emphasis must expose a usable course pool',
+);
+const animalBiosciences = file.programs.find((candidate) => candidate.id === '27361');
+assert.deepEqual(
+  animalBiosciences?.emphasisGroups?.[0]?.options.map((option) => option.label),
+  [
+    'General Animal Biosciences Track',
+    'Companion Animal Biosciences',
+    'Food Animal Biosciences',
+  ],
+  'Animal Biosciences must ask for its general track or one of its two emphases',
+);
+assert.equal(animalBiosciences?.emphasisGroups?.[0]?.minimum, 1);
+const sociology = file.programs.find((candidate) => candidate.id === '77932');
+assert.deepEqual(
+  sociology?.emphasisGroups?.[0]?.options.map((option) => option.label),
+  ['General Sociology Track', 'Sociological Methodology'],
+  'Sociology must ask for its general track or methodology emphasis',
+);
+assert.equal(sociology?.emphasisGroups?.[0]?.minimum, 1);
+const hdfs = file.programs.find((candidate) => candidate.id === '67554');
+const hdfsLabels = hdfs?.areas.flatMap((candidateArea) =>
+  candidateArea.groups.map((group) => group.label),
+) ?? [];
+assert.equal(
+  hdfsLabels.filter((label) => /^Focus Area\s+\d+:/i.test(label ?? '')).length,
+  2,
+  'HDFS must retain both required focus-area choices',
+);
+assert.equal(
+  new Set(
+    hdfsLabels
+      .map((label) => label?.match(/^Option\s+(\d+|One|Two|Three)/i)?.[1]?.toLowerCase())
+      .filter(Boolean),
+  ).size,
+  3,
+  'HDFS must retain all three experiential-learning options',
+);
+
+console.log(
+  `UGA catalog coverage: one requirement course verified for each of ${Object.keys(collegeCourseChecks).length} undergraduate colleges; ${parsedMinors.length} minors, ${parsedCertificates.length} certificates, and required degree paths are plannable.`,
+);

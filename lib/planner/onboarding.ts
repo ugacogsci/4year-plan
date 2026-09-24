@@ -157,7 +157,19 @@ export interface OnboardingAnswers {
   schoolId: SchoolId | null;
   /** Degree programs the student explicitly selected, primary first. */
   programIds: string[];
-  /** Minors, certificates and subjects the student wants the plan to consider. */
+  /** Published undergraduate minors the student wants included in the plan. */
+  minorIds: string[];
+  /** Published undergraduate certificates the student wants included in the plan. */
+  certificateIds: string[];
+  /**
+   * Named focus/emphasis choices, keyed by the requirement id published with
+   * the program. Keeping the requirement in the key supports degrees with
+   * more than one independent set of required choices.
+   */
+  emphasisSelections: Record<string, string[]>;
+  /** UGA courses the student explicitly marked as completed. */
+  alreadyTakenCourseCodes: string[];
+  /** Other subjects and interests the student wants the plan to consider. */
   studying: string;
   timeline: string;
   after: string;
@@ -178,6 +190,10 @@ export interface OnboardingAnswers {
 export const EMPTY_ANSWERS: OnboardingAnswers = {
   schoolId: null,
   programIds: [],
+  minorIds: [],
+  certificateIds: [],
+  emphasisSelections: {},
+  alreadyTakenCourseCodes: [],
   studying: '',
   timeline: '',
   after: '',
@@ -198,7 +214,7 @@ export function questionsFor(school: School | undefined): Array<{
     {
       key: 'studying',
       label: 'What else should the plan make room for?',
-      hint: 'Minors, certificates, possible fields of study, or subjects you want to explore.',
+      hint: 'Possible fields of study, interests, or subjects you want to explore. Minors and certificates are selected from the catalog with your major.',
       placeholder: s
         ? `I am in ${college} and considering a computer science minor. I would also like room for psychology and linguistics.`
         : 'A computer science minor, plus room to explore psychology.',
@@ -240,6 +256,28 @@ export function loadAnswers(): OnboardingAnswers | null {
       ...parsed,
       programIds: Array.isArray(parsed.programIds)
         ? parsed.programIds.filter((id): id is string => typeof id === 'string')
+        : [],
+      minorIds: Array.isArray(parsed.minorIds)
+        ? parsed.minorIds.filter((id): id is string => typeof id === 'string')
+        : [],
+      certificateIds: Array.isArray(parsed.certificateIds)
+        ? parsed.certificateIds.filter((id): id is string => typeof id === 'string')
+        : [],
+      emphasisSelections:
+        parsed.emphasisSelections && typeof parsed.emphasisSelections === 'object'
+          ? Object.fromEntries(
+              Object.entries(parsed.emphasisSelections).map(([key, value]) => [
+                key,
+                Array.isArray(value)
+                  ? value.filter((id): id is string => typeof id === 'string')
+                  : [],
+              ]),
+            )
+          : {},
+      alreadyTakenCourseCodes: Array.isArray(parsed.alreadyTakenCourseCodes)
+        ? parsed.alreadyTakenCourseCodes.filter(
+            (code): code is string => typeof code === 'string',
+          )
         : [],
     };
   } catch {
