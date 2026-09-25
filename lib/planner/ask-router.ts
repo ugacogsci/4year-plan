@@ -1965,7 +1965,8 @@ function answerOrder(ctx: AskContext): Routed {
     // the ordering errors rather than counted as one.
     for (const group of priorLearning) {
       yourCall.push(
-        `${code} in ${course.termLabel}: ${group.priorLearning}, or ${joinList(group.any)}. Nothing on your board covers the course, and I cannot see what you did in school.`,
+        // MATH 220's is "An adequate ALEKS placement score": a score, not school work.
+        `${code} in ${course.termLabel}: ${group.priorLearning}, or ${joinList(group.any)}. Nothing on your board covers the course, and I cannot see ${/\b(ALEKS|placement)\b/i.test(group.priorLearning ?? '') ? 'your placement score' : 'what you did in school'}.`,
       );
     }
   }
