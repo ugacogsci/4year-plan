@@ -223,10 +223,26 @@ const normName = (s: string) => {
   return out;
 };
 
+/**
+ * A folded name's last name and first, remembered as normName is: after
+ * normName's own memo, splitting the same names on every comparison was
+ * still a tenth of the time a pre-med Music freshman's plan took to build.
+ */
+const nameParts = new Map<string, readonly [string, string]>();
+const partsOf = (s: string): readonly [string, string] => {
+  const known = nameParts.get(s);
+  if (known !== undefined) return known;
+  const [last = '', first = ''] = normName(s).split(',').map((part) => part.trim());
+  const out = [last, first] as const;
+  if (nameParts.size >= 50000) nameParts.clear();
+  nameParts.set(s, out);
+  return out;
+};
+
 /** Whether a section instructor ("Solomon, B") is one the excellent list names ("Solomon,B"). */
 export function sameInstructor(a: string, b: string): boolean {
-  const [la, fa] = normName(a).split(',').map((s) => s.trim());
-  const [lb, fb] = normName(b).split(',').map((s) => s.trim());
+  const [la, fa] = partsOf(a);
+  const [lb, fb] = partsOf(b);
   if (!la || !lb || la !== lb) return false;
   if (!fa || !fb) return true;
   return fa[0] === fb[0];

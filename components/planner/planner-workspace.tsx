@@ -263,6 +263,8 @@ interface PlanReport {
    * hours is the plan's, and only the first is a momentum flag.
    */
   builtTerms?: Record<string, string[]>;
+  /** The hours a fall or spring the plan was balanced at (GeneratedPlan credits.aim), for the review's light-term cause. */
+  aim?: number;
 }
 
 interface Stored {
@@ -716,6 +718,9 @@ export function PlannerWorkspace({
       programName: loaded.program.name,
       programCollege: loaded.program.college,
       arrival: arrivalOf(answers),
+      // The review's own rule, so the planner arranges year one for the
+      // student the review measures it for, and no one else.
+      firstYear: enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
       admissionRoute,
       // Illinois's residency rule, from its transfer-credit page: 45 hours at
       // Illinois, 21 of them at the 300 level or above. What the student has
@@ -807,6 +812,7 @@ export function PlannerWorkspace({
       away: generated.away ?? [],
       firstTermId: generated.plan.terms[0]?.id ?? '',
       builtTerms: Object.fromEntries(generated.terms.map((t) => [t.id, t.codes.map(normCode)])),
+      aim: generated.credits.aim,
     });
     repickedFor.current = repickSignature(priorities, planInput.interests ?? '');
     studentAdded.current = new Set();
@@ -1081,7 +1087,16 @@ export function PlannerWorkspace({
   const issues = useMemo(() => {
     if (!plan) return [];
     const validation = context
-      ? validatePlan(plan, context, { minimumTermCredits, programName: loaded?.program.name, programCollege: loaded?.program.college, priorCredits: priorCreditHours, away: report?.away, language: report?.language ?? null }).filter(
+      ? validatePlan(plan, context, {
+          minimumTermCredits,
+          programName: loaded?.program.name,
+          programCollege: loaded?.program.college,
+          priorCredits: priorCreditHours,
+          away: report?.away,
+          language: report?.language ?? null,
+          firstYear: enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
+          arrival: arrivalOf(answers),
+        }).filter(
           (issue) => !isUga || !issue.id.startsWith('ap-weighed-'),
         )
       : [];
@@ -1089,7 +1104,7 @@ export function PlannerWorkspace({
       ? [...unmet, ...validation]
       : getPlanIssues(plan, catalog, { minimumTermCredits });
     return rows.map((issue) => ({ ...issue, message: withCourseCodes(issue.message) }));
-  }, [plan, context, isUga, unmet, minimumTermCredits, catalog, loaded, priorCreditHours, report]);
+  }, [plan, context, isUga, unmet, minimumTermCredits, catalog, loaded, priorCreditHours, report, answers]);
 
   /** The degree on screen, from whichever source this school has. */
   const activeProgramName =
@@ -1622,6 +1637,10 @@ export function PlannerWorkspace({
       priorCredits: L.priorCreditHours,
       away: L.report?.away,
       language: L.language,
+      // Read for this student: a transfer or a continuing sophomore is never
+      // told a first-term seminar belongs in "the first year".
+      firstYear: enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
+      arrival: arrivalOf(L.answers),
     };
   }
 
@@ -1644,6 +1663,7 @@ export function PlannerWorkspace({
       firstYear: enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
       targetTermCredits: L.targetTermCredits ?? null,
       built: L.report?.builtTerms ?? null,
+      planAim: L.report?.aim ?? null,
       heldCodes: [...L.completedCodes],
       genEdCredits: L.priorForOptions.genEdCredits ?? [],
     });
