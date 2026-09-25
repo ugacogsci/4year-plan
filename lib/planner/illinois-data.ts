@@ -2992,6 +2992,28 @@ function soleCount(text: string): number | null {
 }
 
 /**
+ * Rows the page joins with "OR" and nothing else: one of them, not all.
+ *
+ * The LAS orientation row prints "LAS 101 OR LAS 100 OR LAS 102", and the
+ * crawler keeps the three courses as rows and the two ORs (with a "Total
+ * Hours" cell that had no row of its own) as the note. Where the page prints
+ * a one-hour subtotal under it, as Psychology's does, the rows read as a
+ * one-hour list; where it does not, as on Mathematics, Astronomy, Geography
+ * and the Earth, Society and Environment pages, they read as three required
+ * courses, and a Mathematics freshman was booked LAS 101 beside LAS 100 (for
+ * international students) and LAS 102 (for first-term transfers). Read as
+ * one pick from a list, the pool's own rule takes the one written for this
+ * student. Only an OR between each pair of rows and nothing else, on a group
+ * the crawler could not type: "Select one group of courses: ... or ..." on
+ * the Geology page is groups of several courses and keeps its own reading.
+ */
+function joinedByOr(group: RawProgramGroup, rows: RawProgramCourse[]): boolean {
+  if (rows.length < 2 || (group.kind ?? 'unknown') !== 'unknown') return false;
+  const words = (group.note ?? '').replace(/\btotal hours\b/gi, ' ').trim().split(/\s+/).filter(Boolean);
+  return words.length === rows.length - 1 && words.every((w) => /^or$/i.test(w));
+}
+
+/**
  * Credit hours a list's own heading asks for, when its table has no hours cell.
  *
  * "List A: Choose 3 credits from the list below:" is the only statement of
@@ -3483,6 +3505,10 @@ export function requirementRulesForArea(
     if (r.rows.length === 0) continue;
     const cap = r.ownHours ?? areaBudget ?? headroom;
     r.isList = r.group.kind === 'menu' || (cap !== null && r.credits > cap + 0.5);
+    if (!r.isList && r.ownChoose === null && r.ownHours === null && joinedByOr(r.group, r.rows)) {
+      r.isList = true;
+      r.ownChoose = 1;
+    }
     /**
      * A count in the note is read only for a list that has no hours of its own.
      *
