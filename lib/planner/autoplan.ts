@@ -694,10 +694,11 @@ export interface AutoplanInput {
    * True to build the board as the engine did before the year-one, date and
    * pair work (a930f09): no moves after the elective fill, no co-requisite
    * pair or lab rules in the placer beyond the career tracks' own pairs, no
-   * placement trials. generatePlan builds this board beside the improved one
-   * and keeps the improved one only when it is no worse on any hard measure
-   * (gateWorse); a caller sets it only to see the plain board alone, as
-   * the sweep does to check that it is a930f09's. Nor does it read a plain
+   * placement trials, and the requirements as a930f09 read them
+   * (joinedByOr). generatePlan builds this board beside the improved ones and
+   * keeps another only where it is no worse on anything the gate measures
+   * (gateWorse); a caller sets it only to see a930f09's board alone, as the
+   * sweep does to check that it is a930f09's. Nor does it read a plain
    * MATH 112 prerequisite as met by calculus entered by placement
    * (placementGroups): that reading is the engine's, and shared by both
    * boards it cost a Construction Management freshman AGCM 220 on each, so the
@@ -986,10 +987,10 @@ export interface GeneratedPlan {
   notes: string[];
   partsOfTerm: string[];
   /**
-   * Which board generatePlan kept: the improved one, or the plain one
-   * (AutoplanInput.plainEngine) where the improved one was worse on a hard
-   * measure, with those measures. For the sweep and the checks; nothing shows
-   * it to the student, whose board is simply the better one.
+   * Which board generatePlan kept: a930f09's ('plain', AutoplanInput.plainEngine),
+   * with what the first board weighed against it was worse on, or another
+   * ('improved') that is worse on nothing the gate measures. For the sweep
+   * and the checks; nothing shows it to the student.
    */
   gate?: { kept: 'improved' | 'plain'; worse: string[] };
 }
@@ -5075,8 +5076,9 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
    * built on the requirements as a930f09 read them (asReadBefore) its board is
    * a930f09's board, so no degree is made worse than a930f09 on any of those
    * measures. Where the page's own reading differs, the plain board built on
-   * it is kept over a930f09's reading wherever it is no worse and ranks no
-   * lower.
+   * it is kept over a930f09's reading wherever it is no worse: that reading
+   * books a freshman LAS 100, for international students, and LAS 102, for
+   * transfers, which no rank measures.
    *
    * The improved engine's boards: the one with every placement trial and the
    * boards built on the way to it (improved), and where none of those stands,
@@ -5087,7 +5089,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
    * and date moves and PSYC 100. A board already weighed is not weighed again.
    */
   const inner = (horizon: Horizon) => {
-    if (given.plainEngine === true) return once(horizon, { pace: false, sooner: false, plain: true });
+    if (given.plainEngine === true) return once(horizon, { pace: false, sooner: false, plain: true, asRead: true });
     const measured = { ...raw, horizon, prior };
     const built = improved(horizon, {});
     const plainAsRead = once(horizon, { pace: false, sooner: false, plain: true });
@@ -5105,7 +5107,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     const seen = new Set<string>([shapeOf(plain)]);
     let best = plain;
     let bestRank = gateRank(measureOf(plain));
-    const weigh = (g: GeneratedPlan, tieWins = false) => {
+    const weigh = (g: GeneratedPlan, preferred = false) => {
       const shape = shapeOf(g);
       if (seen.has(shape)) return;
       seen.add(shape);
@@ -5113,7 +5115,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
       trail.tried.push({ board: g, worse });
       if (worse.length > 0) return;
       const rank = gateRank(measureOf(g));
-      if (ranksAbove(rank, bestRank) || (tieWins && !ranksAbove(bestRank, rank))) {
+      if (preferred || ranksAbove(rank, bestRank)) {
         best = g;
         bestRank = rank;
       }
@@ -5125,7 +5127,8 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
       weigh(improved(horizon, { pairs: false }).board);
       if (best === plain) weigh(once(horizon, { pace: false, sooner: false, pairs: false }));
     }
-    best.gate = best === plain || best === plainAsRead ? { kept: 'plain', worse: trail.tried.find((t) => t.board !== plainAsRead)?.worse ?? [] } : { kept: 'improved', worse: [] };
+    // 'plain' is a930f09's board; the page's corrected reading on the plain engine is not.
+    best.gate = best === plain ? { kept: 'plain', worse: trail.tried.find((t) => t.board !== plainAsRead)?.worse ?? [] } : { kept: 'improved', worse: [] };
     gateTrails.set(best, trail);
     return best;
   };
