@@ -7421,6 +7421,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    */
   const yearOneCeiling = Math.min(finishedTerm + 1, 16);
   /**
+   * How far past the finished term a move after the fill may take a term
+   * past year one and the MCAT spring: two, or one where the student set
+   * their own number, which the placer holds a term to one past (roomFor).
+   */
+  const roomyOver = credits.target !== null ? 1 : 2;
+  /**
    * A track's date that more courses share than its term holds.
    *
    * A date makes a course urgent only in its last term, so every course
@@ -9036,7 +9042,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const into = placed.get(to.id) ?? [];
           const hardThere = [...into, ...unit].filter(isHard).length;
           const roomy = !yearOne.includes(to.index) && to.index !== examTerm && hardThere <= 1;
-          if (sizeOf(into) + size > Math.min(creditCapOf(to), yearOne.includes(to.index) ? yearOneCeiling : finishedTerm + (roomy ? 2 : 1), sizeOf(here) - 1)) continue;
+          if (sizeOf(into) + size > Math.min(creditCapOf(to), yearOne.includes(to.index) ? yearOneCeiling : finishedTerm + (roomy ? roomyOver : 1), sizeOf(here) - 1)) continue;
           if (!yearOne.includes(to.index) && yearHours() - size < Math.min(yearHours(), yearPace)) continue;
           if ([...into, ...unit].filter(isHard).length > Math.max(Math.min(hardLimitAt(to.index), 1), into.filter(isHard).length)) continue;
           if (unit.some((c) => outOfSeason(byCode.get(c), to.season, published.has(c)))) continue;
@@ -9393,7 +9399,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const fits = (index: number, before: string[], after: string[]) => {
             const floor = yearOne.includes(index) ? Math.max(credits.min, 15) : credits.min;
             const roomy = !yearOne.includes(index) && index !== examTerm;
-            const ceiling = Math.min(creditCapOf(terms[index]), Math.max(sizeOf(before), finishedTerm + (roomy ? 2 : 1)));
+            const ceiling = Math.min(creditCapOf(terms[index]), Math.max(sizeOf(before), finishedTerm + (roomy ? roomyOver : 1)));
             return sizeOf(after) <= ceiling && (after.length === 0 || sizeOf(after) >= Math.min(floor, sizeOf(before))) && after.filter(isHard).length <= Math.max(Math.min(hardLimitAt(index), 1), before.filter(isHard).length);
           };
           if (!fits(to, into, nextTo) || !fits(from, fromCodes, nextFrom)) continue;
@@ -9475,7 +9481,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const nextHere = [...here.filter((c) => c !== out), inn];
         const nextThere = [...there.filter((c) => c !== inn), ...(out === null ? [] : [out])];
         const roomy = from !== examTerm;
-        if (sizeOf(nextThere) < Math.min(credits.min, sizeOf(there)) || sizeOf(nextThere) > Math.min(creditCapOf(terms[from]), Math.max(sizeOf(there), finishedTerm + (roomy ? 2 : 1)))) continue;
+        if (sizeOf(nextThere) < Math.min(credits.min, sizeOf(there)) || sizeOf(nextThere) > Math.min(creditCapOf(terms[from]), Math.max(sizeOf(there), finishedTerm + (roomy ? roomyOver : 1)))) continue;
         if (nextHere.filter(isHard).length > Math.max(Math.min(hardLimitAt(i), 1), here.filter(isHard).length)) continue;
         if (nextThere.filter(isHard).length > Math.max(Math.min(hardLimitAt(from), 1), there.filter(isHard).length)) continue;
         const faults = boardFaults();
@@ -9522,10 +9528,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     };
     const yearOneMajor = () => yearOne.reduce((n, k) => n + (placed.get(terms[k].id) ?? []).filter(inPageMajor).length, 0);
     const yearOneMath = () => yearOne.some((k) => (placed.get(terms[k].id) ?? []).some(anyCollegeMath));
+    // A pair spreads only within the finished term's size: it is a lighter
+    // term, not a heavier one, and with two summers taken to keep every fall
+    // and spring at 15 or less, a Computer Science freshman's Fall 2028 went
+    // to 16.
     const fits = (index: number, before: string[], after: string[]) => {
       const floor = yearOne.includes(index) ? Math.max(credits.min, 15) : credits.min;
       const roomy = !yearOne.includes(index) && index !== examTerm;
-      const ceiling = Math.min(creditCapOf(terms[index]), Math.max(sizeOf(before), finishedTerm + (roomy ? 2 : 1)));
+      const ceiling = Math.min(creditCapOf(terms[index]), Math.max(sizeOf(before), finishedTerm + (least === 2 ? 0 : roomy ? roomyOver : 1)));
       return sizeOf(after) <= ceiling && (after.length === 0 || sizeOf(after) >= Math.min(floor, sizeOf(before)));
     };
     const lastUsed = Math.max(-1, ...terms.filter((t) => (placed.get(t.id) ?? []).length > 0).map((t) => t.index));
@@ -9639,7 +9649,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           // term plus two for a required course: a Dietetics board's ETMA 311
           // was left off while its last spring held 15.
           const roomy = !yearOne.includes(term.index) && term.index !== examTerm;
-          if (sizeOf(next) > Math.min(creditCapOf(term), Math.max(sizeOf(here), finishedTerm + (roomy ? 2 : 1))) || sizeOf(next) < Math.min(floor, sizeOf(here))) continue;
+          if (sizeOf(next) > Math.min(creditCapOf(term), Math.max(sizeOf(here), finishedTerm + (roomy ? roomyOver : 1))) || sizeOf(next) < Math.min(floor, sizeOf(here))) continue;
           if (next.filter(isHard).length > Math.max(Math.min(hardLimitAt(term.index), 1), here.filter(isHard).length)) continue;
           const faults = boardFaults();
           const shape = boardShape();
