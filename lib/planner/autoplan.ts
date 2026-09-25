@@ -994,9 +994,23 @@ export function courseIdFor(code: string): string {
   return code.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
-/** Collapses the internal whitespace the catalog and the grade file disagree about. */
+/**
+ * Collapses the internal whitespace the catalog and the grade file disagree about.
+ *
+ * Remembered, because the same few thousand codes come through it millions
+ * of times: a pre-med Mathematics freshman's plan is built three times over
+ * (the placement trials in generatePlan), and this function alone was a
+ * tenth of the time. Cleared past fifty thousand, so words that are not
+ * codes cannot grow it without end.
+ */
+const normalisedCodes = new Map<string, string>();
 export function normaliseCode(code: string): string {
-  return code.trim().replace(/\s+/g, ' ').toUpperCase();
+  const known = normalisedCodes.get(code);
+  if (known !== undefined) return known;
+  const out = code.trim().replace(/\s+/g, ' ').toUpperCase();
+  if (normalisedCodes.size >= 50000) normalisedCodes.clear();
+  normalisedCodes.set(code, out);
+  return out;
 }
 
 function expandEquivalents(code: string, equivalents: Map<string, string[]>): string[] {
