@@ -194,34 +194,62 @@ export function momentumReview(input: MomentumInput): { flags: ReviewFlag[]; fac
    * Calculus, STAT 100 from AP Statistics, or a Parkland statistics course
    * the transfer guide counts as Quantitative Reasoning I.
    *
-   * The degree's math (degreeMath, which the planner's year-one repair reads
-   * too): a Finance freshman's MATH 112 on the way to MATH 220 counts, and a
-   * pre-med's MATH 112 on the way to CHEM 102 alone does not, so it no longer
-   * hides PSYC 235 dragged to her junior fall.
+   * Any math or statistics course counts, as CCRC counts college-level math:
+   * a pre-PT Anthropology freshman's MATH 112 in her first fall, taken for
+   * CHEM 102, is her first college math, and read as not counting it told her
+   * "the first college math ... on the board, STAT 212, is in Spring 2028"
+   * with MATH 112 on the same board.
+   *
+   * The degree's own math (degreeMath) is watched for the student's edits
+   * only: pre-med Emma's board as built has PSYC 235, her degree's
+   * statistics, in year one, and dragged to her junior fall it is flagged
+   * even though MATH 112 (for CHEM 102) stays in her first fall, and the flag
+   * says what MATH 112 counts toward.
    */
-  const collegeMath = degreeMath(ctx, input.requirements, [...input.board.terms.flatMap((t) => codesOf(t.courseIds)), ...input.heldCodes]);
   const heldMath =
-    input.heldCodes.some((code) => (byCode.has(normaliseCode(code)) ? collegeMath(code) : ['MATH', 'STAT'].includes(subjectOf(code)))) ||
-    (input.genEdCredits ?? []).some((g) => g.tags.includes('Quantitative Reasoning I'));
+    input.heldCodes.some((code) => {
+      const course = byCode.get(normaliseCode(code));
+      return course ? isMathOrStatistics(course) : ['MATH', 'STAT'].includes(subjectOf(code));
+    }) || (input.genEdCredits ?? []).some((g) => g.tags.includes('Quantitative Reasoning I'));
   if (!heldMath) {
-    const firstMath = (terms: Array<{ id: string; codes: string[] }>) => {
+    const firstMath = (terms: Array<{ id: string; codes: string[] }>, counts: (code: string) => boolean) => {
       for (const t of terms) {
-        const code = t.codes.find(collegeMath);
+        const code = t.codes.find(counts);
         if (code) return { termId: t.id, code };
       }
       return null;
     };
-    const now = firstMath(input.board.terms.map((t) => ({ id: t.id, codes: codesOf(t.courseIds) })));
+    const anyMath = (code: string) => {
+      const course = byCode.get(code);
+      return course ? isMathOrStatistics(course) : false;
+    };
+    const boardTerms = input.board.terms.map((t) => ({ id: t.id, codes: codesOf(t.courseIds) }));
+    const builtTerms = built ? input.board.terms.map((t) => ({ id: t.id, codes: built[t.id] ?? [] })) : null;
+    const labelOf = (termId: string) => input.board.terms.find((t) => t.id === termId)?.label ?? '';
+    const now = firstMath(boardTerms, anyMath);
     if (now && !yearIds.has(now.termId)) {
-      const wasInYear = built ? firstMath(input.board.terms.map((t) => ({ id: t.id, codes: built[t.id] ?? [] }))) : null;
+      const wasInYear = builtTerms ? firstMath(builtTerms, anyMath) : null;
       const cause: FlagCause = wasInYear && yearIds.has(wasInYear.termId) ? 'edits' : 'plan';
-      const label = input.board.terms.find((t) => t.id === now.termId)?.label ?? '';
       flags.push({
         id: 'momentum-math',
         termId: now.termId,
         cause,
-        message: `The first college math or statistics course on the board, ${now.code}, is in ${label}, after year one${cause === 'edits' ? ' (an edit moved it there)' : ''}; finishing the first college math course in year one is one of CCRC's early-momentum measures.`,
+        message: `The first math or statistics course on the board, ${now.code}, is in ${labelOf(now.termId)}, after year one${cause === 'edits' ? ' (an edit moved it there)' : ''}; finishing the first college math course in year one is one of CCRC's early-momentum measures.`,
       });
+    } else if (now && builtTerms) {
+      const collegeMath = degreeMath(ctx, input.requirements, [...boardTerms.flatMap((t) => t.codes), ...input.heldCodes]);
+      const own = firstMath(boardTerms, collegeMath);
+      const was = firstMath(builtTerms, collegeMath);
+      if (own && was && !yearIds.has(own.termId) && yearIds.has(was.termId) && !input.heldCodes.some((code) => collegeMath(normaliseCode(code)))) {
+        // What the other course is taken for: the courses on the board that name it (CHEM 102 for MATH 112).
+        const forWhat = boardTerms.flatMap((t) => t.codes).filter((code) => (ctx.prereqs?.get(code)?.groups ?? []).some((g) => g.any.map(normaliseCode).includes(now.code)));
+        flags.push({
+          id: 'momentum-math',
+          termId: own.termId,
+          cause: 'edits',
+          message: `${own.code}, this degree's own math or statistics course, is in ${labelOf(own.termId)}, after year one (an edit moved it there); ${now.code} in ${labelOf(now.termId)} is college math${forWhat.length > 0 ? `, taken for ${forWhat.slice(0, 2).join(' and ')}` : ''}, and the degree's own course in year one is what the plan was built with. Finishing the first college math course in year one is one of CCRC's early-momentum measures.`,
+        });
+      }
     }
   }
 
