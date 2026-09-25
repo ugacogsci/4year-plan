@@ -1048,6 +1048,14 @@ function expandEquivalents(code: string, equivalents: Map<string, string[]>): st
 }
 
 /**
+ * Levels already read, remembered as normaliseCode's are: the placer, the fill
+ * and the order checks after it ask for the same few thousand codes over and
+ * over, and the pattern match was a twentieth of a pre-med Music freshman's
+ * build. Cleared past fifty thousand.
+ */
+const courseLevels = new Map<string, number>();
+
+/**
  * The catalog number, used only to break ties between courses that are equally
  * placeable. CEE 498 lists no prerequisite, so nothing stops the engine putting
  * it in a student's first fall next to MATH 221. That is not false, but no
@@ -1056,8 +1064,13 @@ function expandEquivalents(code: string, equivalents: Map<string, string[]>): st
  * nothing in the report presents it as a rule the university has.
  */
 function courseLevel(code: string): number {
+  const known = courseLevels.get(code);
+  if (known !== undefined) return known;
   const match = code.match(/(\d{3})/);
-  return match ? Number.parseInt(match[1], 10) : 0;
+  const level = match ? Number.parseInt(match[1], 10) : 0;
+  if (courseLevels.size >= 50000) courseLevels.clear();
+  courseLevels.set(code, level);
+  return level;
 }
 
 function termIdFor(season: SemesterSeason, year: number): string {
@@ -3321,7 +3334,8 @@ export function isMathOrStatistics(course: Pick<Course, 'code' | 'title'>): bool
  * to her junior fall.
  */
 export function degreeMath(ctx: Pick<PlanningContext, 'courses' | 'prereqs'>, requirements: PlanRequirement[], codes: string[]): (code: string) => boolean {
-  const byCode = new Map(ctx.courses.map((c) => [normaliseCode(c.code), c]));
+  // Once per catalog (catalogByCode): every placement the trials measure asks.
+  const byCode = catalogByCode(ctx.courses);
   const named = new Set<string>();
   for (const requirement of requirements) {
     const rule = requirement.rule;
