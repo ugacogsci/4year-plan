@@ -104,6 +104,8 @@ export type PlanRule =
       lists: PlanPoolList[];
       constraints: PlanPoolConstraint[];
       label: string;
+      /** Rows the page joins with "OR" alone, which a930f09 read as all to take (illinois-data joinedByOr). */
+      joinedByOr?: boolean;
     }
   | {
       kind: 'hours';
@@ -694,7 +696,7 @@ export interface AutoplanInput {
    * pair or lab rules in the placer beyond the career tracks' own pairs, no
    * placement trials. generatePlan builds this board beside the improved one
    * and keeps the improved one only when it is no worse on any hard measure
-   * (worseThanPlain); a caller sets it only to see the plain board alone, as
+   * (gateWorse); a caller sets it only to see the plain board alone, as
    * the sweep does to check that it is a930f09's. Nor does it read a plain
    * MATH 112 prerequisite as met by calculus entered by placement
    * (placementGroups): that reading is the engine's, and shared by both
@@ -709,27 +711,12 @@ export interface AutoplanInput {
    */
   electiveRanking?: Map<string, string[]>;
   /**
-   * True to take MATH 112 off a finished board where it sits at or after the
-   * calculus a placement enters and every course naming it is met by that
-   * placement. Set by generatePlan on the board it keeps when that board has
-   * it there: the plain engine's own board included, since a930f09 on the
-   * same data books College Algebra beside calculus.
-   */
-  algebraRepair?: boolean;
-  /**
    * False to build the improved board without reading a plain MATH 112
    * prerequisite as met by the calculus a placement enters (placementGroups).
-   * Set by generatePlan for one of the lesser boards its gate weighs.
+   * Inert on the shipped data, which reads no placement sentence as prior
+   * learning; nothing sets it.
    */
   placementReading?: boolean;
-  /**
-   * The most credits a fall or spring of a first-year student's first year
-   * takes from a course that could wait. Set by generatePlan, which builds
-   * the board this way beside the one it would keep when that one has a
-   * first-year term past 17, and keeps it only where it is no worse on
-   * anything.
-   */
-  yearOneMost?: number;
   /**
    * False to place without the pairings the placer infers: the co-requisite
    * pair path, and a lab held to its lecture where the catalog only lets the
@@ -4847,7 +4834,11 @@ function measuredLabs(ctx: Pick<PlanningContext, 'prereqs' | 'courses'>): Map<st
 }
 
 type GateMeasure = ReturnType<typeof gateMeasure>;
-/** What the gate measures on one finished board (worseThanPlain). */
+/**
+ * What the gate in generatePlan measures on one finished board. Two boards
+ * are held to each other on these by gateWorse (what one may not lose to the
+ * other) and ordered by gateRank (which is better).
+ */
 function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguagePlan | null) {
   const ctx = input.context;
   const credits = { ...DEFAULT_CREDITS, ...input.preferences?.creditsPerTerm };
@@ -4862,23 +4853,32 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
   const applicationDue = springs.length > 0 ? springs[springs.length - 1].index : horizon.length;
   const rows = careerProfileOf(input).tracks.flatMap((track) => track.courses.filter((row) => row.due || row.need === 'required').map((row) => ({ key: `${track.id}:${row.codes.join('/')}`, codes: row.codes.map(normaliseCode) })));
   const held = new Set(input.prior.courseCodes.map(normaliseCode));
+  const byCode = catalogByCode(ctx.courses);
   const labs = measuredLabs(ctx);
   const validated = validatePlan(g.plan, ctx, { minimumTermCredits: credits.min, maxTermCredits: credits.max, programName: input.programName, programCollege: input.programCollege, priorCredits: g.credits.prior, away: g.away, language });
   const at = new Map<string, number>();
   for (const t of g.terms) for (const code of t.codes) at.set(normaliseCode(code), t.index);
   const used = g.terms.filter((t) => t.codes.length > 0);
-  const yearOne: number[] = [];
+  // Year one as the review reads it: the first fall and spring, and a summer between or after them.
+  const firstYearTerms: PlannedTerm[] = [];
   let regular = 0;
   for (const t of g.terms) {
-    if (t.season === 'Summer') continue;
-    if (regular === 2) break;
-    regular += 1;
-    yearOne.push(t.credits.min);
+    if (t.season !== 'Summer') {
+      if (regular === 2) break;
+      regular += 1;
+    }
+    firstYearTerms.push(t);
   }
-  const rowAt = new Map<string, number>();
+  const yearOneCodes = new Set(firstYearTerms.flatMap((t) => t.codes.map(normaliseCode)));
+  /*
+   * A track row's lateness: 0 on time, the terms past the application date,
+   * or one past the last term when it is off the board.
+   */
+  const rowLate = new Map<string, number>();
   for (const row of rows) {
     if (row.codes.some((c) => held.has(c))) continue;
-    rowAt.set(row.key, Math.min(Infinity, ...row.codes.map((c) => at.get(c) ?? Infinity)));
+    const index = Math.min(Infinity, ...row.codes.map((c) => at.get(c) ?? Infinity));
+    rowLate.set(row.key, index <= applicationDue ? 0 : index === Infinity ? horizon.length - applicationDue : index - applicationDue);
   }
   const orphaned = (n: NotPlaced): boolean => {
     if (n.requirementId !== null && n.requirementId !== undefined) return false;
@@ -4890,143 +4890,132 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
    * that are themselves off the board: STAT 100, booked for an Earth, Society
    * and Environment freshman's NRES 340, is nothing she misses once NRES 340
    * is not placed. A course a requirement names outright is measured as that
-   * course; a pick from a list or category, a prerequisite and a track row by
-   * how many are left off, since which of a list's courses fit is not a loss
-   * when as many fit: held to 17 credits in year one, the same freshman's
-   * board placed HORT 430 where the plain board placed ESE 410, both from
-   * lists the degree cannot fill in eight terms, and a930f09 left ESE 410 off
-   * too.
+   * course; a pick from a list or category, a prerequisite and a track row
+   * by how many are left off in all.
    */
   const ruleOf = new Map(input.requirements.map((r) => [r.id, r.rule.kind]));
   const off = g.notPlaced.filter((n) => !orphaned(n));
   const required = (n: NotPlaced): boolean => n.requirementId !== null && n.requirementId !== undefined && (ruleOf.get(n.requirementId) ?? 'all') === 'all';
   // The same fault in another term is the same fault: its term leaves the key.
   const keyOf = (i: PlanIssue) => (i.termId ? i.id.replace(`-${i.termId}-`, '-') : i.id);
-  // College Algebra at or after the calculus a placement enters (placementCalculus).
-  const calculus = [...placementCalculus(ctx.prereqs)].map((c) => at.get(c)).filter((i): i is number => i !== undefined);
-  const algebra = at.get('MATH 112');
+  const arrival: Arrival = { transfer: input.arrival?.transfer ?? false, international: input.arrival?.international ?? false };
+  const firstYear = input.firstYear ?? (!arrival.transfer && !((input.residency?.heldHours ?? 0) > 0));
+  // A course held for students in their first term or year (firstTermCourse): ENG 100, LAS 101, FAA 101, ANSC 198.
+  const firstTerm = (code: string) => firstYear && firstTermCourse(byCode.get(code), ctx, arrival);
+  const isMath = degreeMath(ctx, input.requirements, [...at.keys(), ...held]);
+  const residency = input.residency ? residencyReport(input.residency, g, ctx) : null;
+  const page = input.pageSubjects ?? degreeSubjectsOf(input.requirements, input.programName);
+  const inMajor = (code: string) => (page.subjects.has(code.split(' ')[0]) || page.primary === code.split(' ')[0]) && planCreditRange([code], ctx).max >= 2;
+  const hardIn = g.terms.map((t) => t.codes.map(normaliseCode).filter(isHard).length);
   return {
-    applicationDue,
-    lastIndex: horizon.length - 1,
     errors: new Set(validated.filter((i) => i.severity === 'error').map(keyOf)),
+    // Prerequisites out of order, the groups read with low confidence included (the validator's order warnings).
     order: new Set(validated.filter((i) => i.id.startsWith('ap-prereq-') && !/^ap-prereq-(check|text)-/.test(i.id)).map(keyOf)),
     requiredOff: new Set(off.filter(required).map((n) => normaliseCode(n.code))),
-    pickedOff: off.filter((n) => !required(n)).length,
+    offCount: off.length,
     unsatisfied: new Set(g.unsatisfied.map((u) => u.requirementId)),
     lastUsed: used.length > 0 ? used[used.length - 1].index : -1,
     beyond: input.degreeTotal == null ? 0 : Math.max(0, g.credits.total.min - input.degreeTotal),
     apart: new Set([...labs].filter(([lab, lecture]) => at.has(lab) && at.has(lecture) && at.get(lab) !== at.get(lecture)).map(([lab]) => lab)),
     overCap: new Set(g.terms.filter((t) => t.credits.min > (t.season === 'Summer' ? Math.min(credits.max, SUMMER_MAX) : credits.max)).map((t) => t.id)),
-    stacked: g.terms.filter((t) => t.codes.map(normaliseCode).filter(isHard).length >= 3).length,
-    rowAt,
-    yearOne,
-    // The planner's own electives on the board, the track's rows aside:
-    // the hours it chose, not the ones the degree or the goal asks for.
-    padding: planCreditRange(g.electives.filter((e) => !e.track && at.has(normaliseCode(e.code))).map((e) => e.code), ctx).min,
-    algebraLate: algebra !== undefined && calculus.some((i) => i <= algebra),
+    stacked: hardIn.filter((n) => n >= 3).length,
+    doubled: hardIn.filter((n) => n >= 2).length,
+    rowLate,
+    residency: residency ? { upper: residency.heldUpper + residency.plannedUpper, hours: residency.heldHours + residency.plannedHours, needUpper: residency.upperLevel, needHours: residency.hours } : null,
+    seminars: new Set([...yearOneCodes].filter(firstTerm)),
+    seminarsLate: [...at.keys()].filter((code) => firstTerm(code) && !yearOneCodes.has(code)).length,
+    math: [...yearOneCodes].some(isMath) || [...held].some(isMath),
+    // A sequence run a fall or spring or more apart (orderShape): CHEM 104 a year after CHEM 102.
+    split: orderShape(g.terms.map((t) => ({ codes: t.codes, regular: t.season !== 'Summer' })), ctx, held).split,
+    yearOne: firstYearTerms.filter((t) => t.season !== 'Summer').map((t) => t.credits.min),
+    major: [...yearOneCodes].filter(inMajor).length,
   };
 }
 
 /**
- * The hard measures on which `board` is worse than `plain`, the same student's
- * board built by the plain engine (AutoplanInput.plainEngine); empty when it
- * is no worse on every one of them.
+ * The measures on which board `a` is worse than board `b`; empty when it is
+ * no worse on any of them. generatePlan keeps an improved board only where
+ * this is empty against the plain engine's board, which is a930f09's board,
+ * so no degree is made worse than a930f09 on any of these:
  *
- * The moves after the fill and the placer's newer rules each passed their own
- * checks and still made some boards worse as a whole: the co-requisite pair
- * path cost an Industrial Engineering freshman IE 371 and IE 431, a lab pair
- * read from the catalog cost a pre-PT Dietetics freshman ETMA 311 and HK
- * 250, and the pairs spread, the board's last move, took pre-med Emma's
- * PSYC 235 from Fall 2027 to Spring 2029. The rule is that no degree is made
- * worse, so the finished boards are held to each other here, on what a
- * student could not live with:
- *
- * - a validator error the plain board does not have, the same fault in another
- *   term counting as the same fault: a pre-PT Fine and Applied Arts freshman's
- *   CHEM 102 without MATH 112 sat in Spring 2029 on one board and Spring 2030
- *   on the other, and read by term it handed her the board with CHEM 102 in
- *   her last term;
- * - a course a requirement names left off, or a requirement unmet, that the
- *   plain board placed or met, or more courses left off in all, list picks,
- *   prerequisites and track rows counted by number (requiredOff, pickedOff);
+ * - a validator error `b` does not have, the same fault in another term
+ *   counting as the same fault;
+ * - a course a requirement names left off that `b` placed, or more courses
+ *   left off in all (list picks, prerequisites and track rows by number);
+ * - a requirement unmet that `b` met;
  * - a later last term;
- * - credits past the degree total by more than one past the plain board's,
- *   where the planner's own electives are what grew;
- * - a prerequisite out of order the plain board does not have, the groups
- *   read with low confidence included (the validator's order warnings);
- * - a lab in another term from its lecture where the plain board had them together;
- * - a term over its cap, or one more term with three hardest-band courses;
- * - a track row past its date, or later past it, or off the board, where the
- *   plain board had it earlier: SOC 100 in a graduating spring is late for
- *   the MCAT, and still a course the student takes before medical school, so
- *   a row late there is off this board only where this board places as many
- *   of the track's rows;
- * - more first-year terms over 17 credits than the plain board has, counted
- *   rather than term by term: a three-year Chemistry plan's year one of 17
- *   and 18 is no heavier than one of 18 and 16;
- * - MATH 112 at or after the calculus a placement enters, where the plain
- *   board did not have it.
+ * - more than one credit past the degree total beyond `b`'s;
+ * - a prerequisite out of order that `b` does not have;
+ * - a lab in another term from its lecture where `b` had them together;
+ * - a term over its cap, or more terms with three hardest-band courses;
+ * - any track row later past its application date, or off the board, than on `b`;
+ * - fewer hours toward Illinois's residency rule (45 hours, 21 at the 300
+ *   level or above) where `b` came nearer to it;
+ * - a first-term seminar `b` had in year one that is not in year one;
+ * - no college math in year one where `b` had one;
+ * - a sequence run a fall or spring or more apart that `b` ran together;
+ * - more first-year terms over 17 credits.
+ *
+ * Every rule compares both boards on the same measure, so it reads the same
+ * either way round: gateWorse(plain, improved) is what the improved board
+ * gains.
  */
-function worseThanPlain(a: GateMeasure, b: GateMeasure): string[] {
+function gateWorse(a: GateMeasure, b: GateMeasure): string[] {
   const within = <T,>(x: Set<T>, y: Set<T>) => [...x].every((v) => y.has(v));
   const worse: string[] = [];
   if (!within(a.errors, b.errors)) worse.push('errors');
-  // A pick off for a required course on is no loss: a Civil Engineering
-  // freshman's improved board placed SE 101, which the plain board left off,
-  // and left off CEE 447 from a list of advanced courses instead.
-  if (!within(a.requiredOff, b.requiredOff) || a.pickedOff + a.requiredOff.size > b.pickedOff + b.requiredOff.size) worse.push('notPlaced');
+  if (!within(a.requiredOff, b.requiredOff) || a.offCount > b.offCount) worse.push('notPlaced');
   if (!within(a.unsatisfied, b.unsatisfied)) worse.push('unsatisfied');
   if (a.lastUsed > b.lastUsed) worse.push('terms');
-  /*
-   * Hours past the total are held against a board only where they are the
-   * planner's own: an Environmental Chemistry freshman's improved board places
-   * CHEM 420, CHEM 442, CHEM 444, CHEM 445 and CEE 330, all required, at 133
-   * credits where the plain board leaves them off at 123, and with language
-   * done it seats CEE 443, four credits, where the plain board put CHEM 499,
-   * two, on the same technical-elective list. Counted as hours beyond the
-   * total, both would hand her the plain board, with organic chemistry before
-   * general chemistry.
-   */
-  if (a.beyond > b.beyond + 1 && a.padding > b.padding + 1) worse.push('beyond');
+  if (a.beyond > b.beyond + 1) worse.push('beyond');
   if (!within(a.order, b.order)) worse.push('order');
   if (!within(a.apart, b.apart)) worse.push('labApart');
   if (!within(a.overCap, b.overCap)) worse.push('overCap');
   if (a.stacked > b.stacked) worse.push('stack3');
-  /*
-   * A row the plain board places after its date may be off this board where
-   * this board places as many of the track's rows: the pre-med Nuclear,
-   * Plasma, and Radiological Engineering + Data Science board had eight rows
-   * past the MCAT spring on the plain board and two on the improved one,
-   * which left off CHEM 104 and CHEM 105, placed in Spring 2030 on the plain
-   * board, and read row by row it went back to the eight.
-   */
-  const placedRows = (m: GateMeasure) => [...m.rowAt.values()].filter((i) => i < Infinity).length;
-  /*
-   * Or where it places as many of the degree's required courses the plain
-   * board left off as it drops rows: the Environmental Chemistry freshman's
-   * plain board kept IB 150, IB 151 and SOC 100 in Fall 2029, after the
-   * application, and left off CEE 330, CHEM 420, CHEM 442, CHEM 444 and CHEM
-   * 445, which she cannot graduate without, and put CHEM 236 before CHEM 204.
-   */
-  const dropped = [...a.rowAt].filter(([key, index]) => index === Infinity && (b.rowAt.get(key) ?? Infinity) < Infinity).length;
-  const gained = [...b.requiredOff].filter((code) => !a.requiredOff.has(code)).length;
-  /*
-   * Or, one row at most, where its rows past their date come to less
-   * lateness in all, a row off the board counting a term past the last: a
-   * pre-PT Acting freshman's improved board had CHEM 104, CHEM 105 and PSYC
-   * 238 before the application and left off PHYS 101, which the plain board
-   * had with the other three in her last two terms.
-   */
-  const lateness = (m: GateMeasure) => [...m.rowAt.values()].reduce((sum, i) => sum + (i <= m.applicationDue ? 0 : i === Infinity ? m.lastIndex + 1 - m.applicationDue : i - m.applicationDue), 0);
-  const traded = (index: number, was: number) =>
-    index === Infinity && was > b.applicationDue && (placedRows(a) >= placedRows(b) || gained >= dropped || (lateness(a) < lateness(b) && placedRows(a) >= placedRows(b) - 1));
-  if ([...a.rowAt].some(([key, index]) => {
-    const was = b.rowAt.get(key) ?? Infinity;
-    return index > a.applicationDue && index > was && !traded(index, was);
-  })) worse.push('track');
+  if ([...a.rowLate].some(([key, late]) => late > (b.rowLate.get(key) ?? 0))) worse.push('track');
+  if (a.residency && b.residency && (a.residency.upper < Math.min(a.residency.needUpper, b.residency.upper) || a.residency.hours < Math.min(a.residency.needHours, b.residency.hours))) worse.push('residency');
+  if (!within(b.seminars, a.seminars)) worse.push('seminar');
+  if (b.math && !a.math) worse.push('yearOneMath');
+  if (!within(a.split, b.split)) worse.push('sequence');
   if (a.yearOne.filter((cr) => cr > 17).length > b.yearOne.filter((cr) => cr > 17).length) worse.push('yearOneOver17');
-  if (a.algebraLate && !b.algebraLate) worse.push('algebraLate');
   return worse;
+}
+
+/**
+ * A board's standing, most severe first, for choosing among boards none of
+ * which is worse than the plain one (gateWorse): a required course left off
+ * outweighs a requirement unmet, which outweighs a validator error, and so
+ * on down to a light year one and the major's courses in it. Lower is better.
+ */
+function gateRank(m: GateMeasure): number[] {
+  const late = [...m.rowLate.values()];
+  const residencyShort = m.residency ? Math.max(0, m.residency.needUpper - m.residency.upper) + Math.max(0, m.residency.needHours - m.residency.hours) : 0;
+  return [
+    m.requiredOff.size,
+    m.unsatisfied.size,
+    m.errors.size,
+    m.offCount,
+    m.overCap.size,
+    m.order.size,
+    residencyShort,
+    m.apart.size,
+    m.seminarsLate,
+    m.stacked,
+    late.filter((n) => n > 0).length,
+    late.reduce((n, x) => n + x, 0),
+    m.math ? 0 : 1,
+    m.split.size,
+    m.beyond,
+    m.yearOne.filter((cr) => cr > 17).length,
+    m.yearOne.filter((cr) => cr < 15).length,
+    m.doubled,
+    -m.major,
+  ];
+}
+/** Whether rank `a` is better than rank `b`: at the first measure where they differ, `a` is lower. */
+function ranksAbove(a: number[], b: number[]): boolean {
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
 }
 
 export function generatePlan(given: AutoplanInput): GeneratedPlan {
@@ -5042,54 +5031,67 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     : raw.prior;
   const route = raw.admissionRoute ?? null;
   const admission = route ? admissionRequirements(route, expansion.requirements, raw) : { added: [], codes: [] };
-  /** How one board is built: the trials, the plain engine, the placer's inferred pairings, year one held (AutoplanInput). */
-  type Build = { pace: boolean | 'ceiling'; sooner: boolean; plain?: boolean; pairs?: boolean; yearOneMost?: number; reading?: boolean; algebra?: boolean };
-  const builtWith = new WeakMap<GeneratedPlan, Build>();
+  /**
+   * How one board is built: the trials, the plain engine, the placer's
+   * inferred pairings (AutoplanInput), and `asRead`, the requirements as
+   * a930f09 read them (asReadBefore).
+   */
+  type Build = { pace: boolean | 'ceiling'; sooner: boolean; plain?: boolean; pairs?: boolean; asRead?: boolean };
+  /*
+   * A row the page joins with "OR" alone is one pick (joinedByOr in
+   * illinois-data): the LAS orientation row, LAS 101 or LAS 100 or LAS 102.
+   * a930f09 read it as three courses to take, and on its own the corrected
+   * reading changed the plain board for 24 degrees, some for the worse: two
+   * credits freed moved a Chemistry freshman's CHEM 236 ahead of CHEM 204.
+   * The board a930f09 built is the one no degree may fall below, so where a
+   * requirement reads that way the plain engine builds both readings, and the
+   * corrected one stands only where it is no worse (inner, below).
+   */
+  const asReadBefore = (list: PlanRequirement[]): PlanRequirement[] =>
+    list.map((r) => (r.rule.kind === 'pool' && r.rule.joinedByOr ? { ...r, rule: { kind: 'all', choices: r.rule.choices } } : r));
+  const readsDifferently = given.requirements.some((r) => r.rule.kind === 'pool' && r.rule.joinedByOr === true);
   const electiveRanking = new Map<string, string[]>();
-  const once = (horizon: Horizon, build: Build) => {
-    const g = onceInner(horizon, build);
-    builtWith.set(g, build);
-    return g;
-  };
-  const onceInner = (horizon: Horizon, build: Build) => generatePlanInner({
+  const once = (horizon: Horizon, build: Build) => generatePlanInner({
     ...raw,
     horizon,
     prior,
-    requirements: [...admission.added, ...expansion.requirements],
+    requirements: build.asRead ? asReadBefore([...admission.added, ...expansion.requirements]) : [...admission.added, ...expansion.requirements],
     sequenceFirst: [...admission.codes, ...(expansion.language?.codes ?? [])],
     languageExempt: expansion.exempt,
     earlyTags: route ? route.required.map((item) => item.genEd).filter((t): t is string => Boolean(t)) : [],
     dueByTerm: route && route.dueTermIndex !== undefined ? Object.fromEntries(admission.codes.map((c) => [c, route.dueTermIndex as number])) : undefined,
-    pageSubjects: degreeSubjectsOf(given.requirements, given.programName),
+    pageSubjects: degreeSubjectsOf(build.asRead ? asReadBefore(given.requirements) : given.requirements, given.programName),
     paceYearOne: build.pace,
     soonerDates: build.sooner,
     plainEngine: build.plain === true,
     pairings: build.pairs !== false,
-    yearOneMost: build.yearOneMost,
-    placementReading: build.reading,
-    algebraRepair: build.algebra,
     electiveRanking,
   });
   /**
-   * The improved board stands only where it is no worse than the plain one
-   * on every hard measure (worseThanPlain); otherwise the student gets the
-   * plain board, and nothing on it says which one it is.
+   * The student gets the best board none of which is worse than the plain
+   * engine's board on anything gateWorse measures, the plain board itself
+   * among them; best by gateRank, most severe measure first, and the plain
+   * board where no other ranks above it. The plain engine is a930f09's, and
+   * built on the requirements as a930f09 read them (asReadBefore) its board is
+   * a930f09's board, so no degree is made worse than a930f09 on any of those
+   * measures. Where the page's own reading differs, the plain board built on
+   * it is kept over a930f09's reading wherever it is no worse and ranks no
+   * lower.
    *
-   * Before the plain board, the improved engine's lesser boards are held to
-   * the same gate, the nearest to the first one first: without the placer's
-   * inferred pairings (pairingsUsed), then without the placement trials.
-   * Placed early, the teacher-education pair CI 403 and EPSY 485 took a
-   * pre-med Secondary Education freshman's Fall 2028, and PSYC 100, which the
-   * plain board had, fell off it; without the pairings her board keeps the
-   * year-one and date moves and PSYC 100. A Dietetics freshman's MCB 101 read
-   * as MCB 100's lab is the other: it cost her required courses, so there it
-   * is no pair. A board already measured is not measured again.
+   * The improved engine's boards: the one with every placement trial and the
+   * boards built on the way to it (improved), and where none of those stands,
+   * the same without the placer's inferred pairings (pairingsUsed). Placed
+   * early, the teacher-education pair CI 403 and EPSY 485 took a pre-med
+   * Secondary Education freshman's Fall 2028, and PSYC 100, which the plain
+   * board had, fell off it; without the pairings her board keeps the year-one
+   * and date moves and PSYC 100. A board already weighed is not weighed again.
    */
   const inner = (horizon: Horizon) => {
     if (given.plainEngine === true) return once(horizon, { pace: false, sooner: false, plain: true });
     const measured = { ...raw, horizon, prior };
     const built = improved(horizon, {});
-    const plain = once(horizon, { pace: false, sooner: false, plain: true });
+    const plainAsRead = once(horizon, { pace: false, sooner: false, plain: true });
+    const plain = readsDifferently ? once(horizon, { pace: false, sooner: false, plain: true, asRead: true }) : plainAsRead;
     const measures = new Map<GeneratedPlan, GateMeasure>();
     const measureOf = (g: GeneratedPlan): GateMeasure => {
       const known = measures.get(g);
@@ -5099,90 +5101,33 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
       return m;
     };
     const trail: GateTrail = { plain, tried: [] };
-    const seen = new Set<string>();
-    const stands = (g: GeneratedPlan): boolean => {
-      const shape = g.terms.map((t) => t.codes.join(',')).join('|');
-      if (seen.has(shape)) return false;
+    const shapeOf = (g: GeneratedPlan) => g.terms.map((t) => t.codes.join(',')).join('|');
+    const seen = new Set<string>([shapeOf(plain)]);
+    let best = plain;
+    let bestRank = gateRank(measureOf(plain));
+    const weigh = (g: GeneratedPlan, tieWins = false) => {
+      const shape = shapeOf(g);
+      if (seen.has(shape)) return;
       seen.add(shape);
-      const worse = worseThanPlain(measureOf(g), measureOf(plain));
+      const worse = gateWorse(measureOf(g), measureOf(plain));
       trail.tried.push({ board: g, worse });
-      return worse.length === 0;
+      if (worse.length > 0) return;
+      const rank = gateRank(measureOf(g));
+      if (ranksAbove(rank, bestRank) || (tieWins && !ranksAbove(bestRank, rank))) {
+        best = g;
+        bestRank = rank;
+      }
     };
-    let kept: GeneratedPlan | null = stands(built.board) ? built.board : null;
-    /** The board held to 17 credits in year one (yearOneMost), built once. */
-    let heldBoard: GeneratedPlan | null = null;
-    const held = (): GeneratedPlan => (heldBoard ??= improved(horizon, { yearOneMost: 17 }).board);
-    if (kept === null) {
-      const lesser: Array<() => GeneratedPlan> = [];
-      // A board worse only for a heavier first-year term is built again with
-      // year one held first: a pre-PT Environmental Chemistry freshman's first
-      // fall held 18 credits where the plain board's held 17.
-      if (trail.tried[0]?.worse.includes('yearOneOver17')) lesser.push(held);
-      if (pairingsUsed.has(built.board)) lesser.push(() => improved(horizon, { pairs: false }).board);
-      for (const g of built.untried) lesser.push(() => g);
-      if (pairingsUsed.has(built.board)) lesser.push(() => once(horizon, { pace: false, sooner: false, pairs: false }));
-      /*
-       * Last, the improved board without reading MATH 112 as met by the
-       * calculus a placement enters, where the reading cost something: freed
-       * of MATH 112, a pre-med Earth, Society and Environment freshman's board
-       * took ATMS 201 and STAT 100 where the plain board kept SOC 100 before
-       * the MCAT. The plain board books MATH 112 there too.
-       */
-      if (built.board.addedPrerequisites.every((a) => a.code !== 'MATH 112')) lesser.push(() => improved(horizon, { reading: false }).board);
-      for (const next of lesser) {
-        const g = next();
-        if (stands(g)) {
-          kept = g;
-          break;
-        }
-      }
+    if (plainAsRead !== plain) weigh(plainAsRead, true);
+    weigh(built.board);
+    for (const g of built.untried) weigh(g);
+    if (best === plain && pairingsUsed.has(built.board)) {
+      weigh(improved(horizon, { pairs: false }).board);
+      if (best === plain) weigh(once(horizon, { pace: false, sooner: false, pairs: false }));
     }
-    /*
-     * A board with a first-year term past 17 credits is built again with year
-     * one held to 17 (AutoplanInput.yearOneMost), and that board is the one
-     * kept where it is no worse than the plain board and no worse than the
-     * board it would replace on anything, fewer heavy first-year terms being
-     * what it gains. Once MATH 220 needed no MATH 112 first, a Fish and
-     * Wildlife freshman's first fall held it beside CHEM 102 at 18 credits and
-     * her first spring 18, where a930f09 had 15 and 15, and NRES 123, held for
-     * first-year NRES students, went to Fall 2027; held to 17, her year one is
-     * 17 and 15 with NRES 123 in her first fall. As a rule for every board it
-     * pushed a hundred pre-med track rows past their dates, so it is a board
-     * weighed, not a rule.
-     */
-    const heavy = (g: GeneratedPlan) => measureOf(g).yearOne.filter((cr) => cr > 17).length;
-    const current = kept ?? plain;
-    if (raw.degreeTotal != null && heavy(current) > 0) {
-      const heldOne = held();
-      if (heavy(heldOne) < heavy(current) && stands(heldOne) && worseThanPlain(measureOf(heldOne), measureOf(current)).length === 0) kept = heldOne;
-    }
-    /*
-     * College Algebra at or after calculus on the board kept, the plain one
-     * included, is taken off where the placement meets every course that
-     * names it (AutoplanInput.algebraRepair), and the board so repaired is
-     * kept where the gate still holds.
-     */
-    const chosen = kept ?? plain;
-    if (measureOf(chosen).algebraLate) {
-      const how = builtWith.get(chosen);
-      if (how !== undefined) {
-        const repaired = once(horizon, { ...how, algebra: true });
-        const worse = worseThanPlain(measureOf(repaired), measureOf(plain)).filter((m) => m !== 'algebraLate');
-        if (!measureOf(repaired).algebraLate && worse.length === 0 && worseThanPlain(measureOf(repaired), measureOf(chosen)).length === 0) {
-          trail.tried.push({ board: repaired, worse });
-          kept = repaired;
-        }
-      }
-    }
-    if (kept !== null) {
-      // The plain engine's board with College Algebra taken off is still the plain board.
-      kept.gate = builtWith.get(kept)?.plain === true ? { kept: 'plain', worse: trail.tried[0]?.worse ?? [] } : { kept: 'improved', worse: [] };
-      gateTrails.set(kept, trail);
-      return kept;
-    }
-    plain.gate = { kept: 'plain', worse: trail.tried[0]?.worse ?? [] };
-    gateTrails.set(plain, trail);
-    return plain;
+    best.gate = best === plain || best === plainAsRead ? { kept: 'plain', worse: trail.tried.find((t) => t.board !== plainAsRead)?.worse ?? [] } : { kept: 'improved', worse: [] };
+    gateTrails.set(best, trail);
+    return best;
   };
   // A board a placement trial changed is built again without the trials,
   // and kept only where the finished board stands against that one
@@ -7289,8 +7234,6 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the year-one moves below are for that student only.
    */
   const firstYear = input.firstYear ?? (!arrival.transfer && !((input.residency?.heldHours ?? 0) > 0));
-  /** The most a first-year term takes from a course with slack, on the board built that way (AutoplanInput.yearOneMost). */
-  const yearOneMost = !plainEngine && firstYear && input.yearOneMost !== undefined ? input.yearOneMost : null;
   /** Set for the one placement that tries year one's pace (farWait below, and the year-one ceiling in roomFor). */
   let yearOnePace = false;
   /**
@@ -7512,14 +7455,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // In year one, under the trial that asks for it (yearOnePace), a
         // course with slack takes a term no past the year-one ceiling; a
         // course out of time still goes to the maximum.
-        const paced = yearOnePace && yearOne.includes(term.index) && cap < credits.max && !codes.some((code) => urgentAt(code, term.index)) ? Math.min(asked, Math.max(yearOneCeiling, running)) : asked;
-        /*
-         * And, on the board generatePlan builds with year one held
-         * (AutoplanInput.yearOneMost), never past that in a fall or spring of
-         * a first-year student's first year with a course that has slack. A
-         * course out of time still goes to the maximum.
-         */
-        const ceiling = yearOneMost !== null && yearOne.includes(term.index) && !isSummer(term) && !codes.some((code) => urgentAt(code, term.index)) ? Math.min(paced, Math.max(yearOneMost, running)) : paced;
+        const ceiling = yearOnePace && yearOne.includes(term.index) && cap < credits.max && !codes.some((code) => urgentAt(code, term.index)) ? Math.min(asked, Math.max(yearOneCeiling, running)) : asked;
         // A summer term the student asked for carries a summer load.
         if (term.season === 'Summer') return (pastAim || running < Math.min(cap, SUMMER_AIM)) && running + adds <= Math.min(ceiling, SUMMER_MAX);
         // A track course stretches a term to the finished plan's size and no
@@ -8786,11 +8722,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * the fifteen hours the review measures takes its pick as before.
      */
     const stepCeiling = (term: (typeof terms)[number], ceiling: number, steps: boolean, running: number): number => {
-      const stepped = steps && !plainEngine && firstYear && yearOne.includes(term.index) && !isSummer(term) && running >= 15 ? Math.min(ceiling, Math.max(yearOneCeiling, overallAim)) : ceiling;
-      // Year one held (yearOneMost) holds in every round: the placer kept an
-      // Earth, Society and Environment freshman's first fall at 17, and the
-      // round to the maximum took it to 18 with an elective.
-      return yearOneMost !== null && yearOne.includes(term.index) && !isSummer(term) ? Math.min(stepped, Math.max(yearOneMost, running)) : stepped;
+      return steps && !plainEngine && firstYear && yearOne.includes(term.index) && !isSummer(term) && running >= 15 ? Math.min(ceiling, Math.max(yearOneCeiling, overallAim)) : ceiling;
     };
     for (const { ceiling: roundCeiling, summerCeiling, summersOnly, loose, steps } of rounds) {
       if (summersOnly && fillShape.summers === 0) continue;
@@ -9075,8 +9007,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // in this term: a generic elective first, then a course the guide
         // only recommends. Never a requirement, never a course another on the
         // board needs first, never half of a lecture and its lab.
-        // Year one held (yearOneMost) holds here too.
-        const max = yearOneMost !== null && yearOne.includes(term.index) && !isSummer(term) ? Math.min(creditCapOf(term), yearOneMost) : creditCapOf(term);
+        const max = creditCapOf(term);
         const cost = unit.reduce((sum, c) => sum + creditsOf(c), 0);
         let running = planCreditRange(here, ctx).min;
         const removable = here
@@ -9689,54 +9620,6 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       }
     }
   };
-  /**
-   * College Algebra at or after calculus comes off the board it was built on
-   * (AutoplanInput.algebraRepair), where every course on the board that
-   * names it is met by the calculus a placement enters (placementGroups, and
-   * CHEM 102's "exemption from MATH 112"). The engine a930f09 built books
-   * MATH 112 for a pre-med Earth, Society and Environment freshman's STAT 100
-   * in the same fall as her MATH 220, and a Speech and Hearing Science
-   * freshman's the spring after it. Only where no term falls under the
-   * minimum and the plan stays at its total; the plan says what it relies on.
-   * Before the moves after the fill, so a first-year term it lightens is
-   * brought back to fifteen with the rest of year one.
-   */
-  if (input.algebraRepair === true) {
-    const algebra = 'MATH 112';
-    const at = terms.findIndex((t) => (placed.get(t.id) ?? []).includes(algebra));
-    const calculus = [...placementCalculus(ctx.prereqs)].map((c) => ({ c, i: terms.findIndex((t) => (placed.get(t.id) ?? []).includes(c)) })).filter((x) => x.i >= 0 && x.i <= Math.max(at, 0)).sort((a, b) => a.i - b.i || a.c.localeCompare(b.c));
-    const requiredItself = (chosen.get(algebra)?.requirementId ?? null) !== null;
-    if (at >= 0 && calculus.length > 0 && !requiredItself) {
-      const onBoard = new Set<string>();
-      for (const codes of placed.values()) for (const c of codes) if (c !== algebra) for (const e of expandEquivalents(c, equivalents)) onBoard.add(e);
-      const relying: Array<{ code: string; source: string }> = [];
-      let met = true;
-      for (const code of onBoard) {
-        for (const group of ctx.prereqs?.get(code)?.groups ?? []) {
-          const named = group.any.flatMap((raw) => expandEquivalents(normaliseCode(raw), equivalents));
-          if (!named.includes(algebra) || group.priorLearning || named.some((c) => c !== algebra && (onBoard.has(c) || satisfiedForPrereq.has(c)))) continue;
-          if (exemptedBy(group, ctx.prereqs, conflicts, equivalents, [satisfiedForPrereq, onBoard], true) === null) met = false;
-          else relying.push({ code, source: group.source });
-        }
-      }
-      const here = placed.get(terms[at].id) ?? [];
-      const left = here.filter((c) => c !== algebra);
-      const total = priorCreditTotal + awayCreditTotal + terms.reduce((sum, t) => sum + planCreditRange(placed.get(t.id) ?? [], ctx).min, 0) - creditsOf(algebra);
-      // The improved engine's year-one pace below brings a lighter first-year
-      // term back up; the plain engine's board keeps fifteen where it had them.
-      const floor = plainEngine && yearOne.includes(at) ? Math.max(credits.min, Math.min(15, planCreditRange(here, ctx).min)) : credits.min;
-      if (met && (left.length === 0 || planCreditRange(left, ctx).min >= floor) && (input.degreeTotal == null || total >= input.degreeTotal)) {
-        placed.set(terms[at].id, left);
-        chosen.delete(algebra);
-        for (let i = addedPrerequisites.length - 1; i >= 0; i -= 1) if (addedPrerequisites[i].code === algebra) addedPrerequisites.splice(i, 1);
-        const calc = calculus[0].c;
-        for (const { code, source } of relying) {
-          notes.push(`${code} asks for "${source}". This plan books ${calc}, and the placement that lets you into ${calc} is past MATH 112, so this plan does not book it. Add MATH 112 if your placement result says you need it.`);
-        }
-      }
-    }
-  }
-
   if (!plainEngine) moveSeminars();
 
   /**

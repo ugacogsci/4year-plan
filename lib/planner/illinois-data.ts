@@ -578,6 +578,12 @@ export type RequirementRule =
        */
       from: 'group' | 'area';
       label: string;
+      /**
+       * Rows the page joins with "OR" and nothing else (joinedByOr), which
+       * a930f09 read as courses to take, every one of them. generatePlan
+       * builds a930f09's reading beside this one, for its gate.
+       */
+      joinedByOr?: boolean;
     }
   | {
       kind: 'hours';
@@ -3508,6 +3514,7 @@ export function requirementRulesForArea(
     if (!r.isList && r.ownChoose === null && r.ownHours === null && joinedByOr(r.group, r.rows)) {
       r.isList = true;
       r.ownChoose = 1;
+      r.orJoined = true;
     }
     /**
      * A count in the note is read only for a list that has no hours of its own.
@@ -3620,6 +3627,7 @@ export function requirementRulesForArea(
           constraints: [],
           from: 'group',
           label: r.label || area.label,
+          ...(r.orJoined ? { joinedByOr: true } : {}),
         };
       } else if (r.ownChoose !== null) {
         rule = { kind: 'choose', n: r.ownChoose, choices };
@@ -3806,6 +3814,8 @@ interface AreaGroupRead {
   credits: number;
   /** True when the rows carry more credit than any cap this area can produce. */
   isList: boolean;
+  /** Read as one pick because the page joins the rows with "OR" alone (joinedByOr). */
+  orJoined?: boolean;
 }
 
 /**
