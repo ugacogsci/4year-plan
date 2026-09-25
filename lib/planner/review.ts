@@ -30,8 +30,10 @@
  * review_board, move_course and what_if only format the result.
  */
 import {
+  degreeMath,
   degreeSubjects,
   heldTowardDegree,
+  isMathOrStatistics,
   normaliseCode,
   planCreditRange,
   validatePlan,
@@ -111,17 +113,8 @@ export function firstYearTerms(board: PlanState): PlanTerm[] {
   return out;
 }
 
-/**
- * A math or statistics course: MATH or STAT, or a lower-division course whose
- * title says so. Psychology's statistics course is PSYC 235 and Economics'
- * is ECON 202; counting only the MATH prefix told a psychology student they
- * had no statistics in year one while PSYC 235 sat in their first spring.
- */
-export function isMathOrStatistics(course: Pick<Course, 'code' | 'title'>): boolean {
-  const subject = subjectOf(course.code);
-  if (subject === 'MATH' || subject === 'STAT') return true;
-  return levelOf(course.code) < 300 && /\b(statistic|calculus|precalculus|algebra|trigonometr|mathemat)/i.test(course.title);
-}
+/** A math or statistics course (autoplan.ts, which the year-one repair reads it from too). */
+export { isMathOrStatistics };
 
 export interface MomentumInput {
   context: PlanningContext;
@@ -201,52 +194,19 @@ export function momentumReview(input: MomentumInput): { flags: ReviewFlag[]; fac
    * Calculus, STAT 100 from AP Statistics, or a Parkland statistics course
    * the transfer guide counts as Quantitative Reasoning I.
    *
-   * The degree's math, that is: a course carrying a Quantitative Reasoning
-   * category or one the degree names, and a course on the way to one on the
-   * board (a Finance freshman's MATH 112 before MATH 220). A pre-med's MATH
-   * 112 is on the way to CHEM 102 alone; read as her first college math, it
-   * hid PSYC 235, Psychology's statistics, from the check when she dragged it
-   * to her junior fall.
+   * The degree's math (degreeMath, which the planner's year-one repair reads
+   * too): a Finance freshman's MATH 112 on the way to MATH 220 counts, and a
+   * pre-med's MATH 112 on the way to CHEM 102 alone does not, so it no longer
+   * hides PSYC 235 dragged to her junior fall.
    */
-  const named = new Set<string>();
-  for (const requirement of input.requirements) {
-    const rule = requirement.rule;
-    if (rule.kind === 'all' || rule.kind === 'choose' || rule.kind === 'pool') {
-      for (const choice of rule.choices) for (const code of choice.codes) named.add(normaliseCode(code));
-    }
-  }
-  const counts = (course: Pick<Course, 'code' | 'title' | 'tags'>) =>
-    isMathOrStatistics(course) && ((course.tags ?? []).some((tag) => tag.startsWith('Quantitative Reasoning')) || named.has(normaliseCode(course.code)));
-  const onTheWay = new Set<string>();
-  {
-    const queue = [...input.board.terms.flatMap((t) => codesOf(t.courseIds)), ...input.heldCodes.map(normaliseCode)].filter((code) => {
-      const course = byCode.get(code);
-      return course ? counts(course) : false;
-    });
-    while (queue.length > 0) {
-      for (const group of ctx.prereqs?.get(queue.shift() as string)?.groups ?? []) {
-        for (const raw of group.any) {
-          const code = normaliseCode(raw);
-          if (onTheWay.has(code)) continue;
-          onTheWay.add(code);
-          queue.push(code);
-        }
-      }
-    }
-  }
-  const collegeMath = (course: Pick<Course, 'code' | 'title' | 'tags'>) => counts(course) || (isMathOrStatistics(course) && onTheWay.has(normaliseCode(course.code)));
+  const collegeMath = degreeMath(ctx, input.requirements, [...input.board.terms.flatMap((t) => codesOf(t.courseIds)), ...input.heldCodes]);
   const heldMath =
-    input.heldCodes.some((code) => {
-      const course = byCode.get(normaliseCode(code));
-      return course ? collegeMath(course) : ['MATH', 'STAT'].includes(subjectOf(code));
-    }) || (input.genEdCredits ?? []).some((g) => g.tags.includes('Quantitative Reasoning I'));
+    input.heldCodes.some((code) => (byCode.has(normaliseCode(code)) ? collegeMath(code) : ['MATH', 'STAT'].includes(subjectOf(code)))) ||
+    (input.genEdCredits ?? []).some((g) => g.tags.includes('Quantitative Reasoning I'));
   if (!heldMath) {
     const firstMath = (terms: Array<{ id: string; codes: string[] }>) => {
       for (const t of terms) {
-        const code = t.codes.find((c) => {
-          const course = byCode.get(c);
-          return course ? collegeMath(course) : false;
-        });
+        const code = t.codes.find(collegeMath);
         if (code) return { termId: t.id, code };
       }
       return null;
