@@ -1087,7 +1087,16 @@ export function PlannerWorkspace({
   const issues = useMemo(() => {
     if (!plan) return [];
     const validation = context
-      ? validatePlan(plan, context, { minimumTermCredits, programName: loaded?.program.name, programCollege: loaded?.program.college, priorCredits: priorCreditHours, away: report?.away, language: report?.language ?? null }).filter(
+      ? validatePlan(plan, context, {
+          minimumTermCredits,
+          programName: loaded?.program.name,
+          programCollege: loaded?.program.college,
+          priorCredits: priorCreditHours,
+          away: report?.away,
+          language: report?.language ?? null,
+          firstYear: enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
+          arrival: arrivalOf(answers),
+        }).filter(
           (issue) => !isUga || !issue.id.startsWith('ap-weighed-'),
         )
       : [];
@@ -1095,7 +1104,7 @@ export function PlannerWorkspace({
       ? [...unmet, ...validation]
       : getPlanIssues(plan, catalog, { minimumTermCredits });
     return rows.map((issue) => ({ ...issue, message: withCourseCodes(issue.message) }));
-  }, [plan, context, isUga, unmet, minimumTermCredits, catalog, loaded, priorCreditHours, report]);
+  }, [plan, context, isUga, unmet, minimumTermCredits, catalog, loaded, priorCreditHours, report, answers]);
 
   /** The degree on screen, from whichever source this school has. */
   const activeProgramName =
@@ -1628,6 +1637,10 @@ export function PlannerWorkspace({
       priorCredits: L.priorCreditHours,
       away: L.report?.away,
       language: L.language,
+      // Read for this student: a transfer or a continuing sophomore is never
+      // told a first-term seminar belongs in "the first year".
+      firstYear: enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
+      arrival: arrivalOf(L.answers),
     };
   }
 
