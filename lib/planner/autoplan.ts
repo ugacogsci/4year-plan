@@ -634,6 +634,17 @@ export interface AutoplanInput {
    */
   arrival?: Arrival;
   /**
+   * Whether the plan's first year is the student's first year of college, by
+   * the board review's rule (enteringAsFirstYear in review.ts): the
+   * workspace passes what it passes the review. The year-one repair is for
+   * that student only; an Economics sophomore holding ECON 102, ECON 103 and
+   * RHET 105 is never measured on year one, and moving MATH 220 into her
+   * Spring 2028 to meet that measure took the term from 15 to 17. Absent, a
+   * student is a first-year unless they walk in as a transfer or already hold
+   * Illinois hours (residency.heldHours).
+   */
+  firstYear?: boolean;
+  /**
    * Courses this degree's college earns no hours for. Set by generatePlan from
    * the college; the elective fill never suggests one.
    */
@@ -667,6 +678,16 @@ export interface AutoplanInput {
    * generatePlan.
    */
   pageSubjects?: { subjects: Set<string>; primary: string | null };
+  /**
+   * False to place without year one's pace (see the trial in
+   * generatePlanInner), 'ceiling' to try only its first-year ceiling. Set by
+   * generatePlan, which builds the board both ways when the paced placement
+   * was taken and keeps it only when the finished board is no worse
+   * (trialStands).
+   */
+  paceYearOne?: boolean | 'ceiling';
+  /** False to place without sending dated courses sooner (soonerBy); set by generatePlan the same way. */
+  soonerDates?: boolean;
   /**
    * The college the student is trying to get into, when they are not in it
    * yet: its published route becomes requirements placed first, because the
@@ -3229,31 +3250,37 @@ export function audienceFits(audience: StudentGroup | null, arrival: Arrival): b
 }
 
 /**
- * A course written for this student's first term at Illinois: LAS 101
+ * A seminar written for this student's first term at Illinois: LAS 101
  * "Restricted to first-year students in LAS." with every section held for
- * first-time freshmen, BUS 101 for "First Semester Freshman, Intercollegiate
- * and Off-Campus Transfer Students", LAS 102 "For first-term LAS transfer
- * students only.", LAS 100 for a student who said they are international, and
- * a department's own orientation (HK 125 "Orientation to Health &
- * Kinesiology"). A 100-level course only, read clause by clause so a clause
- * that shuts the group out is not read as one written for it: ANSC 103 is
- * "Not intended for First Time Freshman students".
+ * first-time freshmen, LAS 102 "For first-term LAS transfer students only.",
+ * LAS 100 for a student who said they are international, ENG 100 held for
+ * first-time freshmen, and a department's own orientation for a freshman
+ * (HK 125 "Orientation to Health & Kinesiology"). A 100-level course of two
+ * credits or less only: a full course a first-year may take is not one that
+ * goes on top of a first term, and HK 112 (three credits, "Majority of seats
+ * held for freshman-sophomore status") read as one written for freshmen. Read
+ * clause by clause so a clause that shuts the group out is not read as one
+ * written for it: ANSC 103 is "Not intended for First Time Freshman
+ * students". A transfer's orientation is one whose text names transfers, not
+ * one whose title says orientation: ALEC 123, "ALEC Orientation to Illinois",
+ * is "Restricted to students in the ALEC Program" and read by its title alone
+ * it was a Parkland transfer's first-term course.
  */
 export function firstTermCourse(course: Course | undefined, ctx: Pick<PlanningContext, 'prereqs' | 'sections'>, arrival: Arrival): boolean {
   if (!course) return false;
   const code = normaliseCode(course.code);
-  if (courseLevel(code) >= 200) return false;
-  if (/\borientation\b/i.test(course.title) && (course.creditsMax ?? course.credits) <= 2) return true;
+  if (courseLevel(code) >= 200 || (course.creditsMax ?? course.credits) > 2) return false;
   if (arrival.international && audienceOf(course, ctx) === 'international') return true;
   const clauses = [ctx.prereqs?.get(code)?.text ?? '', ...(ctx.sections?.get(code)?.restrictions ?? [])]
     .flatMap((text) => text.split(/[.;|]/))
-    .filter((clause) => clause.trim() && !/\bnot (intended|open)\b/i.test(clause));
+    .filter((clause) => clause.trim() && !/\bnot (intended|open)\b/i.test(clause) && !/\bsophomore/i.test(clause));
   const forGroup = arrival.transfer
     ? /\bfirst[- ](time|term|semester)\b[^,]*\btransfer\b|\bnew transfer students\b|\btransfer student - first time\b|\b(intercollegiate|off-campus) transfer students\b/i
     : /\bfirst[- ]time freshm[ae]n\b|\bfirst[- ](year|semester|term) (students|freshm[ae]n)\b|\bfor (incoming |new )?freshm[ae]n\b|\bfreshm[ae]n or new transfer\b/i;
   if (clauses.some((clause) => forGroup.test(clause))) return true;
-  // "First Year College Success" (LAS 112): the title says who it is for.
-  return !arrival.transfer && /\b(first[- ]year|freshm[ae]n)\b[^,;]*\b(experience|success|seminars?)\b/i.test(course.title);
+  if (arrival.transfer) return false;
+  // A department's orientation, and "First Year College Success" (LAS 112): the title says who it is for.
+  return /\borientation\b/i.test(course.title) || /\b(first[- ]year|freshm[ae]n)\b[^,;]*\b(experience|success|seminars?)\b/i.test(course.title);
 }
 
 /**
@@ -4288,6 +4315,138 @@ export function withTitleStanding(ctx: PlanningContext): PlanningContext {
   return out;
 }
 
+/**
+ * The placement trials generatePlanInner took for a plan: year one's pace
+ * (paceYearOne) and dated courses sent sooner (soonerDates). generatePlan
+ * builds the plan again without each one and decides whether it stands.
+ */
+const trialsTaken = new WeakMap<GeneratedPlan, { pace: 'far' | 'ceiling' | null; sooner: boolean; ceiling: boolean }>();
+
+/**
+ * Whether a board placed at year one's pace stands against the same board
+ * placed without it, measured on the finished boards the way the schedule
+ * sweep measures them, since the elective fill after placement books track
+ * courses of its own. It stands when it is no worse on anything a student
+ * would feel and better on one of them.
+ *
+ * No worse: no new validator error, no course left off or requirement unmet
+ * that the plain board had, no term past its last, no credits past the
+ * degree total that it did not have, no term with three hardest-band courses
+ * or with two that it did not have (one term after year one may take a
+ * second where a first-year term comes down from 17 or more, and a term of
+ * year one one in place of a later one, for the college math or a third
+ * course of the major), no first-year
+ * term rising to 17 credits or more, no track row later than its date or off
+ * the board where it was not, no course of the major or college math lost
+ * from year one, and the first college math no later. Better: a first-year
+ * term below 17, fewer terms with two hardest-band courses, fewer credits
+ * past the total, more of the major or the math in year one, a track row on
+ * time or on the board, or a track course that is due five terms later out
+ * of year one.
+ *
+ * A track row off the board counts whatever its tier: a pre-med Mathematics
+ * freshman's plain board had PSYC 100 and SOC 100 on time, and at a
+ * first-year's pace the fill had no light term left for them.
+ *
+ * Paced, a pre-med Business freshman's CHEM 102 waited for her second year
+ * as a course that could wait, and at the end of the plan CHEM 232 went past
+ * the application and MCB 450 and PHYS 101 fell off the board: the placement
+ * cost nothing, and the elective fill that books track courses after it had
+ * less room. Measured here, that board is placed as before.
+ */
+function trialStands(paced: GeneratedPlan, plain: GeneratedPlan, input: AutoplanInput, language: LanguagePlan | null): boolean {
+  const ctx = input.context;
+  const credits = { ...DEFAULT_CREDITS, ...input.preferences?.creditsPerTerm };
+  const hardCut = input.preferences?.hardDifficulty === undefined ? (ctx.bands?.hardest ?? FALLBACK_HARD_DIFFICULTY) : input.preferences.hardDifficulty;
+  const isHard = (code: string) => {
+    const d = ctx.grades?.get(code)?.difficulty;
+    return hardCut !== null && d !== null && d !== undefined && d >= hardCut;
+  };
+  const horizon = buildHorizon(input.horizon);
+  const lastFall = Math.max(-1, ...horizon.filter((t) => t.season === 'Fall').map((t) => t.index));
+  const springs = horizon.filter((t) => t.season === 'Spring' && t.index < lastFall);
+  const applicationDue = springs.length > 0 ? springs[springs.length - 1].index : horizon.length;
+  const rows = careerProfileOf(input).tracks.flatMap((track) => track.courses.filter((row) => row.due || row.need === 'required').map((row) => ({ key: `${track.id}:${row.codes.join('/')}`, codes: row.codes.map(normaliseCode) })));
+  const held = new Set(input.prior.courseCodes.map(normaliseCode));
+  const page = input.pageSubjects ?? degreeSubjectsOf(input.requirements, input.programName);
+  const inMajor = (code: string) => (page.subjects.has(code.split(' ')[0]) || page.primary === code.split(' ')[0]) && planCreditRange([code], ctx).max >= 2;
+  const measure = (g: GeneratedPlan) => {
+    const at = new Map<string, number>();
+    for (const t of g.terms) for (const code of t.codes) at.set(normaliseCode(code), t.index);
+    const used = g.terms.filter((t) => t.codes.length > 0);
+    const firstYear: PlannedTerm[] = [];
+    let regular = 0;
+    for (const t of g.terms) {
+      if (t.season !== 'Summer') {
+        if (regular === 2) break;
+        regular += 1;
+      }
+      firstYear.push(t);
+    }
+    const hardIn = g.terms.map((t) => t.codes.map(normaliseCode).filter(isHard).length);
+    const late = new Map<string, number>();
+    const missing = new Set<string>();
+    for (const row of rows) {
+      if (row.codes.some((c) => held.has(c))) continue;
+      const placed = row.codes.map((c) => at.get(c)).filter((i): i is number => i !== undefined);
+      if (placed.length === 0) missing.add(row.key);
+      else if (Math.min(...placed) > applicationDue) late.set(row.key, Math.min(...placed));
+    }
+    const firstCodes = firstYear.flatMap((t) => t.codes.map(normaliseCode));
+    const isMath = degreeMath(ctx, input.requirements, [...at.keys(), ...held]);
+    const validated = validatePlan(g.plan, ctx, { minimumTermCredits: credits.min, maxTermCredits: credits.max, programName: input.programName, programCollege: input.programCollege, priorCredits: g.credits.prior, away: g.away, language });
+    return {
+      errors: new Set(validated.filter((i) => i.severity === 'error').map((i) => i.id)),
+      notPlaced: new Set(g.notPlaced.map((n) => normaliseCode(n.code))),
+      unsatisfied: new Set(g.unsatisfied.map((u) => u.requirementId)),
+      lastUsed: used.length > 0 ? used[used.length - 1].index : -1,
+      beyond: g.credits.degreeTotal === null || input.degreeTotal == null ? 0 : Math.max(0, g.credits.total.min - input.degreeTotal),
+      stacked: hardIn.filter((n) => n >= 3).length,
+      doubled: hardIn.filter((n) => n >= 2).length,
+      doubledYearOne: firstYear.filter((t) => t.codes.map(normaliseCode).filter(isHard).length >= 2).length,
+      heavy: firstYear.filter((t) => t.season !== 'Summer').map((t) => t.credits.min),
+      late,
+      missing,
+      major: firstCodes.filter(inMajor).length,
+      math: firstCodes.some(isMath) || [...held].some(isMath),
+      // The term of the first college math, -1 when it is held: PSYC 235 is
+      // the one a pre-med Psychology freshman's degree names.
+      mathAt: [...held].some(isMath) ? -1 : Math.min(Infinity, ...[...at].filter(([code]) => isMath(code)).map(([, index]) => index)),
+      early: firstYear.reduce((n, t) => n + t.codes.filter((c) => rows.some((row) => row.codes.includes(normaliseCode(c))) && applicationDue - t.index >= 4).length, 0),
+    };
+  };
+  const a = measure(paced);
+  const b = measure(plain);
+  const within = <T,>(x: Set<T>, y: Set<T>) => [...x].every((v) => y.has(v));
+  const heavier = a.heavy.some((cr, i) => cr >= 17 && cr > (b.heavy[i] ?? 0));
+  const noWorse =
+    within(a.errors, b.errors) &&
+    within(a.notPlaced, b.notPlaced) &&
+    within(a.unsatisfied, b.unsatisfied) &&
+    a.lastUsed <= b.lastUsed &&
+    a.beyond <= b.beyond &&
+    a.stacked <= b.stacked &&
+    a.doubled <= b.doubled + (a.heavy.filter((cr) => cr >= 17).length < b.heavy.filter((cr) => cr >= 17).length ? 1 : 0) &&
+    (a.doubledYearOne <= b.doubledYearOne || (a.doubled <= b.doubled && ((a.math && !b.math) || (b.major < 3 && a.major > b.major)))) &&
+    !heavier &&
+    [...a.late].every(([key, index]) => (b.late.get(key) ?? -1) >= index) &&
+    within(a.missing, b.missing) &&
+    a.major >= b.major &&
+    (a.math || !b.math) &&
+    a.mathAt <= b.mathAt &&
+    a.early <= b.early;
+  const better =
+    a.heavy.filter((cr) => cr >= 17).length < b.heavy.filter((cr) => cr >= 17).length ||
+    a.doubled < b.doubled ||
+    a.beyond < b.beyond ||
+    a.major > b.major ||
+    (a.math && !b.math) ||
+    a.late.size < b.late.size ||
+    a.missing.size < b.missing.size ||
+    a.early < b.early;
+  return noWorse && better;
+}
+
 export function generatePlan(given: AutoplanInput): GeneratedPlan {
   const context = withTitleStanding(given.context);
   const requirements = resolveBundles(given.requirements, given.prior, context);
@@ -4301,7 +4460,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     : raw.prior;
   const route = raw.admissionRoute ?? null;
   const admission = route ? admissionRequirements(route, expansion.requirements, raw) : { added: [], codes: [] };
-  const inner = (horizon: Horizon) => generatePlanInner({
+  const once = (horizon: Horizon, paceYearOne: boolean | 'ceiling', soonerDates: boolean) => generatePlanInner({
     ...raw,
     horizon,
     prior,
@@ -4311,7 +4470,32 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     earlyTags: route ? route.required.map((item) => item.genEd).filter((t): t is string => Boolean(t)) : [],
     dueByTerm: route && route.dueTermIndex !== undefined ? Object.fromEntries(admission.codes.map((c) => [c, route.dueTermIndex as number])) : undefined,
     pageSubjects: degreeSubjectsOf(given.requirements, given.programName),
+    paceYearOne,
+    soonerDates,
   });
+  // A board a placement trial changed is built again without the trials,
+  // and kept only where the finished board stands against that one
+  // (trialStands). Where it does not, the lesser trials are tried against the
+  // same board: year one's ceiling without holding the track courses back
+  // (a pre-med Mathematics freshman kept PSYC 100 and SOC 100 on the board
+  // that way), then each trial without the other.
+  const inner = (horizon: Horizon) => {
+    const measured = { ...raw, horizon, prior, pageSubjects: degreeSubjectsOf(given.requirements, given.programName) };
+    const tried = once(horizon, true, true);
+    const taken = trialsTaken.get(tried);
+    if (!taken) return tried;
+    const plain = once(horizon, false, false);
+    const stands = (g: GeneratedPlan) => trialsTaken.has(g) && trialStands(g, plain, measured, expansion.language);
+    if (stands(tried)) return tried;
+    const lesser: Array<[boolean | 'ceiling', boolean]> = [];
+    if (taken.pace === 'far' && taken.ceiling) lesser.push(['ceiling', taken.sooner]);
+    if (taken.pace !== null && taken.sooner) lesser.push([true, false], [false, true]);
+    for (const [pace, sooner] of lesser) {
+      const alone = once(horizon, pace, sooner);
+      if (stands(alone)) return alone;
+    }
+    return plain;
+  };
   /**
    * A horizon fitted to the hours can still be a term too short for a chain:
    * a transfer with twenty-five hours left and a four-semester language
@@ -6116,18 +6300,6 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     }
   }
   /**
-   * A course written for the first term goes in the first term. LAS 101,
-   * "Design Your First Year Experience", is restricted to first-year LAS
-   * students, and on a pre-med Psychology freshman's board, where the track's
-   * chemistry and biology took year one by chain length, it landed in Fall
-   * 2028, her third year, a term its sections would not have taken her in.
-   * Due in the first term, as Composition I is due in the first year; a
-   * transfer's LAS 102 and a Kinesiology freshman's HK 125 the same.
-   */
-  for (const code of selected) {
-    if (firstTermCourse(byCode.get(code), ctx, arrival)) dueByTerm[code] = 0;
-  }
-  /**
    * A track's dated rows, due by the last spring before the plan's last fall.
    *
    * AMCAS, PTCAS and CASPA open in the summer before the fourth year, and the
@@ -6343,6 +6515,50 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   /** A track's dated course the term of its date cannot hold with the rest, by the term it goes in first (set before placement, below). */
   const soonerBy = new Map<string, number>();
   const soonerAt = (code: string, index: number): boolean => (soonerBy.get(code) ?? terms.length) <= index;
+  /** Year one as the board review reads it (firstYearTerms): the first two falls and springs, and a summer between them. */
+  const yearOne: number[] = [];
+  {
+    let regular = 0;
+    for (const term of terms) {
+      if (!isSummer(term)) {
+        if (regular === 2) break;
+        regular += 1;
+      }
+      yearOne.push(term.index);
+    }
+  }
+  /**
+   * Whether the plan's first year is the student's first (AutoplanInput.firstYear):
+   * the year-one moves below are for that student only.
+   */
+  const firstYear = input.firstYear ?? (!arrival.transfer && !((input.residency?.heldHours ?? 0) > 0));
+  /** Set for the one placement that tries year one's pace (farWait below, and the year-one ceiling in roomFor). */
+  let yearOnePace = false;
+  /**
+   * A track course that could wait a year and a half or more, in a term of
+   * year one: it goes after the degree's own courses that could go there.
+   * PHYS 101, due by the application in Spring 2029, took a pre-med
+   * Psychology freshman's first fall by chain length, and IB 150 her first
+   * spring, where PSYC 235, her degree's statistics, then found the term's
+   * hardest-band room taken.
+   */
+  const farDated = (code: string, index: number): boolean =>
+    yearOne.includes(index) && (forTrack(code) || trackRowOf.has(code)) && !urgentAt(code, index) && (latestStart.get(code) ?? terms.length) - index >= 3;
+  /** Set with yearOnePace for the variant of the trial that holds the far-dated track courses back too. */
+  let paceFar = false;
+  const farWait = (code: string, index: number): boolean => yearOnePace && paceFar && farDated(code, index);
+  /**
+   * The major as the board review counts it in year one: a course in the
+   * page's own subjects (read before resolveBundles split "MCB 244 and MCB
+   * 245", which made MCB a subject of Kinesiology), two credits or more, so a
+   * one-credit seminar is not a major course.
+   */
+  const pageMajor = new Set((input.pageSubjects ?? majorsForRank).subjects);
+  {
+    const primary = (input.pageSubjects ?? majorsForRank).primary;
+    if (primary) pageMajor.add(primary);
+  }
+  const inPageMajor = (code: string) => pageMajor.has(code.split(' ')[0]) && planCreditRange([code], ctx).max >= 2;
   const placementOrder = (a: string, b: string): number => {
     // A course out of slack goes before everything, or it never goes; among
     // courses out of slack, a requirement before a category filler, because
@@ -6518,7 +6734,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // past it, not to the maximum: "15 every semester" made a 17 and an
         // 18 early and left a 12 at the end. Without a target this is the
         // old rule, since default plans lean on the slack.
-        const ceiling = credits.target !== null ? Math.min(credits.max, Math.max(cap + 1, credits.min + 3)) : credits.max;
+        const asked = credits.target !== null ? Math.min(credits.max, Math.max(cap + 1, credits.min + 3)) : credits.max;
+        // In year one, under the trial that asks for it (yearOnePace), a
+        // course with slack takes a term no past the year-one ceiling; a
+        // course out of time still goes to the maximum.
+        const ceiling = yearOnePace && yearOne.includes(term.index) && cap < credits.max && !codes.some((code) => urgentAt(code, term.index)) ? Math.min(asked, Math.max(yearOneCeiling, running)) : asked;
         // A summer term the student asked for carries a summer load.
         if (term.season === 'Summer') return (pastAim || running < Math.min(cap, SUMMER_AIM)) && running + adds <= Math.min(ceiling, SUMMER_MAX);
         // A track course stretches a term to the finished plan's size and no
@@ -6794,7 +7014,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           // term has no room for (soonerBy): PORT 150, with three years to
           // go, took the fall PHYS 102 needed.
           const behind = (code: string) => fillerAt(code, term.index) && !urgent(code);
-          const pool = open.some((code) => soonerAt(code, term.index) && !behind(code)) ? open.filter((code) => !behind(code)) : open;
+          const near = open.some((code) => soonerAt(code, term.index) && !behind(code)) ? open.filter((code) => !behind(code)) : open;
+          // The degree's own course before a track course that can wait (farWait).
+          const own = (code: string) => !genEdPick.has(code) && !forTrack(code) && !trackRowOf.has(code) && labOf.get(code) === undefined;
+          const pool = near.some((code) => farWait(code, term.index)) && near.some(own) ? near.filter((code) => !farWait(code, term.index)) : near;
           pool.sort(placementOrder);
           if (debugCode && pool.includes(normaliseCode(debugCode)) && pool[0] !== normaliseCode(debugCode)) {
             debug(normaliseCode(debugCode), term.label, `eligible, but ${pool[0]} went first (height ${height.get(pool[0]) ?? 0} vs ${height.get(normaliseCode(debugCode)) ?? 0}, depth ${depth.get(pool[0]) ?? 0} vs ${depth.get(normaliseCode(debugCode)) ?? 0}, genEdHere ${genEdHere}, within ${within.length > 0})`);
@@ -6940,6 +7163,16 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     : Math.min(credits.max, Math.max(credits.target ?? credits.min, credits.min, Math.ceil(Math.max(0, remainingDegree - neededShape.summers * SUMMER_AIM) / Math.max(1, neededShape.regular))));
   const trackAim = Math.max(aim, finishedTerm);
   /**
+   * The most a first-year term is brought to by a course that has slack: the
+   * finished term plus one credit, and never past sixteen. Trading ENGL 200
+   * for MATH 220 after the fill took an Engineering Undeclared first fall
+   * from 16 credits to 18, beside CHEM 102, while its Fall 2027 fell to 13;
+   * and the placer's own "a term under its aim takes one more course" put
+   * MCB 150 and its lab on a pre-med Astronomy freshman's 13-credit first
+   * fall, making 18.
+   */
+  const yearOneCeiling = Math.min(finishedTerm + 1, 16);
+  /**
    * A track's date that more courses share than its term holds.
    *
    * A date makes a course urgent only in its last term, so every course
@@ -6959,7 +7192,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * MCB 244 runs only in fall: MCB 246 after it went to the graduating
    * spring.
    */
-  if (Object.keys(trackDue).length > 0) {
+  if (Object.keys(trackDue).length > 0 && input.soonerDates !== false) {
     const dueBy = (code: string) => Math.min(latestStart.get(code) ?? terms.length, soonerBy.get(code) ?? terms.length);
     for (let t = terms.length - 1; t > 0; t -= 1) {
       if (isSummer(terms[t])) continue;
@@ -6985,14 +7218,153 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       }
     }
   }
-  let placement = place(aim);
-  if (placement.remaining.size > 0 && aim < credits.max) {
-    const packed = place(credits.max);
-    if (packed.remaining.size < placement.remaining.size) {
-      placement = packed;
-      notes.push(`Terms were filled to ${credits.max} credits because not everything fit at about ${aim}.`);
+  /** Everything placed at the aim, and again at the maximum only if the aim left something out. */
+  const placeAll = () => {
+    const atAim = place(aim);
+    if (atAim.remaining.size > 0 && aim < credits.max) {
+      const packed = place(credits.max);
+      if (packed.remaining.size < atAim.remaining.size) return { placement: packed, packed: true };
+    }
+    return { placement: atAim, packed: false };
+  };
+  let placing = placeAll();
+  /**
+   * What a placement costs and gives, for the two trials below: where each
+   * course went, the last term used, terms with two and with three or more
+   * hardest-band courses, the track's dated courses past their dates, and in
+   * year one the courses of the major, the degree's college math and the
+   * track courses that could have waited (farDated).
+   */
+  const placementMeasure = (p: typeof placing.placement) => {
+    const at = new Map<string, number>();
+    let lastUsed = -1;
+    let stacked = 0;
+    let doubled = 0;
+    for (const term of terms) {
+      const codes = p.placed.get(term.id) ?? [];
+      for (const code of codes) at.set(code, term.index);
+      if (codes.length > 0) lastUsed = term.index;
+      const hard = codes.filter(isHard).length;
+      if (hard >= 3) stacked += 1;
+      if (hard >= 2) doubled += 1;
+    }
+    const late = new Set(Object.entries(trackDue).map(([raw, due]) => [normaliseCode(raw), due] as const).filter(([code, due]) => (at.get(code) ?? terms.length) > due).map(([code]) => code));
+    const firstCodes = yearOne.flatMap((i) => (p.placed.get(terms[i].id) ?? []).map((code) => ({ code, i })));
+    const isMath = degreeMath(ctx, input.requirements, [...at.keys(), ...input.prior.courseCodes.map(normaliseCode)]);
+    return {
+      late,
+      lastUsed,
+      stacked,
+      doubled,
+      major: firstCodes.filter(({ code }) => inPageMajor(code)).length,
+      math: firstCodes.some(({ code }) => isMath(code)),
+      mathAt: Math.min(Infinity, ...[...at].filter(([code]) => isMath(code)).map(([, index]) => index)),
+      far: firstCodes.filter(({ code, i }) => farDated(code, i)).length,
+      heavy: yearOne.filter((i) => !isSummer(terms[i]) && planCreditRange(p.placed.get(terms[i].id) ?? [], ctx).min >= 17).length,
+      doubledYearOne: yearOne.filter((i) => (p.placed.get(terms[i].id) ?? []).filter(isHard).length >= 2).length,
+    };
+  };
+  /** Nothing the plain placement placed is left off, nothing dated goes later than its date where it did not, and no term is added or gets a third hardest-band course. */
+  const costsNothing = (trial: typeof placing.placement, plain: typeof placing.placement): boolean => {
+    const a = placementMeasure(trial);
+    const b = placementMeasure(plain);
+    return (
+      [...trial.remaining].every((code) => plain.remaining.has(code)) &&
+      [...a.late].every((code) => b.late.has(code)) &&
+      a.lastUsed <= b.lastUsed &&
+      a.stacked <= b.stacked
+    );
+  };
+  /**
+   * Sending dated courses sooner is a trial, kept only when it puts more of
+   * them by their dates and costs nothing else (costsNothing). As a rule it
+   * dropped CI 403, CI 404 and EPSY 485, the teacher-education courses of a
+   * pre-PT Geology Earth Science Teaching board, and STAT 212 and REL 260
+   * from a pre-med Integrative Biology freshman with two semesters of
+   * Spanish to take; with every date met without it, the plain placement
+   * stands.
+   */
+  let soonerPlacement = false;
+  if (soonerBy.size > 0) {
+    const sooner = placing;
+    const kept = new Map(soonerBy);
+    soonerBy.clear();
+    const plain = placeAll();
+    const keep = costsNothing(sooner.placement, plain.placement) && placementMeasure(sooner.placement).late.size < placementMeasure(plain.placement).late.size;
+    if (keep) {
+      for (const [code, at] of kept) soonerBy.set(code, at);
+      soonerPlacement = true;
+    } else placing = plain;
+  }
+  /**
+   * Year one at a first-year's pace, as a trial: a track course that can
+   * wait goes after the degree's own courses there (farWait), and a course
+   * with slack takes a first-year term no further than yearOneCeiling. Kept
+   * when it costs nothing (costsNothing), keeps every course of the major and
+   * the college math the plain placement had in year one and the math no
+   * later, adds no first-year term of 17 or more, no track course that could
+   * wait and no term with two hardest-band courses (but the one below), and
+   * gains one of those. A pre-med Psychology freshman's first fall held PHYS
+   * 101, five terms before its date, beside CHEM 102, and her year one one
+   * Psychology course. generatePlan then holds the finished board to the
+   * plain one (trialStands).
+   */
+  let pacedPlacement: 'far' | 'ceiling' | null = null;
+  let ceilingAlternative = false;
+  {
+    const b = placementMeasure(placing.placement);
+    // Placed again only where the trial can change something: a track course
+    // in year one that could wait, or a first-year term past the ceiling. A
+    // placement whose first-year terms all sit under the ceiling never met it.
+    const binds = yearOne.some((i) => !isSummer(terms[i]) && planCreditRange(placing.placement.placed.get(terms[i].id) ?? [], ctx).min > yearOneCeiling);
+    const variants = [...(b.far > 0 && input.paceYearOne !== 'ceiling' ? [true] : []), ...(binds ? [false] : [])];
+    if (firstYear && input.degreeTotal != null && input.paceYearOne !== false) {
+      // With the far-dated track courses held back and the ceiling, then
+      // with the ceiling alone, the lesser change. The ceiling is what a
+      // pre-med Applied Mathematics freshman needed: once LAS 100 and LAS 102
+      // left her first fall, IB 150 and its lab took it to 18 credits beside
+      // CHEM 102; held to 16, IB 150 went to her first spring.
+      const kept: Array<{ far: boolean; paced: typeof placing }> = [];
+      for (const far of variants) {
+        yearOnePace = true;
+        paceFar = far;
+        const paced = placeAll();
+        yearOnePace = false;
+        paceFar = false;
+        const a = placementMeasure(paced.placement);
+        // A first-year term brought under 17 may cost one later term a
+        // second hardest-band course: Applied Mathematics' 18-credit first
+        // fall with CHEM 102 and IB 150 became 16 and 16, and MATH 441 went
+        // beside MATH 446 in the senior fall. A term of year one takes a
+        // second only in place of one later, and only for what the review
+        // measures there, the college math or a third course of the major:
+        // pre-med Emma's PSYC 235 comes into her first spring beside CHEM 104
+        // where PHYS 101 left her first fall. A pre-med Philosophy freshman
+        // who already had three PHIL courses in year one gains nothing the
+        // review counts from a fourth beside MATH 112.
+        const doubledAllowed = b.doubled + (a.heavy < b.heavy ? 1 : 0);
+        const yearOneDoubledOk = a.doubledYearOne <= b.doubledYearOne || (a.doubled <= b.doubled && ((a.math && !b.math) || (b.major < 3 && a.major > b.major)));
+        // Nor the college math later than it was: held back, PHYS 101 and MCB
+        // 150 left a pre-med Psychology freshman's year one to RHET 105 and
+        // PSYC 230, and PSYC 235 went from Fall 2027 to Fall 2028.
+        const noWorse = a.major >= b.major && (a.math || !b.math) && a.mathAt <= b.mathAt && a.doubled <= doubledAllowed && yearOneDoubledOk && a.heavy <= b.heavy && a.far <= b.far;
+        const gains = a.far < b.far || a.major > b.major || a.heavy < b.heavy || (a.math && !b.math);
+        if (costsNothing(paced.placement, placing.placement) && noWorse && gains) kept.push({ far, paced });
+      }
+      // Both variants are placed, so generatePlan knows whether the ceiling
+      // alone is a different board worth building when the first does not
+      // stand; the same placement twice is not tried twice.
+      if (kept.length > 0) {
+        const [first, second] = kept;
+        const sameAs = (x: typeof placing, y: typeof placing) => terms.every((t) => (x.placement.placed.get(t.id) ?? []).join() === (y.placement.placed.get(t.id) ?? []).join());
+        placing = first.paced;
+        pacedPlacement = first.far ? 'far' : 'ceiling';
+        ceilingAlternative = second !== undefined && !sameAs(first.paced, second.paced);
+      }
     }
   }
+  const placement = placing.placement;
+  if (placing.packed) notes.push(`Terms were filled to ${credits.max} credits because not everything fit at about ${aim}.`);
   // With a degree total to reach, the fill below writes the sizing note about
   // the whole plan; this one is for the blocks alone.
   if (placement.placed.size > 0 && (input.degreeTotal ?? null) === null) {
@@ -8132,6 +8504,55 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     return faults;
   };
 
+  const sizeOf = (codes: string[]) => planCreditRange(codes, ctx).min;
+
+  /**
+   * A first-term seminar in the first term it runs, on top of that term.
+   *
+   * LAS 101 is "Restricted to first-year students in LAS" with every section
+   * held for first-time freshmen, and on a pre-med Psychology board the
+   * track's chemistry and biology took year one by chain length and left it
+   * in Fall 2028. Made due in the first term, it took the seat of whatever
+   * went there: IB 150 moved to Fall 2027, six Psychology concentrations
+   * needed an eighth semester and seven more credits, and SOC 100 landed
+   * after the MCAT spring. So it moves once the board is built and displaces
+   * nothing: it goes on top of the first term, a one-credit seminar into a
+   * term at the aim taking it one credit over, and stays where the placer put
+   * it when year one is fuller than that. A spring-only first-year course
+   * (EXP 110, BUS 116) goes in the first spring.
+   */
+  for (const term of terms) {
+    // The term's list as it was: a move sets a new one, never edits this.
+    for (const code of placed.get(term.id) ?? []) {
+      const course = byCode.get(code);
+      if (!firstTermCourse(course, ctx, arrival)) continue;
+      // The first term it runs, or where that term is full, the next one of
+      // year one: a pre-med Psychology freshman's first fall held 16 credits,
+      // and LAS 101 stayed in Fall 2028 until her first spring, at 15, took it.
+      const open = terms.filter((t) => !isSummer(t) && t.index < term.index && !outOfSeason(course, t.season, published.has(code)));
+      const targets = open.filter((t, i) => i === 0 || yearOne.includes(t.index));
+      const from = placed.get(term.id) ?? [];
+      // The term it leaves keeps a full-time load, unless the seminar was all it held.
+      const left = from.filter((c) => c !== code);
+      if (left.length > 0 && sizeOf(left) < Math.min(credits.min, sizeOf(from))) continue;
+      for (const first of targets) {
+        const into = placed.get(first.id) ?? [];
+        const ceiling = Math.min(creditCapOf(first), yearOne.includes(first.index) ? yearOneCeiling : finishedTerm + 1);
+        if (sizeOf(into) + creditsOf(code) > ceiling) continue;
+        const faults = boardFaults();
+        placed.set(first.id, [...into, code]);
+        placed.set(term.id, left);
+        if (boardFaults() > faults) {
+          placed.set(first.id, into);
+          placed.set(term.id, from);
+          continue;
+        }
+        if (debugCode && normaliseCode(debugCode) === code) console.error(`  [PLAN_DEBUG] first-term seminar: ${code} from ${term.label} to ${first.label}`);
+        break;
+      }
+    }
+  }
+
   /**
    * Year one holds the major where the degree leaves room for it.
    *
@@ -8142,29 +8563,25 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * placer puts first by chain length: PSYC 100 and one elective were her
    * only Psychology, and PSYC 235, the degree's statistics, sat in her second
    * spring. A course in the major's own subjects comes into year one from a
-   * later term: as it is into a first-year term under fifteen hours, or by
-   * trading places with a course that can wait, one of the planner's own
-   * picks first, then a track course with slack (PHYS 101 is due by the
+   * later term: as it is into a first-year term with room, or by trading
+   * places with a course that can wait, one of the planner's own picks
+   * first, then a track course with slack (PHYS 101 is due by the
    * application, not in the first year). Never a dated course past its date,
    * a lab or its lecture, a language semester, or a course the board then
    * holds out of order.
+   *
+   * Only for a student in their first year (see AutoplanInput.firstYear), and
+   * only moves that leave the board no worse by any measure a student would
+   * feel: no first-year term past yearOneCeiling, no later term past the
+   * finished term plus one or under the minimum, no term gaining a second
+   * hardest-band course, no course past its date, the major and the math
+   * already in year one kept there, and no prerequisite, standing or season
+   * fault the board did not have.
    */
-  if (!arrival.transfer && input.degreeTotal != null) {
-    const yearOne: number[] = [];
-    let regular = 0;
-    for (const term of terms) {
-      if (!isSummer(term)) {
-        if (regular === 2) break;
-        regular += 1;
-      }
-      yearOne.push(term.index);
-    }
-    const page = input.pageSubjects ?? majorsForRank;
-    const major = new Set(page.subjects);
-    if (page.primary) major.add(page.primary);
-    // As the review counts them: two credits or more, so a one-credit seminar is not a major course.
-    const inMajor = (code: string) => major.has(code.split(' ')[0]) && planCreditRange([code], ctx).max >= 2;
-    const held = [...new Set(input.prior.courseCodes.map(normaliseCode))].filter(inMajor).length;
+  if (firstYear && input.degreeTotal != null) {
+    const inMajor = inPageMajor;
+    const heldCodes = [...new Set(input.prior.courseCodes.map(normaliseCode))];
+    const held = heldCodes.filter(inMajor).length;
     const count = () => yearOne.reduce((n, i) => n + (placed.get(terms[i].id) ?? []).filter(inMajor).length, 0) + held;
     const dueIndex = new Map<string, number>();
     for (const dates of [dueByTerm, trackDue]) {
@@ -8174,44 +8591,69 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       }
     }
     const paired = (code: string) => labOf.has(code) || lectureLab.has(code);
-    /** 0 a free elective, 1 a category filler, 2 and 3 a recommended and a required track row with slack; null for a course that stays. */
+    /**
+     * The degree's first college math (degreeMath), read off the board as the
+     * fill left it and the credit the student holds: the review's measure.
+     */
+    const isDegreeMath = degreeMath(ctx, input.requirements, [...[...placed.values()].flat(), ...heldCodes]);
+    const heldMath = heldCodes.some(isDegreeMath) || (input.prior.genEdCredits ?? []).some((g) => g.tags.includes('Quantitative Reasoning I'));
+    const mathInYearOne = () => heldMath || yearOne.some((i) => (placed.get(terms[i].id) ?? []).some(isDegreeMath));
+    /** Which step is running: the math step lets a course of the major with slack trade places with the math (PSYC 239 for PSYC 235). */
+    let step: 'major' | 'math' = 'major';
+    /** A course of the major the degree names in a list or leaves to the fill, not one it requires as it is. */
+    const majorSlack = (code: string): boolean => {
+      const why = chosen.get(code);
+      if (!why) return false;
+      if (why.requirementId === null) return true;
+      const rule = requirementById.get(why.requirementId)?.rule;
+      return rule !== undefined && rule.kind !== 'all';
+    };
+    /**
+     * How readily a year-one course gives up its seat, lowest first: 0 a free
+     * elective, 1 a category filler, 2 and 3 a recommended and a required
+     * track row with slack, 4 (the math step only) a course of the major
+     * with slack; null for a course that stays.
+     */
     const waitsTier = (code: string, to: number): number | null => {
-      if (inMajor(code) || paired(code) || sequenceFirst.has(code) || to > (dueIndex.get(code) ?? terms.length)) return null;
+      if (paired(code) || sequenceFirst.has(code) || to > (dueIndex.get(code) ?? terms.length)) return null;
+      if (inMajor(code)) return step === 'math' && !dueIndex.has(code) && majorSlack(code) ? 4 : null;
       if (trackRowOf.has(code) || forTrack(code)) return trackBooked.get(code)?.tier === 2 ? 2 : 3;
       if (genEdPick.has(code)) return 1;
       return (chosen.get(code)?.requirementId ?? null) === null && !addedPrerequisites.some((a) => a.code === code) ? 0 : null;
     };
-    const size = (codes: string[]) => planCreditRange(codes, ctx).min;
     /** The first-year pace the board review measures (MOMENTUM_TERM_HOURS in review.ts). */
     const firstYearPace = 15;
     let faults = boardFaults();
-    /** Hardest-band courses a move may bring a term to, below the term's own limit (see the math step). */
-    let hardCap = Number.POSITIVE_INFINITY;
     /**
-     * Moves made together or not at all. Every term they touch stays within
-     * its cap and its hardest-band limit, a first-year term keeps the hours it
-     * had up to fifteen (the pace the review measures), any other term the
-     * minimum; each course runs in its new season and reaches its level there,
-     * and the board holds no more faults than before.
+     * Moves made together or not at all, kept only when the board is no
+     * worse (see above). A first-year term keeps the hours it had up to
+     * fifteen, the pace the review measures, and any other term the minimum.
      */
     const attempt = (moves: Array<{ code: string; from: number; to: number }>): boolean => {
       const touched = [...new Set(moves.flatMap((m) => [m.from, m.to]))];
       const was = new Map(touched.map((i) => [i, placed.get(terms[i].id) ?? []]));
+      const countBefore = count();
+      const mathBefore = mathInYearOne();
       for (const m of moves) {
         placed.set(terms[m.from].id, (placed.get(terms[m.from].id) ?? []).filter((c) => c !== m.code));
         placed.set(terms[m.to].id, [...(placed.get(terms[m.to].id) ?? []), m.code]);
       }
       const hoursBefore = (index: number) => {
         let h = priorCreditTotal + (awayBefore[index] ?? awayCreditTotal);
-        for (const t of terms) if (t.index < index) h += size(placed.get(t.id) ?? []);
+        for (const t of terms) if (t.index < index) h += sizeOf(placed.get(t.id) ?? []);
         return h;
       };
       const fits =
+        count() >= countBefore &&
+        (!mathBefore || mathInYearOne()) &&
         touched.every((i) => {
           const now = placed.get(terms[i].id) ?? [];
           const before = was.get(i) ?? [];
-          const floor = yearOne.includes(i) ? Math.min(size(before), firstYearPace) : Math.min(credits.min, size(before));
-          return size(now) <= creditCapOf(terms[i]) && size(now) >= floor && now.filter(isHard).length <= Math.max(Math.min(hardLimitAt(i), hardCap), before.filter(isHard).length);
+          const first = yearOne.includes(i);
+          const floor = first ? Math.min(sizeOf(before), firstYearPace) : Math.min(credits.min, sizeOf(before));
+          const ceiling = Math.min(creditCapOf(terms[i]), Math.max(sizeOf(before), first ? yearOneCeiling : finishedTerm + 1));
+          const hard = now.filter(isHard).length;
+          return sizeOf(now) <= ceiling && sizeOf(now) >= floor && hard <= Math.max(Math.min(hardLimitAt(i), 1), before.filter(isHard).length);
         }) &&
         moves.every((m) => !outOfSeason(byCode.get(m.code), terms[m.to].season, published.has(m.code)) && standingMet(m.code, hoursBefore(m.to)) && levelFits(m.code, hoursBefore(m.to), standingHours));
       const now = fits ? boardFaults() : Infinity;
@@ -8229,7 +8671,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       // pre-med's first spring of chemistry and Spanish held 12 hours, and
       // PSYC 230 from her graduating spring brings it to 15.
       for (const at of yearOne) {
-        if (size(placed.get(terms[at].id) ?? []) + creditsOf(code) <= firstYearPace && attempt([{ code, from, to: at }])) return true;
+        if (sizeOf(placed.get(terms[at].id) ?? []) + creditsOf(code) <= firstYearPace && attempt([{ code, from, to: at }])) return true;
       }
       const options: Array<{ out: string; at: number; tier: number }> = [];
       for (const at of yearOne) {
@@ -8259,6 +8701,21 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (backs.some((back) => attempt([...moves, { code: back, from: to, to: at }]))) return true;
         }
       }
+      // Two out for one in, into the incoming course's term: MATH 220 is five
+      // credits, and traded for ENGL 200 alone it took an Economics
+      // freshman's 16-credit first spring to 18; traded for ENGL 200 and one
+      // of her gen-ed picks it holds the spring at 15, and Fall 2027 goes
+      // from 14 to 15.
+      let pairs = 0;
+      for (let i = 0; i < options.length && pairs < 12; i += 1) {
+        for (let j = i + 1; j < options.length && pairs < 12; j += 1) {
+          const [x, y] = [options[i], options[j]];
+          if (x.at !== y.at || creditsOf(x.out) + creditsOf(y.out) < creditsOf(code)) continue;
+          if ([x.out, y.out].some((out) => from > Math.min(dueIndex.get(out) ?? terms.length, lastUsed))) continue;
+          pairs += 1;
+          if (attempt([{ code, from, to: x.at }, { code: x.out, from: x.at, to: from }, { code: y.out, from: y.at, to: from }])) return true;
+        }
+      }
       return false;
     };
     const later = (keep: (code: string) => boolean) => {
@@ -8280,16 +8737,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * first-year measure (degreeMath): a Neuroscience freshman's year one was
      * chemistry, Spanish and PSYC 100, and STAT 212, the degree's
      * biostatistics, waited for Fall 2028 while a Spanish elective held the
-     * first spring; the two trade places. Never into a term it makes a second
-     * hardest-band course in: calculus brought in beside CHEM 102 undoes the
-     * spread the placer made.
+     * first spring; the two trade places. A course of the major with slack may
+     * trade places with it too: a pre-med Psychology freshman's PSYC 239, an
+     * elective, sat in her first spring while PSYC 235 waited for Fall 2028.
      */
-    hardCap = 1;
-    const board = [...placed.values()].flat();
-    const isDegreeMath = degreeMath(ctx, input.requirements, [...board, ...input.prior.courseCodes.map(normaliseCode)]);
-    const heldMath = input.prior.courseCodes.some((c) => isDegreeMath(normaliseCode(c))) || (input.prior.genEdCredits ?? []).some((g) => g.tags.includes('Quantitative Reasoning I'));
-    const mathInYearOne = () => yearOne.some((i) => (placed.get(terms[i].id) ?? []).some(isDegreeMath));
-    if (!heldMath && !mathInYearOne()) {
+    step = 'math';
+    if (!mathInYearOne()) {
       const moved = later(isDegreeMath).find(({ code, from }) => bringIn(code, from));
       if (moved && debugCode && normaliseCode(debugCode) === moved.code) console.error(`  [PLAN_DEBUG] year-one math: ${moved.code} moved from ${terms[moved.from].label} into year one`);
     }
@@ -8717,7 +9170,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     })),
   };
 
-  return {
+  const generated: GeneratedPlan = {
     plan,
     terms: plannedTerms,
     unsatisfied,
@@ -8741,6 +9194,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     notes,
     partsOfTerm,
   };
+  if (pacedPlacement !== null || soonerPlacement) trialsTaken.set(generated, { pace: pacedPlacement, sooner: soonerPlacement, ceiling: ceilingAlternative });
+  return generated;
 }
 
 // ---------------------------------------------------------------------------

@@ -716,6 +716,9 @@ export function PlannerWorkspace({
       programName: loaded.program.name,
       programCollege: loaded.program.college,
       arrival: arrivalOf(answers),
+      // The review's own rule, so the planner arranges year one for the
+      // student the review measures it for, and no one else.
+      firstYear: enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
       admissionRoute,
       // Illinois's residency rule, from its transfer-credit page: 45 hours at
       // Illinois, 21 of them at the 300 level or above. What the student has
