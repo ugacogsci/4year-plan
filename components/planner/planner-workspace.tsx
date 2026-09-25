@@ -263,6 +263,8 @@ interface PlanReport {
    * hours is the plan's, and only the first is a momentum flag.
    */
   builtTerms?: Record<string, string[]>;
+  /** The hours a fall or spring the plan was balanced at (GeneratedPlan credits.aim), for the review's light-term cause. */
+  aim?: number;
 }
 
 interface Stored {
@@ -810,6 +812,7 @@ export function PlannerWorkspace({
       away: generated.away ?? [],
       firstTermId: generated.plan.terms[0]?.id ?? '',
       builtTerms: Object.fromEntries(generated.terms.map((t) => [t.id, t.codes.map(normCode)])),
+      aim: generated.credits.aim,
     });
     repickedFor.current = repickSignature(priorities, planInput.interests ?? '');
     studentAdded.current = new Set();
@@ -1647,6 +1650,7 @@ export function PlannerWorkspace({
       firstYear: enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
       targetTermCredits: L.targetTermCredits ?? null,
       built: L.report?.builtTerms ?? null,
+      planAim: L.report?.aim ?? null,
       heldCodes: [...L.completedCodes],
       genEdCredits: L.priorForOptions.genEdCredits ?? [],
     });

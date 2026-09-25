@@ -125,6 +125,14 @@ export interface MomentumInput {
   firstYear: boolean;
   /** The hours a term the student asked for, or null for the balanced default. */
   targetTermCredits: number | null;
+  /**
+   * The hours a fall or spring the plan was balanced at (GeneratedPlan
+   * credits.aim), when known. At 15 or more the student's lower number did
+   * not size the terms: a Mathematics freshman who set 12 had the same 14
+   * credits in her first fall as one who set nothing, and was told her 12 was
+   * the reason.
+   */
+  planAim?: number | null;
   /** Each term's codes as the plan was built, by term id; null for a board restored from this device. */
   built: Record<string, string[]> | null;
   /** Every course the student holds, by code. */
@@ -161,7 +169,7 @@ export function momentumReview(input: MomentumInput): { flags: ReviewFlag[]; fac
   const year = firstYearTerms(input.board);
   const yearIds = new Set(year.map((t) => t.id));
   const built = input.built;
-  const setting = input.targetTermCredits !== null && input.targetTermCredits < MOMENTUM_TERM_HOURS;
+  const setting = input.targetTermCredits !== null && input.targetTermCredits < MOMENTUM_TERM_HOURS && !((input.planAim ?? 0) >= MOMENTUM_TERM_HOURS);
   const flags: ReviewFlag[] = [];
   const causeOf = (now: number, was: number | null): FlagCause | null =>
     was !== null && now < was ? 'edits' : setting ? 'setting' : null;
@@ -292,7 +300,7 @@ export function momentumReview(input: MomentumInput): { flags: ReviewFlag[]; fac
  * with no language course while the requirement is open.
  */
 export function isEditFlag(issue: Pick<PlanIssue, 'id'>): boolean {
-  return /^ap-(comp1-late|language-gap)-/.test(issue.id);
+  return /^ap-(comp1-late|language-gap|seminar-late)-/.test(issue.id);
 }
 
 /**
