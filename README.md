@@ -18,7 +18,13 @@ npm run dev -- -p 3010
 
 Without the two variables the planner runs with those features switched off and says so.
 
-Checks, cheapest first: `node lib/planner/__prior-credit.check.mjs` (seconds), `node lib/planner/__plan-audit.check.mjs` (about a minute), `node lib/planner/__credit-rules.check.mjs` (about ten minutes, plans every offered degree). Read the header of `__plan-audit.check.mjs` before trusting any other harness: it loads only what the browser loads, and that is the reason it exists.
+The checks need Node 23, because they load the TypeScript sources directly with type stripping (`export PATH=/opt/homebrew/bin:$PATH` on this machine). Each is one file under `lib/planner/`, run from this folder as
+
+```
+node --experimental-strip-types --disable-warning=ExperimentalWarning lib/planner/__<name>.check.mjs
+```
+
+and exits non-zero on a failure. Read the header of `__plan-audit.check.mjs` before trusting any other harness: it loads only what the browser loads, and that is the reason it exists. The checks are `__prior-credit`, `__transcript`, `__illinois-data`, `__autoplan`, `__ask-router`, `__plan-audit`, `__credit-e2e`, and the ones the sections below name (`__horizon`, `__plan-notes`, `__interests`, `__career-tracks`, `__electives`, `__college-rules`, `__review`, `__advisor-packet`), each of which takes seconds; `__repick` and `__schedule-quality` take up to a minute, and `__credit-rules` about ten, because it plans every offered degree. Three fail today, for the reasons under known gaps at the end of this section.
 
 An unofficial, visual degree-planning prototype for University of Georgia students and advisors. It combines an editable semester-by-semester plan with a constellation-style course finder descended from the existing Semantic Course Map.
 
@@ -45,7 +51,19 @@ publishes each term from student ratings (https://citl.illinois.edu/teachers-ran
 `public/illinois/excellent.json`. Workload comes from the grade history the
 planner already had. No outside rating site is used, and the wording never
 calls an instructor good or bad: it says whether they are on the list, and
-for which terms.
+for which terms. The "Lightest" preset is workload at 2 with everything else
+balanced, and at 2 grade-history lightness ranks ahead of the rest.
+
+A good pick is also one the student can take. A free elective is never a
+course written for someone else (a discussion tied to another section,
+graduate, thesis or arranged work, a seminar for first-years, transfers,
+honors students or scholars, another department's orientation), and a course
+under 3 credits only lands a plan on its total or a term on its minimum. A
+course entered by application or approval ("by application", "consent of
+instructor required", but not "X or consent of instructor") is never booked on
+the planner's own account; a course the degree requires by name stays, and for
+a goal like the Gies finance academies (FIN 390 to 396) ALMA says to apply.
+`__electives.check.mjs` holds the fill to this.
 
 ### What the rail measures
 
@@ -68,6 +86,12 @@ Natural Science & Technology (NST) list" the category itself. The adapter
 reads each once into the rule (`minLevel`, `exclude`, `genEd`); the fill takes
 the best course at or above the floor while those hours are open, and the
 rail counts with the same fields.
+
+The degree's size comes from the page's sentence, else from a "Total Hours"
+row of 100 or more, which is always the whole degree, never an area subtotal.
+Unlabelled tables that together outweigh the degree are one pool sized by the
+row pointing at them, so Community Health's 152-course Correlates List is the
+18 hours of "Correlate Areas" (`lib/planner/illinois-data.ts`).
 
 ### Credit a student walks in with
 
@@ -114,6 +138,14 @@ the start and end terms clause by clause ("transferring to Illinois in Fall
 2027" is a start, "class of 2029" an end, "next fall" is relative), and hours
 they say they have with nothing recorded raise a review row.
 `lib/planner/__transcript.check.mjs` checks the arithmetic.
+
+How the student arrived is read from their answers first and the record
+second (another school's record with nothing taught at Illinois is a transfer
+on its way). It picks the LAS orientation seminar (LAS 101 for a first-year,
+102 for a transfer, 100 only for a student who says they are international)
+and the college admission route below. ALMA's `prior_credit` reports hours
+brought in beside hours that fill a requirement: a Parkland student with ENG
+101 alone brings 3 hours and fills nothing.
 
 AP and IB credit is priced from the registrar's own table
 (`scripts/illinois/exam-credit.mjs` builds `public/illinois-exam-credit.json`
@@ -188,6 +220,26 @@ restricted to other majors and prefer courses that run every term. Set
 was refused in each term. `lib/planner/__schedule-quality.check.mjs`
 generates every degree and tallies the mistakes no rule check catches.
 
+Courses that belong together stay together: a lab shares its lecture's term,
+and once the first half of a sequence is placed (a set the degree lists, or an
+"X I" and "X II" pair) the second goes in the next term it runs, so ACCY 201
+is followed by 202 and ECON 102 and 103 share a year. A prerequisite worded
+"credit in or exemption from X" (CHEM 102's MATH 112) is met by a higher course
+in X's subject, and the plan says so instead of booking X.
+
+Summers lighten terms but never shorten a plan: each takes 6 hours (9 only when
+a fixed end is otherwise missed), at most one hardest-band course, and light
+courses and gen eds first. A term away earns nothing unless it is study abroad
+(15 hours by default, at most 18); an unstated end moves later so the student
+keeps eight campus terms, a stated end is kept with a note on the cost, and an
+LAS plan is flagged when fewer than 30 of its last 60 hours are on campus.
+Spreading hard courses one a term is kept only if it leaves nothing more open,
+adds no term and makes no term harder, and its note, like the note on hours
+past the degree total, says what it did and why (`__plan-notes.check.mjs`).
+`__horizon.check.mjs` cuts `readHorizon` out of
+`components/planner/illinois-source.tsx` between the "A term in a student's
+own words" comment and the "Course detail" divider, so keep those markers.
+
 Rules added after testing five realistic incoming students (September 2026):
 
 - A degree page with no campus General Education table (39 of them, Computer
@@ -228,21 +280,59 @@ audited against realistic students before it was trusted:
   excellent-listed instructor teaches. Schedule wishes (a time window, days off,
   in person or online) are judged on whether a whole registration fits the
   crawled term's sections (`meet` in `sections.json`, from `summariseSections`).
+  One rule, `lib/planner/meeting-fit.ts`, decides that fit for the scorer,
+  ALMA and the build, and unreadable meeting data is unknown, not a clash.
   A clash with an explicit wish is a conflict, not a nudge. Priorities reach
   electives, list picks and gen-ed picks alike; required courses never move.
 - **Goals** (`lib/planner/career-tracks.ts`): nine pre-professional tracks from
-  the Illinois Career Center guides and 29 interest topics, read out of the
+  the Illinois Career Center guides and 35 interest topics, read out of the
   student's own words. A named track's required and strongly recommended
   courses get first claim on free electives and may displace the planner's own
   lesser picks; the plan cites the guide and says what did not fit.
 - **Shape** (`set_plan_shape` in ALMA, `Horizon.away` and `Horizon.summers` in
   the engine): credits per term, the finish term, terms away (study abroad, a
   co-op), summers (at most 9 credits, only courses with a summer record), and
-  spreading hard courses one a term when that costs nothing.
+  spreading hard courses one a term when that costs nothing. Under 12 hours
+  gets a part-time note, over 18 is refused with the college's rule, and a
+  student with a career goal is asked before the summers after years two and
+  three, the usual internship summers, get classes.
 
-ALMA's re-pick respects the per-subject cap, never touches the language or a
-booked prerequisite, re-picks gen-ed picks only for courses carrying every
-category the current one carries, and labels every card for what it is.
+Goals are read only from what the student wants to do after graduating (the
+rail's career words, starting from the About-you "after" answer, plus what ALMA
+records), never from what they are studying, so "Psychology" is not a goal. The
+reader honours a change of mind ("not pre-med anymore", "pre-med? nah") and
+ignores other people's plans ("my sister is pre-law"); `set_priorities` can
+add to a goal, replace it or clear it for good. Finance is now six topics, from
+investment banking to commercial lending, and I-O psychology and HR has its
+own (`__interests.check.mjs`).
+
+A named track's courses are booked before placement, inside the room the
+degree total leaves, each by a due date: the core sciences in time for the
+application and pre-med PSYC 100 and SOC 100 by the MCAT, both the last spring
+before the plan's last fall (Spring 2029 for a Fall 2026 freshman), reaching
+down the prerequisite chain. A course that misses its date is named with the
+reason, and the MCAT spring holds at most one hardest-band course where the
+degree allows. A prerequisite choice goes to the track's course (MCB 244's
+chemistry is CHEM 102), and the cards say which track they serve
+(`__career-tracks.check.mjs`).
+
+### What a re-pick promises
+
+Re-pick (the Preferences button, and ALMA's `set_priorities`) swaps the
+planner's own picks for the best under the current priorities; required
+courses and anything the student added stay. An audit caught it taking every
+career-track course off Aaliyah's pre-PT board, so `lib/planner/repick.ts` now
+keeps these promises (`__repick.check.mjs` replays the students). Track
+courses stay, and ALMA asks before removing one. A swap adds no prerequisite,
+standing, exclusion or duplicate problem anywhere on the board, brings in a
+course that runs that term and is open to the student, and keeps every term
+within bounds, the degree total and every met gen-ed category. A slot under 3
+credits takes only a course of the same credits. It is one pass of net
+changes, so re-picking for the same priorities changes nothing. Composition I,
+the language and booked prerequisites never move, half of a two-course
+sequence never stands in for a whole course, and a gen-ed pick moves only for
+a course that carries all its categories and is clearly better on what the
+student weighted most, worse on none.
 
 ### Getting into the college, not just finishing the degree
 
@@ -252,17 +342,35 @@ Business", "Restricted to Graduate"), judged against the student's own college
 and major and flagged on the card when every section is closed; prerequisite
 text that names another college; and "admission to a teacher education
 program" style prerequisites, flagged as milestones with their own
-application. `public/illinois/admission.json` holds what two colleges publish
-about transferring in from elsewhere on campus, hand-read from their own pages
-and dated: Gies (intercollegiate transfer for first-year students: 24 graded
-hours and Composition I, ECON 102 and 103 and a math course by the end of the
-first spring, competitive) and Grainger (its published transfer coursework and
-GPA). When a student's own words say they are not in the college yet, those
-courses become requirements placed first (Composition I included, whichever
-course fills it), the review list carries the route with its source, and the
-bot's `program_admission` tool checks them against the board. Only Gies and
-Grainger are encoded so far; other colleges' pages are JavaScript-rendered
-and were not read.
+application.
+
+`public/illinois/admission.json` holds three published routes, each hand-read
+from its own page with the URL and read date. Gies intercollegiate transfer is
+for first-year students: 24 graded hours, plus Composition I, ECON 102 and 103
+and a math course, all by the end of the first spring; competitive. Grainger's
+Engineering Undeclared is for students who entered Illinois as first-years,
+applying in their second or third semester: Calculus 1 (MATH 220 or 221) and
+CHEM 102 and 103, a 3.30 cumulative and 3.0 Grainger GPA with a B- or better in
+each technical course, windows of May 1 to 15 (for fall) and November 15 to 30
+(for spring), and at most two of the six competitive majors. Grainger's
+transfer admission is for students coming from another school.
+`lib/planner/admission-route.ts` picks the route from how the student entered
+and the semester the plan starts in, and says why: a transfer student is told,
+in the page's words, that Engineering Undeclared is not open to them, and a
+student past the third semester gets no route.
+
+When the student's words say they are not in the college yet, a route taken at
+Illinois goes on the board and the review list, due by the semester they first
+apply in, whatever degree is on the board: a Psychology first-year who wants
+Mechanical Engineering has MATH 221 and CHEM 102 and 103 by Spring 2027.
+Computer Science, CS + Bioengineering and CS + Physics are closed to on-campus
+transfer, Engineering Undeclared included; ALMA says so and offers what the
+Siebel School's FAQ offers, some blended CS + X majors and the CS minor.
+`program_admission` returns the chosen route with its reason, the windows, the
+competitive-major limit and the routes the student cannot use, and
+`__plan-audit.check.mjs` holds every choice to the page. Only Gies and
+Grainger are encoded so far; other colleges' pages are JavaScript-rendered and
+were not read.
 
 ### The bot reasons before it acts
 
@@ -274,6 +382,62 @@ planner's own read of every term: credits, load by grade history, stacked
 hard courses, courses that have not run, open requirements). Its instructions
 ask it to gather facts with these, weigh them against the student's priorities
 and situation, state the trade-off, and only then act or recommend.
+
+It also knows what a college decides and the planner cannot:
+`lib/planner/college-rules.ts` holds the overload and underload rules and
+offices of Grainger, Gies, Media, LAS, ACES, FAA and AHS, read from each
+college's page on 2026-09-24, so a Grainger freshman asking for 20 hours hears
+that Grainger grants no overload in a first semester, not "check with
+advising"; other colleges get their office's name. Its instructions add LAS's
+credit/no credit rule, grade replacement (Student Code 3-309), the Fall 2026
+term dates (refresh each term), planning around academic warning, and a
+handoff to the Dean of Students and the CARE Center
+(`__college-rules.check.mjs`).
+
+### The board review
+
+`review_board` (`lib/planner/review.ts`, `__review.check.mjs`) reads the board
+the way an advisor would. The plan keeps each term as built, so a light first
+year (a term under 15 hours, or under 30 Illinois hours in year one) is flagged
+only when the student's own setting or edits caused it: Emma, at 12 hours a
+term, is told, and a balanced plan for a student with 42 AP hours is not. ALMA
+gives Kentucky's figure once (18.4% of students taking 12 to 14 hours finished
+in four years, against 35.4% at 15 or more) and leaves the choice to the
+student. The review also flags a first math or statistics course after year
+one, fewer than three courses in the major's subjects in year one, and hours
+that count toward nothing (MATH 112 on a Mechanical Engineering board), and it
+suggests summers by name, never added without a yes: Diego's chain from MATH
+221 to ME 461 runs into the last term, and MATH 241 in Summer 2027 gives it a
+term to spare. Every change ALMA makes, and `what_if`, reports the flags it
+caused. The validator now flags Composition I from the third fall or spring
+on and, for LAS and iSchool degrees, a term past 60 hours with no language
+course while it is still owed; `__plan-audit` checks no generated board shows
+either.
+
+### The advisor packet
+
+"Print for my advisor" in the Plan menu opens about two printable pages, built
+in the browser from the board on screen and never stored or sent: each term
+with every course's role and the requirement it fills, next term with a backup
+the student can register for beside each planner pick, every assumption the
+plan rests on, the open review flags, the questions only the college can
+answer with who decides each, and a line that the plan is unofficial and must
+be checked against the uAchieve degree audit. The code is
+`lib/planner/advisor-packet.ts` and `components/planner/advisor-packet.tsx`;
+`__advisor-packet.check.mjs` renders the sheet in Node through a loader hook
+that transpiles `.tsx`, a pattern other checks can reuse (`PACKET_DUMP=<dir>`
+writes each page).
+
+### Known gaps
+
+Year-one scheduling for pre-med and pre-PT boards is unfinished and tracked
+separately: the track's sciences crowd the first-year seminar and the major's
+own courses out of year one. `__review` fails on it (3 assertions) and so does
+`__career-tracks` (1). `__illinois-data` has 2 older failures on ME 340's
+credit range. The Community Health pages print their core and concentration
+codes as plain text, and `scripts/illinois/programs.mjs` reads only linked
+codes, so those courses are missing until the crawler reads that text and the
+programs are re-crawled.
 
 ## What works
 
@@ -313,6 +477,8 @@ npm run typecheck
 npm run lint
 npm run build
 ```
+
+The Illinois planner's own checks, which need Node 23, are listed at the top of this file.
 
 ## Project map
 
