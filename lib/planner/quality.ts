@@ -207,7 +207,21 @@ export function termWord(term: string): string {
   return `${{ sp: 'Spring', su: 'Summer', fa: 'Fall', wi: 'Winter' }[m[1]]} ${m[2]}`;
 }
 
-const normName = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z, ]/g, '').replace(/\s+/g, ' ').trim();
+/**
+ * An instructor's name folded for comparison, remembered: every course's
+ * sections are held against the excellent list for every elective the fill
+ * weighs, and folding the same few thousand names again was about a sixth
+ * of the time it took to build a plan. Cleared past fifty thousand names.
+ */
+const foldedNames = new Map<string, string>();
+const normName = (s: string) => {
+  const known = foldedNames.get(s);
+  if (known !== undefined) return known;
+  const out = s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z, ]/g, '').replace(/\s+/g, ' ').trim();
+  if (foldedNames.size >= 50000) foldedNames.clear();
+  foldedNames.set(s, out);
+  return out;
+};
 
 /** Whether a section instructor ("Solomon, B") is one the excellent list names ("Solomon,B"). */
 export function sameInstructor(a: string, b: string): boolean {
