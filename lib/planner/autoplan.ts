@@ -4505,7 +4505,7 @@ export function withTitleStanding(ctx: PlanningContext): PlanningContext {
  */
 const trialsTaken = new WeakMap<GeneratedPlan, { pace: 'far' | 'ceiling' | null; sooner: boolean; ceiling: boolean }>();
 /** The boards the gate in generatePlan measured, and the plain board they were held to. */
-type GateTrail = { plain: GeneratedPlan; tried: Array<{ board: GeneratedPlan; worse: string[] }> };
+type GateTrail = { plain: GeneratedPlan; tried: Array<{ board: GeneratedPlan; worse: string[]; how?: string }> };
 const gateTrails = new WeakMap<GeneratedPlan, GateTrail>();
 /**
  * The boards generatePlan's gate weighed for a plan it returned, and what each
@@ -4867,7 +4867,10 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
   const held = new Set(input.prior.courseCodes.map(normaliseCode));
   const byCode = catalogByCode(ctx.courses);
   const labs = measuredLabs(ctx);
-  const validated = validatePlan(g.plan, ctx, { minimumTermCredits: credits.min, maxTermCredits: credits.max, programName: input.programName, programCollege: input.programCollege, priorCredits: g.credits.prior, away: g.away, language });
+  const arrival: Arrival = { transfer: input.arrival?.transfer ?? false, international: input.arrival?.international ?? false };
+  const firstYear = input.firstYear ?? (!arrival.transfer && !((input.residency?.heldHours ?? 0) > 0));
+  // Read for this student, as the workspace reads the board it shows (firstYear, arrival).
+  const validated = validatePlan(g.plan, ctx, { minimumTermCredits: credits.min, maxTermCredits: credits.max, programName: input.programName, programCollege: input.programCollege, priorCredits: g.credits.prior, away: g.away, language, firstYear, arrival });
   const at = new Map<string, number>();
   for (const t of g.terms) for (const code of t.codes) at.set(normaliseCode(code), t.index);
   const used = g.terms.filter((t) => t.codes.length > 0);
@@ -4910,8 +4913,6 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
   const required = (n: NotPlaced): boolean => n.requirementId !== null && n.requirementId !== undefined && (ruleOf.get(n.requirementId) ?? 'all') === 'all';
   // The same fault in another term is the same fault: its term leaves the key.
   const keyOf = (i: PlanIssue) => (i.termId ? i.id.replace(`-${i.termId}-`, '-') : i.id);
-  const arrival: Arrival = { transfer: input.arrival?.transfer ?? false, international: input.arrival?.international ?? false };
-  const firstYear = input.firstYear ?? (!arrival.transfer && !((input.residency?.heldHours ?? 0) > 0));
   // A course held for students in their first term or year (firstTermCourse): ENG 100, LAS 101, FAA 101, ANSC 198.
   const firstTerm = (code: string) => firstYear && firstTermCourse(byCode.get(code), ctx, arrival);
   const isMath = degreeMath(ctx, input.requirements, [...at.keys(), ...held]);
@@ -4919,13 +4920,28 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
   const page = input.pageSubjects ?? degreeSubjectsOf(input.requirements, input.programName);
   const inMajor = (code: string) => (page.subjects.has(code.split(' ')[0]) || page.primary === code.split(' ')[0]) && planCreditRange([code], ctx).max >= 2;
   const hardIn = g.terms.map((t) => t.codes.map(normaliseCode).filter(isHard).length);
+  const regularTerms = g.terms.filter((t) => t.season !== 'Summer');
+  /*
+   * The most courses of one subject in each of the last two falls and
+   * springs used: five PSYC courses in a pre-med's last spring, and a
+   * Political Science freshman's PS 125 and PS 191 moved there to make room
+   * for track courses before the application. Earlier terms are left to
+   * the studio degrees, whose every term is mostly their own subject.
+   */
+  const stackOf = (codes: string[]) => Math.max(0, ...[...codes.reduce((m, c) => m.set(c.split(' ')[0], (m.get(c.split(' ')[0]) ?? 0) + 1), new Map<string, number>()).values()]);
+  const stacks = regularTerms.filter((t) => t.codes.length > 0).slice(-2).map((t) => stackOf(t.codes.map(normaliseCode)));
   // A language gap is a term with no language course, counted rather than named by term.
   const watched = validated.filter((i) => i.severity !== 'info' && WATCHED_WARNING.test(i.id));
   const gaps = watched.filter((i) => i.id.startsWith('ap-language-gap-')).length;
   return {
     errors: new Set(validated.filter((i) => i.severity === 'error').map(keyOf)),
-    // Prerequisites out of order, the groups read with low confidence included (the validator's order warnings).
-    order: new Set(validated.filter((i) => i.id.startsWith('ap-prereq-') && !/^ap-prereq-(check|text)-/.test(i.id)).map(keyOf)),
+    /*
+     * Prerequisites out of order, and (ap-prereq-check) the groups read with
+     * low confidence that name no course on the board at all: a Food Science
+     * freshman's FSHN 466 came onto the board without FSHN 419 and FSHN 484,
+     * which it names, and one course fewer left off ranked it higher.
+     */
+    order: new Set(validated.filter((i) => i.id.startsWith('ap-prereq-') && !i.id.startsWith('ap-prereq-text-')).map(keyOf)),
     warnings: new Set([...watched.filter((i) => !i.id.startsWith('ap-language-gap-')).map(keyOf), ...Array.from({ length: gaps }, (_, n) => `ap-language-gap-${n + 1}`)]),
     requiredOff: new Set(off.filter(required).map((n) => normaliseCode(n.code))),
     offCount: off.length,
@@ -4934,13 +4950,22 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
     beyond: input.degreeTotal == null ? 0 : Math.max(0, g.credits.total.min - input.degreeTotal),
     apart: new Set([...labs].filter(([lab, lecture]) => at.has(lab) && at.has(lecture) && at.get(lab) !== at.get(lecture)).map(([lab]) => lab)),
     overCap: new Set(g.terms.filter((t) => t.credits.min > (t.season === 'Summer' ? Math.min(credits.max, SUMMER_MAX) : credits.max)).map((t) => t.id)),
+    // Falls and springs at the cap, and under the minimum (an empty fall between two full springs).
+    atCap: regularTerms.filter((t) => t.credits.min >= credits.max).length,
+    thin: validated.filter((i) => i.id.startsWith('ap-minimum-')).length,
+    // Of the last two, those with four or more courses of one subject, and the most in either.
+    crowded: stacks.filter((n) => n >= 4).length,
+    crowdMax: Math.max(0, ...stacks),
     stacked: hardIn.filter((n) => n >= 3).length,
     doubled: hardIn.filter((n) => n >= 2).length,
     rowLate,
     residency: residency ? { upper: residency.heldUpper + residency.plannedUpper, hours: residency.heldHours + residency.plannedHours, needUpper: residency.upperLevel, needHours: residency.hours } : null,
-    seminars: new Set([...yearOneCodes].filter(firstTerm)),
-    seminarsLate: [...at.keys()].filter((code) => firstTerm(code) && !yearOneCodes.has(code)).length,
+    // First-term seminars on the board after year one: an international
+    // student's LAS 101 off the board, where LAS 100 is hers, is not one.
+    seminarsLate: new Set([...at.keys()].filter((code) => firstTerm(code) && !yearOneCodes.has(code))),
     math: [...yearOneCodes].some(isMath) || [...held].some(isMath),
+    // The term of the first college math, -1 when one is held.
+    mathAt: [...held].some(isMath) ? -1 : Math.min(Infinity, ...[...at].filter(([code]) => isMath(code)).map(([, index]) => index)),
     // A sequence run a fall or spring or more apart (orderShape): CHEM 104 a year after CHEM 102.
     split: orderShape(g.terms.map((t) => ({ codes: t.codes, regular: t.season !== 'Summer' })), ctx, held).split,
     yearOne: firstYearTerms.filter((t) => t.season !== 'Summer').map((t) => t.credits.min),
@@ -4972,12 +4997,15 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
  * - a warning `b` does not have that asks something of the student about a
  *   course (WATCHED_WARNING), a language gap counted by terms;
  * - a lab in another term from its lecture where `b` had them together;
- * - a term over its cap, or more terms with three hardest-band courses;
+ * - a term over its cap, more falls and springs at it or under the
+ *   minimum, more terms with three or with two hardest-band courses, and
+ *   in the last two terms, more with four or more courses of one subject,
+ *   or more of one subject in either than `b`'s most or three;
  * - any track row later past its application date, or off the board, than on `b`;
  * - fewer hours toward Illinois's residency rule (45 hours, 21 at the 300
  *   level or above) where `b` came nearer to it;
- * - a first-term seminar `b` had in year one that is not in year one;
- * - no college math in year one where `b` had one;
+ * - a first-term seminar on the board after year one that `b` does not have there;
+ * - no college math in year one where `b` had one, or the first college math later;
  * - a sequence run a fall or spring or more apart that `b` ran together;
  * - more first-year terms at 17 credits or more, or at 18, first-term
  *   seminars aside, or under the fifteen the review measures, and fewer
@@ -5001,11 +5029,15 @@ function gateWorse(a: GateMeasure, b: GateMeasure): string[] {
   if (!within(a.warnings, b.warnings)) worse.push('warnings');
   if (!within(a.apart, b.apart)) worse.push('labApart');
   if (!within(a.overCap, b.overCap)) worse.push('overCap');
+  if (a.atCap > b.atCap) worse.push('atCap');
+  if (a.thin > b.thin) worse.push('thin');
   if (a.stacked > b.stacked) worse.push('stack3');
+  if (a.doubled > b.doubled) worse.push('stack2');
+  if (a.crowded > b.crowded || a.crowdMax > Math.max(3, b.crowdMax)) worse.push('crowded');
   if ([...a.rowLate].some(([key, late]) => late > (b.rowLate.get(key) ?? 0))) worse.push('track');
   if (a.residency && b.residency && (a.residency.upper < Math.min(a.residency.needUpper, b.residency.upper) || a.residency.hours < Math.min(a.residency.needHours, b.residency.hours))) worse.push('residency');
-  if (!within(b.seminars, a.seminars)) worse.push('seminar');
-  if (b.math && !a.math) worse.push('yearOneMath');
+  if (!within(a.seminarsLate, b.seminarsLate)) worse.push('seminar');
+  if ((b.math && !a.math) || a.mathAt > b.mathAt) worse.push('math');
   if (!within(a.split, b.split)) worse.push('sequence');
   // Counted at 17 and at 18 both: a Geology freshman's 17 and 16 went to 18 and 16.
   if ([17, 18].some((at) => a.yearOneLoad.filter((cr) => cr >= at).length > b.yearOneLoad.filter((cr) => cr >= at).length)) worse.push('yearOneHeavy');
@@ -5034,13 +5066,16 @@ function gateRank(m: GateMeasure): number[] {
     m.warnings.size,
     residencyShort,
     m.apart.size,
-    m.seminarsLate,
+    m.thin,
+    m.seminarsLate.size,
     m.stacked,
     late.filter((n) => n > 0).length,
     late.reduce((n, x) => n + x, 0),
     m.math ? 0 : 1,
     m.split.size,
     m.beyond,
+    m.crowded,
+    m.atCap,
     m.overTarget,
     m.yearOneLoad.filter((cr) => cr >= 17).length,
     m.yearOne.filter((cr) => cr < 15).length,
@@ -5087,7 +5122,14 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     list.map((r) => (r.rule.kind === 'pool' && r.rule.joinedByOr ? { ...r, rule: { kind: 'all', choices: r.rule.choices } } : r));
   const readsDifferently = given.requirements.some((r) => r.rule.kind === 'pool' && r.rule.joinedByOr === true);
   const electiveRanking = new Map<string, string[]>();
-  const once = (horizon: Horizon, build: Build) => generatePlanInner({
+  /** How each board was built, for the gate's trail. */
+  const builtAs = new WeakMap<GeneratedPlan, string>();
+  const once = (horizon: Horizon, build: Build) => {
+    const g = onceInner(horizon, build);
+    builtAs.set(g, Object.entries(build).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${v}`).join(' '));
+    return g;
+  };
+  const onceInner = (horizon: Horizon, build: Build) => generatePlanInner({
     ...raw,
     horizon,
     prior,
@@ -5148,7 +5190,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
       if (seen.has(shape)) return;
       seen.add(shape);
       const worse = gateWorse(measureOf(g), measureOf(plain));
-      trail.tried.push({ board: g, worse });
+      trail.tried.push({ board: g, worse, how: builtAs.get(g) });
       if (worse.length > 0) return;
       const rank = gateRank(measureOf(g));
       if (preferred || ranksAbove(rank, bestRank)) {
@@ -5164,7 +5206,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
       if (best === plain) weigh(once(horizon, { pace: false, sooner: false, pairs: false }));
     }
     // 'plain' is a930f09's board; the page's corrected reading on the plain engine is not.
-    best.gate = best === plain ? { kept: 'plain', worse: trail.tried.find((t) => t.board !== plainAsRead)?.worse ?? [] } : { kept: 'improved', worse: [] };
+    best.gate = best === plain ? { kept: 'plain', worse: (trail.tried.find((t) => t.board !== plainAsRead) ?? trail.tried[0])?.worse ?? [] } : { kept: 'improved', worse: [] };
     gateTrails.set(best, trail);
     return best;
   };
@@ -5203,7 +5245,10 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
    */
   let fitted = fitHorizonToCredit(raw, prior);
   let result = inner(fitted.horizon);
-  for (let extra = 1; fitted.shortened && extra <= 4 && leftForWantOfATerm(result); extra += 1) {
+  // Read on a930f09's board, so every horizon is the one a930f09 settled on
+  // and the gate's floor is its final board: read on the board kept, a
+  // 60-hour Art Education transfer's plan stopped a term short of a930f09's.
+  for (let extra = 1; fitted.shortened && extra <= 4 && leftForWantOfATerm(gateTrails.get(result)?.plain ?? result); extra += 1) {
     const longer = fitHorizonToCredit(raw, prior, extra);
     if (!longer.shortened) {
       fitted = longer;
