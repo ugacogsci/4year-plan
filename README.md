@@ -24,7 +24,7 @@ The checks need Node 23, because they load the TypeScript sources directly with 
 node --experimental-strip-types --disable-warning=ExperimentalWarning lib/planner/__<name>.check.mjs
 ```
 
-and exits non-zero on a failure. Read the header of `__plan-audit.check.mjs` before trusting any other harness: it loads only what the browser loads, and that is the reason it exists. The checks are `__prior-credit`, `__transcript`, `__illinois-data`, `__autoplan`, `__ask-router`, `__plan-audit`, `__credit-e2e`, and the ones the sections below name (`__horizon`, `__plan-notes`, `__interests`, `__career-tracks`, `__electives`, `__college-rules`, `__review`, `__advisor-packet`), each of which takes seconds; `__repick` and `__schedule-quality` take up to a minute, and `__credit-rules` about ten, because it plans every offered degree. Three fail today, for the reasons under known gaps at the end of this section.
+and exits non-zero on a failure. Read the header of `__plan-audit.check.mjs` before trusting any other harness: it loads only what the browser loads, and that is the reason it exists. The checks are `__prior-credit`, `__transcript`, `__illinois-data`, `__autoplan`, `__ask-router`, `__plan-audit`, `__credit-e2e`, and the ones the sections below name (`__horizon`, `__plan-notes`, `__interests`, `__career-tracks`, `__electives`, `__college-rules`, `__review`, `__advisor-packet`), each of which takes seconds; `__repick` and `__schedule-quality` take up to a minute, and `__credit-rules` about ten, because it plans every offered degree. One fails today (`__illinois-data`, two assertions), for the reason under known gaps at the end of this section.
 
 An unofficial, visual degree-planning prototype for University of Georgia students and advisors. It combines an editable semester-by-semester plan with a constellation-style course finder descended from the existing Semantic Course Map.
 
@@ -428,13 +428,47 @@ be checked against the uAchieve degree audit. The code is
 that transpiles `.tsx`, a pattern other checks can reuse (`PACKET_DUMP=<dir>`
 writes each page).
 
+### Year one and the gate
+
+The year-one, date and pairing work for career-track boards (seminars into
+year one, the major in year one, track courses before the application date,
+labs and co-requisites together) runs behind one gate in `generatePlan`
+(`lib/planner/autoplan.ts`: `gateMeasure`, `gateWorse`, `gateRank`). The
+engine as it stood at a930f09 builds its board on the requirements as a930f09
+read them, and that board is the floor: another board is kept only where
+`gateWorse` finds it no worse on anything it measures (errors, required
+courses and courses off, requirements unmet, terms, credits past the total,
+prerequisite order and prerequisites missing from the board, student-facing
+warnings, labs apart, terms over the cap, at 18 or under the minimum, terms
+with two or three hardest-band courses, each track row's lateness, residency,
+first-term seminars and orientation courses, the first college math,
+sequences split, year one's load and the major in it, the last two terms'
+stacks of one subject, and terms past the student's own hours), and the best
+of those by `gateRank`, most severe measure first. A new heuristic belongs
+behind the gate, and a board it makes worse calls for a measure, not another
+pass. Across 1,848 boards (308 degrees, no goal, pre-med and pre-PT, language
+2 and 4) and 700 more students (transfers, sophomores, summers, a term abroad,
+international, AP credit, 12 and 18 credits a term, other goals), no board is
+worse than a930f09's on any of these; late track rows fall from 1,434 to 746
+and first-term seminars after year one from 447 to 227. The cost is build
+time: about 1.7 times a930f09's per board, and about 2 seconds for the
+chemistry degrees, on the page's main thread.
+
 ### Known gaps
 
-Year-one scheduling for pre-med and pre-PT boards is unfinished and tracked
-separately: the track's sciences crowd the first-year seminar and the major's
-own courses out of year one. `__review` fails on it (3 assertions) and so does
-`__career-tracks` (1). `__illinois-data` has 2 older failures on ME 340's
-credit range. The Community Health pages print their core and concentration
+Year one is not finished for every career-track board. The default pre-med
+Psychology freshman with two semesters of Spanish still to take gets LAS 101
+into year one but only two PSYC courses there and five in each of the last
+two terms: the engine builds no board better on those that the gate could
+keep. MATH 220's placement sentence still reads as two courses to take first
+(MATH 115 and MATH 221); read as the placement it is (e79c70d, left out),
+calculus moved into the first fall and pushed the biology chain back, and
+Biochemistry, Food Science, ACE and Environmental Sustainability boards lost
+required courses. On 20 of the 144 boards of the 24 degrees whose pages print
+"LAS 101 OR LAS 100 OR LAS 102", the corrected one-pick reading is worse than
+a930f09's three-course reading on a gate measure, and the student keeps LAS 100
+and LAS 102. `__illinois-data` has 2 older failures on ME 340's credit
+range. The Community Health pages print their core and concentration
 codes as plain text, and `scripts/illinois/programs.mjs` reads only linked
 codes, so those courses are missing until the crawler reads that text and the
 programs are re-crawled.
