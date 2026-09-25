@@ -4379,6 +4379,14 @@ export function withTitleStanding(ctx: PlanningContext): PlanningContext {
  * builds the plan again without each one and decides whether it stands.
  */
 const trialsTaken = new WeakMap<GeneratedPlan, { pace: 'far' | 'ceiling' | null; sooner: boolean; ceiling: boolean }>();
+/**
+ * Each term's codes before a plan's last move, the spreading of two
+ * hardest-band courses (spreadHard(2) in generatePlanInner). trialStands
+ * weighs the boards as they were before it: spread on one board and not the
+ * other, a pre-PT Neuroscience freshman's paced year one of 16 and 16 lost
+ * to a plain one of 18 and 16 on the count of terms with two.
+ */
+const prePairsOf = new WeakMap<GeneratedPlan, string[][]>();
 
 /**
  * The order a board keeps that its confident prerequisites do not measure,
@@ -4525,19 +4533,22 @@ function trialStands(paced: GeneratedPlan, plain: GeneratedPlan, input: Autoplan
   const page = input.pageSubjects ?? degreeSubjectsOf(input.requirements, input.programName);
   const inMajor = (code: string) => (page.subjects.has(code.split(' ')[0]) || page.primary === code.split(' ')[0]) && planCreditRange([code], ctx).max >= 2;
   const measure = (g: GeneratedPlan) => {
+    // The board before its last move, the pairs spread (prePairsOf).
+    const pre = prePairsOf.get(g);
+    const gTerms = pre ? g.terms.map((t, i) => ({ ...t, codes: pre[i] ?? t.codes, credits: planCreditRange(pre[i] ?? t.codes, ctx) })) : g.terms;
     const at = new Map<string, number>();
-    for (const t of g.terms) for (const code of t.codes) at.set(normaliseCode(code), t.index);
-    const used = g.terms.filter((t) => t.codes.length > 0);
+    for (const t of gTerms) for (const code of t.codes) at.set(normaliseCode(code), t.index);
+    const used = gTerms.filter((t) => t.codes.length > 0);
     const firstYear: PlannedTerm[] = [];
     let regular = 0;
-    for (const t of g.terms) {
+    for (const t of gTerms) {
       if (t.season !== 'Summer') {
         if (regular === 2) break;
         regular += 1;
       }
       firstYear.push(t);
     }
-    const hardIn = g.terms.map((t) => t.codes.map(normaliseCode).filter(isHard).length);
+    const hardIn = gTerms.map((t) => t.codes.map(normaliseCode).filter(isHard).length);
     const late = new Map<string, number>();
     const missing = new Set<string>();
     for (const row of rows) {
@@ -4568,7 +4579,7 @@ function trialStands(paced: GeneratedPlan, plain: GeneratedPlan, input: Autoplan
       // the one a pre-med Psychology freshman's degree names.
       mathAt: [...held].some(isMath) ? -1 : Math.min(Infinity, ...[...at].filter(([code]) => isMath(code)).map(([, index]) => index)),
       early: firstYear.reduce((n, t) => n + t.codes.filter((c) => rows.some((row) => row.codes.includes(normaliseCode(c))) && applicationDue - t.index >= 4).length, 0),
-      shape: orderShape(g.terms.map((t) => ({ codes: t.codes, regular: t.season !== 'Summer' })), ctx, held),
+      shape: orderShape(gTerms.map((t) => ({ codes: t.codes, regular: t.season !== 'Summer' })), ctx, held),
       // First-term seminars in year one: held to year one's ceiling, a
       // pre-PT Computer Science + Bioengineering freshman's ENG 100 went to
       // Fall 2027, when it is held for first-time freshmen.
@@ -9498,8 +9509,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * of the major and its math, and both terms stay within the minimum (fifteen
    * in year one) and the finished term plus one, or plus two outside year
    * one and the MCAT spring.
+   *
+   * Run again as the board's last move for a term past year one with two
+   * (spreadHard(2), below).
    */
-  {
+  const spreadHard = (least: 2 | 3): number => {
+    let spread = 0;
     const hoursBefore = (index: number) => {
       let h = priorCreditTotal + (awayBefore[index] ?? awayCreditTotal);
       for (const t of terms) if (t.index < index) h += sizeOf(placed.get(t.id) ?? []);
@@ -9513,11 +9528,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const ceiling = Math.min(creditCapOf(terms[index]), Math.max(sizeOf(before), finishedTerm + (roomy ? 2 : 1)));
       return sizeOf(after) <= ceiling && (after.length === 0 || sizeOf(after) >= Math.min(floor, sizeOf(before)));
     };
+    const lastUsed = Math.max(-1, ...terms.filter((t) => (placed.get(t.id) ?? []).length > 0).map((t) => t.index));
     for (const term of terms) {
-      if (isSummer(term)) continue;
+      if (isSummer(term) || (least === 2 && yearOne.includes(term.index))) continue;
       const i = term.index;
       const here = placed.get(term.id) ?? [];
-      if (here.filter(isHard).length < 3) continue;
+      if (here.filter(isHard).length < least) continue;
       const units = here
         .filter((c) => isHard(c) && !pinned.has(c) && !sequenceFirst.has(c) && !labOf.has(c) && !firstTermCourse(byCode.get(c), ctx, arrival))
         .map((c) => {
@@ -9527,7 +9543,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       let moved = false;
       for (const unit of units) {
         if (moved) break;
-        const others = terms.filter((t) => t.index !== i && !isSummer(t) && unit.every((c) => !outOfSeason(byCode.get(c), t.season, published.has(c)) && (datedBy.get(c) ?? terms.length) >= t.index)).sort((a, b) => Math.abs(a.index - i) - Math.abs(b.index - i) || a.index - b.index);
+        const others = terms
+          .filter((t) => t.index !== i && t.index <= lastUsed && !isSummer(t) && (least === 3 || !yearOne.includes(t.index)))
+          .filter((t) => unit.every((c) => !outOfSeason(byCode.get(c), t.season, published.has(c)) && (datedBy.get(c) ?? terms.length) >= t.index))
+          .sort((a, b) => Math.abs(a.index - i) - Math.abs(b.index - i) || a.index - b.index);
         for (const to of others) {
           if (moved) break;
           const into = placed.get(to.id) ?? [];
@@ -9556,7 +9575,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
               unit.every((c) => levelFits(c, hoursBefore(to.index), standingHours)) &&
               (back === null || levelFits(back, hoursBefore(i), standingHours));
             if (holds) {
-              if (debugCode && unit.includes(normaliseCode(debugCode))) console.error(`  [PLAN_DEBUG] three hardest-band: ${unit.join(' and ')} from ${term.label} to ${to.label}${back ? `, ${back} back` : ''}`);
+              if (debugCode && unit.includes(normaliseCode(debugCode))) console.error(`  [PLAN_DEBUG] hardest-band ${least === 2 ? 'pair' : 'three'}: ${unit.join(' and ')} from ${term.label} to ${to.label}${back ? `, ${back} back` : ''}`);
+              spread += 1;
               moved = true;
               break;
             }
@@ -9566,7 +9586,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         }
       }
     }
-  }
+    return spread;
+  };
+  spreadHard(3);
 
   /**
    * A required course the placement left off takes the seat of an elective
@@ -9578,7 +9600,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * reaches 91 by then once filled. An elective the fill booked only to make
    * up hours gives way to it; a gen-ed pick, a track course or a course a
    * note names does not. The term stays within its size (the finished term
-   * plus one at most, the minimum and year one's fifteen at least), gains no
+   * plus one at most, plus two past year one and the MCAT spring, and the
+   * minimum and year one's fifteen at least), gains no
    * second hardest-band course, and every prerequisite, standing, season and
    * the order orderShape measures holds; the plan does not fall under the
    * degree total.
@@ -9612,7 +9635,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         for (const out of outs) {
           const next = [...here.filter((c) => c !== out), code];
           const floor = yearOne.includes(term.index) ? Math.max(credits.min, 15) : credits.min;
-          if (sizeOf(next) > Math.min(creditCapOf(term), Math.max(sizeOf(here), finishedTerm + 1)) || sizeOf(next) < Math.min(floor, sizeOf(here))) continue;
+          // Past year one and the MCAT spring a term may take the finished
+          // term plus two for a required course: a Dietetics board's ETMA 311
+          // was left off while its last spring held 15.
+          const roomy = !yearOne.includes(term.index) && term.index !== examTerm;
+          if (sizeOf(next) > Math.min(creditCapOf(term), Math.max(sizeOf(here), finishedTerm + (roomy ? 2 : 1))) || sizeOf(next) < Math.min(floor, sizeOf(here))) continue;
           if (next.filter(isHard).length > Math.max(Math.min(hardLimitAt(term.index), 1), here.filter(isHard).length)) continue;
           const faults = boardFaults();
           const shape = boardShape();
@@ -9754,6 +9781,19 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * came late, or every term up to the date was full, already held its
    * hardest-band courses, or does not run the course.
    */
+  /**
+   * Last, a term past year one with two hardest-band courses gives one to a
+   * term past year one with none, as a term with three does (spreadHard):
+   * 2,622 terms of the 1,848 generated boards held two, and a Chemistry
+   * freshman's Spring 2029 held CHEM 436 beside CHEM 312 while Fall 2029 held
+   * none. Year one keeps its pairs: CHEM 102 and MATH 220 in a first fall is
+   * a science student's usual start, and moving either costs the year its
+   * chemistry or its math. The board before this move is kept for the
+   * trials (prePairsOf).
+   */
+  const prePairs = input.degreeTotal != null ? terms.map((t) => [...(placed.get(t.id) ?? [])]) : null;
+  if (prePairs !== null) spreadHard(2);
+
   const termOfCode = (code: string): number => terms.findIndex((t) => (placed.get(t.id) ?? []).includes(code));
   const lateWhy = (code: string, due: number): string => {
     const lecture = labOf.get(code);
@@ -10094,6 +10134,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     partsOfTerm,
   };
   if (pacedPlacement !== null || soonerPlacement) trialsTaken.set(generated, { pace: pacedPlacement, sooner: soonerPlacement, ceiling: ceilingAlternative });
+  if (prePairs !== null) prePairsOf.set(generated, prePairs);
   return generated;
 }
 
