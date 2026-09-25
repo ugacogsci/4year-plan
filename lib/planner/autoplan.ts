@@ -4836,6 +4836,17 @@ function measuredLabs(ctx: Pick<PlanningContext, 'prereqs' | 'courses'>): Map<st
 
 type GateMeasure = ReturnType<typeof gateMeasure>;
 /**
+ * The validator's warnings that ask something of the student about one
+ * course or term (the gate's `warnings`): a prerequisite only school work
+ * could meet, a season the course has not run in, a section closed to her,
+ * Composition I or a first-term seminar late, a language gap, and the like.
+ * The load, hardest-band and prerequisite-order warnings are measured on
+ * their own. A pre-med Classical Languages freshman's board traded LAT 202,
+ * a list pick, for GRK 411, and LAT 401 was left to "LAT 202 or four years
+ * of high school Latin".
+ */
+const WATCHED_WARNING = /^ap-(priorlearning|offering|duplicate|comp1-late|seminar-late|language-gap|dormant|closed|college|admission|snapshot|standing|rare|exclusion|parts|missing)-/;
+/**
  * What the gate in generatePlan measures on one finished board. Two boards
  * are held to each other on these by gateWorse (what one may not lose to the
  * other) and ordered by gateRank (which is better).
@@ -4908,10 +4919,14 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
   const page = input.pageSubjects ?? degreeSubjectsOf(input.requirements, input.programName);
   const inMajor = (code: string) => (page.subjects.has(code.split(' ')[0]) || page.primary === code.split(' ')[0]) && planCreditRange([code], ctx).max >= 2;
   const hardIn = g.terms.map((t) => t.codes.map(normaliseCode).filter(isHard).length);
+  // A language gap is a term with no language course, counted rather than named by term.
+  const watched = validated.filter((i) => i.severity !== 'info' && WATCHED_WARNING.test(i.id));
+  const gaps = watched.filter((i) => i.id.startsWith('ap-language-gap-')).length;
   return {
     errors: new Set(validated.filter((i) => i.severity === 'error').map(keyOf)),
     // Prerequisites out of order, the groups read with low confidence included (the validator's order warnings).
     order: new Set(validated.filter((i) => i.id.startsWith('ap-prereq-') && !/^ap-prereq-(check|text)-/.test(i.id)).map(keyOf)),
+    warnings: new Set([...watched.filter((i) => !i.id.startsWith('ap-language-gap-')).map(keyOf), ...Array.from({ length: gaps }, (_, n) => `ap-language-gap-${n + 1}`)]),
     requiredOff: new Set(off.filter(required).map((n) => normaliseCode(n.code))),
     offCount: off.length,
     unsatisfied: new Set(g.unsatisfied.map((u) => u.requirementId)),
@@ -4929,7 +4944,14 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
     // A sequence run a fall or spring or more apart (orderShape): CHEM 104 a year after CHEM 102.
     split: orderShape(g.terms.map((t) => ({ codes: t.codes, regular: t.season !== 'Summer' })), ctx, held).split,
     yearOne: firstYearTerms.filter((t) => t.season !== 'Summer').map((t) => t.credits.min),
-    major: [...yearOneCodes].filter(inMajor).length,
+    // Year one's load without its first-term seminars: ENG 100 on top of a
+    // Bioengineering freshman's 16-credit first fall is where it belongs, not
+    // a heavier term.
+    yearOneLoad: firstYearTerms.filter((t) => t.season !== 'Summer').map((t) => planCreditRange(t.codes.filter((c) => !firstTerm(normaliseCode(c))), ctx).min),
+    // Courses of the major in year one, held ones counted, as the review counts them (momentum-major).
+    major: [...yearOneCodes, ...held].filter(inMajor).length,
+    // Falls and springs more than one past the hours the student asked for.
+    overTarget: credits.target == null ? 0 : g.terms.filter((t) => t.season !== 'Summer' && t.credits.min > (credits.target as number) + 1).length,
   };
 }
 
@@ -4947,6 +4969,8 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
  * - a later last term;
  * - more than one credit past the degree total beyond `b`'s;
  * - a prerequisite out of order that `b` does not have;
+ * - a warning `b` does not have that asks something of the student about a
+ *   course (WATCHED_WARNING), a language gap counted by terms;
  * - a lab in another term from its lecture where `b` had them together;
  * - a term over its cap, or more terms with three hardest-band courses;
  * - any track row later past its application date, or off the board, than on `b`;
@@ -4955,7 +4979,11 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
  * - a first-term seminar `b` had in year one that is not in year one;
  * - no college math in year one where `b` had one;
  * - a sequence run a fall or spring or more apart that `b` ran together;
- * - more first-year terms over 17 credits.
+ * - more first-year terms at 17 credits or more, or at 18, first-term
+ *   seminars aside, or under the fifteen the review measures, and fewer
+ *   than the review's three courses of the major in year one where `b` had
+ *   three (each a momentum flag the review raises);
+ * - more falls and springs past the hours the student asked for, by more than one.
  *
  * Every rule compares both boards on the same measure, so it reads the same
  * either way round: gateWorse(plain, improved) is what the improved board
@@ -4970,6 +4998,7 @@ function gateWorse(a: GateMeasure, b: GateMeasure): string[] {
   if (a.lastUsed > b.lastUsed) worse.push('terms');
   if (a.beyond > b.beyond + 1) worse.push('beyond');
   if (!within(a.order, b.order)) worse.push('order');
+  if (!within(a.warnings, b.warnings)) worse.push('warnings');
   if (!within(a.apart, b.apart)) worse.push('labApart');
   if (!within(a.overCap, b.overCap)) worse.push('overCap');
   if (a.stacked > b.stacked) worse.push('stack3');
@@ -4978,7 +5007,11 @@ function gateWorse(a: GateMeasure, b: GateMeasure): string[] {
   if (!within(b.seminars, a.seminars)) worse.push('seminar');
   if (b.math && !a.math) worse.push('yearOneMath');
   if (!within(a.split, b.split)) worse.push('sequence');
-  if (a.yearOne.filter((cr) => cr > 17).length > b.yearOne.filter((cr) => cr > 17).length) worse.push('yearOneOver17');
+  // Counted at 17 and at 18 both: a Geology freshman's 17 and 16 went to 18 and 16.
+  if ([17, 18].some((at) => a.yearOneLoad.filter((cr) => cr >= at).length > b.yearOneLoad.filter((cr) => cr >= at).length)) worse.push('yearOneHeavy');
+  if (a.yearOne.filter((cr) => cr < 15).length > b.yearOne.filter((cr) => cr < 15).length) worse.push('yearOneLight');
+  if (a.major < 3 && b.major >= 3) worse.push('yearOneMajor');
+  if (a.overTarget > b.overTarget) worse.push('overTarget');
   return worse;
 }
 
@@ -4998,6 +5031,7 @@ function gateRank(m: GateMeasure): number[] {
     m.offCount,
     m.overCap.size,
     m.order.size,
+    m.warnings.size,
     residencyShort,
     m.apart.size,
     m.seminarsLate,
@@ -5007,7 +5041,8 @@ function gateRank(m: GateMeasure): number[] {
     m.math ? 0 : 1,
     m.split.size,
     m.beyond,
-    m.yearOne.filter((cr) => cr > 17).length,
+    m.overTarget,
+    m.yearOneLoad.filter((cr) => cr >= 17).length,
     m.yearOne.filter((cr) => cr < 15).length,
     m.doubled,
     -m.major,
@@ -5090,7 +5125,8 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
    */
   const inner = (horizon: Horizon) => {
     if (given.plainEngine === true) return once(horizon, { pace: false, sooner: false, plain: true, asRead: true });
-    const measured = { ...raw, horizon, prior };
+    // The major's subjects as the review reads them, from the page's own rows.
+    const measured = { ...raw, horizon, prior, pageSubjects: degreeSubjectsOf(given.requirements, given.programName) };
     const built = improved(horizon, {});
     const plainAsRead = once(horizon, { pace: false, sooner: false, plain: true });
     const plain = readsDifferently ? once(horizon, { pace: false, sooner: false, plain: true, asRead: true }) : plainAsRead;
