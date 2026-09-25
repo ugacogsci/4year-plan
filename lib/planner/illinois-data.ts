@@ -939,14 +939,8 @@ export function exclusionsIn(description: string, selfCode: string, known: Set<s
 
 const ONE_OF_SPLIT =
   /(?:\band\s+)?\b(?:any one of the following|one of the following|at least one of|any one of|any of|one of|either)\b\s*:?\s*/i;
-/**
- * "should consider" is advice to a student who could skip the course: MATH
- * 220 ends "Students with previous calculus experience should consider MATH
- * 221." Read as a requirement, every Calculus I student needed MATH 221
- * first, and MATH 220 could not start before a freshman's second year.
- */
 const ADVISORY =
-  /\b(recommend\w*|encouraged|helpful|preferred|desirable|suggested|may be taken|should also enroll|should consider|is useful|not required)\b/i;
+  /\b(recommend\w*|encouraged|helpful|preferred|desirable|suggested|may be taken|should also enroll|is useful|not required)\b/i;
 /**
  * A recommendation joined onto a requirement by a connective. ACCY 301 reads
  * "ACCY 202 or equivalent and recommend concurrent enrollment in ACCY 302", and
@@ -973,25 +967,8 @@ const ESC_STANDING =
   /\b(?:freshman|sophomore|junior|senior|graduate|undergraduate)\s+(?:standing|status)\b/i;
 const ABBREV = /(?:\be\.g|\bi\.e|\betc|\bvs|\bDr|\bMr|\bMs|\bJr|\bSr|\bPh\.D|\bU\.S|\bNo)$/i;
 
-/**
- * School work done before university, and the math placement exam every
- * freshman sits, neither of which any crawl of the catalog can see. IS 203
- * reads "MATH 112 or Required ALEKS Score." and MATH 124 "MATH 112 ... or an
- * adequate ALEKS score.": a freshman who places past College Algebra never
- * takes it.
- */
-const PRIOR_LEARNING = /\bhigh school\b|\bALEKS\b/i;
-
-/**
- * A placement score whose level the catalog gives as a course: MATH 220 reads
- * "An adequate ALEKS placement score as described at
- * http://math.illinois.edu/ALEKS/, demonstrating knowledge of topics of MATH
- * 115." The course is the level the score shows, not a course to take first:
- * read as one, MATH 220 stood two terms behind MATH 112 and MATH 115, and a
- * Chemistry freshman's CHEM 202, which needs MATH 220 beside it, waited for
- * her second fall. MATH 234 reads the same with MATH 112.
- */
-const PLACEMENT_LEVEL = /^(.*\bALEKS\b.*?),?\s+demonstrating knowledge of (?:the )?topics of\s/i;
+/** School work done before university, which no crawl of the catalog can see. */
+const PRIOR_LEARNING = /\bhigh school\b/i;
 
 /**
  * The clause offering school work instead of the course, or null.
@@ -1334,8 +1311,6 @@ export function parsePrerequisites(
        */
       if (produced.length === 1) {
         produced[0].priorLearning = priorLearningClause(seg, known, self);
-        const placement = produced[0].priorLearning === null ? seg.match(PLACEMENT_LEVEL) : null;
-        if (placement && codesIn(placement[1], known, self).length === 0) produced[0].priorLearning = placement[1].trim();
       }
 
       /**
