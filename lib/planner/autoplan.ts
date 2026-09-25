@@ -4963,6 +4963,14 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
     // First-term seminars on the board after year one: an international
     // student's LAS 101 off the board, where LAS 100 is hers, is not one.
     seminarsLate: new Set([...at.keys()].filter((code) => firstTerm(code) && !yearOneCodes.has(code))),
+    /*
+     * For a student past year one, orientation and first-term courses by
+     * term, read for a freshman too: a 60-hour pre-med transfer's HK 125
+     * ("Orientation to Health & Kinesiology"), ENG 100 and MDIA 100 went from
+     * her first term at Illinois to her last, and no rule of year one
+     * applies to her.
+     */
+    orientationAt: firstYear ? new Map<string, number>() : new Map([...at].filter(([code]) => firstTermCourse(byCode.get(code), ctx, arrival) || firstTermCourse(byCode.get(code), ctx, { transfer: false, international: arrival.international }))),
     math: [...yearOneCodes].some(isMath) || [...held].some(isMath),
     // The term of the first college math, -1 when one is held.
     mathAt: [...held].some(isMath) ? -1 : Math.min(Infinity, ...[...at].filter(([code]) => isMath(code)).map(([, index]) => index)),
@@ -5004,7 +5012,8 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
  * - any track row later past its application date, or off the board, than on `b`;
  * - fewer hours toward Illinois's residency rule (45 hours, 21 at the 300
  *   level or above) where `b` came nearer to it;
- * - a first-term seminar on the board after year one that `b` does not have there;
+ * - a first-term seminar on the board after year one that `b` does not have
+ *   there, or, past year one, an orientation course in a later term;
  * - no college math in year one where `b` had one, or the first college math later;
  * - a sequence run a fall or spring or more apart that `b` ran together;
  * - more first-year terms at 17 credits or more, or at 18, first-term
@@ -5036,7 +5045,7 @@ function gateWorse(a: GateMeasure, b: GateMeasure): string[] {
   if (a.crowded > b.crowded || a.crowdMax > Math.max(3, b.crowdMax)) worse.push('crowded');
   if ([...a.rowLate].some(([key, late]) => late > (b.rowLate.get(key) ?? 0))) worse.push('track');
   if (a.residency && b.residency && (a.residency.upper < Math.min(a.residency.needUpper, b.residency.upper) || a.residency.hours < Math.min(a.residency.needHours, b.residency.hours))) worse.push('residency');
-  if (!within(a.seminarsLate, b.seminarsLate)) worse.push('seminar');
+  if (!within(a.seminarsLate, b.seminarsLate) || [...a.orientationAt].some(([code, i]) => i > (b.orientationAt.get(code) ?? Infinity))) worse.push('seminar');
   if ((b.math && !a.math) || a.mathAt > b.mathAt) worse.push('math');
   if (!within(a.split, b.split)) worse.push('sequence');
   // Counted at 17 and at 18 both: a Geology freshman's 17 and 16 went to 18 and 16.
