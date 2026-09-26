@@ -5787,22 +5787,37 @@ p.requirement-unnamed {
 }
 
 .planner-app .rail-toggle {
-  height: 30px;
-  min-height: 30px;
-  padding: 0 9px;
-  border: 1px solid var(--orion-line);
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
   border-radius: 4px;
   background: transparent;
   color: var(--orion-text);
   box-shadow: none;
+  overflow: hidden;
 }
 
 .planner-app .rail-toggle:hover {
   background: var(--orion-soft);
 }
 
-.planner-app .rail-toggle-icon {
-  display: none;
+.planner-app .rail-toggle-school-logo {
+  display: block;
+  width: 28px;
+  height: 28px;
+  max-width: none;
+  object-fit: contain;
+}
+
+.planner-app .rail-toggle-school-logo.is-illinois-original {
+  width: 32px;
+  height: 32px;
+  transform: translateY(0.6px) scale(1.04);
+}
+
+.planner-app .rail-school-mark img.is-illinois-original {
+  transform: translateY(0.68px) scale(1.04);
 }
 
 .planner-app .bot-launch {
@@ -5898,12 +5913,6 @@ p.requirement-unnamed {
     padding: 0;
   }
 
-  .planner-app .rail-toggle-icon {
-    display: block;
-    width: 17px;
-    height: 17px;
-  }
-
   .planner-app .rail-toggle > span {
     display: none;
   }
@@ -5913,12 +5922,6 @@ p.requirement-unnamed {
 .planner-app .rail-toggle {
   width: 32px;
   padding: 0;
-}
-
-.planner-app .rail-toggle-icon {
-  display: block;
-  width: 17px;
-  height: 17px;
 }
 
 .planner-app .bot-launch.is-open,
@@ -6068,9 +6071,44 @@ p.requirement-unnamed {
 .planner-app .plan-tab-button {
   width: 100%;
   height: 22px;
+  margin: 0;
   padding: 0 2px;
   font-size: 9px;
+  line-height: 22px;
   cursor: text;
+  transform: translateY(-3px);
+}
+
+.planner-app .plan-tab-label {
+  position: relative;
+  min-width: 0;
+  height: 22px;
+}
+
+.planner-app .plan-tab-issue-dot {
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--orion-dim);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.planner-app .plan-tab-issue-dot.is-warning {
+  background: #d9b438;
+}
+
+.planner-app .plan-tab-issue-dot.is-error {
+  background: #d64848;
+}
+
+.planner-app .plan-wide-issues {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .planner-app .plan-tab-close,

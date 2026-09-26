@@ -21,7 +21,6 @@ import Image from 'next/image';
 import {
   FolderPlus,
   GripVertical,
-  Menu,
   Moon,
   Plus,
   Save,
@@ -37,11 +36,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { BotLauncher, BotPanel } from './advisor';
 import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
-import { groupIssues, isTermIssue, PlanHealthList } from './plan-health';
+import { IssueBadge } from './issue-badge';
+import { groupIssues, isTermIssue } from './plan-health';
 import { SemesterColumn } from './semester-column';
 import { StudentProfilePanel, type AreaRow } from './student-profile-panel';
 import { ProgramPicker } from './program-picker';
@@ -92,7 +91,7 @@ import {
   indexCourses,
   isPlanState,
 } from '@/lib/planner/rules';
-import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from '@/lib/planner/types';
+import type { Course, IssueSeverity, PlanIssue, PlanState, PlanTerm, SemesterSeason } from '@/lib/planner/types';
 import {
   UNDECIDED_PROGRAM_ID,
   clearAnswers,
@@ -383,6 +382,8 @@ interface PlanTab {
   name: string;
   groupId: string;
   plan: PlanState;
+  /** Cached so inactive alternatives retain their latest plan-wide status. */
+  issueSeverity?: IssueSeverity | null;
 }
 
 interface PlanGroup {
@@ -1430,6 +1431,14 @@ export function PlannerWorkspace({
     pools,
   ]);
 
+  const planWideIssues = useMemo(
+    () => groupIssues(issues.filter((issue) => !issue.courseId && !isTermIssue(issue))),
+    [issues],
+  );
+  const planWideSeverity = planWideIssues[0]?.severity ?? null;
+  const tabIssueSeverity = (candidate: PlanTab) =>
+    candidate.id === activePlanId ? planWideSeverity : (candidate.issueSeverity ?? null);
+
   /**
    * Which pool each planned course is filling, and what that pool still wants.
    *
@@ -1513,6 +1522,13 @@ export function PlannerWorkspace({
     if (id === activePlanId) return;
     const target = planTabs.find((candidate) => candidate.id === id);
     if (!target) return;
+    setPlanTabs((current) =>
+      current.map((candidate) =>
+        candidate.id === activePlanId && plan
+          ? { ...candidate, plan, issueSeverity: planWideSeverity }
+          : candidate,
+      ),
+    );
     setActivePlanId(id);
     setPlan(target.plan);
     setUndoStack([]);
@@ -1535,9 +1551,17 @@ export function PlannerWorkspace({
       DEFAULT_PLAN_GROUP.id;
     setPlanTabs((current) => [
       ...current.map((candidate) =>
-        candidate.id === activePlanId ? { ...candidate, plan } : candidate,
+        candidate.id === activePlanId
+          ? { ...candidate, plan, issueSeverity: planWideSeverity }
+          : candidate,
       ),
-      { id, name: `Plan ${number}`, groupId: destinationGroupId, plan: copy },
+      {
+        id,
+        name: `Plan ${number}`,
+        groupId: destinationGroupId,
+        plan: copy,
+        issueSeverity: planWideSeverity,
+      },
     ]);
     setActivePlanId(id);
     setPlan(copy);
@@ -2336,7 +2360,9 @@ export function PlannerWorkspace({
       targetTermCredits,
       careerInterests,
       plans: planTabs.map((candidate) =>
-        candidate.id === activePlanId ? { ...candidate, plan } : candidate,
+        candidate.id === activePlanId
+          ? { ...candidate, plan, issueSeverity: planWideSeverity }
+          : candidate,
       ),
       planGroups,
       activePlanId,
@@ -2356,7 +2382,9 @@ export function PlannerWorkspace({
       programId,
       plan,
       plans: planTabs.map((candidate) =>
-        candidate.id === activePlanId ? { ...candidate, plan } : candidate,
+        candidate.id === activePlanId
+          ? { ...candidate, plan, issueSeverity: planWideSeverity }
+          : candidate,
       ),
       planGroups,
       activePlanId,
@@ -2563,14 +2591,6 @@ export function PlannerWorkspace({
     );
   }
 
-  const grouped = groupIssues(
-    issues.filter((issue) => !issue.courseId && !isTermIssue(issue)),
-  );
-  const errors = grouped.filter((g) => g.severity === 'error').length;
-  const warnings = grouped.filter((g) => g.severity === 'warning').length;
-  const reviewTitle = grouped
-    .map((group) => `${group.title}: ${group.message}${group.count > 1 ? ` (${group.count} similar)` : ''}`)
-    .join('\n');
   const years = plan ? [...new Set(plan.terms.map((t) => t.year))] : [];
 
   const caveats = [
@@ -2631,7 +2651,24 @@ export function PlannerWorkspace({
             title={railOpen ? 'Close progress' : 'Open progress'}
             onClick={() => setRailOpen((open) => !open)}
           >
-            <Menu className="rail-toggle-icon" aria-hidden="true" />
+            <Image
+              className={`rail-toggle-school-logo${isIllinois && !railOpen ? ' is-illinois-original' : ''}`}
+              src={
+                isUga
+                  ? railOpen
+                    ? '/uga-toggle-logo.png'
+                    : '/uga-school-logo.png'
+                  : isIllinois
+                    ? railOpen
+                      ? '/illinois-toggle-logo.png'
+                      : '/illinois-school-logo.png'
+                    : '/orion-logo.png'
+              }
+              alt=""
+              width={28}
+              height={28}
+              aria-hidden="true"
+            />
           </Button>
           {isCatalogSchool && (
             <BotLauncher
@@ -2845,19 +2882,28 @@ export function PlannerWorkspace({
                     >
                       <GripVertical aria-hidden="true" />
                     </button>
-                    <input
-                      role="tab"
-                      aria-selected={candidate.id === activePlanId}
-                      aria-label={`Rename ${candidate.name}`}
-                      className="plan-tab-button"
-                      value={candidate.name}
-                      onFocus={() => switchPlanTab(candidate.id)}
-                      onChange={(event) => renamePlanTab(candidate.id, event.target.value)}
-                      onBlur={(event) => renamePlanTab(candidate.id, event.target.value.trim() || 'Untitled plan')}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') event.currentTarget.blur();
-                      }}
-                    />
+                    <div className="plan-tab-label">
+                      <input
+                        role="tab"
+                        aria-selected={candidate.id === activePlanId}
+                        aria-label={`Rename ${candidate.name}${tabIssueSeverity(candidate) ? `, has a ${tabIssueSeverity(candidate)} plan-wide note` : ''}`}
+                        className="plan-tab-button"
+                        value={candidate.name}
+                        onFocus={() => switchPlanTab(candidate.id)}
+                        onChange={(event) => renamePlanTab(candidate.id, event.target.value)}
+                        onBlur={(event) => renamePlanTab(candidate.id, event.target.value.trim() || 'Untitled plan')}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') event.currentTarget.blur();
+                        }}
+                      />
+                      {tabIssueSeverity(candidate) && (
+                        <span
+                          className={`plan-tab-issue-dot is-${tabIssueSeverity(candidate)}`}
+                          title={`This plan has a ${tabIssueSeverity(candidate)} plan-wide note`}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </div>
                     <button
                       type="button"
                       className="plan-tab-close"
@@ -2895,29 +2941,23 @@ export function PlannerWorkspace({
           </button>
         </div>
         <div className="board-bar">
-          {grouped.length > 0 && (
-            <Popover>
-              <PopoverTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={`Review ${grouped.length} thing${grouped.length === 1 ? '' : 's'} in this plan`}
-                    title={reviewTitle}
-                    className={`review-chip${errors ? ' has-error' : warnings ? ' has-warning' : ''}`}
-                  />
-                }
-              >
-                <span
-                  className={`issue-icon ${errors ? 'is-error' : warnings ? 'is-warning' : 'is-info'}`}
-                  aria-hidden="true"
-                >
-                  !
-                </span>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-80">
-                <PlanHealthList groups={grouped} onSelectIssue={selectIssue} />
-              </PopoverContent>
-            </Popover>
+          {planWideIssues.length > 0 && (
+            <div className="plan-wide-issues" aria-label="Plan-wide notes">
+              {planWideIssues.map((group) => (
+                <IssueBadge
+                  key={group.key}
+                  title={
+                    group.count > 1
+                      ? `${group.title} and ${group.count - 1} more like it`
+                      : group.title
+                  }
+                  message={group.message}
+                  severity={group.severity}
+                  side="bottom"
+                  onClick={() => selectIssue(group.issue)}
+                />
+              ))}
+            </div>
           )}
 
           <Button variant="outline" onClick={buildPlan} disabled={programBusy}>

@@ -14,6 +14,7 @@ interface IssueBadgeProps {
   severity: IssueSeverity;
   className?: string;
   side?: 'top' | 'right' | 'bottom' | 'left';
+  onClick?: () => void;
 }
 
 /** A compact warning marker with an accessible, styled explanation. */
@@ -23,6 +24,7 @@ export function IssueBadge({
   severity,
   className,
   side = 'top',
+  onClick,
 }: IssueBadgeProps) {
   const description = `${title}: ${message}`;
   return (
@@ -33,7 +35,10 @@ export function IssueBadge({
             type="button"
             className={cn('issue-badge', className)}
             aria-label={description}
-            onClick={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onClick?.();
+            }}
           />
         }
       >

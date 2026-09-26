@@ -188,6 +188,7 @@ export function StudentProfilePanel({
           <Image
             src={schoolShort === 'UGA' ? '/uga-school-logo.png' : '/illinois-school-logo.png'}
             alt=""
+            className={schoolShort === 'UGA' ? undefined : 'is-illinois-original'}
             width={schoolShort === 'UGA' ? 628 : 1408}
             height={schoolShort === 'UGA' ? 628 : 1408}
           />
