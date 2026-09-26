@@ -6,6 +6,10 @@ import { Plus, Search, X } from 'lucide-react';
 export interface ProgramOption {
   id: string;
   name: string;
+  /** Published degree total, when the catalog exposes one. */
+  totalCredits?: number | null;
+  /** Credits this program is likely to add beyond a primary degree's shared core. */
+  additionalCredits?: number | null;
 }
 
 interface ProgramPickerProps {
@@ -32,6 +36,7 @@ export function ProgramPicker({
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
   const byId = useMemo(() => new Map(options.map((option) => [option.id, option])), [options]);
   const normalized = query.trim().toLowerCase();
+  const showAvailable = normalized.length > 0 || selectedIds.length === 0;
   const available = useMemo(
     () =>
       options
@@ -81,7 +86,7 @@ export function ProgramPicker({
         />
       </label>
 
-      <div className="program-results" aria-label="Degree programs">
+      {showAvailable && <div className="program-results" aria-label="Degree programs">
         {loading ? (
           <p>Loading {kindLabel}s...</p>
         ) : options.length === 0 ? (
@@ -96,7 +101,7 @@ export function ProgramPicker({
             </button>
           ))
         )}
-      </div>
+      </div>}
     </div>
   );
 }

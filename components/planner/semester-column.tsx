@@ -1,11 +1,12 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { AlertCircle, AlertTriangle, CircleAlert, Plus } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 import { CourseCard, type ElectiveOf } from './course-card';
+import { IssueBadge } from './issue-badge';
 import { isTermIssue } from './plan-health';
 
 interface SemesterColumnProps {
@@ -72,8 +73,10 @@ export function SemesterColumn({
   onWidthChange,
 }: SemesterColumnProps) {
   const columnRef = useRef<HTMLElement | null>(null);
+  const coursesRef = useRef<HTMLDivElement | null>(null);
   const resizeStart = useRef<{ pointerId: number; x: number; width: number } | null>(null);
   const [dropActive, setDropActive] = useState(false);
+  const [scrollIndicator, setScrollIndicator] = useState({ top: 0, height: 0, visible: false });
   const [dropPosition, setDropPosition] = useState<{
     courseId: string;
     placeAfter: boolean;
@@ -81,6 +84,36 @@ export function SemesterColumn({
   const termIssues = issues.filter(
     (issue) => !issue.courseId && issue.termId === term.id && isTermIssue(issue),
   );
+
+  function updateScrollIndicator() {
+    const courses = coursesRef.current;
+    if (!courses) return;
+    const available = courses.clientHeight;
+    const overflow = courses.scrollHeight - available;
+    const visible = available > 0 && overflow > 1;
+    const height = visible ? Math.max(24, (available * available) / courses.scrollHeight) : 0;
+    const top = visible
+      ? courses.offsetTop + (courses.scrollTop / overflow) * Math.max(0, available - height)
+      : 0;
+    setScrollIndicator((current) =>
+      current.visible === visible &&
+      Math.abs(current.top - top) < 0.5 &&
+      Math.abs(current.height - height) < 0.5
+        ? current
+        : { top, height, visible },
+    );
+  }
+
+  useEffect(() => {
+    const courses = coursesRef.current;
+    const column = columnRef.current;
+    if (!courses || !column) return;
+    const observer = new ResizeObserver(updateScrollIndicator);
+    observer.observe(courses);
+    observer.observe(column);
+    updateScrollIndicator();
+    return () => observer.disconnect();
+  }, [term.courseIds.length, termIssues.length, width]);
 
   function resizeTo(nextWidth: number) {
     onWidthChange(term.id, Math.max(220, Math.min(560, Math.round(nextWidth))));
@@ -173,37 +206,34 @@ export function SemesterColumn({
           would be wrong for most of the sections in it. Deadlines belong in the
           course inspector, listed per part of term.
         */}
-        <h3>{term.label}</h3>
+        <div className="semester-heading-title">
+          <h3>{term.label}</h3>
+          {(heavy || termIssues.length > 0) && (
+            <div className="semester-issues" aria-label={`${term.label} notes`}>
+              {heavy && (
+                <IssueBadge
+                  title="Heavy semester"
+                  message="This semester has a heavy credit load."
+                  severity="warning"
+                />
+              )}
+              {termIssues.map((issue) => (
+                <IssueBadge
+                  key={issue.id}
+                  title={issue.title}
+                  message={issue.message}
+                  severity={issue.severity}
+                />
+              ))}
+            </div>
+          )}
+        </div>
         <p className={cn('semester-credit-count', heavy && 'text-warning')}>
           {credits}
-          {heavy && <CircleAlert aria-label="Heavy term" />}
         </p>
       </header>
 
-      {termIssues.length > 0 && (
-        <div className="semester-issues" aria-label={`${term.label} notes`}>
-          {termIssues.map((issue) => (
-            <div
-              key={issue.id}
-              className={cn('semester-issue', `is-${issue.severity}`)}
-            >
-              {issue.severity === 'error' ? (
-                <AlertCircle />
-              ) : issue.severity === 'warning' ? (
-                <AlertTriangle />
-              ) : (
-                <CircleAlert />
-              )}
-              <span>
-                <strong>{issue.title}</strong>
-                {issue.message}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="semester-courses">
+      <div ref={coursesRef} className="semester-courses" onScroll={updateScrollIndicator}>
         {term.courseIds.map((courseId) => {
           const course = courseIndex.get(courseId);
           if (!course) return null;
@@ -261,6 +291,7 @@ export function SemesterColumn({
       <button
         type="button"
         className="semester-resize-handle"
+        data-scrollable={scrollIndicator.visible ? 'true' : undefined}
         aria-label={`Resize ${term.label} horizontally`}
         title="Drag to resize semester width"
         onPointerDown={(event) => {
@@ -294,7 +325,14 @@ export function SemesterColumn({
           resizeTo(currentWidth + (event.key === 'ArrowRight' ? 20 : -20));
         }}
       >
-        <span aria-hidden="true" />
+        <span
+          aria-hidden="true"
+          style={
+            scrollIndicator.visible
+              ? { top: scrollIndicator.top, height: scrollIndicator.height }
+              : undefined
+          }
+        />
       </button>
     </section>
   );

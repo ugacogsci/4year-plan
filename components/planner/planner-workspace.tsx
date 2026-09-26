@@ -16,17 +16,18 @@
  * now sibling columns of the same frame.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Image from 'next/image';
 import {
-  AlertCircle,
-  AlertTriangle,
-  CheckCircle2,
-  ChevronDown,
-  Info,
+  FolderPlus,
+  GripVertical,
+  Menu,
+  Moon,
   Plus,
   Save,
+  Sun,
   Undo2,
+  User,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -56,6 +57,8 @@ import {
   type LoadedProgram,
 } from './illinois-source';
 import {
+  isUgaGraduateDegree,
+  isUgaUndergraduateDegree,
   loadUgaProgram,
   ugaSelectionRequirements,
   useUgaData,
@@ -89,15 +92,22 @@ import {
   indexCourses,
   isPlanState,
 } from '@/lib/planner/rules';
-import type { Course, PlanIssue, PlanState } from '@/lib/planner/types';
+import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from '@/lib/planner/types';
 import {
+  UNDECIDED_PROGRAM_ID,
   clearAnswers,
   schoolById,
   timelineForPlanning,
   type OnboardingAnswers,
+  type ProgramLevel,
 } from '@/lib/planner/onboarding';
 import { normalizeCourseCode, transcriptCodes } from '@/lib/planner/transcript';
 import { degreeCompletionIssue } from '@/lib/planner/completion';
+import {
+  PLANNER_THEME_STORAGE_KEY,
+  readStoredTheme,
+  type PlannerTheme,
+} from '@/lib/planner/theme';
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail } from '@/lib/planner/illinois-load';
@@ -105,6 +115,53 @@ import type { AdvisorExecutor } from '@/lib/planner/advisor';
 import type { RequirementBlock } from '@/lib/planner/illinois-data';
 
 const STORAGE_KEY = 'four-year-planner-v3';
+const UNDECIDED_PROGRAM = {
+  id: UNDECIDED_PROGRAM_ID,
+  name: 'Undecided / exploring programs',
+};
+
+function openPlanThrough(
+  horizon: {
+    startSeason: SemesterSeason;
+    startYear: number;
+    gradSeason: SemesterSeason;
+    gradYear: number;
+  },
+  completedCourseIds: string[],
+): PlanState {
+  const terms: PlanTerm[] = [];
+  let season = horizon.startSeason;
+  let year = horizon.startYear;
+  for (let index = 0; index < 32; index += 1) {
+    terms.push({
+      id: `${year}-${season.toLowerCase()}`,
+      label: `${season} ${year}`,
+      year: Math.min(4, Math.floor(index / 2) + 1),
+      season,
+      courseIds: [],
+    });
+    if (season === horizon.gradSeason && year === horizon.gradYear) break;
+    if (season === 'Fall') {
+      season = 'Spring';
+      year += 1;
+    } else if (
+      season === 'Spring' &&
+      horizon.gradSeason === 'Summer' &&
+      year === horizon.gradYear
+    ) {
+      season = 'Summer';
+    } else {
+      season = 'Fall';
+    }
+  }
+  return {
+    schemaVersion: 1,
+    programId: UNDECIDED_PROGRAM_ID,
+    graduationLabel: `${horizon.gradSeason} ${horizon.gradYear}`,
+    completedCourseIds,
+    terms,
+  };
+}
 
 /**
  * Whether a course answers a search: by code, by title, or by the name of its
@@ -317,14 +374,37 @@ interface Stored {
   targetTermCredits?: number | null;
   careerInterests: string;
   plans?: PlanTab[];
+  planGroups?: PlanGroup[];
   activePlanId?: string;
 }
 
 interface PlanTab {
   id: string;
   name: string;
+  groupId: string;
   plan: PlanState;
 }
+
+interface PlanGroup {
+  id: string;
+  name: string;
+  color: string;
+}
+
+const DEFAULT_PLAN_GROUP: PlanGroup = {
+  id: 'group-1',
+  name: 'Group 1',
+  color: '#7a8b9b',
+};
+
+const PLAN_GROUP_COLORS = [
+  '#7a8b9b',
+  '#b44d54',
+  '#3f7f72',
+  '#b08332',
+  '#5b75a6',
+  '#8564a8',
+];
 
 interface UndoSnapshot {
   plan: PlanState;
@@ -414,7 +494,9 @@ function combinePrograms(sources: SourceProgram[]): LoadedBundle | null {
     // combined requirements fill naturally to the shared degree total.
     electiveHours: multiple ? undefined : electiveHours,
     fillToDegreeTotal:
-      multiple || sources.some((source) => 'fillToDegreeTotal' in source && source.fillToDegreeTotal),
+      sources.some(
+        (source) => 'fillToDegreeTotal' in source && source.fillToDegreeTotal,
+      ),
   };
 }
 
@@ -429,11 +511,14 @@ export function PlannerWorkspace({
   const school = schoolById(answers?.schoolId ?? null);
   const isIllinois = school?.id === 'illinois';
   const isUga = school?.id === 'uga';
+  const programLevel: ProgramLevel = answers?.programLevel ?? 'undergraduate';
+  const isGraduatePlan = isUga && programLevel === 'graduate';
+  const defaultMinimumTermCredits = isGraduatePlan ? 9 : 12;
+  const defaultTargetTermCredits = isGraduatePlan ? 9 : null;
   const isCatalogSchool = isIllinois || isUga;
-  const { status: illinoisStatus, core, coverage: illinoisCoverage } = useIllinoisCore(Boolean(isIllinois));
-  const { status: ugaStatus, data: uga, coverage: ugaCoverage } = useUgaData(Boolean(isUga));
+  const { status: illinoisStatus, core } = useIllinoisCore(Boolean(isIllinois));
+  const { status: ugaStatus, data: uga } = useUgaData(Boolean(isUga));
   const status = isIllinois ? illinoisStatus : isUga ? ugaStatus : 'unavailable';
-  const coverage = isIllinois ? illinoisCoverage : isUga ? ugaCoverage : '';
   /**
    * The AP and IB credit the registrar grants, so the plan starts where the
    * student starts. Naming the exams in onboarding and then planning as if they
@@ -443,6 +528,9 @@ export function PlannerWorkspace({
 
   const [plan, setPlan] = useState<PlanState | null>(null);
   const [planTabs, setPlanTabs] = useState<PlanTab[]>([]);
+  const [planGroups, setPlanGroups] = useState<PlanGroup[]>([{ ...DEFAULT_PLAN_GROUP }]);
+  const [draggingPlanTabId, setDraggingPlanTabId] = useState<string | null>(null);
+  const [dragOverPlanGroupId, setDragOverPlanGroupId] = useState<string | null>(null);
   const [activePlanId, setActivePlanId] = useState('plan-1');
   const [termWidths, setTermWidths] = useState<Record<string, number>>({});
   const [undoStack, setUndoStack] = useState<UndoSnapshot[]>([]);
@@ -450,6 +538,7 @@ export function PlannerWorkspace({
   const [minorIds, setMinorIds] = useState<string[]>(() => answers?.minorIds ?? []);
   const [certificateIds, setCertificateIds] = useState<string[]>(() => answers?.certificateIds ?? []);
   const programId = programIds[0] ?? null;
+  const isUndecided = programIds.includes(UNDECIDED_PROGRAM_ID);
   const emphasisKey = JSON.stringify(
     Object.entries(answers?.emphasisSelections ?? {}).sort(([left], [right]) => left.localeCompare(right)),
   );
@@ -458,7 +547,8 @@ export function PlannerWorkspace({
     [programIds, minorIds, certificateIds],
   );
   const programKey = [
-    `major:${programIds.join(',')}`,
+    `level:${programLevel}`,
+    `degree:${programIds.join(',')}`,
     `minor:${minorIds.join(',')}`,
     `certificate:${certificateIds.join(',')}`,
     `emphasis:${emphasisKey}`,
@@ -482,13 +572,16 @@ export function PlannerWorkspace({
   const [targetTermId, setTargetTermId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [finderOpen, setFinderOpen] = useState(false);
-  /** The bot's column. Opening it folds the finder, so the board keeps its room. */
+  const [mapHeight, setMapHeight] = useState<number | null>(null);
+  /** The guide opens beside the board when there is room, never over it on arrival. */
   const [chatOpen, setChatOpen] = useState(false);
+  const [theme, setTheme] = useState<PlannerTheme>(readStoredTheme);
   const botName = school?.bot ?? 'Assistant';
   const [dragUsable, setDragUsable] = useState(true);
-  const [narrow, setNarrow] = useState(false);
-  const [railOpen, setRailOpen] = useState(false);
-  const [minimumTermCredits, setMinimumTermCredits] = useState(12);
+  const [railOpen, setRailOpen] = useState(true);
+  const [minimumTermCredits, setMinimumTermCredits] = useState(
+    defaultMinimumTermCredits,
+  );
   /** The elective slot being chosen for, if any. Drives the finder's list. */
   const [chooser, setChooser] = useState<{ termId: string; courseId: string } | null>(null);
   const [chooserOnMap, setChooserOnMap] = useState(false);
@@ -504,42 +597,55 @@ export function PlannerWorkspace({
   useEffect(() => {
     planRef.current = plan;
   }, [plan]);
-  const [targetTermCredits, setTargetTermCredits] = useState<number | null>(null);
+  const [targetTermCredits, setTargetTermCredits] = useState<number | null>(
+    defaultTargetTermCredits,
+  );
   const [careerInterests, setCareerInterests] = useState(answers?.after ?? '');
   const [status_, setStatus] = useState('');
   const restored = useRef<Stored | null>(null);
   const rulerRef = useRef<HTMLDivElement | null>(null);
   const lastBucket = useRef<string | null>(null);
 
+  useEffect(() => {
+    document.documentElement.dataset.plannerTheme = theme;
+    document.documentElement.style.colorScheme = theme;
+    window.localStorage.setItem(PLANNER_THEME_STORAGE_KEY, theme);
+    return () => {
+      delete document.documentElement.dataset.plannerTheme;
+      document.documentElement.style.colorScheme = '';
+    };
+  }, [theme]);
+
   /**
-   * The finder opens itself on a wide screen and stays shut on a narrow one.
-   *
-   * The declutter spec wanted it collapsed everywhere. It is open here at 1280px
-   * and up for one reason: the user's hard requirement is dragging a course out
-   * of the map into a semester, and a map behind a click reads as a map that was
-   * removed. Below 1100px the column cannot fit, drag has nowhere to land, and
-   * the finder overlays the board instead.
+   * The finder stays present at every useful width. The layout alone decides
+   * whether progress and chat are columns or drawers, so resizing cannot strand
+   * the map or leave a hidden side panel without a matching button.
    *
    * Only a change of bucket moves it. Setting it on every resize event would
    * reopen a finder the student had just closed, or shut one they had just
    * opened, every time the window moved a pixel.
    */
   useEffect(() => {
-    const bucketOf = (w: number) => (w >= 1280 ? 'wide' : w >= 1100 ? 'medium' : 'narrow');
+    const bucketOf = (w: number) => (w >= 1280 ? 'wide' : w > 1180 ? 'medium' : 'narrow');
     const measure = () => {
       const bucket = bucketOf(window.innerWidth);
-      setDragUsable(bucket !== 'narrow');
-      setNarrow(window.innerWidth < 900);
+      const firstMeasure = lastBucket.current === null;
+      setDragUsable(window.innerWidth >= 700);
       if (bucket === lastBucket.current) return;
       lastBucket.current = bucket;
-      // 'medium' is 1100 to 1280, which is a 13 inch laptop, and leaving the
-      // finder shut there meant the map was not on the page at all on a very
-      // common screen. Drag from the map is the feature; it opens by default
-      // anywhere it can actually be used.
-      if (bucket === 'wide' || bucket === 'medium') setFinderOpen(true);
+      // Keep the map open when it is part of the page. At compact widths it is
+      // still the first block in the center flow rather than a side overlay.
+      if (firstMeasure || bucket === 'wide' || bucket === 'medium') setFinderOpen(true);
+      if (firstMeasure && (bucket === 'wide' || bucket === 'medium')) {
+        setChatOpen(true);
+        setRailOpen(true);
+      }
       // An overlay on top of the board is not somewhere to leave a panel the
       // student did not ask for.
-      if (bucket === 'narrow') setFinderOpen(false);
+      if (bucket === 'narrow') {
+        setChatOpen(false);
+        setRailOpen(false);
+      }
     };
     measure();
     window.addEventListener('resize', measure);
@@ -561,36 +667,45 @@ export function PlannerWorkspace({
 
   const programOptions = useMemo(() => {
     if (isIllinois) {
-      return (core?.programs ?? [])
+      return [UNDECIDED_PROGRAM, ...(core?.programs ?? [])
         .filter(plannableProgram)
         .map((p) => ({ id: p.id, name: p.name }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .sort((a, b) => a.name.localeCompare(b.name))];
     }
     if (isUga) {
-      return (uga?.programs ?? [])
-        .filter((program) => program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree))
-        .map((program) => ({ id: program.id, name: program.name }));
+      return [UNDECIDED_PROGRAM, ...(uga?.programs ?? [])
+        .filter((program) =>
+          programLevel === 'graduate'
+            ? isUgaGraduateDegree(program)
+            : isUgaUndergraduateDegree(program),
+        )
+        .map((program) => ({ id: program.id, name: program.name }))
+        .sort((left, right) => left.name.localeCompare(right.name))];
     }
     return samplePrograms.map((p) => ({ id: p.id, name: `${p.name}, ${p.degree}` }));
-  }, [isIllinois, isUga, core, uga]);
+  }, [isIllinois, isUga, core, uga, programLevel]);
 
   const minorOptions = useMemo(
     () =>
-      isUga
+      isUga && !isGraduatePlan
         ? (uga?.programs ?? [])
             .filter((program) => program.degree === 'MINOR' && program.areaHours > 0)
             .map((program) => ({ id: program.id, name: program.name }))
         : [],
-    [isUga, uga],
+    [isUga, isGraduatePlan, uga],
   );
   const certificateOptions = useMemo(
     () =>
       isUga
         ? (uga?.programs ?? [])
-            .filter((program) => program.degree === 'CERT-UG' && program.areaHours > 0)
+            .filter(
+              (program) =>
+                program.degree === (isGraduatePlan ? 'CERT-GM' : 'CERT-UG') &&
+                program.areaHours > 0,
+            )
             .map((program) => ({ id: program.id, name: program.name }))
         : [],
-    [isUga, uga],
+    [isUga, isGraduatePlan, uga],
   );
   const emphasisRequirements = useMemo(
     () =>
@@ -612,23 +727,58 @@ export function PlannerWorkspace({
     setReport(null);
     setPlanNotes([]);
     setPlanTabs([]);
+    setPlanGroups([{ ...DEFAULT_PLAN_GROUP }]);
+    setDraggingPlanTabId(null);
+    setDragOverPlanGroupId(null);
     setActivePlanId('plan-1');
     setTermWidths({});
   }, []);
 
+  const changeProgramLevel = useCallback(
+    (nextLevel: ProgramLevel) => {
+      if (nextLevel === programLevel) return;
+      const nextProgramIds = [UNDECIDED_PROGRAM_ID];
+      setProgramIds(nextProgramIds);
+      setMinorIds([]);
+      setCertificateIds([]);
+      setMinimumTermCredits(nextLevel === 'graduate' ? 9 : 12);
+      setTargetTermCredits(nextLevel === 'graduate' ? 9 : null);
+      resetProgramPlan();
+      if (answers && onAnswersChange) {
+        onAnswersChange({
+          ...answers,
+          programLevel: nextLevel,
+          programIds: nextProgramIds,
+          minorIds: [],
+          certificateIds: [],
+          emphasisSelections: {},
+          collegeId: '',
+        });
+      }
+    },
+    [answers, onAnswersChange, programLevel, resetProgramPlan],
+  );
+
   const changePrograms = useCallback((ids: string[]) => {
-    setProgramIds(ids);
+    let next = ids;
+    if (next.length === 0) next = [UNDECIDED_PROGRAM_ID];
+    else if (next.includes(UNDECIDED_PROGRAM_ID) && next.length > 1) {
+      next = programIds.includes(UNDECIDED_PROGRAM_ID)
+        ? next.filter((id) => id !== UNDECIDED_PROGRAM_ID)
+        : [UNDECIDED_PROGRAM_ID];
+    }
+    setProgramIds(next);
     resetProgramPlan();
     if (answers && onAnswersChange) {
-      const selected = new Set(ids);
+      const selected = new Set(next);
       const emphasisSelections = Object.fromEntries(
         Object.entries(answers.emphasisSelections).filter(([key]) =>
           [...selected].some((id) => key.startsWith(`${id}::`)),
         ),
       );
-      onAnswersChange({ ...answers, programIds: ids, emphasisSelections });
+      onAnswersChange({ ...answers, programIds: next, emphasisSelections });
     }
-  }, [answers, onAnswersChange, resetProgramPlan]);
+  }, [answers, onAnswersChange, programIds, resetProgramPlan]);
 
   const changeMinors = useCallback((ids: string[]) => {
     setMinorIds(ids);
@@ -651,7 +801,7 @@ export function PlannerWorkspace({
     setPlan(next);
     setPlanTabs((current) => {
       if (current.length === 0) {
-        return [{ id: activePlanId, name: 'Plan 1', plan: next }];
+        return [{ id: activePlanId, name: 'Plan 1', groupId: DEFAULT_PLAN_GROUP.id, plan: next }];
       }
       return current.map((candidate) =>
         candidate.id === activePlanId ? { ...candidate, plan: next } : candidate,
@@ -693,18 +843,34 @@ export function PlannerWorkspace({
        * extra render on arrival and never again.
        */
       // oxlint-disable-next-line react/react-compiler
-      setMinimumTermCredits(parsed.minimumTermCredits ?? 12);
-      setTargetTermCredits(parsed.targetTermCredits ?? null);
+      setMinimumTermCredits(
+        parsed.minimumTermCredits ?? defaultMinimumTermCredits,
+      );
+      setTargetTermCredits(
+        'targetTermCredits' in parsed
+          ? parsed.targetTermCredits ?? null
+          : defaultTargetTermCredits,
+      );
       if (parsed.careerInterests) setCareerInterests(parsed.careerInterests);
     } catch {
       /* a corrupt entry is not worth failing the app over; a fresh plan follows */
     }
-  }, [school, programKey, programIds, minorIds, certificateIds, emphasisKey]);
+  }, [
+    school,
+    programKey,
+    programIds,
+    minorIds,
+    certificateIds,
+    emphasisKey,
+    defaultMinimumTermCredits,
+    defaultTargetTermCredits,
+  ]);
 
   // ---- load the explicitly selected degree pages ---------------------------
 
   useEffect(() => {
     if (programIds.length === 0) return;
+    if (isUndecided) return;
     if (isUga && !emphasesComplete) return;
     if (isUga && uga) {
       const selected = selectedProgramIds
@@ -743,10 +909,10 @@ export function PlannerWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [isIllinois, isUga, core, uga, programIds, selectedProgramIds, programKey, emphasisKey, answers?.emphasisSelections, emphasesComplete]);
+  }, [isIllinois, isUga, isUndecided, core, uga, programIds, selectedProgramIds, programKey, emphasisKey, answers?.emphasisSelections, emphasesComplete]);
 
   const loaded = fetched?.key === programKey ? fetched.value : null;
-  const programBusy = Boolean(isCatalogSchool && programIds.length > 0) && fetched?.key !== programKey;
+  const programBusy = Boolean(isCatalogSchool && programIds.length > 0 && !isUndecided) && fetched?.key !== programKey;
 
   // ---- the planning context -------------------------------------------------
 
@@ -770,7 +936,7 @@ export function PlannerWorkspace({
       setProgramIds((current) => current.length > 0 ? current : [sample.programId]);
       return;
     }
-    if (!context || !loaded) return;
+    if (!context) return;
 
     const prior = readPriorCredit(
       answers?.transferText ?? '',
@@ -796,6 +962,26 @@ export function PlannerWorkspace({
       year: term?.year ?? new Date().getFullYear(),
     });
 
+    if (isUndecided) {
+      const completedCourseIds = prior.courseCodes
+        .map((code) => byCode.get(normCode(code))?.id)
+        .filter((id): id is string => Boolean(id));
+      const openPlan = openPlanThrough(horizon, completedCourseIds);
+      replaceActivePlan(openPlan);
+      setChooser(null);
+      setChooserOnMap(false);
+      setTargetTermId(openPlan.terms[0]?.id ?? '');
+      setPlanNotes([
+        'This is an open plan because no degree program is selected. Add courses from the map, or choose a program in Preferences to rebuild against published requirements.',
+      ]);
+      setReport(null);
+      setUndoStack([]);
+      setStatus('Open plan built. Choose courses from the map or select a degree program in Preferences.');
+      return;
+    }
+
+    if (!loaded) return;
+
     let generated: GeneratedPlan;
     try {
       generated = generatePlan({
@@ -817,11 +1003,21 @@ export function PlannerWorkspace({
             ? loaded.fillToDegreeTotal
             : undefined,
         interests: [
+          loaded.program.name,
           answers?.studying ?? '',
           answers?.after ?? '',
           careerInterests,
         ].join(' '),
         programName: loaded.program.name,
+        standingHours: isGraduatePlan
+          ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 }
+          : undefined,
+        electiveLevelRange: isGraduatePlan
+          ? { min: 600, maxExclusive: 1000 }
+          : undefined,
+        autoPrerequisiteLevelRange: isGraduatePlan
+          ? { min: 600, maxExclusive: 1000 }
+          : undefined,
       });
     } catch (error) {
       console.error('Could not generate plan', error);
@@ -864,6 +1060,8 @@ export function PlannerWorkspace({
   }, [
     isCatalogSchool,
     isUga,
+    isGraduatePlan,
+    isUndecided,
     core,
     context,
     loaded,
@@ -882,13 +1080,33 @@ export function PlannerWorkspace({
     if (restored.current) {
       const saved = restored.current;
       restored.current = null;
-      const savedPlans = (saved.plans ?? []).filter(
+      const rawSavedPlans = (saved.plans ?? []).filter(
         (candidate) =>
           candidate &&
           typeof candidate.id === 'string' &&
           typeof candidate.name === 'string' &&
           isPlanState(candidate.plan),
       );
+      const savedGroups = (saved.planGroups ?? []).filter(
+        (candidate) =>
+          candidate &&
+          typeof candidate.id === 'string' &&
+          typeof candidate.name === 'string' &&
+          typeof candidate.color === 'string' &&
+          /^#[0-9a-f]{6}$/i.test(candidate.color),
+      );
+      const restoredGroups = savedGroups.length > 0
+        ? savedGroups
+        : [{ ...DEFAULT_PLAN_GROUP }];
+      const restoredGroupIds = new Set(restoredGroups.map((group) => group.id));
+      const fallbackGroupId = restoredGroups[0].id;
+      const savedPlans = rawSavedPlans.map((candidate) => ({
+        ...candidate,
+        groupId:
+          typeof candidate.groupId === 'string' && restoredGroupIds.has(candidate.groupId)
+            ? candidate.groupId
+            : fallbackGroupId,
+      }));
       const activeId = savedPlans.some(
         (candidate) => candidate.id === saved.activePlanId,
       )
@@ -900,16 +1118,17 @@ export function PlannerWorkspace({
       setPlanTabs(
         savedPlans.length > 0
           ? savedPlans
-          : [{ id: activeId, name: 'Plan 1', plan: activePlan }],
+          : [{ id: activeId, name: 'Plan 1', groupId: fallbackGroupId, plan: activePlan }],
       );
+      setPlanGroups(restoredGroups);
       setActivePlanId(activeId);
       setPlan(activePlan);
       setTargetTermId(activePlan.terms[0]?.id ?? '');
       setStatus('Your saved plan, restored from this device.');
       return;
     }
-    if (!isCatalogSchool || (context && loaded)) buildPlan();
-  }, [plan, isCatalogSchool, context, loaded, buildPlan]);
+    if (!isCatalogSchool || (context && (loaded || isUndecided))) buildPlan();
+  }, [plan, isCatalogSchool, isUndecided, context, loaded, buildPlan]);
 
   // ---- derived --------------------------------------------------------------
 
@@ -1303,18 +1522,22 @@ export function PlannerWorkspace({
     setStatus(`${target.name} is open.`);
   }
 
-  function duplicatePlanTab() {
+  function duplicatePlanTab(groupId?: string) {
     if (!plan) return;
     const used = new Set(planTabs.map((candidate) => candidate.name));
     let number = planTabs.length + 1;
     while (used.has(`Plan ${number}`)) number += 1;
     const copy = clonePlan(plan);
     const id = `plan-${Date.now().toString(36)}-${number}`;
+    const destinationGroupId = groupId ??
+      planTabs.find((candidate) => candidate.id === activePlanId)?.groupId ??
+      planGroups[0]?.id ??
+      DEFAULT_PLAN_GROUP.id;
     setPlanTabs((current) => [
       ...current.map((candidate) =>
         candidate.id === activePlanId ? { ...candidate, plan } : candidate,
       ),
-      { id, name: `Plan ${number}`, plan: copy },
+      { id, name: `Plan ${number}`, groupId: destinationGroupId, plan: copy },
     ]);
     setActivePlanId(id);
     setPlan(copy);
@@ -1323,12 +1546,72 @@ export function PlannerWorkspace({
     setStatus(`Plan ${number} created from the current plan.`);
   }
 
+  function createPlanGroup() {
+    if (!plan) return;
+    const used = new Set(planGroups.map((group) => group.name));
+    let number = planGroups.length + 1;
+    while (used.has(`Group ${number}`)) number += 1;
+    const group: PlanGroup = {
+      id: `group-${Date.now().toString(36)}-${number}`,
+      name: `Group ${number}`,
+      color: PLAN_GROUP_COLORS[planGroups.length % PLAN_GROUP_COLORS.length],
+    };
+    setPlanGroups((current) => [...current, group]);
+    duplicatePlanTab(group.id);
+  }
+
+  function renamePlanTab(id: string, name: string) {
+    setPlanTabs((current) =>
+      current.map((candidate) => candidate.id === id ? { ...candidate, name } : candidate),
+    );
+  }
+
+  function renamePlanGroup(id: string, name: string) {
+    setPlanGroups((current) =>
+      current.map((group) => group.id === id ? { ...group, name } : group),
+    );
+  }
+
+  function recolorPlanGroup(id: string, color: string) {
+    setPlanGroups((current) =>
+      current.map((group) => group.id === id ? { ...group, color } : group),
+    );
+  }
+
+  function movePlanTabToGroup(tabId: string, targetGroupId: string) {
+    const moving = planTabs.find((candidate) => candidate.id === tabId);
+    if (!moving || moving.groupId === targetGroupId) return;
+    const sourceGroupId = moving.groupId;
+    const next = planTabs.filter((candidate) => candidate.id !== tabId);
+    next.push({
+      ...moving,
+      groupId: targetGroupId,
+      plan: moving.id === activePlanId && plan ? plan : moving.plan,
+    });
+    setPlanTabs(next);
+    if (!next.some((candidate) => candidate.groupId === sourceGroupId)) {
+      setPlanGroups((current) => current.filter((group) => group.id !== sourceGroupId));
+    }
+    const targetName = planGroups.find((group) => group.id === targetGroupId)?.name ?? 'the group';
+    setStatus(`${moving.name} moved to ${targetName}.`);
+  }
+
+  function movePlanTabToAdjacentGroup(tabId: string, direction: -1 | 1) {
+    const moving = planTabs.find((candidate) => candidate.id === tabId);
+    if (!moving) return;
+    const sourceIndex = planGroups.findIndex((group) => group.id === moving.groupId);
+    const target = planGroups[sourceIndex + direction];
+    if (target) movePlanTabToGroup(tabId, target.id);
+  }
+
   function closePlanTab(id: string) {
     if (planTabs.length <= 1) return;
     const index = planTabs.findIndex((candidate) => candidate.id === id);
     if (index < 0) return;
     const remaining = planTabs.filter((candidate) => candidate.id !== id);
     setPlanTabs(remaining);
+    const remainingGroupIds = new Set(remaining.map((candidate) => candidate.groupId));
+    setPlanGroups((current) => current.filter((group) => remainingGroupIds.has(group.id)));
     if (id !== activePlanId) return;
     const next = remaining[Math.min(index, remaining.length - 1)];
     setActivePlanId(next.id);
@@ -1467,6 +1750,12 @@ export function PlannerWorkspace({
       // open chooser while the student is editing that text.
       interests: [answers?.studying ?? '', answers?.after ?? ''].join(' '),
       programName: loaded.program.name,
+      standingHours: isGraduatePlan
+        ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 }
+        : undefined,
+      electiveLevelRange: isGraduatePlan
+        ? { min: 600, maxExclusive: 1000 }
+        : undefined,
       candidateCodes: scope.codes ?? undefined,
       limit: scope.codes === null ? catalog.length : Math.max(800, scope.codes.size),
     })
@@ -1487,6 +1776,7 @@ export function PlannerWorkspace({
     answers,
     byCode,
     examCredit,
+    isGraduatePlan,
   ]);
 
   const chooserOptions = chooserData?.options ?? [];
@@ -1716,7 +2006,7 @@ export function PlannerWorkspace({
     const lines: string[] = [];
     const last = board.terms[board.terms.length - 1]?.label ?? '';
     lines.push(
-      `Degree: ${L.loaded.program.name}, University of Illinois. Published total: ${L.activeProgramTotal ?? 'not published'} credits. Plan: ${L.totalCredits} through ${last}.`,
+      `Degree: ${L.loaded.program.name}, ${school?.name ?? 'selected university'}. Published total: ${L.activeProgramTotal ?? 'not published'} credits. Plan: ${L.totalCredits} through ${last}.`,
     );
     lines.push(
       'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [added] the student put it there.',
@@ -1764,9 +2054,15 @@ export function PlannerWorkspace({
    */
   const advisorExecute: AdvisorExecutor = async (name, input) => {
     const L = live.current;
-    const board = planRef.current;
     const ctx = L.context;
-    if (!board || !ctx || !L.loaded) return { ok: false, error: 'The board is not loaded yet.' };
+    if (!ctx || !L.loaded) return { ok: false, error: 'The course catalog is not loaded yet.' };
+    const board = planRef.current ?? {
+      schemaVersion: 1,
+      programId: L.loaded.program.id,
+      graduationLabel: '',
+      completedCourseIds: [],
+      terms: [],
+    } satisfies PlanState;
     const str = (key: string) => (typeof input[key] === 'string' ? (input[key] as string).trim() : '');
     const termList = board.terms.map((t) => t.label).join(', ');
     const termOf = (label: string) => {
@@ -1876,8 +2172,8 @@ export function PlannerWorkspace({
       }
       case 'course_details': {
         const c = courseOf(str('code'));
-        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
-        const detail = await loadIllinoisCourseDetail(c.code);
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
+        const detail = isIllinois ? await loadIllinoisCourseDetail(c.code) : null;
         const key = normCode(c.code);
         const grade = L.core?.grades?.get(key);
         const prereq = L.core?.prereqs?.get(key);
@@ -1885,9 +2181,9 @@ export function PlannerWorkspace({
           ok: true,
           ...describe(c),
           role_on_board: holding(c.id) ? roleOf(c) : null,
-          description: detail?.course?.description ?? null,
-          prerequisite_sentence: prereq?.text || detail?.course?.prereqText || null,
-          prerequisite_groups: prereq?.groups?.map((g) => g.any) ?? [],
+          description: detail?.course?.description || c.description || null,
+          prerequisite_sentence: prereq?.text || detail?.course?.prereqText || c.prerequisiteText || null,
+          prerequisite_groups: prereq?.groups?.map((g) => g.any) ?? (c.prerequisites.length > 0 ? [c.prerequisites] : []),
           standing_required: prereq?.standing ?? null,
           grade_history: grade
             ? { gpa: grade.gpa, a_percent: grade.aPct, drop_percent: grade.withdrawPct, difficulty_0_to_100: grade.difficulty, students: grade.n }
@@ -1918,7 +2214,7 @@ export function PlannerWorkspace({
       }
       case 'add_course': {
         const c = courseOf(str('code'));
-        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         const already = holding(c.id);
         if (already) return { ok: false, reason: `${c.code} is already on the board in ${already.label}.` };
         if (board.completedCourseIds.includes(c.id)) return { ok: false, reason: `${c.code} is marked as already taken.` };
@@ -1938,7 +2234,7 @@ export function PlannerWorkspace({
       }
       case 'remove_course': {
         const c = courseOf(str('code'));
-        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         const t = holding(c.id);
         if (!t) return { ok: false, reason: `${c.code} is not on the board.` };
         const stop = guard(c, 'removed');
@@ -1955,8 +2251,8 @@ export function PlannerWorkspace({
       case 'replace_course': {
         const oldC = courseOf(str('remove'));
         const newC = courseOf(str('add'));
-        if (!oldC) return { ok: false, reason: `${str('remove') || 'That'} is not in the Illinois catalog.` };
-        if (!newC) return { ok: false, reason: `${str('add') || 'That'} is not in the Illinois catalog.` };
+        if (!oldC) return { ok: false, reason: `${str('remove') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
+        if (!newC) return { ok: false, reason: `${str('add') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         const t = holding(oldC.id);
         if (!t) return { ok: false, reason: `${oldC.code} is not on the board.` };
         const already = holding(newC.id);
@@ -1976,7 +2272,7 @@ export function PlannerWorkspace({
       }
       case 'move_course': {
         const c = courseOf(str('code'));
-        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         const from = holding(c.id);
         if (!from) return { ok: false, reason: `${c.code} is not on the board.` };
         const to = termOf(str('term'));
@@ -2042,6 +2338,7 @@ export function PlannerWorkspace({
       plans: planTabs.map((candidate) =>
         candidate.id === activePlanId ? { ...candidate, plan } : candidate,
       ),
+      planGroups,
       activePlanId,
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
@@ -2061,6 +2358,7 @@ export function PlannerWorkspace({
       plans: planTabs.map((candidate) =>
         candidate.id === activePlanId ? { ...candidate, plan } : candidate,
       ),
+      planGroups,
       activePlanId,
     }, null, 2)], {
       type: 'application/json',
@@ -2087,10 +2385,19 @@ export function PlannerWorkspace({
           minorIds?: unknown;
           certificateIds?: unknown;
           emphasisSelections?: unknown;
+          plans?: unknown;
+          planGroups?: unknown;
+          activePlanId?: unknown;
         };
         if (isPlanState(parsed.plan)) {
           setPlan(parsed.plan);
-          setPlanTabs([{ id: 'plan-1', name: 'Plan 1', plan: parsed.plan }]);
+          setPlanTabs([{
+            id: 'plan-1',
+            name: 'Plan 1',
+            groupId: DEFAULT_PLAN_GROUP.id,
+            plan: parsed.plan,
+          }]);
+          setPlanGroups([{ ...DEFAULT_PLAN_GROUP }]);
           setActivePlanId('plan-1');
           setStatus('Plan loaded from the file.');
         }
@@ -2223,10 +2530,10 @@ export function PlannerWorkspace({
     return (
       <main className="planner-loading">
         <div>
-          <h1>Choose your major</h1>
+          <h1>Choose your degree program</h1>
           <p>
-            Select a major explicitly. Add another to build a double-major plan from both
-            published degree pages.
+            Select a program explicitly. Add another to build a combined plan from both
+            published requirement pages.
           </p>
           <ProgramPicker
             options={programOptions}
@@ -2259,9 +2566,11 @@ export function PlannerWorkspace({
   const grouped = groupIssues(
     issues.filter((issue) => !issue.courseId && !isTermIssue(issue)),
   );
-  const actionable = grouped.filter((g) => g.severity !== 'info').length;
   const errors = grouped.filter((g) => g.severity === 'error').length;
   const warnings = grouped.filter((g) => g.severity === 'warning').length;
+  const reviewTitle = grouped
+    .map((group) => `${group.title}: ${group.message}${group.count > 1 ? ` (${group.count} similar)` : ''}`)
+    .join('\n');
   const years = plan ? [...new Set(plan.terms.map((t) => t.year))] : [];
 
   const caveats = [
@@ -2272,11 +2581,18 @@ export function PlannerWorkspace({
       ? [
           'This planning draft uses requirements and prerequisites from the UGA Bulletin. DegreeWorks and your advisor remain the official check for graduation.',
           'Course availability is based on catalog patterns, not live registration. This prototype does not yet know current instructors, meeting times, rooms, or open seats.',
+          ...(isGraduatePlan
+            ? [
+                'UGA considers 9 graduate credits a normal full-time fall or spring load. Some assistantships require 12; change Preferences if that applies to you.',
+              ]
+            : []),
         ]
       : []),
     ...(programIds.length > 1
       ? [
-          'This double-major draft combines every named requirement from the selected degree pages and counts shared courses once. College residency rules and whether the pairing is one degree or two still need advisor confirmation.',
+          isGraduatePlan
+            ? 'This combined graduate draft includes every named requirement from the selected degree pages and counts shared courses once. Dual-degree approval, residency, and program-of-study rules still need advisor confirmation.'
+            : 'This double-major draft combines every named requirement from the selected degree pages and counts shared courses once. College residency rules and whether the pairing is one degree or two still need advisor confirmation.',
         ]
       : []),
     ...(minorIds.length + certificateIds.length > 0
@@ -2293,48 +2609,70 @@ export function PlannerWorkspace({
       data-finder={finderOpen ? 'open' : 'closed'}
       data-chat={chatOpen ? 'open' : 'closed'}
       data-rail={railOpen ? 'open' : 'closed'}
+      data-theme={theme}
+      style={mapHeight === null ? undefined : ({ '--map-row-h': `${mapHeight}px` } as CSSProperties)}
     >
       <output aria-live="polite" className="sr-only">
         {status_}
       </output>
 
       <header className="app-header">
-        <a className="brand" href="#top" aria-label="Four Year Planner home">
-          <Image src="/constellation-logo.png" alt="" width={30} height={30} priority />
-          <span>
-            {/* The school comes from the student's own choice. Hardcoding one
-                university's name over another's catalog was a false statement
-                on the first line of the page. */}
-            <strong>{school?.short ?? 'Four Year'} Planner</strong>
-            <small>from the Semantic Course Map</small>
-          </span>
+        <a className="brand" href="#top" aria-label="ORION planner home">
+          <Image src="/orion-logo.png" alt="" width={44} height={44} priority />
+          <span className="brand-name">ORION</span>
         </a>
-        <p className="header-coverage">{isCatalogSchool ? coverage : 'Demo catalog'}</p>
         <div className="header-actions">
-          {narrow && (
-            <Button
-              variant="outline"
-              aria-expanded={railOpen}
-              onClick={() => setRailOpen((open) => !open)}
-            >
-              Progress
-            </Button>
-          )}
           <Button
             variant="outline"
-            size="icon"
-            title="Undo the last change"
-            aria-label="Undo the last change"
-            disabled={undoStack.length === 0}
-            onClick={undo}
+            className="rail-toggle"
+            aria-expanded={railOpen}
+            aria-controls="planner-progress"
+            aria-label={railOpen ? 'Close progress' : 'Open progress'}
+            title={railOpen ? 'Close progress' : 'Open progress'}
+            onClick={() => setRailOpen((open) => !open)}
           >
-            <Undo2 />
+            <Menu className="rail-toggle-icon" aria-hidden="true" />
           </Button>
+          {isCatalogSchool && (
+            <BotLauncher
+              open={chatOpen}
+              onToggle={() => setChatOpen((current) => !current)}
+            />
+          )}
           <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="outline" />}>
-              Plan <ChevronDown />
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="profile-menu-trigger"
+                  aria-label="Profile and settings"
+                  title="Profile and settings"
+                />
+              }
+            >
+              <User />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="end" className="w-56 profile-menu">
+              <DropdownMenuItem disabled={undoStack.length === 0} onClick={undo}>
+                <Undo2 /> Undo last change
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setTheme((current) => (current === 'light' ? 'dark' : 'light'))}>
+                {theme === 'light' ? <Moon /> : <Sun />} Use {theme === 'light' ? 'dark' : 'light'} mode
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setRailOpen(true);
+                  requestAnimationFrame(() => {
+                    const details = document.getElementById('rail-programs') as HTMLDetailsElement | null;
+                    if (details) details.open = true;
+                    details?.scrollIntoView({ block: 'nearest' });
+                  });
+                }}
+              >
+                Change majors and programs
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={startOver}>Change university</DropdownMenuItem>
               <DropdownMenuItem onClick={save}>
                 <Save /> Save on this device
               </DropdownMenuItem>
@@ -2354,6 +2692,7 @@ export function PlannerWorkspace({
         programUrls={loaded?.urls ?? []}
         digest={answers ? [school?.short, activeProgramName].filter(Boolean).join(' · ') : ''}
         onStartOver={startOver}
+        onClose={() => setRailOpen(false)}
         plannedCredits={totalCredits}
         creditNote={creditNote}
         degreeTotal={activeProgramTotal}
@@ -2371,11 +2710,15 @@ export function PlannerWorkspace({
               // move as choosing a different degree.
               setPlan(null);
               setPlanTabs([]);
+              setPlanGroups([{ ...DEFAULT_PLAN_GROUP }]);
               setActivePlanId('plan-1');
             }}
           />
         }
         areas={areas}
+        programLevel={programLevel}
+        supportsGraduatePrograms={isUga}
+        onProgramLevelChange={changeProgramLevel}
         programs={programOptions}
         programIds={programIds}
         onProgramsChange={changePrograms}
@@ -2415,98 +2758,167 @@ export function PlannerWorkspace({
       />
 
       <section className="board-region" aria-label="Your semesters">
-        <div className="plan-tabs" role="tablist" aria-label="Degree plan alternatives">
-          {planTabs.map((candidate) => (
-            <div
-              key={candidate.id}
-              className="plan-tab-shell"
-              data-active={candidate.id === activePlanId ? 'true' : undefined}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={candidate.id === activePlanId}
-                className="plan-tab-button"
-                onClick={() => switchPlanTab(candidate.id)}
+        <div
+          className="plan-tabs"
+          role="tablist"
+          tabIndex={-1}
+          aria-label="Degree plan alternatives"
+          onDragOver={(event) => {
+            if (!draggingPlanTabId) return;
+            const group = (event.target as HTMLElement).closest<HTMLElement>('[data-plan-group-id]');
+            const groupId = group?.dataset.planGroupId;
+            if (!groupId) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            setDragOverPlanGroupId(groupId);
+          }}
+          onDrop={(event) => {
+            if (!draggingPlanTabId) return;
+            const group = (event.target as HTMLElement).closest<HTMLElement>('[data-plan-group-id]');
+            const groupId = group?.dataset.planGroupId;
+            if (!groupId) return;
+            event.preventDefault();
+            const tabId = event.dataTransfer.getData('application/x-orion-plan-tab') || draggingPlanTabId;
+            movePlanTabToGroup(tabId, groupId);
+            setDraggingPlanTabId(null);
+            setDragOverPlanGroupId(null);
+          }}
+        >
+          {planGroups.map((group) => {
+            const groupTabs = planTabs.filter((candidate) => candidate.groupId === group.id);
+            if (groupTabs.length === 0) return null;
+            return (
+              <fieldset
+                key={group.id}
+                className="plan-tab-group"
+                data-plan-group-id={group.id}
+                data-drop-target={dragOverPlanGroupId === group.id ? 'true' : undefined}
+                style={{ '--plan-group-color': group.color } as CSSProperties}
               >
-                {candidate.name}
-              </button>
-              <button
-                type="button"
-                className="plan-tab-close"
-                aria-label={`Close ${candidate.name}`}
-                title={`Close ${candidate.name}`}
-                disabled={planTabs.length <= 1}
-                onClick={() => closePlanTab(candidate.id)}
-              >
-                <X />
-              </button>
-            </div>
-          ))}
+                <legend className="sr-only">{group.name} plan group</legend>
+                <label className="plan-group-color" title={`Change ${group.name} color`}>
+                  <span className="sr-only">Change {group.name} color</span>
+                  <input
+                    type="color"
+                    value={group.color}
+                    onChange={(event) => recolorPlanGroup(group.id, event.target.value)}
+                  />
+                </label>
+                <input
+                  className="plan-group-name"
+                  aria-label={`Rename ${group.name}`}
+                  value={group.name}
+                  onChange={(event) => renamePlanGroup(group.id, event.target.value)}
+                  onBlur={(event) => renamePlanGroup(group.id, event.target.value.trim() || 'Untitled group')}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                  }}
+                />
+                {groupTabs.map((candidate) => (
+                  <div
+                    key={candidate.id}
+                    className="plan-tab-shell"
+                    data-active={candidate.id === activePlanId ? 'true' : undefined}
+                    data-dragging={candidate.id === draggingPlanTabId ? 'true' : undefined}
+                  >
+                    <button
+                      type="button"
+                      className="plan-tab-drag-handle"
+                      draggable
+                      aria-label={`Move ${candidate.name} to another group`}
+                      title="Drag to another group. Keyboard: Alt + Left or Right Arrow."
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('application/x-orion-plan-tab', candidate.id);
+                        setDraggingPlanTabId(candidate.id);
+                        setDragOverPlanGroupId(null);
+                      }}
+                      onDragEnd={() => {
+                        setDraggingPlanTabId(null);
+                        setDragOverPlanGroupId(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (!event.altKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+                        event.preventDefault();
+                        movePlanTabToAdjacentGroup(candidate.id, event.key === 'ArrowLeft' ? -1 : 1);
+                      }}
+                    >
+                      <GripVertical aria-hidden="true" />
+                    </button>
+                    <input
+                      role="tab"
+                      aria-selected={candidate.id === activePlanId}
+                      aria-label={`Rename ${candidate.name}`}
+                      className="plan-tab-button"
+                      value={candidate.name}
+                      onFocus={() => switchPlanTab(candidate.id)}
+                      onChange={(event) => renamePlanTab(candidate.id, event.target.value)}
+                      onBlur={(event) => renamePlanTab(candidate.id, event.target.value.trim() || 'Untitled plan')}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') event.currentTarget.blur();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="plan-tab-close"
+                      aria-label={`Close ${candidate.name}`}
+                      title={`Close ${candidate.name}`}
+                      disabled={planTabs.length <= 1}
+                      onClick={() => closePlanTab(candidate.id)}
+                    >
+                      <X />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="plan-tab-add"
+                  aria-label={`Add a plan to ${group.name}`}
+                  title={`Duplicate the current plan in ${group.name}`}
+                  disabled={!plan}
+                  onClick={() => duplicatePlanTab(group.id)}
+                >
+                  <Plus />
+                </button>
+              </fieldset>
+            );
+          })}
           <button
             type="button"
-            className="plan-tab-add"
-            aria-label="Create another plan from this one"
-            title="Duplicate this plan to compare another path"
+            className="plan-group-add"
+            aria-label="Create a new plan group"
+            title="Create a color-coded plan group"
             disabled={!plan}
-            onClick={duplicatePlanTab}
+            onClick={createPlanGroup}
           >
-            <Plus />
+            <FolderPlus />
           </button>
         </div>
         <div className="board-bar">
-          <div className="board-bar-facts">
-            <strong>{activeProgramName ?? 'Your plan'}</strong>
-            <span>{totalCredits}</span>
-            {plan && plan.terms.length > 0 && (
-              <span>through {plan.terms[plan.terms.length - 1].label}</span>
-            )}
-          </div>
-
-          {isIllinois && (
-            <BotLauncher
-              botName={botName}
-              open={chatOpen}
-              onToggle={() => {
-                if (!chatOpen) setFinderOpen(false);
-                setChatOpen((current) => !current);
-              }}
-            />
+          {grouped.length > 0 && (
+            <Popover>
+              <PopoverTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={`Review ${grouped.length} thing${grouped.length === 1 ? '' : 's'} in this plan`}
+                    title={reviewTitle}
+                    className={`review-chip${errors ? ' has-error' : warnings ? ' has-warning' : ''}`}
+                  />
+                }
+              >
+                <span
+                  className={`issue-icon ${errors ? 'is-error' : warnings ? 'is-warning' : 'is-info'}`}
+                  aria-hidden="true"
+                >
+                  !
+                </span>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80">
+                <PlanHealthList groups={grouped} onSelectIssue={selectIssue} />
+              </PopoverContent>
+            </Popover>
           )}
-
-          <Popover>
-            <PopoverTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label={`Review ${grouped.length} thing${grouped.length === 1 ? '' : 's'} in this plan`}
-                  className={`review-chip${errors ? ' has-error' : warnings ? ' has-warning' : ''}`}
-                />
-              }
-            >
-              {/* Only errors and warnings are "to review". The rest are notes:
-                  the catalog's own words and where the elective hours went, and
-                  a red "13 to review" over nine of those sent students hunting
-                  for problems that were not there. */}
-              {grouped.length === 0 ? (
-                <>
-                  <CheckCircle2 /> No plan-wide notes
-                </>
-              ) : actionable === 0 ? (
-                <>
-                  <Info /> {grouped.length} {grouped.length === 1 ? 'note' : 'notes'}
-                </>
-              ) : (
-                <>
-                  {errors ? <AlertCircle /> : <AlertTriangle />} {actionable} to review
-                  {grouped.length > actionable ? `, ${grouped.length - actionable} ${grouped.length - actionable === 1 ? 'note' : 'notes'}` : ''}
-                </>
-              )}
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-80">
-              <PlanHealthList groups={grouped} onSelectIssue={selectIssue} />
-            </PopoverContent>
-          </Popover>
 
           <Button variant="outline" onClick={buildPlan} disabled={programBusy}>
             Rebuild
@@ -2630,7 +3042,9 @@ export function PlannerWorkspace({
         targetTermId={targetTermId}
         searchQuery={searchQuery}
         open={finderOpen}
+        theme={theme}
         dragUsable={dragUsable}
+        onHeightChange={setMapHeight}
         onOpenChange={setFinderOpen}
         onSearchChange={setSearchQuery}
         onTargetTermChange={setTargetTermId}
@@ -2652,24 +3066,26 @@ export function PlannerWorkspace({
         * rebuilt from the new board, and an answer still in flight from the old
         * degree resolves into an unmounted component and is dropped.
         */}
-      {isIllinois && (
+      {isCatalogSchool && (
         <BotPanel
           key={programKey || 'no-degree'}
           botName={botName}
+          schoolId={school?.id ?? null}
+          schoolName={school?.name ?? 'your university'}
           schoolShort={school?.short ?? 'your school'}
           programId={programKey || null}
           board={describeBoard}
           execute={advisorExecute}
           open={chatOpen}
+          onOpen={() => setChatOpen(true)}
           onClose={() => setChatOpen(false)}
           openers={[
-            'How do I drop a class?',
-            'When is tuition due?',
-            'Where do I find my academic advisor?',
-            'I really like history. Can you work some in?',
+            'Does this plan meet my degree requirements?',
+            `How do I find my ${school?.short ?? 'university'} advisor?`,
+            'Can you suggest an elective based on my interests?',
             'Which term is hardest?',
           ]}
-          ready={Boolean(plan && context && loaded)}
+          ready={Boolean(context)}
         />
       )}
     </main>

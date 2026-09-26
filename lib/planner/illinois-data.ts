@@ -3271,13 +3271,17 @@ export function adaptIllinoisPrograms(
       const schedulerGroups: RequirementGroup[] = [];
 
       const rules = byArea[ai] ?? { blocks: [], droppedRows: 0, droppedTotalRows: 0, pools: 0, areaHours: null };
+      const areaLabel =
+        area.label?.trim() ||
+        rules.blocks.find((block) => block.label?.trim())?.label?.trim() ||
+        'Degree requirements';
       dropped += rules.droppedRows;
       droppedTotalRows += rules.droppedTotalRows;
       poolGroups += rules.pools;
 
       for (const block of rules.blocks) {
         enumeratedRows += block.rows;
-        const label = block.label || area.label || '';
+        const label = block.label || areaLabel;
         const rule = block.rule;
 
         programBlocks.push({
@@ -3287,7 +3291,7 @@ export function adaptIllinoisPrograms(
           // several blocks, which today is the gen-ed table and nothing else.
           id: `${raw.id}::${ai}::${block.groupIndex}${block.idSuffix ? `::${block.idSuffix}` : ''}`,
           areaId,
-          areaLabel: area.label,
+          areaLabel,
           label,
           hours: block.hours,
           // programs.mjs's hours() keeps only the first number it sees, so a
@@ -3355,10 +3359,10 @@ export function adaptIllinoisPrograms(
 
       // The area's own subtotal row counts as its size where the heading
       // prints none, so Business Core reads 48 of 57 rather than 48 of 48.
-      areas.push({ label: area.label, hours: area.hours ?? rules.areaHours ?? 0, groups: schedulerGroups });
+      areas.push({ label: areaLabel, hours: area.hours ?? rules.areaHours ?? 0, groups: schedulerGroups });
       requirements.push({
         id: areaId,
-        label: area.label,
+        label: areaLabel,
         targetCredits: area.hours ?? rules.areaHours ?? 0,
         description: area.groups?.find((g) => g.note)?.note ?? '',
       });

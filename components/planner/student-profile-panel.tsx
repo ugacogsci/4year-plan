@@ -10,11 +10,14 @@
  */
 
 import { useState, type ReactNode } from 'react';
+import Image from 'next/image';
+import { Info, RotateCcw, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { RequirementArea } from '@/lib/planner/scheduler';
 import { ProgramPicker, type ProgramOption } from './program-picker';
 import { EmphasisPicker } from './emphasis-picker';
 import type { UgaSelectionRequirement } from './uga-source';
+import type { ProgramLevel } from '@/lib/planner/onboarding';
 
 export interface AreaRow {
   area: RequirementArea;
@@ -31,6 +34,7 @@ interface RailProps {
   programUrls: Array<{ name: string; url: string }>;
   digest: string;
   onStartOver: () => void;
+  onClose: () => void;
   plannedCredits: string;
   /**
    * The whole sentence about where the student is, shown only when they walked
@@ -42,6 +46,9 @@ interface RailProps {
   priorCount: number;
   priorCourses: Array<{ code: string; title: string }>;
   areas: AreaRow[];
+  programLevel: ProgramLevel;
+  supportsGraduatePrograms: boolean;
+  onProgramLevelChange: (level: ProgramLevel) => void;
   programs: ProgramOption[];
   programIds: string[];
   onProgramsChange: (ids: string[]) => void;
@@ -112,14 +119,17 @@ export function StudentProfilePanel({
   portal,
   programName,
   programUrls,
-  digest,
   onStartOver,
+  onClose,
   plannedCredits,
   creditNote,
   degreeTotal,
   priorCount,
   priorCourses,
   areas,
+  programLevel,
+  supportsGraduatePrograms,
+  onProgramLevelChange,
   programs,
   programIds,
   onProgramsChange,
@@ -159,21 +169,33 @@ export function StudentProfilePanel({
   const quiet = unnamedRows.length - unnamed.length;
 
   return (
-    <aside className="rail" aria-label="Your profile and progress">
+    <aside
+      id="planner-progress"
+      className="rail"
+      aria-label="Your profile and progress"
+      data-school={schoolShort}
+    >
+      <button
+        type="button"
+        className="rail-close"
+        onClick={onClose}
+        aria-label="Close progress"
+      >
+        <X aria-hidden="true" />
+      </button>
       <div className="rail-school">
-        <strong>{programName ?? 'No degree chosen'}</strong>
-        <span>{schoolName}</span>
+        <span className="rail-school-mark" aria-hidden="true">
+          <Image
+            src={schoolShort === 'UGA' ? '/uga-school-logo.png' : '/illinois-school-logo.png'}
+            alt=""
+            width={schoolShort === 'UGA' ? 628 : 1408}
+            height={schoolShort === 'UGA' ? 628 : 1408}
+          />
+        </span>
+        <span className="rail-school-name">{schoolName}</span>
       </div>
 
-      {digest && (
-        <div className="profile-digest">
-          <h3>Your setup</h3>
-          <p>{digest}</p>
-          <button type="button" className="again" onClick={onStartOver}>
-            Start over
-          </button>
-        </div>
-      )}
+      <h2 className="rail-program-name">{programName ?? 'No degree chosen'}</h2>
 
       <div className="rail-progress">
         <div className="rail-progress-head">
@@ -181,80 +203,82 @@ export function StudentProfilePanel({
           <span>{degreeTotal ? `of ${degreeTotal} for the degree` : 'degree total not published'}</span>
         </div>
         <Bar percent={degreeTotal ? percentOf(plannedCredits, degreeTotal) : 0} />
-        <div className="rail-progress-head">
-          <span>Already taken</span>
-          <span>{priorCount} course{priorCount === 1 ? '' : 's'}</span>
-        </div>
-        {priorCourses.length > 0 && (
-          <div className="completed-course-list" aria-label="Classes already taken">
-            {priorCourses.map((course) => (
-              <span key={course.code} title={course.title}>
-                {course.code}
-              </span>
-            ))}
-          </div>
-        )}
-        {transcript}
+        <details className="rail-completed">
+          <summary>
+            <span>Already taken</span>
+            <span>{priorCount} course{priorCount === 1 ? '' : 's'}</span>
+          </summary>
+          {priorCourses.length > 0 && (
+            <div className="completed-course-list" aria-label="Classes already taken">
+              {priorCourses.map((course) => (
+                <span key={course.code} title={course.title}>
+                  {course.code}
+                </span>
+              ))}
+            </div>
+          )}
+          {transcript}
+        </details>
         {creditNote && <p className="rail-credit-note">{creditNote}</p>}
       </div>
 
       {areas.length > 0 && (
-        <div className="requirement-list">
-          {named.map(({ row, key, heading }) => (
-            <div className="requirement-row" key={key}>
-              <div>
-                <span title={heading ?? undefined}>{heading}</span>
-                {/* No bar without a target. An area whose hours the degree page
-                    does not publish has nothing to be a fraction of, and a bar
-                    stuck at zero next to 73 earned hours reads as no progress. */}
-                <span>
-                  {row.area.hours
-                    ? `${row.earned}/${row.area.hours} cr`
-                    : `${row.earned} cr`}
-                </span>
+        <details className="rail-requirements">
+          <summary>
+            <span>Degree requirements</span>
+            <strong>{areas.filter((row) => row.satisfied).length}/{areas.length}</strong>
+          </summary>
+          <div className="requirement-list">
+            {named.map(({ row, key, heading }, index) => (
+              <div className="requirement-row" key={key}>
+                <span className="requirement-index" aria-hidden="true">{index + 1}.</span>
+                <div>
+                  <span title={heading ?? undefined}>{heading}</span>
+                  <span>{row.area.hours ? `${row.earned}/${row.area.hours} cr` : `${row.earned} cr`}</span>
+                </div>
+                {row.area.hours > 0 && <Bar percent={row.percent} />}
               </div>
-              {row.area.hours > 0 && <Bar percent={row.percent} />}
-            </div>
-          ))}
-          {/* The heading slot says the page has no heading here. It is not a
-              name, and it must not look like one: the placeholder these rows
-              used to carry, "Requirements 3", was a number this product made up
-              and showed to students as the catalog's own words. */}
-          {unnamed.map(({ row, key }) => (
-            <div className="requirement-row" key={key}>
-              <div>
-                <span
-                  className="requirement-unnamed"
-                  title="The catalog page prints this block of requirements with no heading."
-                >
-                  No heading published
-                </span>
-                <span>
-                  {row.area.hours
-                    ? `${row.earned}/${row.area.hours} cr`
-                    : `${row.earned} cr`}
-                </span>
+            ))}
+            {unnamed.map(({ row, key }, index) => (
+              <div className="requirement-row" key={key}>
+                <span className="requirement-index" aria-hidden="true">{named.length + index + 1}.</span>
+                <div>
+                  <span className="requirement-unnamed" title="The catalog page prints this block with no heading.">
+                    No heading published
+                  </span>
+                  <span>{row.area.hours ? `${row.earned}/${row.area.hours} cr` : `${row.earned} cr`}</span>
+                </div>
+                {row.area.hours > 0 && <Bar percent={row.percent} />}
               </div>
-              {row.area.hours > 0 && <Bar percent={row.percent} />}
-            </div>
-          ))}
-          {quiet > 0 && (
-            <p className="requirement-unnamed">
-              {quiet} more {quiet === 1 ? 'part' : 'parts'} of that page{' '}
-              {quiet === 1 ? 'prints' : 'print'} no heading and no hours, so there is nothing to
-              measure {quiet === 1 ? 'it' : 'them'} against.
-            </p>
-          )}
-        </div>
+            ))}
+            {quiet > 0 && <p className="requirement-unnamed">{quiet} unmeasured catalog {quiet === 1 ? 'section' : 'sections'} hidden.</p>}
+          </div>
+          {pools}
+        </details>
       )}
 
-      {pools}
-
-      <details className="rail-section">
+      <details className="rail-section" id="rail-programs">
         <summary>Programs</summary>
-        <span className="rail-program-label">Majors</span>
+        {supportsGraduatePrograms && (
+          <label className="rail-field rail-program-level">
+            <span>Program level</span>
+            <select
+              value={programLevel}
+              onChange={(event) =>
+                onProgramLevelChange(event.target.value as ProgramLevel)
+              }
+            >
+              <option value="undergraduate">Undergraduate</option>
+              <option value="graduate">Graduate &amp; professional</option>
+            </select>
+          </label>
+        )}
+        <span className="rail-program-label">
+          {programLevel === 'graduate' ? 'Degree programs' : 'Majors'}
+        </span>
         <ProgramPicker
           compact
+          kindLabel={programLevel === 'graduate' ? 'degree' : 'major'}
           options={programs}
           selectedIds={programIds}
           onChange={onProgramsChange}
@@ -273,7 +297,9 @@ export function StudentProfilePanel({
         )}
         {certificates.length > 0 && (
           <>
-            <span className="rail-program-label">Certificates</span>
+            <span className="rail-program-label">
+              {programLevel === 'graduate' ? 'Graduate certificates' : 'Certificates'}
+            </span>
             <ProgramPicker
               compact
               kindLabel="certificate"
@@ -326,7 +352,7 @@ export function StudentProfilePanel({
             onChange={(event) => onMinimumChange(Number(event.target.value))}
           />
         </label>
-        <p className="rail-field" style={{ fontSize: 'var(--fs-micro)', color: '#6f8098' }}>
+        <p className="rail-field rail-helper">
           Blank means balanced: every term takes an even share of what is left. Press Rebuild
           after changing these. Your graduation date comes first, so a term goes past the number
           you set only when the degree would not fit in time otherwise, and never past 18.
@@ -336,31 +362,42 @@ export function StudentProfilePanel({
           initialValue={careerInterests}
           onCommit={onCareerChange}
         />
-        <p className="rail-field" style={{ fontSize: 'var(--fs-micro)', color: '#6f8098' }}>
+        <p className="rail-field rail-helper">
           Used to rank elective suggestions after you press Rebuild.
         </p>
       </details>
 
-      <p className="rail-note">
-        Some of this is estimated. Check the catalog before you register.
-        <Popover>
-          <PopoverTrigger render={<button type="button">What is estimated?</button>} />
-          <PopoverContent align="start" className="w-80">
-            <div className="health-popover">
-              {caveats.map((line) => (
-                <p key={line} style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.5 }}>
-                  {line}
-                </p>
-              ))}
-              <p style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.5 }}>
-                {schoolShort} and {portal} remain the source of truth. Nothing you type
-                here leaves this device. A transcript you upload is sent once to be read
-                and is not kept.
+      <Popover>
+        <PopoverTrigger
+          render={
+            <button
+              type="button"
+              className="rail-info-trigger"
+              aria-label="Plan assumptions and setup"
+              title="Plan assumptions and setup"
+            />
+          }
+        >
+          <Info aria-hidden="true" />
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-80">
+          <div className="health-popover">
+            {caveats.map((line) => (
+              <p key={line} style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.5 }}>
+                {line}
               </p>
-            </div>
-          </PopoverContent>
-        </Popover>
-      </p>
+            ))}
+            <p style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.5 }}>
+              {schoolShort} and {portal} remain the source of truth. Nothing you type
+              here leaves this device. A transcript you upload is sent once to be read
+              and is not kept.
+            </p>
+            <button type="button" className="rail-restart-button" onClick={onStartOver}>
+              <RotateCcw aria-hidden="true" /> Change university or restart setup
+            </button>
+          </div>
+        </PopoverContent>
+      </Popover>
     </aside>
   );
 }

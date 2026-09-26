@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { Onboarding } from './onboarding';
 import { clearSavedPlan, PlannerWorkspace } from './planner-workspace';
 import { isReadySchool, loadAnswers, saveAnswers, type OnboardingAnswers } from '@/lib/planner/onboarding';
@@ -41,25 +42,29 @@ export function AppShell() {
   if (!ready) return null;
   if (!answers) {
     return (
-      <Onboarding
-        initial={saved}
-        onResume={saved?.programIds.length ? () => setAnswers(saved) : undefined}
-        onDone={(next) => {
-          // A board saved under the previous answers would otherwise win over
-          // the plan these answers are about to build.
-          clearSavedPlan();
-          setAnswers(next);
-        }}
-      />
+      <TooltipProvider>
+        <Onboarding
+          initial={saved}
+          onResume={saved?.programIds.length ? () => setAnswers(saved) : undefined}
+          onDone={(next) => {
+            // A board saved under the previous answers would otherwise win over
+            // the plan these answers are about to build.
+            clearSavedPlan();
+            setAnswers(next);
+          }}
+        />
+      </TooltipProvider>
     );
   }
   return (
-    <PlannerWorkspace
-      answers={answers}
-      onAnswersChange={(next) => {
-        saveAnswers(next);
-        setAnswers(next);
-      }}
-    />
+    <TooltipProvider>
+      <PlannerWorkspace
+        answers={answers}
+        onAnswersChange={(next) => {
+          saveAnswers(next);
+          setAnswers(next);
+        }}
+      />
+    </TooltipProvider>
   );
 }

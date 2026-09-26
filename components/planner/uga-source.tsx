@@ -17,6 +17,9 @@ import type {
   RequirementGroup,
 } from '@/lib/planner/scheduler';
 import type { Course, SemesterSeason } from '@/lib/planner/types';
+import { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
+
+export { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 
 const normCode = (value: string) =>
   value.replace(/\s+/g, ' ').trim().toUpperCase();
@@ -27,14 +30,27 @@ const slug = (value: string) =>
     .replace(/^-|-$/g, '');
 
 /**
- * UGA displays joint undergraduate/graduate and lecture/lab listings as one
- * code. Requirements and prerequisites refer to the undergraduate half, so
- * all three data sources need the same key.
+ * Requirement rows normally print one code. When a row contains a combined
+ * lecture/lab or joint listing, this is the stable first code; catalog rows
+ * are expanded separately below so both undergraduate and graduate numbers
+ * remain searchable.
  */
 function canonicalUgaCode(value: string): string {
   const code = normCode(value).replace(/\s*\*+\s*$/, '');
   const match = code.match(/^([A-Z]{2,5})(?:\([A-Z]{2,5}\))*\s+(\d{4}[A-Z]?)/);
   return match ? `${match[1]} ${match[2]}` : code;
+}
+
+/** Return the separately searchable codes printed on a joint UGA course row. */
+function listedUgaCourseCodes(value: string): string[] {
+  const code = normCode(value).replace(/\s*\*+\s*$/, '');
+  const match = code.match(
+    /^([A-Z]{2,5})(?:\([A-Z]{2,5}\))*\s+(\d{4}[A-Z]?)(?:\/(\d{4}[A-Z]?))?/,
+  );
+  if (!match) return [canonicalUgaCode(code)];
+  return [...new Set([match[2], match[3]].filter(Boolean))].map(
+    (number) => `${match[1]} ${number}`,
+  );
 }
 
 /** Online, honors, service-learning, and writing-intensive rows are versions of one UGA course. */
@@ -136,6 +152,13 @@ interface RawUgaRequirementGroup {
   lists?: Array<{ label: string; codes: string[] }>;
   completeOneList?: boolean;
   bundleSize?: number;
+  constraints?: Array<{
+    text: string;
+    n: number;
+    lists: Array<{ label: string; codes: string[] }>;
+    single: boolean;
+    distinctLists?: boolean;
+  }>;
   courses: RawUgaRequirementCourse[];
 }
 
@@ -156,6 +179,20 @@ export interface UgaProgram {
   totalCredits: number | null;
   areaHours: number;
   emphasisGroups?: UgaEmphasisGroup[];
+}
+
+export type UgaProgramLevel = 'undergraduate' | 'graduate';
+
+export function isUgaUndergraduateDegree(program: Pick<UgaProgram, 'degree'>): boolean {
+  return program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree);
+}
+
+export function isUgaGraduateDegree(program: Pick<UgaProgram, 'degree'>): boolean {
+  return (
+    program.degree.length > 0 &&
+    !isUgaUndergraduateDegree(program) &&
+    !['MINOR', 'CERT-UG', 'CERT-GM'].includes(program.degree)
+  );
 }
 
 export interface UgaEmphasisOption {
@@ -359,31 +396,39 @@ async function readJson<T>(url: string): Promise<T | null> {
   }
 }
 
-function adaptCourse(raw: RawUgaCourse): Course {
+function adaptCourses(raw: RawUgaCourse): Course[] {
   const offeredIn: SemesterSeason[] = raw.offeredIn?.length
     ? raw.offeredIn
     : ['Fall', 'Spring'];
-  const code = canonicalUgaCode(raw.code);
-  return {
-    id: slug(code),
-    code,
-    title: raw.title,
-    credits: Number.isFinite(raw.credits) ? raw.credits : 3,
-    creditsMax: Number.isFinite(raw.creditsMax) ? raw.creditsMax : raw.credits,
-    description: raw.description ?? '',
-    cluster: raw.cluster,
-    requirementIds: [],
-    prerequisites: raw.prerequisites ?? [],
-    prerequisiteText: raw.prerequisiteText ?? '',
-    offeredIn,
-    // A one-season row is useful catalog evidence. Fall + Spring is also the
-    // fallback written by the enrichment script when a page could not be read,
-    // so it must not be presented as a verified offering pattern.
-    offeringKnown: offeredIn.length !== 2 || !offeredIn.includes('Fall') || !offeredIn.includes('Spring'),
-    format: raw.format ?? 'In person',
-    tags: raw.tags ?? [],
-    mapPosition: raw.mapPosition,
-  };
+  return listedUgaCourseCodes(raw.code).map((code, index) => ({
+      id: slug(code),
+      code,
+      title: raw.title,
+      credits: Number.isFinite(raw.credits) ? raw.credits : 3,
+      creditsMax: Number.isFinite(raw.creditsMax) ? raw.creditsMax : raw.credits,
+      description: raw.description ?? '',
+      cluster: raw.cluster,
+      requirementIds: [],
+      prerequisites: raw.prerequisites ?? [],
+      prerequisiteText: raw.prerequisiteText ?? '',
+      offeredIn,
+      // A one-season row is useful catalog evidence. Fall + Spring is also the
+      // fallback written by the enrichment script when a page could not be read,
+      // so it must not be presented as a verified offering pattern.
+      offeringKnown:
+        offeredIn.length !== 2 ||
+        !offeredIn.includes('Fall') ||
+        !offeredIn.includes('Spring'),
+      format: raw.format ?? 'In person',
+      tags: raw.tags ?? [],
+      mapPosition:
+        raw.mapPosition && index > 0
+          ? {
+              x: Math.min(100, raw.mapPosition.x + 0.18),
+              y: Math.min(100, raw.mapPosition.y + 0.18),
+            }
+          : raw.mapPosition,
+    }));
 }
 
 /**
@@ -457,6 +502,7 @@ function broadElectiveCourses(
   excludePrefixes: string[],
 ): Course[] {
   const bySubject = new Map<string, Course[]>();
+  const maximumLevel = minimumLevel >= 6 ? 9 : 5;
   const score = (code: string) => {
     let hash = 2166136261;
     for (const char of code) {
@@ -472,7 +518,7 @@ function broadElectiveCourses(
     if (
       excludePrefixes.includes(subject) ||
       level < minimumLevel ||
-      level > 5 ||
+      level > maximumLevel ||
       course.credits < 3 ||
       course.credits > 4 ||
       /laboratory|internship|practicum|independent study|research|thesis|dissertation/i.test(
@@ -501,7 +547,7 @@ function broadElectiveCourses(
   return selected;
 }
 
-/** Expand "CSCI 4XXX" into the undergraduate courses that can fill the pool. */
+/** Expand a subject- or campus-level wildcard into real catalog choices. */
 function choicesFor(
   group: RawUgaRequirementGroup,
   byCode: Map<string, Course>,
@@ -571,6 +617,33 @@ function adaptProgram(
   const blocks: RequirementBlock[] = [];
   const areas: RequirementArea[] = [];
   const fixedRequirementCodes = new Set<string>();
+  const fallbackProgramHours =
+    program.areas.length === 0 && isUgaGraduateDegree(program)
+      ? program.totalCredits
+      : null;
+
+  if (fallbackProgramHours && fallbackProgramHours > 0) {
+    const areaId = `${program.id}::program-of-study`;
+    const areaLabel = 'Program of study';
+    blocks.push({
+      id: `${areaId}::unlisted`,
+      areaId,
+      areaLabel,
+      label: areaLabel,
+      hours: fallbackProgramHours,
+      hoursMax: fallbackProgramHours,
+      rule: {
+        kind: 'hours',
+        hours: fallbackProgramHours,
+        genEd: null,
+        label: areaLabel,
+        source: 'parser-gap',
+      },
+      note: '',
+      url: `https://bulletin.uga.edu/Program/Details/${program.id}?IDc=${program.college}`,
+    });
+    areas.push({ label: areaLabel, hours: fallbackProgramHours, groups: [] });
+  }
 
   program.areas.forEach((area, areaIndex) => {
     const areaId = `${program.id}::${areaIndex}`;
@@ -642,7 +715,22 @@ function adaptProgram(
         const poolLists = lists.length
           ? lists
           : [{ label: group.label || area.label, codes: [...allowed] }];
-        const constraints = group.completeOneList && lists.length
+        const explicitConstraints = (group.constraints ?? [])
+          .map((constraint) => ({
+            ...constraint,
+            lists: constraint.lists
+              .map((list) => ({
+                label: list.label,
+                codes: list.codes
+                  .map(canonicalUgaCode)
+                  .filter((code) => allowed.has(code)),
+              }))
+              .filter((list) => list.codes.length > 0),
+          }))
+          .filter((constraint) => constraint.lists.length > 0);
+        const constraints = explicitConstraints.length
+          ? explicitConstraints
+          : group.completeOneList && lists.length
           ? [
               {
                 text: group.note || 'Choose one complete course group.',
@@ -809,7 +897,7 @@ function adaptProgram(
     name: program.name,
     areas,
     totalCredits: program.totalCredits,
-    areaHours: program.areaHours,
+    areaHours: fallbackProgramHours ?? program.areaHours,
   };
 
   return {
@@ -824,12 +912,16 @@ function adaptProgram(
     // at the named rows produces a 97-credit Psychology "four-year plan".
     // Editable electives fill that difference; unresolved parser gaps remain
     // visible as review items and are never presented as confirmed courses.
-    fillToDegreeTotal: program.totalCredits !== null,
+    fillToDegreeTotal:
+      program.totalCredits !== null &&
+      (isUgaUndergraduateDegree(program) ||
+        (isUgaGraduateDegree(program) &&
+          (program.areas.length === 0 || program.id === '56418'))),
     url: `https://bulletin.uga.edu/Program/Details/${program.id}?IDc=${program.college}`,
   };
 }
 
-function loadUgaData(): Promise<UgaData | null> {
+export function loadUgaData(): Promise<UgaData | null> {
   if (ugaPromise) return ugaPromise;
   ugaPromise = (async () => {
     const [rawCourses, programFile] = await Promise.all([
@@ -841,7 +933,7 @@ function loadUgaData(): Promise<UgaData | null> {
       return null;
     }
 
-    const courses = rawCourses.map(adaptCourse);
+    const courses = rawCourses.flatMap(adaptCourses);
     const byCode = new Map(courses.map((course) => [normCode(course.code), course]));
     const equivalents = ugaEquivalents(courses);
     const prereqs = new Map<string, PlanPrereq>();
@@ -861,14 +953,17 @@ function loadUgaData(): Promise<UgaData | null> {
       if (course.offeringKnown) offeringPublished.add(code);
     }
 
-    const programs = programFile.programs
+    const programs = applyUgaProgramOverrides(programFile.programs)
       .filter(
         (program) =>
-          program.areas.length > 0 &&
-          (program.degree === 'AB' ||
-            /^B[A-Z]+$/.test(program.degree) ||
-            program.degree === 'MINOR' ||
-            program.degree === 'CERT-UG'),
+          (isUgaGraduateDegree(program) &&
+            ((program.areas.length > 0 && program.areaHours > 0) ||
+              (program.totalCredits ?? 0) > 0)) ||
+          ((program.areas.length > 0 && program.areaHours > 0) &&
+            (isUgaUndergraduateDegree(program) ||
+              program.degree === 'MINOR' ||
+              program.degree === 'CERT-UG' ||
+              program.degree === 'CERT-GM')),
       )
       .sort((a, b) => a.name.localeCompare(b.name));
     const context: PlanningContext = {
@@ -909,10 +1004,18 @@ export function useUgaData(enabled: boolean): UgaState {
         setState({ status: 'unavailable', data: null, coverage: 'UGA data did not load' });
         return;
       }
+      const undergraduateDegrees = data.programs.filter(isUgaUndergraduateDegree).length;
+      const graduateDegrees = data.programs.filter(isUgaGraduateDegree).length;
+      const minors = data.programs.filter(
+        (program) => program.degree === 'MINOR',
+      ).length;
+      const certificates = data.programs.filter((program) =>
+        program.degree.startsWith('CERT-'),
+      ).length;
       setState({
         status: 'ready',
         data,
-        coverage: `${data.courses.length.toLocaleString()} UGA courses · ${data.programs.length} undergraduate majors, minors, and certificates`,
+        coverage: `${data.courses.length.toLocaleString()} UGA course listings · ${undergraduateDegrees} undergraduate and ${graduateDegrees} graduate or professional degrees · ${minors} minors · ${certificates} certificates`,
       });
     });
     return () => {

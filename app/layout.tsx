@@ -5,7 +5,7 @@ import './globals.css';
  * School-neutral, because the student picks the school in onboarding.
  * The previous title named one university over another university's catalog.
  */
-const title = 'Four Year Planner';
+const title = 'ORION';
 const description =
   'Plan every semester against your own university catalog, prerequisites and schedule.';
 
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
         url: '/og.png',
         width: 1731,
         height: 909,
-        alt: 'Four Year Planner course constellation',
+        alt: 'ORION course constellation',
       },
     ],
   },

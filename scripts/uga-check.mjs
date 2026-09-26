@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { UGA_COLLEGES } from '../lib/planner/uga-colleges.ts';
+import { applyUgaProgramOverrides } from '../lib/planner/uga-program-overrides.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const file = JSON.parse(
@@ -164,7 +165,19 @@ const canonical = (value) => {
     .match(/^([A-Z]{2,5})(?:\([A-Z]{2,5}\))*\s+(\d{4}[A-Z]?)/);
   return match ? `${match[1]} ${match[2]}` : value.toUpperCase();
 };
-const catalogCodes = new Set(catalog.map((course) => canonical(course.code)));
+const listedCodes = (value) => {
+  const match = value
+    .toUpperCase()
+    .match(/^([A-Z]{2,5})(?:\([A-Z]{2,5}\))*\s+(\d{4}[A-Z]?)(?:\/(\d{4}[A-Z]?))?/);
+  return match
+    ? [...new Set([match[2], match[3]].filter(Boolean))].map(
+        (number) => `${match[1]} ${number}`,
+      )
+    : [value.toUpperCase()];
+};
+const catalogCodes = new Set(
+  catalog.flatMap((course) => listedCodes(course.code)),
+);
 // The broad campus-core menus include a handful of Bulletin rows that the
 // course snapshot no longer carries. The degree-specific rows must all resolve:
 // without one of these, the generated major is incomplete rather than merely
@@ -361,6 +374,105 @@ const parsedCertificates = file.programs.filter(
 assert(parsedMinors.length > 100, 'The UGA minor catalog is unexpectedly sparse');
 assert(parsedCertificates.length > 50, 'The UGA undergraduate certificate catalog is unexpectedly sparse');
 
+const graduateDegrees = applyUgaProgramOverrides(file.programs).filter(
+  (candidate) =>
+    !undergraduateDegrees(candidate.degree) &&
+    !['MINOR', 'CERT-UG', 'CERT-GM'].includes(candidate.degree) &&
+    ((candidate.areas.length > 0 && candidate.areaHours > 0) ||
+      candidate.totalCredits > 0),
+);
+const graduateCertificates = file.programs.filter(
+  (candidate) => candidate.degree === 'CERT-GM' && candidate.areaHours > 0,
+);
+assert(
+  graduateDegrees.length > 350,
+  'The searchable UGA graduate and professional degree catalog is unexpectedly sparse',
+);
+assert(
+  graduateCertificates.length > 30,
+  'The parsed UGA graduate certificate catalog is unexpectedly sparse',
+);
+
+const accountingMacc = file.programs.find((candidate) => candidate.id === '35960');
+assert(accountingMacc, 'Accounting MACC (35960) is missing');
+assert.equal(accountingMacc.degree, 'MACC');
+assert.equal(accountingMacc.areaHours, 30);
+assert.deepEqual(
+  accountingMacc.areas.map((candidate) => [candidate.label, candidate.hours]),
+  [
+    ['Required Courses', 18],
+    ['Elective Courses', 12],
+  ],
+  'Accounting MACC must retain its 30-hour graduate curriculum',
+);
+const missingAccountingCourses = accountingMacc.areas
+  .flatMap((candidate) => candidate.groups)
+  .flatMap((group) => group.courses)
+  .map((course) => canonical(course.code))
+  .filter((code) => !catalogCodes.has(code));
+assert.deepEqual(
+  [...new Set(missingAccountingCourses)],
+  [],
+  'Every Accounting MACC requirement must resolve to a graduate course listing',
+);
+assert(
+  catalogCodes.has('ACCT 7410'),
+  'Joint undergraduate/graduate listings must expose their graduate course number',
+);
+
+const artificialIntelligenceMs = graduateDegrees.find(
+  (candidate) => candidate.id === '19170',
+);
+assert(artificialIntelligenceMs, 'Artificial Intelligence MS (19170) is missing');
+assert.equal(artificialIntelligenceMs.totalCredits, 30);
+assert.equal(artificialIntelligenceMs.areaHours, 30);
+assert.deepEqual(
+  artificialIntelligenceMs.areas.map((candidate) => [candidate.label, candidate.hours]),
+  [
+    ['Required Courses', 11],
+    ['Group A Select Courses', 8],
+    ['Group B Select Courses', 6],
+    ['Thesis and Research', 5],
+  ],
+  'Artificial Intelligence MS must retain its published 30-hour curriculum',
+);
+const missingArtificialIntelligenceCourses = artificialIntelligenceMs.areas
+  .flatMap((candidate) => candidate.groups)
+  .flatMap((group) => group.courses)
+  .map((course) => canonical(course.code))
+  .filter((code) => !catalogCodes.has(code));
+assert.deepEqual(
+  [...new Set(missingArtificialIntelligenceCourses)],
+  [],
+  'Every Artificial Intelligence MS requirement must resolve to the UGA catalog',
+);
+
+const artificialIntelligencePhd = graduateDegrees.find(
+  (candidate) => candidate.id === '56418',
+);
+assert(artificialIntelligencePhd, 'Artificial Intelligence PhD (56418) is missing');
+assert.equal(artificialIntelligencePhd.totalCredits, 46);
+assert.equal(artificialIntelligencePhd.areaHours, 46);
+assert.deepEqual(
+  artificialIntelligencePhd.areas.map((candidate) => [candidate.label, candidate.hours]),
+  [
+    ['Required Courses', 15],
+    ['Elective Courses', 18],
+    ['Doctoral Dissertation', 6],
+  ],
+  'Artificial Intelligence PhD must retain its published 46-hour curriculum',
+);
+const missingArtificialIntelligencePhdCourses = artificialIntelligencePhd.areas
+  .flatMap((candidate) => candidate.groups)
+  .flatMap((group) => group.courses)
+  .map((course) => canonical(course.code))
+  .filter((code) => !catalogCodes.has(code));
+assert.deepEqual(
+  [...new Set(missingArtificialIntelligencePhdCourses)],
+  [],
+  'Every Artificial Intelligence PhD requirement must resolve to the UGA catalog',
+);
+
 const requiredEmphasisPrograms = file.programs.filter((candidate) =>
   candidate.emphasisGroups?.some((group) => group.minimum > 0),
 );
@@ -415,5 +527,5 @@ assert.equal(
 );
 
 console.log(
-  `UGA catalog coverage: one requirement course verified for each of ${Object.keys(collegeCourseChecks).length} schools and colleges with parsed bachelor's majors, within UGA's full ${UGA_COLLEGES.length}-unit roster; ${parsedMinors.length} minors, ${parsedCertificates.length} certificates, and required degree paths are plannable.`,
+  `UGA catalog coverage: one requirement course verified for each of ${Object.keys(collegeCourseChecks).length} schools and colleges with parsed bachelor's majors, within UGA's full ${UGA_COLLEGES.length}-unit roster; ${parsedMinors.length} minors, ${parsedCertificates.length} undergraduate certificates, ${graduateDegrees.length} graduate or professional degrees, ${graduateCertificates.length} graduate certificates, and required degree paths are plannable.`,
 );

@@ -528,7 +528,7 @@ export function readHorizon(
   // shipping it produced a one-semester degree. Fall back rather than show it.
   const ord = (season: SemesterSeason, year: number) =>
     year * 3 + (season === 'Spring' ? 0 : season === 'Summer' ? 1 : 2);
-  if (ord(gradSeason, gradYear) <= ord(startSeason, startYear) || gradYear > startYear + 8) {
+  if (ord(gradSeason, gradYear) < ord(startSeason, startYear) || gradYear > startYear + 8) {
     gradSeason = 'Spring';
     gradYear = startYear + 4;
     stated = false;

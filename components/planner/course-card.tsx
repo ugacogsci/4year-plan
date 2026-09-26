@@ -2,14 +2,13 @@
 
 import { useRef, useState } from 'react';
 import {
-  AlertCircle,
   Check,
-  CircleAlert,
   GripVertical,
   ListChecks,
   LockKeyhole,
   MoreHorizontal,
   MoveRight,
+  Shuffle,
   Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -27,7 +26,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { clusterColor } from './cluster-color';
-import { ReplacementPicker } from './replacement-picker';
+import { IssueBadge } from './issue-badge';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 
 /**
@@ -136,6 +135,22 @@ export function CourseCard({
         className="course-cluster-dot"
         style={{ backgroundColor: clusterColor(course.cluster) }}
       />
+      {issues.length > 0 && (
+        <span
+          className="course-card-issues"
+          aria-label={`${issues.length} course ${issues.length === 1 ? 'note' : 'notes'}`}
+        >
+          {issues.map((issue) => (
+            <IssueBadge
+              key={issue.id}
+              title={issue.title}
+              message={issue.message}
+              severity={issue.severity}
+              side="left"
+            />
+          ))}
+        </span>
+      )}
       <button
         type="button"
         className="course-card-body focus-visible:outline-none"
@@ -149,8 +164,8 @@ export function CourseCard({
           <span className="course-card-code">{course.code}</span>
           <span className="course-card-credits">{creditLabel(course)}</span>
           {course.pathwayRole === 'required' && !electiveOf && (
-            <span className="course-required" title="Required by this degree">
-              <LockKeyhole /> required
+            <span className="course-required" title="Required by this degree" aria-label="Required by this degree">
+              <LockKeyhole />
             </span>
           )}
           {electiveOf && (
@@ -162,27 +177,11 @@ export function CourseCard({
                   : `${electiveOf.label}. ${electiveOf.detail}`
               }
             >
-              <ListChecks /> {electiveOf.kind === 'elective' ? 'elective' : 'from a list'}
+              <ListChecks />
             </span>
           )}
         </span>
         <span className="course-card-title">{course.title}</span>
-        {issues.length > 0 && (
-          <span className="course-card-issues">
-            {issues.map((issue) => (
-              <span
-                key={issue.id}
-                className={cn('course-card-issue', `is-${issue.severity}`)}
-              >
-                {issue.severity === 'error' ? <AlertCircle /> : <CircleAlert />}
-                <span>
-                  <strong>{issue.title}</strong>
-                  {issue.message}
-                </span>
-              </span>
-            ))}
-          </span>
-        )}
       </button>
       <button
         type="button"
@@ -192,7 +191,6 @@ export function CourseCard({
       >
         <Check aria-hidden="true" /> Already taken
       </button>
-      <ReplacementPicker course={course} {...replacement} />
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={`Options for ${course.code}`}
@@ -208,6 +206,14 @@ export function CourseCard({
           <DropdownMenuGroup>
             <DropdownMenuLabel>{course.code}</DropdownMenuLabel>
           </DropdownMenuGroup>
+          <DropdownMenuItem
+            onClick={() => {
+              replacement.onLoad();
+              replacement.onShowAll();
+            }}
+          >
+            <Shuffle /> Replace course
+          </DropdownMenuItem>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <MoveRight /> Move to

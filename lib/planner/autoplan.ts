@@ -384,6 +384,10 @@ export interface AutoplanInput {
   interests?: string;
   /** The degree's name, "Psychology, BSLAS", which names the major better than a thin page does. */
   programName?: string;
+  /** Course-number range eligible for generated elective slots. */
+  electiveLevelRange?: { min: number; maxExclusive: number };
+  /** Course-number range the planner may insert automatically as prerequisites. */
+  autoPrerequisiteLevelRange?: { min: number; maxExclusive: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -1805,6 +1809,12 @@ function buildHorizon(horizon: Horizon): Array<{
     if (season === 'Fall') {
       season = 'Spring';
       year += 1;
+    } else if (
+      season === 'Spring' &&
+      horizon.gradSeason === 'Summer' &&
+      year === horizon.gradYear
+    ) {
+      season = 'Summer';
     } else {
       season = 'Fall';
     }
@@ -1919,7 +1929,7 @@ function degreeSubjectsOf(
   for (const requirement of requirements) {
     const rule = requirement.rule;
     if (rule.kind !== 'all' && rule.kind !== 'choose' && rule.kind !== 'pool') continue;
-    const area = requirement.areaLabel.toLowerCase();
+    const area = (requirement.areaLabel ?? '').toLowerCase();
     // Campus core menus can contain dozens of HIST, ENGL or language rows. They
     // describe ways to satisfy general education, not what the major is made
     // of. Counting those rows made HIST the "primary subject" for Cognitive
@@ -2053,14 +2063,18 @@ function rankedElectivePool(
   s: ElectiveScoring,
   exclude: (code: string) => boolean,
   limit = 800,
+  levelRange = { min: 0, maxExclusive: 500 },
 ): string[] {
   const ranked = ctx.courses
     .map((c) => normaliseCode(c.code))
-    // Both supported catalogs include graduate courses. They cannot fill an
-    // undergraduate degree and scoring them made initial UGA generation sort
-    // thousands of candidates it would reject later anyway. courseLevel maps
-    // Illinois 500-level and UGA 5000-level numbers to the same 500 threshold.
-    .filter((code) => courseLevel(code) === 0 || courseLevel(code) < 500)
+    // Both catalogs carry more than one academic level. Keep undergraduate
+    // filler below 500 by default, while graduate callers can explicitly ask
+    // for UGA's 6000- through 9000-level catalog rows. courseLevel maps UGA's
+    // four-digit numbers and Illinois's three-digit numbers onto one scale.
+    .filter((code) => {
+      const level = courseLevel(code);
+      return level >= levelRange.min && level < levelRange.maxExclusive;
+    })
     .filter((code) => !exclude(code))
     .map((code) => ({ code, score: scoreElective(code, s) }))
     .filter((c) => Number.isFinite(c.score))
@@ -2151,6 +2165,7 @@ export function electiveOptions(input: {
   candidateCodes?: ReadonlySet<string>;
   limit?: number;
   standingHours?: StandingThresholds;
+  electiveLevelRange?: { min: number; maxExclusive: number };
 }): ElectiveOption[] {
   const ctx = input.context;
   const term = input.plan.terms.find((t) => t.id === input.termId);
@@ -2227,6 +2242,7 @@ export function electiveOptions(input: {
       creditsOf(code) <= 0 ||
       (input.candidateCodes !== undefined && !input.candidateCodes.has(code)),
     Math.max(800, input.limit ?? 60),
+    input.electiveLevelRange,
   );
   const out: ElectiveOption[] = [];
   for (const code of pool) {
@@ -2348,7 +2364,38 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
    * the board is a course in the wrong term, and passing `chosen` here let CHEM
    * 105 sit in a first-year fall on the strength of a CHEM 204 in year four.
    */
-  const match = exclusionAwareMatcher(baseMatch, conflicts, ctx.prereqs, equivalents, [earned]);
+  const catalogMatch = exclusionAwareMatcher(
+    baseMatch,
+    conflicts,
+    ctx.prereqs,
+    equivalents,
+    [earned],
+  );
+  const prerequisiteIsInPlanLevel = (group: PlanPrereqGroup): boolean => {
+    if (!input.autoPrerequisiteLevelRange) return true;
+    return group.any.some((raw) => {
+      const level = courseLevel(normaliseCode(raw));
+      return (
+        level === 0 ||
+        (level >= input.autoPrerequisiteLevelRange!.min &&
+          level < input.autoPrerequisiteLevelRange!.maxExclusive)
+      );
+    });
+  };
+  // Graduate admission establishes undergraduate preparation outside the
+  // graduate program of study. Keep those catalog prerequisites visible in
+  // review, but do not let them block or inflate the generated degree plan.
+  const match: PrereqMatcher = input.autoPrerequisiteLevelRange
+    ? (spec, earlier, sameTerm, equivalentMap) => {
+        const result = catalogMatch(spec, earlier, sameTerm, equivalentMap);
+        return {
+          ...result,
+          missing: result.missing.filter(prerequisiteIsInPlanLevel),
+          uncertain: result.uncertain.filter(prerequisiteIsInPlanLevel),
+          priorLearning: result.priorLearning?.filter(prerequisiteIsInPlanLevel),
+        };
+      }
+    : catalogMatch;
 
   /**
    * The term list, built before the courses are chosen rather than after.
@@ -3090,6 +3137,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   // So are groups the catalog says school work also satisfies. See
   // priorLearningChecks below for the one that put MATH 112 in every plan.
   const addedPrerequisites: Array<{ code: string; requiredBy: string }> = [];
+  const outsideLevelPrereqs = new Map<string, { code: string; needs: string }>();
   const unresolvedPrereqs: Array<{ code: string; needs: string }> = [];
   /** Prerequisite groups no course can fill any more, because of an exclusion. */
   const closedPrereqs: Array<{ code: string; needs: string; alternatives: string[]; by: string }> = [];
@@ -3189,6 +3237,23 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
           unresolvedPrereqs.push({ code, needs: group.any.join(' or ') });
           continue;
         }
+        const eligibleByLevel = input.autoPrerequisiteLevelRange
+          ? inCatalog.filter((alt) => {
+              const level = courseLevel(alt);
+              return (
+                level === 0 ||
+                (level >= input.autoPrerequisiteLevelRange!.min &&
+                  level < input.autoPrerequisiteLevelRange!.maxExclusive)
+              );
+            })
+          : inCatalog;
+        if (eligibleByLevel.length === 0) {
+          outsideLevelPrereqs.set(code, {
+            code,
+            needs: group.any.join(' or '),
+          });
+          continue;
+        }
 
         /**
          * A prerequisite the catalog will not pay for is not one to book.
@@ -3204,7 +3269,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
          * snapshot happens not to carry is left to the not-placed list, so the
          * two never say different things about one course.
          */
-        const open = inCatalog.filter((alt) => conflictFor(alt) === null);
+        const open = eligibleByLevel.filter((alt) => conflictFor(alt) === null);
         if (open.length === 0) {
           const blocker = groupClosedByExclusion(group, conflicts, [earned, chosen], equivalents);
           if (blocker !== null) {
@@ -3233,6 +3298,12 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   }
   if (addedPrerequisites.length > 0) {
     notes.push(`Added ${addedPrerequisites.length} course${addedPrerequisites.length === 1 ? '' : 's'} that the degree page does not list but the catalog requires as prerequisites.`);
+  }
+  if (outsideLevelPrereqs.size > 0) {
+    const skipped = [...outsideLevelPrereqs.values()];
+    notes.push(
+      `${skipped.length} prerequisite${skipped.length === 1 ? '' : 's'} fall outside this degree's course level, so the plan did not add ${skipped.length === 1 ? 'it' : 'them'} as degree credit. Review ${skipped.slice(0, 3).map((item) => item.code).join(', ')}${skipped.length > 3 ? ` and ${skipped.length - 3} more` : ''} with your advisor.`,
+    );
   }
   // Every one of these, not a sample. Each is a course the student may have to
   // add, and the one left out is the one they needed.
@@ -3797,6 +3868,8 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
         exempt.has(code) ||
         plannedVariants.has(electiveVariantKey(code)) ||
         creditsOf(code) <= 0,
+      800,
+      input.electiveLevelRange,
     );
     let total =
       priorCreditTotal +

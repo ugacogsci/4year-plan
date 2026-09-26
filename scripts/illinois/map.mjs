@@ -10,7 +10,7 @@
  * Method, all of it in this file with no dependencies and deterministic from
  * seed 42: TF-IDF over title and cleaned description (unigrams and bigrams),
  * truncated SVD to 128 dimensions, exact cosine kNN, a UMAP
- * fuzzy-simplicial-set layout, then rank normalisation into 4..96.
+ * fuzzy-simplicial-set layout, then linear min/max normalisation into 3..97.
  *
  * This is distributional semantics, not a transformer embedding, and the
  * difference matters when someone reads the map. Two courses land near each
@@ -55,6 +55,11 @@ const PARAMS = {
   gamma: 1.0,
   seed: 42,
 };
+
+// Match the UGA PaCMAP importer so both maps preserve their projection's real
+// gaps and dense regions with the same amount of edge padding.
+const MAP_LOW = 3;
+const MAP_HIGH = 97;
 
 /** One LCG shared by every random draw in the build, so reruns are identical. */
 function lcg(seed) {
@@ -570,36 +575,39 @@ function layout(X, D, edges, A, B) {
 /* ------------------------------------------------ stage D: coordinates -- */
 
 /**
- * Rank percentile per axis into 4..96.
+ * Linearly fit each projection axis into the same 3..97 range as UGA.
  *
- * A linear fit preserves 1.5 more points of neighbourhood than this, and it
- * relies on percentile clipping working. When clipping does not catch an
- * outlier you get the -10..10 bug back, and coordinates outside the stage are
- * invisible rather than obviously wrong. Under rank normalisation min is
- * exactly 4 and max is exactly 96 by construction, for any input distribution
- * and any corpus size, which makes that whole failure impossible.
- *
- * The cost, which nobody should talk their way out of: each axis is now
- * exactly uniform, so the map shows which courses are near which, never how
- * far apart two topics are. It is monotone per axis, so nothing is reordered.
+ * Unlike percentile ranks, this preserves relative distances: a sparse gap in
+ * the projection stays sparse and a dense semantic cluster stays dense. The
+ * source extrema become the padded map edges, so no coordinate can disappear
+ * outside the stage.
  */
-function rankNormalise(Y) {
+function linearNormalise(Y) {
   const out = new Float64Array(N * 2);
   for (const axis of [0, 1]) {
-    // The index tie-break is what guarantees every course a distinct rank, so
-    // no two courses can come out at identical coordinates.
-    const order = [...Array(N).keys()].sort((a, b) => (Y[a * 2 + axis] - Y[b * 2 + axis]) || (a - b));
-    for (let r = 0; r < N; r++) out[order[r] * 2 + axis] = 4 + (92 * r) / (N - 1);
+    let low = Infinity;
+    let high = -Infinity;
+    for (let i = 0; i < N; i++) {
+      const value = Y[i * 2 + axis];
+      if (value < low) low = value;
+      if (value > high) high = value;
+    }
+    const span = high - low;
+    for (let i = 0; i < N; i++) {
+      out[i * 2 + axis] = span === 0
+        ? (MAP_LOW + MAP_HIGH) / 2
+        : MAP_LOW + ((Y[i * 2 + axis] - low) / span) * (MAP_HIGH - MAP_LOW);
+    }
   }
   return out;
 }
 
 /**
  * Cross-listed twins resolve to the same description and so to the same
- * vector, and rank normalisation separates them by 0.01 units, which is under
- * a tenth of a pixel. "AAS 201 / AFRO 201 / LLS 201" reads as one dot that the
+ * vector, and linear normalisation leaves them on top of each other. "AAS 201
+ * / AFRO 201 / LLS 201" reads as one dot that the
  * user cannot pick apart. Fan each group out on a golden-angle rosette
- * instead: deterministic, subject-blind, and 0.35 units out of 92.
+ * instead: deterministic, subject-blind, and 0.35 units out of 94.
  *
  * Up to six members that is a plain ring of radius 0.35, which is every
  * cross-listing the catalog actually has. Past six the ring cannot hold them:
@@ -654,8 +662,8 @@ function fanOutDuplicates(coords, nbr, nbd, k) {
     members.forEach((i, idx) => {
       const ang = idx * GOLDEN;
       const radius = ring ? SEP : SEP * Math.sqrt(idx);
-      coords[i * 2] = Math.max(4, Math.min(96, cx + radius * Math.cos(ang)));
-      coords[i * 2 + 1] = Math.max(4, Math.min(96, cy + radius * Math.sin(ang)));
+      coords[i * 2] = Math.max(MAP_LOW, Math.min(MAP_HIGH, cx + radius * Math.cos(ang)));
+      coords[i * 2 + 1] = Math.max(MAP_LOW, Math.min(MAP_HIGH, cy + radius * Math.sin(ang)));
       moved++;
     });
     largest.push([m, members.map((i) => courses[i].code)]);
@@ -704,7 +712,7 @@ t0 = Date.now();
 const raw = layout(X, D, edges, A, B);
 console.log(`layout in ${secs(t0)}`);
 
-const coords = rankNormalise(raw);
+const coords = linearNormalise(raw);
 // Kept so the self-check can price the rosette. If preservation drops sharply
 // between the two, the fan-out is doing more damage than the overlap it fixes.
 const preRosette = Float64Array.from(coords);
@@ -883,11 +891,11 @@ for (let i = 0; i < N; i++) {
 line('\n[6] coordinates');
 line(`    x range [${xmin.toFixed(2)}, ${xmax.toFixed(2)}]   y range [${ymin.toFixed(2)}, ${ymax.toFixed(2)}]   non-finite ${nonFinite}`);
 if (nonFinite > 0) failures.push(`${nonFinite} coordinates are not finite`);
-// Rank normalisation puts min at exactly 4 and max at exactly 96, but the
+// Linear normalisation puts min at exactly 3 and max at exactly 97, but the
 // duplicate fan-out afterwards can pull the extreme course inward, so what has
 // to hold is the box, not the endpoint. The box is the part that matters: this
 // is the assertion standing between the file and the -10..10 bug coming back.
-if (!(xmin >= 4 && xmax <= 96 && ymin >= 4 && ymax <= 96)) failures.push(`coordinates escaped the 4..96 box: x [${xmin}, ${xmax}] y [${ymin}, ${ymax}]`);
+if (!(xmin >= MAP_LOW && xmax <= MAP_HIGH && ymin >= MAP_LOW && ymax <= MAP_HIGH)) failures.push(`coordinates escaped the ${MAP_LOW}..${MAP_HIGH} box: x [${xmin}, ${xmax}] y [${ymin}, ${ymax}]`);
 
 if (failures.length) {
   line('\n!! FAILED');
@@ -904,8 +912,8 @@ writeFileSync(OUT, JSON.stringify({
   // Records which stage B actually ran, so a fallback is visible in the
   // artifact rather than only in a console line nobody kept.
   method: VECTOR_METHOD === 'minilm'
-    ? `all-MiniLM-L6-v2 (${D}d) -> umap(k=${PARAMS.neighbors}, min_dist=${PARAMS.minDist}) -> rank-normalised 4..96`
-    : `tfidf-bigram -> lsa-${D} -> umap(k=${PARAMS.neighbors}, min_dist=${PARAMS.minDist}) -> rank-normalised 4..96`,
+    ? `all-MiniLM-L6-v2 (${D}d) -> umap(k=${PARAMS.neighbors}, min_dist=${PARAMS.minDist}) -> linearly-normalised 3..97`
+    : `tfidf-bigram -> lsa-${D} -> umap(k=${PARAMS.neighbors}, min_dist=${PARAMS.minDist}) -> linearly-normalised 3..97`,
   builtAt: new Date().toISOString(),
   // Copied from the crawl so a stale map is detectable by comparison instead
   // of by guesswork about which file is older.
@@ -922,8 +930,8 @@ writeFileSync(OUT, JSON.stringify({
     code: c.code,
     x: +coords[i * 2].toFixed(2),
     y: +coords[i * 2 + 1].toFixed(2),
-    // The unwarped projection, kept because rank normalisation destroys true
-    // distance and anything that later needs real geometry would be stuck.
+    // Keep the unscaled projection so coordinate presentation can be rebuilt
+    // without rerunning embeddings and UMAP.
     rawX: +raw[i * 2].toFixed(6),
     rawY: +raw[i * 2 + 1].toFixed(6),
     textSource: prepared[i].textSource,

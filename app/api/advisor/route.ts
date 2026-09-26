@@ -28,11 +28,25 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  const body = (await req.json().catch(() => ({}))) as { messages?: unknown; board?: unknown; bot?: unknown };
+  const body = (await req.json().catch(() => ({}))) as {
+    messages?: unknown;
+    board?: unknown;
+    bot?: unknown;
+    schoolName?: unknown;
+    schoolShort?: unknown;
+  };
   const messages = Array.isArray(body.messages) ? (body.messages as AdvisorMessage[]) : [];
   const board = typeof body.board === 'string' ? body.board.slice(0, MAX_BOARD_CHARS) : '';
   // The bot's name is the school's, and a name is all it may be.
   const bot = typeof body.bot === 'string' && /^[A-Za-z][A-Za-z .'-]{0,23}$/.test(body.bot) ? body.bot : 'the assistant';
+  const schoolName =
+    typeof body.schoolName === 'string' && /^[A-Za-z][A-Za-z &.'-]{1,79}$/.test(body.schoolName)
+      ? body.schoolName
+      : 'selected university';
+  const schoolShort =
+    typeof body.schoolShort === 'string' && /^[A-Za-z][A-Za-z &.'-]{0,39}$/.test(body.schoolShort)
+      ? body.schoolShort
+      : schoolName;
   if (messages.length === 0 || messages.length > MAX_MESSAGES) {
     return NextResponse.json({ error: 'Send between 1 and 120 messages.' }, { status: 400 });
   }
@@ -60,7 +74,7 @@ export async function POST(req: Request) {
           // is not a conversation.
           output_config: { effort: 'medium' },
           system: [
-            { type: 'text', text: advisorSystem(bot), cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: advisorSystem(bot, schoolName, schoolShort), cache_control: { type: 'ephemeral' } },
             { type: 'text', text: `The board right now:\n\n${board}` },
           ],
           tools: ADVISOR_TOOLS,

@@ -1,6 +1,6 @@
 {
   "school": "illinois",
-  "fetchedAt": "2026-09-21T02:45:04.345Z",
+  "fetchedAt": "2026-09-26T05:29:03.916Z",
   "sources": {
     "catalog": {
       "source": "catalog.illinois.edu/courses-of-instruction",
@@ -23,8 +23,8 @@
       "courses": 4452
     },
     "map": {
-      "method": "all-MiniLM-L6-v2 (384d) -> umap(k=15, min_dist=0.1) -> rank-normalised 4..96",
-      "builtAt": "2026-09-20T21:16:48.914Z",
+      "method": "all-MiniLM-L6-v2 (384d) -> umap(k=15, min_dist=0.1) -> linearly-normalised 3..97",
+      "builtAt": "2026-09-26T03:22:18.807Z",
       "count": 9440
     }
   },
@@ -59,8 +59,8 @@
     "variableCredit": 1829,
     "unknownCredit": 0,
     "droppedProgramRows": 0,
-    "droppedTotalRows": 245,
-    "poolGroups": 378,
+    "droppedTotalRows": 333,
+    "poolGroups": 423,
     "implausibleProgramTotals": 0,
     "programsWithGenEd": 269,
     "genEdCategories": 2380,
@@ -279,24 +279,24 @@
   ],
   "artifacts": {
     "index.json": {
-      "raw": 1205854,
-      "gzip": 202176
+      "raw": 1206592,
+      "gzip": 197913
     },
     "prereqs.json": {
       "raw": 1226195,
-      "gzip": 100676
+      "gzip": 100459
     },
     "grades.json": {
       "raw": 281487,
-      "gzip": 34063
+      "gzip": 33479
     },
     "sections.json": {
       "raw": 1542152,
-      "gzip": 118985
+      "gzip": 117411
     },
     "programs.json": {
       "raw": 104989,
-      "gzip": 10285
+      "gzip": 10270
     }
   },
   "notes": [

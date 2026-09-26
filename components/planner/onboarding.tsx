@@ -1,18 +1,26 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
+import { AlertTriangle, Moon, Sun } from 'lucide-react';
 import { ProgramPicker, type ProgramOption } from './program-picker';
 import { PriorCredit } from './prior-credit';
 import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
 import {
+  isUgaGraduateDegree,
+  isUgaUndergraduateDegree,
+  applyUgaProgramOverrides,
   ugaSelectionRequirements,
   type UgaProgram,
   type UgaSelectionRequirement,
 } from './uga-source';
 import {
   EMPTY_ANSWERS,
+  UNDECIDED_PROGRAM_ID,
+  availablePlanningTerms,
   inferAcademicYear,
   inferGraduationTarget,
+  isGraduationTermPast,
   questionsFor,
   readySchools,
   schoolById,
@@ -20,10 +28,20 @@ import {
   type AcademicYear,
   type GraduationSeason,
   type OnboardingAnswers,
+  type ProgramLevel,
   type SchoolId,
 } from '@/lib/planner/onboarding';
 import { transcriptCodes } from '@/lib/planner/transcript';
-import { findUgaCollege, UGA_COLLEGES } from '@/lib/planner/uga-colleges';
+import {
+  findUgaCollege,
+  normalizeUgaCollegeId,
+  UGA_COLLEGES,
+} from '@/lib/planner/uga-colleges';
+import {
+  PLANNER_THEME_STORAGE_KEY,
+  readStoredTheme,
+  type PlannerTheme,
+} from '@/lib/planner/theme';
 
 /**
  * Six screens before the planner: pick a school, explicitly choose one or
@@ -52,11 +70,107 @@ function priorSummary(a: OnboardingAnswers): string {
 }
 
 interface ProgramCatalog {
-  majors: ProgramOption[];
+  undergraduateDegrees: ProgramOption[];
+  graduateDegrees: ProgramOption[];
   minors: ProgramOption[];
-  certificates: ProgramOption[];
+  undergraduateCertificates: ProgramOption[];
+  graduateCertificates: ProgramOption[];
   requirements: UgaSelectionRequirement[];
   ugaPrograms: UgaProgram[];
+}
+
+const UNDECIDED_PROGRAM: ProgramOption = {
+  id: UNDECIDED_PROGRAM_ID,
+  name: 'Undecided / exploring programs',
+  totalCredits: null,
+  additionalCredits: null,
+};
+
+function ugaMajorCredits(program: UgaProgram): number {
+  if (
+    isUgaGraduateDegree(program) &&
+    program.areas.length === 0 &&
+    program.totalCredits !== null
+  ) {
+    return program.totalCredits;
+  }
+  return program.areas
+    .filter(
+      (area) =>
+        !/^(?:I|II|III|IV|V)\./.test(area.label.trim()) &&
+        !/^(?:general|free) electives?\b/i.test(area.label.trim()) &&
+        !/general education|core curriculum/i.test(area.label),
+    )
+    .reduce((sum, area) => sum + Math.max(0, area.hours), 0);
+}
+
+function feasibilityWarning(
+  answers: OnboardingAnswers,
+  catalog: ProgramCatalog | null,
+  now: Date,
+): { title: string; message: string } | null {
+  if (
+    !catalog ||
+    answers.programIds.includes(UNDECIDED_PROGRAM_ID) ||
+    !answers.graduationSeason ||
+    !answers.graduationYear ||
+    isGraduationTermPast(answers.graduationSeason, answers.graduationYear, now)
+  ) {
+    return null;
+  }
+
+  const terms = availablePlanningTerms(
+    answers.graduationSeason,
+    answers.graduationYear,
+    now,
+  );
+  const capacity = terms * 18;
+  if (terms === 0) return null;
+
+  const degreeOptions = answers.programLevel === 'graduate'
+    ? catalog.graduateDegrees
+    : catalog.undergraduateDegrees;
+  const certificateOptions = answers.programLevel === 'graduate'
+    ? catalog.graduateCertificates
+    : catalog.undergraduateCertificates;
+  const degrees = answers.programIds
+    .map((id) => degreeOptions.find((program) => program.id === id))
+    .filter((program): program is ProgramOption => Boolean(program));
+  const additions = [...answers.minorIds, ...answers.certificateIds]
+    .map((id) => [...catalog.minors, ...certificateOptions].find((program) => program.id === id))
+    .filter((program): program is ProgramOption => Boolean(program));
+  const primaryCredits = answers.programLevel === 'graduate'
+    ? Math.max(
+        0,
+        ...degrees.map(
+          (program) => program.totalCredits ?? program.additionalCredits ?? 0,
+        ),
+      )
+    : Math.max(120, ...degrees.map((program) => program.totalCredits ?? 0));
+  const additionalDegreeCredits = degrees
+    .slice(1)
+    .reduce((sum, program) => sum + (program.additionalCredits ?? 30), 0);
+  const additionalProgramCredits = additions.reduce(
+    (sum, program) => sum + (program.additionalCredits ?? 12),
+    0,
+  );
+  const estimatedCredits = primaryCredits + additionalDegreeCredits + additionalProgramCredits;
+
+  if (primaryCredits > capacity) {
+    return {
+      title: 'The graduation date does not leave enough terms',
+      message: `${terms} ${terms === 1 ? 'term is' : 'terms are'} available through ${answers.graduationSeason} ${answers.graduationYear}. Even at 18 credits per term, that is ${capacity} credits of room for a degree requiring at least ${primaryCredits}, before completed or transfer credit is counted. Choose a later date or add your prior credit on the next screen.`,
+    };
+  }
+
+  if (estimatedCredits > capacity) {
+    return {
+      title: 'This program combination is unlikely to fit',
+      message: `${degrees.length} degree ${degrees.length === 1 ? 'program' : 'programs'} and ${additions.length} additional ${additions.length === 1 ? 'program' : 'programs'} represent roughly ${estimatedCredits} credits before shared courses and prior credit are counted. The ${terms} available terms hold at most ${capacity} credits at 18 per term. The planner can still build a draft, but expect unmet requirements unless substantial coursework overlaps or is already complete.`,
+    };
+  }
+
+  return null;
 }
 
 const ACADEMIC_YEAR_OPTIONS: Array<{ value: Exclude<AcademicYear, ''>; label: string }> = [
@@ -68,6 +182,7 @@ const ACADEMIC_YEAR_OPTIONS: Array<{ value: Exclude<AcademicYear, ''>; label: st
 ];
 
 const GRADUATION_SEASONS: Exclude<GraduationSeason, ''>[] = ['Spring', 'Summer', 'Fall'];
+const SETUP_STEPS = ['University', 'Programs', 'About you', 'Details', 'Credit', 'Plan'];
 
 function normalizedChoice(value: string): string {
   return value
@@ -130,12 +245,15 @@ export function Onboarding({
   const onlySchool = ready.length === 1 ? ready[0] : null;
   const [step, setStep] = useState(onlySchool ? 1 : 0);
   const [catalog, setCatalog] = useState<ProgramCatalog | null>(null);
+  const [theme, setTheme] = useState<PlannerTheme>(readStoredTheme);
   const [answers, setAnswers] = useState<OnboardingAnswers>(() => {
     const base = initial ? { ...EMPTY_ANSWERS, ...initial } : EMPTY_ANSWERS;
+    const programIds = base.programIds?.length ? base.programIds : [UNDECIDED_PROGRAM_ID];
     return onlySchool
-      ? { ...base, schoolId: onlySchool.id, programIds: base.programIds ?? [] }
-      : { ...base, programIds: base.programIds ?? [] };
+      ? { ...base, schoolId: onlySchool.id, programIds }
+      : { ...base, programIds };
   });
+  const today = useMemo(() => new Date(), []);
 
   const school = schoolById(answers.schoolId);
   const questions = questionsFor(school);
@@ -147,32 +265,66 @@ export function Onboarding({
       ),
     [catalog, answers.programIds],
   );
+  const degreeOptions = useMemo(
+    () =>
+      answers.programLevel === 'graduate'
+        ? catalog?.graduateDegrees ?? [UNDECIDED_PROGRAM]
+        : catalog?.undergraduateDegrees ?? [UNDECIDED_PROGRAM],
+    [answers.programLevel, catalog],
+  );
+  const certificateOptions = useMemo(
+    () =>
+      answers.programLevel === 'graduate'
+        ? catalog?.graduateCertificates ?? []
+        : catalog?.undergraduateCertificates ?? [],
+    [answers.programLevel, catalog],
+  );
   const emphasesComplete = emphasisSelectionsComplete(
     emphasisRequirements,
     answers.emphasisSelections,
+  );
+  const undecided = answers.programIds.includes(UNDECIDED_PROGRAM_ID);
+  const graduationInPast = isGraduationTermPast(
+    answers.graduationSeason,
+    answers.graduationYear,
+    today,
   );
   const programChoicesReady = answers.schoolId !== 'uga' || catalog !== null;
   const detailsComplete =
     Boolean(answers.academicYear) &&
     Boolean(answers.graduationSeason) &&
     Boolean(answers.graduationYear) &&
-    (answers.schoolId !== 'uga' || Boolean(answers.collegeId)) &&
+    !graduationInPast &&
+    (answers.schoolId !== 'uga' || undecided || Boolean(answers.collegeId)) &&
     emphasesComplete;
   const missingDetails = [
     !answers.academicYear,
-    !answers.graduationSeason || !answers.graduationYear,
-    answers.schoolId === 'uga' && !answers.collegeId,
+    !answers.graduationSeason || !answers.graduationYear || graduationInPast,
+    answers.schoolId === 'uga' && !undecided && !answers.collegeId,
     !emphasesComplete,
   ].filter(Boolean).length;
+  const setupWarning = useMemo(
+    () => feasibilityWarning(answers, catalog, today),
+    [answers, catalog, today],
+  );
   const graduationYears = useMemo(() => {
-    const current = new Date().getFullYear();
+    const current = today.getFullYear();
     const years = Array.from({ length: 9 }, (_, index) => current + index);
-    if (answers.graduationYear && !years.includes(answers.graduationYear)) {
+    if (
+      answers.graduationYear &&
+      answers.graduationYear >= current &&
+      !years.includes(answers.graduationYear)
+    ) {
       years.push(answers.graduationYear);
       years.sort((left, right) => left - right);
     }
     return years;
-  }, [answers.graduationYear]);
+  }, [answers.graduationYear, today]);
+
+  useEffect(() => {
+    document.documentElement.dataset.plannerTheme = theme;
+    window.localStorage.setItem(PLANNER_THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   useEffect(() => {
     if (!answers.schoolId) return;
@@ -183,20 +335,42 @@ export function Onboarding({
       .then((raw: unknown) => {
         if (cancelled) return;
         if (answers.schoolId === 'uga') {
-          const rows = ((raw as { programs?: UgaProgram[] } | null)?.programs ?? [])
-            .filter((program) => program.areas.length > 0);
-          const options = (programs: UgaProgram[]) =>
-            programs
-              .map((program) => ({ id: program.id, name: program.name }))
-              .sort((a, b) => a.name.localeCompare(b.name));
-          const majors = rows.filter(
-            (program) => program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree),
+          const rows = applyUgaProgramOverrides(
+            (raw as { programs?: UgaProgram[] } | null)?.programs ?? [],
+          ).filter(
+            (program) =>
+              (isUgaGraduateDegree(program) &&
+                ((program.areas.length > 0 && program.areaHours > 0) ||
+                  (program.totalCredits ?? 0) > 0)) ||
+              (!isUgaGraduateDegree(program) &&
+                program.areas.length > 0 &&
+                program.areaHours > 0),
           );
+          const options = (programs: UgaProgram[], kind: 'degree' | 'addition') =>
+            programs
+              .map((program) => ({
+                id: program.id,
+                name: program.name,
+                totalCredits: program.totalCredits,
+                additionalCredits:
+                  kind === 'degree' ? ugaMajorCredits(program) : program.areaHours,
+              }))
+              .sort((a, b) => a.name.localeCompare(b.name));
+          const undergraduateDegrees = rows.filter(isUgaUndergraduateDegree);
+          const graduateDegrees = rows.filter(isUgaGraduateDegree);
           setCatalog({
-            majors: options(majors),
-            minors: options(rows.filter((program) => program.degree === 'MINOR' && program.areaHours > 0)),
-            certificates: options(rows.filter((program) => program.degree === 'CERT-UG' && program.areaHours > 0)),
-            requirements: majors.flatMap(ugaSelectionRequirements),
+            undergraduateDegrees: [
+              UNDECIDED_PROGRAM,
+              ...options(undergraduateDegrees, 'degree'),
+            ],
+            graduateDegrees: [
+              UNDECIDED_PROGRAM,
+              ...options(graduateDegrees, 'degree'),
+            ],
+            minors: options(rows.filter((program) => program.degree === 'MINOR' && program.areaHours > 0), 'addition'),
+            undergraduateCertificates: options(rows.filter((program) => program.degree === 'CERT-UG' && program.areaHours > 0), 'addition'),
+            graduateCertificates: options(rows.filter((program) => program.degree === 'CERT-GM' && program.areaHours > 0), 'addition'),
+            requirements: [...undergraduateDegrees, ...graduateDegrees].flatMap(ugaSelectionRequirements),
             ugaPrograms: rows,
           });
           return;
@@ -207,13 +381,34 @@ export function Onboarding({
             program.dataStatus === 'catalog' &&
             (program.courseCount ?? 0) > 0,
           )
-          .map((program: { id: string; name: string }) => ({ id: program.id, name: program.name }))
+          .map((program: { id: string; name: string; totalCredits?: number | null }) => ({
+            id: program.id,
+            name: program.name,
+            totalCredits: program.totalCredits ?? null,
+            additionalCredits: 30,
+          }))
           .sort((a: ProgramOption, b: ProgramOption) => a.name.localeCompare(b.name));
-        setCatalog({ majors, minors: [], certificates: [], requirements: [], ugaPrograms: [] });
+        setCatalog({
+          undergraduateDegrees: [UNDECIDED_PROGRAM, ...majors],
+          graduateDegrees: [UNDECIDED_PROGRAM],
+          minors: [],
+          undergraduateCertificates: [],
+          graduateCertificates: [],
+          requirements: [],
+          ugaPrograms: [],
+        });
       })
       .catch(() => {
         if (!cancelled) {
-          setCatalog({ majors: [], minors: [], certificates: [], requirements: [], ugaPrograms: [] });
+          setCatalog({
+            undergraduateDegrees: [UNDECIDED_PROGRAM],
+            graduateDegrees: [UNDECIDED_PROGRAM],
+            minors: [],
+            undergraduateCertificates: [],
+            graduateCertificates: [],
+            requirements: [],
+            ugaPrograms: [],
+          });
         }
       });
     return () => {
@@ -226,7 +421,8 @@ export function Onboarding({
     setAnswers((a) => ({
       ...a,
       schoolId: id,
-      programIds: a.schoolId === id ? a.programIds : [],
+      programLevel: id === 'uga' ? a.programLevel : 'undergraduate',
+      programIds: a.schoolId === id ? a.programIds : [UNDECIDED_PROGRAM_ID],
       minorIds: a.schoolId === id ? a.minorIds : [],
       certificateIds: a.schoolId === id ? a.certificateIds : [],
       emphasisSelections: a.schoolId === id ? a.emphasisSelections : {},
@@ -235,14 +431,60 @@ export function Onboarding({
     }));
   }
 
+  function changeProgramLevel(programLevel: ProgramLevel) {
+    setAnswers((current) => ({
+      ...current,
+      programLevel,
+      programIds: [UNDECIDED_PROGRAM_ID],
+      minorIds: [],
+      certificateIds: [],
+      emphasisSelections: {},
+      collegeId: '',
+    }));
+  }
+
+  function updateMajors(programIds: string[]) {
+    setAnswers((current) => {
+      let next = programIds;
+      if (next.length === 0) next = [UNDECIDED_PROGRAM_ID];
+      else if (next.includes(UNDECIDED_PROGRAM_ID) && next.length > 1) {
+        next = current.programIds.includes(UNDECIDED_PROGRAM_ID)
+          ? next.filter((id) => id !== UNDECIDED_PROGRAM_ID)
+          : [UNDECIDED_PROGRAM_ID];
+      }
+      const selected = new Set(next);
+      return {
+        ...current,
+        programIds: next,
+        collegeId: '',
+        emphasisSelections: Object.fromEntries(
+          Object.entries(current.emphasisSelections).filter(([key]) =>
+            [...selected].some((id) => key.startsWith(`${id}::`)),
+          ),
+        ),
+      };
+    });
+  }
+
   function prepareDetails() {
     setAnswers((current) => {
       const text = [current.studying, current.timeline, current.after].join(' ');
       const graduation = inferGraduationTarget(current.timeline);
+      const inferredGraduationIsPast = isGraduationTermPast(
+        graduation.season,
+        graduation.year,
+        today,
+      );
+      const shouldInferGraduation =
+        !current.graduationSeason && !current.graduationYear && !inferredGraduationIsPast;
       const selectedPrograms = (catalog?.ugaPrograms ?? []).filter((program) =>
         current.programIds.includes(program.id),
       );
-      const selectedColleges = [...new Set(selectedPrograms.map((program) => program.college))];
+      const selectedColleges = [
+        ...new Set(
+          selectedPrograms.map((program) => normalizeUgaCollegeId(program.college)),
+        ),
+      ];
       const mentionedCollege = findUgaCollege(text);
       const collegeId = current.collegeId ||
         (selectedColleges.length === 1
@@ -254,8 +496,10 @@ export function Onboarding({
         ...current,
         collegeId,
         academicYear: current.academicYear || inferAcademicYear(current.timeline),
-        graduationSeason: current.graduationSeason || graduation.season,
-        graduationYear: current.graduationYear ?? graduation.year,
+        graduationSeason:
+          current.graduationSeason || (shouldInferGraduation ? graduation.season : ''),
+        graduationYear:
+          current.graduationYear ?? (shouldInferGraduation ? graduation.year : null),
         emphasisSelections: inferredProgramSelections(
           emphasisRequirements,
           current.emphasisSelections,
@@ -273,16 +517,28 @@ export function Onboarding({
   }
 
   return (
-    <div className="onb" style={school ? ({ ['--school' as string]: school.accent }) : undefined}>
+    <div className="onb" data-theme={theme} style={school ? ({ ['--school' as string]: school.accent }) : undefined}>
+      <header className="onb-header">
+        <div className="onb-brand" aria-label="ORION">
+          <Image src="/orion-logo.png" alt="" width={48} height={48} priority />
+          <span>ORION</span>
+        </div>
+        <button
+          type="button"
+          className="onb-theme"
+          aria-label={`Use ${theme === 'light' ? 'dark' : 'light'} mode`}
+          title={`Use ${theme === 'light' ? 'dark' : 'light'} mode`}
+          onClick={() => setTheme((current) => current === 'light' ? 'dark' : 'light')}
+        >
+          {theme === 'light' ? <Moon aria-hidden="true" /> : <Sun aria-hidden="true" />}
+        </button>
+      </header>
       <div className="onb-inner">
-        <ol className="onb-steps" aria-label="Progress">
-          {['School', 'Programs', 'About you', 'Details', 'Credit', 'Plan'].map((label, i) => (
-            <li key={label} className={i === step ? 'now' : i < step ? 'done' : ''}>
-              <span className="onb-dot">{i < step ? '✓' : i + 1}</span>
-              {label}
-            </li>
-          ))}
-        </ol>
+        <div className="onb-progress" aria-label={`Setup step ${step + 1} of ${SETUP_STEPS.length}: ${SETUP_STEPS[step]}`}>
+          <span>{SETUP_STEPS[step]}</span>
+          <small>{step + 1} / {SETUP_STEPS.length}</small>
+          <i aria-hidden="true"><b style={{ width: `${((step + 1) / SETUP_STEPS.length) * 100}%` }} /></i>
+        </div>
 
         {onResume && programChoicesReady && detailsComplete && step < 5 && (
           <p className="onb-resume">
@@ -297,7 +553,7 @@ export function Onboarding({
         {step === 0 && (
           <section className="onb-step">
             <h1>Choose your university</h1>
-            <p className="onb-sub">We answer from your university&rsquo;s own published pages, so this decides everything else.</p>
+            <p className="onb-sub">Course data, degree rules and recommendations follow this choice.</p>
             <div className="onb-university-picker">
               <label htmlFor="university">University</label>
               <select
@@ -322,7 +578,7 @@ export function Onboarding({
             <div className="onb-actions onb-university-actions">
               <span />
               <button className="onb-next" onClick={() => setStep(1)} disabled={!answers.schoolId}>
-                Choose majors
+                Choose programs
               </button>
             </div>
           </section>
@@ -330,70 +586,84 @@ export function Onboarding({
 
         {step === 1 && (
           <section className="onb-step">
-            <h1>Choose your programs.</h1>
+            <h1>What are you studying?</h1>
             <p className="onb-sub">
-              Select every declared or intended major, then add any minor or certificate. We will confirm program paths after learning more about you.
+              {answers.programLevel === 'graduate'
+                ? 'Choose one or more graduate or professional degrees. Graduate certificates are optional.'
+                : 'Choose one or more majors. Minors and certificates are optional.'}
             </p>
+            {answers.schoolId === 'uga' && (
+              <fieldset className="onb-level-toggle">
+                <legend className="sr-only">Program level</legend>
+                <button
+                  type="button"
+                  aria-pressed={answers.programLevel === 'undergraduate'}
+                  onClick={() => changeProgramLevel('undergraduate')}
+                >
+                  Undergraduate
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={answers.programLevel === 'graduate'}
+                  onClick={() => changeProgramLevel('graduate')}
+                >
+                  Graduate &amp; professional
+                </button>
+              </fieldset>
+            )}
             <div className="onb-program-groups">
               <section>
-                <h2>Majors</h2>
+                <h2>{answers.programLevel === 'graduate' ? 'Degree programs' : 'Majors'}</h2>
                 <ProgramPicker
-                  options={catalog?.majors ?? []}
+                  options={degreeOptions}
                   selectedIds={answers.programIds}
-                  onChange={(programIds) => setAnswers((current) => {
-                    const selected = new Set(programIds);
-                    return {
-                      ...current,
-                      programIds,
-                      collegeId: '',
-                      emphasisSelections: Object.fromEntries(
-                        Object.entries(current.emphasisSelections).filter(([key]) =>
-                          [...selected].some((id) => key.startsWith(`${id}::`)),
-                        ),
-                      ),
-                    };
-                  })}
+                  onChange={updateMajors}
                   loading={catalog === null}
+                  kindLabel={answers.programLevel === 'graduate' ? 'degree' : 'major'}
                 />
               </section>
               {answers.schoolId === 'uga' && (
                 <>
-                  <section>
-                    <h2>Minors</h2>
+                  {answers.programLevel === 'undergraduate' && (
+                    <details className="onb-optional-programs" open={answers.minorIds.length > 0 || undefined}>
+                      <summary>Add a minor</summary>
+                      <ProgramPicker
+                        options={catalog?.minors ?? []}
+                        selectedIds={answers.minorIds}
+                        onChange={(minorIds) => setAnswers((current) => ({ ...current, minorIds }))}
+                        loading={catalog === null}
+                        kindLabel="minor"
+                        emptyMessage="No parsed UGA minors are available."
+                      />
+                    </details>
+                  )}
+                  <details className="onb-optional-programs" open={answers.certificateIds.length > 0 || undefined}>
+                    <summary>
+                      Add {answers.programLevel === 'graduate' ? 'a graduate certificate' : 'a certificate'}
+                    </summary>
                     <ProgramPicker
-                      options={catalog?.minors ?? []}
-                      selectedIds={answers.minorIds}
-                      onChange={(minorIds) => setAnswers((current) => ({ ...current, minorIds }))}
-                      loading={catalog === null}
-                      kindLabel="minor"
-                      emptyMessage="No parsed UGA minors are available."
-                    />
-                  </section>
-                  <section>
-                    <h2>Certificates</h2>
-                    <ProgramPicker
-                      options={catalog?.certificates ?? []}
+                      options={certificateOptions}
                       selectedIds={answers.certificateIds}
                       onChange={(certificateIds) => setAnswers((current) => ({ ...current, certificateIds }))}
                       loading={catalog === null}
                       kindLabel="certificate"
-                      emptyMessage="No parsed UGA certificates are available."
+                      emptyMessage={`No parsed UGA ${answers.programLevel === 'graduate' ? 'graduate ' : ''}certificates are available.`}
                     />
-                  </section>
+                  </details>
                 </>
               )}
             </div>
             <div className="onb-actions">
               {!onlySchool && <button className="onb-back" onClick={() => setStep(0)}>Back</button>}
               <span className="onb-count">
-                {answers.programIds.length === 0
-                  ? 'Choose at least one major'
-                  : `${answers.programIds.length} major${answers.programIds.length === 1 ? '' : 's'} selected`}
+                {undecided
+                  ? 'Undecided - start with an open plan'
+                  : `${answers.programIds.length} ${answers.programLevel === 'graduate' ? 'degree program' : 'major'}${answers.programIds.length === 1 ? '' : 's'} selected`}
               </span>
               <button
                 className="onb-next"
                 onClick={() => setStep(2)}
-                disabled={answers.programIds.length === 0 || !programChoicesReady}
+                disabled={!programChoicesReady}
               >
                 Continue
               </button>
@@ -405,7 +675,7 @@ export function Onboarding({
           <section className="onb-step">
             <h1>Tell us where you are{school ? ` at ${school.short}` : ''}.</h1>
             <p className="onb-sub">
-              Write it however you would say it out loud. Rough is fine, and you can change any of it later.
+              A few sentences help ORION shape the plan. You can revise them later.
             </p>
             <div className="onb-questions">
               {questions.map((q) => (
@@ -437,13 +707,13 @@ export function Onboarding({
 
         {step === 3 && (
           <section className="onb-step">
-            <h1>Confirm the details the plan needs.</h1>
+            <h1>Check the essentials.</h1>
             <p className="onb-sub">
-              We filled in what your answers and selected programs made clear. Complete anything still blank before the schedule is built.
+              Review what ORION inferred and fill anything still blank.
             </p>
             <div className="onb-details-grid">
               <label className="onb-q">
-                <span className="onb-q-label">What year are you in?</span>
+                <span className="onb-q-label">What year of your program are you in?</span>
                 <span className="onb-q-hint">This helps us interpret how much time and prior credit the plan should account for.</span>
                 <select
                   value={answers.academicYear}
@@ -459,11 +729,13 @@ export function Onboarding({
                 </select>
               </label>
 
-              {answers.schoolId === 'uga' && (
+              {answers.schoolId === 'uga' && !undecided && (
                 <label className="onb-q">
-                  <span className="onb-q-label">Which college owns your primary major?</span>
+                  <span className="onb-q-label">Which college owns your primary program?</span>
                   <span className="onb-q-hint">
-                    Usually inferred from your major. UGA has 20 schools and colleges; five do not currently own a standalone bachelor&rsquo;s major in this planner.
+                    {answers.programLevel === 'graduate'
+                      ? 'Usually inferred from your degree. All 20 UGA schools and colleges are listed.'
+                      : 'Usually inferred from your major. UGA has 20 schools and colleges; five do not currently own a standalone bachelor\'s major in this planner.'}
                   </span>
                   <select
                     value={answers.collegeId}
@@ -477,9 +749,15 @@ export function Onboarding({
                       <option
                         key={college.id}
                         value={college.id}
-                        disabled={!college.hasBaccalaureateProgram}
+                        disabled={
+                          answers.programLevel === 'undergraduate' &&
+                          !college.hasBaccalaureateProgram
+                        }
                       >
-                        {college.name}{college.hasBaccalaureateProgram ? '' : ' — no standalone bachelor’s major'}
+                        {college.name}
+                        {answers.programLevel === 'undergraduate' && !college.hasBaccalaureateProgram
+                          ? ' — no standalone bachelor’s major'
+                          : ''}
                       </option>
                     ))}
                   </select>
@@ -496,12 +774,25 @@ export function Onboarding({
                       value={answers.graduationSeason}
                       onChange={(event) => setAnswers((current) => ({
                         ...current,
-                        graduationSeason: event.target.value as GraduationSeason,
+                        graduationSeason:
+                          isGraduationTermPast(
+                            event.target.value as GraduationSeason,
+                            current.graduationYear,
+                            today,
+                          )
+                            ? ''
+                            : event.target.value as GraduationSeason,
                       }))}
                     >
                       <option value="">Select term</option>
                       {GRADUATION_SEASONS.map((season) => (
-                        <option key={season} value={season}>{season}</option>
+                        <option
+                          key={season}
+                          value={season}
+                          disabled={isGraduationTermPast(season, answers.graduationYear, today)}
+                        >
+                          {season}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -512,6 +803,14 @@ export function Onboarding({
                       onChange={(event) => setAnswers((current) => ({
                         ...current,
                         graduationYear: event.target.value ? Number(event.target.value) : null,
+                        graduationSeason:
+                          event.target.value && isGraduationTermPast(
+                            current.graduationSeason,
+                            Number(event.target.value),
+                            today,
+                          )
+                            ? ''
+                            : current.graduationSeason,
                       }))}
                     >
                       <option value="">Select year</option>
@@ -522,6 +821,26 @@ export function Onboarding({
                   </label>
                 </div>
               </fieldset>
+
+              {graduationInPast && (
+                <div className="onb-feasibility" role="alert">
+                  <AlertTriangle aria-hidden="true" />
+                  <span>
+                    <strong>That graduation term has already passed</strong>
+                    Choose the current term or a future term before continuing.
+                  </span>
+                </div>
+              )}
+
+              {setupWarning && (
+                <div className="onb-feasibility" role="alert">
+                  <AlertTriangle aria-hidden="true" />
+                  <span>
+                    <strong>{setupWarning.title}</strong>
+                    {setupWarning.message}
+                  </span>
+                </div>
+              )}
 
               <EmphasisPicker
                 requirements={emphasisRequirements}
@@ -549,7 +868,7 @@ export function Onboarding({
           <section className="onb-step">
             <h1>What do you already have?</h1>
             <p className="onb-sub">
-              This is the part a plan cannot be built without. Skip it if you are starting from zero.
+              Add completed work so ORION does not schedule it again.
             </p>
             <PriorCredit
               school={school}
@@ -579,7 +898,7 @@ export function Onboarding({
         {step === 5 && (
           <section className="onb-step onb-building">
             <div className="onb-spinner" aria-hidden="true" />
-            <h1>Building your profile</h1>
+            <h1>Drawing your plan</h1>
             <p className="onb-sub">
               Reading {school?.short ?? 'your university'}&rsquo;s catalog, requirements and prerequisites.
             </p>

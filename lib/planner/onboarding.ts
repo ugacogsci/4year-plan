@@ -1,5 +1,5 @@
 import type { TranscriptRecord } from './transcript';
-import { UGA_COLLEGE_BY_ID } from './uga-colleges';
+import { normalizeUgaCollegeId, UGA_COLLEGE_BY_ID } from './uga-colleges';
 
 /**
  * What we learn before showing anyone a planner.
@@ -157,13 +157,82 @@ export interface PriorExam {
 export type AcademicYear = '' | 'first' | 'second' | 'third' | 'fourth' | 'fifth-plus';
 export type GraduationSeason = '' | 'Spring' | 'Summer' | 'Fall';
 
+/**
+ * An explicit choice, not a catalog program. It lets a student start with an
+ * empty horizon and explore without the app guessing a degree for them.
+ */
+export const UNDECIDED_PROGRAM_ID = '__undecided__';
+
+const GRADUATION_SEASON_ORDER: Record<Exclude<GraduationSeason, ''>, number> = {
+  Spring: 0,
+  Summer: 1,
+  Fall: 2,
+};
+
+/** Approximate the active academic term without inventing school-specific dates. */
+export function currentAcademicSeason(now = new Date()): Exclude<GraduationSeason, ''> {
+  const month = now.getMonth();
+  if (month <= 4) return 'Spring';
+  if (month <= 7) return 'Summer';
+  return 'Fall';
+}
+
+/** Past terms are never valid schedule horizons, including earlier terms this year. */
+export function isGraduationTermPast(
+  season: GraduationSeason,
+  year: number | null,
+  now = new Date(),
+): boolean {
+  if (!season || !year) return false;
+  const target = year * 3 + GRADUATION_SEASON_ORDER[season];
+  const current = now.getFullYear() * 3 + GRADUATION_SEASON_ORDER[currentAcademicSeason(now)];
+  return target < current;
+}
+
+/**
+ * Terms the generator can place work into from now through graduation.
+ * Regular plans use fall and spring; a requested summer graduation adds that
+ * final summer as a real scheduling term.
+ */
+export function availablePlanningTerms(
+  graduationSeason: GraduationSeason,
+  graduationYear: number | null,
+  now = new Date(),
+): number {
+  if (!graduationSeason || !graduationYear || isGraduationTermPast(graduationSeason, graduationYear, now)) {
+    return 0;
+  }
+  const startSeason = currentAcademicSeason(now);
+  let season: Exclude<GraduationSeason, ''> = startSeason;
+  let year = now.getFullYear();
+  let count = 0;
+  for (let guard = 0; guard < 32; guard += 1) {
+    count += 1;
+    if (season === graduationSeason && year === graduationYear) return count;
+    if (season === 'Fall') {
+      season = 'Spring';
+      year += 1;
+    } else if (season === 'Spring') {
+      if (graduationSeason === 'Summer' && year === graduationYear) season = 'Summer';
+      else season = 'Fall';
+    } else {
+      season = 'Fall';
+    }
+  }
+  return 0;
+}
+
+export type ProgramLevel = 'undergraduate' | 'graduate';
+
 export interface OnboardingAnswers {
   schoolId: SchoolId | null;
+  /** Undergraduate or graduate/professional catalog and planning defaults. */
+  programLevel: ProgramLevel;
   /** Degree programs the student explicitly selected, primary first. */
   programIds: string[];
-  /** Published undergraduate minors the student wants included in the plan. */
+  /** Published minors the student wants included in the plan. */
   minorIds: string[];
-  /** Published undergraduate certificates the student wants included in the plan. */
+  /** Published certificates at the selected program level. */
   certificateIds: string[];
   /**
    * Named focus/emphasis choices, keyed by the requirement id published with
@@ -173,7 +242,7 @@ export interface OnboardingAnswers {
   emphasisSelections: Record<string, string[]>;
   /** Primary degree-granting college, inferred from the selected major when unambiguous. */
   collegeId: string;
-  /** Current undergraduate year, confirmed after the open-ended questions. */
+  /** Current year in the program, confirmed after the open-ended questions. */
   academicYear: AcademicYear;
   /** Explicit schedule horizon; the open-ended answer is used to prefill it. */
   graduationSeason: GraduationSeason;
@@ -200,7 +269,8 @@ export interface OnboardingAnswers {
 
 export const EMPTY_ANSWERS: OnboardingAnswers = {
   schoolId: null,
-  programIds: [],
+  programLevel: 'undergraduate',
+  programIds: [UNDECIDED_PROGRAM_ID],
   minorIds: [],
   certificateIds: [],
   emphasisSelections: {},
@@ -229,7 +299,7 @@ export function questionsFor(school: School | undefined): Array<{
     {
       key: 'studying',
       label: 'What else should the plan make room for?',
-      hint: 'Possible fields of study, interests, or subjects you want to explore. Minors and certificates are selected from the catalog with your major.',
+      hint: 'Possible fields of study, interests, or subjects you want to explore. Additional programs and certificates are selected from the catalog with your degree.',
       placeholder: s
         ? `I am in ${college} and considering a computer science minor. I would also like room for psychology and linguistics.`
         : 'A computer science minor, plus room to explore psychology.',
@@ -306,6 +376,7 @@ export function loadAnswers(): OnboardingAnswers | null {
     return {
       ...EMPTY_ANSWERS,
       ...parsed,
+      programLevel: parsed.programLevel === 'graduate' ? 'graduate' : 'undergraduate',
       programIds: Array.isArray(parsed.programIds)
         ? parsed.programIds.filter((id): id is string => typeof id === 'string')
         : [],
@@ -326,10 +397,13 @@ export function loadAnswers(): OnboardingAnswers | null {
               ]),
             )
           : {},
-      collegeId:
-        typeof parsed.collegeId === 'string' && UGA_COLLEGE_BY_ID.has(parsed.collegeId)
-          ? parsed.collegeId
-          : '',
+      collegeId: (() => {
+        const id =
+          typeof parsed.collegeId === 'string'
+            ? normalizeUgaCollegeId(parsed.collegeId)
+            : '';
+        return UGA_COLLEGE_BY_ID.has(id) ? id : '';
+      })(),
       academicYear: ['first', 'second', 'third', 'fourth', 'fifth-plus'].includes(
         parsed.academicYear ?? '',
       )

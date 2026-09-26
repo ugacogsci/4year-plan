@@ -32,6 +32,13 @@ export const UGA_COLLEGES: UgaCollege[] = [
 
 export const UGA_COLLEGE_BY_ID = new Map(UGA_COLLEGES.map((college) => [college.id, college]));
 
+/** Bulletin program records still use two legacy/internal school codes. */
+export function normalizeUgaCollegeId(id: string): string {
+  if (id === 'EDHI') return 'EDCN';
+  if (id === 'SOM') return 'MED';
+  return id;
+}
+
 function normalized(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }

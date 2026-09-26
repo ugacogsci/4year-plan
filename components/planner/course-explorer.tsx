@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
-import { Check, ChevronRight, Maximize2, Minus, Plus, Search, Trash2, X } from 'lucide-react';
+import { Check, Maximize2, Minimize2, Minus, Move, Plus, RotateCcw, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
@@ -44,19 +44,21 @@ interface CourseExplorerProps {
     onCancel: () => void;
   } | null;
   open: boolean;
+  theme: 'light' | 'dark';
   /** False below 1100px, where the finder overlays the board and a drag has nowhere to land. */
   dragUsable: boolean;
+  onHeightChange: (height: number) => void;
   onOpenChange: (open: boolean) => void;
   onSearchChange: (query: string) => void;
   onTargetTermChange: (termId: string) => void;
-  onSelectCourse: (courseId: string) => void;
+  onSelectCourse: (courseId: string | null) => void;
   onAddCourse: (courseId: string, termId: string) => void;
   onRemoveCourse: (courseId: string, termId: string) => void;
 }
 
 /**
- * Where the map is looking: a scale and an offset in stage pixels, applied to
- * one layer that holds every dot. Scale 1 with no offset is the whole map.
+ * Where the map is looking: a scale and an offset in stage pixels. Canvas
+ * points and interactive DOM nodes both resolve through this same view.
  */
 interface View {
   k: number;
@@ -65,15 +67,17 @@ interface View {
 }
 
 const HOME: View = { k: 1, x: 0, y: 0 };
-const MAX_ZOOM = 14;
+const MAX_ZOOM = 24;
 /** Empty stage space allowed beyond each map edge while panning. */
 const MAP_OVERSCROLL = 0.18;
-/** Planned courses gain labels only once there is genuinely room around them. */
+/** Preserve the semantic X layout while giving nearby clusters more vertical air. */
+const MAP_VERTICAL_STRETCH = 2.5;
 const LABEL_ZOOM = 7;
+const MIN_MAP_HEIGHT = 180;
+const COLLAPSED_MAP_HEIGHT = 58;
 
 export function CourseExplorer({
   courses,
-  catalogSize,
   core,
   schoolId,
   terms,
@@ -87,7 +91,9 @@ export function CourseExplorer({
   results,
   chooser = null,
   open,
+  theme,
   dragUsable,
+  onHeightChange,
   onOpenChange,
   onSearchChange,
   onTargetTermChange,
@@ -99,11 +105,54 @@ export function CourseExplorer({
   const [deptQuery, setDeptQuery] = useState('');
   const [view, setView] = useState<View>(HOME);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+  const [planeSize, setPlaneSize] = useState({ width: 0, height: 0 });
   const [dropActive, setDropActive] = useState(false);
+  const [hovered, setHovered] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [finderWidth, setFinderWidth] = useState<number | null>(null);
+  const [finderLeft, setFinderLeft] = useState(0);
+  const [mapMode, setMapMode] = useState<'custom' | 'expanded' | 'collapsed'>('custom');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [arrangeMode, setArrangeMode] = useState(false);
+  const [positionOverrides, setPositionOverrides] = useState<Map<string, MapPosition>>(new Map());
+  const [arrangedSelection, setArrangedSelection] = useState<Set<string>>(new Set());
+  const [selectionBox, setSelectionBox] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const finderRef = useRef<HTMLElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const edgeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const maxFinderWidth = useRef(0);
+  const resize = useRef<{
+    axis: 'horizontal' | 'vertical';
+    pointerId: number;
+    startX: number;
+    startY: number;
+    width: number;
+    height: number;
+    left: number;
+    edge: 'left' | 'right';
+  } | null>(null);
   const pan = useRef<{ pointerId: number; startX: number; startY: number; from: View } | null>(null);
   const press = useRef<{ pointerId: number; startX: number; startY: number; moved: boolean } | null>(null);
+  const nodeMove = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+    ids: string[];
+    from: Map<string, MapPosition>;
+    toggleOffId: string | null;
+  } | null>(null);
+  const marquee = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    add: boolean;
+  } | null>(null);
 
   /** Departments in the catalog, most courses first. */
   const departments = useMemo(() => {
@@ -117,16 +166,33 @@ export function CourseExplorer({
     () => new Map(courses.map((course) => [course.id, course])),
     [courses],
   );
-  const positions = useMemo(
+  const basePositions = useMemo(
     () =>
       new Map(
-        courses.map((course, index) => [
-          course.id,
-          course.mapPosition ?? fallbackPosition(course.id, index),
-        ]),
+        courses.map((course, index) => {
+          const position = course.mapPosition ?? fallbackPosition(course.id, index);
+          return [course.id, { x: position.x, y: position.y }];
+        }),
       ),
     [courses],
   );
+  const positions = useMemo(() => {
+    const next = new Map(basePositions);
+    for (const [id, position] of positionOverrides) next.set(id, position);
+    return next;
+  }, [basePositions, positionOverrides]);
+  const positionBuckets = useMemo(() => {
+    const buckets = new Map<string, Course[]>();
+    for (const course of courses) {
+      const point = positions.get(course.id);
+      if (!point) continue;
+      const key = `${Math.floor(point.x / 2)}:${Math.floor(point.y / 2)}`;
+      const bucket = buckets.get(key);
+      if (bucket) bucket.push(course);
+      else buckets.set(key, [course]);
+    }
+    return buckets;
+  }, [courses, positions]);
 
   const visible = useMemo(() => courses.filter((course) => !hidden.has(course.cluster)), [courses, hidden]);
   const matching = useMemo(
@@ -145,6 +211,20 @@ export function CourseExplorer({
     return new Set(visible.filter((course) => highlightedCourseIds.has(course.id)).map((course) => course.id));
   }, [highlightedCourseIds, matching, normalizedQuery, visible]);
 
+  /** Nodes joined directly to the current selection by a visible map path. */
+  const selectionConnectionIds = useMemo(() => {
+    const connected = new Set<string>();
+    if (!selectedCourseId) return connected;
+    for (const course of visible) {
+      if (course.id !== selectedCourseId && !plannedCourseIds.has(course.id)) continue;
+      for (const prerequisiteId of course.prerequisites) {
+        if (course.id === selectedCourseId) connected.add(prerequisiteId);
+        if (prerequisiteId === selectedCourseId) connected.add(course.id);
+      }
+    }
+    return connected;
+  }, [plannedCourseIds, selectedCourseId, visible]);
+
   /**
    * Canvas carries the complete constellation. DOM nodes are reserved for the
    * courses a student is actively working with so 14,000 accessible buttons do
@@ -158,6 +238,7 @@ export function CourseExplorer({
     };
     take(selectedCourseId ? courseById.get(selectedCourseId) : undefined);
     for (const course of courses) if (plannedCourseIds.has(course.id)) take(course);
+    for (const id of arrangedSelection) take(courseById.get(id));
     if (normalizedQuery) {
       for (const course of visible) {
         if (matching.has(course.id)) take(course);
@@ -171,7 +252,7 @@ export function CourseExplorer({
       }
     }
     return [...picked.values()];
-  }, [courseById, courses, highlightedCourseIds, matching, normalizedQuery, plannedCourseIds, selectedCourseId, visible]);
+  }, [arrangedSelection, courseById, courses, highlightedCourseIds, matching, normalizedQuery, plannedCourseIds, selectedCourseId, visible]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -182,10 +263,21 @@ export function CourseExplorer({
       setStageSize((current) =>
         current.width === width && current.height === height ? current : { width, height },
       );
+      if (width > 0 && height >= MIN_MAP_HEIGHT) {
+        setPlaneSize((current) =>
+          current.width > 0 && current.height > 0 ? current : { width, height },
+        );
+      }
     });
     observer.observe(stage);
     return () => observer.disconnect();
   }, [open]);
+
+  useEffect(() => {
+    if (finderWidth !== null) return;
+    const width = finderRef.current?.getBoundingClientRect().width ?? 0;
+    if (width > 0) maxFinderWidth.current = width;
+  }, [finderWidth, open, stageSize.width]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -199,21 +291,73 @@ export function CourseExplorer({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
 
+    const plane = resolvedPlaneSize(planeSize, stageSize);
+    const origin = planeOrigin(stageSize, plane);
     const point = (course: Course) => {
       const p = positions.get(course.id)!;
       return {
-        x: ((p.x / 100) * width) * view.k + view.x,
-        y: ((p.y / 100) * height) * view.k + view.y,
+        x: origin.x + ((p.x / 100) * plane.width) * view.k + view.x,
+        y: origin.y + ((p.y / 100) * plane.height) * view.k + view.y,
       };
     };
     const onScreen = ({ x, y }: { x: number; y: number }, pad = 8) =>
       x >= -pad && x <= width + pad && y >= -pad && y <= height + pad;
 
-    // Draw the prerequisite constellation only around courses already in the
-    // plan or selected. Drawing every catalog edge makes the semantic shape
-    // unreadable, while these are the paths the student can act on.
-    ctx.strokeStyle = 'rgba(121, 161, 204, 0.19)';
-    ctx.lineWidth = 1;
+    for (const course of visible) {
+      const p = point(course);
+      if (!onScreen(p)) continue;
+      const searchMuted = normalizedQuery && !matching.has(course.id);
+      const choiceMuted = !normalizedQuery && highlightedCourseIds.size > 0 && !highlightedCourseIds.has(course.id);
+      const highlighted = highlightedCourseIds.has(course.id) || matching.has(course.id) && Boolean(normalizedQuery);
+      const planned = plannedCourseIds.has(course.id);
+      const selected = course.id === selectedCourseId;
+      // Planned and selected courses have an interactive DOM node. Painting
+      // them here as well produced a second ring that drifted while zooming.
+      if (planned || selected || arrangedSelection.has(course.id)) continue;
+      ctx.globalAlpha = searchMuted || choiceMuted ? 0.12 : highlighted ? 0.98 : 0.74;
+      ctx.fillStyle = clusterColor(course.cluster);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, highlighted ? 3.25 : 2.15, 0, Math.PI * 2);
+      ctx.fill();
+      if (view.k >= LABEL_ZOOM) {
+        ctx.globalAlpha = searchMuted || choiceMuted ? 0.18 : 0.9;
+        ctx.strokeStyle = theme === 'dark' ? '#000000' : '#ffffff';
+        ctx.lineWidth = 0.45;
+        ctx.stroke();
+      }
+    }
+
+    ctx.globalAlpha = 1;
+  }, [arrangedSelection, courseById, highlightedCourseIds, matching, normalizedQuery, plannedCourseIds, planeSize, positions, selectedCourseId, stageSize, theme, view, visible]);
+
+  useEffect(() => {
+    const canvas = edgeCanvasRef.current;
+    const { width, height } = stageSize;
+    if (!canvas || width === 0 || height === 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.strokeStyle = theme === 'dark' ? '#000000' : '#ffffff';
+    ctx.globalAlpha = 0.68;
+    ctx.lineWidth = 1.35;
+
+    const plane = resolvedPlaneSize(planeSize, stageSize);
+    const origin = planeOrigin(stageSize, plane);
+    const point = (course: Course) => {
+      const position = positions.get(course.id)!;
+      return {
+        x: origin.x + ((position.x / 100) * plane.width) * view.k + view.x,
+        y: origin.y + ((position.y / 100) * plane.height) * view.k + view.y,
+      };
+    };
+
+    // Keep the map legible by showing paths that belong to the current plan or
+    // selection. This canvas sits above the node cloud, so the paths no longer
+    // vanish beneath dense clusters.
     for (const course of visible) {
       if (course.id !== selectedCourseId && !plannedCourseIds.has(course.id)) continue;
       const to = point(course);
@@ -227,30 +371,8 @@ export function CourseExplorer({
         ctx.stroke();
       }
     }
-
-    for (const course of visible) {
-      const p = point(course);
-      if (!onScreen(p)) continue;
-      const searchMuted = normalizedQuery && !matching.has(course.id);
-      const choiceMuted = !normalizedQuery && highlightedCourseIds.size > 0 && !highlightedCourseIds.has(course.id);
-      const highlighted = highlightedCourseIds.has(course.id) || matching.has(course.id) && Boolean(normalizedQuery);
-      const planned = plannedCourseIds.has(course.id);
-      const selected = course.id === selectedCourseId;
-      ctx.globalAlpha = searchMuted || choiceMuted ? 0.08 : highlighted ? 0.95 : 0.56;
-      ctx.fillStyle = clusterColor(course.cluster);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, selected ? 5 : planned ? 4 : highlighted ? 2.8 : 1.7, 0, Math.PI * 2);
-      ctx.fill();
-      if (selected || planned) {
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = selected ? '#68c3ef' : '#67d7a1';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
-    }
-
     ctx.globalAlpha = 1;
-  }, [courseById, highlightedCourseIds, matching, normalizedQuery, plannedCourseIds, positions, selectedCourseId, stageSize, view, visible]);
+  }, [courseById, plannedCourseIds, planeSize, positions, selectedCourseId, stageSize, theme, view, visible]);
 
   /**
    * A search moves the map to its matches.
@@ -261,6 +383,7 @@ export function CourseExplorer({
    * stacking text on top of nearby dots. Clearing the search goes home.
    */
   useEffect(() => {
+    if (arrangeMode) return;
     if (!framedIds) {
       // oxlint-disable-next-line react/react-compiler
       setView(HOME);
@@ -270,6 +393,8 @@ export function CourseExplorer({
     if (!stage || framedIds.size === 0) return;
     const { width, height } = stage.getBoundingClientRect();
     if (width === 0 || height === 0) return;
+    const plane = resolvedPlaneSize(planeSize, { width, height });
+    const origin = planeOrigin({ width, height }, plane);
     /**
      * Frame the dense middle of the matches, not their full extent.
      *
@@ -295,13 +420,13 @@ export function CourseExplorer({
     const high = (arr: number[]) => (trim ? arr[Math.ceil((arr.length - 1) * 0.75)] : arr[arr.length - 1]);
     const minX = low(xs), maxX = high(xs), minY = low(ys), maxY = high(ys);
     // In stage pixels, with a margin so labels are not cut at the edge.
-    const bw = Math.max(((maxX - minX) / 100) * width, 1);
-    const bh = Math.max(((maxY - minY) / 100) * height, 1);
+    const bw = Math.max(((maxX - minX) / 100) * plane.width, 1);
+    const bh = Math.max(((maxY - minY) / 100) * plane.height, 1);
     // Room for the labels, scaled to the stage so a narrow finder still zooms.
     const pad = clamp(Math.min(width, height) * 0.14, 32, 80);
     const k = clamp(Math.min((width - pad) / bw, (height - pad) / bh), 1, MAX_ZOOM / 2);
-    const cx = ((minX + maxX) / 200) * width;
-    const cy = ((minY + maxY) / 200) * height;
+    const cx = ((minX + maxX) / 200) * plane.width;
+    const cy = ((minY + maxY) / 200) * plane.height;
     /**
      * Set from an effect on purpose. The frame depends on the stage's pixel
      * size, which only the DOM knows after the matches have rendered, so this
@@ -309,10 +434,18 @@ export function CourseExplorer({
      * once per change of matches, which is one extra render per keystroke.
      */
     // oxlint-disable-next-line react/react-compiler
-    setView(clampView({ k, x: width / 2 - cx * k, y: height / 2 - cy * k }, width, height));
+    setView(
+      clampView(
+        { k, x: width / 2 - origin.x - cx * k, y: height / 2 - origin.y - cy * k },
+        width,
+        height,
+        plane.width,
+        plane.height,
+      ),
+    );
     // `matching` is memoised on the catalog and the query, so this runs
     // when the matches change and not on every render.
-  }, [framedIds, positions]);
+  }, [arrangeMode, framedIds, planeSize, positions]);
 
   /**
    * Wheel zoom, around the cursor. A native listener because React registers
@@ -322,29 +455,197 @@ export function CourseExplorer({
     const stage = stageRef.current;
     if (!stage || !open) return;
     const onWheel = (event: WheelEvent) => {
+      if ((event.target as Element | null)?.closest('.map-inspector')) return;
       event.preventDefault();
       const rect = stage.getBoundingClientRect();
       const px = event.clientX - rect.left;
       const py = event.clientY - rect.top;
       const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0018));
-      setView((v) => zoomAt(v, factor, px, py, rect.width, rect.height));
+      const plane = resolvedPlaneSize(planeSize, rect);
+      setView((v) => zoomAt(v, factor, px, py, rect.width, rect.height, plane.width, plane.height));
     };
     stage.addEventListener('wheel', onWheel, { passive: false });
     return () => stage.removeEventListener('wheel', onWheel);
-  }, [open]);
+  }, [open, planeSize]);
 
   function zoomBy(factor: number) {
     const stage = stageRef.current;
     if (!stage) return;
     const { width, height } = stage.getBoundingClientRect();
-    setView((v) => zoomAt(v, factor, width / 2, height / 2, width, height));
+    const plane = resolvedPlaneSize(planeSize, { width, height });
+    setView((v) => zoomAt(v, factor, width / 2, height / 2, width, height, plane.width, plane.height));
+  }
+
+  function startResize(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    axis: 'horizontal' | 'vertical',
+    edge: 'left' | 'right' = 'right',
+  ) {
+    const finder = finderRef.current;
+    if (!finder) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const bounds = finder.getBoundingClientRect();
+    // The grid cell, not the whole planner, is this panel's width ceiling.
+    // Using the parent's right edge let a resized map grow beneath chat at
+    // intermediate breakpoints because the parent also contains that column.
+    maxFinderWidth.current = Math.max(bounds.width, maxFinderWidth.current || bounds.width);
+    setMapMode('custom');
+    resize.current = {
+      axis,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      width: bounds.width,
+      height: bounds.height,
+      left: finderLeft,
+      edge,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    const active = resize.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    if (event.buttons !== 1) {
+      resize.current = null;
+      return;
+    }
+    if (active.axis === 'horizontal') {
+      const maximum = maxFinderWidth.current || active.width;
+      const delta = event.clientX - active.startX;
+      const minimum = Math.min(320, maximum);
+      if (active.edge === 'left') {
+        const right = active.left + active.width;
+        const width = clamp(active.width - delta, minimum, right);
+        setFinderWidth(width);
+        setFinderLeft(right - width);
+      } else {
+        setFinderWidth(clamp(active.width + delta, minimum, maximum - active.left));
+      }
+      return;
+    }
+    onHeightChange(clamp(active.height + event.clientY - active.startY, MIN_MAP_HEIGHT, maximumMapHeight()));
+  }
+
+  function finishResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (resize.current?.pointerId !== event.pointerId) return;
+    resize.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function resizeWithKeyboard(
+    axis: 'horizontal' | 'vertical',
+    amount: number,
+    edge: 'left' | 'right' = 'right',
+  ) {
+    const bounds = finderRef.current?.getBoundingClientRect();
+    if (!bounds) return;
+    setMapMode('custom');
+    if (axis === 'horizontal') {
+      const maximum = maxFinderWidth.current || bounds.width;
+      const minimum = Math.min(320, maximum);
+      if (edge === 'left') {
+        const right = finderLeft + bounds.width;
+        const width = clamp(bounds.width - amount, minimum, right);
+        setFinderWidth(width);
+        setFinderLeft(right - width);
+      } else {
+        setFinderWidth(clamp(bounds.width + amount, minimum, maximum - finderLeft));
+      }
+      return;
+    }
+    onHeightChange(clamp(bounds.height + amount, MIN_MAP_HEIGHT, maximumMapHeight()));
+  }
+
+  function maximumMapHeight() {
+    return Math.max(MIN_MAP_HEIGHT, Math.min(640, window.innerHeight - 170));
+  }
+
+  function toggleMapSize() {
+    setFilterOpen(false);
+    setHovered(null);
+    setFinderWidth(null);
+    setFinderLeft(0);
+    if (mapMode === 'expanded') {
+      onSelectCourse(null);
+      setMapMode('collapsed');
+      onHeightChange(COLLAPSED_MAP_HEIGHT);
+      return;
+    }
+    setMapMode('expanded');
+    onHeightChange(maximumMapHeight());
+  }
+
+  function resetMap() {
+    setPositionOverrides(new Map());
+    setArrangedSelection(new Set());
+    setSelectionBox(null);
+    setHovered(null);
+    onSelectCourse(null);
+    setView(HOME);
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement;
+    if (target.closest('.map-zoom, .map-inspector')) return;
+
+    if (arrangeMode) {
+      event.preventDefault();
+      setHovered(null);
+      const hit = hitTest(event.clientX, event.clientY);
+      const add = event.shiftKey || event.metaKey || event.ctrlKey;
+      if (hit) {
+        let ids: string[];
+        let toggleOffId: string | null = null;
+        if (arrangedSelection.has(hit.course.id)) {
+          ids = [...arrangedSelection];
+          if (add) toggleOffId = hit.course.id;
+        } else {
+          ids = add ? [...arrangedSelection, hit.course.id] : [hit.course.id];
+          setArrangedSelection(new Set(ids));
+        }
+        const from = new Map<string, MapPosition>();
+        for (const id of ids) {
+          const position = positions.get(id);
+          if (position) from.set(id, position);
+        }
+        nodeMove.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          moved: false,
+          ids,
+          from,
+          toggleOffId,
+        };
+      } else {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (!add) setArrangedSelection(new Set());
+        marquee.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          add,
+        };
+        setSelectionBox({
+          left: event.clientX - bounds.left,
+          top: event.clientY - bounds.top,
+          width: 0,
+          height: 0,
+        });
+      }
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+
     // A dot is dragged into a semester and the corner buttons control the
     // view; only the empty space between them starts a pan. Capturing a zoom
     // button's pointer here prevents its click from ever reaching the button.
-    if ((event.target as HTMLElement).closest('.map-course-node, .map-zoom')) return;
+    if (target.closest('.map-course-node')) return;
+    setHovered(null);
     press.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -355,44 +656,220 @@ export function CourseExplorer({
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const moving = nodeMove.current;
+    const stage = stageRef.current;
+    if (moving?.pointerId === event.pointerId && stage) {
+      const dx = event.clientX - moving.startX;
+      const dy = event.clientY - moving.startY;
+      if (Math.hypot(dx, dy) > 3) moving.moved = true;
+      const bounds = stage.getBoundingClientRect();
+      const plane = resolvedPlaneSize(planeSize, bounds);
+      const mapDx = (dx / view.k / plane.width) * 100;
+      const mapDy = (dy / view.k / plane.height) * 100;
+      setPositionOverrides((current) => {
+        const next = new Map(current);
+        for (const id of moving.ids) {
+          const start = moving.from.get(id);
+          if (!start) continue;
+          next.set(id, {
+            x: clamp(start.x + mapDx, 0, 100),
+            y: clamp(start.y + mapDy, 0, 100),
+          });
+        }
+        return next;
+      });
+      return;
+    }
+
+    const selecting = marquee.current;
+    if (selecting?.pointerId === event.pointerId && stage) {
+      const bounds = stage.getBoundingClientRect();
+      const startX = selecting.startX - bounds.left;
+      const startY = selecting.startY - bounds.top;
+      const endX = clamp(event.clientX - bounds.left, 0, bounds.width);
+      const endY = clamp(event.clientY - bounds.top, 0, bounds.height);
+      setSelectionBox({
+        left: Math.min(startX, endX),
+        top: Math.min(startY, endY),
+        width: Math.abs(endX - startX),
+        height: Math.abs(endY - startY),
+      });
+      return;
+    }
+
     const down = press.current;
     if (down && down.pointerId === event.pointerId &&
         Math.hypot(event.clientX - down.startX, event.clientY - down.startY) > 4) {
       down.moved = true;
     }
     const p = pan.current;
-    const stage = stageRef.current;
-    if (!p || !stage || p.pointerId !== event.pointerId) return;
-    const { width, height } = stage.getBoundingClientRect();
-    setView(clampView({ k: p.from.k, x: p.from.x + event.clientX - p.startX, y: p.from.y + event.clientY - p.startY }, width, height));
+    if (!stage) return;
+    if (p && p.pointerId === event.pointerId) {
+      setHovered(null);
+      const { width, height } = stage.getBoundingClientRect();
+      const plane = resolvedPlaneSize(planeSize, { width, height });
+      setView(
+        clampView(
+          { k: p.from.k, x: p.from.x + event.clientX - p.startX, y: p.from.y + event.clientY - p.startY },
+          width,
+          height,
+          plane.width,
+          plane.height,
+        ),
+      );
+      return;
+    }
+    const hit = hitTest(event.clientX, event.clientY);
+    setHovered((current) =>
+      hit
+        ? current?.id === hit.course.id && current.x === hit.x && current.y === hit.y
+          ? current
+          : { id: hit.course.id, x: hit.x, y: hit.y }
+        : null,
+    );
   }
   function onPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
-    const down = press.current;
+    const moving = nodeMove.current;
+    if (moving?.pointerId === event.pointerId) {
+      if (!moving.moved && moving.toggleOffId) {
+        setArrangedSelection((current) => {
+          const next = new Set(current);
+          next.delete(moving.toggleOffId!);
+          return next;
+        });
+      }
+      nodeMove.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
+
+    const selecting = marquee.current;
     const stage = stageRef.current;
-    if (down?.pointerId === event.pointerId && !down.moved && stage) {
-      const rect = stage.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      let nearest: Course | null = null;
-      let distance = 14;
+    if (selecting?.pointerId === event.pointerId && stage) {
+      const bounds = stage.getBoundingClientRect();
+      const startX = clamp(selecting.startX - bounds.left, 0, bounds.width);
+      const startY = clamp(selecting.startY - bounds.top, 0, bounds.height);
+      const endX = clamp(event.clientX - bounds.left, 0, bounds.width);
+      const endY = clamp(event.clientY - bounds.top, 0, bounds.height);
+      const box = {
+        left: Math.min(startX, endX),
+        top: Math.min(startY, endY),
+        width: Math.abs(endX - startX),
+        height: Math.abs(endY - startY),
+      };
+      const plane = resolvedPlaneSize(planeSize, bounds);
+      const origin = planeOrigin(bounds, plane);
+      const picked = new Set<string>();
       for (const course of visible) {
         const position = positions.get(course.id);
         if (!position) continue;
-        const px = ((position.x / 100) * rect.width) * view.k + view.x;
-        const py = ((position.y / 100) * rect.height) * view.k + view.y;
-        const next = Math.hypot(px - x, py - y);
-        if (next < distance) {
-          nearest = course;
-          distance = next;
+        const x = origin.x + ((position.x / 100) * plane.width) * view.k + view.x;
+        const y = origin.y + ((position.y / 100) * plane.height) * view.k + view.y;
+        if (x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height) {
+          picked.add(course.id);
         }
       }
-      if (nearest) onSelectCourse(nearest.id);
+      setArrangedSelection((current) => selecting.add ? new Set([...current, ...picked]) : picked);
+      marquee.current = null;
+      setSelectionBox(null);
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
+
+    const down = press.current;
+    if (down?.pointerId === event.pointerId && !down.moved && stage) {
+      const hit = hitTest(event.clientX, event.clientY);
+      onSelectCourse(hit?.course.id ?? null);
     }
     press.current = null;
     if (pan.current?.pointerId === event.pointerId) pan.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function hitTest(clientX: number, clientY: number) {
+    const stage = stageRef.current;
+    if (!stage) return null;
+    const rect = stage.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    const plane = resolvedPlaneSize(planeSize, rect);
+    const origin = planeOrigin(rect, plane);
+    const mapX = (((x - origin.x - view.x) / view.k) / plane.width) * 100;
+    const mapY = (((y - origin.y - view.y) / view.k) / plane.height) * 100;
+    const regularRadius = 15;
+    const priorityRadius = 24;
+    const reachX = (priorityRadius / view.k / plane.width) * 100;
+    const reachY = (priorityRadius / view.k / plane.height) * 100;
+    const minBX = Math.floor((mapX - reachX) / 2);
+    const maxBX = Math.floor((mapX + reachX) / 2);
+    const minBY = Math.floor((mapY - reachY) / 2);
+    const maxBY = Math.floor((mapY + reachY) / 2);
+    let nearest: Course | null = null;
+    let distance = regularRadius;
+    let priority: Course | null = null;
+    let priorityDistance = priorityRadius;
+    for (let bx = minBX; bx <= maxBX; bx += 1) {
+      for (let by = minBY; by <= maxBY; by += 1) {
+        for (const course of positionBuckets.get(`${bx}:${by}`) ?? []) {
+          if (hidden.has(course.cluster)) continue;
+          const position = positions.get(course.id)!;
+          const px = origin.x + ((position.x / 100) * plane.width) * view.k + view.x;
+          const py = origin.y + ((position.y / 100) * plane.height) * view.k + view.y;
+          const next = Math.hypot(px - x, py - y);
+          if (
+            (course.id === selectedCourseId || selectionConnectionIds.has(course.id)) &&
+            next < priorityDistance
+          ) {
+            priority = course;
+            priorityDistance = next;
+          }
+          if (next < distance) {
+            nearest = course;
+            distance = next;
+          }
+        }
+      }
+    }
+    const winner = priority ?? nearest;
+    if (!winner) return null;
+    const point = positions.get(winner.id)!;
+    return {
+      course: winner,
+      x: origin.x + ((point.x / 100) * plane.width) * view.k + view.x,
+      y: origin.y + ((point.y / 100) * plane.height) * view.k + view.y,
+    };
   }
 
   const selected = selectedCourseId ? courseById.get(selectedCourseId) ?? null : null;
+  const mapPlane = resolvedPlaneSize(planeSize, stageSize);
+  const mapOrigin = planeOrigin(stageSize, mapPlane);
+  const selectedPoint = selected && stageSize.width > 0 && stageSize.height > 0
+    ? (() => {
+        const point = positions.get(selected.id);
+        if (!point) return null;
+        return {
+          x: mapOrigin.x + ((point.x / 100) * mapPlane.width) * view.k + view.x,
+          y: mapOrigin.y + ((point.y / 100) * mapPlane.height) * view.k + view.y,
+        };
+      })()
+    : null;
+  const zoomLabels = useMemo(() => {
+    if (view.k < LABEL_ZOOM || stageSize.width <= 0 || stageSize.height <= 0) return [];
+    return visible.flatMap((course) => {
+      const point = positions.get(course.id);
+      if (!point) return [];
+      const x = mapOrigin.x + ((point.x / 100) * mapPlane.width) * view.k + view.x;
+      const y = mapOrigin.y + ((point.y / 100) * mapPlane.height) * view.k + view.y;
+      if (x < 0 || x > stageSize.width || y < 0 || y > stageSize.height) return [];
+      return [{ id: course.id, code: course.code, x, y }];
+    });
+  }, [mapOrigin.x, mapOrigin.y, mapPlane.height, mapPlane.width, positions, stageSize.height, stageSize.width, view.k, view.x, view.y, visible]);
   const targetLabel =
     targetTermId === 'completed'
       ? 'Prior coursework'
@@ -401,8 +878,6 @@ export function CourseExplorer({
   const deptMatches = departments.filter(([name]) =>
     name.toLowerCase().includes(deptQuery.trim().toLowerCase()),
   );
-  const activeFilters = departments.filter(([name]) => hidden.has(name)).map(([name]) => name);
-
   function toggleDepartment(name: string) {
     setHidden((current) => {
       const next = new Set(current);
@@ -423,8 +898,6 @@ export function CourseExplorer({
     );
   }
 
-  const zoomed = view.k > 1.01;
-  const awayFromHome = zoomed || Math.abs(view.x) > 0.5 || Math.abs(view.y) > 0.5;
   // In chooser mode search stays inside the requirement-valid replacement
   // list. A global search here used to let a student replace a required course
   // with something that merely fit in the same semester.
@@ -437,19 +910,14 @@ export function CourseExplorer({
   const addLabel = chooser ? `into ${chooser.termLabel}` : `to ${targetLabel}`;
 
   return (
-    <aside className="course-finder" aria-labelledby="finder-title">
-      <header className="finder-head">
-        <h2 id="finder-title">Find a course</h2>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Close the course finder"
-          title="Close the course finder"
-          onClick={() => onOpenChange(false)}
-        >
-          <ChevronRight />
-        </Button>
-      </header>
+    <aside
+      ref={finderRef}
+      className="course-finder"
+      aria-label="Course map"
+      data-resized={finderWidth === null ? undefined : 'true'}
+      data-map-mode={mapMode}
+      style={finderWidth === null ? undefined : { width: finderWidth, marginLeft: finderLeft }}
+    >
 
       {chooser && (
         <div className="finder-chooser">
@@ -467,7 +935,7 @@ export function CourseExplorer({
         <input
           aria-label="Search courses"
           value={searchQuery}
-          placeholder={chooser ? 'Search these replacements' : 'Search a code or a title'}
+          placeholder={chooser ? 'Search replacements' : 'Search courses'}
           onChange={(event) => onSearchChange(event.target.value)}
         />
       </div>
@@ -475,17 +943,20 @@ export function CourseExplorer({
       <div className="finder-filters">
         {/* One trigger instead of one button per department. The old legend
             rendered 194 buttons in a 224px window with 5,400px of scroll. */}
-        <Popover>
+        <Popover open={filterOpen} onOpenChange={setFilterOpen}>
           <PopoverTrigger
             render={
-              <button type="button" className="dept-chip">
-                {/* "on the map" distinguishes this spatial filter from the
-                    department choices elsewhere in the planner. */}
-                {departments.length} departments on the map
+              <button
+                type="button"
+                className={cn('map-filter-button', hidden.size > 0 && 'is-active')}
+                aria-label="Filter map departments"
+                title={hidden.size > 0 ? `${hidden.size} departments hidden` : 'Filter map departments'}
+              >
+                <SlidersHorizontal aria-hidden="true" />
               </button>
             }
           />
-          <PopoverContent align="start" className="w-64 gap-2">
+          <PopoverContent align="end" sideOffset={6} className="map-filter-popover">
             <input
               className="finder-dept-search"
               aria-label="Filter departments"
@@ -512,18 +983,16 @@ export function CourseExplorer({
           </PopoverContent>
         </Popover>
 
-        {activeFilters.slice(0, 6).map((name) => (
-          <button key={name} type="button" className="dept-chip" onClick={() => toggleDepartment(name)}>
-            {name} hidden <X aria-hidden="true" style={{ width: 11, height: 11 }} />
-          </button>
-        ))}
-        {activeFilters.length > 6 && (
-          <span className="finder-count">+{activeFilters.length - 6} more hidden</span>
-        )}
       </div>
 
       <div
-        className={cn('map-stage', 'is-pannable', dropActive && 'is-remove-target')}
+        className={cn(
+          'map-stage',
+          'is-pannable',
+          arrangeMode && 'is-arranging',
+          dropActive && 'is-remove-target',
+        )}
+        data-deep-zoom={view.k >= LABEL_ZOOM ? 'true' : undefined}
         aria-label="Semantic course map"
         ref={stageRef}
         onPointerDown={onPointerDown}
@@ -532,7 +1001,12 @@ export function CourseExplorer({
         onPointerCancel={() => {
           press.current = null;
           pan.current = null;
+          nodeMove.current = null;
+          marquee.current = null;
+          setSelectionBox(null);
+          setHovered(null);
         }}
+        onPointerLeave={() => setHovered(null)}
         onDragOver={(event) => {
           if (!event.dataTransfer.types.includes('application/x-term-id')) return;
           event.preventDefault();
@@ -551,36 +1025,27 @@ export function CourseExplorer({
           if (courseId && termId) onRemoveCourse(courseId, termId);
         }}
       >
+        <span className="map-collapsed-title">Course map</span>
         <fieldset className="map-field" aria-label="Course nodes">
           <canvas ref={canvasRef} className="map-canvas" aria-hidden="true" />
-          <div
-            className="map-layer"
-            style={
-              {
-                transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`,
-                '--inv': 1 / view.k,
-              } as CSSProperties
-            }
-          >
+          <div className="map-layer">
             {interactiveCourses.map((course) => {
               if (hidden.has(course.cluster)) return null;
               const position = positions.get(course.id)!;
+              const screenX = Math.round(
+                mapOrigin.x + ((position.x / 100) * mapPlane.width) * view.k + view.x,
+              );
+              const screenY = Math.round(
+                mapOrigin.y + ((position.y / 100) * mapPlane.height) * view.k + view.y,
+              );
               const isSelected = course.id === selectedCourseId;
               const isMatch = matching.has(course.id);
               const isChoice = highlightedCourseIds.has(course.id);
-              const labelled =
-                isSelected ||
-                (!normalizedQuery &&
-                  highlightedCourseIds.size === 0 &&
-                  plannedCourseIds.has(course.id) &&
-                  view.k >= LABEL_ZOOM) ||
-                (Boolean(normalizedQuery) && isMatch && matching.size <= 30) ||
-                (isChoice && highlightedCourseIds.size <= 30 && view.k >= LABEL_ZOOM);
               return (
                 <button
                   key={course.id}
                   type="button"
-                  draggable={dragUsable}
+                  draggable={dragUsable && !arrangeMode}
                   title={`${course.code}: ${course.title}`}
                   aria-label={`${course.code}, ${course.title}`}
                   aria-pressed={isSelected}
@@ -588,19 +1053,30 @@ export function CourseExplorer({
                     'map-course-node',
                     isSelected && 'is-selected',
                     plannedCourseIds.has(course.id) && 'is-planned',
+                    arrangedSelection.has(course.id) && 'is-arrange-selected',
                     course.pathwayRole === 'required' && 'is-required',
                     normalizedQuery && !isMatch && 'is-search-muted',
                     highlightedCourseIds.size > 0 && !isChoice && 'is-search-muted',
                   )}
                   style={
                     {
-                      left: `${position.x}%`,
-                      top: `${position.y}%`,
+                      left: screenX,
+                      top: screenY,
                       '--node-color': clusterColor(course.cluster),
                     } as CSSProperties
                   }
-                  onClick={() => onSelectCourse(course.id)}
+                  onClick={(event) => {
+                    if (arrangeMode) {
+                      event.preventDefault();
+                      return;
+                    }
+                    onSelectCourse(hitTest(event.clientX, event.clientY)?.course.id ?? course.id);
+                  }}
                   onDragStart={(event) => {
+                    if (arrangeMode) {
+                      event.preventDefault();
+                      return;
+                    }
                     event.dataTransfer.setData('application/x-course-id', course.id);
                     /**
                      * copyMove, not copy. The column's dragover names 'copy' for a
@@ -613,12 +1089,41 @@ export function CourseExplorer({
                   }}
                 >
                   <span className="map-node-core" />
-                  {labelled && <span className="map-node-label">{course.code}</span>}
                 </button>
               );
             })}
           </div>
         </fieldset>
+
+        <canvas ref={edgeCanvasRef} className="map-edge-canvas" aria-hidden="true" />
+
+        {selectionBox && (
+          <span className="map-selection-box" aria-hidden="true" style={selectionBox} />
+        )}
+
+        {zoomLabels.map((label) =>
+          label.id === selectedCourseId || label.id === hovered?.id ? null : (
+            <span
+              className="map-zoom-label"
+              key={label.id}
+              style={{ left: label.x, top: label.y }}
+            >
+              {label.code}
+            </span>
+          ),
+        )}
+
+        {selected && selectedPoint && (
+          <span className="map-selection-label" style={{ left: selectedPoint.x, top: selectedPoint.y }}>
+            {selected.code}
+          </span>
+        )}
+
+        {hovered && hovered.id !== selectedCourseId && (
+          <span className="map-hover-label" style={{ left: hovered.x, top: hovered.y }}>
+            {courseById.get(hovered.id)?.code}
+          </span>
+        )}
 
         {dropActive && (
           <div className="map-remove-target" aria-hidden="true">
@@ -628,6 +1133,31 @@ export function CourseExplorer({
         )}
 
         <div className="map-zoom" aria-label="Zoom">
+          <button
+            type="button"
+            className={cn(arrangeMode && 'is-active')}
+            aria-label={arrangeMode ? 'Stop arranging course nodes' : 'Arrange course nodes'}
+            aria-pressed={arrangeMode}
+            title={arrangeMode
+              ? 'Stop arranging nodes'
+              : 'Arrange nodes. Drag a node to move it; Shift-click or drag a box to select several.'}
+            onClick={() => {
+              setArrangeMode((current) => !current);
+              setSelectionBox(null);
+              marquee.current = null;
+              nodeMove.current = null;
+            }}
+          >
+            <Move aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label="Reset course map"
+            title="Reset zoom, pan, selection, and temporary node positions"
+            onClick={resetMap}
+          >
+            <RotateCcw aria-hidden="true" />
+          </button>
           <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoomBy(1.6)}>
             <Plus aria-hidden="true" />
           </button>
@@ -636,29 +1166,68 @@ export function CourseExplorer({
           </button>
           <button
             type="button"
-            aria-label="Show the whole map"
-            title="Show the whole map"
-            disabled={!awayFromHome}
-            onClick={() => setView(HOME)}
+            className="map-size-toggle"
+            aria-label={mapMode === 'expanded' ? 'Minimize course map' : 'Expand course map'}
+            title={mapMode === 'expanded' ? 'Minimize course map' : 'Expand course map'}
+            onClick={toggleMapSize}
           >
-            <Maximize2 aria-hidden="true" />
+            {mapMode === 'expanded' ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
           </button>
         </div>
-      </div>
 
-      <p className="map-hint">
-        {searchHits === 0 ? (
-          <>No course matches that. Try a code like CS 225, or part of a title.</>
-        ) : (
-          <>
-            {visible.length.toLocaleString()} of {catalogSize.toLocaleString()} courses on the map.{' '}
-            Scroll to zoom, or drag the space between dots to move.{' '}
-            {dragUsable
-              ? 'Click any dot to select it, then drag the highlighted dot into a semester. Drag a plan card back here to remove it.'
-              : 'Click any dot to select it, then use Add to here.'}
-          </>
-        )}
-      </p>
+        {selected && selectedPoint && (() => {
+          const { x, y } = selectedPoint;
+          const width = Math.min(292, Math.max(224, stageSize.width - 24));
+          const left = clamp(
+            x > stageSize.width * 0.58 ? x - width - 18 : x + 18,
+            12,
+            Math.max(12, stageSize.width - width - 12),
+          );
+          const top = clamp(y - 26, 48, Math.max(48, stageSize.height - 246));
+          return (
+            <div className="map-inspector" aria-live="polite" style={{ left, top, width }}>
+              <div className="map-popup-heading">
+                <span className="inspector-dot" style={{ backgroundColor: clusterColor(selected.cluster) }} />
+                <strong>{selected.code}</strong>
+                <span>{creditLabel(selected)}</span>
+              </div>
+              <h3>{selected.title}</h3>
+              {selected.description && <p className="map-popup-description">{selected.description}</p>}
+              <details className="map-popup-more">
+                <summary>Course details</summary>
+                <CourseDetail
+                  course={selected}
+                  core={core}
+                  schoolId={schoolId}
+                  completed={completedCodes.has(selected.code.toUpperCase())}
+                />
+              </details>
+              <div className="inspector-add">
+                <NativeSelect
+                  aria-label="Which term to add to"
+                  value={targetTermId}
+                  onChange={(event) => onTargetTermChange(event.target.value)}
+                >
+                  <NativeSelectOption value="completed">Already taken</NativeSelectOption>
+                  {terms.map((term) => (
+                    <NativeSelectOption key={term.id} value={term.id}>
+                      {term.label}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+                <Button
+                  className="inspector-add-button"
+                  disabled={plannedCourseIds.has(selected.id)}
+                  onClick={() => add(selected.id)}
+                >
+                  {plannedCourseIds.has(selected.id) ? <Check /> : <Plus />}
+                  {plannedCourseIds.has(selected.id) ? 'In plan' : 'Add'}
+                </Button>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
 
       {showList && (
         <div className="finder-results" aria-label={chooser ? 'Courses for this slot' : 'Matching courses'}>
@@ -700,58 +1269,52 @@ export function CourseExplorer({
         </div>
       )}
 
-      <div className="map-inspector" aria-live="polite">
-        {selected ? (
-          <>
-            <CourseDetail
-              course={selected}
-              core={core}
-              schoolId={schoolId}
-              completed={completedCodes.has(selected.code.toUpperCase())}
-            />
-            <div className="inspector-add">
-              <NativeSelect
-                aria-label="Which term to add to"
-                value={targetTermId}
-                onChange={(event) => onTargetTermChange(event.target.value)}
-              >
-                <NativeSelectOption value="completed">Already taken</NativeSelectOption>
-                {terms.map((term) => (
-                  <NativeSelectOption key={term.id} value={term.id}>
-                    {term.label}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-              <Button
-                className="inspector-add-button"
-                disabled={plannedCourseIds.has(selected.id)}
-                onClick={() => add(selected.id)}
-              >
-                {plannedCourseIds.has(selected.id) ? (
-                  <>
-                    <Check /> In the plan
-                  </>
-                ) : (
-                  <>
-                    <Plus /> Add {addLabel}
-                  </>
-                )}
-              </Button>
-            </div>
-          </>
-        ) : (
-          <div className="inspector-empty">
-            <h3>Pick a course</h3>
-            <p>
-              {normalizedQuery
-                ? 'Click a match in the list or on the map to read about it.'
-                : dragUsable
-                  ? 'Drag it into a semester, or use Add to.'
-                  : 'Then use Add to.'}
-            </p>
-          </div>
-        )}
-      </div>
+      <button
+        type="button"
+        className="map-resize-handle is-horizontal is-left"
+        aria-label="Resize course map width from the left"
+        title="Drag the left edge to resize map width"
+        onPointerDown={(event) => startResize(event, 'horizontal', 'left')}
+        onPointerMove={moveResize}
+        onPointerUp={finishResize}
+        onPointerCancel={finishResize}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+          event.preventDefault();
+          resizeWithKeyboard('horizontal', event.key === 'ArrowRight' ? 24 : -24, 'left');
+        }}
+      />
+      <button
+        type="button"
+        className="map-resize-handle is-horizontal is-right"
+        aria-label="Resize course map width from the right"
+        title="Drag the right edge to resize map width"
+        onPointerDown={(event) => startResize(event, 'horizontal', 'right')}
+        onPointerMove={moveResize}
+        onPointerUp={finishResize}
+        onPointerCancel={finishResize}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+          event.preventDefault();
+          resizeWithKeyboard('horizontal', event.key === 'ArrowRight' ? 24 : -24, 'right');
+        }}
+      />
+      <button
+        type="button"
+        className="map-resize-handle is-vertical"
+        aria-label="Resize course map height"
+        title="Drag to resize map height"
+        onPointerDown={(event) => startResize(event, 'vertical')}
+        onPointerMove={moveResize}
+        onPointerUp={finishResize}
+        onPointerCancel={finishResize}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+          event.preventDefault();
+          resizeWithKeyboard('vertical', event.key === 'ArrowDown' ? 24 : -24);
+        }}
+      />
+
     </aside>
   );
 }
@@ -769,22 +1332,75 @@ function creditLabel(course: Course): string {
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 
 /** Keep some map visible while allowing room beyond every edge. */
-function clampView(v: View, width: number, height: number): View {
+function clampView(
+  v: View,
+  width: number,
+  height: number,
+  planeWidth: number,
+  planeHeight: number,
+): View {
   const k = clamp(v.k, 1, MAX_ZOOM);
   const padX = width * MAP_OVERSCROLL;
   const padY = height * MAP_OVERSCROLL;
+  const originX = (width - planeWidth) / 2;
+  const originY = (height - planeHeight) / 2;
+  const xA = width - originX - planeWidth * k - padX;
+  const xB = padX - originX;
+  const yA = height - originY - planeHeight * k - padY;
+  const yB = padY - originY;
   return {
     k,
-    x: clamp(v.x, width - width * k - padX, padX),
-    y: clamp(v.y, height - height * k - padY, padY),
+    x: clamp(v.x, Math.min(xA, xB), Math.max(xA, xB)),
+    y: clamp(v.y, Math.min(yA, yB), Math.max(yA, yB)),
   };
 }
 
 /** Scale about a stage point, so what is under the cursor stays under it. */
-function zoomAt(v: View, factor: number, px: number, py: number, width: number, height: number): View {
+function zoomAt(
+  v: View,
+  factor: number,
+  px: number,
+  py: number,
+  width: number,
+  height: number,
+  planeWidth: number,
+  planeHeight: number,
+): View {
   const k = clamp(v.k * factor, 1, MAX_ZOOM);
   const ratio = k / v.k;
-  return clampView({ k, x: px - (px - v.x) * ratio, y: py - (py - v.y) * ratio }, width, height);
+  const originX = (width - planeWidth) / 2;
+  const originY = (height - planeHeight) / 2;
+  return clampView(
+    {
+      k,
+      x: px - originX - (px - originX - v.x) * ratio,
+      y: py - originY - (py - originY - v.y) * ratio,
+    },
+    width,
+    height,
+    planeWidth,
+    planeHeight,
+  );
+}
+
+function resolvedPlaneSize(
+  plane: { width: number; height: number },
+  stage: { width: number; height: number },
+) {
+  return {
+    width: plane.width || stage.width || 1,
+    height: (plane.height || stage.height || 1) * MAP_VERTICAL_STRETCH,
+  };
+}
+
+function planeOrigin(
+  stage: { width: number; height: number },
+  plane: { width: number; height: number },
+) {
+  return {
+    x: (stage.width - plane.width) / 2,
+    y: (stage.height - plane.height) / 2,
+  };
 }
 
 /** Only for a course with no crawled position. Illinois has none of these today. */

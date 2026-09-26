@@ -31,7 +31,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'search_courses',
     description:
-      'Find courses in the Illinois catalog by code, title or department, e.g. "history", "HIST 2", "data science". When term is given, only courses the student could actually take in that term are returned: prerequisites met by what is earlier on the board, class standing met, nothing the catalog says does not count beside a course already held, nothing already on the board. Use this before adding or replacing anything.',
+      'Find courses in the active university catalog by code, title or department, e.g. "history", "HIST 2", "data science". When term is given, only courses the student could actually take in that term are returned: prerequisites met by what is earlier on the board, class standing met, nothing the catalog says does not count beside a course already held, nothing already on the board. Use this before adding or replacing anything.',
     input_schema: {
       type: 'object',
       properties: {
@@ -57,7 +57,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'term_summary',
     description:
-      'One term of the board: its courses with why each is there (required, from a list, elective slot, or added by the student), its credit hours, how heavy it reads against Illinois grade history, and any review issues on it.',
+      'One term of the board: its courses with why each is there (required, from a list, elective slot, or added by the student), its credit hours, any available workload evidence, and any review issues on it.',
     input_schema: {
       type: 'object',
       properties: { term: { type: 'string', description: 'A term label like "Spring 2028".' } },
@@ -132,7 +132,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'university_answer',
     description:
-      "Ask about the University of Illinois itself: registration, deadlines, drop rules, parking, housing, offices, policies, anything on its published pages. Returns an answer with the pages it came from. Use it for anything the board cannot answer, and pass on its sources.",
+      "Ask about the student's selected university: registration, deadlines, drop rules, parking, housing, offices, policies, or anything on its published pages. Returns an answer with the pages it came from. Use it for anything the board cannot answer, and pass on its sources.",
     input_schema: {
       type: 'object',
       properties: { question: { type: 'string' } },
@@ -160,11 +160,11 @@ export type AdvisorExecutor = (name: AdvisorToolName, input: Record<string, unkn
 // What the model is told, once
 // ---------------------------------------------------------------------------
 
-export function advisorSystem(bot: string): string {
-  return `You are ${bot}, the University of Illinois Urbana-Champaign assistant. Students ask you anything about Illinois: registration, deadlines, dropping and adding, tuition, housing, dining, parking, offices and who to contact, majors and what they need, campus life, policies. You answer those from the university's own published pages through the university_answer tool. You also sit inside a four-year course planner: the student is looking at their board, one column per term, a card per course, and you can read it and change it with tools.
+export function advisorSystem(bot: string, schoolName: string, schoolShort: string): string {
+  return `You are ${bot}, the ${schoolName} assistant. Students ask you anything about ${schoolShort}: registration, deadlines, dropping and adding, tuition, housing, dining, parking, offices and who to contact, majors and what they need, campus life, policies. You answer those from the university's own published pages through the university_answer tool. You also sit inside a four-year course planner: the student is looking at their board, one column per term, a card per course, and you can read it and change it with tools.
 
 What you are for
-- Answer any question about Illinois, from its pages, with the page named. That is most of what students ask; treat it as the main job, not a sideline.
+- Answer any question about ${schoolShort}, from its pages, with the page named. That is most of what students ask; treat it as the main job, not a sideline.
 - Answer questions about the student's own plan, and change the plan when the student wants it changed.
 - When the student expresses an interest ("I really like history", "I want more data science"), act on it: search for courses in that area that are eligible in a term, replace elective slots with the best fits, and tell them what you did. Do not stop to ask which term unless it genuinely matters; act, then offer alternatives and ask if they want more.
 - When a request is ambiguous in a way that changes what you would do (which of two required courses to drop, whether to keep a course they said they liked), ask one short question and wait.
@@ -214,13 +214,15 @@ async function advisorStep(
   messages: AdvisorMessage[],
   board: string,
   bot: string,
+  schoolName: string,
+  schoolShort: string,
   onText: ((delta: string) => void) | undefined,
   signal: AbortSignal | undefined,
 ): Promise<AdvisorStep> {
   const res = await fetch('/api/advisor', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages, board, bot }),
+    body: JSON.stringify({ messages, board, bot, schoolName, schoolShort }),
     signal,
   });
   if (!res.ok || !res.body) {
@@ -273,13 +275,23 @@ export async function runAdvisorTurn(input: {
   board: () => string;
   /** The name the bot answers to: ALMA at Illinois. */
   bot: string;
+  schoolName: string;
+  schoolShort: string;
   execute: AdvisorExecutor;
   events?: AdvisorTurnEvents;
   signal?: AbortSignal;
 }): Promise<{ messages: AdvisorMessage[]; refused: string | null }> {
   const messages: AdvisorMessage[] = [...input.messages, { role: 'user', content: input.userText }];
   for (let step = 0; step < MAX_STEPS; step += 1) {
-    const reply = await advisorStep(messages, input.board(), input.bot, input.events?.onText, input.signal);
+    const reply = await advisorStep(
+      messages,
+      input.board(),
+      input.bot,
+      input.schoolName,
+      input.schoolShort,
+      input.events?.onText,
+      input.signal,
+    );
     messages.push({ role: 'assistant', content: reply.content as Anthropic.Beta.BetaContentBlockParam[] });
     input.events?.onStep?.(messages);
     if (reply.stop_reason === 'refusal') {
