@@ -25,7 +25,6 @@ import {
   ChevronDown,
   Info,
   Printer,
-  Save,
   Sparkles,
   Undo2,
 } from 'lucide-react';
@@ -38,7 +37,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { toast, Toaster } from '@/components/ui/toast';
-import { BotLauncher, BotPanel } from './advisor';
+import { BotLauncher, BotPanel, type BotTurns } from './advisor';
 import { AdvisorPacketDialog } from './advisor-packet';
 import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
@@ -84,13 +83,29 @@ import {
   type AwayTerm,
   type CreditTotal,
   type GeneratedPlan,
-  type LanguagePlan,
   type NotPlaced,
   type PlanningContext,
-  type PoolReport,
-  type UnsatisfiedRequirement,
   type ValidateOptions,
 } from '@/lib/planner/autoplan';
+import {
+  forgetBoard,
+  forgetChat,
+  NO_SHAPE,
+  pushUndo,
+  readSavedBoard,
+  repickInReport,
+  reportOf,
+  serializeBoard,
+  swapInReport,
+  writeSavedBoard,
+  type BoardState,
+  type BoardStorage,
+  type PlanReport,
+  type PlanSettings,
+  type PlanShape,
+  type SavedBoard,
+  type UndoEntry,
+} from '@/lib/planner/saved-board';
 import { livePools, poolShortfalls } from './live-pools';
 import { careerWordsAfter, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
@@ -142,8 +157,6 @@ import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail } from '@/lib/planner/illinois-load';
 import type { AdvisorExecutor } from '@/lib/planner/advisor';
 
-const STORAGE_KEY = 'four-year-planner-v3';
-
 /**
  * Whether a course answers a search: by code, by title, or by the name of its
  * department, so "accounting" finds ACCY and not only the titles that spell it.
@@ -156,13 +169,41 @@ function matchesQuery(course: Course, q: string): boolean {
   );
 }
 
-/** Forget the board saved on this device. Onboarding calls it, so a new setup builds a new plan. */
-export function clearSavedPlan(): void {
+/** This device's storage, or null where the browser refuses it (some private windows throw on the getter). */
+function deviceStorage(): BoardStorage | null {
   try {
-    window.localStorage.removeItem(STORAGE_KEY);
+    return window.localStorage;
   } catch {
-    /* nothing to forget */
+    return null;
   }
+}
+
+/**
+ * Forget the board saved on this device and ALMA's conversation about it.
+ * Onboarding calls it, so a new setup builds a new plan and starts a new
+ * conversation rather than one about a board that is gone.
+ */
+export function clearSavedPlan(): void {
+  forgetBoard(deviceStorage());
+}
+
+/**
+ * What decides whether the student's credit changed: the record, the exams
+ * and the words as they gave them. The exams go in as named, not as priced
+ * for the degree's college, because the pricing waits on the degree page
+ * and the exam table: read priced, a Grainger student's restored board saw
+ * "Calculus BC" turn into its Grainger row the moment the page arrived, took
+ * that for new credit and was rebuilt over the board they had saved.
+ */
+function creditKeyOf(answers: OnboardingAnswers | null | undefined): string {
+  return [
+    ...transcriptCodes(answers?.transcript).sort(),
+    `h${transcriptHours(answers?.transcript)}|${transcriptCreditAdjustment(answers?.transcript)}`,
+    ...(answers?.exams ?? []).map((e) => `${e.kind}|${e.exam}|${e.score}`),
+    answers?.transferText ?? '',
+    String(answers?.languageYears ?? ''),
+    answers?.language ?? '',
+  ].join(';');
 }
 
 /**
@@ -218,87 +259,6 @@ const NOT_PLACED_WORD: Record<string, string> = {
   'standing-unmet': 'you are not far enough through the degree yet',
 };
 
-/**
- * What the last generation said, kept so every panel can be recounted.
- *
- * The pool panel and the review list used to be written once, when the plan was
- * built, and never again. The student then moved a course and both went on
- * printing numbers about a board that no longer existed. This holds only the
- * parts a board edit cannot change: which pools the degree has, what each one
- * asked for, and which requirements the scheduler could not fill at all.
- * Everything countable is counted again from the terms on screen.
- */
-interface PlanReport {
-  pools: PoolReport[];
-  unsatisfied: UnsatisfiedRequirement[];
-  notPlaced: NotPlaced[];
-  /** Held credit a required course displaced. Out of the headline, and in the review list. */
-  forfeited: Array<{ held: string; for: string }>;
-  /**
-   * Courses the plan chose to reach the degree total, each with its reason,
-   * and the career track it was booked for when there is one.
-   */
-  electives: Array<{ code: string; why: string; track?: string }>;
-  firstTermId: string;
-  /** The language sequence the plan booked, or null. */
-  language: LanguagePlan | null;
-  /** The college admission route the plan front-loads, or null. */
-  admission: GeneratedPlan['admission'];
-  /** Requirements the generation found already met by held credit. */
-  satisfiedByPriorCredit: GeneratedPlan['satisfiedByPriorCredit'];
-  /** The residency rule against the plan, or null. */
-  residency: GeneratedPlan['residency'] | null;
-  /** Which requirement each booked course was chosen for; null for a prerequisite or an elective. */
-  bookedFor: Record<string, string | null>;
-  /** Courses the catalog requires first that the degree page does not list, and what needs them. */
-  addedPrerequisites: Array<{ code: string; requiredBy: string }>;
-  /** The planner's picks for general education categories, each with its category. */
-  genEdPicks: NonNullable<GeneratedPlan['genEdPicks']>;
-  /** Terms away and what each earns. They have no column, so the headline and the validator read them here. */
-  away?: NonNullable<GeneratedPlan['away']>;
-  /**
-   * Each term's codes as the plan was built, by term id. The review compares
-   * the board with it: Fall 2026 at 12 hours after the student dragged PSYC
-   * 100 out is their edit, while a balanced 13 for a student with 42 AP
-   * hours is the plan's, and only the first is a momentum flag.
-   */
-  builtTerms?: Record<string, string[]>;
-  /** The hours a fall or spring the plan was balanced at (GeneratedPlan credits.aim), for the review's light-term cause. */
-  aim?: number;
-}
-
-interface Stored {
-  schemaVersion: 3;
-  schoolId: string;
-  programId: string | null;
-  plan: PlanState;
-  minimumTermCredits: number;
-  /** Null, or absent on boards saved before the control existed, means balanced. */
-  targetTermCredits?: number | null;
-  careerInterests: string;
-  /** True when the student dropped their goal; absent on boards saved before ALMA could. */
-  careerCleared?: boolean;
-  /** Absent on boards saved before the knobs existed, which means balanced. */
-  priorities?: Priorities;
-  /** Absent on boards saved before ALMA could shape the timeline. */
-  planShape?: PlanShape;
-}
-
-/**
- * What the student asked of the plan's shape beyond their credit load: a
- * finish term, terms away (study abroad, a co-op), summers they will take
- * classes in, and whether hard courses should be spread one per term. Set by
- * ALMA's set_plan_shape and applied on every build, so a rebuild keeps it.
- */
-interface PlanShape {
-  finish: { season: SemesterSeason; year: number } | null;
-  /** Each may say what it is and what it earns; a plain term (older saves) earns nothing. */
-  away: AwayTerm[];
-  summers: number[];
-  spreadHard: boolean;
-}
-
-const NO_SHAPE: PlanShape = { finish: null, away: [], summers: [], spreadHard: false };
 const AWAY_KINDS: AwayKind[] = ['study_abroad', 'co_op', 'internship', 'gap'];
 
 /** "Spring 2029 (study abroad, 15 hours)", for ALMA. */
@@ -375,7 +335,25 @@ export function PlannerWorkspace({
   const examCredit = useExamCredit(school);
 
   const [plan, setPlan] = useState<PlanState | null>(null);
-  const [undoStack, setUndoStack] = useState<PlanState[]>([]);
+  /**
+   * Steps back, newest last. Each holds the whole board, report and all
+   * (saved-board.ts UndoEntry), and one ALMA turn is one step however many
+   * cards it moved.
+   */
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  /**
+   * Whether anyone has changed the board by hand since it was built. It
+   * decides whether a change in credit rebuilds the board on its own or asks
+   * first, and it is saved with the board: counting the undo stack instead
+   * read a restored board, whose stack starts empty, as untouched.
+   */
+  const [boardEdited, setBoardEdited] = useState(false);
+  /** ALMA turns the student undid this session, for the conversation's notes. */
+  const [undoneTurns, setUndoneTurns] = useState<BotTurns['undone']>([]);
+  /** Whether the board is on this device: nothing yet, saved, or refused by the browser. */
+  const [saveState, setSaveState] = useState<'none' | 'saved' | 'failed'>('none');
+  /** Bumped when a ref the save reads changes on its own (the re-pick signature). */
+  const [saveTick, setSaveTick] = useState(0);
   const [programId, setProgramId] = useState<string | null>(null);
   /**
    * The degree page, tagged with the degree it belongs to.
@@ -430,13 +408,34 @@ export function PlannerWorkspace({
   const studentAdded = useRef<Set<string>>(new Set());
   /**
    * The priorities and words the board was last built or re-picked for
-   * (repickSignature), or null for a board restored from this device. A
+   * (repickSignature), saved and restored with the board, or null for a
+   * board from before it was saved (a v3 entry, a file). A
    * re-pick for the same ones is a no-op: pressing Re-pick on a fresh
    * balanced board used to move 21 of a pre-med student's courses, because
    * the fill and the re-pick rank a little differently, and pressing it
    * again moved more.
    */
   const repickedFor = useRef<string | null>(null);
+  /**
+   * The ALMA turn in flight, if any: the board, settings and record as they
+   * were when the student sent the message, and what the turn has changed.
+   * Its first change pushes one undo step; the rest of the turn joins it.
+   */
+  const almaTurn = useRef<{
+    id: string;
+    before: BoardState;
+    settings: PlanSettings;
+    transcript: TranscriptRecord | null;
+    pushed: boolean;
+    /** The tool call running now, which a change is filed under. */
+    toolId: string | null;
+    toolIds: string[];
+    summary: string[];
+  } | null>(null);
+  /** Set by an ALMA tool that rebuilds the board, so the rebuild keeps the turn's undo step. */
+  const keepUndoOnBuild = useRef(false);
+  /** Set by an undo that put the credit back, so the credit watcher does not rebuild over it. */
+  const creditRestored = useRef(false);
   useEffect(() => {
     planRef.current = plan;
   }, [plan]);
@@ -472,7 +471,7 @@ export function PlannerWorkspace({
     setStatus(description ? `${title} ${description}` : title);
     toast.add({ title, description, type, timeout: 9000 });
   }
-  const restored = useRef<Stored | null>(null);
+  const restored = useRef<SavedBoard | null>(null);
   const rulerRef = useRef<HTMLDivElement | null>(null);
   const lastBucket = useRef<string | null>(null);
 
@@ -538,37 +537,42 @@ export function PlannerWorkspace({
   // ---- restore -------------------------------------------------------------
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Partial<Stored>;
-      if (parsed.schemaVersion !== 3 || !isPlanState(parsed.plan)) return;
-      if (parsed.schoolId !== (school?.id ?? '')) return;
-      restored.current = parsed as Stored;
-      /**
-       * Set here and not derived, because localStorage cannot be read while
-       * rendering: the server renders without it and the first client render
-       * has to match. This runs once per school and seeds three fields the
-       * student then owns, so the cascade the compiler warns about is one
-       * extra render on arrival and never again.
-       */
-      // oxlint-disable-next-line react/react-compiler
-      setProgramId(parsed.programId ?? null);
-      setMinimumTermCredits(parsed.minimumTermCredits ?? 12);
-      setTargetTermCredits(parsed.targetTermCredits ?? null);
-      setPlanShape(parsed.planShape ?? NO_SHAPE);
-      setPriorities(normalizePriorities(parsed.priorities));
-      if (parsed.careerInterests) setCareerInterests(parsed.careerInterests);
-      setCareerCleared(parsed.careerCleared === true);
-    } catch {
-      /* a corrupt entry is not worth failing the app over; a fresh plan follows */
+    /**
+     * The board saved on this device for this school (v4, or a v3 entry moved
+     * to v4; saved-board.ts), put back as it was: cards, report, settings.
+     * A broken or missing entry gives a fresh plan, and then the saved chat
+     * goes too, because it was about a board that is not coming back.
+     */
+    const saved = readSavedBoard(deviceStorage(), school?.id ?? '');
+    if (!saved) {
+      forgetChat(deviceStorage());
+      return;
     }
+    restored.current = saved;
+    /**
+     * Set here and not derived, because localStorage cannot be read while
+     * rendering: the server renders without it and the first client render
+     * has to match. This runs once per school and seeds fields the student
+     * then owns, so the cascade the compiler warns about is one extra render
+     * on arrival and never again.
+     */
+    // oxlint-disable-next-line react/react-compiler
+    setProgramId(saved.programId);
+    setMinimumTermCredits(saved.settings.minimumTermCredits);
+    setTargetTermCredits(saved.settings.targetTermCredits);
+    setPlanShape(saved.settings.planShape);
+    planShapeRef.current = saved.settings.planShape;
+    setPriorities(saved.settings.priorities);
+    setCareerInterests(saved.settings.careerInterests);
+    setCareerCleared(saved.settings.careerCleared);
   }, [school]);
 
   // ---- pick a degree -------------------------------------------------------
 
   useEffect(() => {
-    if (programId) return;
+    // The saved board names its degree; a guess landing in the same pass
+    // would replace it with whatever the About-you words point at.
+    if (programId || restored.current?.programId) return;
     const guess = isIllinois && core
       ? guessProgram(answers?.studying ?? '', (core.programs ?? []).filter(plannableProgram))
       : isUga && uga
@@ -665,9 +669,11 @@ export function PlannerWorkspace({
     if (!isCatalogSchool) {
       const sample = createSamplePlan();
       repickedFor.current = null;
+      studentAdded.current = new Set();
       setPlan(sample);
       setPlanNotes([]);
       setReport(null);
+      setBoardEdited(false);
       setTargetTermId(sample.terms[0]?.id ?? '');
       // The demo plan names its own program. Without this the rail reads
       // "No degree chosen" above a board full of that degree's courses.
@@ -791,32 +797,19 @@ export function PlannerWorkspace({
     setChooser(null);
     setTargetTermId(generated.plan.terms[0]?.id ?? '');
     setPlanNotes(generated.notes);
-    /**
-     * Only the parts of the report a board edit cannot change are kept. The
-     * pool counts and the pool shortfalls are derived from the board below, so
-     * that moving a course moves the numbers about it.
-     */
-    setReport({
-      pools: generated.pools,
-      unsatisfied: generated.unsatisfied,
-      notPlaced: generated.notPlaced,
-      forfeited: generated.forfeited,
-      electives: generated.electives,
-      language: generated.language,
-      admission: generated.admission,
-      satisfiedByPriorCredit: generated.satisfiedByPriorCredit,
-      residency: generated.residency ?? null,
-      bookedFor: generated.bookedFor ?? {},
-      addedPrerequisites: generated.addedPrerequisites,
-      genEdPicks: generated.genEdPicks ?? [],
-      away: generated.away ?? [],
-      firstTermId: generated.plan.terms[0]?.id ?? '',
-      builtTerms: Object.fromEntries(generated.terms.map((t) => [t.id, t.codes.map(normCode)])),
-      aim: generated.credits.aim,
-    });
+    // Only the parts of the report a board edit cannot change (reportOf).
+    setReport(reportOf(generated));
     repickedFor.current = repickSignature(priorities, planInput.interests ?? '');
     studentAdded.current = new Set();
-    setUndoStack([]);
+    setBoardEdited(false);
+    /**
+     * A rebuild starts the undo history over, except one ALMA asked for in a
+     * turn ("take summer classes in 2027", "I took CHEM 102 at Parkland"):
+     * that turn's single step already holds the board from before it, and
+     * "Undo these changes" has to be able to put it back.
+     */
+    if (keepUndoOnBuild.current) keepUndoOnBuild.current = false;
+    else setUndoStack([]);
     setStatus(
       generated.unsatisfied.length || generated.notPlaced.length
         ? 'Plan built. Open the review list to see what it could not do.'
@@ -835,14 +828,7 @@ export function PlannerWorkspace({
    * the bot recorded the credit at their request (the toast says the edits
    * were replaced). Otherwise the rail tells them to press Rebuild.
    */
-  const creditKey = [
-    ...transcriptCodes(answers?.transcript).sort(),
-    `h${transcriptHours(answers?.transcript)}|${transcriptCreditAdjustment(answers?.transcript)}`,
-    ...exams.map((e) => `${e.kind}|${e.exam}|${e.score}`),
-    answers?.transferText ?? '',
-    String(answers?.languageYears ?? ''),
-    answers?.language ?? '',
-  ].join(';');
+  const creditKey = creditKeyOf(answers);
   const lastCreditKey = useRef<string | null>(null);
   const rebuildForCredit = useRef(false);
   /**
@@ -859,9 +845,9 @@ export function PlannerWorkspace({
     // request; the same pattern as the credit rebuild below.
     // oxlint-disable-next-line react/react-compiler
     buildPlan();
-    notify('Plan rebuilt to your new shape', undoStack.length > 0 ? 'Your earlier edits to the board were replaced.' : undefined, 'info');
+    notify('Plan rebuilt to your new shape', boardEdited ? 'Your earlier edits to the board were replaced.' : undefined, 'info');
     // Keyed on the shape; the rest is read fresh when it fires.
-  }, [shapeKey, plan, context, loaded, undoStack.length, buildPlan]);
+  }, [shapeKey, plan, context, loaded, boardEdited, buildPlan]);
   useEffect(() => {
     if (lastCreditKey.current === null) {
       lastCreditKey.current = creditKey;
@@ -869,18 +855,35 @@ export function PlannerWorkspace({
     }
     if (lastCreditKey.current === creditKey) return;
     lastCreditKey.current = creditKey;
+    // An undo put the record back together with the board built for it.
+    if (creditRestored.current) {
+      creditRestored.current = false;
+      return;
+    }
     if (!plan || !context || !loaded) return;
     const forced = rebuildForCredit.current;
     rebuildForCredit.current = false;
-    if (forced || undoStack.length === 0) {
+    if (forced || !boardEdited) {
       buildPlan();
-      notify('Plan rebuilt around your credit', forced && undoStack.length > 0 ? 'Your earlier edits to the board were replaced.' : undefined, 'info');
+      notify('Plan rebuilt around your credit', forced && boardEdited ? 'Your earlier edits to the board were replaced.' : undefined, 'info');
     } else {
       notify('Your credit changed', 'Press Rebuild to plan around it; your edits to the board would be replaced.', 'info');
     }
     // Only a change in the key does anything; the other dependencies are read
     // fresh when it does and are otherwise a no-op through the early return.
-  }, [creditKey, plan, context, loaded, undoStack.length, buildPlan]);
+  }, [creditKey, plan, context, loaded, boardEdited, buildPlan]);
+
+  /** Put a board back: an undo step, or the board saved on this device. */
+  function applyBoard(state: BoardState) {
+    planRef.current = state.plan;
+    setPlan(state.plan);
+    setReport(state.report);
+    setPlanNotes(state.notes);
+    studentAdded.current = new Set(state.studentAdded);
+    repickedFor.current = state.repickedFor;
+    setBoardEdited(state.edited);
+    setChooser(null);
+  }
 
   useEffect(() => {
     if (plan) return;
@@ -888,14 +891,101 @@ export function PlannerWorkspace({
     if (restored.current) {
       const saved = restored.current;
       restored.current = null;
-      repickedFor.current = null;
-      setPlan(saved.plan);
-      setTargetTermId(saved.plan.terms[0]?.id ?? '');
+      applyBoard(saved.board);
+      setTargetTermId(saved.board.plan.terms[0]?.id ?? '');
       setStatus('Your saved plan, restored from this device.');
       return;
     }
     if (!isCatalogSchool || (context && loaded)) buildPlan();
   }, [plan, isCatalogSchool, context, loaded, buildPlan]);
+
+  // ---- saved on this device -------------------------------------------------
+
+  /**
+   * The board is saved after every change, a moment after the last one, with
+   * everything its cards are read through. It used to be saved only when the
+   * student pressed "Save on this device", and then without its report: a
+   * student who reloaded got a board rebuilt from the About-you answers, or
+   * one with every slot, list chip and track mark gone, next to an ALMA
+   * conversation about courses no longer on it.
+   *
+   * The write that is still waiting goes out when the page is hidden or
+   * closed, so a reload straight after a change keeps it. Nothing asks
+   * "Leave site?": there is nothing unsaved to warn about.
+   */
+  /** The write waiting to go out: the entry, and its body without the time, to compare the next one with. */
+  const pendingSave = useRef<{ payload: string; body: string } | null>(null);
+  const lastSaved = useRef<string | null>(null);
+  /** Write what is waiting, if anything; false when the browser refused it. */
+  const writePending = useCallback((): boolean | null => {
+    const pending = pendingSave.current;
+    if (!pending) return null;
+    pendingSave.current = null;
+    const ok = writeSavedBoard(deviceStorage(), pending.payload);
+    if (ok) lastSaved.current = pending.body;
+    return ok;
+  }, []);
+  useEffect(() => {
+    if (!plan) {
+      // Between a new degree or a new setup and its first board, the board
+      // that was here is not written back.
+      pendingSave.current = null;
+      return;
+    }
+    const saved: Omit<SavedBoard, 'savedAt'> = {
+      schemaVersion: 4,
+      schoolId: school?.id ?? '',
+      programId,
+      board: {
+        plan,
+        report,
+        notes: planNotes,
+        studentAdded: [...studentAdded.current],
+        repickedFor: repickedFor.current,
+        edited: boardEdited,
+      },
+      settings: { minimumTermCredits, targetTermCredits, careerInterests, careerCleared, priorities, planShape },
+    };
+    const body = JSON.stringify(saved);
+    if (body === lastSaved.current) {
+      // Back to what is on the device already (an undo before the write).
+      pendingSave.current = null;
+      return;
+    }
+    pendingSave.current = { payload: serializeBoard({ ...saved, savedAt: new Date().toISOString() }), body };
+    const timer = window.setTimeout(() => {
+      const ok = writePending();
+      if (ok !== null) setSaveState(ok ? 'saved' : 'failed');
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [plan, report, planNotes, boardEdited, programId, school, minimumTermCredits, targetTermCredits, careerInterests, careerCleared, priorities, planShape, saveTick, writePending]);
+  useEffect(() => {
+    const flush = () => {
+      const ok = writePending();
+      if (ok !== null) setSaveState(ok ? 'saved' : 'failed');
+    };
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onHidden);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onHidden);
+      flush();
+    };
+  }, [writePending]);
+
+  /**
+   * End this board on this device: the saved board and ALMA's conversation
+   * about it, together, and any write still waiting, so a reload straight
+   * after Start over does not put the old board back.
+   */
+  function forgetThisBoard() {
+    pendingSave.current = null;
+    lastSaved.current = null;
+    forgetBoard(deviceStorage());
+  }
 
   // ---- derived --------------------------------------------------------------
 
@@ -1340,10 +1430,112 @@ export function PlannerWorkspace({
 
   // ---- plan edits -----------------------------------------------------------
 
-  function commit(next: PlanState) {
-    if (!plan) return;
-    setUndoStack((current) => [...current.slice(-19), plan]);
+  /**
+   * The board as it stands, report and all: what one undo step puts back and
+   * what the device keeps. Read from the refs and the last render, because
+   * ALMA's tools run between renders.
+   */
+  function boardNow(): BoardState | null {
+    const board = planRef.current;
+    if (!board) return null;
+    const L = live.current;
+    return {
+      plan: board,
+      report: L.report,
+      notes: L.planNotes,
+      studentAdded: [...studentAdded.current],
+      repickedFor: repickedFor.current,
+      edited: L.boardEdited,
+    };
+  }
+
+  function settingsNow(): PlanSettings {
+    const L = live.current;
+    return {
+      minimumTermCredits: L.minimumTermCredits,
+      targetTermCredits: L.targetTermCredits,
+      careerInterests: L.careerInterests,
+      careerCleared: L.careerCleared,
+      priorities: L.priorities,
+      planShape: planShapeRef.current,
+    };
+  }
+
+  /**
+   * One change to the board, and its undo step. A student's edit is a step of
+   * its own. ALMA's edits while it answers one message share the step the
+   * turn's first change pushed (almaChanged), so "Undo these changes" takes
+   * back the whole answer: three history courses in, three elective slots out.
+   * `added` are cards that read "added" from now on.
+   */
+  function commit(next: PlanState, options: { by?: 'student' | 'alma'; summary?: string; added?: string[] } = {}) {
+    const before = boardNow();
+    if (!before) return;
+    if (options.by === 'alma' && almaTurn.current) almaChanged(options.summary ?? null);
+    else setUndoStack((current) => pushUndo(current, { before }));
+    if (options.added?.length) studentAdded.current = new Set([...studentAdded.current, ...options.added]);
+    planRef.current = next;
     setPlan(next);
+    setBoardEdited(true);
+  }
+
+  /**
+   * A change ALMA made in the turn in flight, filed under the tool call that
+   * made it. The turn's first change pushes its one undo step, holding the
+   * board, settings and record from before the student's message.
+   */
+  function almaChanged(summary: string | null) {
+    const turn = almaTurn.current;
+    if (!turn) return;
+    if (!turn.pushed) {
+      turn.pushed = true;
+      setUndoStack((current) => pushUndo(current, { before: turn.before, turn: { id: turn.id, toolIds: [], summary: [] } }));
+    }
+    if (turn.toolId && !turn.toolIds.includes(turn.toolId)) turn.toolIds.push(turn.toolId);
+    if (summary) turn.summary.push(summary);
+  }
+
+  /** The student sent ALMA a message: what undoing the turn puts back is the board as it is now. */
+  function beginAlmaTurn() {
+    const before = boardNow();
+    almaTurn.current = before
+      ? {
+          id: `turn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          before,
+          settings: settingsNow(),
+          transcript: live.current.answers?.transcript ?? null,
+          pushed: false,
+          toolId: null,
+          toolIds: [],
+          summary: [],
+        }
+      : null;
+  }
+
+  /**
+   * The turn is over. Its step learns which tool calls made it (so the reply
+   * can offer the undo), what they did, and which settings and credit the
+   * turn changed, as they were before it: undoing it puts back only those,
+   * so a priority the student set by hand afterwards is not undone with it.
+   */
+  function endAlmaTurn() {
+    const turn = almaTurn.current;
+    almaTurn.current = null;
+    if (!turn?.pushed) return;
+    const after = settingsNow();
+    const settings: Partial<PlanSettings> = {};
+    for (const key of Object.keys(after) as Array<keyof PlanSettings>) {
+      if (JSON.stringify(after[key]) !== JSON.stringify(turn.settings[key])) Object.assign(settings, { [key]: turn.settings[key] });
+    }
+    const transcriptNow = live.current.answers?.transcript ?? null;
+    const record: NonNullable<UndoEntry['turn']> = {
+      id: turn.id,
+      toolIds: [...turn.toolIds],
+      summary: [...turn.summary],
+      ...(Object.keys(settings).length > 0 ? { settings } : {}),
+      ...(transcriptNow !== turn.transcript ? { transcript: { value: turn.transcript } } : {}),
+    };
+    setUndoStack((current) => current.map((entry) => (entry.turn?.id === turn.id ? { ...entry, turn: record } : entry)));
   }
 
   function addCourse(courseId: string, termId: string) {
@@ -1354,7 +1546,6 @@ export function PlannerWorkspace({
       setStatus(`${course.code} is already in the plan.`);
       return;
     }
-    if (termId !== 'completed') studentAdded.current.add(courseId);
     commit(
       termId === 'completed'
         ? { ...plan, completedCourseIds: [...plan.completedCourseIds, courseId] }
@@ -1364,6 +1555,7 @@ export function PlannerWorkspace({
               term.id === termId ? { ...term, courseIds: [...term.courseIds, courseId] } : term,
             ),
           },
+      { added: termId === 'completed' ? [] : [courseId] },
     );
     setSelectedCourseId(courseId);
     setFocusTermId(termId === 'completed' ? null : termId);
@@ -1454,23 +1646,11 @@ export function PlannerWorkspace({
   }
 
   /**
-   * An elective slot keeps being a slot after its course is swapped. A course
-   * put in for a career track keeps the track: MCB 150 swapped into a slot
-   * for a pre-PT student is still "for Pre-physical therapy (DPT)", so the
-   * next re-pick for easier classes leaves it where it is.
+   * An elective slot keeps being a slot after its course is swapped, and a
+   * track course keeps its track (swapInReport in lib/planner/saved-board.ts).
    */
   function noteElectiveSwap(oldCode: string, newCode: string, why: string, track?: string) {
-    setReport((current) =>
-      current
-        ? {
-            ...current,
-            electives: current.electives.map((e) =>
-              normCode(e.code) === normCode(oldCode) ? { code: newCode, why, reasons: [], ...(track ? { track } : {}) } : e,
-            ),
-            genEdPicks: current.genEdPicks.map((g) => (normCode(g.code) === normCode(oldCode) ? { ...g, code: newCode } : g)),
-          }
-        : current,
-    );
+    setReport((current) => (current ? swapInReport(current, oldCode, newCode, why, track) : current));
   }
 
   function removeCourse(courseId: string, termId: string) {
@@ -1588,6 +1768,10 @@ export function PlannerWorkspace({
     report,
     examTable: examCredit.entries,
     priorCreditHours,
+    planNotes,
+    boardEdited,
+    careerInterests,
+    careerCleared,
   });
   useEffect(() => {
     live.current = {
@@ -1618,6 +1802,10 @@ export function PlannerWorkspace({
       report,
       examTable: examCredit.entries,
       priorCreditHours,
+      planNotes,
+      boardEdited,
+      careerInterests,
+      careerCleared,
     };
   });
 
@@ -1928,7 +2116,7 @@ export function PlannerWorkspace({
    * for moves nothing (`unchanged`). This commits the result and keeps the
    * report's marks in step with it.
    */
-  function repickElectives(next: Priorities): { changes: RepickChange[]; unchanged: boolean } {
+  function repickElectives(next: Priorities, by: 'student' | 'alma' = 'student'): { changes: RepickChange[]; unchanged: boolean } {
     const L = live.current;
     const board = planRef.current;
     if (!board || !L.context || !L.loaded) return { changes: [], unchanged: false };
@@ -1951,17 +2139,18 @@ export function PlannerWorkspace({
       lastSignature: repickedFor.current,
       arrival: arrivalOf(L.answers),
     });
+    if (result.changes.length === 0) {
+      repickedFor.current = result.signature;
+      // Nothing on the board moved, but the signature did, and the device
+      // keeps it: a second Re-pick after a reload is a no-op as well.
+      setSaveTick((tick) => tick + 1);
+      return { changes: [], unchanged: result.unchanged };
+    }
+    const n = result.changes.length;
+    commit(result.board, { by, summary: `re-picked ${n} ${plural(n, 'course')}: ${result.changes.map((c) => (c.from ? `${c.to} for ${c.from}` : `${c.to} added`)).join(', ')}` });
+    // After the commit, whose undo step keeps the signature from before it.
     repickedFor.current = result.signature;
-    if (result.changes.length === 0) return { changes: [], unchanged: result.unchanged };
-    commit(result.board);
-    planRef.current = result.board;
-    for (const c of result.changes) {
-      if (c.from) noteElectiveSwap(c.from, c.to, c.kind === 'track' ? c.why : `Picked for your priorities: ${c.why}`, c.track);
-    }
-    const added = result.changes.filter((c) => !c.from);
-    if (added.length > 0) {
-      setReport((current) => (current ? { ...current, electives: [...current.electives, ...added.map((c) => ({ code: c.to, why: c.why, reasons: [], track: c.track }))] } : current));
-    }
+    setReport((current) => (current ? repickInReport(current, result.changes) : current));
     return { changes: result.changes, unchanged: false };
   }
 
@@ -2082,7 +2271,9 @@ export function PlannerWorkspace({
    * go, and that is the `confirmed` flag the model may only set after the
    * student has said yes.
    */
-  const advisorExecute: AdvisorExecutor = async (name, input) => {
+  const advisorExecute: AdvisorExecutor = async (name, input, call) => {
+    // A change this call makes is filed under it, for the reply's undo.
+    if (almaTurn.current) almaTurn.current.toolId = call?.id ?? null;
     const L = live.current;
     const board = planRef.current;
     const ctx = L.context;
@@ -2257,9 +2448,9 @@ export function PlannerWorkspace({
       const term = placed?.board.terms.find((t) => t.id === placed.termId);
       return placed && term ? { board: placed.board, term } : null;
     };
-    const apply = (next: PlanState, focusTerm: string | null, select: string | null, status: string) => {
-      commit(next);
-      planRef.current = next;
+    /** Make the change: one undo step for the whole turn, `added` cards read "added", `summary` is what ALMA hears if it is undone. */
+    const apply = (next: PlanState, focusTerm: string | null, select: string | null, status: string, summary: string, added: string[] = []) => {
+      commit(next, { by: 'alma', summary, added });
       if (select) setSelectedCourseId(select);
       if (focusTerm) setFocusTermId(focusTerm);
       setStatus(status);
@@ -2390,8 +2581,7 @@ export function PlannerWorkspace({
           const candidate = withCourseIn(board, c.id, t.id);
           const verdict = check(candidate, c, t.id);
           if (verdict.blocking.length === 0) {
-            studentAdded.current.add(c.id);
-            apply(candidate, t.id, c.id, `${c.code} added to ${t.label} by ${botName}.`);
+            apply(candidate, t.id, c.id, `${c.code} added to ${t.label} by ${botName}.`, `${c.code} added to ${t.label}`, [c.id]);
             return { ok: true, summary: `${c.code} added to ${t.label}`, term: t.label, term_credits: verdict.credits, warnings: verdict.warnings };
           }
           refusals.push(`${t.label}: ${verdict.blocking[0]}`);
@@ -2410,7 +2600,7 @@ export function PlannerWorkspace({
           .filter((i) => i.severity === 'error' && /^ap-prereq-(?!check)/.test(i.id))
           .map((i) => i.message);
         const caused = causedBy(board, candidate);
-        apply(candidate, t.id, null, `${c.code} removed from ${t.label} by ${botName}.`);
+        apply(candidate, t.id, null, `${c.code} removed from ${t.label} by ${botName}.`, `${c.code} removed from ${t.label}`);
         const left = candidate.terms.find((x) => x.id === t.id);
         const credits = describeCreditTotal(planCreditRange((left?.courseIds ?? []).map((id) => L.courseIndex.get(id)?.code ?? ''), ctx));
         return { ok: true, summary: `${c.code} removed from ${t.label}`, term: t.label, term_credits: credits, now_missing_a_prerequisite: knockOn, ...underMinimum(candidate, t.id), ...caused };
@@ -2435,13 +2625,14 @@ export function PlannerWorkspace({
         if (verdict.blocking.length > 0) return { ok: false, reason: `${newC.code} cannot go in ${t.label}: ${verdict.blocking.join(' ')}` };
         const oldRole = roleOf(oldC);
         const oldMark = L.electiveOf.get(oldC.id);
-        if (oldRole === 'elective slot' || oldRole === 'gen ed pick') noteElectiveSwap(oldC.code, newC.code, `${botName} chose it for this ${oldRole === 'gen ed pick' ? 'category' : 'elective slot'}.`);
+        const keepsSlot = oldRole === 'elective slot' || oldRole === 'gen ed pick';
         // PHYS 211 in place of PHYS 101 still meets the track's physics row,
         // so it stays a track course; anything else is the student's own.
-        else if (oldRole === 'career track' && trackRowOf(oldC.code, oldMark?.track)?.includes(normCode(newC.code))) noteElectiveSwap(oldC.code, newC.code, oldMark?.detail ?? `For ${oldMark?.track}.`, oldMark?.track);
-        else studentAdded.current.add(newC.id);
+        const keepsTrack = oldRole === 'career track' && Boolean(trackRowOf(oldC.code, oldMark?.track)?.includes(normCode(newC.code)));
         const caused = causedBy(board, candidate);
-        apply(candidate, t.id, newC.id, `${newC.code} replaces ${oldC.code} in ${t.label}.`);
+        apply(candidate, t.id, newC.id, `${newC.code} replaces ${oldC.code} in ${t.label}.`, `${newC.code} in place of ${oldC.code} in ${t.label}`, keepsSlot || keepsTrack ? [] : [newC.id]);
+        if (keepsSlot) noteElectiveSwap(oldC.code, newC.code, `${botName} chose it for this ${oldRole === 'gen ed pick' ? 'category' : 'elective slot'}.`);
+        else if (keepsTrack) noteElectiveSwap(oldC.code, newC.code, oldMark?.detail ?? `For ${oldMark?.track}.`, oldMark?.track);
         return { ok: true, summary: `${oldC.code} → ${newC.code} in ${t.label}`, term: t.label, term_credits: verdict.credits, warnings: verdict.warnings, ...caused };
       }
       case 'move_course': {
@@ -2459,7 +2650,7 @@ export function PlannerWorkspace({
         const verdict = check(candidate, c, to.id);
         if (verdict.blocking.length > 0) return { ok: false, reason: `${c.code} cannot move to ${to.label}: ${verdict.blocking.join(' ')}` };
         const caused = causedBy(board, candidate);
-        apply(candidate, to.id, c.id, `${c.code} moved to ${to.label} by ${botName}.`);
+        apply(candidate, to.id, c.id, `${c.code} moved to ${to.label} by ${botName}.`, `${c.code} moved from ${from.label} to ${to.label}`);
         return {
           ok: true,
           summary: `${c.code} moved from ${from.label} to ${to.label}${target.board === board ? '' : `, a summer added to the board for it`}`,
@@ -2836,7 +3027,7 @@ export function PlannerWorkspace({
           live.current = { ...live.current, interestsText: [L.answers?.studying ?? '', stored].join(' '), careerText: stored };
           if (said) heard = heardInterests(stored);
         }
-        const outcome = input.repick === false ? { changes: [], unchanged: false } : repickElectives(next);
+        const outcome = input.repick === false ? { changes: [], unchanged: false } : repickElectives(next, 'alma');
         // Net changes, one per course that left or joined the board.
         const repicked = outcome.changes.map((c) => ({ term: c.term, from: c.from, to: c.to, why: c.why, ...(c.track ? { career_track: c.track } : {}) }));
         const profile = interestProfileOf(live.current.careerText);
@@ -3038,15 +3229,17 @@ export function PlannerWorkspace({
         const internship = L.careerText.trim()
           ? nextShape.summers.filter((y) => !planShapeRef.current.summers.includes(y) && (planYearBefore(y) === 2 || planYearBefore(y) === 3))
           : [];
+        // Edits the student made before this message; ALMA's own in this turn are its to replace.
+        const handEdited = almaTurn.current?.before.edited ?? L.boardEdited;
         if (internship.length > 0 && input.confirmed !== true) {
           return {
             ok: false,
             needs_confirmation: true,
-            reason: `${internship.map((y) => `Summer ${y} comes after year ${planYearBefore(y)} of this plan`).join('; ')}: the usual internship summer for a student with a goal like "${L.careerText.trim()}". Ask whether they want that summer for an internship or for classes${undoStack.length > 0 ? ', and tell them the rebuild replaces the edits they made by hand' : ''}; call again with confirmed true only after they choose classes.`,
+            reason: `${internship.map((y) => `Summer ${y} comes after year ${planYearBefore(y)} of this plan`).join('; ')}: the usual internship summer for a student with a goal like "${L.careerText.trim()}". Ask whether they want that summer for an internship or for classes${handEdited ? ', and tell them the rebuild replaces the edits they made by hand' : ''}; call again with confirmed true only after they choose classes.`,
             ...notes,
           };
         }
-        if (undoStack.length > 0 && input.confirmed !== true) {
+        if (handEdited && input.confirmed !== true) {
           return {
             ok: false,
             needs_confirmation: true,
@@ -3055,19 +3248,24 @@ export function PlannerWorkspace({
           };
         }
         rebuildForShape.current = true;
+        // The rebuild is part of this turn's one undo step, which puts the
+        // old shape back with the old board.
+        const shaped = [
+          `at least ${nextMin} credits a term, aim ${nextTarget ?? 'an even share'}`,
+          nextShape.finish ? `finish by ${nextShape.finish.season} ${nextShape.finish.year}` : 'finish date from what the student said',
+          nextShape.away.length > 0 ? `away: ${nextShape.away.map(describeAway).join(', ')}` : null,
+          nextShape.summers.length > 0 ? `summer classes: ${nextShape.summers.join(', ')}` : null,
+          nextShape.spreadHard ? 'hard courses spread one a term where the degree allows' : null,
+        ].filter(Boolean).join('; ');
+        almaChanged(`rebuilt the plan to a new shape: ${shaped}`);
+        keepUndoOnBuild.current = almaTurn.current !== null;
         planShapeRef.current = nextShape;
         setPlanShape(nextShape);
         setMinimumTermCredits(nextMin);
         setTargetTermCredits(nextTarget);
         return {
           ok: true,
-          summary: [
-            `at least ${nextMin} credits a term, aim ${nextTarget ?? 'an even share'}`,
-            nextShape.finish ? `finish by ${nextShape.finish.season} ${nextShape.finish.year}` : 'finish date from what the student said',
-            nextShape.away.length > 0 ? `away: ${nextShape.away.map(describeAway).join(', ')}` : null,
-            nextShape.summers.length > 0 ? `summer classes: ${nextShape.summers.join(', ')}` : null,
-            nextShape.spreadHard ? 'hard courses spread one a term where the degree allows' : null,
-          ].filter(Boolean).join('; '),
+          summary: shaped,
           note: 'The board rebuilds now. Call review_board next and tell the student what changed: the terms, the credits per term, and any note the plan adds (a lighter load needs a later finish; a term away is left empty on the board, and a semester abroad counts its hours toward the total; a summer carries at most 9 credits; summers make falls and springs lighter, so if the student wanted to finish earlier instead, confirm it and set finish).',
           ...notes,
         };
@@ -3182,6 +3380,9 @@ export function PlannerWorkspace({
           : { code: title?.match(/^[A-Z]{2,5}\s?\d{3,4}[A-Z]?/i)?.[0].toUpperCase() ?? 'TRANSFER', title, credits: hours, grade: null, term: null, status: 'transfer', from, equivalent: null, matched: null, matchedBy: null, use: true, counts: 'hours' };
         const base: TranscriptRecord = record ?? { fileName: 'Told to ALMA', readAt: new Date().toISOString(), institution: null, kind: 'course_list', home: true, files: [], courses: [], exams: [], notes: [] };
         rebuildForCredit.current = true;
+        // The line and the rebuild around it are one undo step with the turn.
+        almaChanged(`recorded ${course ? course.code : `${hours} hours`} as credit already held and rebuilt the plan`);
+        keepUndoOnBuild.current = almaTurn.current !== null;
         L.onAnswersChange({ ...L.answers, transcript: { ...base, courses: [...base.courses, line] } });
         return {
           ok: true,
@@ -3202,6 +3403,8 @@ export function PlannerWorkspace({
         }
         const dropped = record.courses[index];
         rebuildForCredit.current = true;
+        almaChanged(`dropped ${dropped.matched ?? dropped.code} from the credit already held and rebuilt the plan`);
+        keepUndoOnBuild.current = almaTurn.current !== null;
         L.onAnswersChange({ ...L.answers, transcript: { ...record, courses: record.courses.map((c, i) => (i === index ? { ...c, use: false, counts: 'none', matched: null, matchedBy: null } : c)) } });
         return { ok: true, changed: true, dropped: `${dropped.matched ?? dropped.code}${dropped.title ? ` ${dropped.title}` : ''}`, message: 'Dropped. The plan is being rebuilt; call review_board in your next step to see it.' };
       }
@@ -3228,31 +3431,65 @@ export function PlannerWorkspace({
     }
   };
 
+  /**
+   * One step back: the board with its report, so a swapped elective slot
+   * comes back as a slot and not as "added". An ALMA turn also puts back the
+   * settings and the record that turn changed, and its reply is told.
+   */
   function undo() {
-    const previous = undoStack.at(-1);
-    if (!previous) return;
-    setPlan(previous);
+    const entry = undoStack.at(-1);
+    if (!entry) return;
     setUndoStack((current) => current.slice(0, -1));
-    setStatus('Last change undone.');
+    applyBoard(entry.before);
+    const turn = entry.turn;
+    if (turn) {
+      if (turn.settings) {
+        const s = turn.settings;
+        if (s.minimumTermCredits !== undefined) setMinimumTermCredits(s.minimumTermCredits);
+        if (s.targetTermCredits !== undefined) setTargetTermCredits(s.targetTermCredits);
+        if (s.careerInterests !== undefined) setCareerInterests(s.careerInterests);
+        if (s.careerCleared !== undefined) setCareerCleared(s.careerCleared);
+        if (s.priorities !== undefined) setPriorities(s.priorities);
+        if (s.planShape !== undefined) {
+          planShapeRef.current = s.planShape;
+          setPlanShape(s.planShape);
+        }
+      }
+      const record = turn.transcript;
+      if (record && answers && onAnswersChange && record.value !== (answers.transcript ?? null)) {
+        const restoredAnswers = { ...answers, transcript: record.value };
+        // The board being put back was built for this record already.
+        if (creditKeyOf(restoredAnswers) !== creditKeyOf(answers)) creditRestored.current = true;
+        onAnswersChange(restoredAnswers);
+      }
+      // Undone while the turn is still running: its next change starts a new step.
+      const open = almaTurn.current;
+      const done = open?.id === turn.id ? { id: turn.id, toolIds: [...open.toolIds], summary: [...open.summary] } : { id: turn.id, toolIds: turn.toolIds, summary: turn.summary };
+      if (open?.id === turn.id) {
+        open.pushed = false;
+        open.toolIds = [];
+        open.summary = [];
+      }
+      setUndoneTurns((list) => [...list, done]);
+    }
+    if (turn) notify(`${botName}'s changes undone`, 'The board is back to how it was before that message.', 'info');
+    else setStatus('Last change undone.');
   }
 
-  function save() {
-    if (!plan) return;
-    const stored: Stored = {
-      schemaVersion: 3,
-      schoolId: school?.id ?? '',
-      programId,
-      plan,
-      minimumTermCredits,
-      targetTermCredits,
-      careerInterests,
-      careerCleared,
-      priorities,
-      planShape,
-    };
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
-    setStatus('Saved on this device.');
+  /** "Undo these changes" on an ALMA reply: only while that turn is still the newest step. */
+  function undoAlmaTurn(id: string) {
+    if (undoStack.at(-1)?.turn?.id !== id) return;
+    undo();
   }
+
+  const newestTurn = undoStack.at(-1)?.turn;
+  const almaTurns: BotTurns = {
+    begin: beginAlmaTurn,
+    end: endAlmaTurn,
+    latest: newestTurn && newestTurn.toolIds.length > 0 ? { id: newestTurn.id, toolIds: newestTurn.toolIds } : null,
+    undo: undoAlmaTurn,
+    undone: undoneTurns,
+  };
 
   function exportPlan() {
     if (!plan) return;
@@ -3276,7 +3513,11 @@ export function PlannerWorkspace({
       try {
         const parsed = JSON.parse(await file.text()) as { plan?: unknown; programId?: unknown };
         if (isPlanState(parsed.plan)) {
-          setPlan(parsed.plan);
+          // A file holds the terms and nothing about why each card is there,
+          // so the report of the board it replaces does not come with it.
+          const before = boardNow();
+          if (before) setUndoStack((current) => pushUndo(current, { before }));
+          applyBoard({ plan: parsed.plan, report: null, notes: [], studentAdded: [], repickedFor: null, edited: true });
           setStatus('Plan loaded from the file.');
         }
         if (typeof parsed.programId === 'string') setProgramId(parsed.programId);
@@ -3302,7 +3543,7 @@ export function PlannerWorkspace({
 
   function startOver() {
     clearAnswers();
-    window.localStorage.removeItem(STORAGE_KEY);
+    forgetThisBoard();
     window.location.reload();
   }
 
@@ -3533,11 +3774,24 @@ export function PlannerWorkspace({
               Progress
             </Button>
           )}
+          {saveState !== 'none' && (
+            <span
+              className={`save-status${saveState === 'failed' ? ' is-failed' : ''}`}
+              title={
+                saveState === 'failed'
+                  ? 'This browser is not keeping data for this site (a private window, or storage is full or blocked), so the board will be gone after a reload.'
+                  : 'Every change is saved in this browser, and nowhere else, a moment after you make it.'
+              }
+            >
+              {saveState === 'failed' ? <AlertTriangle aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
+              {saveState === 'failed' ? 'Not saved on this device' : 'Saved on this device'}
+            </span>
+          )}
           <Button
             variant="outline"
             size="icon"
-            title="Undo the last change"
-            aria-label="Undo the last change"
+            title={newestTurn ? `Undo the changes ${botName} made answering one message` : 'Undo the last change'}
+            aria-label={newestTurn ? `Undo the changes ${botName} made answering one message` : 'Undo the last change'}
             disabled={undoStack.length === 0}
             onClick={undo}
           >
@@ -3548,8 +3802,12 @@ export function PlannerWorkspace({
               Plan <ChevronDown />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem onClick={save}>
-                <Save /> Save on this device
+              {/* A status, not a button: the board saves itself after every
+                  change. Here as well as in the header, which hides it on a
+                  narrow screen. */}
+              <DropdownMenuItem disabled>
+                {saveState === 'failed' ? <AlertTriangle /> : <CheckCircle2 />}
+                {saveState === 'failed' ? 'Not saved on this device' : saveState === 'saved' ? 'Saved on this device' : 'Saves on this device as you go'}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={openPacket} disabled={!plan}>
                 <Printer /> Print for my advisor
@@ -3601,6 +3859,9 @@ export function PlannerWorkspace({
         programs={programOptions}
         programId={programId}
         onProgramChange={(id) => {
+          // The board of the old degree ends here, and ALMA's conversation
+          // about it with it.
+          forgetThisBoard();
           setProgramId(id || null);
           // The board is rebuilt for the new degree; `loaded` follows the id
           // on its own, so there is nothing else to clear here.
@@ -3844,6 +4105,7 @@ export function PlannerWorkspace({
             'Which term is hardest?',
           ]}
           ready={Boolean(plan && context && loaded)}
+          turns={almaTurns}
         />
       )}
       {packet && <AdvisorPacketDialog packet={packet} onClose={closePacket} />}
