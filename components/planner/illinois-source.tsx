@@ -42,6 +42,7 @@ import {
   type IllinoisData,
   type RawCatalogFile,
   type RawGradeFile,
+  type RawIllinoisProgram,
   type RawProgramFile,
   type PrereqSpec,
   type RawSectionFile,
@@ -54,6 +55,7 @@ import type {
   PlanRequirement,
   PriorCredit,
 } from '@/lib/planner/autoplan';
+import { pageAreaHoursOf, type ProgramSide } from '@/lib/planner/programs-compare';
 import type { GradeRow, ProgramRequirements } from '@/lib/planner/scheduler';
 import type { SemesterSeason } from '@/lib/planner/types';
 
@@ -192,6 +194,40 @@ export async function loadProgram(
   // and what lets the finder show "required" on a card.
   attachRequirementIds(core.index, blocks, factsFor(core));
   return { summary, program, blocks, url: raw.url || summary.url };
+}
+
+/**
+ * Programs read to compare against the board, never to plan it.
+ *
+ * loadProgram points every catalog course at the degree's areas, which is
+ * what colours the map and marks a card "required"; run for Accountancy while
+ * a Finance student is planning, it would repaint her map with Accountancy's
+ * requirements. This adapts the pages and leaves the index alone. Several
+ * pages go through the adapter in one call: the 294 catalog programs took
+ * four seconds one at a time and a third of a second together, with the same
+ * requirements out.
+ */
+export async function readPrograms(core: IllinoisCore, summaries: IllinoisProgramSummary[]): Promise<ProgramSide[]> {
+  const raws = (await Promise.all(summaries.map((summary) => loadIllinoisProgram(summary.id)))).filter((raw): raw is RawIllinoisProgram => raw !== null);
+  if (raws.length === 0) return [];
+  const adapted = adaptIllinoisPrograms({ school: 'illinois', source: '', fetchedAt: '', programs: raws }, new Map(core.byCode));
+  const rawById = new Map(raws.map((raw) => [raw.id, raw]));
+  const programById = new Map(adapted.programs.map((program) => [program.id, program]));
+  return summaries.flatMap((summary) => {
+    const raw = rawById.get(summary.id);
+    const program = programById.get(summary.id);
+    if (!raw || !program) return [];
+    return [{
+      id: summary.id,
+      name: summary.name,
+      college: summary.college,
+      url: raw.url || summary.url,
+      // A published total of 0 is a page the crawl read no total from.
+      totalCredits: summary.totalCredits || program.totalCredits || null,
+      requirements: adapted.blocks.get(summary.id) ?? [],
+      pageAreaHours: pageAreaHoursOf(summary.id, raw),
+    }];
+  });
 }
 
 /**

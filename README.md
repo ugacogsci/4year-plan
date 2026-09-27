@@ -24,7 +24,7 @@ The checks need Node 23, because they load the TypeScript sources directly with 
 node --experimental-strip-types --disable-warning=ExperimentalWarning lib/planner/__<name>.check.mjs
 ```
 
-and exits non-zero on a failure. Read the header of `__plan-audit.check.mjs` before trusting any other harness: it loads only what the browser loads, and that is the reason it exists. The checks are `__prior-credit`, `__transcript`, `__illinois-data`, `__autoplan`, `__ask-router`, `__plan-audit`, `__credit-e2e`, and the ones the sections below name (`__horizon`, `__plan-notes`, `__interests`, `__career-tracks`, `__electives`, `__college-rules`, `__review`, `__advisor-packet`), each of which takes seconds; `__repick` and `__schedule-quality` take up to a minute, and `__credit-rules` about ten, because it plans every offered degree. One fails today (`__illinois-data`, two assertions), for the reason under known gaps at the end of this section.
+and exits non-zero on a failure. Read the header of `__plan-audit.check.mjs` before trusting any other harness: it loads only what the browser loads, and that is the reason it exists. The checks are `__prior-credit`, `__transcript`, `__illinois-data`, `__autoplan`, `__ask-router`, `__plan-audit`, `__credit-e2e`, and the ones the sections below name (`__horizon`, `__plan-notes`, `__interests`, `__career-tracks`, `__electives`, `__college-rules`, `__review`, `__advisor-packet`), each of which takes seconds; `__repick`, `__schedule-quality` and `__programs-compare` take up to a minute, and `__credit-rules` about ten, because it plans every offered degree. One fails today (`__illinois-data`, two assertions), for the reason under known gaps at the end of this section.
 
 An unofficial, visual degree-planning prototype for University of Georgia students and advisors. It combines an editable semester-by-semester plan with a constellation-style course finder descended from the existing Semantic Course Map.
 
@@ -427,6 +427,23 @@ be checked against the uAchieve degree audit. The code is
 `__advisor-packet.check.mjs` renders the sheet in Node through a loader hook
 that transpiles `.tsx`, a pattern other checks can reuse (`PACKET_DUMP=<dir>`
 writes each page).
+
+### A second major
+
+The degree audit shows one major at a time, so ALMA's `compare_programs`
+(`lib/planner/programs-compare.ts`) reads a second program's page against the
+board and the student's credit: which courses already count for it and for
+their own major, what it still needs with the planner's picks, whether the pair
+is a double major or a dual degree by the LAS, Gies and Grainger pages (read
+2026-09-27) and Student Code 3-801's 30 hours, and, from a rebuild of the plan
+with both, the extra hours and terms and where the new courses go without
+breaking a prerequisite. A Finance student adding Economics, BALAS hears it is
+a dual degree: 154 hours, ten terms at about the 15.5 a term her plan carries. With no program
+named it lists the second majors the board is closest to. Nothing on the board
+changes. The crawl has no minor or certificate pages, so neither is compared,
+and a reading thinner than its page is flagged, not trusted: Accountancy's
+21-hour major reads as one course of eight, because the crawl folded its
+"Select one of the following:" into the whole list (`__programs-compare.check.mjs`).
 
 ### Year one and the gate
 
