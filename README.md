@@ -57,8 +57,12 @@ balanced, and at 2 grade-history lightness ranks ahead of the rest.
 A good pick is also one the student can take. A free elective is never a
 course written for someone else (a discussion tied to another section,
 graduate, thesis or arranged work, a seminar for first-years, transfers,
-honors students or scholars, another department's orientation), and a course
-under 3 credits only lands a plan on its total or a term on its minimum. A
+honors students or scholars, another department's or college's orientation,
+a course whose every section is held for a scholars program, a learning
+community or other majors), and a course under 3 credits only lands a plan on
+its total or a term on its minimum; where the term has room, a 3-credit
+elective lands it instead, at most an hour further past the total than the
+1-credit course left it. A
 course entered by application or approval ("by application", "consent of
 instructor required", but not "X or consent of instructor") is never booked on
 the planner's own account; a course the degree requires by name stays, and for
@@ -332,7 +336,11 @@ changes, so re-picking for the same priorities changes nothing. Composition I,
 the language and booked prerequisites never move, half of a two-course
 sequence never stands in for a whole course, and a gen-ed pick moves only for
 a course that carries all its categories and is clearly better on what the
-student weighted most, worse on none.
+student weighted most, worse on none. A card's dropdown refuses the courses
+a re-pick refuses (`notRegistrable`): nothing held for another group of
+students, by the rule the fill uses (`heldForGroup`), and nothing behind a
+placement test or someone's consent the board cannot show, such as ESL 115
+for RHET 105.
 
 ### Getting into the college, not just finishing the degree
 
@@ -475,7 +483,14 @@ sequences split, year one's load and the major in it, the last two terms'
 stacks of one subject, and terms past the student's own hours), and the best
 of those by `gateRank`, most severe measure first. A new heuristic belongs
 behind the gate, and a board it makes worse calls for a measure, not another
-pass. Across 1,848 boards (308 degrees, no goal, pre-med and pre-PT, language
+pass. A change that also changes the plain engine's board needs one more
+step, since the floor moves with it: the filler rules above (who a free
+elective is written for, the 3-credit landing course) are off for the floor
+(`AutoplanInput.fillerRules`), the gate first chooses as the release before
+them chose, and a board under the new rules is kept only where it is no worse
+than the floor and no worse than that choice. They reach about a hundred of
+the 1,848 sweep boards and make none worse; building is about 1.3 times
+slower for it, and only on boards the rules could change. Across 1,848 boards (308 degrees, no goal, pre-med and pre-PT, language
 2 and 4) and 700 more students (transfers, sophomores, summers, a term abroad,
 international, AP credit, 12 and 18 credits a term, other goals), no board is
 worse than a930f09's on any of these; late track rows fall from 1,434 to 746

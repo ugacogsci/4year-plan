@@ -66,6 +66,7 @@ import {
 } from './uga-source';
 import {
   arrivalFromWords,
+  degreeSubjects,
   electiveOptions,
   interestProfileOf,
   offeredLine,
@@ -151,7 +152,7 @@ import {
 } from '@/lib/planner/transcript';
 import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
 import { distinctHeld, heldTowardDegree, type GenEdCredit, type Horizon, type PlanRequirement, type PriorCredit } from '@/lib/planner/autoplan';
-import { boardChecker, genEdCandidates, genEdWhy, planMarks, repickBoard, repickSignature, type RepickChange } from '@/lib/planner/repick';
+import { boardChecker, genEdCandidates, genEdWhy, notRegistrable, planMarks, repickBoard, repickSignature, type RepickChange } from '@/lib/planner/repick';
 import { creditUse, editFlags, enteringAsFirstYear, flagsCaused, isEditFlag, momentumReview, priorCreditUse, summerSuggestions, withSummer } from '@/lib/planner/review';
 import { buildAdvisorPacket, cardRole, type AdvisorPacket, type CardRole } from '@/lib/planner/advisor-packet';
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
@@ -1979,6 +1980,28 @@ export function PlannerWorkspace({
     return out;
   }
 
+  /**
+   * Whether the student can simply register for a course the dropdown would
+   * offer, by the rule the re-pick swaps by (notRegistrable): the gen-ed
+   * branch reads it through swapCheckOn, and the slot and list branches here.
+   * The list branch ran only the validator, and offered LAS 102 ("For
+   * first-term LAS transfer students only") in place of a freshman's LAS
+   * 100; the gen-ed branch offered ESL 115, behind the English Placement
+   * Test, in place of RHET 105.
+   */
+  function registrableNow(): (course: Course) => boolean {
+    const L = live.current;
+    const ctx = L.context;
+    if (!ctx || !L.loaded) return () => false;
+    const who = {
+      programName: L.loaded.program.name,
+      programCollege: L.loaded.program.college,
+      primary: degreeSubjects(L.loaded.blocks, L.loaded.program.name).primary,
+      arrival: arrivalOf(L.answers),
+    };
+    return (course) => notRegistrable(course, ctx, who) === null;
+  }
+
   function alternativesFor(courseId: string, termId: string): Alternative[] {
     const L = live.current;
     const board = planRef.current;
@@ -2007,7 +2030,11 @@ export function PlannerWorkspace({
     // A track card is there for the student's goal, not to be traded for a
     // better-rated elective; the card offers no dropdown for it.
     if (mark.kind === 'prerequisite' || mark.kind === 'track') return [];
+    const registrable = registrableNow();
     if (mark.kind === 'elective') {
+      // Ranked past the seven shown, so the ones the re-pick would refuse
+      // (every section closed to this major, "Consent of instructor.") leave
+      // room for the next best rather than a shorter list.
       return electiveOptions({
         context: L.context,
         requirements: L.loaded.blocks,
@@ -2020,13 +2047,14 @@ export function PlannerWorkspace({
         programCollege: L.loaded.program.college,
         priorities: L.priorities,
         electiveCodes: electiveCodesOn(board),
-        limit: 7,
+        limit: 20,
       })
         .map((o) => {
           const course = L.byCode.get(normCode(o.code));
-          return course ? { course, why: reason(o.reasons, o.why) } : null;
+          return course && registrable(course) ? { course, why: reason(o.reasons, o.why) } : null;
         })
-        .filter((a): a is Alternative => a !== null);
+        .filter((a): a is Alternative => a !== null)
+        .slice(0, 7);
     }
     const pool = L.pools.find((p) => p.picked.some((code) => L.byCode.get(normCode(code))?.id === courseId));
     const scorer = L.quality;
@@ -2035,7 +2063,7 @@ export function PlannerWorkspace({
     const ranked = pool.alternatives
       .map((code) => L.byCode.get(normCode(code)))
       .filter((c): c is Course => c !== undefined)
-      .filter((c) => !onBoard.has(c.id) && !board.completedCourseIds.includes(c.id))
+      .filter((c) => !onBoard.has(c.id) && !board.completedCourseIds.includes(c.id) && registrable(c))
       .map((c) => ({ c, q: scorer(normCode(c.code)) }))
       .sort((a, b) => b.q.score - a.q.score || b.q.known - a.q.known || a.c.code.localeCompare(b.c.code));
     const out: Alternative[] = [];

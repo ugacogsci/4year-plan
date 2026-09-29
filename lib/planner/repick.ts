@@ -30,10 +30,13 @@ import {
   admissionGate,
   audienceOf,
   closedToMajorCheck,
+  closedToProgram,
   degreeSubjects,
   electiveOptions,
+  heldForGroup,
   interestProfileOf,
   normaliseCode,
+  placementGate,
   planCreditRange,
   prereqNamesOtherCollege,
   prereqNeedsAdmission,
@@ -200,7 +203,7 @@ export function planMarks(picks: PlanPicks, byCode: Map<string, Course>): Map<st
  * is in any of them, so a re-pick never books such a course on its own; the
  * student can still choose it by hand.
  */
-const GROUP_WORDS = /\b(transfer|international|first[- ]term|james scholars?|honors|academy|scholars|cohort|living[- ]learning|learning communit(?:y|ies)|members?|participants?|athletes?|veterans?|minors?)\b/i;
+const GROUP_WORDS = /\b(transfer|international|first[- ]term|james scholars?|honors|academy|scholars|cohort|living[- ]learning|learning communit(?:y|ies)|llc|members?|participants?|athletes?|veterans?|minors?)\b/i;
 const RESTRICTION_CUE = /\b(only|restricted to|limited to|open to|reserved for|must be (?:enrolled|admitted|accepted|a member))\b/i;
 
 /**
@@ -219,7 +222,13 @@ const RESTRICTION_CUE = /\b(only|restricted to|limited to|open to|reserved for|m
  * Investment Banking Academy) or someone's approval (admissionGate, the rule
  * the fill books by), or a group the student has to belong to, a first-year
  * course for a transfer student, and titles that say the course is an
- * honors section, an orientation, or for other majors.
+ * honors section, an orientation, or for other majors. Who a course is held
+ * for is heldForGroup's reading, the one the fill's freeElectiveBar uses:
+ * BUS 315 "Junior Gies Scholar Seminar", every section "Restricted to Gies
+ * Scholars students", read here as open to any Gies student because the
+ * college's name is in the same restriction; and nothing here kept ACE 123,
+ * the ACE department's course for its first-time freshmen, out of a Finance
+ * student's later terms.
  */
 export function restrictedToOthers(
   course: Course,
@@ -231,11 +240,13 @@ export function restrictedToOthers(
   if (/\bhonors\b/i.test(title)) return `${code} is an honors course`;
   if (/\borientation\b/i.test(title)) return `${code} is an orientation course for its own college or program`;
   if (/\bfor\b[^,]*\b(international|transfer)\s+students\b/i.test(title)) return `${code} is for ${/international/i.test(title) ? 'international' : 'transfer'} students`;
+  const held = heldForGroup(course, ctx, { college: who.programCollege ?? null, primary: who.primary ?? null, programName: who.programName });
+  if (held) return `${code} is ${held}`;
   // "Sports Media for Majors" is for Media majors; a Music major keeps "First-year Seminar for Music Majors".
   if (/\bfor\s+(?!non-)[\w\s&+]*\bmajors\b/i.test(title) && restrictionClosesTo(`restricted to ${title}`, who.programName, who.programCollege)) {
     return `${code} is for majors in its own department`;
   }
-  if (closedToMajorCheck(ctx, who.programName, who.programCollege)(code)) return `every section of ${code} is restricted to other students`;
+  if (closedToMajorCheck(ctx, who.programName, who.programCollege)(code) || closedToProgram(ctx, code, who.programName, who.programCollege)) return `every section of ${code} is restricted to other students`;
   // FIN 391 to 395 ("Admission by application only.", "Instructor approval
   // required.") went onto every Finance board as electives; the fill no longer
   // books them, and a re-pick does not either.
@@ -258,10 +269,21 @@ export function restrictedToOthers(
     const why = `${code}: "${sentence.trim()}"`;
     if (/\binduction into\b/i.test(sentence)) return why;
     if (!RESTRICTION_CUE.test(sentence)) continue;
-    if (GROUP_WORDS.test(sentence)) return why;
+    // A sentence that names majors is the program's rule, read below by the
+    // program's name: its "or minor(s)" (ADV 360, "Restricted to Advertising
+    // or ... major(s) or minor(s)") and "or transfer students with ECE
+    // Department consent" (ECE 220) are more ways in, not a group. Read as a
+    // group they refused ADV 360 to an Advertising student, which the card's
+    // dropdown, listing by this rule, would have hidden from her list.
+    const majorsNamed = /\bmajors?\b|\bmajor\(s\)/i.test(sentence);
+    if (GROUP_WORDS.test(majorsNamed ? sentence.replace(/\bor\s+(minors?\b|minor\(s\)|transfer students\b)/gi, '') : sentence)) return why;
     // Punctuation off, so "first-year students in LAS." still finds the
     // student's own college ("las ").
     const plain = `${sentence.replace(/[.,;:()]/g, ' ').replace(/\s+/g, ' ').trim()} `;
+    // "Restricted to majors only." (ALEC 393), "Restricted to AE majors only."
+    // (AE 484): the majors of the course's own department, which an ALEC or
+    // Aerospace student is.
+    if (who.primary && course.cluster === who.primary && /\bmajors only\b/i.test(plain) && !/\bnon-/i.test(plain)) continue;
     // "Restricted to Junior, Senior or Graduate students" is a standing rule,
     // which the validator checks against the board's own hours.
     if (/\b(freshm[ae]n|sophomores?|juniors?|seniors?|first-year|standing)\b/i.test(plain) && !/\b(majors?|college|school of|program|department|concentration|curriculum|students in|enrolled)\b/i.test(plain)) continue;
@@ -274,6 +296,27 @@ export function restrictedToOthers(
     if (restrictionClosesTo(/restricted to/i.test(plain) ? plain : `restricted to ${plain}`, who.programName, who.programCollege)) return why;
   }
   return null;
+}
+
+/**
+ * Why a course offered in a card's place is not one this student can simply
+ * register for, or null: written for other students (restrictedToOthers), or
+ * behind a placement test or someone's consent the board cannot show they
+ * have (placementGate). The re-pick swaps by it, and the card's dropdown and
+ * the advisor packet's backups list by it, so a list, a slot and a gen-ed
+ * card never offer what the re-pick would refuse: Emma's LAS 100 card offered
+ * LAS 102 ("For first-term LAS transfer students only"), and her RHET 105 card
+ * ESL 115 ("ESL 115 placement result on the English Placement Test").
+ */
+export function notRegistrable(
+  course: Course,
+  ctx: PlanningContext,
+  who: { programName?: string; programCollege?: string; primary?: string | null; arrival?: Arrival },
+): string | null {
+  const closed = restrictedToOthers(course, ctx, who);
+  if (closed) return closed;
+  const placement = placementGate(course.code, ctx);
+  return placement ? `${normaliseCode(course.code)} needs what the board cannot show: "${placement}"` : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -389,7 +432,7 @@ export function boardChecker(input: BoardCheckInput): SwapCheck {
         if (after < input.degreeTotal && after < planned(from) + input.priorCredits) return `The plan would fall to ${after} credits, under the ${input.degreeTotal} the degree takes.`;
       }
     }
-    const closed = restrictedToOthers(add, ctx, who);
+    const closed = notRegistrable(add, ctx, who);
     if (closed) return closed;
     for (const issue of validatePlan(next, ctx, options)) {
       if (breaksTheBoard(issue) && !baseline.has(issue.id)) return issue.message;
@@ -441,7 +484,10 @@ export interface GenEdCandidateInput {
  * first half is one the next course in its subject, carrying the category,
  * names first (CMN 111 before CMN 112, RHET 101 before RHET 102). Read that
  * narrowly on purpose: "any same-category course names it" would take PSYC
- * 100, SOC 100 and ECON 102 out of every Social Science list.
+ * 100, SOC 100 and ECON 102 out of every Social Science list. Nor a course
+ * behind a placement result (placementGate): the card's dropdown offered ESL
+ * 115, "ESL 115 placement result on the English Placement Test", in RHET
+ * 105's place.
  */
 export function genEdCandidates(input: GenEdCandidateInput): Array<{ course: Course; q: QualityResult; categories: string[][] }> {
   const ctx = input.context;
@@ -473,7 +519,7 @@ export function genEdCandidates(input: GenEdCandidateInput): Array<{ course: Cou
     .filter((c) => c.id !== me.id && !onBoard.has(c.id) && !input.exclude?.has(c.id) && !twins.has(normaliseCode(c.code)))
     .filter((c) => mine.every((tags) => tags.some((t) => c.tags.includes(t))))
     .filter((c) => credits(c) >= hoursFloor)
-    .filter((c) => !secondHalf(normaliseCode(c.code)) && !firstHalf(normaliseCode(c.code)))
+    .filter((c) => !secondHalf(normaliseCode(c.code)) && !firstHalf(normaliseCode(c.code)) && placementGate(c.code, ctx) === null)
     .map((c) => ({ course: c, q: input.scorer(normaliseCode(c.code)), categories: mine }))
     .sort((a, b) => b.q.score - a.q.score || b.q.known - a.q.known || a.course.code.localeCompare(b.course.code));
 }

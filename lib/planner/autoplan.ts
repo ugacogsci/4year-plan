@@ -712,6 +712,14 @@ export interface AutoplanInput {
    */
   electiveRanking?: Map<string, string[]>;
   /**
+   * False to fill as the planner did before the filler work: the free
+   * electives barred by the older rules (freeElectiveBar's `before`) and no
+   * landing course made a three-credit elective (landThreeHour). Set by
+   * generatePlan for the gate's floor, the board the current illinois
+   * release builds, so the newer rules stand only where no worse.
+   */
+  fillerRules?: boolean;
+  /**
    * The quality scorer's answers shared by the boards generatePlan builds for
    * one student, by the scorer's inputs (qualityFor). Set by generatePlan,
    * for its one context.
@@ -2248,6 +2256,31 @@ interface Ranker {
   (code: string): number[];
 }
 
+/**
+ * The prerequisite sentence, when it is a placement result or someone's
+ * consent and nothing else lets the student in, or null.
+ *
+ * "ESL 115 placement result on the English Placement Test." is a gate the
+ * board cannot show a student clears, and the course behind it is meant for
+ * a particular group: Emma's RHET 105 card offered ESL 115 in its dropdown,
+ * and the advisor packet had to screen it out of her backups on its own. So
+ * the re-pick and the card's dropdown never offer one in a card's place
+ * (repick.ts notRegistrable); the student can still add one by hand. Only a sentence
+ * the parser could not read, and only where the test or the consent is the
+ * way in: "An adequate ALEKS placement score" (MATH 221) and "Consent of
+ * instructor." (CS 499) are gates; "None or assignment by placement exam."
+ * (SPAN 101) and "Sophomore standing or consent of the instructor." (REL 201)
+ * let a student in without one.
+ */
+export function placementGate(code: string, ctx: Pick<PlanningContext, 'prereqs'>): string | null {
+  const spec = ctx.prereqs?.get(normaliseCode(code));
+  if (!spec || spec.parsed) return null;
+  const text = spec.text;
+  const placement = /\bplacement\b|\bproficiency (test|exam)\b/i.test(text) && !/\b(none|or)\b[^.;]*\b(placement|proficiency)\b/i.test(text);
+  const consent = /\bby permission\b|\bconsent of\b/i.test(text) && !/\bor\b[^.;]*\b(consent|permission)\b/i.test(text);
+  return placement || consent ? text.trim() : null;
+}
+
 function makeRanker(
   ctx: PlanningContext,
   byCode: Map<string, Course>,
@@ -3066,6 +3099,31 @@ export function closedToMajorCheck(ctx: PlanningContext, programName: string | u
   };
 }
 
+/**
+ * Closed to this program in every Fall 2026 section, read clause by clause,
+ * and only where the crawl accounts for every section.
+ *
+ * A section's restriction is all of its clauses at once, and read whole
+ * (closedToMajorCheck) ADV 280's "Restricted to Advertising major(s). | Not
+ * intended for First Time Freshman students." was open to a Finance student,
+ * because the advice names first-time freshmen. The crawl keeps each
+ * distinct restriction once and a section without one not at all, so ANTH
+ * 441's two sections and one "Restricted to Graduate - Urbana-Champaign."
+ * may be one graduate section beside an open one; where there are more
+ * sections than restrictions this says nothing. The elective bar refuses by
+ * this reading, where closedToMajorCheck only ranks a course down; the
+ * re-pick's filter reads both, and the ranker and the validator's warning
+ * keep the whole reading they were tuned on.
+ */
+export function closedToProgram(ctx: Pick<PlanningContext, 'sections'>, code: string, programName: string | undefined, college?: string): boolean {
+  const summary = ctx.sections?.get(code);
+  const restrictions = summary?.restrictions ?? [];
+  if (restrictions.length === 0 || summary === undefined || summary.total > restrictions.length) return false;
+  return restrictions.every((section) =>
+    section.split(/\s*\|\s*|(?<=\.)\s+/).some((clause) => /^restricted to\b/i.test(clause.trim()) && restrictionClosesTo(clause, programName, college)),
+  );
+}
+
 /** Ran in exactly one of the crawled terms, when there are enough terms for that to mean something. */
 function rareCheck(ctx: PlanningContext): (code: string) => boolean {
   const terms = ctx.offeringTerms ?? [];
@@ -3771,6 +3829,127 @@ export function admissionGate(code: string, ctx: Pick<PlanningContext, 'prereqs'
 }
 
 /**
+ * A section restriction that holds seats for members of a program, not for a
+ * major, a college or a class standing: "Restricted to Gies Scholars
+ * students." (BUS 315), "Restricted to James Scholars Program students." (BUS
+ * 115), "Restricted to Honors LLC students." (LEAD 116), "Restricted to
+ * Innovation LLC or Sustainability LLC students." (TE 200), "Restricted to SEE
+ * Fellows Program minor(s)." (ENVS 492), "Restricted to Engineering ARISE
+ * Program students.", "Restricted to ACES Jonathan Baldwin Turner students.".
+ * A major's restriction is often lifted after early registration
+ * (restrictionClosesTo); membership is not something a student gains by
+ * waiting, and a Finance student is a Gies student and still not a Gies
+ * Scholar. "Honors Integrative Biology" in a list of majors is a major.
+ */
+const MEMBERSHIP_SECTION = /\b(scholars?|llc|living[- ]learning|learning communit(?:y|ies)|fellows|cohort|program students|turner students|teacher ed student|yr \d+ group \d+|rhetoric spring)\b/i;
+/** The teacher-education cohorts ("Elementary Ed YR 1 group 2 students"), which an Education student may belong to. */
+const EDUCATION_COHORT = /\b(teacher ed student|yr \d+ group \d+)\b/i;
+/**
+ * A prerequisite sentence that names a program the student has to be in:
+ * "Third-year student in the Gies Scholar Program." (BUS 315), "For Campus
+ * Honors Program and/or James Scholar students." (CHP 199), "Admission to the
+ * IB honors biology option" (IB 270), "Restricted to students of Living
+ * Learning Communities and minors in Art + Design." (ART 152). Not "honors in
+ * the junior year, or consent of instructor" (ECON 397), which is a grade.
+ */
+const MEMBERSHIP_TEXT = /\b(campus honors program|james scholars?|chancellor'?s scholars?|scholars? program|honors (?:[a-z]+ )?(?:option|program)|living[- ]learning communit(?:y|ies)|learning communit(?:y|ies)|llc|fellows program)\b/i;
+/** Every crawled section held for first-time freshmen or first-time transfers: ACE 123, FAA 101, MDIA 100, LAS 101, LAS 102. */
+function heldForNewStudents(ctx: Pick<PlanningContext, 'sections'>, code: string): boolean {
+  const restrictions = ctx.sections?.get(code)?.restrictions ?? [];
+  return restrictions.length > 0 && restrictions.every((r) => /first time freshman|transfer student - first time/i.test(r.replace(/not intended for[^.|]*/gi, '')));
+}
+/** A title that says the course is a first-year or transfer seminar: "First Year College Success" (LAS 112), "Engineering First-Year Experience Seminars" (ENG 177); not "First-Year Russian I". */
+const FIRST_YEAR_SEMINAR_TITLE = /\b(first[- ]year|freshm[ae]n)\b[^,;]*\b(experience|success|seminars?)\b|\b(transfer|first[- ]year|freshman) orientation\b/i;
+
+/**
+ * Who a course is held for, when that is a group the board cannot put this
+ * student in, or null. One rule for the elective fill (freeElectiveBar) and
+ * for everything that offers a course in a card's place (restrictedToOthers in
+ * repick.ts): the re-pick, the card's dropdown, the advisor packet's backups.
+ *
+ * A Finance CPA student's board was filled with BUS 315 "Junior Gies Scholar
+ * Seminar" ("Third-year student in the Gies Scholar Program", every section
+ * "Restricted to Gies Scholars students"), FSHN 123 "FSHN Orientation to
+ * Illinois" and BIOE 100, the Bioengineering first-year seminar; and the
+ * re-pick's own filter read "Restricted to Gies College of Business. | ...
+ * Restricted to Gies Scholars students." as open to any Gies student, since
+ * the college's name is in it. Three kinds, in order:
+ *
+ *   - an honors or scholars program, by the title ("Freshmen Scholars
+ *     Seminar", AHS 125) or the prerequisite sentence (MEMBERSHIP_TEXT);
+ *   - every Fall 2026 section held for members of a program, a learning
+ *     community or a cohort (MEMBERSHIP_SECTION), where the crawl accounts
+ *     for every section, read clause by clause: a section's restriction is
+ *     every clause at once, so one clause naming a group closes it whatever
+ *     the others allow;
+ *   - another department's or college's orientation: a title that says
+ *     orientation or first-year seminar, or every section held for
+ *     first-time freshmen or transfers (ACE 123 "Introduction to ACE"). A
+ *     course of the student's own subject or own college is theirs: HK 125
+ *     for a Kinesiology freshman, LAS 101 for an LAS one.
+ *
+ * `primary` is the major's own subject, when known; a course in it that
+ * names its majors beside a learning community ("For ESE majors, minors, and
+ * Sustainability Living Learning Community students", ESE 289) is the
+ * major's own, and so is an honors course of a degree that is itself the
+ * honors option: IB 372, "good standing in the IB honors biology option", on
+ * an Integrative Biology Honors board.
+ */
+export function heldForGroup(
+  course: Course | undefined,
+  ctx: Pick<PlanningContext, 'prereqs' | 'sections'>,
+  student: { college: string | null; primary: string | null; programName?: string },
+): string | null {
+  if (!course) return null;
+  const code = normaliseCode(course.code);
+  // The few whose group only the catalog description names (BIOE 100, "for
+  // first-year Bioengineering majors"), which the re-pick never read.
+  const listed = DESCRIPTION_ONLY_GROUP[code];
+  if (listed) return listed;
+  const title = course.title;
+  const text = ctx.prereqs?.get(code)?.text ?? '';
+  const own = student.primary !== null && course.cluster === student.primary;
+  const honorsHere = own && /\bhonors\b/i.test(student.programName ?? '');
+  if (/\bscholars?\b/i.test(title) || (/\bhonors\b/i.test(title) && !honorsHere)) return 'for students in an honors or scholars program';
+  const named = text.match(MEMBERSHIP_TEXT);
+  if (named && !(own && /\b(majors?|minors?)\b/i.test(text)) && !(honorsHere && /honors/i.test(named[0]))) {
+    const sentence = text.split(/(?<=[.;])\s+/).find((s) => MEMBERSHIP_TEXT.test(s))?.trim() ?? named[0];
+    return /honors|scholar/i.test(named[0]) ? 'for students in an honors or scholars program' : `for members of a program the catalog names: "${sentence}"`;
+  }
+  // Only where every section is accounted for. The crawl keeps each distinct
+  // restriction once and a section without one not at all, so BADM 300's
+  // four sections read as one restriction, "Junior or Senior class standing
+  // | Gies College of Business | James Scholars Program or Gies Scholars
+  // students": the honors section of a course every Gies student takes.
+  // BUS 315 has one section, and one restriction.
+  const summary = ctx.sections?.get(code);
+  const restrictions = summary?.restrictions ?? [];
+  if (restrictions.length > 0 && summary !== undefined && summary.total <= restrictions.length) {
+    const groupOf = (section: string): string | null => {
+      for (const clause of section.split(/\s*\|\s*|(?<=\.)\s+/)) {
+        if (!/^restricted to\b/i.test(clause.trim())) continue;
+        const hit = clause.match(MEMBERSHIP_SECTION);
+        if (!hit) continue;
+        if (student.college === 'education' && EDUCATION_COHORT.test(clause)) continue;
+        return clause.trim().replace(/^restricted to\s+/i, '').replace(/\.$/, '');
+      }
+      return null;
+    };
+    const groups = restrictions.map(groupOf);
+    if (groups.every((g) => g !== null)) return `held for ${groups[0]} in every section`;
+  }
+  // Held for new students by its sections only when it is small enough to
+  // be a first-term course (firstTermCourse's rule): a department may hold
+  // one section of a large course for freshmen.
+  const small = courseLevel(code) < 200 && (course.creditsMax ?? course.credits) <= 2;
+  const ownCollege = student.college !== null && COLLEGE_SUBJECTS[course.cluster] === student.college;
+  if (!own && !ownCollege && (/\borientation\b/i.test(title) || FIRST_YEAR_SEMINAR_TITLE.test(title) || (small && heldForNewStudents(ctx, code)))) {
+    return "another department's or college's orientation for its new students";
+  }
+  return null;
+}
+
+/**
  * Why a course is not a free elective for this student, or null when it may be one.
  *
  * A free elective slot holds a course anyone in the degree could register for,
@@ -3805,6 +3984,13 @@ export function freeElectiveBar(
   ctx: Pick<PlanningContext, 'prereqs' | 'sections'>,
   byCode: Map<string, Course>,
   student: { college: string | null; primary: string | null; programName?: string },
+  /**
+   * The rules as they stood before the filler work (AutoplanInput.fillerRules
+   * false): no application sentence, no section closed to the program and no
+   * group rule (heldForGroup), and honors read by the title as well. For the
+   * gate's floor only; everything a student sees reads the current rules.
+   */
+  before = false,
 ): (code: string) => string | null {
   const memo = new Map<string, string | null>();
   const barFor = (code: string): string | null => {
@@ -3813,8 +3999,22 @@ export function freeElectiveBar(
     // What the course's own catalog lines say, the same for every student (barReading).
     const read = barReading(ctx, code, course);
     if (read.early !== null) return read.early;
-    if (admissionGate(code, ctx, student.primary)) return 'taken by application or with approval';
+    if ((!before && read.application) || admissionGate(code, ctx, student.primary)) return 'taken by application or with approval';
     if (read.late !== null) return read.late;
+    if (before) {
+      if (read.groupListed) return read.groupListed;
+      if (read.honorsTitle || read.honors) return 'for students in an honors or scholars program';
+    } else {
+    // Every Fall 2026 section closed to this program ("Restricted to
+    // Advertising major(s)." for a Finance student, ADV 280's two sections):
+    // not a course the student can register for this term. The fill ranked
+    // these seven points down (closedToMajor in scoreElective) while the
+    // re-pick refused them (restrictedToOthers).
+    if (closedToProgram(ctx, code, student.programName, student.college ?? undefined)) return 'every section is restricted to other students';
+    if (read.honors) return 'for students in an honors or scholars program';
+    const held = heldForGroup(course, ctx, student);
+    if (held) return held;
+    }
     // A department's or college's own students: HK 125 is a Kinesiology
     // freshman's own orientation, ECON 198 an Economics major's.
     const own = student.primary !== null && course.cluster === student.primary;
@@ -3842,6 +4042,13 @@ interface BarReading {
   early: string | null;
   /** A reason read after the admission gate and before the student's own subject, or null. */
   late: string | null;
+  /** The prerequisite sentence restricts the course to an honors or scholars program. */
+  honors: boolean;
+  /** The prerequisite sentence asks for an admission or an application ("Induction into the Finance Academy."). */
+  application: boolean;
+  /** For the rules before the filler work (freeElectiveBar's `before`): "honors" or "scholars" in the title, and the group only a description names. */
+  honorsTitle: boolean;
+  groupListed: string | null;
   orientation: boolean;
   forMajors: boolean;
   /** The clause that restricts the course to some program, unless it is written for everyone else ("non-dance majors"). */
@@ -3872,6 +4079,10 @@ function barReading(ctx: Pick<PlanningContext, 'prereqs' | 'sections'>, code: st
     if (/\bgrad(uate)?\b/i.test(title) || /\b(thesis|dissertation)\b/i.test(title) || /^\s*graduate standing|\bgraduate students only\b|\brequired of all (first[- ]year )?graduate students\b/i.test(text)) return 'a graduate or thesis course';
     if (/\b(independent study|individual study|research project|undergrad(uate)? research|introduction to research|practicum|internship|open seminar)\b/i.test(title)) return 'arranged with a faculty member or an agency';
     if (/\bstudy abroad\b/i.test(title)) return 'for students studying abroad';
+    // "Induction into the Finance Academy." (FIN 390) too: the fill kept it
+    // out by its own filter, and the card's dropdown and the finder, which
+    // read only this bar, offered it in a Finance student's elective slot.
+    // Read below (application): the admission gate itself reads the student (freeElectiveBar).
     return null;
   })();
   const late = ((): string | null => {
@@ -3908,14 +4119,16 @@ function barReading(ctx: Pick<PlanningContext, 'prereqs' | 'sections'>, code: st
     if (restrictions.length > 0 && restrictions.every((r) => /first time freshman|transfer student|graduate - urbana/i.test(r) && !/not intended for/i.test(r))) {
       return 'its sections are held for first-time freshmen, transfers or graduate students';
     }
-    const grouped = DESCRIPTION_ONLY_GROUP[code];
-    if (grouped) return grouped;
-    // "First-Year Gies Honors Seminar" (BUS 115), "Junior Gies Scholar
-    // Seminar" (BUS 315), "Freshman Honors Seminar" (EDUC 102), "Restricted to
-    // James Scholars." (ECE 145): an honors program the plan cannot assume.
-    if (/\b(honors|scholars?)\b/i.test(title) || /restricted to [^.;]*\b(james scholars?|campus honors|honors program)\b/i.test(text)) return 'for students in an honors or scholars program';
     return null;
   })();
+  // "First-Year Gies Honors Seminar" (BUS 115), "Junior Gies Scholar
+  // Seminar" (BUS 315), "Freshman Honors Seminar" (EDUC 102), "Restricted to
+  // James Scholars." (ECE 145), every section of TE 200 held for a
+  // living-learning community, another college's orientation, and the
+  // groups only a description names (DESCRIPTION_ONLY_GROUP): a program the
+  // plan cannot assume, by the same rule the re-pick refuses by
+  // (heldForGroup, in freeElectiveBar). Here only the sentence's own words.
+  const honors = /restricted to [^.;]*\b(james scholars?|campus honors|honors program)\b/i.test(text);
   // "For Dance majors only." Not "For non-music majors only", which is
   // written for this student, nor "Restricted to undergraduate students only".
   const forMajors = /\b(majors|students) only\b|\bonly for\b|\b(for|restricted to) students (in|enrolled in|accepted|admitted)\b/i;
@@ -3938,6 +4151,10 @@ function barReading(ctx: Pick<PlanningContext, 'prereqs' | 'sections'>, code: st
   const read: BarReading = {
     early,
     late,
+    honors,
+    application: prereqNeedsAdmission(text) !== null || prereqNeedsApplication(text) !== null,
+    honorsTitle: /\b(honors|scholars?)\b/i.test(title),
+    groupListed: DESCRIPTION_ONLY_GROUP[code] ?? null,
     orientation: /\borientation\b/i.test(title),
     forMajors: forMajors.test(text) && !/\bnon-[a-z]+( [a-z]+)? majors only\b|\bundergrad(uate)? students only\b/i.test(text),
     majorsClause: majorsClause && !/\bnon-/i.test(majorsClause) ? majorsClause : null,
@@ -3961,15 +4178,16 @@ function electiveBarFor(
   ctx: PlanningContext,
   byCode: Map<string, Course>,
   student: { college: string | null; primary: string | null; programName?: string },
+  before = false,
 ): (code: string) => string | null {
   // Only with the shared index (catalogByCode), so the answers are about this context's catalog.
-  if (byCode !== catalogByCode(ctx.courses)) return freeElectiveBar(ctx, byCode, student);
-  const key = JSON.stringify([student.college, student.primary, student.programName ?? null]);
+  if (byCode !== catalogByCode(ctx.courses)) return freeElectiveBar(ctx, byCode, student, before);
+  const key = JSON.stringify([student.college, student.primary, student.programName ?? null, before]);
   const byStudent = electiveBarCache.get(ctx) ?? new Map<string, (code: string) => string | null>();
   electiveBarCache.set(ctx, byStudent);
   const known = byStudent.get(key);
   if (known) return known;
-  const made = freeElectiveBar(ctx, byCode, student);
+  const made = freeElectiveBar(ctx, byCode, student, before);
   if (byStudent.size >= 32) byStudent.clear();
   byStudent.set(key, made);
   return made;
@@ -4795,6 +5013,17 @@ const prePairsOf = new WeakMap<GeneratedPlan, string[][]>();
  * fail the gate.
  */
 const pairingsUsed = new WeakSet<GeneratedPlan>();
+/**
+ * Hours a plan's landing course added when it became a three-credit elective
+ * (landThreeHour in generatePlanInner), less a top-up course that went with
+ * it, so possibly below zero. The measures that compare boards leave them
+ * out: a three-credit course took the one-hour course's place on one board
+ * and found no room on the other, and that alone is no reason to keep a
+ * board the gate would otherwise pass over.
+ */
+const landedPastOf = new WeakMap<GeneratedPlan, number>();
+/** The most hours past the total the landing swaps may add in all (landThreeHour): the one-credit rule. */
+const LANDING_PAST_MOST = 1;
 
 /**
  * The order a board keeps that its confident prerequisites do not measure,
@@ -4993,7 +5222,7 @@ function trialStands(paced: GeneratedPlan, plain: GeneratedPlan, input: Autoplan
       notPlaced: new Set(g.notPlaced.map((n) => normaliseCode(n.code))),
       unsatisfied: new Set(g.unsatisfied.map((u) => u.requirementId)),
       lastUsed: used.length > 0 ? used[used.length - 1].index : -1,
-      beyond: g.credits.degreeTotal === null || input.degreeTotal == null ? 0 : Math.max(0, g.credits.total.min - input.degreeTotal),
+      beyond: g.credits.degreeTotal === null || input.degreeTotal == null ? 0 : Math.max(0, g.credits.total.min - (landedPastOf.get(g) ?? 0) - input.degreeTotal),
       stacked: hardIn.filter((n) => n >= 3).length,
       doubled: hardIn.filter((n) => n >= 2).length,
       doubledYearOne: firstYear.filter((t) => t.codes.map(normaliseCode).filter(isHard).length >= 2).length,
@@ -5212,7 +5441,10 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
     offCount: off.length,
     unsatisfied: new Set(g.unsatisfied.map((u) => u.requirementId)),
     lastUsed: used.length > 0 ? used[used.length - 1].index : -1,
+    // Every hour past the total, a landing course's included (the rule is hours, whatever made them).
     beyond: input.degreeTotal == null ? 0 : Math.max(0, g.credits.total.min - input.degreeTotal),
+    // For ranking only: the hours a landing course added do not decide between boards (landedPastOf).
+    beyondRank: input.degreeTotal == null ? 0 : Math.max(0, g.credits.total.min - (landedPastOf.get(g) ?? 0) - input.degreeTotal),
     apart: new Set([...labs].filter(([lab, lecture]) => at.has(lab) && at.has(lecture) && at.get(lab) !== at.get(lecture)).map(([lab]) => lab)),
     overCap: new Set(g.terms.filter((t) => t.credits.min > (t.season === 'Summer' ? Math.min(credits.max, SUMMER_MAX) : credits.max)).map((t) => t.id)),
     // Falls and springs at the cap, and under the minimum (an empty fall between two full springs).
@@ -5347,7 +5579,7 @@ function gateRank(m: GateMeasure): number[] {
     late.reduce((n, x) => n + x, 0),
     m.math ? 0 : 1,
     m.split.size,
-    m.beyond,
+    m.beyondRank,
     m.crowded,
     m.atCap,
     m.overTarget,
@@ -5381,7 +5613,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
    * inferred pairings (AutoplanInput), and `asRead`, the requirements as
    * a930f09 read them (asReadBefore).
    */
-  type Build = { pace: boolean | 'ceiling'; sooner: boolean; plain?: boolean; pairs?: boolean; asRead?: boolean };
+  type Build = { pace: boolean | 'ceiling'; sooner: boolean; plain?: boolean; pairs?: boolean; asRead?: boolean; before?: boolean };
   /*
    * A row the page joins with "OR" alone is one pick (joinedByOr in
    * illinois-data): the LAS orientation row, LAS 101 or LAS 100 or LAS 102.
@@ -5417,6 +5649,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     paceYearOne: build.pace,
     soonerDates: build.sooner,
     plainEngine: build.plain === true,
+    fillerRules: build.before === true ? false : undefined,
     pairings: build.pairs !== false,
     electiveRanking,
     qualityMemo,
@@ -5442,12 +5675,9 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
    * and date moves and PSYC 100. A board already weighed is not weighed again.
    */
   const inner = (horizon: Horizon) => {
-    if (given.plainEngine === true) return once(horizon, { pace: false, sooner: false, plain: true, asRead: true });
+    if (given.plainEngine === true) return once(horizon, { pace: false, sooner: false, plain: true, asRead: true, before: true });
     // The major's subjects as the review reads them, from the page's own rows.
     const measured = { ...raw, horizon, prior, pageSubjects: degreeSubjectsOf(given.requirements, given.programName) };
-    const built = improved(horizon, {});
-    const plainAsRead = once(horizon, { pace: false, sooner: false, plain: true });
-    const plain = readsDifferently ? once(horizon, { pace: false, sooner: false, plain: true, asRead: true }) : plainAsRead;
     const measures = new Map<GeneratedPlan, GateMeasure>();
     const measureOf = (g: GeneratedPlan): GateMeasure => {
       const known = measures.get(g);
@@ -5456,33 +5686,94 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
       measures.set(g, m);
       return m;
     };
+    /*
+     * The floor: the plain engine on the requirements as a930f09 read them,
+     * filling by the rules before the filler work (AutoplanInput.fillerRules).
+     */
+    const plain = once(horizon, { pace: false, sooner: false, plain: true, asRead: true, before: true });
     const trail: GateTrail = { plain, tried: [] };
     const shapeOf = (g: GeneratedPlan) => g.terms.map((t) => t.codes.join(',')).join('|');
     const seen = new Set<string>([shapeOf(plain)]);
-    let best = plain;
-    let bestRank = gateRank(measureOf(plain));
-    const weigh = (g: GeneratedPlan, preferred = false) => {
-      const shape = shapeOf(g);
-      if (seen.has(shape)) return;
-      seen.add(shape);
-      const worse = gateWorse(measureOf(g), measureOf(plain));
-      trail.tried.push({ board: g, worse, how: builtAs.get(g) });
-      if (worse.length > 0) return;
-      const rank = gateRank(measureOf(g));
-      if (preferred || ranksAbove(rank, bestRank)) {
-        best = g;
-        bestRank = rank;
-      }
+    /**
+     * One pass of the gate from `start`: a board stands where gateWorse finds
+     * it no worse than every board in `against`, and the best of those by
+     * gateRank is kept; a preferred board (a correction on the plain engine)
+     * takes `start`'s place wherever it stands, rank aside. A board already
+     * weighed is not weighed again.
+     */
+    const pass = (start: GeneratedPlan, against: GeneratedPlan[]) => {
+      let best = start;
+      let bestRank = gateRank(measureOf(start));
+      const weigh = (g: GeneratedPlan, preferred = false) => {
+        const shape = shapeOf(g);
+        if (seen.has(shape)) return;
+        seen.add(shape);
+        const worse = [...new Set(against.flatMap((b) => gateWorse(measureOf(g), measureOf(b))))];
+        trail.tried.push({ board: g, worse, how: builtAs.get(g) });
+        if (worse.length > 0) return;
+        const rank = gateRank(measureOf(g));
+        if ((preferred && best === start) || ranksAbove(rank, bestRank)) {
+          best = g;
+          bestRank = rank;
+        }
+      };
+      return { weigh, best: () => best };
     };
-    if (plainAsRead !== plain) weigh(plainAsRead, true);
-    weigh(built.board);
-    for (const g of built.untried) weigh(g);
-    if (best === plain && pairingsUsed.has(built.board)) {
-      weigh(improved(horizon, { pairs: false }).board);
-      if (best === plain) weigh(once(horizon, { pace: false, sooner: false, pairs: false }));
+    /*
+     * First the board the illinois release keeps, built and chosen as it
+     * chooses: the LAS row's corrected reading on the plain engine, then the
+     * improved engine's boards, all filling by the rules before the filler
+     * work. The page's corrected reading stands over a930f09's wherever it
+     * is no worse: a930f09's reading books a freshman LAS 100, for
+     * international students, and LAS 102, for transfers, which no rank
+     * measures.
+     */
+    const release = pass(plain, [plain]);
+    release.weigh(once(horizon, { pace: false, sooner: false, plain: true, before: true }), true);
+    const builtBefore = improved(horizon, { before: true });
+    release.weigh(builtBefore.board);
+    for (const g of builtBefore.untried) release.weigh(g);
+    if (release.best() === plain && pairingsUsed.has(builtBefore.board)) {
+      release.weigh(improved(horizon, { pairs: false, before: true }).board);
+      if (release.best() === plain) release.weigh(once(horizon, { pace: false, sooner: false, pairs: false, before: true }));
     }
-    // 'plain' is a930f09's board; the page's corrected reading on the plain engine is not.
-    best.gate = best === plain ? { kept: 'plain', worse: (trail.tried.find((t) => t.board !== plainAsRead) ?? trail.tried[0])?.worse ?? [] } : { kept: 'improved', worse: [] };
+    const released = release.best();
+    /*
+     * Then the filler rules (no seminar held for another group, no course
+     * behind an application, a three-credit landing course where it costs
+     * no more than an hour): kept only where the board is no worse than the
+     * floor and no worse than the release's own board, so a student sees
+     * nothing worse than today's planner showed. The plain engine's boards
+     * are corrections and stand wherever they may; the improved engine's
+     * compete by rank. A Middle Grades Education freshman's improved board
+     * under the new rules was no worse than the floor and seven hours
+     * further past the total than the board the release kept.
+     */
+    const current = pass(released, [plain, released]);
+    /*
+     * Only where the rules could change the release's board: a course on it
+     * they bar that the older rules let through, or a planner's elective
+     * under three credits the landing step may make a three-credit one.
+     * Elsewhere the boards they build are the release's again, and building
+     * them was most of what the second pass cost.
+     */
+    const who = { college: raw.programCollege ?? null, primary: degreeSubjectsOf([...admission.added, ...expansion.requirements], raw.programName).primary, programName: raw.programName };
+    const nowBar = electiveBarFor(context, catalogByCode(context.courses), who, false);
+    const thenBar = electiveBarFor(context, catalogByCode(context.courses), who, true);
+    const touched =
+      released.electives.some((e) => !e.track && planCreditRange([e.code], context).min < 3) ||
+      released.terms.some((t) => t.codes.some((c) => nowBar(normaliseCode(c)) !== null && thenBar(normaliseCode(c)) === null));
+    if (touched) {
+      current.weigh(once(horizon, { pace: false, sooner: false, plain: true }), true);
+      // a930f09's reading under the new rules only where the release kept a930f09's reading, the floor:
+      // over a board with the corrected one it brought LAS 100 and LAS 102 back.
+      if (readsDifferently && released === plain) current.weigh(once(horizon, { pace: false, sooner: false, plain: true, asRead: true }), true);
+      const built = improved(horizon, {});
+      current.weigh(built.board);
+      for (const g of built.untried) current.weigh(g);
+    }
+    const best = current.best();
+    best.gate = best === plain ? { kept: 'plain', worse: trail.tried[0]?.worse ?? [] } : { kept: 'improved', worse: [] };
     gateTrails.set(best, trail);
     return best;
   };
@@ -5605,7 +5896,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const nestedParent = nestedParents(input.requirements);
   const who: Audience = { college: input.programCollege ?? null, primary: degreeRead.primary };
   /** Courses written for another group of students, which the planner never suggests as a free elective. */
-  const electiveBarred = electiveBarFor(ctx, byCode, { ...who, programName: input.programName });
+  const electiveBarred = electiveBarFor(ctx, byCode, { ...who, programName: input.programName }, input.fillerRules === false);
   /**
    * Behind an application or someone's approval (admissionGate): never a
    * pick the planner makes on its own while the list or category has another
@@ -8856,6 +9147,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const electives: Array<{ code: string; why: string; reasons: string[]; track?: string }> = [];
   /** The fall and spring aim the fill balanced the terms at (GeneratedPlan.credits.aim). */
   let fillAim: number | null = null;
+  /** The fill's landing courses made three-credit electives, once the board is final; the hours it added. */
+  let landThreeHour: (() => number) | null = null;
   const degreeTotalPublished = input.degreeTotal ?? null;
   if (degreeTotalPublished !== null && remainingDegree !== null && terms.length > 0) {
     // The terms in play: the ones this student needs, or one more where a
@@ -8930,7 +9223,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * course again was a third of the time the gate's extra boards cost.
      * Ranking before the exclusions and filtering after keeps the order.
      */
-    const rankingKey = [...stillWanted].sort().join('|');
+    // By the bar too (scoring.barred): the floor fills by the rules before the filler work (AutoplanInput.fillerRules).
+    const rankingKey = `${input.fillerRules === false ? 'before:' : ''}${[...stillWanted].sort().join('|')}`;
     const ranked = input.electiveRanking?.get(rankingKey) ?? rankedElectivePool(ctx, scoring, () => false);
     input.electiveRanking?.set(rankingKey, ranked);
     const candidates = ranked.filter((code) => !(plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who) || behindApplication(code)));
@@ -9042,7 +9336,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * (MCB 151 and IB 151 are the one-credit labs a pre-med needs), and a term
      * already heavy by grade history takes a light pick when one fits, so the
      * planner's own picks do not stack on the hardest courses the degree
-     * requires.
+     * requires. The landing course is then made a three-credit elective in
+     * its own term where the term has room (the pass after the rounds).
      */
     // `tooBig`: the credit test inside `fits` (see firstFit).
     const choose = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, gap: number, heavy: boolean, loose = false): string | undefined => {
@@ -9134,6 +9429,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * at 114 of 120 with that summer at six credits and the note blaming
      * eligibility; the summer had three more to give.
      */
+    /** The fill's picks under three credits that landed the plan on its total, for landThreeHour. */
+    const landers: Array<{ code: string; termId: string }> = [];
+    /** The top-up's own picks, with the hours each put past the total, for landThreeHour. */
+    const padding = new Map<string, number>();
+    /** The note that counts the elective slots, as it was said (below). */
+    let slotsSaid: string | null = null;
     const rounds: Array<{ ceiling: number; summerCeiling: number; summersOnly: boolean; loose: boolean; steps: boolean }> = [
       ...[0, 1, 2].map((over) => ({ ceiling: Math.min(credits.max, overallAim + over), summerCeiling: SUMMER_AIM, summersOnly: false, loose: false, steps: true })),
       { ceiling: credits.max, summerCeiling: SUMMER_AIM, summersOnly: false, loose: false, steps: false },
@@ -9218,6 +9519,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
           const levelWhy = spendLevel(pick);
           electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : {}) });
+          if (creditsOf(pick) < 3 && !trackWanted.has(pick) && !levelWhy) landers.push({ code: pick, termId: term.id });
           followLab(pick, term, here);
           progress = true;
         }
@@ -9384,6 +9686,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
         const levelWhy = spendLevel(pick);
         electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : {}) });
+        if (!trackWanted.has(pick) && !levelWhy) padding.set(pick, overTotal() - overBefore);
         followLab(pick, term, here);
         topped = true;
       }
@@ -9524,6 +9827,177 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       minimum: credits.min,
     });
     if (beyondNote) notes.push(beyondNote);
+    /**
+     * The landing course made a three-credit elective, in its own term,
+     * where the term has room: run once the board is final, before the
+     * report (landThreeHour).
+     *
+     * The course that lands a plan on its total was a one- or two-hour course
+     * written for nobody in particular, and the same few everywhere: FSHN 249
+     * Food Service Sanitation on 293 of the 1,848 boards the sweep builds (a
+     * Finance + Data Science freshman's among them), ACE 221 Negotiation on
+     * 284, CHEM 494 Lab Safety Fundamentals on 23; a Business + Data Science
+     * freshman's board carried two. A three-credit elective the student can
+     * register for, one or two hours past the total, is the better plan, and
+     * the note on hours past the total says they come from course sizes.
+     *
+     * It takes the landing course's place after every move after the fill,
+     * so nothing else moves: made during the fill, the heavier term kept a
+     * pre-med Psychology student going abroad from bringing CHEM 332 back
+     * before her application, and it went to Fall 2029. And only where it
+     * changes nothing the gate between boards weighs but the hours past the
+     * total (landedPastOf), since the swap is made on every board the gate
+     * compares: on a pre-med Czech Studies freshman's plain board ACE 221
+     * became BADM 340, a 300-level course, which put that board nearer the
+     * upper-level hours residency asks for than the improved boards, and the
+     * gate kept it with CHEM 332 and SOC 100 past her application. So the
+     * term stays under the cap, within two of the aim and one past a number
+     * the student set; it is no summer and no year-one term, and was at the
+     * minimum already; the new course is no hardest-band, math or statistics
+     * course, no fourth of one subject in the term, and on the same side of
+     * the 300 level as the course it replaces. Where no three-credit course
+     * fits, the landing course stays; so does one that counted toward a
+     * level the page asks for. A course the top-up added beside it only to
+     * reach the term's minimum goes once the term reaches it without.
+     */
+    landThreeHour = (): number => {
+      let added = 0;
+      let swapped = false;
+      for (const { code: small } of landers) {
+        const term = terms.find((t) => (placed.get(t.id) ?? []).includes(small));
+        if (!term || isSummer(term) || yearOne.includes(term.index)) continue;
+        const here = placed.get(term.id) ?? [];
+        const rest = here.filter((c) => c !== small);
+        const running = planCreditRange(rest, ctx).min;
+        const roof = Math.min(creditCapOf(term) - 1, overallAim + 2, credits.target != null ? credits.target + 1 : Infinity);
+        if (running + 3 > roof || running + creditsOf(small) < credits.min) continue;
+        // Nothing on the board waits on it (an elective never should, but a
+        // later pick may have come to lean on it).
+        const names = new Set(expandEquivalents(small, equivalents));
+        if ([...placed.values()].flat().some((other) => other !== small && (ctx.prereqs?.get(other)?.groups ?? []).some((g) => g.any.some((a) => names.has(normaliseCode(a)))))) continue;
+        const earlierSet = new Set<string>(satisfiedForPrereq);
+        let hoursSoFar = priorCreditTotal + awayBefore[term.index];
+        for (const other of terms) {
+          if (other.index >= term.index) break;
+          const codes = placed.get(other.id) ?? [];
+          for (const c of codes) for (const equiv of expandEquivalents(c, equivalents)) earlierSet.add(equiv);
+          hoursSoFar += planCreditRange(codes, ctx).min;
+        }
+        const sameTerm = new Set<string>();
+        for (const c of rest) for (const equiv of expandEquivalents(c, equivalents)) sameTerm.add(equiv);
+        const smallSubject = byCode.get(small)?.cluster ?? '';
+        const taken = new Map(perSubject);
+        taken.set(smallSubject, Math.max(0, (taken.get(smallSubject) ?? 0) - 1));
+        const bySubject = new Map<string, number>();
+        for (const c of here) {
+          const s = byCode.get(c)?.cluster ?? c.split(' ')[0];
+          bySubject.set(s, (bySubject.get(s) ?? 0) + 1);
+        }
+        const mostOfOne = Math.max(0, ...bySubject.values());
+        const three = (code: string): boolean => {
+          if (creditsOf(code) !== 3 || plannedAll.has(code) || trackWanted.has(code) || isHard(code)) return false;
+          if ((courseLevel(small) >= 300) !== (courseLevel(code) >= 300)) return false;
+          if (input.notTowardDegree?.(code)) return false;
+          if (preparesForHeld(code, ctx.prereqs, (c) => plannedAll.has(c) || earned.has(c), !plainEngine)) return false;
+          const course = byCode.get(code);
+          if (!course || isMathOrStatistics(course) || !subjectRoomLeft(course.cluster, taken, majors.primary, majors.subjects)) return false;
+          // The most courses of one subject in the term stays what it was.
+          if (Math.max(...[...bySubject.keys(), course.cluster].map((s) => (bySubject.get(s) ?? 0) - (s === smallSubject ? 1 : 0) + (s === course.cluster ? 1 : 0))) !== mostOfOne) return false;
+          if (outOfSeason(course, term.season, published.has(code))) return false;
+          if (!plainEngine && unscheduledNow(code, term.id)) return false;
+          if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
+          if (conflictWith(code, conflicts, [earned, chosen, plannedAll]) !== null) return false;
+          if (expandEquivalents(code, equivalents).some((twin) => twin !== code && (plannedAll.has(twin) || earned.has(twin)))) return false;
+          return electivePrereqsMet(match(ctx.prereqs?.get(code), earlierSet, sameTerm, equivalents));
+        };
+        const heavyHere = ['heavy', 'brutal'].includes(bandVerdictFor(rest.filter(isHard).length, termLoad(rest, grades).avgDifficulty, (ctx.bands ?? FALLBACK_BANDS)));
+        // `three` takes only a three-credit course: that is its credit test (firstFit's `tooBig`).
+        const notThree = (hours: number) => hours !== 3;
+        const pick = (heavyHere ? (lightFirst(prefs.priorities) ? lightestOf((c) => lighter(c) && three(c), notThree) : pickFrom((c) => lighter(c) && three(c), notThree)) : undefined)
+          ?? (lightFirst(prefs.priorities) ? lightestOf(three, notThree) : pickFrom(three, notThree));
+        if (!pick) continue;
+        /*
+         * Held to one hour past the total beyond what the plan had, a pad
+         * that goes with it counted: the rule for this planner is that no
+         * board ends more than one credit further past its degree's total
+         * than before. A one-hour landing course made a three-credit one,
+         * with no pad to go, is two, and the swap is taken back; the student
+         * can still pick the three-credit course from the slot's chooser.
+         */
+        const undo: { term: string[]; plannedAll: Set<string>; chosen: Map<string, { requirementId: string | null; label: string }>; total: number; added: number; perSubject: Map<string, number>; electives: typeof electives; paddedPast: number; padding: Map<string, number>; swapped: boolean } = {
+          term: placed.get(term.id) ?? [], plannedAll: new Set(plannedAll), chosen: new Map(chosen), total, added, perSubject: new Map(perSubject), electives: [...electives], paddedPast, padding: new Map(padding), swapped,
+        };
+        swapped = true;
+        placed.set(term.id, here.map((c) => (c === small ? pick : c)));
+        plannedAll.delete(small);
+        chosen.delete(small);
+        plannedAll.add(pick);
+        chosen.set(pick, { requirementId: null, label: 'Elective' });
+        added += creditsOf(pick) - creditsOf(small);
+        total += creditsOf(pick) - creditsOf(small);
+        perSubject.set(smallSubject, Math.max(0, (perSubject.get(smallSubject) ?? 0) - 1));
+        const subject = byCode.get(pick)?.cluster ?? '';
+        perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
+        const at = electives.findIndex((e) => e.code === small);
+        const entry = { code: pick, why: electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick)), reasons: scoring.quality(pick).reasons };
+        if (at >= 0) electives[at] = entry;
+        else electives.push(entry);
+        // A course the top-up put in this term to reach the minimum goes when
+        // the term reaches it without: a Business + Data Science freshman's
+        // last term took FSHN 249 to reach 12 beside ACE 221, and with a
+        // three-credit course in ACE 221's place it is 12 without it.
+        // The term's list as it was: a pad that goes sets a new list, never edits this one.
+        for (const pad of placed.get(term.id) ?? []) {
+          // Not an upper-level one, whose hours count toward residency, nor a
+          // hardest-band one, which the gate counts by term.
+          if (!padding.has(pad) || courseLevel(pad) >= 300 || isHard(pad)) continue;
+          const now = placed.get(term.id) ?? [];
+          if (planCreditRange(now, ctx).min - creditsOf(pad) < credits.min || total - creditsOf(pad) < degreeTotalPublished) continue;
+          const padNames = new Set(expandEquivalents(pad, equivalents));
+          if ([...placed.values()].flat().some((other) => other !== pad && (ctx.prereqs?.get(other)?.groups ?? []).some((g) => g.any.some((a) => padNames.has(normaliseCode(a)))))) continue;
+          placed.set(term.id, now.filter((c) => c !== pad));
+          plannedAll.delete(pad);
+          chosen.delete(pad);
+          total -= creditsOf(pad);
+          added -= creditsOf(pad);
+          paddedPast = Math.max(0, paddedPast - (padding.get(pad) ?? 0));
+          const padSubject = byCode.get(pad)?.cluster ?? '';
+          perSubject.set(padSubject, Math.max(0, (perSubject.get(padSubject) ?? 0) - 1));
+          const padAt = electives.findIndex((e) => e.code === pad);
+          if (padAt >= 0) electives.splice(padAt, 1);
+          padding.delete(pad);
+        }
+        if (added > LANDING_PAST_MOST) {
+          placed.set(term.id, undo.term);
+          plannedAll.clear();
+          for (const c of undo.plannedAll) plannedAll.add(c);
+          chosen.clear();
+          for (const [k, v] of undo.chosen) chosen.set(k, v);
+          perSubject.clear();
+          for (const [k, v] of undo.perSubject) perSubject.set(k, v);
+          padding.clear();
+          for (const [k, v] of undo.padding) padding.set(k, v);
+          electives.length = 0;
+          electives.push(...undo.electives);
+          total = undo.total;
+          added = undo.added;
+          paddedPast = undo.paddedPast;
+          swapped = undo.swapped;
+        }
+      }
+      if (swapped) {
+        // The note on hours past the total, read again: the new hours come
+        // from course sizes, and a pad that went takes its share with it.
+        const was = beyondNote ? notes.indexOf(beyondNote) : -1;
+        const now = describeBeyondTotal({ degreeTotal: degreeTotalPublished, total, booked: bookedTotal, prior: priorCreditTotal, padded: paddedPast, track: trackPast, minimum: credits.min });
+        if (now && was >= 0) notes[was] = now;
+        else if (now) notes.push(now);
+        else if (was >= 0) notes.splice(was, 1);
+        const slots = slotsSaid ? notes.indexOf(slotsSaid) : -1;
+        if (slots >= 0) notes[slots] = slotsNote();
+      }
+      return added;
+    };
     // A term that was light before the fill is not light now.
     for (const term of terms) {
       if (planCreditRange(placed.get(term.id) ?? [], ctx).min >= credits.min) {
@@ -9551,11 +10025,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     } else if (credits.target === null) {
       notes.push(`Terms aim for about ${overallAim} credits, an even share of the ${remainingDegree} credits left toward the ${degreeTotalPublished} this degree takes, over ${termsPhrase(fillTerms.length)}${summerShare}.${threes} Set a number in Preferences to aim higher or lower.`);
     }
-    if (electives.length > 0) {
-      notes.push(
-        `${electives.length} ${electives.length === 1 ? 'slot is an elective' : 'slots are electives'} that fill the ${degreeTotalPublished} credits this degree takes beyond what its page names. Each holds a suggested course; tap it to choose from everything you could take that term.`,
-      );
-    }
+    const slotsNote = (): string =>
+      `${electives.length} ${electives.length === 1 ? 'slot is an elective' : 'slots are electives'} that fill the ${degreeTotalPublished} credits this degree takes beyond what its page names. Each holds a suggested course; tap it to choose from everything you could take that term.`;
+    // Said again by landThreeHour when a pad it made unneeded goes.
+    slotsSaid = electives.length > 0 ? slotsNote() : null;
+    if (slotsSaid) notes.push(slotsSaid);
     if (total < degreeTotalPublished) {
       // When the terms simply cannot hold the credits, say so and say what
       // changes it: a finish date two years out with 76 hours left is four
@@ -11062,6 +11536,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     }
   }
 
+  // After every move: the one place a landing course can grow without
+  // moving anything else (landThreeHour, in the fill).
+  const landedPast = landThreeHour && input.fillerRules !== false ? landThreeHour() : 0;
+
   // --- report --------------------------------------------------------------
   /**
    * The year of study, from the calendar: the academic year a term falls in,
@@ -11362,6 +11840,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   };
   if (pacedPlacement !== null || soonerPlacement) trialsTaken.set(generated, { pace: pacedPlacement, sooner: soonerPlacement, ceiling: ceilingAlternative });
   if (prePairs !== null) prePairsOf.set(generated, prePairs);
+  if (landedPast !== 0) landedPastOf.set(generated, landedPast);
   // An inferred lab pair counts where either half was booked: held as a
   // pair, it shapes the track booking and the fill as well as the placer.
   const inferredOnBoard = !plainEngine && input.pairings !== false && [...labOf].some(([lab, lecture]) => !labsOf(ctx, false).has(lab) && (chosen.has(lab) || chosen.has(lecture)));
@@ -11715,11 +12194,27 @@ export function validatePlan(
       });
     }
     if (termCredits.variable) {
+      /*
+       * Which course the range comes from, and what the student can do about
+       * it. "Pick a value on each course with a range to see one total"
+       * promised a control the board does not have, and the audit of
+       * 2026-09-21 counted it 339 times across the plans it generated. The
+       * hours of a variable-credit course are set at registration, and the
+       * planner's own sums (class standing here, the fill's run to the degree
+       * total) count the low end.
+       */
+      const ranged = codes
+        .map((code) => ({ code, range: ctx.creditRanges?.get(code) }))
+        .filter(({ range }) => range?.known && (range.max ?? range.credits) > (range.min ?? range.credits));
+      const named = ranged.slice(0, 3).map(({ code, range }) => `${code} (${range?.min ?? range?.credits} to ${range?.max ?? range?.credits} hours)`);
+      const list = ranged.length > 3 ? `${named.join(', ')} and ${ranged.length - 3} more` : named.length > 1 ? `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}` : named[0];
       issues.push({
         id: `ap-variable-${term.id}`,
         severity: 'info',
         title: 'Credit range in this term',
-        message: `${term.label} is ${describeCreditTotal(termCredits)}. Pick a value on each course with a range to see one total.`,
+        message: list
+          ? `${term.label} is ${describeCreditTotal(termCredits)}: ${list} ${ranged.length === 1 ? 'carries' : 'carry'} a range of hours, set when you register. The plan counts the low end toward class standing and the degree total; for one fixed number, use Find a replacement on the card to choose a course with set hours.`
+          : `${term.label} is ${describeCreditTotal(termCredits)}. The hours of a variable-credit course are set when you register, and the plan counts the low end.`,
         termId: term.id,
       });
     }
