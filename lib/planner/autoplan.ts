@@ -1381,11 +1381,61 @@ function exclusionAwareMatcher(
     if (result.missing.length === 0) return result;
     const self = spec ? codeOfSpec.get(spec) : undefined;
     const held = [...alsoHeld, earlier, sameTerm, new Set(self === undefined ? [] : [self])];
-    const missing = result.missing.filter(
+    let missing = result.missing.filter(
       (group) => groupClosedByExclusion(group, conflicts, held, equivalents) === null,
     );
+    /*
+     * A course the student cannot have beside one already before it, where
+     * the matching found no course of its own for the group: ACCY 201 asks
+     * for ECON 102 and ECON 103 both ("the remaining ECON 102 or ECON 103
+     * course"), and ECON 102 will not count beside the ACE 100 an ACE degree
+     * requires. ECON 103 filled the first group, so the second read as open
+     * and never closed, and ACCY 201 found no term on twelve ACE, Financial
+     * Planning and Public Policy boards. The blocked course counts as met by
+     * the one before it that blocks it (standInsFor), for the matching; the
+     * plan says so and sends the question to an advisor. Only a group the
+     * sentence repeats ("either ... AND the remaining ..."): read for every
+     * group, it counted MATH 225 for MATH 257 and CHEM 205 for CHEM 223 and
+     * moved 28 boards for nothing they gained.
+     */
+    if (missing.length > 0 && spec) {
+      const before = [...alsoHeld, earlier];
+      const standIns = new Set<string>();
+      for (const group of missing.filter((g) => repeatedGroup(spec, g))) for (const { blocked } of standInsFor(group, conflicts, group.concurrent ? [...before, sameTerm] : before)) standIns.add(blocked);
+      if (standIns.size > 0) {
+        const again = base(spec, new Set([...earlier, ...standIns]), sameTerm, equiv);
+        const still = again.missing.filter((group) => groupClosedByExclusion(group, conflicts, held, equivalents) === null);
+        if (still.length < missing.length) missing = still;
+      }
+    }
     return missing.length === result.missing.length ? result : { ...result, missing };
   };
+}
+
+/** A group whose courses another group of the same sentence names too: ACCY 201's two "ECON 102 or ECON 103". */
+function repeatedGroup(spec: PlanPrereq, group: PlanPrereqGroup): boolean {
+  const key = (g: PlanPrereqGroup) => g.any.map(normaliseCode).sort().join('|');
+  return spec.groups.filter((g) => key(g) === key(group)).length > 1;
+}
+
+/**
+ * The courses of a prerequisite group the student cannot have beside one
+ * they already hold or take before (`before`), each with the course that
+ * blocks it: ECON 102, blocked by ACE 100.
+ */
+function standInsFor(
+  group: PlanPrereqGroup,
+  conflicts: Map<string, Set<string>>,
+  before: Array<Set<string> | Map<string, unknown>>,
+): Array<{ blocked: string; by: string }> {
+  const out: Array<{ blocked: string; by: string }> = [];
+  for (const raw of group.any) {
+    const blocked = normaliseCode(raw);
+    if (before.some((set) => set.has(blocked))) continue;
+    const by = conflictWith(blocked, conflicts, before);
+    if (by !== null) out.push({ blocked, by });
+  }
+  return out;
 }
 
 /**
@@ -11644,6 +11694,36 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   // After every move: the one place a landing course can grow without
   // moving anything else (landThreeHour, in the fill).
   const landedPast = landThreeHour && input.fillerRules !== false ? landThreeHour() : 0;
+
+  /*
+   * Where the board leans on a course standing in for one the catalog will
+   * not count beside it (standInsFor, in the matcher): ACE 100 for ECON 102
+   * under ACCY 201. Said once per course and group, since only an advisor
+   * can say whether Illinois takes the one for the other.
+   */
+  {
+    const said = new Set<string>();
+    const earlierSet = new Set<string>(satisfiedForPrereq);
+    for (const term of terms) {
+      const here = placed.get(term.id) ?? [];
+      const sameSet = new Set<string>(here.flatMap((c) => expandEquivalents(c, equivalents)));
+      for (const code of here) {
+        const spec = ctx.prereqs?.get(code);
+        if (!spec) continue;
+        for (const group of baseMatch(spec, earlierSet, sameSet, equivalents).missing) {
+          if (!repeatedGroup(spec, group)) continue;
+          if (groupClosedByExclusion(group, conflicts, [earned, earlierSet, sameSet, new Set([code])], equivalents) !== null) continue;
+          for (const { blocked, by } of standInsFor(group, conflicts, group.concurrent ? [earned, earlierSet, sameSet] : [earned, earlierSet])) {
+            const key = `${code}|${group.any.join(' or ')}`;
+            if (said.has(key)) continue;
+            said.add(key);
+            notes.push(`${code} lists ${group.any.join(' or ')} as a prerequisite, and this plan has no second course for it. ${notBoth(blocked, by)} ${earned.has(by) ? 'You have' : 'This plan books'} ${by} before it, so the plan counts ${by} in ${blocked}'s place and books nothing more. Ask your advisor whether that clears.`);
+          }
+        }
+      }
+      for (const c of here) for (const equiv of expandEquivalents(c, equivalents)) earlierSet.add(equiv);
+    }
+  }
 
   // --- report --------------------------------------------------------------
   /**
