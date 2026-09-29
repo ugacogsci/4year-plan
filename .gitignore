@@ -30,3 +30,9 @@ public/*.old.json
 # Teachers Ranked as Excellent PDFs, downloaded by scripts/illinois/excellent-teachers.mjs
 data/excellent/
 public/__samples/
+
+# Syllabus scraper cache: raw responses, extracted text, manifests, fetch log
+# and the per-course coverage file, all rebuilt by scripts/illinois/syllabi/.
+# Instructors own the syllabus text, so none of it is committed; only the
+# facts in public/illinois/syllabi.json are.
+data/syllabi/
