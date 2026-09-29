@@ -53,9 +53,11 @@ import {
   plannableProgram,
   readHorizon,
   readPriorCredit,
+  readPrograms,
   useIllinoisCore,
   type LoadedProgram,
 } from './illinois-source';
+import { comparePrograms, CS_MINOR, placementsOnBoard, resolveProgram, secondMajorsWithinReach, type ProgramSide } from '@/lib/planner/programs-compare';
 import {
   guessUgaProgram,
   loadUgaProgram,
@@ -436,6 +438,13 @@ export function PlannerWorkspace({
   const keepUndoOnBuild = useRef(false);
   /** Set by an undo that put the credit back, so the credit watcher does not rebuild over it. */
   const creditRestored = useRef(false);
+  /**
+   * The input the board was last built from and what it built, or null for a
+   * board restored from this device. compare_programs plans the student's
+   * program and a second one together from it, so "what does Accountancy
+   * cost me" is measured against the same student, horizon and priorities.
+   */
+  const lastBuild = useRef<{ input: AutoplanInput; plan: GeneratedPlan } | null>(null);
   useEffect(() => {
     planRef.current = plan;
   }, [plan]);
@@ -743,6 +752,7 @@ export function PlannerWorkspace({
         : null,
     };
     let generated = generatePlan(planInput);
+    let builtFrom = planInput;
     /**
      * "Spread my hard classes out": one hardest-band course a term, kept only
      * when it costs nothing. At one a term a Computer Engineering plan with
@@ -752,14 +762,21 @@ export function PlannerWorkspace({
      * failed or says what the kept plan really does.
      */
     if (planShape.spreadHard) {
-      const spread = generatePlan({ ...planInput, preferences: { ...planInput.preferences, maxHardCourses: 1 } });
+      const spreadInput = { ...planInput, preferences: { ...planInput.preferences, maxHardCourses: 1 } };
+      const spread = generatePlan(spreadInput);
       const outcome = spreadHardOutcome(generated, spread, {
         difficulty: (code) => context.grades?.get(code)?.difficulty ?? null,
         bands: context.bands ?? null,
       });
-      if (outcome.adopt) generated = spread;
+      if (outcome.adopt) {
+        generated = spread;
+        builtFrom = spreadInput;
+      }
       generated.notes.push(outcome.note);
     }
+
+    // What compare_programs rebuilds with a second program's courses beside these.
+    lastBuild.current = { input: builtFrom, plan: generated };
 
     if (!publishedTotal && isIllinois) {
       generated.notes.push(`The catalog page for ${loaded.program.name} states no total, so this plan aims at 120 hours, the minimum most Illinois bachelor's degrees state (las.illinois.edu/academics/requirements/minimum). Ask your advisor for this degree's own total.`);
@@ -3416,6 +3433,134 @@ export function PlannerWorkspace({
           return { handled: true, text: routed.answer.text, sources: routed.answer.sources, grounded: routed.answer.grounded };
         }
         return { handled: false, note: 'Not a question the board can answer. Try university_answer.' };
+      }
+      case 'compare_programs': {
+        if (!isIllinois || !L.core) return { ok: false, reason: 'Comparing programs needs the Illinois catalog, which is not loaded.' };
+        const core = L.core;
+        // Every crawled page with a course list, BALAS majors included: the
+        // rail's program menu reads the degree field, which 89 LAS pages leave
+        // empty, but a second major only needs the page's requirements.
+        const catalogPrograms = (core.programs ?? []).filter((p) => p.dataStatus === 'catalog' && p.courseCount > 0);
+        const primary: ProgramSide = {
+          id: L.loaded.summary.id,
+          name: L.loaded.program.name,
+          college: L.loaded.program.college,
+          url: L.loaded.url,
+          totalCredits: degreeTotalNow(),
+          requirements: L.loaded.blocks,
+        };
+        const termOfCode = new Map<string, string>();
+        for (const t of board.terms) for (const id of t.courseIds) {
+          const code = L.courseIndex.get(id)?.code;
+          if (code) termOfCode.set(normCode(code), t.label);
+        }
+        const boardCodes = board.terms.flatMap((t) => t.courseIds.map((id) => L.courseIndex.get(id)?.code ?? '')).filter(Boolean);
+        const held = heldNow();
+        const language = L.language ? { completed: L.language.completed, codes: L.language.codes } : null;
+        const fit = L.quality ? (code: string) => L.quality?.(code).score ?? 0 : undefined;
+        const noMinors =
+          'The planner has no minor or certificate pages (the catalog crawl read the 308 degree pages only), so it cannot check a minor. For a minor, get its requirements with university_answer and try its courses with what_if.';
+        const query = str('program');
+        const limit = Math.min(Math.max(Number(input.limit) || 5, 1), 10);
+
+        if (!query || input.closest === true) {
+          const candidates = await readPrograms(core, catalogPrograms.filter((p) => p.id !== primary.id));
+          const near = secondMajorsWithinReach({ context: ctx, primary, candidates, heldCodes: held, boardCodes, language, limit });
+          return {
+            ok: true,
+            simulated: true,
+            closest_second_programs: near.map((n) => ({
+              program: n.name,
+              pair: n.kind,
+              courses_away: n.coursesAway,
+              courses_to_add: n.adds,
+              ...(n.unnamedHours > 0 ? { plus_hours_the_page_names_no_courses_for: n.unnamedHours } : {}),
+              courses_already_counting: n.alreadyCounting,
+              ...(n.unread > 0 ? { rows_not_read: n.unread } : {}),
+              ...(n.doubts.length > 0 ? { reading_doubts: n.doubts } : {}),
+            })),
+            minors: noMinors,
+            note: 'Counted against the board and credit as they are, fewest courses first, double majors ahead of dual degrees (a dual degree is 30 more hours whatever the board covers). A count is a floor where a row was not read. Mention the closest one or two only when the student is weighing a second program; call compare_programs with a program for its cost and rules. Nothing on the board changed.',
+          };
+        }
+
+        const found = resolveProgram(query, catalogPrograms);
+        if (found.minor) {
+          // "CS minor" is not Computer Science, BS: comparing the major would
+          // answer a question the student did not ask, 30 hours bigger.
+          return {
+            ok: false,
+            minors: noMinors,
+            ...(/\b(computer science|cs)\b/i.test(query) ? { cs_minor: `${CS_MINOR.text} (${CS_MINOR.source})` } : {}),
+            ...(found.match ? { major_of_that_name: `${found.match.name} is a major the planner can compare as a second major, if that is what the student means.` } : {}),
+          };
+        }
+        if (!found.match) {
+          return {
+            ok: false,
+            reason: found.candidates.length > 0 ? `"${query}" could name more than one program; ask which.` : `No degree page matches "${query}".`,
+            closest_names: found.candidates.map((c) => c.name),
+          };
+        }
+        const summary = catalogPrograms.find((p) => p.id === found.match?.id);
+        const [second] = summary ? await readPrograms(core, [summary]) : [];
+        if (!second) return { ok: false, reason: `The page for ${found.match.name} could not be read.` };
+        const base = lastBuild.current && lastBuild.current.input.programId === primary.id ? lastBuild.current : null;
+        const c = comparePrograms({ context: ctx, primary, second, heldCodes: held, boardCodes, language, fit, base });
+        const concentrations = catalogPrograms.filter((p) => p.id.startsWith(`${second.id}/`));
+        const placed = c.both ? placementsOnBoard({ context: ctx, board, placed: c.both.placed, options: validateOptions() }) : [];
+        const onThisBoard = placed.filter((p) => !p.pastFinish);
+        const pastFinish = placed.filter((p) => p.pastFinish);
+        const unit = (o: { amount: number; unit: string } | null) => (o ? `${o.amount} ${o.unit === 'hr' ? 'hours' : o.unit === 'course' ? (o.amount === 1 ? 'course' : 'courses') : 'semesters'}` : '');
+        return {
+          ok: true,
+          simulated: true,
+          program: second.name,
+          page: second.url,
+          pair: c.pair.kind,
+          pair_summary: c.pair.summary,
+          rules: c.pair.rules.map((r) => `${r.text} (${r.source})`),
+          ...(c.pageSentences.length > 0 ? { what_the_pages_say_about_a_second_major: c.pageSentences.map((r) => `${r.text} (${r.source})`) } : {}),
+          already_counts: c.alreadyCounts.map(
+            (a) => `${a.code} ${a.title}, ${a.credits} hr, for "${a.row}"; ${a.held ? 'already taken' : `on the board in ${termOfCode.get(a.code) ?? 'the plan'}`}${a.alsoMajor ? `; also counts for ${primary.name}` : ''}`,
+          ),
+          still_owed: c.open.map((row) => ({
+            requirement: row.label,
+            owed: unit(row.owed),
+            ...(row.take.length > 0 ? { planner_picks: row.take } : {}),
+            ...(row.options.length > 0 ? { other_choices: row.options } : {}),
+            ...(row.note ? { note: row.note } : {}),
+          })),
+          courses_it_adds: c.adds,
+          hours_it_adds: c.addsHours,
+          ...(c.unnamedHours > 0 ? { hours_the_page_names_no_courses_for: c.unnamedHours } : {}),
+          ...(c.unread.length > 0 ? { rows_not_read: c.unread.map((row) => `${row.label}${row.note ? `: ${row.note}` : ''}`) } : {}),
+          ...(c.standIns.length > 0 ? { not_credited_together: c.standIns } : {}),
+          general_education: c.genEd.open.length > 0 ? `Open for ${second.name}: ${c.genEd.open.join('; ')}.` : 'The campus categories are the same for both programs, and the board meets them.',
+          ...(c.distinctAdvanced.asked !== null
+            ? { distinct_advanced_hours: `${c.distinctAdvanced.hours} hours at the 300 level or above count for ${second.name} and not for ${primary.name}; the college asks for ${c.distinctAdvanced.asked}.` }
+            : {}),
+          overlap: `${Math.round(c.overlapShare * 100)}% of ${second.name}'s own course hours also count for ${primary.name}.`,
+          ...(c.doubts.length > 0 ? { reading_doubts: c.doubts } : {}),
+          ...(concentrations.length > 0 ? { concentrations: `${second.name} has concentrations with their own pages: ${concentrations.map((p) => p.name).join('; ')}. Compare the student's pick for its courses.` } : {}),
+          cost: c.both
+            ? {
+                this_plan: `${c.both.base.terms} terms to ${c.both.base.last}, ${c.both.base.hours} hours, about ${c.both.base.pace} a fall or spring`,
+                with_both: `${c.both.both.terms} terms to ${c.both.both.last}, ${c.both.both.hours} hours, about ${c.both.both.pace} a fall or spring`,
+                extra_hours: c.both.extraHours,
+                extra_terms: c.both.extraTerms,
+                where_the_rebuilt_plan_puts_them: c.both.placed.map((p) => `${p.code} in ${p.term}${p.why === 'prerequisite' ? ' (a prerequisite)' : ''}`),
+                ...(c.both.notPlaced.length > 0 ? { could_not_place: c.both.notPlaced } : {}),
+                ...(c.both.shortOfTotal > 0 ? { short_of_total: c.both.shortOfTotal } : {}),
+                prerequisite_problems: c.both.problems.length > 0 ? c.both.problems : 'none: on the rebuilt plan every added course comes after what it needs',
+              }
+            : 'This board was restored from the device, not built this session, so hours and terms were not measured. Rebuild measures them (it replaces the student\'s edits, so ask first).',
+          ...(onThisBoard.length > 0
+            ? { to_try_on_this_board: onThisBoard.map((p) => `${p.code} in ${p.term}${p.prerequisitesMet ? '' : ' (a prerequisite is still missing here)'}`) }
+            : {}),
+          ...(pastFinish.length > 0 ? { past_this_board_s_last_term: pastFinish.map((p) => `${p.code} (${p.term} on the rebuilt plan)`) } : {}),
+          note: `Nothing on the board changed, and the board keeps planning ${primary.name} alone. Put none of these courses on the board unless the student says yes; then what_if (at most six changes a call) before add_course.`,
+        };
       }
       case 'university_answer': {
         const res = await fetch('/api/ask', {

@@ -192,6 +192,20 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'compare_programs',
+    description:
+      "The student's program beside a second one, as a double major or a dual degree, without touching the board. For a named program: whether the pair is a double major (the degree's own hours) or a dual degree (at least 30 more), with the colleges' own rules and pages (LAS, Gies, Grainger, the Student Code); the courses on the board or already taken that the second program counts, and which also count for the student's major; what it still needs, row by row, with the planner's picks and the other choices; hours the page names no courses for; general education (shared by both); and, from a rebuild of the student's plan with both, the extra hours and terms, where the new courses would go and that no prerequisite breaks, plus the same courses placed on the current board for what_if. With no program (or closest true): the second majors the board is closest to, fewest courses away first. The planner has no minor or certificate pages; the result says so. Readings the planner doubts are flagged: pass them on.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        program: { type: 'string', description: 'The second program as the student names it: "Accountancy", "econ", "Sociology, BALAS". Leave out to list the closest second majors.' },
+        closest: { type: 'boolean', description: 'True to list the second majors the board is closest to.' },
+        limit: { type: 'integer', minimum: 1, maximum: 10, description: 'How many closest programs to list. Default 5.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'set_priorities',
     description:
       "Change what the planner optimises for when it picks electives and orders choices: lighter workload (Illinois grade history), highly rated teaching (the university's own Teachers Ranked as Excellent lists), relevance to what the student is studying and wants to do after, covering more requirements at once, and fitting the schedule (a time window such as nothing before 9 or afternoons only, days off, online or in person; judged on whether a whole registration fits the crawled term's sections, since the planner picks courses, not sections). Each knob is 0 (ignore), 1 (counts) or 2 (matters most); a preset sets all five. Use it when the student says what they care about: \"I want easy classes\", \"I want the best professors\", \"no 8 a.m.s\". With repick true (the default) the planner swaps its own picks, the elective slots and the from-a-list courses, for the best under the new priorities and leaves required, career-track and student-added courses alone, never breaking a prerequisite, overloading a term or using a term a course does not run in; the result lists the net changes, so tell the student. The same priorities and interests the board was built or last re-picked for move nothing, and the result says so.",
@@ -360,6 +374,7 @@ export type AdvisorToolName =
   | 'what_if'
   | 'review_board'
   | 'program_admission'
+  | 'compare_programs'
   | 'set_priorities'
   | 'set_plan_shape'
   | 'exam_credit'
@@ -527,7 +542,7 @@ What you are for
 - Keep the conversation: remember what they told you earlier in this chat and build on it.
 - The student's priorities decide which electives the planner picks and how choices are ordered: lighter workload, highly rated teaching, relevance to their interests and career, covering more requirements at once, fitting their schedule. The board description says what they are now. When the student says what they care about ("easy classes", "the best professors", "nothing before 9", "afternoons only", "Fridays off", "in person only"), call set_priorities, let it re-pick the planner's choices (electives, list picks and gen-ed picks; never required courses or the language), and tell them what changed and why. Priorities choose courses; they do not move required courses or change how many credits a term holds. For balance between terms, the credit load, the finish date, summers, terms away or spreading hard courses, use set_plan_shape.
 - The plan picks courses for each term, not sections. Days off, exact times and a particular instructor are chosen at registration: say so, and use course_details or planner_answer to show when a course met and who taught it. Section times come from one crawled term (the board says which), so a spring course is judged on its fall sections.
-- The planner plans one program at a time. For a minor, a double major or a switch, say so plainly: the student can choose another program under Program to see its plan, and courses added by hand for a minor are not checked against the minor's requirements.
+- A second major, a dual degree, or "is X worth adding": call compare_programs first. Say whether the pair is a double major or a dual degree and why, in the college's own rule with its page; what already counts; what it adds in courses, hours and terms; and any reading doubt it flags, since a doubted reading undercounts. The board still plans one program: put the second program's courses on it only after the student says yes to them (what_if first), and never switch their program for them. Name the closest second majors (compare_programs with no program) only when the student is weighing one or asks what their spare room could become, and then one or two. The planner has no minor or certificate pages: for a minor, say so, get its requirements from university_answer and try its courses with what_if; courses added by hand for a minor are not checked against it.
 - When a student wants a course or subject kept out of their electives, replace it and tell them a rebuild may bring it back until they say so again.
 
 Rules about the board

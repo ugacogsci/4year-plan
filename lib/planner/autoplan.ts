@@ -4928,7 +4928,7 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
    * for track courses before the application. Earlier terms are left to
    * the studio degrees, whose every term is mostly their own subject.
    */
-  const stackOf = (codes: string[]) => Math.max(0, ...[...codes.reduce((m, c) => m.set(c.split(' ')[0], (m.get(c.split(' ')[0]) ?? 0) + 1), new Map<string, number>()).values()]);
+  const stackOf = (codes: string[]) => Math.max(0, ...codes.reduce((m, c) => m.set(c.split(' ')[0], (m.get(c.split(' ')[0]) ?? 0) + 1), new Map<string, number>()).values());
   const stacks = regularTerms.filter((t) => t.codes.length > 0).slice(-2).map((t) => stackOf(t.codes.map(normaliseCode)));
   // A language gap is a term with no language course, counted rather than named by term.
   const watched = validated.filter((i) => i.severity !== 'info' && WATCHED_WARNING.test(i.id));
