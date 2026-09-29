@@ -712,6 +712,12 @@ export interface AutoplanInput {
    */
   electiveRanking?: Map<string, string[]>;
   /**
+   * The quality scorer's answers shared by the boards generatePlan builds for
+   * one student, by the scorer's inputs (qualityFor). Set by generatePlan,
+   * for its one context.
+   */
+  qualityMemo?: Map<string, Map<string, QualityResult>>;
+  /**
    * False to build the improved board without reading a plain MATH 112
    * prerequisite as met by the calculus a placement enters (placementGroups).
    * Inert on the shipped data, which reads no placement sentence as prior
@@ -1099,6 +1105,21 @@ function expandEquivalents(code: string, equivalents: Map<string, string[]>): st
 }
 
 /**
+ * A code's subject, "CHEM" of "CHEM 102", remembered as normaliseCode's are:
+ * the placer's order checks (sitsBelow) split the same codes again for every
+ * pair they compared, a fortieth of a rebuild. Cleared past fifty thousand.
+ */
+const subjects = new Map<string, string>();
+function subjectOf(code: string): string {
+  const known = subjects.get(code);
+  if (known !== undefined) return known;
+  const out = code.split(' ')[0];
+  if (subjects.size >= 50000) subjects.clear();
+  subjects.set(code, out);
+  return out;
+}
+
+/**
  * Levels already read, remembered as normaliseCode's are: the placer, the fill
  * and the order checks after it ask for the same few thousand codes over and
  * over, and the pattern match was a twentieth of a pre-med Music freshman's
@@ -1153,6 +1174,14 @@ function distinctParts(summary: PlanSectionSummary): string[] {
 // "Credit is not given for both X and Y".
 // ---------------------------------------------------------------------------
 
+/*
+ * Built once per exclusion table: every board a rebuild builds made its own,
+ * and so did validatePlan for every board it read, a fortieth of a rebuild.
+ * The table is loaded once and never changed, and every caller only reads
+ * the map (coursesAbove remembers by it, and by the prerequisite table).
+ */
+const conflictsCache = new WeakMap<object, Map<string, Set<string>>>();
+
 /**
  * The catalog's exclusion sentences, mirrored so every lookup works both ways.
  *
@@ -1169,8 +1198,11 @@ function distinctParts(summary: PlanSectionSummary): string[] {
  * itself and drop out of every plan.
  */
 function buildConflicts(exclusions: Map<string, string[]> | undefined): Map<string, Set<string>> {
+  if (!exclusions) return new Map<string, Set<string>>();
+  const cached = conflictsCache.get(exclusions);
+  if (cached) return cached;
   const out = new Map<string, Set<string>>();
-  if (!exclusions) return out;
+  conflictsCache.set(exclusions, out);
   const link = (a: string, b: string): void => {
     const set = out.get(a);
     if (set) set.add(b);
@@ -1275,6 +1307,22 @@ function notBoth(a: string, b: string): string {
  * 220 at all, and an Agricultural and Consumer Economics degree loses half its
  * major behind one unreadable ALEKS sentence.
  */
+/*
+ * Each prerequisite sentence's course, by the sentence object, made once per
+ * table: every board a rebuild builds and every validatePlan made it again
+ * from four thousand rows. The table is loaded once and never changed.
+ */
+const specCodeCache = new WeakMap<object, Map<PlanPrereq, string>>();
+function specCodes(prereqs: Map<string, PlanPrereq> | undefined): Map<PlanPrereq, string> {
+  if (!prereqs) return new Map<PlanPrereq, string>();
+  const cached = specCodeCache.get(prereqs);
+  if (cached) return cached;
+  const made = new Map<PlanPrereq, string>();
+  for (const [code, spec] of prereqs) made.set(spec, code);
+  specCodeCache.set(prereqs, made);
+  return made;
+}
+
 function exclusionAwareMatcher(
   base: PrereqMatcher,
   conflicts: Map<string, Set<string>>,
@@ -1285,8 +1333,7 @@ function exclusionAwareMatcher(
   if (conflicts.size === 0) return base;
   // Specs arrive as objects out of the same map every caller reads, so identity
   // is enough to name the course a sentence belongs to.
-  const codeOfSpec = new Map<PlanPrereq, string>();
-  for (const [code, spec] of prereqs ?? []) codeOfSpec.set(spec, code);
+  const codeOfSpec = specCodes(prereqs);
 
   return (spec, earlier, sameTerm, equiv) => {
     const result = base(spec, earlier, sameTerm, equiv);
@@ -1406,15 +1453,18 @@ function namedByIndex(prereqs: Map<string, PlanPrereq>): Map<string, Set<string>
  * beside MATH 220 and MATH 234) counts as above too, as long as `code` does not
  * itself lead down to it.
  */
-const aboveCache = new WeakMap<object, Map<string, Set<string>>>();
+const aboveCache = new WeakMap<object, WeakMap<object, Map<string, Set<string>>>>();
 
 function coursesAbove(code: string, prereqs: Map<string, PlanPrereq> | undefined, conflicts: Map<string, Set<string>>): Set<string> {
   const above = new Set<string>();
   if (!prereqs) return above;
   // The placer asks this inside its innermost loop; the answer is fixed per
-  // plan, whose exclusion map is built once.
-  const memo = aboveCache.get(conflicts) ?? new Map<string, Set<string>>();
-  aboveCache.set(conflicts, memo);
+  // exclusion map (built once per table, buildConflicts) and prerequisite
+  // table, the two it reads. Callers only read the set.
+  const byTable = aboveCache.get(conflicts) ?? new WeakMap<object, Map<string, Set<string>>>();
+  aboveCache.set(conflicts, byTable);
+  const memo = byTable.get(prereqs) ?? new Map<string, Set<string>>();
+  byTable.set(prereqs, memo);
   const known = memo.get(code);
   if (known) return known;
   memo.set(code, above);
@@ -1769,6 +1819,16 @@ function catalogByCode(courses: Course[]): Map<string, Course> {
   return made;
 }
 
+/** The catalog by course id, kept the same way as catalogByCode: validatePlan made it for every board it read. */
+const catalogIdCache = new WeakMap<object, Map<string, Course>>();
+function catalogById(courses: Course[]): Map<string, Course> {
+  const cached = catalogIdCache.get(courses);
+  if (cached) return cached;
+  const made = new Map(courses.map((c) => [c.id, c]));
+  catalogIdCache.set(courses, made);
+  return made;
+}
+
 /**
  * Credits for a set of courses, as a range.
  *
@@ -2054,6 +2114,33 @@ interface PlanSlot {
   url: string;
 }
 
+/**
+ * The catalog's courses carrying any of `tags`, less `banned` and the ones
+ * whose title closes them to this student (titleClosesTo), by code, sorted.
+ * A category's list for slotsFor, which every board a rebuild builds asks
+ * for three times a category: reading all six thousand courses each time
+ * was a twentieth of a rebuild. Remembered per catalog list, whose courses'
+ * codes, titles, subjects and tags are fixed once loaded; callers get the
+ * shared list and only read it.
+ */
+const taggedCache = new WeakMap<object, Map<string, string[]>>();
+function taggedCourses(courses: Course[], tags: string[], banned: string[], who: Audience): string[] {
+  const key = JSON.stringify([tags, banned, who.college, who.primary]);
+  const memo = taggedCache.get(courses) ?? new Map<string, string[]>();
+  taggedCache.set(courses, memo);
+  const known = memo.get(key);
+  if (known) return known;
+  const wanted = new Set(tags);
+  const out = new Set(banned.map(normaliseCode));
+  const eligible = courses
+    .filter((course) => course.tags.some((tag) => wanted.has(tag)) && !titleClosesTo(course, who))
+    .map((course) => normaliseCode(course.code))
+    .filter((code) => !out.has(code))
+    .sort();
+  memo.set(key, eligible);
+  return eligible;
+}
+
 function slotsFor(requirement: PlanRequirement, ctx: PlanningContext, who: Audience = NOBODY): PlanSlot[] {
   const rule = requirement.rule;
   const base = {
@@ -2115,11 +2202,7 @@ function slotsFor(requirement: PlanRequirement, ctx: PlanningContext, who: Audie
      * a category whose strings we do not have is reported instead of filled.
      */
     if (rule.genEd.length === 0) return [];
-    const wanted = new Set(rule.genEd);
-    const eligible = ctx.courses
-      .filter((course) => course.tags.some((tag) => wanted.has(tag)) && !titleClosesTo(course, who))
-      .map((course) => normaliseCode(course.code))
-      .sort();
+    const eligible = taggedCourses(ctx.courses, rule.genEd, [], who);
     return [{
       ...base,
       key: `${requirement.id}#gened`,
@@ -2140,15 +2223,9 @@ function slotsFor(requirement: PlanRequirement, ctx: PlanningContext, who: Audie
     // course carrying one of those tags is a legitimate fill. A block with no
     // category cannot be filled and is reported, not guessed at.
     if (!rule.genEd || rule.genEd.length === 0) return [];
-    const wanted = new Set(rule.genEd);
     // "Exceptions to the list are: ASTR 100, PHYS 101 and PHYS 102, and CHEM
     // 101": the page's own words about which tagged courses do not count.
-    const banned = new Set((rule.exclude ?? []).map(normaliseCode));
-    const eligible = ctx.courses
-      .filter((course) => course.tags.some((tag) => wanted.has(tag)) && !titleClosesTo(course, who))
-      .map((course) => normaliseCode(course.code))
-      .filter((code) => !banned.has(code))
-      .sort();
+    const eligible = taggedCourses(ctx.courses, rule.genEd, rule.exclude ?? [], who);
     return [{
       ...base,
       key: `${requirement.id}#hours`,
@@ -2193,7 +2270,14 @@ function makeRanker(
     const spec = ctx.prereqs?.get(code);
     return Boolean(spec && !spec.parsed && /placement|proficiency (test|exam)|by permission|consent of/i.test(spec.text));
   };
-  return (code: string) => {
+  /*
+   * Remembered by code for the build that made the ranker: the placer's and
+   * the pools' sorts ask for the same few hundred codes thousands of times.
+   * Everything it reads is fixed for the build (the catalog, the depth map,
+   * built before it and never changed, and a quality scorer that remembers
+   * its own answers), and every caller reads the array without changing it.
+   */
+  return rememberedBy((code: string) => {
     const course = byCode.get(code);
     // A course that is not in the catalog snapshot has no credits and no
     // prerequisites, so putting it in a plan would be asserting something we
@@ -2229,6 +2313,21 @@ function makeRanker(
     // because there is nothing to weigh. The plan says how many it could not weigh.
     const graded = difficulty === null ? 1 : 0;
     return [inCatalog, chain, graded, difficulty ?? 0];
+  });
+}
+
+/**
+ * `read`, remembered by code: for a sort's comparator, which asks about each
+ * of n courses some 2 log n times. The caller keeps it only while nothing
+ * `read` looks at changes, so every ask gets the answer the first one got.
+ */
+function rememberedBy<T>(read: (code: string) => T): (code: string) => T {
+  const memo = new Map<string, T>();
+  return (code) => {
+    if (memo.has(code)) return memo.get(code) as T;
+    const value = read(code);
+    memo.set(code, value);
+    return value;
   };
 }
 
@@ -2935,6 +3034,29 @@ export function prereqNeedsApplication(text: string | undefined): string | null 
   return sentence ? sentence.trim() : null;
 }
 
+/*
+ * Whether a course's prerequisite sentence puts it behind an admission or an
+ * application (prereqNeedsAdmission, prereqNeedsApplication), remembered per
+ * prerequisite table: the elective fill asks it about the whole ranked
+ * catalog in every board a rebuild builds, and the table is loaded once and
+ * never changed.
+ */
+const behindApplicationCache = new WeakMap<object, Map<string, boolean>>();
+function behindApplicationIn(prereqs: Map<string, PlanPrereq> | undefined, code: string): boolean {
+  const read = (): boolean => {
+    const text = prereqs?.get(code)?.text;
+    return prereqNeedsAdmission(text) !== null || prereqNeedsApplication(text) !== null;
+  };
+  if (!prereqs) return read();
+  const memo = behindApplicationCache.get(prereqs) ?? new Map<string, boolean>();
+  behindApplicationCache.set(prereqs, memo);
+  const known = memo.get(code);
+  if (known !== undefined) return known;
+  const found = read();
+  memo.set(code, found);
+  return found;
+}
+
 /** Closed to this program in every crawled section it has. */
 export function closedToMajorCheck(ctx: PlanningContext, programName: string | undefined, college?: string): (code: string) => boolean {
   return (code) => {
@@ -2981,6 +3103,28 @@ function excellentWithTwins(ctx: PlanningContext): Map<string, ExcellentSummary>
   return out;
 }
 
+/**
+ * The crawled sections as the quality scorer reads them, made once per
+ * sections table: qualityFor runs three times in every board a rebuild
+ * builds, and copying every course's sections each time was about a
+ * fiftieth of a rebuild. The table is loaded once and never changed, and the
+ * scorer only reads the copy.
+ */
+const qualitySectionsCache = new WeakMap<object, NonNullable<QualityInputs['sections']>>();
+function sectionsForQuality(sections: PlanningContext['sections']): QualityInputs['sections'] {
+  if (!sections) return undefined;
+  const cached = qualitySectionsCache.get(sections);
+  if (cached) return cached;
+  const made = new Map(
+    [...sections].map(([code, s]) => [
+      code,
+      { total: s.total, earliest: s.earliest ?? null, onlineOnly: s.onlineOnly ?? false, instructors: s.instructors ?? [], meet: s.meet, lateOption: s.lateOption },
+    ]),
+  );
+  qualitySectionsCache.set(sections, made);
+  return made;
+}
+
 function qualityFor(
   ctx: PlanningContext,
   byCode: Map<string, Course>,
@@ -2993,6 +3137,15 @@ function qualityFor(
     degreeSubjects: Set<string>;
     wantedTags: Set<string>;
   },
+  /**
+   * Answers already given for this context, by the scorer's inputs
+   * (AutoplanInput.qualityMemo): the boards one rebuild builds score the
+   * same courses for the same student with the same inputs, and did it
+   * afresh on each board. Keyed by everything in `opts`, the only part that
+   * is not the context's, so a board built on another reading of the page
+   * (its own subjects or categories) never reads another's answers.
+   */
+  shared?: Map<string, Map<string, QualityResult>>,
 ): (code: string) => QualityResult {
   const inputs: QualityInputs = {
     priorities: opts.priorities ?? DEFAULT_PRIORITIES,
@@ -3005,19 +3158,16 @@ function qualityFor(
     wantedTags: opts.wantedTags,
     grades: ctx.grades,
     bands: ctx.bands ?? null,
-    sections: ctx.sections
-      ? new Map(
-          [...ctx.sections].map(([code, s]) => [
-            code,
-            { total: s.total, earliest: s.earliest ?? null, onlineOnly: s.onlineOnly ?? false, instructors: s.instructors ?? [], meet: s.meet, lateOption: s.lateOption },
-          ]),
-        )
-      : undefined,
+    sections: sectionsForQuality(ctx.sections),
     excellent: excellentWithTwins(ctx),
     excellentTerms: ctx.excellentTerms,
     nowLabel: ctx.snapshotTerm?.label ?? null,
   };
-  const memo = new Map<string, QualityResult>();
+  const key = shared
+    ? JSON.stringify([opts.priorities ?? null, opts.interestWords, opts.profile ? [opts.profile.words, opts.profile.subjects, opts.profile.courses] : null, opts.primarySubject, [...opts.degreeSubjects], [...opts.wantedTags]])
+    : '';
+  const memo = shared?.get(key) ?? new Map<string, QualityResult>();
+  shared?.set(key, memo);
   return (code: string) => {
     const hit = memo.get(code);
     if (hit) return hit;
@@ -3169,6 +3319,13 @@ function nameWords(text: string): string[] {
   return text.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 1 && !NAME_FILLER.has(w));
 }
 
+/** Every department's name as nameWords reads it, in ILLINOIS_SUBJECT_NAMES's order, read once: the list is a constant. */
+let subjectNameWordList: Array<[string, string[]]> | null = null;
+function subjectNameWords(): Array<[string, string[]]> {
+  if (subjectNameWordList === null) subjectNameWordList = Object.entries(ILLINOIS_SUBJECT_NAMES).map(([prefix, subjectName]) => [prefix, nameWords(subjectName)]);
+  return subjectNameWordList;
+}
+
 /**
  * How well two name words match: 1 for the same word, 0.67 when one is the
  * start of the other, 0 otherwise. The catalog's department names are
@@ -3201,7 +3358,24 @@ function nameWordMatch(a: string, b: string): number {
  * word for word: "Public Policy and Law" is taught in ACE, whose courses fill
  * its page, and is not the law school's LAW.
  */
+/*
+ * subjectNamed's answers by the degree's name and the page's subject counts,
+ * the only things it reads: every board a rebuild builds reads the degree's
+ * subjects three times over (degreeSubjectsOf), each time weighing every
+ * department's name against the degree's, a twentieth of a rebuild. Cleared
+ * past a thousand, which is more degrees than the catalog has.
+ */
+const subjectNamedMemo = new Map<string, string | null>();
 function subjectNamed(programName: string, onPage: Map<string, number>): string | null {
+  const key = `${programName}\u0000${[...onPage].join(';')}`;
+  if (subjectNamedMemo.has(key)) return subjectNamedMemo.get(key) ?? null;
+  const found = readSubjectNamed(programName, onPage);
+  if (subjectNamedMemo.size >= 1000) subjectNamedMemo.clear();
+  subjectNamedMemo.set(key, found);
+  return found;
+}
+
+function readSubjectNamed(programName: string, onPage: Map<string, number>): string | null {
   const name = programName.replace(/,\s*B[A-Z]+\b.*$/, '').replace(/\([^)]*\)/g, ' ');
   const [majorPart, concentration] = name.split(':');
   const pageSize = [...onPage.values()].reduce((sum, n) => sum + n, 0);
@@ -3212,8 +3386,7 @@ function subjectNamed(programName: string, onPage: Map<string, number>): string 
     const words = nameWords(text.split(/\s\+\s/)[0]);
     if (words.length === 0) return null;
     let best: { prefix: string; score: number; page: number } | null = null;
-    for (const [prefix, subjectName] of Object.entries(ILLINOIS_SUBJECT_NAMES)) {
-      const theirs = nameWords(subjectName);
+    for (const [prefix, theirs] of subjectNameWords()) {
       if (theirs.length === 0) continue;
       let score = 0;
       let allOurs = true;
@@ -3367,12 +3540,30 @@ const NOBODY: Audience = { college: null, primary: null };
  */
 function titleClosesTo(course: Course | undefined, who: Audience): boolean {
   if (!course) return false;
-  const title = course.title;
-  if (/\bnon-?\s?engineers?\b/i.test(title)) return /engineering/i.test(who.college ?? '');
-  if (/\bnon-?\s?(majors?|specialists?|scientists?|science majors?|tech(nical)?)\b/i.test(title)) {
-    return who.primary !== null && course.cluster === who.primary;
-  }
+  const says = titleSays(course);
+  if (says === 'non-engineers') return /engineering/i.test(who.college ?? '');
+  if (says === 'non-majors') return who.primary !== null && course.cluster === who.primary;
   return false;
+}
+
+/*
+ * What a course's title says about who it is not for, read once a course:
+ * the elective fill asks titleClosesTo about the whole ranked catalog in
+ * every board a rebuild builds, two patterns a course. A course's title is
+ * fixed once the catalog is loaded.
+ */
+const titleSaysCache = new WeakMap<object, 'non-engineers' | 'non-majors' | null>();
+function titleSays(course: Course): 'non-engineers' | 'non-majors' | null {
+  const known = titleSaysCache.get(course);
+  if (known !== undefined) return known;
+  const title = course.title;
+  const says = /\bnon-?\s?engineers?\b/i.test(title)
+    ? 'non-engineers'
+    : /\bnon-?\s?(majors?|specialists?|scientists?|science majors?|tech(nical)?)\b/i.test(title)
+      ? 'non-majors'
+      : null;
+  titleSaysCache.set(course, says);
+  return says;
 }
 
 /**
@@ -3619,15 +3810,71 @@ export function freeElectiveBar(
   const barFor = (code: string): string | null => {
     const course = byCode.get(code);
     if (!course) return null;
-    const title = course.title;
-    const text = ctx.prereqs?.get(code)?.text ?? '';
+    // What the course's own catalog lines say, the same for every student (barReading).
+    const read = barReading(ctx, code, course);
+    if (read.early !== null) return read.early;
+    if (admissionGate(code, ctx, student.primary)) return 'taken by application or with approval';
+    if (read.late !== null) return read.late;
+    // A department's or college's own students: HK 125 is a Kinesiology
+    // freshman's own orientation, ECON 198 an Economics major's.
+    const own = student.primary !== null && course.cluster === student.primary;
+    if (own) return null;
+    const listed = DESCRIPTION_ONLY_MAJORS[code];
+    if (listed) return listed;
+    if (read.orientation) return 'an orientation for its own department or college';
+    if (read.forMajors) return 'for a group of students the catalog names';
+    if (read.majorsClause !== null && restrictionClosesTo(read.majorsClause, student.programName, student.college ?? undefined)) return 'restricted to another program';
+    if (read.shortSeminar) return "a one-credit seminar for another program's students";
+    if (read.shortCollege !== null && read.shortCollege !== student.college) return "one of another college's own short courses";
+    return null;
+  };
+  return (code: string) => {
+    if (memo.has(code)) return memo.get(code) ?? null;
+    const found = barFor(code);
+    memo.set(code, found);
+    return found;
+  };
+}
+
+/** What freeElectiveBar reads from a course's own catalog lines, in the order it reads them; see barReading. */
+interface BarReading {
+  /** A reason read before the admission gate, or null. */
+  early: string | null;
+  /** A reason read after the admission gate and before the student's own subject, or null. */
+  late: string | null;
+  orientation: boolean;
+  forMajors: boolean;
+  /** The clause that restricts the course to some program, unless it is written for everyone else ("non-dance majors"). */
+  majorsClause: string | null;
+  shortSeminar: boolean;
+  /** The college whose own short course this is, or null. */
+  shortCollege: string | null;
+}
+
+/*
+ * The part of freeElectiveBar that reads only the course and its catalog
+ * lines, never the student, remembered by course (with the tables and code it
+ * was read from): every board of every student read the whole catalog's
+ * titles and prerequisite sentences through a score of patterns when it
+ * ranked the electives, and the answers never change once the catalog is
+ * loaded. The student's own checks stay in freeElectiveBar, in their place.
+ */
+const barReadingCache = new WeakMap<object, { prereqs: unknown; sections: unknown; code: string; read: BarReading }>();
+function barReading(ctx: Pick<PlanningContext, 'prereqs' | 'sections'>, code: string, course: Course): BarReading {
+  const cached = barReadingCache.get(course);
+  if (cached && cached.prereqs === ctx.prereqs && cached.sections === ctx.sections && cached.code === code) return cached.read;
+  const title = course.title;
+  const text = ctx.prereqs?.get(code)?.text ?? '';
+  const early = ((): string | null => {
     // Nobody's: ECE 496 "Senior Research Project", RST 280 "Practicum",
     // "Enrollment restricted to students with permanent disabilities" (HK 108).
     if (/\b(honors|merit program|lab)\s+(lab\s+)?discussion\b/i.test(title)) return 'a discussion that goes with the honors or merit section of its lecture';
     if (/\bgrad(uate)?\b/i.test(title) || /\b(thesis|dissertation)\b/i.test(title) || /^\s*graduate standing|\bgraduate students only\b|\brequired of all (first[- ]year )?graduate students\b/i.test(text)) return 'a graduate or thesis course';
     if (/\b(independent study|individual study|research project|undergrad(uate)? research|introduction to research|practicum|internship|open seminar)\b/i.test(title)) return 'arranged with a faculty member or an agency';
     if (/\bstudy abroad\b/i.test(title)) return 'for students studying abroad';
-    if (admissionGate(code, ctx, student.primary)) return 'taken by application or with approval';
+    return null;
+  })();
+  const late = ((): string | null => {
     if (/\brestricted to students with\b/i.test(text)) return 'for a group of students the catalog names';
     // "Concurrent enrollment in applied voice lessons is required." (MUS
     // 120), "Concurrent registration in another 100-level computer science
@@ -3667,47 +3914,65 @@ export function freeElectiveBar(
     // Seminar" (BUS 315), "Freshman Honors Seminar" (EDUC 102), "Restricted to
     // James Scholars." (ECE 145): an honors program the plan cannot assume.
     if (/\b(honors|scholars?)\b/i.test(title) || /restricted to [^.;]*\b(james scholars?|campus honors|honors program)\b/i.test(text)) return 'for students in an honors or scholars program';
-
-    // A department's or college's own students: HK 125 is a Kinesiology
-    // freshman's own orientation, ECON 198 an Economics major's.
-    const own = student.primary !== null && course.cluster === student.primary;
-    if (own) return null;
-    const listed = DESCRIPTION_ONLY_MAJORS[code];
-    if (listed) return listed;
-    if (/\borientation\b/i.test(title)) return 'an orientation for its own department or college';
-    // "For Dance majors only." Not "For non-music majors only", which is
-    // written for this student, nor "Restricted to undergraduate students only".
-    const forMajors = /\b(majors|students) only\b|\bonly for\b|\b(for|restricted to) students (in|enrolled in|accepted|admitted)\b/i;
-    if (forMajors.test(text) && !/\bnon-[a-z]+( [a-z]+)? majors only\b|\bundergrad(uate)? students only\b/i.test(text)) return 'for a group of students the catalog names';
-    // "Restricted to Advertising majors or instructor approval." for a student in
-    // another major. Only the clause that names majors: "Restricted to Junior,
-    // Senior or Graduate students" is a standing rule, and "Restricted to
-    // non-dance majors" is written for this student.
-    const majorsClause = text.match(/restricted to [^.;]*\b(majors?|concentration|program)\b[^.;]*/i)?.[0];
-    if (majorsClause && !/\bnon-/i.test(majorsClause) && restrictionClosesTo(majorsClause, student.programName, student.college ?? undefined)) return 'restricted to another program';
-    // A one- or two-credit seminar from outside the major: BIOE 100
-    // "Bioengineering Seminar", BIOE 120 "Introduction to Bioengineering", LAS
-    // 279 "Writing Job Applications", ECON 198 "Economics at Illinois". Each is
-    // that program's or that college's own introduction. Outside the major's
-    // own subject, not the degree's: Psychology names LAS 101, and that made
-    // LAS 279 one of its subjects.
-    const most = course.creditsMax ?? course.credits;
-    if (most < 3 && /\b(seminar|colloquium|introduction|intro|exploring|success|foundations?|careers?|jobs?|professional|academy|at illinois)\b/i.test(title)) {
-      return "a one-credit seminar for another program's students";
-    }
-    // A college's own one- and two-credit courses (LAS 112 "First Year
-    // College Success", ENG 377, FAA 241) are programming for its students;
-    // outside that college they are nobody's elective.
-    const college = COLLEGE_SUBJECTS[course.cluster];
-    if (most < 3 && college && college !== student.college) return "one of another college's own short courses";
     return null;
+  })();
+  // "For Dance majors only." Not "For non-music majors only", which is
+  // written for this student, nor "Restricted to undergraduate students only".
+  const forMajors = /\b(majors|students) only\b|\bonly for\b|\b(for|restricted to) students (in|enrolled in|accepted|admitted)\b/i;
+  // "Restricted to Advertising majors or instructor approval." for a student in
+  // another major. Only the clause that names majors: "Restricted to Junior,
+  // Senior or Graduate students" is a standing rule, and "Restricted to
+  // non-dance majors" is written for this student.
+  const majorsClause = text.match(/restricted to [^.;]*\b(majors?|concentration|program)\b[^.;]*/i)?.[0];
+  // A one- or two-credit seminar from outside the major: BIOE 100
+  // "Bioengineering Seminar", BIOE 120 "Introduction to Bioengineering", LAS
+  // 279 "Writing Job Applications", ECON 198 "Economics at Illinois". Each is
+  // that program's or that college's own introduction. Outside the major's
+  // own subject, not the degree's: Psychology names LAS 101, and that made
+  // LAS 279 one of its subjects.
+  const most = course.creditsMax ?? course.credits;
+  // A college's own one- and two-credit courses (LAS 112 "First Year
+  // College Success", ENG 377, FAA 241) are programming for its students;
+  // outside that college they are nobody's elective.
+  const college = COLLEGE_SUBJECTS[course.cluster];
+  const read: BarReading = {
+    early,
+    late,
+    orientation: /\borientation\b/i.test(title),
+    forMajors: forMajors.test(text) && !/\bnon-[a-z]+( [a-z]+)? majors only\b|\bundergrad(uate)? students only\b/i.test(text),
+    majorsClause: majorsClause && !/\bnon-/i.test(majorsClause) ? majorsClause : null,
+    shortSeminar: most < 3 && /\b(seminar|colloquium|introduction|intro|exploring|success|foundations?|careers?|jobs?|professional|academy|at illinois)\b/i.test(title),
+    shortCollege: most < 3 && college ? college : null,
   };
-  return (code: string) => {
-    if (memo.has(code)) return memo.get(code) ?? null;
-    const found = barFor(code);
-    memo.set(code, found);
-    return found;
-  };
+  barReadingCache.set(course, { prereqs: ctx.prereqs, sections: ctx.sections, code, read });
+  return read;
+}
+
+/*
+ * freeElectiveBar's answers, kept per context and student for every board a
+ * rebuild builds, and the next rebuild: it reads only the context's
+ * prerequisite sentences and sections, the catalog index and who the
+ * student is, and each build asked it about the whole catalog again when it
+ * ranked the electives, a twentieth of a rebuild. A context's tables are
+ * loaded once and never changed.
+ */
+const electiveBarCache = new WeakMap<object, Map<string, (code: string) => string | null>>();
+function electiveBarFor(
+  ctx: PlanningContext,
+  byCode: Map<string, Course>,
+  student: { college: string | null; primary: string | null; programName?: string },
+): (code: string) => string | null {
+  // Only with the shared index (catalogByCode), so the answers are about this context's catalog.
+  if (byCode !== catalogByCode(ctx.courses)) return freeElectiveBar(ctx, byCode, student);
+  const key = JSON.stringify([student.college, student.primary, student.programName ?? null]);
+  const byStudent = electiveBarCache.get(ctx) ?? new Map<string, (code: string) => string | null>();
+  electiveBarCache.set(ctx, byStudent);
+  const known = byStudent.get(key);
+  if (known) return known;
+  const made = freeElectiveBar(ctx, byCode, student);
+  if (byStudent.size >= 32) byStudent.clear();
+  byStudent.set(key, made);
+  return made;
 }
 
 /**
@@ -5131,6 +5396,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     list.map((r) => (r.rule.kind === 'pool' && r.rule.joinedByOr ? { ...r, rule: { kind: 'all', choices: r.rule.choices } } : r));
   const readsDifferently = given.requirements.some((r) => r.rule.kind === 'pool' && r.rule.joinedByOr === true);
   const electiveRanking = new Map<string, string[]>();
+  const qualityMemo = new Map<string, Map<string, QualityResult>>();
   /** How each board was built, for the gate's trail. */
   const builtAs = new WeakMap<GeneratedPlan, string>();
   const once = (horizon: Horizon, build: Build) => {
@@ -5153,6 +5419,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     plainEngine: build.plain === true,
     pairings: build.pairs !== false,
     electiveRanking,
+    qualityMemo,
   });
   /**
    * The student gets the best board none of which is worse than the plain
@@ -5331,13 +5598,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const equivalents = ctx.equivalents ?? new Map<string, string[]>();
   const grades = ctx.grades ?? new Map<string, GradeRow>();
   const baseMatch = ctx.prereqCheck ?? defaultPrereqMatcher;
-  const byCode = new Map(ctx.courses.map((c) => [normaliseCode(c.code), c]));
+  // The shared index (catalogByCode), the same map this build made for itself; nothing here writes to it.
+  const byCode = catalogByCode(ctx.courses);
   /** Who the plan is for, so a course "for Non-Engineers" never fills an engineer's category. */
   const degreeRead = degreeSubjectsOf(input.requirements, input.programName);
   const nestedParent = nestedParents(input.requirements);
   const who: Audience = { college: input.programCollege ?? null, primary: degreeRead.primary };
   /** Courses written for another group of students, which the planner never suggests as a free elective. */
-  const electiveBarred = freeElectiveBar(ctx, byCode, { ...who, programName: input.programName });
+  const electiveBarred = electiveBarFor(ctx, byCode, { ...who, programName: input.programName });
   /**
    * Behind an application or someone's approval (admissionGate): never a
    * pick the planner makes on its own while the list or category has another
@@ -5411,7 +5679,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     primarySubject: majorsForRank.primary,
     degreeSubjects: majorsForRank.subjects,
     wantedTags: genEdTagsOf(input.requirements),
-  });
+  }, input.qualityMemo);
   const rank = makeRanker(ctx, byCode, rankDepth, policy, qualityAtPlacement, input.programName, input.programCollege);
   /**
    * The ranker for a general education category's own candidates. Coverage
@@ -5429,7 +5697,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     primarySubject: majorsForRank.primary,
     degreeSubjects: majorsForRank.subjects,
     wantedTags: new Set(),
-  }), input.programName, input.programCollege);
+  }, input.qualityMemo), input.programName, input.programCollege);
 
   const chosen = new Map<string, { requirementId: string | null; label: string }>();
   /**
@@ -5667,7 +5935,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    */
   const poolOrderFor = (have: Set<string>) => {
     const memo = new Map<string, number>();
-    const score = (code: string): number[] => {
+    // Remembered by code (rememberedBy) for the pool's sorts, as its
+    // prerequisite cost already is: nothing it reads changes while the pool
+    // fills, `have` included, and the comparator asked for each key a dozen
+    // times over, a twentieth of a rebuild.
+    const score = rememberedBy((code: string): number[] => {
       const base = rank(code);
       /**
        * A condition the parser could not read is a condition nobody checked.
@@ -5737,7 +6009,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
       if (traced && normaliseCode(traced) === code) console.error(`  [PLAN_DEBUG] ${code} list-pick key [inCatalog, audience, gated, unverifiable, clash, aside, wanted, own, extra, ${light.length ? 'light, ' : ''}variable, unknown, -score, -known, chain] = ${JSON.stringify(key)}`);
       return key;
-    };
+    });
     return (a: string, b: string): number => compareRank(score(a), score(b), a, b);
   };
 
@@ -6122,16 +6394,25 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
            * an MCB plan with ABE 469 (an engineering capstone it could not
            * place). Those go last; the degree's own subjects are exempt.
            */
-          const oneSeason = (code: string): number => {
+          /*
+           * Each measure genEdOrder reads is remembered by code for this
+           * category's sort (rememberedBy): the sort asks about each of a
+           * category's hundreds of courses a dozen times over, and
+           * claimedByTrack walked every row of the student's tracks at each
+           * ask, a tenth of a pre-med board's build. Nothing these read
+           * changes until the sort is done: `chosen` grows only in the loop
+           * after it, which reads none of them.
+           */
+          const oneSeason = rememberedBy((code: string): number => {
             const course = byCode.get(code);
             return ctx.offeringPublished?.has(code) && course && course.offeredIn.length === 1 ? 1 : 0;
-          };
-          const reserved = (code: string): number => {
+          });
+          const reserved = rememberedBy((code: string): number => {
             const subject = code.split(' ')[0];
             if (degreeRead.subjects.has(subject) || subject === degreeRead.primary) return 0;
             if (courseLevel(code) >= 400) return 1;
             return ctx.prereqs?.get(code)?.standing ? 1 : 0;
-          };
+          });
           // The tags of the categories still to be filled, other than ones this
           // category may not share a course with, and other than ones the
           // courses already chosen or held meet. Quantitative Reasoning counted
@@ -6152,9 +6433,23 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
               .filter((r) => !alreadyMet(r))
               .flatMap((r) => (r.rule.kind === 'gened' ? r.rule.genEd : [])),
           );
-          const alsoCounts = (code: string): number =>
-            genEdPriorities.coverage > 0 && byCode.get(code)?.tags.some((tag) => waitingTags.has(tag)) ? 1 : 0;
-          const claimedByTrack = (code: string): number => (tracks.length > 0 && trackPreferred([code]) === code ? 1 : 0);
+          const alsoCounts = rememberedBy((code: string): number =>
+            genEdPriorities.coverage > 0 && byCode.get(code)?.tags.some((tag) => waitingTags.has(tag)) ? 1 : 0);
+          /*
+           * trackPreferred([code]) is `code` exactly when a track row it would
+           * still book (not merely suggested, none of its courses held or
+           * chosen) names `code`: the rows read once for the whole category.
+           */
+          const trackClaims = new Set<string>();
+          for (const track of tracks) {
+            for (const row of track.courses) {
+              if (row.need === 'suggested') continue;
+              const codes = row.codes.map(normaliseCode);
+              if (codes.some((c) => satisfiedForPrereq.has(c) || chosen.has(c))) continue;
+              for (const c of codes) trackClaims.add(c);
+            }
+          }
+          const claimedByTrack = (code: string): number => (tracks.length > 0 && trackClaims.has(code) ? 1 : 0);
           const genEdOrder = (a: string, b: string): number => {
             // A course the track books anyway counts here first, even one
             // other courses in the category build on: PSYC 100 is not half of
@@ -7214,7 +7509,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * 104 takes CHEM 102 or CHEM 202, and CHEM 202 wants calculus, which does
    * not put MATH 220 below General Chemistry II for a student taking CHEM 102.
    */
-  const subjectOfCode = (code: string) => code.split(' ')[0];
+  const subjectOfCode = subjectOf;
   const sitsBelow = (code: string, other: string): boolean =>
     subjectOfCode(code) === subjectOfCode(other) && coursesBelow(other).has(code);
   const belowCache = new Map<string, Set<string>>();
@@ -7361,7 +7656,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const primary = (input.pageSubjects ?? majorsForRank).primary;
     if (primary) pageMajor.add(primary);
   }
-  const inPageMajor = (code: string) => pageMajor.has(code.split(' ')[0]) && planCreditRange([code], ctx).max >= 2;
+  // Remembered by code (rememberedBy): the moves after the fill count year one's major courses before every move they try, and the page's subjects are settled here.
+  const inPageMajor = rememberedBy((code: string) => pageMajor.has(code.split(' ')[0]) && planCreditRange([code], ctx).max >= 2);
   /** Any math or statistics course, the first-year math the review counts (momentumReview): a pre-PT Anthropology freshman's MATH 112, taken for CHEM 102, is hers. */
   const anyCollegeMath = (code: string): boolean => {
     const course = byCode.get(code);
@@ -7697,8 +7993,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        * place still has to come first: MCB 354 went into a first fall ahead
        * of CHEM 232, MCB 250 and MCB 252, all three on the same board.
        */
-      const waitsOnPlanned = (code: string): string | null => {
-        const { uncertain } = match(ctx.prereqs?.get(code), earlier, sameTerm, equivalents);
+      // `read`: the matcher's answer for this course here, when the caller has just asked it the same question.
+      const waitsOnPlanned = (code: string, read = match(ctx.prereqs?.get(code), earlier, sameTerm, equivalents)): string | null => {
+        const { uncertain } = read;
         for (const group of uncertain) {
           if (group.priorLearning) continue;
           for (const raw of group.any) {
@@ -7731,7 +8028,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
          */
         const squeezed = [...remaining]
           .filter((code) => urgent(code) && allowedHere(code) && !roomFor([code]))
-          .filter((code) => match(ctx.prereqs?.get(code), earlier, sameTerm, equivalents).missing.length === 0 && waitsOnPlanned(code) === null)
+          .filter((code) => {
+            const read = match(ctx.prereqs?.get(code), earlier, sameTerm, equivalents);
+            return read.missing.length === 0 && waitsOnPlanned(code, read) === null;
+          })
           .sort(placementOrder);
         if (squeezed.length > 0) {
           const need = squeezed[0];
@@ -7797,9 +8097,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           // into a fall beside MATH 241, and CHEM 237, in the hardest band
           // itself, waited a year for a term with room.
           if (!plainEngine && unit.length > 1 && !isLastTerm && !urgent(code) && isHard(unit[1]) && hardHere + unit.filter(isHard).length > hardLimitAt(term.index)) { debug(code, term.label, `its lab ${unit[1]} would pass the hardest-band limit here`); continue; }
-          const { missing } = match(ctx.prereqs?.get(code), earlier, sameTerm, equivalents);
+          const read = match(ctx.prereqs?.get(code), earlier, sameTerm, equivalents);
+          const { missing } = read;
           if (missing.length > 0) { debug(code, term.label, `prerequisite missing: ${missing.map((g) => g.any.join(' or ')).join('; ')}`); continue; }
-          const waiting = waitsOnPlanned(code);
+          const waiting = waitsOnPlanned(code, read);
           if (waiting) { debug(code, term.label, `waits for ${waiting}, named in its prerequisites and still to be placed`); continue; }
           eligible.push(code);
         }
@@ -8613,7 +8914,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         primarySubject: majors.primary,
         degreeSubjects: majors.subjects,
         wantedTags: stillWanted,
-      }),
+      }, input.qualityMemo),
     };
     const plannedAll = new Set<string>([...placed.values()].flat());
     const perSubject = new Map<string, number>();
@@ -8621,10 +8922,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     // only") is a program the student applies to, not an elective slot the
     // planner may fill: Marcus, a Finance freshman, had FIN 391 through 395
     // booked as one-credit electives. The student can still add one by hand.
-    const behindApplication = (code: string) => {
-      const text = ctx.prereqs?.get(code)?.text;
-      return prereqNeedsAdmission(text) !== null || prereqNeedsApplication(text) !== null;
-    };
+    const behindApplication = (code: string) => behindApplicationIn(ctx.prereqs, code);
     /*
      * The catalog ranked once for every board generatePlan builds for this
      * student (AutoplanInput.electiveRanking): nothing in the ranking but the
@@ -8696,12 +8994,35 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     for (const left of trackLeft) {
       if (!plannedAll.has(left.code) && !trackWanted.has(left.code)) trackWanted.set(left.code, { track: left.track.name, why: left.row.why });
     }
-    const pickFrom = (fits: (code: string) => boolean): string | undefined => {
+    /*
+     * Each candidate's credits, read once for the scans below. The fill scans
+     * the whole ranked catalog from the top for every term it tries, in every
+     * round, and a term with no room left used to reject all five thousand
+     * courses one at a time through every check ahead of the credits: a
+     * pre-med Engineering Undeclared freshman's fill asked fitsHere 400,000
+     * times, 99 in 100 of them about a course too big for the room left. A
+     * course's credits are fixed for the build, so this never goes stale.
+     */
+    const candidateCredits = candidates.map(creditsOf);
+    /**
+     * The first candidate `fits` takes, in rank order. `tooBig` is the credit
+     * test `fits` itself makes (the term's room, fitsHere), asked first here
+     * from the list above: a course it rejects is one `fits` rejects too, so
+     * skipping it returns the same course, only sooner.
+     */
+    const firstFit = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean): string | undefined => {
+      for (let i = 0; i < candidates.length; i += 1) {
+        if (!tooBig(candidateCredits[i]) && fits(candidates[i])) return candidates[i];
+      }
+      return undefined;
+    };
+    /** `trackOnly`: `fits` takes only a course the track still wants (see choose). */
+    const pickFrom = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, trackOnly = false): string | undefined => {
       const track = [...trackWanted.keys()].find((code) => !plannedAll.has(code) && fits(code));
-      if (track) return track;
+      if (track || trackOnly) return track;
       const floor = floorWanted();
-      const atLevel = floor !== null ? candidates.find((code) => courseLevel(code) >= floor && fits(code)) : undefined;
-      return atLevel ?? candidates.find(fits);
+      const atLevel = floor !== null ? firstFit((code) => courseLevel(code) >= floor && fits(code), tooBig) : undefined;
+      return atLevel ?? firstFit(fits, tooBig);
     };
     const lighter = (code: string) => (grades.get(code)?.difficulty ?? 0) < (ctx.bands ?? FALLBACK_BANDS).harder;
     /**
@@ -8723,17 +9044,30 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * planner's own picks do not stack on the hardest courses the degree
      * requires.
      */
-    const choose = (fits: (code: string) => boolean, gap: number, heavy: boolean, loose = false): string | undefined => {
+    // `tooBig`: the credit test inside `fits` (see firstFit).
+    const choose = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, gap: number, heavy: boolean, loose = false): string | undefined => {
       const sized = (code: string) => trackWanted.has(code) || creditsOf(code) >= 3 || creditsOf(code) === gap || (loose && creditsOf(code) <= gap);
       const exact = (code: string) => gap > 0 && gap < 3 && creditsOf(code) === gap;
       const track = (code: string) => trackWanted.has(code);
-      // [what else the pick must be, whether it is the landing course]
-      const tries: Array<[(code: string) => boolean, boolean]> = heavy
-        ? [[(code) => track(code) && lighter(code), false], [(code) => exact(code) && lighter(code), true], [exact, true], [lighter, false], [() => true, false]]
-        : [[track, false], [exact, true], [() => true, false]];
-      for (const [also, landing] of tries) {
+      // [what else the pick must be, whether it is the landing course, whether it must be a track's]
+      const tries: Array<[(code: string) => boolean, boolean, boolean]> = heavy
+        ? [[(code) => track(code) && lighter(code), false, true], [(code) => exact(code) && lighter(code), true, false], [exact, true, false], [lighter, false, false], [() => true, false, false]]
+        : [[track, false, true], [exact, true, false], [() => true, false, false]];
+      for (const [also, landing, trackOnly] of tries) {
+        /*
+         * Two kinds of try are settled without reading the ranked catalog,
+         * and come out as they did when it was read. A landing try wants a
+         * course of exactly `gap` credits, which is none while the gap is
+         * three or more (in the fill, the gap is all the plan is short of).
+         * A track try takes only a course the track wants that the board does
+         * not hold (fitsHere refuses one it holds), and pickFrom reads every
+         * one of those before the catalog, so the catalog adds nothing. Each
+         * was a read of five thousand courses, several times a term, in every
+         * round of the fill.
+         */
+        if (landing && !(gap > 0 && gap < 3)) continue;
         const ok = (code: string) => also(code) && sized(code) && fits(code);
-        const found = landing && lightFirst(prefs.priorities) ? lightestOf(ok) : pickFrom(ok);
+        const found = landing && lightFirst(prefs.priorities) ? lightestOf(ok, tooBig) : pickFrom(ok, tooBig, trackOnly);
         if (found) return found;
       }
       return undefined;
@@ -8747,12 +9081,13 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * over ANSC 210 (5). The ten keep the rest of the prior: a 400-level
      * library-science course is not a filler for anyone.
      */
-    const lightestOf = (fits: (code: string) => boolean): string | undefined => {
+    const lightestOf = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean): string | undefined => {
       const track = [...trackWanted.keys()].find((code) => !plannedAll.has(code) && fits(code));
       if (track) return track;
       const best: string[] = [];
-      for (const code of candidates) {
-        if (!fits(code)) continue;
+      for (let i = 0; i < candidates.length; i += 1) {
+        const code = candidates[i];
+        if (tooBig(candidateCredits[i]) || !fits(code)) continue;
         best.push(code);
         if (best.length >= 10) break;
       }
@@ -8850,6 +9185,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const sameTerm = new Set<string>();
           for (const code of here) for (const equiv of expandEquivalents(code, equivalents)) sameTerm.add(equiv);
           const hardHere = here.filter(isHard).length;
+          const cap = term.season === 'Summer' ? Math.min(ceiling, SUMMER_MAX) : ceiling;
+          const tooBig = (hours: number) => running + hours > cap;
           const fitsHere = (code: string): boolean => {
             if (plannedAll.has(code)) return false;
             if (input.notTowardDegree?.(code)) return false;
@@ -8857,7 +9194,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             const course = byCode.get(code);
             if (!course) return false;
             if (!trackWanted.has(code) && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects)) return false;
-            if (running + creditsOf(code) > (term.season === 'Summer' ? Math.min(ceiling, SUMMER_MAX) : ceiling)) return false;
+            if (tooBig(creditsOf(code))) return false;
             if (outOfSeason(course, term.season, published.has(code))) return false;
             // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
             if (!plainEngine && unscheduledNow(code, term.id)) return false;
@@ -8871,7 +9208,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           };
           // A summer takes the light one too, whatever it already holds (see `choose`).
           const heavyHere = isSummer(term) || ['heavy', 'brutal'].includes(bandVerdictFor(hardHere, termLoad(here, grades).avgDifficulty, (ctx.bands ?? FALLBACK_BANDS)));
-          const pick = choose(fitsHere, degreeTotalPublished - total, heavyHere, loose);
+          const pick = choose(fitsHere, tooBig, degreeTotalPublished - total, heavyHere, loose);
           if (!pick) continue;
           here.push(pick);
           plannedAll.add(pick);
@@ -8998,6 +9335,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const sameTerm = new Set<string>();
         for (const code of here) for (const equiv of expandEquivalents(code, equivalents)) sameTerm.add(equiv);
         const hardHere = here.filter(isHard).length;
+        const tooBig = (hours: number) => running + hours > credits.max;
         const fitsHere = (code: string): boolean => {
           if (plannedAll.has(code)) return false;
           if (input.notTowardDegree?.(code)) return false;
@@ -9005,7 +9343,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const course = byCode.get(code);
           if (!course) return false;
           if (!trackWanted.has(code) && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects)) return false;
-          if (running + creditsOf(code) > credits.max) return false;
+          if (tooBig(creditsOf(code))) return false;
           if (outOfSeason(course, term.season, published.has(code))) return false;
           // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
           if (!plainEngine && unscheduledNow(code, term.id)) return false;
@@ -9029,12 +9367,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // A track row the student's goal wants still comes first: it is no
         // padding, and spared a course instead, pre-med boards lost SOC 100
         // and PSYC 100 from their last terms.
-        const wanted = plainEngine ? undefined : choose((code) => trackWanted.has(code) && fitsHere(code), credits.min - running, heavyHere);
+        const wanted = plainEngine ? undefined : choose((code) => trackWanted.has(code) && fitsHere(code), tooBig, credits.min - running, heavyHere);
         if (!plainEngine && wanted === undefined && sparedInto(term, here, running)) {
           topped = true;
           continue;
         }
-        const pick = wanted ?? choose(fitsHere, credits.min - running, heavyHere);
+        const pick = wanted ?? choose(fitsHere, tooBig, credits.min - running, heavyHere);
         if (!pick) continue;
         here.push(pick);
         plannedAll.add(pick);
@@ -9491,7 +9829,29 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * stays; it is not a fault a move makes.
    */
   const unscheduled = (code: string, termId: string): boolean => !plainEngine && unscheduledNow(code, termId);
+  /*
+   * The board as it stands, as a key: every term's courses in order. The
+   * moves below measure the board before and after each move they try, and
+   * a move they take back leaves the board as it was, so the next try
+   * measured the same board again: a pre-med Engineering Undeclared
+   * freshman's year-one repair measured its board's order some 400 times, a
+   * twentieth of her rebuild. boardFaults and boardShape remember their
+   * answers by this key. Nothing else they read changes once the fill is
+   * done (the held and exempt courses, the hours brought in, the calendar),
+   * except the courses chosen, which boardFaults's matcher reads for
+   * exemptions (match) and so keys on too.
+   */
+  const boardKey = () => terms.map((t) => (placed.get(t.id) ?? []).join(',')).join('|');
+  const faultsByBoard = new Map<string, number>();
   const boardFaults = (): number => {
+    const key = `${boardKey()}#${[...chosen.keys()].join(',')}`;
+    const known = faultsByBoard.get(key);
+    if (known !== undefined) return known;
+    const faults = countBoardFaults();
+    faultsByBoard.set(key, faults);
+    return faults;
+  };
+  const countBoardFaults = (): number => {
     let faults = 0;
     let hours = priorCreditTotal;
     const before = new Set<string>(satisfiedForPrereq);
@@ -9546,7 +9906,16 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * What the moves below must not make worse beyond boardFaults, which
    * counts only the prerequisites read with confidence (orderShape).
    */
-  const boardShape = () => orderShape(terms.map((t) => ({ codes: placed.get(t.id) ?? [], regular: !isSummer(t) })), ctx, satisfiedForPrereq);
+  const shapeByBoard = new Map<string, ReturnType<typeof orderShape>>();
+  const boardShape = (): ReturnType<typeof orderShape> => {
+    // Remembered by boardKey (see boardFaults); every caller only reads it.
+    const key = boardKey();
+    const known = shapeByBoard.get(key);
+    if (known) return known;
+    const shape = orderShape(terms.map((t) => ({ codes: placed.get(t.id) ?? [], regular: !isSummer(t) })), ctx, satisfiedForPrereq);
+    shapeByBoard.set(key, shape);
+    return shape;
+  };
   const shapeHolds = (before: ReturnType<typeof boardShape>): boolean => orderHolds(boardShape(), before);
 
   /**
@@ -9902,13 +10271,25 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * The order the placer keeps by uncertain prerequisites, a sequence in
      * consecutive terms and a lab beside its lecture hold too (boardShape).
      */
+    /*
+     * Year one's measures on the board as it stands, remembered by boardKey:
+     * every try reads them before its moves, and a try that fails puts the
+     * board back, so the next try read the same board again. They read only
+     * the board and what this block settles before it starts.
+     */
+    const yearOneByBoard = new Map<string, { countBefore: number; yearBefore: number; mathBefore: boolean; anyMathBefore: boolean }>();
+    const yearOneNow = () => {
+      const key = boardKey();
+      const known = yearOneByBoard.get(key);
+      if (known) return known;
+      const made = { countBefore: count(), yearBefore: yearHours(), mathBefore: mathInYearOne(), anyMathBefore: anyMathInYearOne() };
+      yearOneByBoard.set(key, made);
+      return made;
+    };
     const attempt = (moves: Array<{ code: string; from: number; to: number }>): boolean => {
       const touched = [...new Set(moves.flatMap((m) => [m.from, m.to]))];
       const was = new Map(touched.map((i) => [i, placed.get(terms[i].id) ?? []]));
-      const countBefore = count();
-      const yearBefore = yearHours();
-      const mathBefore = mathInYearOne();
-      const anyMathBefore = anyMathInYearOne();
+      const { countBefore, yearBefore, mathBefore, anyMathBefore } = yearOneNow();
       const shape = boardShape();
       for (const m of moves) {
         placed.set(terms[m.from].id, (placed.get(terms[m.from].id) ?? []).filter((c) => c !== m.code));
@@ -9958,7 +10339,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const regularAfter = (index: number): number => terms.find((t) => t.index > index && !isSummer(t))?.index ?? -1;
     const ordinal = (index: number): number => terms.filter((t) => t.index <= index && !isSummer(t)).length;
     const termOf = (c: string): number => terms.findIndex((t) => (placed.get(t.id) ?? []).includes(c));
-    const followers = (code: string, from: number, to: number): Array<{ code: string; from: number; to: number }> => {
+    const findFollowers = (code: string, from: number, to: number): Array<{ code: string; from: number; to: number }> => {
       const out: Array<{ code: string; from: number; to: number }> = [];
       let [prev, prevFrom, prevTo] = [code, from, to];
       for (let depth = 0; depth < 3; depth += 1) {
@@ -9982,6 +10363,23 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         [prev, prevFrom, prevTo] = [next.c, next.at, target];
       }
       return out;
+    };
+    /*
+     * findFollowers, remembered by the board as it stands (boardKey) and the
+     * move asked about: bringIn tries every seat of year one with the same
+     * incoming course, and a try that fails puts the board back, so the same
+     * question came again on the same board for each seat, a twentieth of a
+     * rebuild. Nothing else it reads (the courses notes pin, the labs, the
+     * calendar) changes in this block, and attemptWhole only reads the list.
+     */
+    const followersByBoard = new Map<string, Array<{ code: string; from: number; to: number }>>();
+    const followers = (code: string, from: number, to: number): Array<{ code: string; from: number; to: number }> => {
+      const key = `${boardKey()}#${code}|${from}|${to}`;
+      const known = followersByBoard.get(key);
+      if (known) return known;
+      const found = findFollowers(code, from, to);
+      followersByBoard.set(key, found);
+      return found;
     };
     /** attempt, and where the moves would leave a sequence behind, again with it moved up (followers). */
     const attemptWhole = (moves: Array<{ code: string; from: number; to: number }>): boolean => {
@@ -11110,7 +11508,7 @@ export function validatePlan(
     ? (ctx.bands?.hardest ?? FALLBACK_HARD_DIFFICULTY)
     : options.hardDifficulty;
 
-  const byId = new Map(ctx.courses.map((c) => [c.id, c]));
+  const byId = catalogById(ctx.courses);
   const codeOf = (courseId: string): string | null => {
     const course = byId.get(courseId);
     return course ? normaliseCode(course.code) : null;

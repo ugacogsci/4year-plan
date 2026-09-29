@@ -1442,6 +1442,33 @@ export function parsePrerequisites(
 }
 
 /**
+ * normCode, remembered: the planner's placer and moves ask the matcher below
+ * about the same few thousand codes hundreds of thousands of times a rebuild.
+ * Cleared past fifty thousand, so text that is not a code cannot grow it
+ * without end.
+ */
+const foldedCodes = new Map<string, string>();
+function normCodeOf(code: string): string {
+  const known = foldedCodes.get(code);
+  if (known !== undefined) return known;
+  const out = normCode(code);
+  if (foldedCodes.size >= 50000) foldedCodes.clear();
+  foldedCodes.set(code, out);
+  return out;
+}
+
+/**
+ * `codes` with every code folded by normCode, or `codes` itself when none
+ * needs folding, which is what the planner passes (autoplan.ts normaliseCode
+ * folds the same way): copying the set on every ask was a twentieth of a
+ * pre-med Chemistry freshman's rebuild. The matcher only reads it.
+ */
+function folded(codes: Set<string>): Set<string> {
+  for (const code of codes) if (normCodeOf(code) !== code) return new Set([...codes].map(normCodeOf));
+  return codes;
+}
+
+/**
  * Which prerequisite groups a plan does not satisfy.
  *
  * This is a maximum bipartite matching, not a per-group `.some()`. ACCY 201
@@ -1465,15 +1492,15 @@ export function missingPrerequisiteGroups(
 ): { missing: PrereqGroup[]; uncertain: PrereqGroup[]; priorLearning: PrereqGroup[] } {
   if (!spec || spec.groups.length === 0) return { missing: [], uncertain: [], priorLearning: [] };
 
-  const earlierN = new Set([...earlier].map(normCode));
-  const sameTermN = new Set([...sameTerm].map(normCode));
+  const earlierN = folded(earlier);
+  const sameTermN = folded(sameTerm);
 
   // Candidate courses per group, expanded through cross-listings so LLS 200
   // satisfies a requirement the catalog wrote as AAS 200.
   const candidates: string[][] = spec.groups.map((group) => {
     const pool = new Set<string>();
     for (const code of group.any) {
-      const c = normCode(code);
+      const c = normCodeOf(code);
       for (const alias of [c, ...(equivalents.get(c) ?? [])]) {
         if (earlierN.has(alias)) pool.add(alias);
         else if (group.concurrent && sameTermN.has(alias)) pool.add(alias);

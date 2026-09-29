@@ -170,6 +170,25 @@ const LOW_INFORMATION = new Set([
 const escapeWord = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
+ * The pattern that finds a student's word at the start of a word in a title,
+ * whole or as a stem, made once a word: the fill scores every course in the
+ * catalog against every word a goal names (a pre-med's are dozens), and
+ * compiling the same patterns again for each course was a fortieth of a
+ * rebuild. No global flag, so a shared pattern keeps no state between tests.
+ * Cleared past fifty thousand, like the name folds below.
+ */
+const titleWords = new Map<string, RegExp>();
+function titleWord(word: string, whole: boolean): RegExp {
+  const key = `${whole ? 'w' : 's'}:${word}`;
+  const known = titleWords.get(key);
+  if (known) return known;
+  const made = new RegExp(`\\b${escapeWord(word)}${whole ? '\\b' : ''}`);
+  if (titleWords.size >= 50000) titleWords.clear();
+  titleWords.set(key, made);
+  return made;
+}
+
+/**
  * Whether a word the student said names a subject: a whole word of the
  * department's name, or the first six or more letters of one. Substring
  * matching made "mental" name Environmental Studies and "company"
@@ -248,6 +267,70 @@ export function sameInstructor(a: string, b: string): boolean {
   return fa[0] === fb[0];
 }
 
+/*
+ * The teaching measure of one course and the reason it gives, remembered per
+ * excellent list, sections table and list of terms (the ones qualityFor
+ * passes are made once per context and never changed) and the term's label.
+ * It reads nothing about the student, and holding every section's
+ * instructors against every listed one, for every course a rebuild scores,
+ * was a tenth of the rebuild.
+ */
+type Teaching = { v: number; reason: string | null };
+const teachingCache = new WeakMap<object, WeakMap<object, WeakMap<object, Map<string, Teaching>>>>();
+const NO_SECTIONS = {};
+function teachingOf(
+  code: string,
+  excellent: NonNullable<QualityInputs['excellent']>,
+  excellentTerms: string[],
+  sections: QualityInputs['sections'],
+  nowLabel: QualityInputs['nowLabel'],
+): Teaching {
+  const bySections = teachingCache.get(excellent) ?? new WeakMap<object, WeakMap<object, Map<string, Teaching>>>();
+  teachingCache.set(excellent, bySections);
+  const byTerms = bySections.get(sections ?? NO_SECTIONS) ?? new WeakMap<object, Map<string, Teaching>>();
+  bySections.set(sections ?? NO_SECTIONS, byTerms);
+  const memo = byTerms.get(excellentTerms) ?? new Map<string, Teaching>();
+  byTerms.set(excellentTerms, memo);
+  const key = nowLabel ? `${nowLabel}|${code}` : code;
+  const known = memo.get(key);
+  if (known) return known;
+  let reason: string | null = null;
+  const ex = excellent.get(code);
+  // The last four regular terms. Summer lists name about sixty courses
+  // against a thousand in a fall or spring, and counting them as recent
+  // terms shortened the window without saying so.
+  const recent = excellentTerms.filter((t) => !t.startsWith('su')).slice(0, 4);
+  // A term counts in full when an instructor made the list and half when
+  // only a teaching assistant did: the same list, but a TA runs the
+  // discussion section and not the course.
+  const byInstructor = new Set(ex ? ex.instructors.filter((i) => !i.ta).flatMap((i) => i.terms) : []);
+  const hits = ex ? ex.terms.filter((t) => recent.includes(t)) : [];
+  const full = hits.filter((t) => byInstructor.has(t)).length;
+  const taOnly = hits.length - full;
+  let v = Math.min(1, (full + 0.5 * taOnly) / 3) * 0.7;
+  const thisTerm = ex && sections?.get(code)
+    ? ex.instructors.filter((i) => sections!.get(code)!.instructors.some((s) => sameInstructor(s.name, i.name)))
+    : [];
+  if (thisTerm.length > 0) {
+    // Weighted by the share of sections those instructors teach: one
+    // listed instructor among 43 CHEM 101 instructors is not "the course
+    // is taught by an excellent instructor".
+    const rows = sections!.get(code)!.instructors;
+    const all = rows.reduce((n, r) => n + (r.sections ?? 1), 0);
+    const listed = rows.filter((r) => thisTerm.some((i) => sameInstructor(r.name, i.name))).reduce((n, r) => n + (r.sections ?? 1), 0);
+    const share = all > 0 ? Math.min(1, listed / all) : 1;
+    v = Math.max(v, 0.85 * share + (1 - share) * v);
+    const one = thisTerm[0];
+    reason = `${prettyName(one.name)} ranked ${one.outstanding ? 'outstanding' : 'excellent'} by students in ${termWord(one.terms[0])} and is teaching it${nowLabel ? ` in ${nowLabel}` : ' this term'}${share < 1 ? ` (${listed} of ${all} sections)` : ''}`;
+  } else if (hits.length > 0) {
+    const who = full > 0 ? 'instructors' : 'teaching assistants';
+    reason = `${who} ranked excellent by students in ${hits.length === 1 ? termWord(hits[0]) : `${hits.length} of the last ${recent.length} terms`}`;
+  }
+  const out = { v, reason };
+  memo.set(key, out);
+  return out;
+}
+
 export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityResult {
   const p = q.priorities;
   const reasons: string[] = [];
@@ -311,37 +394,8 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
   // teaching: the university's own list, and whether one of those instructors runs it this term.
   if (p.teaching > 0) {
     if (q.excellent && q.excellentTerms && q.excellentTerms.length > 0) {
-      const ex = q.excellent.get(code);
-      // The last four regular terms. Summer lists name about sixty courses
-      // against a thousand in a fall or spring, and counting them as recent
-      // terms shortened the window without saying so.
-      const recent = q.excellentTerms.filter((t) => !t.startsWith('su')).slice(0, 4);
-      // A term counts in full when an instructor made the list and half when
-      // only a teaching assistant did: the same list, but a TA runs the
-      // discussion section and not the course.
-      const byInstructor = new Set(ex ? ex.instructors.filter((i) => !i.ta).flatMap((i) => i.terms) : []);
-      const hits = ex ? ex.terms.filter((t) => recent.includes(t)) : [];
-      const full = hits.filter((t) => byInstructor.has(t)).length;
-      const taOnly = hits.length - full;
-      let v = Math.min(1, (full + 0.5 * taOnly) / 3) * 0.7;
-      const thisTerm = ex && q.sections?.get(code)
-        ? ex.instructors.filter((i) => q.sections!.get(code)!.instructors.some((s) => sameInstructor(s.name, i.name)))
-        : [];
-      if (thisTerm.length > 0) {
-        // Weighted by the share of sections those instructors teach: one
-        // listed instructor among 43 CHEM 101 instructors is not "the course
-        // is taught by an excellent instructor".
-        const rows = q.sections!.get(code)!.instructors;
-        const all = rows.reduce((n, r) => n + (r.sections ?? 1), 0);
-        const listed = rows.filter((r) => thisTerm.some((i) => sameInstructor(r.name, i.name))).reduce((n, r) => n + (r.sections ?? 1), 0);
-        const share = all > 0 ? Math.min(1, listed / all) : 1;
-        v = Math.max(v, 0.85 * share + (1 - share) * v);
-        const one = thisTerm[0];
-        reasons.push(`${prettyName(one.name)} ranked ${one.outstanding ? 'outstanding' : 'excellent'} by students in ${termWord(one.terms[0])} and is teaching it${q.nowLabel ? ` in ${q.nowLabel}` : ' this term'}${share < 1 ? ` (${listed} of ${all} sections)` : ''}`);
-      } else if (hits.length > 0) {
-        const who = full > 0 ? 'instructors' : 'teaching assistants';
-        reasons.push(`${who} ranked excellent by students in ${hits.length === 1 ? termWord(hits[0]) : `${hits.length} of the last ${recent.length} terms`}`);
-      }
+      const { v, reason } = teachingOf(code, q.excellent, q.excellentTerms, q.sections, q.nowLabel);
+      if (reason !== null) reasons.push(reason);
       take(p.teaching, v, 'teaching ratings');
     } else {
       take(p.teaching, null, 'teaching ratings');
@@ -359,7 +413,7 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     // major does not already carry: "computer" from "computer science" made
     // CS 415 Game Development as relevant to machine learning as CS 446.
     const namesMajor = (w: string) => q.primarySubject !== null && namesSubject(q.primarySubject, w);
-    const inTitle = (w: string, whole: boolean) => new RegExp(`\\b${escapeWord(w)}${whole ? '\\b' : ''}`).test(title);
+    const inTitle = (w: string, whole: boolean) => titleWord(w, whole).test(title);
     const curatedHits = curated.filter((w) => inTitle(w, w.length < 5));
     // Nor does it make a title relevant: "computer" from "Computer
     // engineering" matched every "...for Computer Vision" course as well as
