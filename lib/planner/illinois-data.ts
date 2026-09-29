@@ -2662,15 +2662,27 @@ export function genEdRulesFromText(text: string): GenEdCategoryRule[] {
    * then books two more quantitative reasoning courses on top of the calculus
    * the page has just said covers them.
    */
-  const found: Array<{ at: number; length: number; key: string }> = [];
+  /*
+   * The earliest of a category's spellings, whichever is longest. Tried
+   * longest first, "social and behavioral sciences" matched the end of an ACE
+   * page's "fulfilled by ACE 100, ECON 103, and two other courses approved as
+   * Social and Behavioral Sciences" rather than its heading, "Social &
+   * Behavioral Sciences", and Natural Sciences & Technology ran on over that
+   * heading and read ACE 100 and ECON 103 as its own science.
+   */
+  const earliest = new Map<string, { at: number; length: number }>();
   for (const { phrase, key } of GENED_HEADINGS) {
-    if (found.some((f) => f.key === key)) continue;
     const at = lower.indexOf(phrase);
     if (at < 0) continue;
+    const known = earliest.get(key);
+    if (!known || at < known.at || (at === known.at && phrase.length > known.length)) earliest.set(key, { at, length: phrase.length });
+  }
+  const found: Array<{ at: number; length: number; key: string }> = [];
+  for (const [key, { at, length }] of [...earliest].sort((a, b) => b[1].length - a[1].length)) {
     // A heading that falls inside a longer heading already claimed is part of
     // that one, not a category of its own.
     if (found.some((f) => at >= f.at && at < f.at + f.length)) continue;
-    found.push({ at, length: phrase.length, key });
+    found.push({ at, length, key });
   }
   if (found.length === 0) return [];
 
@@ -2714,6 +2726,14 @@ export function genEdRulesFromText(text: string): GenEdCategoryRule[] {
      * category's text names course codes for no other reason.
      */
     const fulfils = FULFILLED.test(body);
+    /*
+     * "fulfilled by ACE 100, ECON 103, and two other courses approved as Social
+     * and Behavioral Sciences": the named courses and two more. Counted by
+     * hours alone, ACE 100 and ECON 103 (7) closed the six-hour category and
+     * the two courses were never booked.
+     */
+    const twoOther = fulfils && /\btwo other cours\w*/i.test(body);
+    if (twoOther) courses = fulfilledByOptions(body).length + 2;
     rules.push({
       label,
       genEd: GENED_MAP[key] ?? [],
