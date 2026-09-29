@@ -46,7 +46,8 @@ export function AppShell() {
         onResume={saved ? () => setAnswers(saved) : undefined}
         onDone={(next) => {
           // A board saved under the previous answers would otherwise win over
-          // the plan these answers are about to build.
+          // the plan these answers are about to build, and ALMA's conversation
+          // about that board goes with it.
           clearSavedPlan();
           setAnswers(next);
         }}

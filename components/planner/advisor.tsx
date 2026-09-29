@@ -1,16 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, Check, CircleAlert, Loader2, X } from 'lucide-react';
+import { ArrowUp, Check, CircleAlert, Loader2, Undo2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
+  isBoardNote,
   lastAssistantText,
   runAdvisorTurn,
+  undoNote,
   type AdvisorExecutor,
   type AdvisorMessage,
   type AdvisorToolName,
 } from '@/lib/planner/advisor';
 import type { Source } from '@/lib/planner/ask-router';
+import { CHAT_KEY } from '@/lib/planner/saved-board';
 
 /**
  * The bot's panel: a column beside the board that holds a conversation which
@@ -31,7 +34,15 @@ import type { Source } from '@/lib/planner/ask-router';
  * tool calls and tool results in order, because that is what the next turn
  * is built on. What is drawn is derived from it. It is stored on this device
  * per degree, so a reload does not forget the conversation; nothing about it
- * leaves the device except the request each turn makes.
+ * leaves the device except the request each turn makes. It is forgotten with
+ * the board it is about (Start over, a new setup, another degree), so it
+ * never describes a board that is gone.
+ *
+ * Everything one message makes ALMA change on the board is one undo step.
+ * While that step is the newest, the reply offers "Undo these changes", and
+ * an undone turn is written into the conversation as a planner note, so
+ * ALMA's "I added HIST 200 to Fall 2027" is not the last word on a board
+ * that no longer has it.
  *
  * The bot has the school's name, ALMA at Illinois, the same one its TRU
  * tenant answers to, so a student meets one bot across both products.
@@ -51,6 +62,26 @@ export interface BotPanelProps {
   ready: boolean;
   open: boolean;
   onClose: () => void;
+  /** The board's undo for ALMA's turns. Absent where the board keeps no undo for them. */
+  turns?: BotTurns;
+}
+
+/**
+ * ALMA's turns on the board's undo stack. The workspace owns the stack; the
+ * panel says when a turn starts and ends, offers the newest turn's undo on
+ * the reply it belongs to, and writes the notes for turns undone.
+ */
+export interface BotTurns {
+  /** A message is being sent: the board as it is now is what undoing the turn puts back. */
+  begin: () => void;
+  /** The turn is over, however it ended. */
+  end: () => void;
+  /** The newest undo step, when it is an ALMA turn: its id and the tool calls that changed the board. */
+  latest: { id: string; toolIds: string[] } | null;
+  /** Undo that turn, if it is still the newest step. */
+  undo: (id: string) => void;
+  /** ALMA turns undone this session, from the reply or from the header's Undo. */
+  undone: Array<{ id: string; toolIds: string[]; summary: string[] }>;
 }
 
 interface Activity {
@@ -63,10 +94,11 @@ interface Activity {
 /** Something drawn in the log, derived from the transcript. */
 type Line =
   | { kind: 'user'; text: string }
-  | { kind: 'assistant'; text: string; sources: Source[] }
-  | { kind: 'tool'; label: string; state: 'ok' | 'failed'; detail?: string };
+  /** `turn` counts the student's messages; `last` marks the turn's final reply, where its undo is offered. */
+  | { kind: 'assistant'; text: string; sources: Source[]; turn: number; last?: boolean }
+  | { kind: 'tool'; label: string; state: 'ok' | 'failed'; detail?: string }
+  | { kind: 'note'; text: string };
 
-const STORAGE = 'fourYear.advisor.v1';
 const KEEP = 60;
 
 function toolLabel(name: AdvisorToolName, input: Record<string, unknown>): string {
@@ -150,28 +182,38 @@ function sourcesIn(messages: AdvisorMessage[], fromIndex: number): Source[] {
   return out;
 }
 
-/** The log, drawn from the transcript: what was said and what was done. */
-function linesOf(messages: AdvisorMessage[]): Line[] {
+/**
+ * The log, drawn from the transcript: what was said and what was done, and
+ * for each of the student's messages (a turn) the tool calls it made, by id.
+ */
+function linesOf(messages: AdvisorMessage[]): { lines: Line[]; turnTools: string[][] } {
   const lines: Line[] = [];
+  const turnTools: string[][] = [[]];
+  let turn = 0;
   let toolStart = 0;
   messages.forEach((m, index) => {
     if (m.role === 'user') {
       if (typeof m.content === 'string') {
         lines.push({ kind: 'user', text: m.content });
         toolStart = index;
+        turn += 1;
+        turnTools[turn] = [];
       } else {
         for (const block of m.content) {
-          if (block.type === 'text') lines.push({ kind: 'user', text: block.text });
+          if (block.type !== 'text') continue;
+          if (isBoardNote(block.text)) lines.push({ kind: 'note', text: 'You undid these changes. The board is back to how it was before that message.' });
+          else lines.push({ kind: 'user', text: block.text });
         }
       }
       return;
     }
     if (typeof m.content === 'string') {
-      lines.push({ kind: 'assistant', text: m.content, sources: [] });
+      lines.push({ kind: 'assistant', text: m.content, sources: [], turn });
       return;
     }
     const text = m.content.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('').trim();
     const tools = m.content.filter((b) => b.type === 'tool_use') as Array<{ name: AdvisorToolName; input: Record<string, unknown>; id: string }>;
+    turnTools[turn].push(...tools.map((call) => call.id));
     // The result for each call sits in the next user message.
     const next = messages[index + 1];
     const results = new Map<string, unknown>();
@@ -190,7 +232,7 @@ function linesOf(messages: AdvisorMessage[]): Line[] {
       const outcome = toolOutcome(results.get(call.id));
       lines.push({ kind: 'tool', label: toolLabel(call.name, call.input ?? {}), ...outcome });
     }
-    if (text) lines.push({ kind: 'assistant', text, sources: tools.length === 0 ? sourcesIn(messages, toolStart) : [] });
+    if (text) lines.push({ kind: 'assistant', text, sources: tools.length === 0 ? sourcesIn(messages, toolStart) : [], turn });
   });
   // Sources belong under the reply that used them: the last assistant line
   // of a turn gets everything its tools brought back.
@@ -201,7 +243,24 @@ function linesOf(messages: AdvisorMessage[]): Line[] {
       break;
     }
   }
-  return lines;
+  const seen = new Set<number>();
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (line.kind !== 'assistant' || seen.has(line.turn)) continue;
+    seen.add(line.turn);
+    line.last = true;
+  }
+  return { lines, turnTools };
+}
+
+/** Every tool call in a transcript, by id. */
+function toolCallIds(messages: AdvisorMessage[]): Set<string> {
+  const ids = new Set<string>();
+  for (const m of messages) {
+    if (m.role !== 'assistant' || typeof m.content === 'string') continue;
+    for (const block of m.content) if (block.type === 'tool_use') ids.add(block.id);
+  }
+  return ids;
 }
 
 /**
@@ -257,7 +316,7 @@ function Typing() {
   );
 }
 
-export function BotPanel({ botName, schoolShort, programId, board, execute, openers, ready, open, onClose }: BotPanelProps) {
+export function BotPanel({ botName, schoolShort, programId, board, execute, openers, ready, open, onClose, turns }: BotPanelProps) {
   const [messages, setMessages] = useState<AdvisorMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [streaming, setStreaming] = useState('');
@@ -271,7 +330,7 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
   // One conversation per degree, remembered on this device.
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(STORAGE);
+      const raw = window.localStorage.getItem(CHAT_KEY);
       const saved = raw ? (JSON.parse(raw) as { programId: string | null; messages: AdvisorMessage[] }) : null;
       // oxlint-disable-next-line react/react-compiler
       setMessages(saved && saved.programId === programId && Array.isArray(saved.messages) ? saved.messages : []);
@@ -284,7 +343,7 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
     (next: AdvisorMessage[]) => {
       setMessages(next);
       try {
-        window.localStorage.setItem(STORAGE, JSON.stringify({ programId, messages: next.slice(-KEEP) }));
+        window.localStorage.setItem(CHAT_KEY, JSON.stringify({ programId, messages: next.slice(-KEEP) }));
       } catch {
         /* private browsing; the conversation lives for the session */
       }
@@ -296,6 +355,27 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
     const el = logRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, streaming, activity, open]);
+
+  /**
+   * A turn the student undid is written into the conversation, once, after
+   * the reply that made it: from the reply's own button or the header's
+   * Undo. Held while a reply is being written, because the turn in flight
+   * writes the transcript at every step and would drop a note put in
+   * beside it.
+   */
+  const undone = turns?.undone;
+  const noted = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (busy || !undone || undone.length === 0) return;
+    const called = toolCallIds(messages);
+    const due = undone.filter((t) => !noted.current.has(t.id) && t.toolIds.some((id) => called.has(id)));
+    if (due.length === 0) return;
+    for (const t of due) noted.current.add(t.id);
+    // Written from an effect because the undo can come from the header,
+    // outside this panel; the ref makes each note land once.
+    // oxlint-disable-next-line react/react-compiler
+    remember([...messages, ...due.map((t) => undoNote(t.summary))]);
+  }, [busy, undone, messages, remember]);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -315,6 +395,8 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
     // The student's line goes up at once, so the panel never looks like it
     // swallowed what they typed.
     remember([...start, { role: 'user', content: userText }]);
+    // Everything this message changes on the board is one undo step.
+    turns?.begin();
     try {
       const turn = await runAdvisorTurn({
         messages: start,
@@ -348,6 +430,7 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
         setError(caught instanceof Error ? caught.message : 'The advisor failed.');
       }
     } finally {
+      turns?.end();
       setStreaming('');
       setActivity(null);
       setBusy(false);
@@ -365,8 +448,11 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
     setError(null);
   }
 
-  const lines = linesOf(messages);
+  const { lines, turnTools } = linesOf(messages);
   const lastText = lastAssistantText(messages);
+  const latest = turns?.latest ?? null;
+  /** The turn whose changes are the newest undo step: only its last reply offers to undo them. */
+  const undoableTurn = latest && !busy ? turnTools.findIndex((ids) => ids.some((id) => latest.toolIds.includes(id))) : -1;
 
   return (
     <section className={cn('bot-panel', !open && 'is-closed')} aria-label={botName} aria-hidden={!open}>
@@ -413,6 +499,14 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
               </div>
             );
           }
+          if (line.kind === 'note') {
+            return (
+              <div key={i} className="bot-tool bot-note">
+                <Undo2 aria-hidden="true" />
+                <span>{line.text}</span>
+              </div>
+            );
+          }
           if (line.kind === 'tool') {
             return (
               <div key={i} className={`bot-tool ${line.state}`}>
@@ -431,6 +525,16 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
               </span>
               <div style={{ display: 'grid', gap: 6, justifyItems: 'start', minWidth: 0 }}>
                 <div className="bot-msg assistant">{line.text}</div>
+                {line.last && line.turn === undoableTurn && latest && turns && (
+                  <button
+                    type="button"
+                    className="bot-undo"
+                    onClick={() => turns.undo(latest.id)}
+                    title={`Put the board back the way it was before this message. Everything ${botName} changed for it goes; nothing else does.`}
+                  >
+                    <Undo2 aria-hidden="true" /> Undo these changes
+                  </button>
+                )}
                 {line.sources.length > 0 && (
                   <ul className="bot-sources">
                     {line.sources.slice(0, 4).map((s) => (

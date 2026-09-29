@@ -24,7 +24,7 @@ The checks need Node 23, because they load the TypeScript sources directly with 
 node --experimental-strip-types --disable-warning=ExperimentalWarning lib/planner/__<name>.check.mjs
 ```
 
-and exits non-zero on a failure. Read the header of `__plan-audit.check.mjs` before trusting any other harness: it loads only what the browser loads, and that is the reason it exists. The checks are `__prior-credit`, `__transcript`, `__illinois-data`, `__autoplan`, `__ask-router`, `__plan-audit`, `__credit-e2e`, and the ones the sections below name (`__horizon`, `__plan-notes`, `__interests`, `__career-tracks`, `__electives`, `__college-rules`, `__review`, `__advisor-packet`), each of which takes seconds; `__repick` and `__schedule-quality` take up to a minute, and `__credit-rules` about ten, because it plans every offered degree. One fails today (`__illinois-data`, two assertions), for the reason under known gaps at the end of this section.
+and exits non-zero on a failure. Read the header of `__plan-audit.check.mjs` before trusting any other harness: it loads only what the browser loads, and that is the reason it exists. The checks are `__prior-credit`, `__transcript`, `__illinois-data`, `__autoplan`, `__ask-router`, `__plan-audit`, `__credit-e2e`, and the ones the sections below name (`__horizon`, `__plan-notes`, `__interests`, `__career-tracks`, `__electives`, `__college-rules`, `__review`, `__advisor-packet`, `__saved-board`), each of which takes seconds; `__repick` and `__schedule-quality` take up to a minute, and `__credit-rules` about ten, because it plans every offered degree. One fails today (`__illinois-data`, two assertions), for the reason under known gaps at the end of this section.
 
 An unofficial, visual degree-planning prototype for University of Georgia students and advisors. It combines an editable semester-by-semester plan with a constellation-style course finder descended from the existing Semantic Course Map.
 
@@ -427,6 +427,18 @@ be checked against the uAchieve degree audit. The code is
 `__advisor-packet.check.mjs` renders the sheet in Node through a loader hook
 that transpiles `.tsx`, a pattern other checks can reuse (`PACKET_DUMP=<dir>`
 writes each page).
+
+### Saved on this device
+
+The board saves itself in the browser after every change, with the generation
+report behind its slot, list, gen-ed, track and language marks, and "Continue
+with my saved plan" puts it back exactly (`lib/planner/saved-board.ts`; a
+`four-year-planner-v3` save is moved over and reads as before, unmarked).
+Nothing is sent anywhere. Start over, a new setup and another degree forget the
+board and ALMA's conversation together. Everything ALMA changes answering one
+message is one undo step, offered as "Undo these changes" under its reply.
+`__saved-board.check.mjs` restores edited boards of four students and fails if
+any card's role or chip differs.
 
 ### Year one and the gate
 

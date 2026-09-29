@@ -370,8 +370,41 @@ export type AdvisorToolName =
   | 'planner_answer'
   | 'university_answer';
 
-/** Runs one tool against the real board. Implemented by the workspace. */
-export type AdvisorExecutor = (name: AdvisorToolName, input: Record<string, unknown>) => Promise<unknown>;
+/**
+ * Runs one tool against the real board. Implemented by the workspace.
+ *
+ * `call.id` is the tool_use id, which is kept in the transcript. The board
+ * files each change ALMA makes under it, so the reply those calls belong to
+ * can offer "Undo these changes" for exactly that turn.
+ */
+export type AdvisorExecutor = (name: AdvisorToolName, input: Record<string, unknown>, call?: { id: string }) => Promise<unknown>;
+
+/**
+ * The start of a message the planner writes into the conversation, never the
+ * student. One kind so far: the student pressed Undo on the board changes
+ * from one of ALMA's replies. Without it ALMA's own "I added HIST 200 to
+ * Fall 2027" stays the last word on a board that no longer has it.
+ */
+export const BOARD_NOTE = '[Board note]';
+
+/** The note for one undone turn, as a user message: the API reads consecutive user messages as one turn. */
+export function undoNote(summary: string[]): AdvisorMessage {
+  const what = summary.length > 0 ? ` (${summary.join('; ')})` : '';
+  return {
+    role: 'user',
+    content: [
+      {
+        type: 'text',
+        text: `${BOARD_NOTE} The student pressed Undo on the board changes from your reply above${what}. The board is back to how it was before that message, so those changes are not on it now.`,
+      },
+    ],
+  };
+}
+
+/** Whether a user text block is a planner note rather than something the student typed. */
+export function isBoardNote(text: string): boolean {
+  return text.startsWith(BOARD_NOTE);
+}
 
 // ---------------------------------------------------------------------------
 // What the model is told, once
@@ -465,7 +498,7 @@ How to reason
 - Think before you act or advise. Gather the facts with tools (compare_courses, explain_choice, what_if, review_board, course_details), weigh them against the student's priorities and their situation on the board (which term, what is already there, what depends on what), state the trade-off in a sentence or two, then act or recommend. A student can tell a considered answer from a list of facts; give them the considered one.
 - When there is a real trade-off (a better-taught course that is harder; a lighter term now that loads a later one; a course that has not run in two years), say it plainly and say which way you lean and why. Do not hide behind "it depends".
 - Before changing a required or from-a-list course, or moving anything with prerequisites downstream, run what_if and read what it breaks. Before recommending a replacement, run explain_choice on the current course so you know what it was chosen for and what the runners-up were.
-- The board description you get with each message is the board as it is now. Your earlier messages may describe a board that has since changed: the student may have reloaded without saving, rebuilt, or edited cards by hand. When the two disagree, trust the description, say briefly that the board no longer has what you did earlier, and redo the change if they still want it. Never tell the student a course is on the board unless the description shows it.
+- The board description you get with each message is the board as it is now. Your earlier messages may describe a board that has since changed: the student may have pressed Undo on your changes, rebuilt, or edited cards by hand. A user message that starts with ${BOARD_NOTE} is written by the planner, not the student: it says the student undid the board changes from one of your replies; do not answer it as a question. When the two disagree, trust the description, say briefly that the board no longer has what you did earlier, and redo the change if they still want it. Never tell the student a course is on the board unless the description shows it.
 - Judge terms as a whole: two hardest-band courses plus a lab is a different term from three light electives, whatever the credit count says. review_board and term_summary carry the load reading.
 - A course that has not run in any recent term is not a plan. Say so, and offer one that has.
 - The first year sets the pace. review_board's first_year_momentum flags a first-year fall or spring under 15 hours or a year one under 30 Illinois hours that the student's own hours setting or edits caused, the first math or statistics course after year one, and fewer than three courses in the major's subjects in year one. When a result carries momentum_fact_say_once, give that fact once in the conversation, in a sentence, then leave the choice to the student; do not repeat it or press.
@@ -633,7 +666,7 @@ export async function runAdvisorTurn(input: {
       input.events?.onTool?.(name, args);
       let result: unknown;
       try {
-        result = await input.execute(name, args);
+        result = await input.execute(name, args, { id: block.id });
       } catch (error) {
         result = { ok: false, error: error instanceof Error ? error.message : 'The tool failed.' };
       }

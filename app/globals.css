@@ -278,6 +278,26 @@ button:disabled {
   margin-left: auto;
 }
 
+/* Where the board went: this device, a moment after every change. It replaced
+   the "Save on this device" menu item, which a student had to remember to
+   press and which never kept the elective slots anyway. The Plan menu says the
+   same thing, for the narrow screens where this line is hidden. */
+.save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-micro);
+  color: #6f8098;
+  white-space: nowrap;
+}
+.save-status svg {
+  width: 13px;
+  height: 13px;
+}
+.save-status.is-failed {
+  color: #e6a596;
+}
+
 /* ── rail ───────────────────────────────────────────────────── */
 
 .rail {
@@ -1860,7 +1880,8 @@ p.requirement-unnamed {
   /* The coverage line is one sentence of build statistics and it was pushing
      the Plan menu off the right edge. It is in the "What is estimated?" panel
      as well, so nothing is lost by dropping it here. */
-  .header-coverage {
+  .header-coverage,
+  .save-status {
     display: none;
   }
   .rail {
@@ -2212,6 +2233,14 @@ p.requirement-unnamed {
 .bot-tool svg { width: 12px; height: 12px; flex: 0 0 auto; }
 .bot-tool.ok { color: #7fc9a2; }
 .bot-tool.failed { color: #e6a596; }
+.bot-note { color: rgba(199, 210, 254, 0.7); }
+.bot-undo {
+  justify-self: start; display: inline-flex; gap: 5px; align-items: center; padding: 3px 9px;
+  border: 1px solid rgba(167, 139, 250, 0.28); background: transparent; border-radius: 999px;
+  color: #c7d2fe; font: inherit; font-size: var(--fs-micro); cursor: pointer;
+}
+.bot-undo svg { width: 12px; height: 12px; }
+.bot-undo:hover { border-color: rgba(167, 139, 250, 0.7); color: #fff; }
 .bot-spin { animation: bot-spin 0.9s linear infinite; }
 @keyframes bot-spin { to { transform: rotate(360deg); } }
 .bot-typing {
