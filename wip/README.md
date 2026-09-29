@@ -1,22 +1,14 @@
 # Work in progress, parked on this branch
 
-Two packages were cut off mid-way by a usage limit. Their edits touch the
-planning engine, so they are kept here as patches rather than applied: the app
-on this branch is unchanged by them. Both were made against 87bb1bd and apply
-cleanly to the current branch with a three-way apply:
+Two packages were cut off mid-way by a usage limit. The speed package is
+merged (it changed no board, proved by the sweep); the fillers package below
+touches the planning engine and changes boards, so it is kept here as a patch
+rather than applied. It was made against 87bb1bd and applies cleanly to the
+current branch with a three-way apply:
 
 ```
-git apply --3way wip/speed.patch
 git apply --3way wip/fillers.patch
 ```
-
-`speed.patch`: faster rebuilds without changing any board. Since the year-one
-gate, generatePlan builds a plain board beside the improved one, so a rebuild
-does the work at least twice. Goal: p95 under 400 ms and max under 1 s in Node,
-with every board identical to before (prove it with `scripts/dev/sweep`: the
-two sweeps must match on terms, codes, notes, not placed, unsatisfied,
-validator issues and review flags). Touches autoplan.ts, illinois-data.ts and
-quality.ts. Unfinished and unverified.
 
 `fillers.patch`: the last filler and chooser problems from a Finance test. The
 fill still books restricted seminars (BUS 315 Junior Gies Scholar Seminar,
