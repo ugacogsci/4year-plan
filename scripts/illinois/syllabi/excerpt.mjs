@@ -21,7 +21,7 @@
  * and data/syllabi/state/excerpts/index.json listing the batches. Local only:
  * the excerpts are the instructors' words and are never committed.
  */
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { listManifests, readManifest } from './lib/manifest.mjs';
 import { DIRS } from './lib/paths.mjs';
@@ -35,6 +35,18 @@ const BATCH = Number(arg('--batch', 25));
 const OUT = join(DIRS.state, 'excerpts');
 const FACTS = join(DIRS.state, '..', 'facts');
 const ALL = process.argv.includes('--all');
+/**
+ * --keep-for ws-engr-getsyllabus=data/syllabi/state/read-first.json: read only
+ * the listed shas of that source. The getsyllabus store holds every section
+ * of every term since Fall 2023 (SE 101 has 17 sections in one term); the
+ * newest three terms of a course, two sections each, answer what students ask.
+ */
+const KEEP_FOR = (() => {
+  const v = arg('--keep-for', null);
+  if (!v) return null;
+  const [source, file] = v.split('=');
+  return { source, shas: new Set(JSON.parse(readFileSync(file, 'utf8'))) };
+})();
 
 /** Lines that carry a fact a student asks about. */
 const FACT = /\bgrad(e|es|ing)\b|\bevaluat|\bassess|\bweight|%|\bpercent|\bpoints?\b|\bexam|\bmidterm|\bfinal\b|\bquiz|\bhomework|\bproject|\bparticipat|\battendance|\blate\b|\bmake-?up|\btextbook|\brequired (text|book|material|reading)|\bmaterials\b|\bdrop(ped|s)? (the )?(lowest|two|one)|\bextra credit|\bcurve|\blab(oratory)? report|\bpaper\b|\bessay|\bpresentation/i;
@@ -88,6 +100,7 @@ for (const source of listManifests()) {
     if (row.outcome !== 'ok' || !row.sha || seen.has(row.sha)) continue;
     seen.add(row.sha);
     if (!ALL && existsSync(join(FACTS, `${row.sha}.json`))) continue;
+    if (KEEP_FOR && source === KEEP_FOR.source && !KEEP_FOR.shas.has(row.sha)) continue;
     const t = loadText(row.sha);
     if (!t || t.info.flags?.some((f) => SKIP_FLAGS.has(f)) || t.text.trim().length < 400) { skipped += 1; continue; }
     const text = t.text.replace(/\f/g, '\n');

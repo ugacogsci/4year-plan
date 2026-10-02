@@ -17,10 +17,11 @@ import { writeManifest } from './lib/manifest.mjs';
 import { ensureDirs } from './lib/paths.mjs';
 import { extractMany } from './lib/text.mjs';
 import { chemDocs, econDocs, mathDocs } from './sources/drupal-docs.mjs';
+import * as graingerIndex from './sources/grainger-index.mjs';
 import * as getfile from './sources/ws-engr-getfile.mjs';
 import * as getsyllabus from './sources/ws-engr-getsyllabus.mjs';
 
-const SOURCES = Object.fromEntries([getsyllabus, getfile, chemDocs, econDocs, mathDocs].map((s) => [s.id, s]));
+const SOURCES = Object.fromEntries([getsyllabus, getfile, graingerIndex, chemDocs, econDocs, mathDocs].map((s) => [s.id, s]));
 
 const arg = (name) => {
   const i = process.argv.indexOf(name);
