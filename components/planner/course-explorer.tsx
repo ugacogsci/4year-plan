@@ -10,6 +10,7 @@ import { clusterColor } from './cluster-color';
 import { CourseDetail } from './course-detail';
 import { subjectMatches } from '@/lib/planner/illinois-subjects';
 import { bucketMapCourses, hitTestMap } from '@/lib/planner/map-hit-testing';
+import { COLLAPSED_MAP_HEIGHT, MIN_MAP_HEIGHT, resolveMapHeight } from '@/lib/planner/map-resize';
 import type { IllinoisCore } from '@/lib/planner/illinois-load';
 import type { SchoolId } from '@/lib/planner/onboarding';
 import type { Course, MapPosition, PlanTerm } from '@/lib/planner/types';
@@ -75,8 +76,6 @@ const MAP_OVERSCROLL = 0.18;
 /** Preserve the semantic X layout while giving nearby clusters more vertical air. */
 const MAP_VERTICAL_STRETCH = 2.5;
 const LABEL_ZOOM = 7;
-const MIN_MAP_HEIGHT = 180;
-const COLLAPSED_MAP_HEIGHT = 58;
 
 export function CourseExplorer({
   courses,
@@ -525,7 +524,7 @@ export function CourseExplorer({
     // Using the parent's right edge let a resized map grow beneath chat at
     // intermediate breakpoints because the parent also contains that column.
     maxFinderWidth.current = Math.max(bounds.width, maxFinderWidth.current || bounds.width);
-    setMapMode('custom');
+    if (axis === 'horizontal') setMapMode('custom');
     resize.current = {
       axis,
       pointerId: event.pointerId,
@@ -560,7 +559,8 @@ export function CourseExplorer({
       }
       return;
     }
-    onHeightChange(clamp(active.height + event.clientY - active.startY, MIN_MAP_HEIGHT, maximumMapHeight()));
+    const delta = event.clientY - active.startY;
+    if (delta !== 0) resizeMapHeight(active.height, delta);
   }
 
   function finishResize(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -578,8 +578,8 @@ export function CourseExplorer({
   ) {
     const bounds = finderRef.current?.getBoundingClientRect();
     if (!bounds) return;
-    setMapMode('custom');
     if (axis === 'horizontal') {
+      setMapMode('custom');
       const maximum = maxFinderWidth.current || bounds.width;
       const minimum = Math.min(320, maximum);
       if (edge === 'left') {
@@ -592,24 +592,42 @@ export function CourseExplorer({
       }
       return;
     }
-    onHeightChange(clamp(bounds.height + amount, MIN_MAP_HEIGHT, maximumMapHeight()));
+    resizeMapHeight(bounds.height, amount);
+  }
+
+  function resizeMapHeight(startHeight: number, delta: number) {
+    const next = resolveMapHeight(startHeight, delta, maximumMapHeight());
+    if (next.collapsed) {
+      collapseMap();
+    } else {
+      setMapMode('custom');
+      onHeightChange(next.height);
+    }
   }
 
   function maximumMapHeight() {
     return Math.max(MIN_MAP_HEIGHT, Math.min(640, window.innerHeight - 170));
   }
 
-  function toggleMapSize() {
+  function collapseMap() {
     setFilterOpen(false);
     setHovered(null);
     setFinderWidth(null);
     setFinderLeft(0);
+    onSelectCourse(null);
+    setMapMode('collapsed');
+    onHeightChange(COLLAPSED_MAP_HEIGHT);
+  }
+
+  function toggleMapSize() {
     if (mapMode === 'expanded') {
-      onSelectCourse(null);
-      setMapMode('collapsed');
-      onHeightChange(COLLAPSED_MAP_HEIGHT);
+      collapseMap();
       return;
     }
+    setFilterOpen(false);
+    setHovered(null);
+    setFinderWidth(null);
+    setFinderLeft(0);
     setMapMode('expanded');
     onHeightChange(maximumMapHeight());
   }
@@ -1300,7 +1318,7 @@ export function CourseExplorer({
         type="button"
         className="map-resize-handle is-vertical"
         aria-label="Resize course map height"
-        title="Drag to resize map height"
+        title="Drag to resize map height; drag past the minimum to minimize"
         onPointerDown={(event) => startResize(event, 'vertical')}
         onPointerMove={moveResize}
         onPointerUp={finishResize}
