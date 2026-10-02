@@ -1,5 +1,8 @@
 'use client';
 
+// MERGE-UGA: icon imports conflict. UGA swapped AlertCircle/CircleAlert for Check (its 'Already taken' button);
+// Illinois added ChevronDown (the alternatives chevron). Either side alone leaves one icon undefined.
+// Keep ChevronDown and Check. AlertCircle/CircleAlert end up unused (UGA removed the 'check' chip).
 import {
   ChevronDown,
   AlertCircle,
@@ -12,6 +15,8 @@ import {
   Shuffle,
   Trash2,
 } from 'lucide-react';
+// MERGE-UGA: delete this line when merging. UGA added `import { useRef, useState } from 'react'` at the top;
+// git keeps both with no conflict and tsc fails: Duplicate identifier 'useState'.
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -93,6 +98,10 @@ export function CourseCard({
   onRemove,
   onFindAlternatives,
 }: CourseCardProps) {
+  // MERGE-UGA: UGA replaced these lines with card-resize state (cardRef, resizeStart, cardHeight, resizeTo)
+  // used by its <article ref/style> and resize handle; Illinois added alternatives + swappable for the chevron.
+  // Either side alone leaves the other's names undefined. Keep both; highestIssue can go (UGA dropped the
+  // 'check' chip that read it and shows one IssueBadge per issue instead).
   const highestIssue = issues.find((issue) => issue.severity === 'error') ?? issues[0];
   const [alternatives, setAlternatives] = useState<Alternative[] | null>(null);
   // A track card is there for the student's goal (PHYS 101 for physical
@@ -161,6 +170,10 @@ export function CourseCard({
                         : `${electiveOf.label}. ${electiveOf.detail}`
               }
             >
+              {/* MERGE-UGA: UGA made this badge icon-only (text left only in the hover title, as it did for 'required');
+                 Illinois added a label per kind ('for <track>', 'language · switch ▾', 'gen ed · swap ▾', 'prerequisite').
+                 Pick one design: Illinois's visible text, or UGA's icon with that text moved into an aria-label.
+              */}
               <ListChecks /> {electiveOf.kind === 'elective' ? 'elective · tap to choose' : electiveOf.kind === 'track' ? `for ${electiveOf.track ?? electiveOf.label}` : electiveOf.kind === 'language' ? 'language · switch ▾' : electiveOf.kind === 'gened' ? 'gen ed · swap ▾' : electiveOf.kind === 'prerequisite' ? 'prerequisite' : 'from a list'}
             </span>
           )}
@@ -180,6 +193,11 @@ export function CourseCard({
         </span>
         <span className="course-card-title">{course.title}</span>
       </button>
+      {/* MERGE-UGA: both sides added a control here: Illinois this alternatives chevron, UGA an 'Already taken'
+         button (onMarkCompleted). Keep both; either side alone drops the other's feature.
+         UGA's globals.css puts every .course-card > [data-slot=dropdown-menu-trigger] at grid column 4, row 2,
+         so this chevron sits on top of the ⋯ menu button: give .course-alt-trigger its own grid cell.
+      */}
       {/* The recommendation with its alternatives behind it: this card is the
           planner's pick for the slot or the list, and the chevron shows what
           else would fit, best first, each with the reason it is offered. */}
@@ -237,6 +255,9 @@ export function CourseCard({
               onClick={() =>
                 electiveOf.kind === 'elective' && onChoose
                   ? onChoose(course.id, term.id)
+                  // MERGE-UGA: UGA removed the onFindAlternatives prop (that merges with no conflict), so this line fails tsc.
+                  // Illinois passes selectPlanned as both onFindAlternatives and onSelect, so onSelect(course.id, term.id)
+                  // keeps Illinois's behavior; or call replacement.onLoad(); replacement.onShowAll() to open UGA's picker.
                   : onFindAlternatives(course.id, term.id)
               }
             >

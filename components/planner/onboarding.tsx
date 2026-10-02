@@ -11,6 +11,10 @@ import {
   type OnboardingAnswers,
   type SchoolId,
 } from '@/lib/planner/onboarding';
+// MERGE-UGA: conflict. UGA adds its uga-colleges and theme imports here for its rewritten onboarding (program picker,
+// college, graduation date, theme); Illinois added transcriptHours, used by priorSummary below (auto-merged).
+// Illinois's line alone: UGA's body fails to compile. UGA's lines alone: transcriptHours is undefined.
+// Keep both: this line plus UGA's two import blocks.
 import { transcriptCodes, transcriptHours } from '@/lib/planner/transcript';
 
 /**
@@ -181,6 +185,10 @@ export function Onboarding({
               onChange={(next) => setAnswers((a) => ({ ...a, ...next }))}
               transcript={answers.transcript ?? null}
               onTranscriptChange={(transcript) => setAnswers((a) => ({ ...a, transcript }))}
+              // MERGE-UGA: conflict. UGA passes alreadyTakenCourseCodes + onAlreadyTakenChange here (its 'already taken' picker);
+              // Illinois passes grainger (Grainger's own calculus exam-credit table). Either side alone drops the other's feature:
+              // keep all three props (prior-credit.tsx conflicts the same way). UGA's onboarding picks the major in a picker, not in
+              // answers.studying, so also set grainger from the picked program (Illinois program ids under 'engineering/').
               grainger={/\b(grainger|engineer\w*|computer science|cs)\b/i.test(answers.studying)}
             />
             <div className="onb-actions">

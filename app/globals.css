@@ -960,6 +960,10 @@ p.requirement-unnamed {
   flex: 0 0 auto;
 }
 
+/* MERGE-UGA: behavior, merges with no conflict. UGA turns .review-chip into a bare 28px circle and deletes the :hover,
+   .has-error, .has-warning and svg rules below. Only Illinois's board bar uses .review-chip (icon + 'N to review'),
+   which would lose its border and colours and squeeze into the circle. Keep these rules; UGA's IssueBadge uses .issue-icon.
+*/
 .review-chip {
   flex: 0 0 auto;
   display: inline-flex;
@@ -1172,6 +1176,11 @@ p.requirement-unnamed {
    its own contents and ignored the column. In the 228px columns the 768px
    layout uses, that pushed the card 112px past the column's right edge and cut
    the credit hours off every card in the leftmost one. */
+/* MERGE-UGA: behavior, merges with no conflict. UGA rebuilds .course-card as a 4-column grid (handle | dot | body |
+   26px controls), min-height 104px instead of 52px, and pins every direct dropdown trigger to column 4, row 2.
+   Illinois's elective-alternatives chevron (.course-alt-trigger, conflicted in course-card.tsx) would then sit on top
+   of the ... menu. Keep both: give .course-alt-trigger its own cell (e.g. grid-column 4; grid-row 1) or keep the flex card.
+*/
 .course-card {
   display: flex;
   align-items: center;
@@ -2287,6 +2296,11 @@ p.requirement-unnamed {
   }
 }
 
+/* MERGE-UGA: conflict. Both sides append here: Illinois the transcript-line and advisor-packet styles below, UGA its
+   ~3,450-line ORION workspace theme. Keep both blocks, but ORION is not scoped to UGA: it restyles every .planner-app
+   (3-column grid, finder above the board, light palette) and, through :root[data-planner-theme] that UGA's onboarding
+   sets for every school, the shared tokens. Scope ORION to UGA's workspace, or move Illinois onto it on purpose.
+*/
 /* --------------------------------------------------------------------------
    Transcript lines: what each counts as.
 

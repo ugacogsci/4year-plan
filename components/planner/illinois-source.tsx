@@ -1011,6 +1011,10 @@ export function readHorizon(
 
   // A graduation on or before the first term is a misread, not a plan, and
   // shipping it produced a one-semester degree. Fall back rather than show it.
+  // MERGE-UGA: conflict. UGA changed <= to < so a graduation term equal to the start term (a final-semester date from
+  // its onboarding picker) is kept; Illinois rewrote this with ordOf/startOrd and keeps <= (same-term graduation = misread).
+  // Illinois wins: that date resets to Spring start+4. UGA wins: same result, since fits() above already drops it.
+  // Keep ordOf/startOrd; to allow it, change both fits() and this check, ideally only for a date the student confirmed.
   if (ordOf(gradSeason, gradYear) <= startOrd || gradYear > startYear + 8) {
     gradSeason = 'Spring';
     gradYear = startYear + 4;

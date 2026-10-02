@@ -636,3 +636,46 @@ Read [CONTRIBUTING.md](./CONTRIBUTING.md), [Architecture](./docs/ARCHITECTURE.md
 - Keep this product clearly labeled as unofficial until UGA authorizes otherwise.
 
 Course titles and the constellation logo in the demo were selected from the existing `semantic-course-map` project. They are copied into this repository, so there is no runtime dependency and the original project is not modified.
+
+## Merging the uga branch
+
+Every place where merging `origin/uga` into `illinois` conflicts or breaks
+carries a comment that starts with `MERGE-UGA:`. Find them all with:
+
+```
+grep -rn "MERGE-UGA" app components lib scripts
+```
+
+Each comment says what UGA changed there, what Illinois changed, what breaks
+if one side simply wins, and how to keep both. A trial merge on 2026-10-02
+(illinois 303026e, uga 44a4648, merge base 067d355) gave 17 conflicting files
+with 82 conflict blocks, mostly `components/planner/planner-workspace.tsx` (32)
+and `lib/planner/autoplan.ts` (19). Taking either side whole does not build:
+keeping Illinois's shared files breaks 13 lines of UGA code, and keeping
+UGA's breaks 133 lines of Illinois code. So the merge keeps Illinois's engine
+and re-adds UGA's additions.
+
+Breaks that git merges with no conflict marker, so nothing flags them:
+- `lib/planner/saved-board.ts`: Illinois's save deletes UGA's
+  `four-year-planner-v3` slot, so a UGA student would lose plan tabs, minors,
+  certificates and emphases on the first save.
+- `app/api/advisor/route.ts` and `lib/planner/advisor.ts`: UGA passes the
+  school's name to `advisorSystem`; Illinois's prompt and its 23 tools are
+  Illinois-only, so a UGA student would get Illinois rules and tools.
+- `lib/planner/autoplan.ts`: UGA's engine options (the elective-pool cap
+  10/4/2 to 5/3/1 among them) change Illinois boards silently.
+- `lib/planner/illinois-data.ts`: UGA's adapter edits change how 7 Illinois
+  degrees are read.
+- The generated `public/illinois/*.json` files conflict whole: take Illinois's
+  and rebuild, do not mix.
+
+To merge, on a new branch so neither `uga` nor `illinois` breaks meanwhile:
+1. `git switch -c merge-uga illinois && git merge origin/uga`, and resolve each
+   conflict with the `MERGE-UGA` comment above it.
+2. Fix the no-conflict spots the grep finds, deleting each comment once done.
+3. `npx tsc --noEmit`, the 20 Illinois checks (`lib/planner/__*.check.mjs`,
+   Node 23, run as shown near the top of this file), and `npm run check:uga`.
+4. The sweep in `scripts/dev/sweep/` on `illinois` and on the merge branch:
+   every Illinois board should come out identical, or each change named and
+   accepted.
+5. Build a few UGA boards by hand; nothing builds UGA boards automatically yet.

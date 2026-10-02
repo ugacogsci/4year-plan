@@ -28,6 +28,9 @@ export interface HealthGroup {
   issue: PlanIssue;
 }
 
+// MERGE-UGA: UGA added isTermIssue() here (semester-column.tsx and planner-workspace.tsx import it); Illinois
+// added reviewTitle() (planner-workspace.tsx and __advisor-packet.check.mjs import it). Keep both functions.
+// Git shares one closing '}' between them, so give each function its own '}' or the file will not parse.
 /**
  * "Area: requirement", the title of a requirement's row. An area-wide
  * requirement carries the area's name as its label, so the pair would read

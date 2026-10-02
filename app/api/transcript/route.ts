@@ -69,6 +69,9 @@ const Reading = z.object({
   notes: z.array(z.string()),
 });
 
+// MERGE-UGA: Illinois rewrote this prompt for Illinois only (Illinois equivalents, IAI codes, uAchieve). UGA never
+// changed this route, and its planner and credit step still upload here, so after the merge a UGA transcript is read
+// as one sent to Illinois. Keep both: send the school from transcript-upload.tsx and use this wording only for 'illinois'.
 const SYSTEM = `You read what a student has uploaded to a University of Illinois Urbana-Champaign four-year degree planner: a transcript, a degree audit, a Transfer Evaluation Report, a Student Self-Service academic history, a DegreeWorks or uAchieve page, a Canvas course list, or a plain typed list. The student will review every line you return before anything counts, so completeness and fidelity matter more than judgement: return one entry per course line, as printed, in the order printed, across every file and page.
 
 For each line:

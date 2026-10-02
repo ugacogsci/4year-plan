@@ -1,5 +1,8 @@
 'use client';
 
+// MERGE-UGA: both sides added useEffect to this import (only the order differs). Illinois also imports
+// matchDocumentExams on the next line for the transcript onExams handler below; UGA's version lacks it.
+// Take Illinois's two lines.
 import { useMemo, useState, useEffect } from 'react';
 import { examCreditUrl, matchDocumentExams, useExamCredit } from './exam-credit';
 import { TranscriptUpload } from './transcript-upload';
@@ -32,6 +35,9 @@ export function PriorCredit({
   onChange,
   transcript,
   onTranscriptChange,
+  // MERGE-UGA: props conflict here and in the type below. UGA added alreadyTakenCourseCodes = [] and
+  // onAlreadyTakenChange (its 'Classes already taken' search); Illinois added grainger (Grainger AP table,
+  // used by onExams below). Keep all three in both places: each side's onboarding.tsx passes its own.
   grainger = false,
 }: {
   school: School | undefined;
@@ -50,6 +56,9 @@ export function PriorCredit({
   const loaded = useExamCredit(school);
   const table = loaded.entries;
   const [query, setQuery] = useState('');
+  // MERGE-UGA: both sides added state + a fetch effect here: Illinois loads /illinois/languages.json for the
+  // language picker; UGA loads school.catalog for the already-taken search. Independent; keep both.
+  // Either side alone leaves languageNames or courseQuery/courseCatalog undefined further down.
   /** The registrar's language names, for the picker. Empty until the small file arrives. */
   const [languageNames, setLanguageNames] = useState<string[]>([]);
   useEffect(() => {
@@ -139,6 +148,10 @@ export function PriorCredit({
 
   return (
     <div className="prior">
+      {/* MERGE-UGA: UGA put its 'Classes already taken at {school.short}' block (shown only when school.catalog is
+         set, so UGA only) at this same spot as Illinois's language question (Illinois only). Keep both blocks.
+         Git shares their last '</div>' and ')}', so each block needs its own closing '</div>' and ')}'.
+      */}
       {school?.id === 'illinois' && (
         <div className="onb-q">
           <span className="onb-q-label">Language other than English in high school</span>

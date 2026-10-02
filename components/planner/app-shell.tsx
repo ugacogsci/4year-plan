@@ -41,6 +41,10 @@ export function AppShell() {
   if (!ready) return null;
   if (!answers) {
     return (
+      // MERGE-UGA: conflict. UGA wraps <Onboarding> in <TooltipProvider> and offers resume only if saved.programIds is non-empty;
+      // Illinois only reworded the comment below (ALMA's chat is cleared too). Keep UGA's JSX with Illinois's comment.
+      // Catch: setups saved before the merge load with programIds [] (loadAnswers), so returning Illinois students get no
+      // 'Continue with my saved plan', and Build then wipes their saved board and chat. Consider exempting Illinois from that check.
       <Onboarding
         initial={saved}
         onResume={saved ? () => setAnswers(saved) : undefined}

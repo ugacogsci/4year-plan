@@ -19,6 +19,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import {
+  // MERGE-UGA: icon/component imports conflict (here and the ./advisor to ./plan-health block below).
+  // UGA adds FolderPlus, GripVertical, Moon, Plus, Save, Sun, IssueBadge, isTermIssue; Illinois adds Printer,
+  // toast/Toaster, BotTurns, AdvisorPacketDialog, reviewTitle. Keep the union: either list alone fails tsc.
+  // AlertCircle, ChevronDown, Info, Sparkles, Popover, PlanHealthList only fed UI UGA removes; drop if it stays gone.
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
@@ -88,6 +92,9 @@ import {
   type GeneratedPlan,
   type NotPlaced,
   type PlanningContext,
+  // MERGE-UGA: Illinois dropped `type PoolReport` from this import (PlanReport moved to saved-board.ts).
+  // UGA's new replacementScope() merges in with no conflict and still types `pools: PoolReport[]`, so the
+  // merged file fails tsc (TS2304 Cannot find name 'PoolReport'). Re-add `type PoolReport,` here.
   type ValidateOptions,
 } from '@/lib/planner/autoplan';
 import {
@@ -122,6 +129,10 @@ import {
 } from '@/lib/planner/priorities';
 import type { Alternative, ElectiveOf } from './course-card';
 import { plural } from './words';
+// MERGE-UGA: lib imports conflict (here and the types/onboarding/transcript block below). UGA adds
+// ProgramRequirements, IssueSeverity, UNDECIDED_PROGRAM_ID, timelineForPlanning, ProgramLevel,
+// degreeCompletionIssue and the theme helpers; Illinois adds exam, admission, transcript, repick, review
+// and packet helpers. Keep the union: either list alone fails tsc.
 import { alignExamsToCollege, examCourses, examCreditNotes, examElectiveHours, examGenEdCredits, examSchedule, matchDocumentExams, useExamCredit } from './exam-credit';
 import { areaProgress } from '@/lib/planner/scheduler';
 import { admissionGoal, chooseAdmission, describeAdmissionChoice, goalFromQuery, readEntry, type AdmissionChoice } from '@/lib/planner/admission-route';
@@ -160,6 +171,10 @@ import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail, loadIllinoisSyllabi } from '@/lib/planner/illinois-load';
 import type { AdvisorExecutor } from '@/lib/planner/advisor';
 
+// MERGE-UGA: UGA keeps STORAGE_KEY and adds UNDECIDED_PROGRAM and openPlanThrough() here; Illinois deleted
+// STORAGE_KEY (boards now save through saved-board.ts v4). Keep UNDECIDED_PROGRAM and openPlanThrough
+// (programOptions and the Undecided open plan use them). Drop STORAGE_KEY: writeSavedBoard deletes that
+// same v3 key on every autosave.
 /**
  * Whether a course answers a search: by code, by title, or by the name of its
  * department, so "accounting" finds ACCY and not only the titles that spell it.
@@ -172,6 +187,10 @@ function matchesQuery(course: Course, q: string): boolean {
   );
 }
 
+// MERGE-UGA: UGA's dark mode merges in with no conflict but touches window.localStorage unguarded:
+// readStoredTheme in the theme useState initializer, setItem in the theme effect. Where the getter throws
+// (the case this helper exists for) the planner now crashes instead of running unsaved.
+// Route both through deviceStorage().
 /** This device's storage, or null where the browser refuses it (some private windows throw on the getter). */
 function deviceStorage(): BoardStorage | null {
   try {
@@ -270,6 +289,10 @@ function describeAway(a: AwayTerm): string {
   return `${a.season} ${a.year} (${what}${awayCredits(a)} hours)`;
 }
 
+// MERGE-UGA: UGA adds Stored (v3), PlanTab/PlanGroup, UndoSnapshot, LoadedBundle and combinePrograms here;
+// Illinois adds describeShape through describeGoals. Keep both (the } after the block is shared: add one).
+// Stored and UndoSnapshot can go once save/undo use saved-board.ts. combinePrograms reads the hours rule's
+// `source`, which illinois-data.ts must keep from UGA.
 /** The plan shape in a sentence for ALMA's board description. Empty when nothing is set. */
 function describeShape(shape: PlanShape): string {
   const parts = [
@@ -337,6 +360,10 @@ export function PlannerWorkspace({
    */
   const examCredit = useExamCredit(school);
 
+  // MERGE-UGA: UGA adds plan tabs/groups, termWidths, an UndoSnapshot stack and programIds/minorIds/
+  // certificateIds, deriving programId from programIds[0]; Illinois types the stack as UndoEntry and adds
+  // boardEdited, undoneTurns, saveState, saveTick beside the old programId useState. Keep both, minus
+  // Illinois's programId state and UGA's UndoSnapshot stack; setProgramId calls become setProgramIds.
   const [plan, setPlan] = useState<PlanState | null>(null);
   /**
    * Steps back, newest last. Each holds the whole board, report and all
@@ -449,6 +476,10 @@ export function PlannerWorkspace({
   useEffect(() => {
     planRef.current = plan;
   }, [plan]);
+  // MERGE-UGA: UGA starts targetTermCredits at defaultTargetTermCredits (9 for graduate plans); Illinois adds
+  // the priorities state on the next line. UGA's side alone: `priorities` is undefined in buildPlan and the
+  // ALMA tools. Illinois's side alone: graduate plans start balanced, not at 9. Keep UGA's initializer and
+  // Illinois's priorities line.
   const [targetTermCredits, setTargetTermCredits] = useState<number | null>(null);
   const [priorities, setPriorities] = useState<Priorities>(DEFAULT_PRIORITIES);
 
@@ -540,6 +571,10 @@ export function PlannerWorkspace({
         .map((p) => ({ id: p.id, name: p.name }))
         .sort((a, b) => a.name.localeCompare(b.name));
     }
+    // MERGE-UGA: UGA's uga-source.tsx arrives whole (Illinois never changed it) and uga.programs now holds 783 programs:
+    // 161 bachelor's plus 123 minors, 113 certificates and 386 graduate degrees. This list and guessUgaProgram below treat
+    // all as degrees; UGA's own example answer ('considering a computer science minor') picks 'Minor in Computer Science'.
+    // Keep both: filter with isUgaUndergraduateDegree here and in the guess; offer the rest through UGA's picker.
     if (isUga) return (uga?.programs ?? []).map((program) => ({ id: program.id, name: program.name }));
     return samplePrograms.map((p) => ({ id: p.id, name: `${p.name}, ${p.degree}` }));
   }, [isIllinois, isUga, core, uga]);
@@ -553,6 +588,10 @@ export function PlannerWorkspace({
      * A broken or missing entry gives a fresh plan, and then the saved chat
      * goes too, because it was about a board that is not coming back.
      */
+    // MERGE-UGA: UGA reads its own v3 entry (tabs, groups, majors/minors) and restores only if the saved
+    // selection matches; Illinois reads v4 via readSavedBoard and calls setProgramId, gone after the merge.
+    // Keep Illinois's reader: seed setProgramIds([saved.programId]) only when programIds is empty, and skip a
+    // board saved for another selection. migrateLegacyBoard drops UGA's saved tabs/groups.
     const saved = readSavedBoard(deviceStorage(), school?.id ?? '');
     if (!saved) {
       forgetChat(deviceStorage());
@@ -580,6 +619,10 @@ export function PlannerWorkspace({
   // ---- pick a degree -------------------------------------------------------
 
   useEffect(() => {
+    // MERGE-UGA: UGA deleted this guess effect and the guessProgram/guessUgaProgram imports: degrees are now
+    // picked explicitly into answers.programIds, and an empty list shows UGA's 'Choose your degree program'
+    // picker. Illinois's side alone calls setProgramId, which no longer exists. Take UGA's side; a returning
+    // student's degree then comes from the restore effect above.
     // The saved board names its degree; a guess landing in the same pass
     // would replace it with whatever the About-you words point at.
     if (programId || restored.current?.programId) return;
@@ -628,6 +671,10 @@ export function PlannerWorkspace({
     };
   }, [isIllinois, isUga, core, uga, programId]);
 
+  // MERGE-UGA: UGA keys the degree page by programKey (the merged `fetched` is {key, value: LoadedBundle});
+  // Illinois adds examsAligned, catalogCredits and admissionChoice between `loaded` and `programBusy`.
+  // Illinois's fetched?.id lines no longer compile; UGA's side drops memos buildPlan needs. Keep UGA's
+  // `loaded` and `programBusy` lines with Illinois's three memos between them.
   const loaded = fetched?.id === programId ? fetched.value : null;
 
   /**
@@ -678,6 +725,9 @@ export function PlannerWorkspace({
   const buildPlan = useCallback(() => {
     if (!isCatalogSchool) {
       const sample = createSamplePlan();
+      // MERGE-UGA: demo-plan branch. UGA calls replaceActivePlan(sample) so the plan tabs get a first tab;
+      // Illinois resets repickedFor/studentAdded and calls setPlan. Keep the two ref resets plus
+      // replaceActivePlan(sample).
       repickedFor.current = null;
       studentAdded.current = new Set();
       setPlan(sample);
@@ -692,6 +742,10 @@ export function PlannerWorkspace({
     }
     if (!context || !loaded) return;
 
+    // MERGE-UGA: UGA adds alreadyTakenCourseCodes to prior, the Undecided open plan, a try/catch and graduate/
+    // elective-cap options Illinois's AutoplanInput lacks (see autoplan.ts). Illinois adds exams, priorities,
+    // shape, admission, residency, and closes this withGenEdCredit( (UGA's side alone: parse error). Keep
+    // Illinois's side, add UGA's pieces and its `if (!loaded) return;` (the guard above lost `!loaded`).
     const prior = withGenEdCredit(readPriorCredit(
       answers?.transferText ?? '',
       answers?.exams.length ?? 0,
@@ -826,6 +880,10 @@ export function PlannerWorkspace({
      * that turn's single step already holds the board from before it, and
      * "Undo these changes" has to be able to put it back.
      */
+    // MERGE-UGA: UGA's side keeps the old setReport({...}) and setUndoStack([]) that Illinois replaced with
+    // reportOf above and this keepUndoOnBuild check, and adds needsAttention, which the status line reads.
+    // Keep these two lines plus UGA's needsAttention. Next hunk: union both buildPlan dep lists, keep
+    // Illinois's shape/credit watchers and applyBoard (have it call replaceActivePlan).
     if (keepUndoOnBuild.current) keepUndoOnBuild.current = false;
     else setUndoStack([]);
     setStatus(
@@ -909,6 +967,9 @@ export function PlannerWorkspace({
     if (restored.current) {
       const saved = restored.current;
       restored.current = null;
+      // MERGE-UGA: UGA restores the saved plan tabs, groups and active tab here; Illinois restores one board with
+      // applyBoard. UGA's side alone reads saved.plan/plans/planGroups/activePlanId, which SavedBoard v4 lacks.
+      // Keep applyBoard, then restore tabs/groups once SavedBoard stores them (see the autosave below).
       applyBoard(saved.board);
       setTargetTermId(saved.board.plan.terms[0]?.id ?? '');
       setStatus('Your saved plan, restored from this device.');
@@ -951,6 +1012,9 @@ export function PlannerWorkspace({
       return;
     }
     const saved: Omit<SavedBoard, 'savedAt'> = {
+      // MERGE-UGA: this autosave keeps one board and one programId. After the merge UGA's plan tabs, groups
+      // and activePlanId are never saved (majors/minors persist through answers), so extra tabs vanish on
+      // reload. Add plans/planGroups/activePlanId (and programKey) to SavedBoard here and in saved-board.ts.
       schemaVersion: 4,
       schoolId: school?.id ?? '',
       programId,
@@ -1022,6 +1086,8 @@ export function PlannerWorkspace({
     return out;
   }, [plan, courseIndex]);
 
+  // MERGE-UGA: UGA adds completedCourses (the rail's priorCourses list) here; Illinois adds priorCreditHours,
+  // which the credit total, validatePlan and ALMA read. Not alternatives: keep both memos.
   /**
    * Every hour the student holds, as the registrar would count it: each held
    * class once at its catalog hours (none the plan forfeited), plus exam and
@@ -1192,6 +1258,10 @@ export function PlannerWorkspace({
     ];
   }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits, admissionChoice]);
 
+  // MERGE-UGA: UGA moved `issues` below `areas` (its degreeCompletionIssue reads areas, pools, credits) and
+  // adds planWideIssues/planWideSeverity for the plan tabs; Illinois passes more validatePlan options here.
+  // Keeping both declares `issues` twice. Keep one, after `areas`: Illinois's validatePlan options plus
+  // UGA's completion issue and planWide* memos.
   const issues = useMemo(() => {
     if (!plan) return [];
     const validation = context
@@ -1339,6 +1409,10 @@ export function PlannerWorkspace({
         if (course) have.add(normCode(course.code));
       }
     }
+    // MERGE-UGA: UGA passes equivalents + allowCrossAreaOverlap and rebuilds UGA's General Electives row from
+    // credits.total.min (then its moved `issues` block); Illinois only grew the dep list for the
+    // illinoisProgress branch above. Keep UGA's body with the union of both dep lists: UGA's short list leaves
+    // Illinois's rows stale.
     return areaProgress(loaded.program, have);
   }, [loaded, plan, completedCodes, courseIndex, isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits, context]);
 
@@ -1446,6 +1520,10 @@ export function PlannerWorkspace({
 
   const selectedCourse = selectedCourseId ? courseIndex.get(selectedCourseId) : undefined;
 
+  // MERGE-UGA: UGA adds clonePlan, the plan-tab/group functions, resizeTerm and markCourseCompleted here;
+  // Illinois adds boardNow/settingsNow, undo-step commit and the ALMA turn functions. Keep all (the } after
+  // the block is shared: add one). UGA's tabs hold only a PlanState, so report/studentAdded stay with the
+  // active tab; switching tabs shows another tab's card marks unless tabs store a BoardState.
   // ---- plan edits -----------------------------------------------------------
 
   /**
@@ -1486,6 +1564,9 @@ export function PlannerWorkspace({
    * back the whole answer: three history courses in, three elective slots out.
    * `added` are cards that read "added" from now on.
    */
+  // MERGE-UGA: UGA's commit(next, alreadyTakenCodes?) updates the active tab and answers; this one records
+  // undo steps and ALMA turns, and ALMA tools call commit(next, { by: 'alma' }), which UGA's signature
+  // rejects. Keep this one, add an alreadyTaken option, and call replaceActivePlan(next) instead of setPlan.
   function commit(next: PlanState, options: { by?: 'student' | 'alma'; summary?: string; added?: string[] } = {}) {
     const before = boardNow();
     if (!before) return;
@@ -1573,6 +1654,8 @@ export function PlannerWorkspace({
               term.id === termId ? { ...term, courseIds: [...term.courseIds, courseId] } : term,
             ),
           },
+      // MERGE-UGA: UGA's second argument writes the course to answers.alreadyTakenCourseCodes when it is marked
+      // completed; Illinois's marks the card as student-added. Pass both through Illinois's options object.
       { added: termId === 'completed' ? [] : [courseId] },
     );
     setSelectedCourseId(courseId);
@@ -1589,6 +1672,10 @@ export function PlannerWorkspace({
    * fit first, read off the board as it stands. Built only while a slot is open,
    * because it walks the whole catalog against the board's prerequisites.
    */
+  // MERGE-UGA: chooser conflict (2 hunks). UGA: chooserData scoped by replacementScope() over
+  // planWithoutCourse, replacementCourseIds, prepareReplacement. Illinois: priorForOptions/interestsText (also
+  // read by re-pick and ALMA) and chooserOptions {options, whys}, read by the merged CourseExplorer. Keep both;
+  // drop UGA's `const chooserOptions = ...` (name clash); port candidateCodes/electiveLevelRange to electiveOptions.
   /** What the student walks in with, as the option lists and the re-pick read it. */
   const priorForOptions = useMemo(
     () =>
@@ -2580,6 +2667,8 @@ export function PlannerWorkspace({
           ok: true,
           ...describe(c),
           role_on_board: holding(c.id) ? roleOf(c) : null,
+          // MERGE-UGA: UGA falls back to the course's own description, prerequisiteText and prerequisites (UGA courses
+          // have no Illinois detail page); Illinois adds CRNC info. Keep ...crncOf(c) and UGA's three fallback lines.
           ...crncOf(c),
           description: detail?.course?.description ?? null,
           prerequisite_sentence: prereq?.text || detail?.course?.prereqText || null,
@@ -3497,6 +3586,9 @@ export function PlannerWorkspace({
           id: L.loaded.summary.id,
           name: L.loaded.program.name,
           college: L.loaded.program.college,
+          // MERGE-UGA: after the merge L.loaded is UGA's LoadedBundle, which has urls[] not url (TS2551). With two
+          // majors selected its summary and blocks are the combined bundle, not one program. Use
+          // L.loaded.urls[0]?.url, and compare from L.loaded.sources[0] when more than one program is selected.
           url: L.loaded.url,
           totalCredits: degreeTotalNow(),
           requirements: L.loaded.blocks,
@@ -3634,6 +3726,9 @@ export function PlannerWorkspace({
    * settings and the record that turn changed, and its reply is told.
    */
   function undo() {
+    // MERGE-UGA: UGA's undo pops an UndoSnapshot, calls replaceActivePlan and restores
+    // answers.alreadyTakenCourseCodes; Illinois pops an UndoEntry and the merged lines below call
+    // applyBoard(entry.before). Keep Illinois's `entry`; add alreadyTakenCourseCodes to UndoEntry and restore it.
     const entry = undoStack.at(-1);
     if (!entry) return;
     setUndoStack((current) => current.slice(0, -1));
@@ -3673,6 +3768,9 @@ export function PlannerWorkspace({
     else setStatus('Last change undone.');
   }
 
+  // MERGE-UGA: UGA adds save(), a manual v3 write of plans/groups/programIds; Illinois adds undoAlmaTurn and
+  // autosaves v4 instead. Keep undoAlmaTurn (the } below is shared: keeping both needs one more). Don't keep
+  // save() as is: writeSavedBoard deletes the v3 key on the next autosave. Put tabs/ids in SavedBoard instead.
   /** "Undo these changes" on an ALMA reply: only while that turn is still the newest step. */
   function undoAlmaTurn(id: string) {
     if (undoStack.at(-1)?.turn?.id !== id) return;
@@ -3710,6 +3808,9 @@ export function PlannerWorkspace({
       try {
         const parsed = JSON.parse(await file.text()) as { plan?: unknown; programId?: unknown };
         if (isPlanState(parsed.plan)) {
+          // MERGE-UGA: UGA resets the plan tabs/groups to one tab after loading a file; Illinois pushes an undo step
+          // and applyBoard()s the file's plan. Keep both: pushUndo + applyBoard, then
+          // setPlanTabs/setPlanGroups/setActivePlanId.
           // A file holds the terms and nothing about why each card is there,
           // so the report of the board it replaces does not come with it.
           const before = boardNow();
@@ -3852,6 +3953,9 @@ export function PlannerWorkspace({
     );
   }
 
+  // MERGE-UGA: UGA's side deletes this line, the counts below and the board-bar review Popover
+  // (PlanHealthList), showing plan-wide IssueBadges instead; git raises no conflict. openPacket below still
+  // reads `grouped` (TS2304). Keep `const grouped` for the packet, and decide whether the review list stays.
   const grouped = groupIssues(issues);
   const actionable = grouped.filter((g) => g.severity !== 'info').length;
   const errors = grouped.filter((g) => g.severity === 'error').length;
@@ -3907,6 +4011,8 @@ export function PlannerWorkspace({
         program: {
           name: activeProgramName ?? 'Your plan',
           college: loaded?.program.college ?? null,
+          // MERGE-UGA: after the merge `loaded` is UGA's LoadedBundle, which has urls[] (one per selected program),
+          // not url (TS2551). Use loaded?.urls[0]?.url ?? null, or list every page for a double major.
           url: loaded?.url ?? null,
           total: degreeTotalNow() ?? activeProgramTotal,
           totalPublished: !isCatalogSchool || Boolean(loaded?.summary.totalCredits || loaded?.program.totalCredits),
@@ -3965,6 +4071,10 @@ export function PlannerWorkspace({
           {narrow && (
             <Button
               variant="outline"
+              // MERGE-UGA: header/menu conflict (this hunk and the profile menu below). UGA: logo rail toggle; Undo, dark
+              // mode, majors, university, Save in the menu. Illinois: save badge, ALMA-aware Undo button, Print for my
+              // advisor. Illinois's side alone uses `narrow` (UGA deleted it) and puts UGA's toggle logo inside the Undo
+              // button. Keep UGA's toggle and menu with Illinois's badge, Undo label and Print; drop Save (autosave).
               aria-expanded={railOpen}
               onClick={() => setRailOpen((open) => !open)}
             >
@@ -3998,6 +4108,11 @@ export function PlannerWorkspace({
             <DropdownMenuTrigger render={<Button variant="outline" />}>
               Plan <ChevronDown />
             </DropdownMenuTrigger>
+            {/* MERGE-UGA: __advisor-packet.check.mjs reads this file as text and tests only the FIRST DropdownMenuContent with
+               align end for 'Print for my advisor'. UGA's header adds a profile menu (className w-56 profile-menu) without that
+               item; if it ends up above this one the check fails though the app works. Keep both: put the print item in UGA's
+               menu too, or make the check find this menu by its className.
+            */}
             <DropdownMenuContent align="end" className="w-56">
               {/* A status, not a button: the board saves itself after every
                   change. Here as well as in the header, which hides it on a
@@ -4022,12 +4137,18 @@ export function PlannerWorkspace({
         schoolShort={school?.short ?? 'Your school'}
         portal={school?.portal ?? 'your student portal'}
         programName={activeProgramName}
+        // MERGE-UGA: UGA's props on this panel merge in with no conflict: programUrls={loaded?.urls ?? []}, onClose,
+        // programLevel, supportsGraduatePrograms, onProgramLevelChange and the multi-program props. Illinois's
+        // RailProps has programUrl/programId/onProgramChange instead (TS2322), so student-profile-panel.tsx must
+        // accept UGA's props and Illinois's (priorities, onRepick, ...) when its own conflict is resolved.
         programUrl={loaded?.url ?? null}
         digest={answers ? summarize(answers) : ''}
         onStartOver={startOver}
         plannedCredits={totalCredits}
         creditNote={creditNote}
         degreeTotal={activeProgramTotal}
+        // MERGE-UGA: UGA counts completedCourseIds and adds priorCourses={completedCourses}; Illinois counts
+        // distinct held codes (a cross-listed class once). Keep Illinois's priorCount plus UGA's priorCourses prop.
         priorCount={context ? distinctHeld([...completedCodes], context).codes.length : (plan?.completedCourseIds.length ?? 0)}
         transcript={
           <TranscriptUpload
@@ -4054,6 +4175,10 @@ export function PlannerWorkspace({
         }
         areas={areas}
         programs={programOptions}
+        // MERGE-UGA: UGA's multi-select props (programIds, minors, certificates, emphases via changePrograms etc.)
+        // replace Illinois's programId/onProgramChange, which needs setProgramId (gone). Keep UGA's, but call
+        // forgetThisBoard() in resetProgramPlan as this handler did: Illinois's restore does not check the degree,
+        // so a reload before the new board saves brings back the old degree's board.
         programId={programId}
         onProgramChange={(id) => {
           // The board of the old degree ends here, and ALMA's conversation
@@ -4122,6 +4247,9 @@ export function PlannerWorkspace({
 
           {isIllinois && (
             <BotLauncher
+              // MERGE-UGA: UGA deletes this launcher (no conflict) and adds one in the header for every catalog school,
+              // without botName. Illinois's BotLauncher requires botName (TS2741 if advisor.tsx keeps Illinois's): pass
+              // botName={botName} there. This copy also closed the finder when chat opened; UGA's does not.
               botName={botName}
               open={chatOpen}
               onToggle={() => {
@@ -4227,6 +4355,10 @@ export function PlannerWorkspace({
                 onRemoveCourse={removeCourse}
                 onAddCourse={openFinderFor}
                 onDropCourse={addCourse}
+                // MERGE-UGA: UGA's props on this call merge in with no conflict: onFindAlternatives goes;
+                // onMarkCourseCompleted, replacement, onPrepareReplacement, onReplaceCourse, onShowReplacementCourse,
+                // onShowReplacements, width, onWidthChange arrive beside Illinois's alternativesFor/onSwapCourse.
+                // semester-column.tsx must accept both sets when its own conflict is resolved (else TS2322 here).
                 onFindAlternatives={selectPlanned}
                 onChooseElective={openChooser}
                 alternativesFor={alternativesFor}
@@ -4239,6 +4371,10 @@ export function PlannerWorkspace({
       </section>
 
       <CourseExplorer
+        // MERGE-UGA: git merges UGA's props into this call with no conflict: courses={catalog} (mapCourses and
+        // MAP_LIMIT deleted), theme, onHeightChange, onRemoveCourse, highlightedCourseIds, chooserOnMap. Taking this
+        // Illinois call whole fails tsc (TS2739: UGA's CourseExplorerProps needs those four). Keep UGA's props; they
+        // need replacementCourseIds (chooser hunk), and chooser= still reads Illinois's chooserOptions {options, whys}.
         searchHits={searchHits}
         results={searchResults}
         chooser={
@@ -4286,6 +4422,9 @@ export function PlannerWorkspace({
         */}
       {isIllinois && (
         <BotPanel
+          // MERGE-UGA: UGA's lines here merge in with no conflict: shown for every catalog school, key and programId
+          // become programKey, and schoolId/schoolName/onOpen are added, which Illinois's BotPanelProps lacks (TS2322
+          // until advisor.tsx accepts them). Chats saved under a bare programId no longer match and are dropped once.
           key={programId ?? 'no-degree'}
           botName={botName}
           schoolShort={school?.short ?? 'your school'}
@@ -4301,6 +4440,10 @@ export function PlannerWorkspace({
             'I really like history. Can you work some in?',
             'Which term is hardest?',
           ]}
+          // MERGE-UGA: UGA sets ready={Boolean(context)} (ALMA opens before a board exists, and on the Undecided
+          // open plan) and drops turns; Illinois waits for the board and passes turns={almaTurns} for 'Undo these
+          // changes'. Keep turns. Suggest ready={Boolean(plan && context && (loaded || isUndecided))}: Illinois's
+          // commit() silently drops edits when no board exists.
           ready={Boolean(plan && context && loaded)}
           turns={almaTurns}
         />
@@ -4481,6 +4624,9 @@ function termOrd(season: SemesterSeason, year: number): number {
  * use rather than a copy of it.
  */
 function horizonFor(answers: OnboardingAnswers | null | undefined, nowYear: number, shape: PlanShape): Horizon {
+  // MERGE-UGA: UGA's onboarding adds graduationSeason/graduationYear answers and its buildPlan reads
+  // readHorizon(timelineForPlanning(answers)). This reads answers.timeline only, so a graduation term picked
+  // in UGA's onboarding is ignored after the merge. Use timelineForPlanning(answers) here.
   const read = readHorizon(answers?.timeline ?? '', { season: 'Fall', year: nowYear });
   /**
    * A record with courses in progress in the plan's first term means the

@@ -204,6 +204,10 @@ export function questionsFor(school: School | undefined): Array<{
   return [
     {
       key: 'studying',
+      // MERGE-UGA: behavior, merges with no conflict. UGA rewords this for every school to 'What else should the plan make
+      // room for?', since its onboarding picks the major into answers.programIds. Illinois still guesses the degree from
+      // answers.studying (guessProgram in planner-workspace.tsx), so the picked major is ignored and a minor named here can be guessed as the major.
+      // Keep both: plan Illinois from a picked programIds entry (not UNDECIDED), or keep this question for Illinois.
       label: 'What are you studying, or thinking about studying?',
       hint: 'A declared major, two you are torn between, or just the subjects you like.',
       placeholder: s
@@ -235,6 +239,10 @@ export function questionsFor(school: School | undefined): Array<{
  */
 const KEY = 'fourYear.onboarding.v2';
 
+// MERGE-UGA: UGA's version of this function merges in with no conflict. It gives programIds: [] to every setup saved by the Illinois build,
+// and UGA's app-shell offers 'Continue with my saved plan' only when programIds is non-empty. With that line a
+// returning Illinois student loses the link, and redoing the questions runs clearSavedPlan, deleting their saved board.
+// Keep both: gate the resume link on programIds for UGA only, or on a saved v4 board existing.
 export function loadAnswers(): OnboardingAnswers | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -328,6 +336,10 @@ export function examRows(taken: PriorExam, table: ExamCreditEntry[]): ExamCredit
   });
 }
 
+// MERGE-UGA: UGA kept the old first-matching-row applyExamCredit, so UGA students get this version after the merge.
+// This only matches 3-digit codes, so UGA's 4-digit codes skip count-once and every distinct row is summed:
+// UGA IB Italian SL 7 goes from 10 to 21 hours. Widening to \d{3,4} fixes that and AP English Lang + Lit (12 to 6),
+// but drops AP Calc AB + BC to 4 (should be 8). Re-test UGA exam pairs against public/uga-exam-credit.json.
 const GRANT_COURSE = /^[A-Z]{2,5} \d{3}[A-Z]?$/;
 
 /**

@@ -586,6 +586,10 @@ export type RequirementRule =
       joinedByOr?: boolean;
     }
   | {
+      // MERGE-UGA: conflict (hunk right after this member). UGA added source?: 'catalog' | 'explicit-elective' | 'parser-gap'
+      // to the 'hours' rule; Illinois added minLevel and exclude. Illinois wins: uga-source.tsx's two source: literals and
+      // UGA's rule.source reads fail to compile. UGA wins: two 'hours' members, so minLevel/exclude/source reads fail.
+      // Keep both: one 'hours' member with minLevel, exclude and source.
       kind: 'hours';
       hours: number;
       genEd: string[] | null;
@@ -4116,6 +4120,10 @@ export function adaptIllinoisPrograms(
       const areaId = `${raw.id}::${ai}`;
       const schedulerGroups: RequirementGroup[] = [];
 
+      // MERGE-UGA: behavior, merges with no conflict. UGA adds areaLabel below: an unheaded area borrows its first labelled
+      // block's label, else 'Degree requirements', and its unlabelled blocks take that as their label. Illinois leaves these
+      // empty on purpose: illinois-progress.ts then heads the row by the rule's own words or courses, else 'No heading published'.
+      // Merged, rows get a sibling's heading. Keep Illinois's labels here; apply UGA's fallback only in UGA's own UI.
       const rules = byArea[ai] ?? { blocks: [], droppedRows: 0, droppedTotalRows: 0, pools: 0, areaHours: null };
       dropped += rules.droppedRows;
       droppedTotalRows += rules.droppedTotalRows;

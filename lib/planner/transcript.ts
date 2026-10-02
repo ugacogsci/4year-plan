@@ -240,6 +240,10 @@ export function normalizeTerm(raw: string | null): string | null {
  * into an Illinois planner, and the codes either match the catalog or they do
  * not.
  */
+// MERGE-UGA: Home means UIUC only, and UGA never changed this file. After the merge a UGA student's own UGA transcript
+// is 'another school': with no UGA catalog every line counts as transfer hours toward the total (the old code counted
+// none), while the plan still books those same courses, so the hours are counted twice.
+// Keep both: pass the school in, treat its own name as home, and match against that school's codes.
 export function isHomeTranscript(institution: string | null | undefined): boolean {
   if (!institution || !institution.trim()) return true;
   const name = institution.toLowerCase();

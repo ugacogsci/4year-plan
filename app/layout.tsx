@@ -5,6 +5,9 @@ import './globals.css';
  * School-neutral, because the student picks the school in onboarding.
  * The previous title named one university over another university's catalog.
  */
+// MERGE-UGA: UGA renamed the app ORION here (title and image alt) and replaced app/icon.png. Illinois changed neither, so
+// both arrive silently, while Illinois's planner-workspace header still says 'Four Year Planner' with /constellation-logo.png.
+// Pick one name and logo and use it in layout, header and onboarding.
 const title = 'Four Year Planner';
 const description =
   'Plan every semester against your own university catalog, prerequisites and schedule.';

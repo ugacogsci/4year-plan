@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 import { CourseCard, type ElectiveOf } from './course-card';
+// MERGE-UGA: import conflict. Illinois added the Alternative type (alternativesFor prop); UGA added
+// IssueBadge and isTermIssue (semester notes in the column header). Keep all three imports;
+// isTermIssue also needs UGA's function kept in plan-health.tsx.
 import type { Alternative } from './course-card';
 
 interface SemesterColumnProps {
@@ -19,6 +22,10 @@ interface SemesterColumnProps {
   onRemoveCourse: (courseId: string, termId: string) => void;
   onAddCourse: (termId: string) => void;
   onDropCourse: (courseId: string, termId: string) => void;
+  // MERGE-UGA: UGA removes this prop and adds required ones (onMarkCourseCompleted, replacement + 4 callbacks,
+  // onWidthChange); onMoveCourse gains targetCourseId/placeAfter. Git takes UGA's props, so Illinois's
+  // <SemesterColumn> call in planner-workspace.tsx fails tsc until it passes them, and Illinois's moveCourse
+  // returns early when from === to, so same-column reordering does nothing until it adopts UGA's version.
   onFindAlternatives: (courseId: string, termId: string) => void;
   /** Opens the chooser for an elective slot. */
   onChooseElective?: (courseId: string, termId: string) => void;

@@ -188,6 +188,10 @@ export function livePools({
  * in the plan" after the student added the sixth course is telling them to fix
  * something they have already fixed.
  */
+// MERGE-UGA: UGA's version of this file arrives whole (Illinois never changed it). Its message reads constraint.count,
+// hoursTarget and hours, which Illinois's PoolReport constraints in autoplan.ts lack (tsc TS2345). A pool whose block is
+// not loaded falls back to those, and prints 'This plan has undefined of 2 required selections'. Keep both: add those
+// fields to PoolReport.constraints, and keep UGA's PoolConstraint hours/hourCodes/distinctLists in illinois-data.ts.
 export function poolShortfalls(pools: PoolReport[]): UnsatisfiedRequirement[] {
   const out: UnsatisfiedRequirement[] = [];
   for (const pool of pools) {

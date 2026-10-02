@@ -27,8 +27,16 @@ export const ADVISOR_MODEL = 'claude-opus-5';
 // The tools, as the model sees them
 // ---------------------------------------------------------------------------
 
+// MERGE-UGA: one list for every school. UGA only reworded search_courses, term_summary, university_answer.
+// Illinois grew it from 9 tools to 23; several are Illinois-only (exam_credit, program_admission,
+// find_equivalent, course_syllabus, record_prior_credit). UGA's executor answers only the first 9, so UGA
+// students get Illinois answers or 'Unknown tool'. Keep both: export shared + Illinois-only lists; route.ts picks.
 export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
+    // MERGE-UGA: conflict in this description. UGA: 'the Illinois catalog' -> 'the active university catalog'.
+    // Illinois added the fit (0 to 1, with reasons) and apply_first sentences its search results now carry.
+    // Taking UGA's drops the fit guidance; taking Illinois's tells UGA students they search the Illinois catalog.
+    // Keep Illinois's text with UGA's 'active university catalog' wording.
     name: 'search_courses',
     description:
       'Find courses in the Illinois catalog by code, title or department, e.g. "history", "HIST 2", "data science". When term is given, only courses the student could actually take in that term are returned: prerequisites met by what is earlier on the board, class standing met, nothing the catalog says does not count beside a course already held, nothing already on the board. Each result carries fit: how well it matches the student\'s priorities (0 to 1) and the reasons in words, and apply_first when the course is behind an application. Use this before adding or replacing anything, and prefer the better fit when the student has not named a course.',
@@ -66,6 +74,10 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    // MERGE-UGA: conflict in this description. UGA swapped 'how heavy it reads against Illinois grade history'
+    // for 'any available workload evidence'; Illinois added the crnc_eligible/crnc_why clause.
+    // Taking UGA's drops the CR/NC clause; taking Illinois's promises UGA students Illinois grade history.
+    // Keep Illinois's CR/NC clause with UGA's 'any available workload evidence' wording.
     name: 'term_summary',
     description:
       'One term of the board: its courses with why each is there (required, from a list, elective slot, or added by the student) and whether each could be taken credit/no credit (crnc_eligible, crnc_why), its credit hours, how heavy it reads against Illinois grade history, and any review issues on it.',
@@ -445,6 +457,10 @@ export function isBoardNote(text: string): boolean {
  * not print is left to university_answer. Colleges' load rules live in
  * college-rules.ts and reach the model through set_plan_shape.
  */
+// MERGE-UGA: conflict starts at the comment above and runs through advisorSystem's first two lines. UGA's side
+// has no ILLINOIS_RULES, WHO_DECIDES or SITUATIONS, so taking it deletes them and the prompt fails tsc.
+// Keep all three, but add them to the prompt only for Illinois: they hold Illinois deadlines, offices and
+// crisis phone numbers (CARE Center, Emergency Dean) that must never reach a UGA student.
 const ILLINOIS_RULES = [
   // registrar.illinois.edu/registration/registration-process/max-min-enrollment-levels/ (read 2026-09-24): full time
   // is 12 or more hours in fall or spring; 18 is the maximum without approval (9 in summer); college approval below 12.
@@ -518,6 +534,10 @@ const SITUATIONS = [
   "- A career goal: the summers after the second and third years are the usual internship summers, so ask before booking classes in them (set_plan_shape stops for the answer). Where the degree has a research, independent study, thesis or capstone course, mention it for year 3 or 4. The board lists the programs for their goal that a student applies to (the Gies finance academies, FIN 390 to 396, for one): say the program exists, who applies and when, and never book it. A course whose tool result carries apply_first is the same kind: added only after the student says they were admitted.",
 ].join('\n');
 
+// MERGE-UGA: conflict. UGA changed this to advisorSystem(bot, schoolName, schoolShort). route.ts and a ${schoolShort}
+// line in the prompt below both merge in from UGA, so keeping this 1-arg line fails tsc.
+// UGA's line alone gives UGA students the Illinois prompt below (Illinois rules, offices, CARE Center numbers, Parkland).
+// Keep UGA's 3 args and add a schoolId; include the Illinois-only sections only when it is 'illinois'.
 export function advisorSystem(bot: string): string {
   return `You are ${bot}, the University of Illinois Urbana-Champaign assistant. Students ask you anything about Illinois: registration, deadlines, dropping and adding, tuition, housing, dining, parking, offices and who to contact, majors and what they need, campus life, policies. You answer those from the university's own published pages through the university_answer tool. You also sit inside a four-year course planner: the student is looking at their board, one column per term, a card per course, and you can read it and change it with tools.
 

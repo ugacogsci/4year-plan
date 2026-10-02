@@ -62,9 +62,16 @@ export async function POST(req: Request) {
           // job. Streaming keeps the wait honest.
           output_config: { effort: 'high' },
           system: [
+            // MERGE-UGA: UGA calls advisorSystem(bot, schoolName, schoolShort) here, both names read from the request body.
+            // This file auto-merges to UGA's call, but Illinois's advisorSystem(bot) takes one argument (tsc TS2554) and always
+            // says it is the University of Illinois assistant. Keep both: take UGA's 3-argument signature, keep Illinois's rules
+            // for 'illinois' only, and send schoolName/schoolShort from advisor.tsx.
             { type: 'text', text: advisorSystem(bot), cache_control: { type: 'ephemeral' } },
             { type: 'text', text: `The board right now:\n\n${board}` },
           ],
+          // MERGE-UGA: UGA left this line alone, but Illinois's ADVISOR_TOOLS now has 23 tools, several Illinois-only
+          // (Illinois AP table, Gies/Grainger admission, Illinois syllabi). As is, every UGA student gets them all.
+          // Keep both: pick the list by schoolId here (all 23 for illinois; for uga only what its executor answers).
           tools: ADVISOR_TOOLS,
           messages,
         });

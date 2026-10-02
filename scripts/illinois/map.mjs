@@ -583,6 +583,10 @@ function layout(X, D, edges, A, B) {
  * exactly uniform, so the map shows which courses are near which, never how
  * far apart two topics are. It is monotone per axis, so nothing is reordered.
  */
+// MERGE-UGA: behavior, merges with no conflict. UGA replaces this with linearNormalise (3..97) to match its PaCMAP map;
+// Illinois never changed this file, so UGA's version wins and every Illinois map dot moves on the next build-index.mjs
+// run (same raw layout, new scaling). The docstring above is Illinois's reason for rank. Decide on purpose; if linear,
+// rewrite that docstring and rebuild public/illinois (see build-index.mjs).
 function rankNormalise(Y) {
   const out = new Float64Array(N * 2);
   for (const axis of [0, 1]) {

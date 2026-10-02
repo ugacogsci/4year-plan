@@ -166,6 +166,10 @@ export interface PlanSettings {
   planShape: PlanShape;
 }
 
+// MERGE-UGA: UGA saves several plan tabs (plans, planGroups, activePlanId) and the picks they were built for
+// (programIds, minorIds, certificateIds, emphasisSelections), and restores only when those picks still match.
+// v4 holds one board and one programId and parseSavedBoard checks only schoolId, so UGA's extra tabs vanish on reload.
+// Keep both: add those fields here, read them in parseSavedBoard, and keep UGA's picks-match check on restore.
 export interface SavedBoard {
   schemaVersion: 4;
   schoolId: string;
@@ -289,6 +293,10 @@ export function parseSavedBoard(raw: string | null, schoolId: string): SavedBoar
  * whether they had changed it first; a credit change then asks before it
  * replaces the board instead of doing so on its own.
  */
+// MERGE-UGA: UGA still saves to four-year-planner-v3 (its 'Save on this device', and every save on the live ORION site),
+// adding plans, planGroups, activePlanId, programIds, minorIds, certificateIds and emphasisSelections. This keeps only the
+// plan and settings, and writeSavedBoard then deletes the v3 key, so a UGA student's plan tabs and minors are lost.
+// Keep both: copy UGA's extra v3 fields into the v4 entry here, and drop UGA's v3 save() in favour of writeSavedBoard.
 export function migrateLegacyBoard(raw: string | null, schoolId: string): SavedBoard | null {
   if (!raw) return null;
   let parsed: unknown;

@@ -65,11 +65,19 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PUBLIC = join(ROOT, 'public');
 const OUT = join(PUBLIC, 'illinois');
 
+// MERGE-UGA: data. UGA's public/illinois/index.json, meta.json and programs.json conflicts are a rerun of this script after
+// its map.mjs change, not hand edits (same format; only mapPosition, build stamps, blockCounts). Don't hand-merge them:
+// take Illinois's three files, then rerun this. Tested: keeps Illinois's 9 prerequisite fixes + UGA's map, and also
+// refreshes Illinois's own stale programs.json (53 blockCounts, 6 totalCredits) and sections.json. Review that diff.
 const RAW = {
   catalog: 'illinois-catalog.json',
   programs: 'illinois-programs.json',
   grades: 'illinois-grades.json',
   sections: 'illinois-sections.json',
+  // MERGE-UGA: UGA changed scripts/illinois/map.mjs to linear 3..97 and rebuilt public/illinois-map.json. Illinois touched
+  // neither, so they merge in silently and every Illinois map position moves on the next build.
+  // public/illinois/index.json, meta.json and programs.json conflict only because both sides regenerated them: take either
+  // side, then rerun npm run build:illinois (npm run build and npm run deploy run it anyway).
   map: 'illinois-map.json',
   excellent: 'illinois-excellent.json',
   offerings: 'illinois-offerings.json',

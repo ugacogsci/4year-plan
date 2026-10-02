@@ -1,6 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+// MERGE-UGA: conflict here and at the saved-board import below. UGA added `import Image from 'next/image'`
+// and `import type { SchoolId } from '@/lib/planner/onboarding'`; Illinois added Undo2 here and CHAT_KEY below.
+// Either side alone fails tsc (Image and SchoolId, or CHAT_KEY, not found). Keep all four imports.
 import { ArrowUp, Check, CircleAlert, Loader2, Undo2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -47,6 +50,9 @@ import { CHAT_KEY } from '@/lib/planner/saved-board';
  * The bot has the school's name, ALMA at Illinois, the same one its TRU
  * tenant answers to, so a student meets one bot across both products.
  */
+// MERGE-UGA: merges clean but breaks callers. UGA added required schoolId, schoolName and onOpen; Illinois
+// added optional turns (ALMA's undo). Illinois's <BotPanel> in planner-workspace.tsx then fails tsc (TS2739),
+// and UGA's call passes no turns, so undo is silently off for UGA. Pass all four from the workspace.
 export interface BotPanelProps {
   /** ALMA, TRU, REV: the school's own bot name. */
   botName: string;
@@ -271,6 +277,10 @@ function toolCallIds(messages: AdvisorMessage[]): Set<string> {
  * The line leads with Illinois, not the schedule: the bot answers anything on
  * the university's pages, and the plan is one more thing it can do.
  */
+// MERGE-UGA: UGA rewrote BotLauncher (no botName prop; now a small toggle for the chat-history drawer, with no
+// 'Ask ALMA' label) and replaced OrionMark below with AssistantAvatar; both merge in without a conflict.
+// Illinois's <BotLauncher botName=...> in planner-workspace.tsx then fails tsc (TS2322), and any <OrionMark />
+// kept in BotPanel is undefined. Keep UGA's version and drop botName at the call site.
 export function BotLauncher({ botName, open, onToggle }: { botName: string; open: boolean; onToggle: () => void }) {
   return (
     <button
@@ -318,6 +328,9 @@ function Typing() {
   );
 }
 
+// MERGE-UGA: conflict. UGA destructures schoolId, schoolName and onOpen here; Illinois added turns.
+// The merged body uses all of them (send() calls onOpen() and passes schoolName, the undo code reads turns,
+// the avatar reads schoolId), so either side alone fails tsc ('Cannot find name'). Destructure all of them.
 export function BotPanel({ botName, schoolShort, programId, board, execute, openers, ready, open, onClose, turns }: BotPanelProps) {
   const [messages, setMessages] = useState<AdvisorMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -452,6 +465,10 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
 
   const { lines, turnTools } = linesOf(messages);
   const lastText = lastAssistantText(messages);
+  // MERGE-UGA: conflict, and neither side compiles alone. UGA rebuilt the panel below (history drawer, avatar,
+  // suggestion + FAQ buttons, no OrionMark); Illinois added these undo consts, the 'note' line and the 'Undo these
+  // changes' button. Illinois's side leaves broken JSX against UGA's layout; UGA's drops undo and fails on 'note' lines.
+  // Keep UGA's layout and re-add these two consts, the note branch and the undo button.
   const latest = turns?.latest ?? null;
   /** The turn whose changes are the newest undo step: only its last reply offers to undo them. */
   const undoableTurn = latest && !busy ? turnTools.findIndex((ids) => ids.some((id) => latest.toolIds.includes(id))) : -1;

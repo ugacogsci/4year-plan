@@ -11,6 +11,9 @@
 
 import type { ReactNode } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+// MERGE-UGA: UGA deleted this NativeSelect import (its Programs section uses ProgramPicker); Illinois added
+// cn and the priorities imports below it. UGA winning breaks the priorities panel (presets, Format select).
+// Keep Illinois's lines; UGA's new imports above and below this spot merge cleanly.
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { cn } from '@/lib/utils';
 import {
@@ -58,6 +61,10 @@ interface RailProps {
   schoolShort: string;
   portal: string;
   programName: string | null;
+  // MERGE-UGA: UGA replaces programUrl/programId/onProgramChange with programUrls, onClose, priorCourses,
+  // programLevel, programIds/minors/certificates and emphasis props (+ change handlers). Git takes UGA's props,
+  // so Illinois's <StudentProfilePanel> call in planner-workspace.tsx fails tsc until it passes them; UGA's
+  // call in turn lacks Illinois's priorities/onPrioritiesChange/onRepick (added below) and needs those too.
   programUrl: string | null;
   digest: string;
   onStartOver: () => void;
@@ -176,6 +183,10 @@ export function StudentProfilePanel({
       </div>
 
       {areas.length > 0 && (
+        // MERGE-UGA: UGA wrapped this list in <details className="rail-requirements"> (met/total summary, numbered
+        // rows, 'cr' units, {pools} moved inside); Illinois changed the rows (figureOf/targetOf, row.note tooltip, is-met).
+        // Illinois alone leaves UGA's closing </details> unmatched; UGA alone shows Illinois's course/semester rows
+        // as 'N cr' with no bar. Use UGA's wrapper with Illinois's row contents.
         <div className="requirement-list">
           {named.map(({ row, key, heading }) => (
             <div className={`requirement-row${row.satisfied ? ' is-met' : ''}`} key={key}>
@@ -275,6 +286,10 @@ export function StudentProfilePanel({
           after changing these. Your graduation date comes first, so a term goes past the number
           you set only when the degree would not fit in time otherwise, and never past 18.
         </p>
+        {/* MERGE-UGA: UGA replaced this textarea with <CareerInterestsField> (commits on blur; committing every
+           keystroke re-ranked the catalog and could loop React) and reworded the hint; Illinois only reworded the hint.
+           Keep UGA's field with Illinois's hint text; Illinois winning silently drops UGA's fix.
+        */}
         <label className="rail-field">
           <span>What you want to be doing after</span>
           <textarea

@@ -13,6 +13,10 @@ import type { IllinoisCore } from '@/lib/planner/illinois-load';
 import type { SchoolId } from '@/lib/planner/onboarding';
 import type { Course, MapPosition, PlanTerm } from '@/lib/planner/types';
 
+// MERGE-UGA: UGA rewrote this map (a canvas over the whole catalog) and made highlightedCourseIds, theme, onHeightChange
+// and onRemoveCourse required. Illinois only added chooser.whys, so the file merges cleanly, but Illinois's
+// planner-workspace passes none of the four and the first render throws on highlightedCourseIds.size.
+// Keep both: pass all four from the workspace, and the whole catalog as UGA does (courses={catalog}), not mapCourses.
 interface CourseExplorerProps {
   /** The bounded set the map paints, chosen by the workspace. */
   courses: Course[];
