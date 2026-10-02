@@ -5735,6 +5735,12 @@ p.requirement-unnamed {
   align-items: start;
   white-space: normal;
   line-height: 1.4;
+  max-height: min(360px, calc(100dvh - 32px));
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  background: var(--foreground);
+  color: var(--background);
+  font-size: 12px;
 }
 
 .issue-tooltip strong {
@@ -5743,7 +5749,24 @@ p.requirement-unnamed {
 
 .issue-tooltip span {
   opacity: 0.82;
+  white-space: pre-line;
 }
+
+.issue-course-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.issue-course-link:hover { text-decoration-thickness: 2px; }
+.issue-course-link:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
 
 .planner-app .semester-heading {
   align-items: flex-start;
@@ -5808,6 +5831,7 @@ p.requirement-unnamed {
   height: 28px;
   max-width: none;
   object-fit: contain;
+  border-radius: inherit;
 }
 
 .planner-app .rail-toggle-school-logo.is-illinois-original {
@@ -6085,16 +6109,22 @@ p.requirement-unnamed {
   height: 22px;
 }
 
-.planner-app .plan-tab-issue-dot {
+.planner-app .issue-badge-dot {
   position: absolute;
   top: 50%;
-  right: 3px;
+  right: -3px;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+}
+
+.planner-app .plan-tab-issue-dot {
+  display: block;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: var(--orion-dim);
   pointer-events: none;
-  transform: translateY(-50%);
 }
 
 .planner-app .plan-tab-issue-dot.is-warning {

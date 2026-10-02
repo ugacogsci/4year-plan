@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { clusterColor } from './cluster-color';
 import { CourseDetail } from './course-detail';
 import { subjectMatches } from '@/lib/planner/illinois-subjects';
+import { bucketMapCourses, hitTestMap } from '@/lib/planner/map-hit-testing';
 import type { IllinoisCore } from '@/lib/planner/illinois-load';
 import type { SchoolId } from '@/lib/planner/onboarding';
 import type { Course, MapPosition, PlanTerm } from '@/lib/planner/types';
@@ -24,6 +25,7 @@ interface CourseExplorerProps {
   plannedCourseIds: Set<string>;
   completedCodes: Set<string>;
   selectedCourseId: string | null;
+  focusRequest?: { courseId: string; sequence: number } | null;
   /** Requirement-valid replacements to light together on the map. */
   highlightedCourseIds: Set<string>;
   targetTermId: string;
@@ -84,6 +86,7 @@ export function CourseExplorer({
   plannedCourseIds,
   completedCodes,
   selectedCourseId,
+  focusRequest,
   highlightedCourseIds,
   targetTermId,
   searchQuery,
@@ -125,6 +128,7 @@ export function CourseExplorer({
   const stageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const edgeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastFocusRequest = useRef<typeof focusRequest>(null);
   const maxFinderWidth = useRef(0);
   const resize = useRef<{
     axis: 'horizontal' | 'vertical';
@@ -181,18 +185,7 @@ export function CourseExplorer({
     for (const [id, position] of positionOverrides) next.set(id, position);
     return next;
   }, [basePositions, positionOverrides]);
-  const positionBuckets = useMemo(() => {
-    const buckets = new Map<string, Course[]>();
-    for (const course of courses) {
-      const point = positions.get(course.id);
-      if (!point) continue;
-      const key = `${Math.floor(point.x / 2)}:${Math.floor(point.y / 2)}`;
-      const bucket = buckets.get(key);
-      if (bucket) bucket.push(course);
-      else buckets.set(key, [course]);
-    }
-    return buckets;
-  }, [courses, positions]);
+  const positionBuckets = useMemo(() => bucketMapCourses(courses, positions), [courses, positions]);
 
   const visible = useMemo(() => courses.filter((course) => !hidden.has(course.cluster)), [courses, hidden]);
   const matching = useMemo(
@@ -224,6 +217,12 @@ export function CourseExplorer({
     }
     return connected;
   }, [plannedCourseIds, selectedCourseId, visible]);
+
+  const stickyCourseIds = useMemo(() => {
+    const ids = new Set([...plannedCourseIds, ...highlightedCourseIds, ...arrangedSelection, ...selectionConnectionIds]);
+    if (selectedCourseId) ids.add(selectedCourseId);
+    return ids;
+  }, [plannedCourseIds, highlightedCourseIds, arrangedSelection, selectionConnectionIds, selectedCourseId]);
 
   /**
    * Canvas carries the complete constellation. DOM nodes are reserved for the
@@ -446,6 +445,42 @@ export function CourseExplorer({
     // `matching` is memoised on the catalog and the query, so this runs
     // when the matches change and not on every render.
   }, [arrangeMode, framedIds, planeSize, positions]);
+
+  // Warning links explicitly reveal and center a course, even in a collapsed or filtered map.
+  useEffect(() => {
+    if (!open || !focusRequest || lastFocusRequest.current === focusRequest) return;
+    const frame = requestAnimationFrame(() => {
+      const course = courseById.get(focusRequest.courseId);
+      const point = positions.get(focusRequest.courseId);
+      if (!course || !point || stageSize.width <= 0) return;
+      if (arrangeMode) {
+        setArrangeMode(false);
+        return;
+      }
+      if (mapMode === 'collapsed' || stageSize.height < MIN_MAP_HEIGHT) {
+        setMapMode('custom');
+        onHeightChange(320);
+        return;
+      }
+      lastFocusRequest.current = focusRequest;
+      setHidden((current) => {
+        if (!current.has(course.cluster)) return current;
+        const next = new Set(current);
+        next.delete(course.cluster);
+        return next;
+      });
+      setHovered(null);
+      const plane = resolvedPlaneSize(planeSize, stageSize);
+      const origin = planeOrigin(stageSize, plane);
+      setView((current) => ({
+        k: current.k,
+        x: stageSize.width / 2 - origin.x - (point.x / 100) * plane.width * current.k,
+        y: stageSize.height / 2 - origin.y - (point.y / 100) * plane.height * current.k,
+      }));
+      finderRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusRequest, open, arrangeMode, mapMode, courseById, positions, planeSize, stageSize, onHeightChange]);
 
   /**
    * Wheel zoom, around the cursor. A native listener because React registers
@@ -719,6 +754,10 @@ export function CourseExplorer({
       );
       return;
     }
+    if ((event.target as HTMLElement).closest('.map-inspector, .map-zoom')) {
+      setHovered(null);
+      return;
+    }
     const hit = hitTest(event.clientX, event.clientY);
     setHovered((current) =>
       hit
@@ -796,54 +835,13 @@ export function CourseExplorer({
     const stage = stageRef.current;
     if (!stage) return null;
     const rect = stage.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
     const plane = resolvedPlaneSize(planeSize, rect);
-    const origin = planeOrigin(rect, plane);
-    const mapX = (((x - origin.x - view.x) / view.k) / plane.width) * 100;
-    const mapY = (((y - origin.y - view.y) / view.k) / plane.height) * 100;
-    const regularRadius = 15;
-    const priorityRadius = 24;
-    const reachX = (priorityRadius / view.k / plane.width) * 100;
-    const reachY = (priorityRadius / view.k / plane.height) * 100;
-    const minBX = Math.floor((mapX - reachX) / 2);
-    const maxBX = Math.floor((mapX + reachX) / 2);
-    const minBY = Math.floor((mapY - reachY) / 2);
-    const maxBY = Math.floor((mapY + reachY) / 2);
-    let nearest: Course | null = null;
-    let distance = regularRadius;
-    let priority: Course | null = null;
-    let priorityDistance = priorityRadius;
-    for (let bx = minBX; bx <= maxBX; bx += 1) {
-      for (let by = minBY; by <= maxBY; by += 1) {
-        for (const course of positionBuckets.get(`${bx}:${by}`) ?? []) {
-          if (hidden.has(course.cluster)) continue;
-          const position = positions.get(course.id)!;
-          const px = origin.x + ((position.x / 100) * plane.width) * view.k + view.x;
-          const py = origin.y + ((position.y / 100) * plane.height) * view.k + view.y;
-          const next = Math.hypot(px - x, py - y);
-          if (
-            (course.id === selectedCourseId || selectionConnectionIds.has(course.id)) &&
-            next < priorityDistance
-          ) {
-            priority = course;
-            priorityDistance = next;
-          }
-          if (next < distance) {
-            nearest = course;
-            distance = next;
-          }
-        }
-      }
-    }
-    const winner = priority ?? nearest;
-    if (!winner) return null;
-    const point = positions.get(winner.id)!;
-    return {
-      course: winner,
-      x: origin.x + ((point.x / 100) * plane.width) * view.k + view.x,
-      y: origin.y + ((point.y / 100) * plane.height) * view.k + view.y,
-    };
+    return hitTestMap({
+      pointer: { x: clientX - rect.left, y: clientY - rect.top },
+      view, plane, origin: planeOrigin(rect, plane), viewport: rect,
+      positions, buckets: positionBuckets, hidden, priorityIds: stickyCourseIds,
+      sticky: !arrangeMode,
+    });
   }
 
   const selected = selectedCourseId ? courseById.get(selectedCourseId) ?? null : null;
@@ -1046,7 +1044,6 @@ export function CourseExplorer({
                   key={course.id}
                   type="button"
                   draggable={dragUsable && !arrangeMode}
-                  title={`${course.code}: ${course.title}`}
                   aria-label={`${course.code}, ${course.title}`}
                   aria-pressed={isSelected}
                   className={cn(
@@ -1070,14 +1067,14 @@ export function CourseExplorer({
                       event.preventDefault();
                       return;
                     }
-                    onSelectCourse(hitTest(event.clientX, event.clientY)?.course.id ?? course.id);
+                    onSelectCourse(event.detail === 0 ? course.id : hitTest(event.clientX, event.clientY)?.course.id ?? course.id);
                   }}
                   onDragStart={(event) => {
                     if (arrangeMode) {
                       event.preventDefault();
                       return;
                     }
-                    event.dataTransfer.setData('application/x-course-id', course.id);
+                    event.dataTransfer.setData('application/x-course-id', hitTest(event.clientX, event.clientY)?.course.id ?? course.id);
                     /**
                      * copyMove, not copy. The column's dragover names 'copy' for a
                      * map node and 'move' for a board card, and naming an effect

@@ -13,6 +13,8 @@ interface SemesterColumnProps {
   term: PlanTerm;
   allTerms: PlanTerm[];
   courseIndex: Map<string, Course>;
+  coursesByCode: ReadonlyMap<string, Course>;
+  onShowCourse: (courseId: string) => void;
   issues: PlanIssue[];
   selectedCourseId: string | null;
   onSelectCourse: (courseId: string, termId: string) => void;
@@ -52,6 +54,8 @@ export function SemesterColumn({
   term,
   allTerms,
   courseIndex,
+  coursesByCode,
+  onShowCourse,
   issues,
   selectedCourseId,
   onSelectCourse,
@@ -223,6 +227,8 @@ export function SemesterColumn({
                   title={issue.title}
                   message={issue.message}
                   severity={issue.severity}
+                  coursesByCode={coursesByCode}
+                  onShowCourse={onShowCourse}
                 />
               ))}
             </div>
@@ -241,6 +247,8 @@ export function SemesterColumn({
             <CourseCard
               key={courseId}
               course={course}
+              coursesByCode={coursesByCode}
+              onShowCourse={onShowCourse}
               term={term}
               allTerms={allTerms}
               selected={selectedCourseId === courseId}

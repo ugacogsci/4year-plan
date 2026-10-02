@@ -15,7 +15,8 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:map-interactions": "node --experimental-strip-types lib/planner/__map-interactions.check.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",

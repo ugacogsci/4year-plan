@@ -52,6 +52,8 @@ interface CourseCardProps {
   selected: boolean;
   dropPosition?: 'before' | 'after';
   issues: PlanIssue[];
+  coursesByCode: ReadonlyMap<string, Course>;
+  onShowCourse: (courseId: string) => void;
   electiveOf?: ElectiveOf;
   /** Opens the chooser for an elective slot. The card body does this in place of selecting. */
   onChoose?: (courseId: string, termId: string) => void;
@@ -83,6 +85,8 @@ export function CourseCard({
   selected,
   dropPosition,
   issues,
+  coursesByCode,
+  onShowCourse,
   electiveOf,
   onChoose,
   onSelect,
@@ -147,6 +151,8 @@ export function CourseCard({
               message={issue.message}
               severity={issue.severity}
               side="left"
+              coursesByCode={coursesByCode}
+              onShowCourse={onShowCourse}
             />
           ))}
         </span>

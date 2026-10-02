@@ -384,6 +384,7 @@ interface PlanTab {
   plan: PlanState;
   /** Cached so inactive alternatives retain their latest plan-wide status. */
   issueSeverity?: IssueSeverity | null;
+  issueSummary?: string;
 }
 
 interface PlanGroup {
@@ -569,6 +570,7 @@ export function PlannerWorkspace({
   const [planNotes, setPlanNotes] = useState<string[]>([]);
   const [report, setReport] = useState<PlanReport | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const [mapFocusRequest, setMapFocusRequest] = useState<{ courseId: string; sequence: number } | null>(null);
   const [focusTermId, setFocusTermId] = useState<string | null>(null);
   const [targetTermId, setTargetTermId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1436,8 +1438,12 @@ export function PlannerWorkspace({
     [issues],
   );
   const planWideSeverity = planWideIssues[0]?.severity ?? null;
+  const planWideSummary = planWideIssues.map((group) => `${group.title}: ${group.message}`).join('\n\n');
   const tabIssueSeverity = (candidate: PlanTab) =>
     candidate.id === activePlanId ? planWideSeverity : (candidate.issueSeverity ?? null);
+  const tabIssueSummary = (candidate: PlanTab) => candidate.id === activePlanId
+    ? planWideSummary
+    : candidate.issueSummary || 'This plan has notes to review. Open the plan to refresh its warning details.';
 
   /**
    * Which pool each planned course is filling, and what that pool still wants.
@@ -1525,7 +1531,7 @@ export function PlannerWorkspace({
     setPlanTabs((current) =>
       current.map((candidate) =>
         candidate.id === activePlanId && plan
-          ? { ...candidate, plan, issueSeverity: planWideSeverity }
+          ? { ...candidate, plan, issueSeverity: planWideSeverity, issueSummary: planWideSummary }
           : candidate,
       ),
     );
@@ -1552,7 +1558,7 @@ export function PlannerWorkspace({
     setPlanTabs((current) => [
       ...current.map((candidate) =>
         candidate.id === activePlanId
-          ? { ...candidate, plan, issueSeverity: planWideSeverity }
+          ? { ...candidate, plan, issueSeverity: planWideSeverity, issueSummary: planWideSummary }
           : candidate,
       ),
       {
@@ -1561,6 +1567,7 @@ export function PlannerWorkspace({
         groupId: destinationGroupId,
         plan: copy,
         issueSeverity: planWideSeverity,
+        issueSummary: planWideSummary,
       },
     ]);
     setActivePlanId(id);
@@ -1956,6 +1963,16 @@ export function PlannerWorkspace({
     document
       .getElementById(issue.courseId ? `planned-${issue.termId}-${issue.courseId}` : `term-${issue.termId}`)
       ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
+
+  function showWarningCourse(courseId: string) {
+    if (!courseIndex.has(courseId)) return;
+    setChooser(null);
+    setChooserOnMap(false);
+    setSearchQuery('');
+    setSelectedCourseId(courseId);
+    setFinderOpen(true);
+    setMapFocusRequest((current) => ({ courseId, sequence: (current?.sequence ?? 0) + 1 }));
   }
 
   // ---- the advisor's hands and eyes ----------------------------------------
@@ -2361,7 +2378,7 @@ export function PlannerWorkspace({
       careerInterests,
       plans: planTabs.map((candidate) =>
         candidate.id === activePlanId
-          ? { ...candidate, plan, issueSeverity: planWideSeverity }
+          ? { ...candidate, plan, issueSeverity: planWideSeverity, issueSummary: planWideSummary }
           : candidate,
       ),
       planGroups,
@@ -2383,7 +2400,7 @@ export function PlannerWorkspace({
       plan,
       plans: planTabs.map((candidate) =>
         candidate.id === activePlanId
-          ? { ...candidate, plan, issueSeverity: planWideSeverity }
+          ? { ...candidate, plan, issueSeverity: planWideSeverity, issueSummary: planWideSummary }
           : candidate,
       ),
       planGroups,
@@ -2897,10 +2914,17 @@ export function PlannerWorkspace({
                         }}
                       />
                       {tabIssueSeverity(candidate) && (
-                        <span
-                          className={`plan-tab-issue-dot is-${tabIssueSeverity(candidate)}`}
-                          title={`This plan has a ${tabIssueSeverity(candidate)} plan-wide note`}
-                          aria-hidden="true"
+                        <IssueBadge
+                          variant="dot"
+                          title={`${candidate.name}: plan-wide notes`}
+                          message={tabIssueSummary(candidate)}
+                          severity={tabIssueSeverity(candidate)!}
+                          onClick={() => switchPlanTab(candidate.id)}
+                          coursesByCode={byCode}
+                          onShowCourse={(courseId) => {
+                            switchPlanTab(candidate.id);
+                            showWarningCourse(courseId);
+                          }}
                         />
                       )}
                     </div>
@@ -2955,6 +2979,8 @@ export function PlannerWorkspace({
                   severity={group.severity}
                   side="bottom"
                   onClick={() => selectIssue(group.issue)}
+                  coursesByCode={byCode}
+                  onShowCourse={showWarningCourse}
                 />
               ))}
             </div>
@@ -3020,6 +3046,8 @@ export function PlannerWorkspace({
                 term={term}
                 allTerms={plan.terms}
                 courseIndex={courseIndex}
+                coursesByCode={byCode}
+                onShowCourse={showWarningCourse}
                 issues={issues}
                 selectedCourseId={selectedCourseId}
                 credits={credits.label}
@@ -3079,6 +3107,7 @@ export function PlannerWorkspace({
         plannedCourseIds={plannedCourseIds}
         completedCodes={completedCodes}
         selectedCourseId={selectedCourseId}
+        focusRequest={mapFocusRequest}
         targetTermId={targetTermId}
         searchQuery={searchQuery}
         open={finderOpen}
