@@ -662,8 +662,14 @@ Breaks that git merges with no conflict marker, so nothing flags them:
 - `app/api/advisor/route.ts` and `lib/planner/advisor.ts`: UGA passes the
   school's name to `advisorSystem`; Illinois's prompt and its 23 tools are
   Illinois-only, so a UGA student would get Illinois rules and tools.
-- `lib/planner/autoplan.ts`: UGA's engine options (the elective-pool cap
-  10/4/2 to 5/3/1 among them) change Illinois boards silently.
+- `lib/planner/autoplan.ts`: UGA's engine options change Illinois boards
+  silently. Measured on the trial merge: taking every auto-merged UGA line
+  as-is fails 13 Illinois check cases (electives 7, review 5, repick 1),
+  from the elective-pool caps (10/4/2 to 5/3/1), the top-up stop and the
+  round-robin. With those three kept for UGA only and Illinois's
+  `pickFromOption` restored, all 1,848 Illinois sweep boards come out
+  identical. UGA's other engine pieces change no Illinois board. UGA boards
+  were not run through the merged engine.
 - `lib/planner/illinois-data.ts`: UGA's adapter edits change how 7 Illinois
   degrees are read.
 - The generated `public/illinois/*.json` files conflict whole: take Illinois's

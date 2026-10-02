@@ -1,3 +1,7 @@
+// MERGE-UGA: 19 conflicts in this file. Keep this Illinois engine and re-add UGA's pieces at each MERGE-UGA.
+// Not origin/uga's whole copy: it lacks 41 Illinois exports (degreeSubjects, GenEdCredit, LanguagePlan...),
+// so Illinois files fail tsc. Not this whole copy either: it drops UGA's auto-merged fields (PoolReport
+// count/hours...) and live-pools.ts fails tsc. Resolved as the markers say, it type-checked in a trial.
 import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from './types';
 import { termLoad, type GradeRow } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
@@ -42,6 +46,8 @@ import { DEFAULT_PRIORITIES } from './priorities';
 // three for nothing.
 // ---------------------------------------------------------------------------
 
+// MERGE-UGA: Illinois added bundles? and set? here; UGA's copy lacks them, and programs-compare.ts and
+// review.ts read .bundles. Keep Illinois's interface. Both are optional, so UGA's choice rows still fit.
 export interface PlanCourseChoice {
   /** Codes that are interchangeable for this one slot, as "CS 210 or CS 211". */
   codes: string[];
@@ -81,6 +87,10 @@ export interface PlanPoolList {
  * difference between "three from one list" and "three across eight lists", and
  * it is read from the catalog's sentence, which `text` carries verbatim.
  */
+// MERGE-UGA: UGA adds distinctLists?, hours? and hourCodes? here (git auto-merges them; PoolConstraint in
+// illinois-data.ts gets the same). UGA's fillPool/constraintStatus code reads them for 'N different areas'
+// and credit-hour rules. Taking Illinois's whole file drops them, and those UGA rules are then silently
+// never filled or checked. Keep them.
 export interface PlanPoolConstraint {
   text: string;
   n: number;
@@ -108,6 +118,10 @@ export type PlanRule =
       joinedByOr?: boolean;
     }
   | {
+      // MERGE-UGA: conflict just below. Both sides rewrote the one-line 'hours' member: Illinois added minLevel?/
+      // exclude?, UGA added source?: 'catalog' | 'explicit-elective' | 'parser-gap' (git shows it as a 2nd member).
+      // Merge into ONE member with all three. Without source?, tsc fails where generatePlan reads rule.source;
+      // with two members, tsc fails 9 times. Same fix in illinois-data.ts RequirementRule.
       kind: 'hours';
       hours: number;
       genEd: string[] | null;
@@ -147,9 +161,13 @@ export type PlanRule =
       label: string;
     }
   | { kind: 'unparsed'; text: string }
+  // MERGE-UGA: Illinois-only rule kind (UGA's copy lacks it); review.ts and programs-compare.ts branch on
+  // kind 'language'. Keep this line whatever happens to the 'hours' member above.
   | { kind: 'language'; semesters: 3 | 4; text: string };
 
 /** What a college publishes about getting in from another college on campus: courses to have done, and by when. */
+// MERGE-UGA: AdmissionRoute, AdmissionTable and LanguageTable (next ~60 lines) are Illinois-only; UGA's copy
+// lacks them and admission-route.ts, illinois-load.ts and illinois-progress.ts import them. Keep them.
 export interface AdmissionRoute {
   name: string;
   path: string;
@@ -388,6 +406,9 @@ export interface PlanningContext {
    * entry has not run in any of them; the ranker puts it last, the fill
    * marks it down, and the validator says so on the card.
    */
+  // MERGE-UGA: offerings, offeringTerms, offeringAliases and languages (below) and excellent/excellentTerms
+  // (above) are Illinois-only on PlanningContext; advisor-packet.ts, programs-compare.ts and review.ts read
+  // them. Keep them; UGA just leaves them unset.
   offerings?: Map<string, string[]>;
   offeringTerms?: string[];
   /** New course number -> the old number whose offering history it carries. */
@@ -442,6 +463,9 @@ export interface PriorCredit {
 }
 
 /** Who a student is as they start at Illinois, for the courses written for one group of students. */
+// MERGE-UGA: Arrival, arrivalFromWords, GenEdCredit, AwayKind/AwayTerm/awayCredits and ResidencyRule/Report
+// (next ~150 lines) are Illinois-only; repick.ts, review.ts, transcript.ts, saved-board.ts and
+// illinois-progress.ts import them. Keep them.
 export interface Arrival {
   /** Coming from another school: LAS 102 "Transfer Advantage", not LAS 101. */
   transfer: boolean;
@@ -482,6 +506,8 @@ export interface GenEdCredit {
   tags: string[];
 }
 
+// MERGE-UGA: Illinois added stated?, away? and summers? here (UGA's Horizon has none). buildHorizon,
+// extendForAway and programs-compare.ts use them. Keep Illinois's; it already covers UGA's summer graduation.
 export interface Horizon {
   startSeason: SemesterSeason;
   startYear: number;
@@ -626,6 +652,9 @@ export interface AutoplanInput {
   career?: string;
   /** The degree's name, "Psychology, BSLAS", which names the major better than a thin page does. */
   programName?: string;
+  // MERGE-UGA: conflict. Illinois adds programCollege ... residency below; UGA adds electiveLevelRange and
+  // autoPrerequisiteLevelRange (its electiveHoursLimit/fillToDegreeTotal auto-merge above). Keep both lists:
+  // Illinois-only fails tsc 8 times in generatePlan, UGA-only 62 times. UGA's planner-workspace passes all 4.
   /** The college the degree sits in, as the catalog codes it: "bus", "engineering", "las", "aces", "faa", "media", "education", "ahs", "socw", "ischool". */
   programCollege?: string;
   /**
@@ -851,6 +880,8 @@ export interface PoolReport {
   /** How many courses the page lists here, and how many of those the snapshot has. */
   listed: number;
   available: number;
+  // MERGE-UGA: UGA adds count, hoursTarget and hours to each constraint row here (auto-merges). live-pools.ts's
+  // constraintProgress() needs them: without them tsc fails at live-pools.ts:300. Keep them.
   constraints: Array<{
     text: string;
     n: number;
@@ -903,6 +934,8 @@ export interface PriorLearningCheck {
   message: string;
 }
 
+// MERGE-UGA: Illinois added language, admission, bookedFor, genEdPicks, residency, away, gate and
+// credits.aim/away here; UGA's copy lacks them and saved-board.ts and programs-compare.ts read them. Keep.
 export interface GeneratedPlan {
   plan: PlanState;
   terms: PlannedTerm[];
@@ -1853,6 +1886,9 @@ export function planCreditRange(
   pinned?: Map<string, number>,
 ): CreditTotal {
   const ranges = ctx.creditRanges;
+  // MERGE-UGA: conflict. Both sides cached this lookup (Illinois: catalogByCode; UGA: lazy creditCourseIndex).
+  // Keep this line, then delete UGA's auto-merged `byCode ??= creditCourseIndex(ctx);` below (TS2588: it
+  // assigns to a const) and the then-unused creditCourseIndex helper. UGA's side alone also compiles.
   const byCode = catalogByCode(ctx.courses);
   let min = 0;
   let max = 0;
@@ -2764,6 +2800,10 @@ export function extendForAway(horizon: Horizon): Horizon {
  * loop stepped fall to spring to fall, never reached "Summer 2029", and built
  * the 32-term guard instead, a plan a year longer than asked.
  */
+// MERGE-UGA: 2 conflicts. The first runs from outOfSeason above to `let season` below; the second is the
+// Spring branch. UGA only reformatted this and added a summer-graduation step, which Illinois's `summers`
+// set already does. Take Illinois's side of both: UGA's first side drops outOfSeason, extendForAway and
+// SUMMER_MAX (103 tsc errors); its Spring branch compiles but ignores summers the student asked for.
 function buildHorizon(horizon: Horizon): Array<{ id: string; label: string; season: SemesterSeason; calendarYear: number; index: number }> {
   const out: Array<{ id: string; label: string; season: SemesterSeason; calendarYear: number; index: number }> = [];
   const summers = new Set(horizon.summers ?? []);
@@ -2968,6 +3008,9 @@ function lightStep(q: QualityResult): number {
  * name, word by word, is the test, and "Undeclared" and "any major" pass.
  */
 /** How the catalog names each college, lower-cased, so a restriction naming the college matches its own students. */
+// MERGE-UGA: COLLEGE_WORDS through closedToProgram (next ~155 lines) are Illinois-only exports; repick.ts
+// and programs-compare.ts import restrictionClosesTo, prereqNamesOtherCollege, prereqNeeds* and closedTo*
+// from here. Keep them.
 export const COLLEGE_WORDS: Record<string, string[]> = {
   bus: ['gies', 'college of business', 'business'],
   engineering: ['grainger', 'college of engineering', 'engineering'],
@@ -3513,6 +3556,10 @@ function degreeSubjectsOf(
     // subject of the degree: counting it made Spanish one of a Psychology
     // degree's own subjects, and the elective fill then booked four more
     // Spanish courses as though the major asked for them.
+    // MERGE-UGA: conflict. Illinois skips the language row and weighs long lists by share (here/total below);
+    // UGA skips its core menus by areaLabel and any list over 30 choices. Keep Illinois's lines plus UGA's
+    // areaLabel skip (changes no Illinois board). Make the >30 skip UGA-only: it changed 140 of 1848 Illinois
+    // sweep boards. UGA's side alone fails tsc (here/total undefined).
     if (requirement.label.startsWith('Language other than English')) continue;
     const here = new Map<string, number>();
     let total = 0;
@@ -3649,6 +3696,9 @@ const DESCRIPTION_ONLY_MAJORS: Record<string, string> = {
 const COLLEGE_SUBJECTS: Record<string, string> = { LAS: 'las', ENG: 'engineering', BUS: 'bus', AHS: 'ahs', ACES: 'aces', EDUC: 'education', FAA: 'faa', MDIA: 'media' };
 
 /** The group of students a course is written for: its title, prerequisite sentence and section restrictions say. */
+// MERGE-UGA: StudentGroup through freeElectiveBar (next ~380 lines) are Illinois-only exports; repick.ts,
+// review.ts and programs-compare.ts import audienceOf, isMathOrStatistics, degreeMath, admissionGate,
+// heldForGroup and freeElectiveBar from here. Keep them.
 export type StudentGroup = 'international' | 'transfer' | 'first-year';
 
 /**
@@ -4286,6 +4336,10 @@ function levelFits(code: string, hoursBefore: number, standing: StandingThreshol
  * prior keeps a two-credit seminar from winning on a good instructor; the
  * score decides among the courses that pass it.
  */
+// MERGE-UGA: 2 conflicts inside. Illinois rebuilt the weights around the quality scorer (q.score, dormant,
+// closedToMajor); UGA kept the old weights and added interest-word hits and a stray-lab rule. Take Illinois's
+// side of both (UGA's fail tsc: subjectMatches is gone, isLab spans both). To keep UGA's lab rule, port
+// isLab and its two lab lines behind a UGA switch (the -Infinity line also needs UGA's interestHits).
 function scoreElective(code: string, s: ElectiveScoring): number {
   const course = s.byCode.get(code);
   if (!course) return Number.NEGATIVE_INFINITY;
@@ -4351,11 +4405,18 @@ function scoreElective(code: string, s: ElectiveScoring): number {
  */
 function subjectRoomLeft(subject: string, taken: Map<string, number>, primary: string | null, degreeSubjects: Set<string>): boolean {
   const n = taken.get(subject) ?? 0;
+  // MERGE-UGA: UGA changed these caps to 5/3/1 (and the doc above); in the dry run git took that silently.
+  // In a trial merge that alone failed Illinois's electives check twice (Emma, Psychology got IS 380, closed
+  // to her major). Keep both: make the caps a per-school input (Illinois 10/4/2, UGA 5/3/1).
   const cap = subject === primary ? 10 : degreeSubjects.has(subject) ? 4 : 2;
   return n < cap;
 }
 
 /** The catalog, best elective first, minus what the caller rules out. */
+// MERGE-UGA: conflict at the sort. UGA's limit = 800 and levelRange (< 500) params auto-merge above; UGA's
+// side adds variant dedupe, a hash tie-break and a department round-robin. Illinois's side alone fails tsc
+// (no return). In trials the round-robin failed 9 Illinois check cases and the hash tie changed 321 of 1848
+// boards: make both UGA-only, keep the dedupe, pass Infinity as limit from Illinois (a8bb1b4 dropped 800).
 function rankedElectivePool(ctx: PlanningContext, s: ElectiveScoring, exclude: (code: string) => boolean): string[] {
   return ctx.courses
     .map((c) => normaliseCode(c.code))
@@ -4378,6 +4439,8 @@ function electiveWhy(course: Course | undefined, degreeSubjects: Set<string>, q?
   return `${head}${chosen}${against.length > 0 ? ` Keep in mind: ${against.slice(0, 2).join('; ')}.` : ''}`;
 }
 
+// MERGE-UGA: score, fit, reasons and unknown are Illinois-only (UGA's ElectiveOption is code/why); repick.ts
+// reads fit and reasons. Keep Illinois's interface.
 export interface ElectiveOption {
   code: string;
   why: string;
@@ -4408,6 +4471,9 @@ export function electiveOptions(input: {
   /** The career words alone, as AutoplanInput.career. */
   career?: string;
   programName?: string;
+  // MERGE-UGA: conflict in electiveOptions' input. Illinois adds priorities, programCollege, including,
+  // electiveCodes and quality (and career above); UGA adds candidateCodes and electiveLevelRange, which UGA's
+  // replacement chooser passes. Keep both lists with one limit/standingHours. UGA-only fails tsc 12 times.
   priorities?: Priorities;
   programCollege?: string;
   /**
@@ -4514,6 +4580,10 @@ export function electiveOptions(input: {
       wantedTags,
     }),
   };
+  // MERGE-UGA: conflict. Keep Illinois's keep/perSubject and add UGA's exclusions to the filter below:
+  // occupiedVariants (with `&& code !== keep`, or the slot's own course is never ranked) and candidateCodes;
+  // pass Infinity and input.electiveLevelRange too. UGA's side alone fails tsc (keep/perSubject undefined).
+  // Illinois's alone ignores candidateCodes, so UGA's list chooser can miss list courses ranked past `limit`.
   const keep = input.including ? normaliseCode(input.including) : null;
   const perSubject = new Map<string, number>();
   for (const raw of input.electiveCodes ?? []) {
@@ -4557,6 +4627,8 @@ export function electiveOptions(input: {
   return out;
 }
 
+// MERGE-UGA: Illinois-only export (UGA's copy lacks it); advisor-packet.ts, repick.ts, saved-board.ts and
+// illinois-progress.ts import it. Keep it.
 export interface LanguagePlan {
   name: string;
   semesters: 3 | 4;
@@ -6098,6 +6170,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the board is a course in the wrong term, and passing `chosen` here let CHEM
    * 105 sit in a first-year fall on the strength of a CHEM 204 in year four.
    */
+  // MERGE-UGA: conflict; either side alone compiles but loses a rule. Illinois wraps the matcher in
+  // exemptionAwareMatcher; UGA drops prerequisites outside autoPrerequisiteLevelRange (graduate plans).
+  // Keep both: name this result catalogMatch, then add UGA's prerequisiteIsInPlanLevel wrapper as `match`.
   const match = exemptionAwareMatcher(
     exclusionAwareMatcher(baseMatch, conflicts, ctx.prereqs, equivalents, [earned]),
     ctx.prereqs, conflicts, equivalents, [satisfiedForPrereq, chosen], placementReading,
@@ -6251,6 +6326,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       // is the only number the catalog guarantees. Filling an eighteen-hour
       // pool out of those makes the eighteen meaningless, so among equally
       // reachable courses the one with a fixed credit line goes first.
+      // MERGE-UGA: conflict. Illinois built a longer pick key (rememberedBy); UGA added a `sequence` flag (its
+      // poolOrderFor(have, sequence) parameter auto-merges above) and a hash tie-break. Keep Illinois's key and
+      // comparator, add `sequence.has(code) ? 1 : 0` after inCatalog (hash tie UGA-only if wanted). UGA's side
+      // alone is a syntax error (missing `)`).
       const variable = reallyVariable(ctx.creditRanges?.get(code)) ? 1 : 0;
       /**
        * The degree's own subjects first, when they cost no more than one extra
@@ -6356,6 +6435,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the second slot shared keeps it out of the unsatisfied list, where it would
    * read as a hole in the degree that is not there.
    */
+  // MERGE-UGA: UGA's reuse-first lines merge in here silently: a row now takes a course already chosen for
+  // another row (or its twin) before an open one. Of 1848 Illinois sweep boards only Teaching of French
+  // changed (FR 335 fills two rows, FR 301 dropped); Illinois checks pass. Keep, or limit it to UGA/twins.
   const pickFromOption = (option: string[]): { code: string; shared: boolean } | null => {
     for (const code of option) if (earned.has(code)) return { code, shared: false };
     const open = best(option.filter((code) => !chosen.has(code)));
@@ -6533,6 +6615,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       continue;
     }
 
+    // MERGE-UGA: git takes UGA's rewrite of this block silently. It reads rule.source (the 'hours' type needs
+    // source?) and rewords both messages for Illinois plans too, so __schedule-quality.check.mjs no longer
+    // finds 'page does not name courses for'. Keep Illinois's two messages for when source is unset.
     if (requirement.rule.kind === 'hours' && (!requirement.rule.genEd || requirement.rule.genEd.length === 0)) {
       const filled = (input.degreeTotal ?? null) !== null;
       unsatisfied.push({
@@ -7219,6 +7304,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           exemptionsWaiting.push({ code, group });
           continue;
         }
+        // MERGE-UGA: conflict. Illinois moved this booking into bookFor() above; UGA added an
+        // autoPrerequisiteLevelRange filter to the old inline copy. Keep this line; move UGA's eligibleByLevel /
+        // outsideLevelPrereqs block into bookFor() after its inCatalog check (return null there, and build `open`
+        // from eligibleByLevel). UGA's side alone fails tsc (no inCatalog here).
         const pick = bookFor(code, group, alternatives);
         if (pick === null) continue;
         if (forTrack) trackPrereqs.add(pick);
@@ -9211,6 +9300,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     };
     const plannedAll = new Set<string>([...placed.values()].flat());
     const perSubject = new Map<string, number>();
+    // MERGE-UGA: big conflict. Keep Illinois's block and add UGA's pieces: plannedVariants in the candidates
+    // filter, input.electiveLevelRange (and no 800 cap) for rankedElectivePool, and UGA's electiveTarget const
+    // after `total`. Illinois-only fails tsc (the auto-merged fill loop reads electiveTarget); UGA-only fails 53.
     // A course behind an application (FIN 391, "Admission by application
     // only") is a program the student applies to, not an elective slot the
     // planner may fill: Marcus, a Finance freshman, had FIN 391 through 395
@@ -9490,6 +9582,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const tooBig = (hours: number) => running + hours > cap;
           const fitsHere = (code: string): boolean => {
             if (plannedAll.has(code)) return false;
+            // MERGE-UGA: conflict; either side alone compiles but drops a guard. Keep both Illinois checks and add UGA's
+            // `if (plannedVariants.has(electiveVariantKey(code))) return false;`.
             if (input.notTowardDegree?.(code)) return false;
             if (preparesForHeld(code, ctx.prereqs, (c) => plannedAll.has(c) || earned.has(c), !plainEngine)) return false;
             const course = byCode.get(code);
@@ -9619,6 +9713,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       return faults;
     };
     let topped = true;
+    // MERGE-UGA: UGA's `while (topped && total < electiveTarget)` and an in-loop break merge in here silently.
+    // Illinois's top-up may pass the degree total to keep fall/spring terms at the minimum; with UGA's stop a
+    // trial failed 3 Illinois check cases (Theatre term under 12, FSHN 249, CHEM 102 term). Put UGA's stop
+    // behind a UGA-only switch.
     while (topped) {
       topped = false;
       for (const term of usedTerms) {
@@ -9640,6 +9738,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const tooBig = (hours: number) => running + hours > credits.max;
         const fitsHere = (code: string): boolean => {
           if (plannedAll.has(code)) return false;
+          // MERGE-UGA: same conflict as the fill's fitsHere above: keep both Illinois checks and UGA's plannedVariants
+          // line. Either side alone compiles but drops a guard.
           if (input.notTowardDegree?.(code)) return false;
           if (preparesForHeld(code, ctx.prereqs, (c) => plannedAll.has(c) || earned.has(c), !plainEngine)) return false;
           const course = byCode.get(code);
@@ -10023,6 +10123,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     if (credits.target !== null && overallAim > credits.target) {
       notes.push(`Terms aim for about ${overallAim} credits rather than the ${credits.target} you asked for, because ${remainingDegree} credits are left toward the ${degreeTotalPublished} this degree takes, over ${termsPhrase(fillTerms.length)} before ${input.horizon.gradSeason} ${input.horizon.gradYear}${summerShare}.${threes}`);
     } else if (credits.target === null) {
+      // MERGE-UGA: conflict. Illinois reworded this note and moved the elective note into slotsNote() below;
+      // UGA rewrote that elective note (electiveHoursLimit wording). Keep Illinois's lines and put UGA's wording
+      // inside slotsNote(). UGA's side compiles but prints two elective notes and the old aim note.
       notes.push(`Terms aim for about ${overallAim} credits, an even share of the ${remainingDegree} credits left toward the ${degreeTotalPublished} this degree takes, over ${termsPhrase(fillTerms.length)}${summerShare}.${threes} Set a number in Preferences to aim higher or lower.`);
     }
     const slotsNote = (): string =>
@@ -10045,6 +10148,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         ? `${fillTerms.length} ${fillTerms.length === 1 ? 'term holds' : 'terms hold'} at most ${capacity} at ${credits.max} each`
         : `${fillShape.regular} fall and spring ${fillShape.regular === 1 ? 'term' : 'terms'} at ${credits.max} and ${fillShape.summers} ${fillShape.summers === 1 ? 'summer' : 'summers'} at ${summerMax} hold at most ${capacity}`;
       notes.push(
+        // MERGE-UGA: conflict; either side alone compiles but drops a note. Keep all three: UGA's 'stops here' note
+        // when electiveHoursLimit is a number and !fillToDegreeTotal, then this capacity note, then the fallback.
         needed > capacity
           ? `Finishing by ${input.horizon.gradSeason} ${input.horizon.gradYear} needs ${Math.round(needed)} more credits, and ${holds}. This plan reaches ${Math.round(total)} of ${degreeTotalPublished}; ${fillShape.summers === 0 ? 'a summer session, one more term, or a later finish date' : 'one more term or a later finish date'} closes the gap.`
           : `This plan reaches ${Math.round(total)} of the ${degreeTotalPublished} credits the degree takes. Nothing else eligible fit before ${input.horizon.gradSeason} ${input.horizon.gradYear}.`,
@@ -11852,6 +11957,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
 // validatePlan
 // ---------------------------------------------------------------------------
 
+// MERGE-UGA: Illinois added programName, programCollege, away, language, firstYear and arrival; UGA's copy
+// lacks them and programs-compare.ts passes programName. Keep Illinois's interface.
 export interface ValidateOptions {
   /** The degree and its college, so a registration restriction naming them reads as open. */
   programName?: string;
@@ -12711,6 +12818,8 @@ export function distinctHeld(
 }
 
 /** The degree's own subjects and its major subject, as the planner reads them. For the rail. */
+// MERGE-UGA: Illinois-only export (UGA's copy lacks it); illinois-progress.ts, programs-compare.ts, repick.ts
+// and review.ts import it. Keep it.
 export function degreeSubjects(requirements: PlanRequirement[], programName?: string): { subjects: Set<string>; primary: string | null } {
   return degreeSubjectsOf(requirements, programName);
 }

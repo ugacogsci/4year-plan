@@ -539,6 +539,9 @@ export interface PoolList {
  * pool's own six courses may be chosen, which is why they live here and not as
  * sibling requirements.
  */
+// MERGE-UGA: UGA adds distinctLists?, hours? and hourCodes? here (auto-merges; mirrors PlanPoolConstraint in
+// autoplan.ts). live-pools.ts, uga-source.tsx and uga-program-overrides.ts use them. Taking this whole file
+// drops them and live-pools.ts fails tsc 8 times. Keep them.
 export interface PoolConstraint {
   /** The catalog's own sentence. Quoted verbatim wherever this is shown. */
   text: string;
@@ -647,6 +650,8 @@ export type RequirementRule =
    * depend on the student, so the adapter records the level and the engine
    * turns it into courses once it knows them.
    */
+  // MERGE-UGA: Illinois-only rule kind (UGA's copy lacks it). This file builds it and illinois-progress.ts
+  // branches on kind 'language'. Keep this line whatever happens to the 'hours' member above.
   | { kind: 'language'; semesters: 3 | 4; text: string };
 
 /**
@@ -690,6 +695,8 @@ export interface CourseChoice {
    * page's order. `codes` still holds the first course of each set, so a
    * reader that knows nothing of sets sees the alternatives.
    */
+  // MERGE-UGA: Illinois-only field (UGA's CourseChoice lacks it); illinois-progress.ts reads it, so keep it.
+  // It is optional, so the CourseChoice rows uga-source.tsx builds still type-check.
   bundles?: string[][];
 }
 
