@@ -414,9 +414,14 @@ newest term first. Each syllabus carries:
 - the exams and the final, and the required materials;
 - short paraphrased attendance, late-work and make-up policies.
 
+A syllabus's term is the one the document names; when a store filed it
+under another term, `listedFor` keeps that one. The tool also returns
+`this_term`, who teaches the course's lecture sections in the crawled term.
+
 ALMA has to name the term and instructor, link the source, and say that the
-student's own first-day syllabus is the final word. When nothing was found,
-it says so instead of guessing.
+student's own first-day syllabus is the final word. When the syllabus is from
+another term or another instructor than this term's, it says so. When nothing
+was found, it says so instead of guessing.
 
 The facts come from `scripts/illinois/syllabi/`, in five steps:
 1. `crawl.mjs` walks the public stores the research pass ranked

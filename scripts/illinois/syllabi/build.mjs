@@ -32,13 +32,24 @@ const byCourse = new Map();
 const counts = { documents: 0, shipped: 0, notACourseDocument: 0, noCatalogCode: 0 };
 const sources = {};
 
-/** "Fall 2024" or the store's "fa2024" -> "fa2024". */
-function termOf(written, hint) {
-  if (hint && /^(fa|sp|su|wi)\d{4}$/.test(hint)) return hint;
+/** "Fall 2024" -> "fa2024", or null. */
+function writtenTerm(written) {
   const m = termMentions(written ?? '')[0];
   if (m) return m.term;
   const loose = String(written ?? '').match(/(fall|spring|summer|winter)\D{0,3}(\d{2,4})/i);
   return loose ? makeTerm(loose[1], loose[2]) : null;
+}
+
+/**
+ * The document's own term wins over the term a store filed it under: the
+ * getsyllabus store lists ECE 110's Fall 2025 syllabus under Spring 2025, and
+ * TE 462's Spring 2025 one under Spring 2026. Either way the student is told
+ * the term the syllabus itself names; listedTerm keeps the store's.
+ */
+function termOf(written, hint) {
+  const own = writtenTerm(written);
+  const listed = typeof hint === 'string' && /^(fa|sp|su|wi)\d{4}$/.test(hint) ? hint : null;
+  return { term: own ?? listed, listedTerm: own && listed && own !== listed ? listed : null };
 }
 
 const short = (s, n = 200) => (s == null ? null : String(s).replace(/\s+/g, ' ').trim().slice(0, n) || null);
@@ -50,15 +61,17 @@ for (const f of existsSync(FACTS) ? readdirSync(FACTS).filter((n) => n.endsWith(
   if (!SHIP.has(x.kind)) { counts.notACourseDocument += 1; continue; }
   const codes = [...new Set([...(doc.hintCodes ?? []), ...(x.codes ?? [])].map(normalizeCode).filter(Boolean))];
   if (codes.length === 0) { counts.noCatalogCode += 1; continue; }
-  const term = termOf(x.term, doc.hintTerm);
+  const { term, listedTerm } = termOf(x.term, doc.hintTerm);
   const entry = {
     term,
     termLabel: termLabel(term),
+    ...(listedTerm ? { listedFor: termLabel(listedTerm) } : {}),
     section: doc.hintSection ?? null,
     instructors: (x.instructors ?? []).slice(0, 4),
     kind: x.kind,
     source: doc.source,
-    url: doc.url,
+    // A Google Doc was read through its plain-text export; a student gets the document itself.
+    url: String(doc.url).replace(/^(https:\/\/docs\.google\.com\/document\/d\/[\w-]+)\/export\?format=txt$/, '$1/edit'),
     grading: {
       basis: x.gradingBasis,
       components: (x.gradingComponents ?? []).map((c) => ({ item: short(c.item, 80), weight: c.weight, unit: c.unit, note: short(c.note, 140) })),

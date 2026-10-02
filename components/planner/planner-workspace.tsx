@@ -2596,15 +2596,23 @@ export function PlannerWorkspace({
       case 'course_syllabus': {
         const c = courseOf(str('code'));
         if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
-        const syllabi = await loadIllinoisSyllabi(c.code);
+        const [syllabi, detail] = await Promise.all([loadIllinoisSyllabi(c.code), loadIllinoisCourseDetail(c.code)]);
+        // Who teaches it in the crawled term, so a syllabus from another term or
+        // instructor can be told apart from the one the student will get.
+        const lectures = (detail?.sections?.sections ?? []).filter((s) => !s.type || /lecture/i.test(s.type));
+        const teaching = [...new Set((lectures.length ? lectures : detail?.sections?.sections ?? []).flatMap((s) => s.instructors ?? []))];
+        const thisTerm = detail?.sections
+          ? { term: L.core?.meta?.term?.label ?? null, instructors: teaching.slice(0, 12), sections: lectures.slice(0, 12).map((s) => ({ section: s.section, instructors: s.instructors })) }
+          : null;
         if (syllabi.length === 0) {
-          return { ok: true, code: c.code, found: 0, note: `No public syllabus for ${c.code} was found. Most Illinois syllabi are posted inside Canvas, behind a login; the course's Canvas page or its instructor has the current one.` };
+          return { ok: true, code: c.code, found: 0, this_term: thisTerm, note: `No public syllabus for ${c.code} was found. Most Illinois syllabi are posted inside Canvas, behind a login; the course's Canvas page or its instructor has the current one.` };
         }
         return {
           ok: true,
           code: c.code,
           found: syllabi.length,
-          note: 'Newest term first. Weights and policies can change by term, instructor and section; the syllabus a student gets on the first day is the final word.',
+          this_term: thisTerm,
+          note: "Newest term first. Weights and policies can change by term, instructor and section; the syllabus a student gets on the first day is the final word. A syllabus's instructors are the ones the reader found in it and may be incomplete. listedFor is the term a store filed it under when the document itself names another.",
           // The six newest are plenty to answer from, and keep the reply small.
           syllabi: syllabi.slice(0, 6),
         };
