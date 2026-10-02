@@ -20,7 +20,7 @@
  */
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { join, relative } from 'node:path';
 import { DATA, DIRS } from './paths.mjs';
 
 export const sha = (s) => createHash('sha256').update(s).digest('hex');

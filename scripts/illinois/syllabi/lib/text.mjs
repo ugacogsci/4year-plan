@@ -141,7 +141,7 @@ function flagsFor(type, pages, title, text) {
 
 function saveText(sha, record, type, engine, pageTexts, title, meta, hintTerm) {
   mkdirSync(DIRS.text, { recursive: true });
-  const clean = pageTexts.map((p) => String(p ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\u0000/g, ''));
+  const clean = pageTexts.map((p) => String(p ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').replaceAll('\u0000', ''));
   const text = clean.join('\f');
   const pages = clean.map((p) => p.length);
   const flags = flagsFor(type, pages, title ?? '', text);

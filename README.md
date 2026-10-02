@@ -402,6 +402,44 @@ term dates (refresh each term), planning around academic warning, and a
 handoff to the Dean of Students and the CARE Center
 (`__college-rules.check.mjs`).
 
+### What a course's syllabus says
+
+ALMA's `course_syllabus` tool answers "what percent of my grade is the project
+in CHEM 102", "is attendance graded", "which textbook". It reads
+`public/illinois/syllabi/{SUBJECT}.json`. Each course has a list of syllabi,
+newest term first. Each syllabus carries:
+- its term, instructors and a link to the instructor's own document;
+- the grade breakdown: each graded item with its percent or points, the
+  scale, curve, dropped scores and extra credit;
+- the exams and the final, and the required materials;
+- short paraphrased attendance, late-work and make-up policies.
+
+ALMA has to name the term and instructor, link the source, and say that the
+student's own first-day syllabus is the final word. When nothing was found,
+it says so instead of guessing.
+
+The facts come from `scripts/illinois/syllabi/`, in five steps:
+1. `crawl.mjs` walks the public stores the research pass ranked
+   (`research/discovery.json`), politely, through `lib/http.mjs`: robots.txt,
+   one request per host at a time, no logins, no Canvas, no Box downloads.
+   The stores are Grainger's getsyllabus and getfile stores and the
+   Chemistry, Economics and Math media archives, alongside what the research
+   pass downloaded from the IB, MCB, Math and Grainger course sites.
+2. `excerpt.mjs` cuts each document down to its header and the passages about
+   grading, exams, materials and policies.
+3. A reading pass turns each excerpt into facts. It is a workflow of model
+   readers, with a stronger checker spot-checking a sample against the text.
+4. `store-facts.mjs` keeps those facts.
+5. `build.mjs` writes the shards.
+
+The documents and excerpts stay in `data/syllabi/`, which is never committed,
+because the instructors own their text. Only the facts ship.
+
+Coverage is limited by where syllabi live. Most Illinois syllabi are inside
+Canvas behind a login, so the research estimated public syllabi for about a
+fifth of the catalog, concentrated in Grainger, IB, MCB, Math, Chemistry and
+Economics.
+
 ### The board review
 
 `review_board` (`lib/planner/review.ts`, `__review.check.mjs`) reads the board

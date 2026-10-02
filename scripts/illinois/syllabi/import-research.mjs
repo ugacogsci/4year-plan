@@ -309,7 +309,7 @@ for (const name of ceFiles) {
 // Explicitly not imported (logged so nobody wonders later).
 
 const EXCLUDED = [
-  ...readdirSync(R('las-hum', 'docs')).filter((n) => /^econ-ECON/.test(n)).map((n) => ({ file: `las-hum/docs/${n}`, reason: 'fetched through the Box preview-token route (public.boxcloud.com); the design says not to use or ingest it' })),
+  ...readdirSync(R('las-hum', 'docs')).filter((n) => n.startsWith('econ-ECON')).map((n) => ({ file: `las-hum/docs/${n}`, reason: 'fetched through the Box preview-token route (public.boxcloud.com); the design says not to use or ingest it' })),
   { file: 'las-hum/docs/econ102-f26.pdf', reason: 'a Box file; the student has not agreed to Box downloads' },
   { file: 'las-hum/docs/ps312-althaus.pdf', reason: 'a Box file (uofi.box.com/s/87rn3n...); the student has not agreed to Box downloads' },
   { file: 'canvas/*.html, pages/canvas-*.html, chem/canvas_*.html', reason: 'Canvas: the student has not decided on Canvas' },

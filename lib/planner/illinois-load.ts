@@ -398,6 +398,7 @@ function memo<T>(
 export function resetIllinoisCache(): void {
   cache.clear();
   shardCache.clear();
+  syllabusCache.clear();
   programCache.clear();
   metaPromise = null;
   indexPromise = null;
@@ -686,6 +687,62 @@ export async function loadIllinoisCourseDetail(code: string): Promise<IllinoisCo
     sections: shard.sections.find((s) => normCode(s.code) === wanted) ?? null,
     instructors: shard.instructors.find((g) => normCode(g.code) === wanted)?.instructors ?? null,
   };
+}
+
+/**
+ * What a course's own published syllabi say, as scripts/illinois/syllabi
+ * extracted it: the grade breakdown, exams, materials and course policies,
+ * each syllabus with its term, instructors and a link to the instructor's
+ * document. Facts only; the documents stay with their authors.
+ */
+export interface IllinoisSyllabus {
+  term: string | null;
+  termLabel: string | null;
+  section: string | null;
+  instructors: string[];
+  kind: 'syllabus' | 'course-policy' | 'master-outline';
+  source: string;
+  url: string;
+  grading: {
+    basis: 'percent' | 'points' | 'letter-only' | 'pass-fail' | 'unknown';
+    components: Array<{ item: string; weight: number | null; unit: 'percent' | 'points' | 'unknown'; note: string | null }>;
+    pointsTotal: number | null;
+    scale: string | null;
+    curve: string | null;
+    drop: string | null;
+    extraCredit: string | null;
+  };
+  exams: Array<{ name: string; when: string | null; note: string | null }>;
+  finalExam: string | null;
+  materials: Array<{ item: string; required: boolean | null }>;
+  attendance: string | null;
+  lateWork: string | null;
+  makeups: string | null;
+  other: string[];
+  confidence: 'high' | 'medium' | 'low';
+  /** Set when the syllabus was published under a cross-listed twin of this course. */
+  viaCrossList?: string;
+}
+
+interface IllinoisSyllabusShard {
+  subject: string;
+  builtAt: string;
+  courses: Record<string, IllinoisSyllabus[]>;
+}
+
+const syllabusCache = new Map<string, Promise<Fetched<IllinoisSyllabusShard>>>();
+
+/**
+ * A course's syllabi, newest term first. An empty list means none was found
+ * in the public sources the scraper reads (most syllabi live in Canvas,
+ * behind a login), not that the course has none.
+ */
+export async function loadIllinoisSyllabi(code: string): Promise<IllinoisSyllabus[]> {
+  const wanted = normCode(code);
+  const subject = wanted.split(' ')[0] ?? '';
+  if (!SAFE_SUBJECT.test(subject)) return [];
+  const r = await memo(syllabusCache, subject, () => artifact<IllinoisSyllabusShard>(`syllabi/${subject}.json`));
+  return r.ok ? (r.value.courses[wanted] ?? []) : [];
 }
 
 const programCache = new Map<string, Promise<Fetched<RawIllinoisProgram>>>();

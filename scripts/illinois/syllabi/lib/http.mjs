@@ -238,7 +238,9 @@ export const isOffline = () => OFFLINE;
 /**
  * GET (or HEAD) one URL politely. Never throws for HTTP outcomes.
  *
- * opts: { method: 'GET'|'HEAD', follow: true, revalidate: false, maxAgeDays, source, accept }
+ * opts: { method: 'GET'|'HEAD', follow: true, revalidate: false, maxAgeDays, source, accept, missingStatuses }
+ *   missingStatuses: HTTP statuses this store sends for an id with nothing
+ *   behind it (ws.engr getsyllabus: [500]); read as not-found, never as a throttle.
  *   follow: false returns the 3xx itself (the Drupal /document/{id} walks
  *   read the Location header and never download the file).
  *   maxAgeDays: an index page changes every term, a syllabus PDF never does,
@@ -339,6 +341,11 @@ async function fetchOnce(url, method, prior, hs, opts) {
       if (r.status >= 300 && r.status < 400 && r.status !== 304) { hs.streak5xx = 0; hs.streak403 = 0; return { ...meta, outcome: 'redirect' }; }
       if (r.status === 304) return { ...meta, outcome: 'ok' };
       if (r.status === 404 || r.status === 410) { hs.streak5xx = 0; hs.streak403 = 0; await r.arrayBuffer().catch(() => null); return { ...meta, outcome: 'not-found', body: null, bytes: 0 }; }
+      // A store that answers a missing id with an error page (ws.engr's IIS
+      // 500 for an empty getsyllabus id): the caller names those statuses,
+      // and they mean "nothing here", not "slow down". Read as throttling,
+      // each one cost three tries and a ten-minute pause of the host.
+      if (opts.missingStatuses?.includes(r.status)) { hs.streak5xx = 0; await r.arrayBuffer().catch(() => null); return { ...meta, outcome: 'not-found', body: null, bytes: 0 }; }
       if (r.status === 403) {
         const challenge = r.headers.get('cf-mitigated') || (/cloudflare/i.test(r.headers.get('server') ?? '') && /challenge|captcha/i.test(await r.text().catch(() => '')));
         hs.streak403 += 1;

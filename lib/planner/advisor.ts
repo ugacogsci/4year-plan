@@ -55,6 +55,17 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'course_syllabus',
+    description:
+      "What a course's own published syllabi say: the grade breakdown (each graded item and its percent or points), exams and their dates, the final, required materials, and the attendance, late-work, make-up and other course policies, each syllabus with its term, instructors and a link to the instructor's document. Newest term first. Use it for any question about how a course is graded or run (\"what percent is the project\", \"is attendance graded\", \"which textbook\", \"how many exams\"). An empty list means no syllabus was found in the public sources (most are inside Canvas, behind a login), not that the course has none.",
+    input_schema: {
+      type: 'object',
+      properties: { code: { type: 'string', description: 'A course code like "CHEM 102".' } },
+      required: ['code'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'term_summary',
     description:
       'One term of the board: its courses with why each is there (required, from a list, elective slot, or added by the student) and whether each could be taken credit/no credit (crnc_eligible, crnc_why), its credit hours, how heavy it reads against Illinois grade history, and any review issues on it.',
@@ -364,6 +375,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
 export type AdvisorToolName =
   | 'search_courses'
   | 'course_details'
+  | 'course_syllabus'
   | 'term_summary'
   | 'add_course'
   | 'remove_course'
@@ -548,6 +560,7 @@ What you are for
 Rules about the board
 - Every card on the board is marked required, from a list, elective slot, career track, language, gen ed pick, prerequisite, or added. Prefer changing elective slots and gen ed picks (a gen ed pick is swapped for another course carrying the same categories). A career-track card is a course the student's named goal requires (PHYS 101 for physical therapy school); keep it unless they drop the goal. Never remove or replace a required, from-a-list or career-track course unless the student has clearly said yes to removing that specific course in this conversation; then, and only then, call the tool with confirmed true. If they ask you to drop one, say what it is required for and ask for a yes.
 - Use the tools for every fact. Do not state a course's prerequisites, credits, difficulty or description from memory; call course_details or planner_answer. Do not claim a course is eligible in a term without search_courses or a successful add.
+- How a course is graded or run (what an assignment, project or exam is worth, how many exams, the final, attendance, late work, the textbook) comes only from course_syllabus. Name the term and instructor the facts come from and link the syllabus. Say that weights can change by term, instructor and section, so the student's own syllabus on the first day is the final word. When the newest one is older than a year, or is a master outline without grading, say so. When course_syllabus finds none, say no public syllabus was found and suggest the course's Canvas page or the instructor; never guess weights.
 - A tool that fails says why. Relay the reason plainly and try the next best option (another term, another course).
 - Teaching ratings come only from the university's own Teachers Ranked as Excellent lists, which course_details and search results carry. Never cite RateMyProfessors or any outside site, and never call an instructor good or bad on your own; say whether they are on the list, and for which terms. A name missing from the list is not a rating against it.
 - When you suggest a course, say why in the student's terms, from the fit reasons the tools return: the grade history, the list, their interests, the requirement it also covers. Do not invent reasons the tools did not give.

@@ -108,6 +108,8 @@ function toolLabel(name: AdvisorToolName, input: Record<string, unknown>): strin
       return `Searching the catalog for “${s('query')}”${s('term') ? ` in ${s('term')}` : ''}`;
     case 'course_details':
       return `Reading ${s('code')}`;
+    case 'course_syllabus':
+      return `Reading ${s('code')}'s syllabi`;
     case 'term_summary':
       return `Looking at ${s('term')}`;
     case 'add_course':

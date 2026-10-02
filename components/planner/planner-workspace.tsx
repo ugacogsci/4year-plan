@@ -157,7 +157,7 @@ import { creditUse, editFlags, enteringAsFirstYear, flagsCaused, isEditFlag, mom
 import { buildAdvisorPacket, cardRole, type AdvisorPacket, type CardRole } from '@/lib/planner/advisor-packet';
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
-import { loadIllinoisCourseDetail } from '@/lib/planner/illinois-load';
+import { loadIllinoisCourseDetail, loadIllinoisSyllabi } from '@/lib/planner/illinois-load';
 import type { AdvisorExecutor } from '@/lib/planner/advisor';
 
 /**
@@ -2591,6 +2591,22 @@ export function PlannerWorkspace({
           sections_in_crawled_term: L.core?.sections?.get(key)?.total ?? 0,
           ...sectionTimes(detail?.sections?.sections ?? [], L.core?.sections?.get(key)?.meet, L.core?.meta?.term?.label ?? null, wanted),
           does_not_count_with: L.core?.exclusions?.get(key) ?? [],
+        };
+      }
+      case 'course_syllabus': {
+        const c = courseOf(str('code'));
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        const syllabi = await loadIllinoisSyllabi(c.code);
+        if (syllabi.length === 0) {
+          return { ok: true, code: c.code, found: 0, note: `No public syllabus for ${c.code} was found. Most Illinois syllabi are posted inside Canvas, behind a login; the course's Canvas page or its instructor has the current one.` };
+        }
+        return {
+          ok: true,
+          code: c.code,
+          found: syllabi.length,
+          note: 'Newest term first. Weights and policies can change by term, instructor and section; the syllabus a student gets on the first day is the final word.',
+          // The six newest are plenty to answer from, and keep the reply small.
+          syllabi: syllabi.slice(0, 6),
         };
       }
       case 'term_summary': {
