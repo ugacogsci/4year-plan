@@ -55,6 +55,8 @@ npm run dev
 For deployed social links, set `NEXT_PUBLIC_SITE_URL` to the public origin. The
 local fallback is `http://localhost:3000`.
 
+Cloudflare Workers setup and deployment commands: [Deployment](./docs/DEPLOYMENT.md).
+
 Useful checks:
 
 ```bash

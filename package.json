@@ -9,6 +9,7 @@
     "dev": "vinext dev",
     "build:illinois": "node --experimental-strip-types scripts/illinois/build-index.mjs",
     "build": "npm run build:illinois && vinext build",
+    "deploy": "npm run build && wrangler deploy",
     "data:uga:pacmap": "node scripts/apply-uga-pacmap.mjs",
     "check:uga": "node --experimental-strip-types scripts/uga-check.mjs",
     "start": "wrangler dev --config dist/server/wrangler.json",

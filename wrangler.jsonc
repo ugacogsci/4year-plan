@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "orion",
+  "main": "vinext/server/fetch-handler",
+  "compatibility_date": "2026-09-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "NEXT_PUBLIC_SITE_URL": "https://orion.cogsci.workers.dev"
+  }
+}
