@@ -1,4 +1,5 @@
 import type { TranscriptRecord } from './transcript';
+import { normalizeUgaCollegeId, UGA_COLLEGE_BY_ID } from './uga-colleges';
 
 /**
  * What we learn before showing anyone a planner.
@@ -28,110 +29,9 @@ import type { TranscriptRecord } from './transcript';
  * the Alma Mater, ARCH after the Arch. The planner's own assistant uses the
  * same name, so a student sees one bot across both products.
  */
-export const SCHOOLS = [
-  {
-    id: 'uga',
-    name: 'University of Georgia',
-    short: 'UGA',
-    bot: 'ARCH',
-    people: 'Bulldogs',
-    accent: '#BA0C2F',
-    portal: 'Athena and DegreeWorks',
-    colleges: 'Franklin, Terry, Grady',
-    town: 'Athens',
-    feeders: 'Georgia State, Athens Tech, Gwinnett Tech',
-    dropTerm: 'withdrawal',
-    catalog: '/uga-catalog.json',
-    examCredit: '/uga-exam-credit.json',
-  },
-  {
-    id: 'tamu',
-    name: 'Texas A&M University',
-    short: 'Texas A&M',
-    bot: 'REV',
-    people: 'Aggies',
-    accent: '#500000',
-    portal: 'Howdy',
-    colleges: 'Mays, Engineering, Liberal Arts',
-    town: 'College Station',
-    feeders: 'Blinn College, Lone Star, Austin Community College',
-    dropTerm: 'Q-drop',
-    catalog: null,
-    examCredit: null,
-  },
-  {
-    id: 'mizzou',
-    name: 'University of Missouri',
-    short: 'Mizzou',
-    bot: 'TRU',
-    people: 'Tigers',
-    accent: '#F1B82D',
-    portal: 'myZou',
-    colleges: 'Arts & Science, Trulaske, Journalism',
-    town: 'Columbia',
-    feeders: 'Moberly Area, State Fair, Columbia College',
-    dropTerm: 'withdrawal',
-    catalog: null,
-    examCredit: null,
-  },
-  {
-    id: 'illinois',
-    name: 'University of Illinois',
-    short: 'Illinois',
-    bot: 'ALMA',
-    people: 'Illini',
-    accent: '#FF5F05',
-    portal: 'Student Self-Service',
-    colleges: 'LAS, Grainger, Gies',
-    town: 'Urbana-Champaign',
-    feeders: 'Parkland College, Harper, College of DuPage',
-    dropTerm: 'withdrawal',
-    catalog: null,
-    examCredit: null,
-  },
-  {
-    id: 'vt',
-    name: 'Virginia Tech',
-    short: 'Virginia Tech',
-    bot: 'PROSIM',
-    people: 'Hokies',
-    accent: '#861F41',
-    portal: 'Hokie SPA',
-    colleges: 'Engineering, Pamplin, Science',
-    town: 'Blacksburg',
-    feeders: 'Virginia Western, NOVA, New River',
-    dropTerm: 'withdrawal',
-    catalog: null,
-    examCredit: null,
-  },
-] as const;
-
-export type School = (typeof SCHOOLS)[number];
-
-export function schoolById(id: SchoolId | null): School | undefined {
-  return SCHOOLS.find((s) => s.id === id);
-}
-
-export type SchoolId = (typeof SCHOOLS)[number]['id'];
-
-/**
- * The schools this build can actually plan for.
- *
- * SCHOOLS is the roster the product is written towards. This is the part of it
- * with a catalog and degree pages behind it today: Illinois and UGA. Offering
- * the other roster schools before their data exists would render a demo catalog
- * under a real university's name, which is exactly the kind of false statement
- * a degree planner cannot make.
- */
-export const READY_SCHOOL_IDS: ReadonlySet<SchoolId> = new Set<SchoolId>(['illinois', 'uga']);
-
-export function readySchools(): School[] {
-  return SCHOOLS.filter((s) => READY_SCHOOL_IDS.has(s.id));
-}
-
-export function isReadySchool(id: SchoolId | null | undefined): id is SchoolId {
-  return id != null && READY_SCHOOL_IDS.has(id);
-}
+export { SCHOOLS, schoolById, READY_SCHOOL_IDS, readySchools, isReadySchool } from './schools';
+export type { School, SchoolId } from './schools';
+import { SCHOOLS, type School, type SchoolId } from './schools';
 
 export interface ExamCreditEntry {
   kind: string;
@@ -153,8 +53,102 @@ export interface PriorExam {
   score: number | string;
 }
 
+export type AcademicYear = '' | 'first' | 'second' | 'third' | 'fourth' | 'fifth-plus';
+export type GraduationSeason = '' | 'Spring' | 'Summer' | 'Fall';
+
+/**
+ * An explicit choice, not a catalog program. It lets a student start with an
+ * empty horizon and explore without the app guessing a degree for them.
+ */
+export const UNDECIDED_PROGRAM_ID = '__undecided__';
+
+const GRADUATION_SEASON_ORDER: Record<Exclude<GraduationSeason, ''>, number> = {
+  Spring: 0,
+  Summer: 1,
+  Fall: 2,
+};
+
+/** Approximate the active academic term without inventing school-specific dates. */
+export function currentAcademicSeason(now = new Date()): Exclude<GraduationSeason, ''> {
+  const month = now.getMonth();
+  if (month <= 4) return 'Spring';
+  if (month <= 7) return 'Summer';
+  return 'Fall';
+}
+
+/** Past terms are never valid schedule horizons, including earlier terms this year. */
+export function isGraduationTermPast(
+  season: GraduationSeason,
+  year: number | null,
+  now = new Date(),
+): boolean {
+  if (!season || !year) return false;
+  const target = year * 3 + GRADUATION_SEASON_ORDER[season];
+  const current = now.getFullYear() * 3 + GRADUATION_SEASON_ORDER[currentAcademicSeason(now)];
+  return target < current;
+}
+
+/**
+ * Terms the generator can place work into from now through graduation.
+ * Regular plans use fall and spring; a requested summer graduation adds that
+ * final summer as a real scheduling term.
+ */
+export function availablePlanningTerms(
+  graduationSeason: GraduationSeason,
+  graduationYear: number | null,
+  now = new Date(),
+): number {
+  if (!graduationSeason || !graduationYear || isGraduationTermPast(graduationSeason, graduationYear, now)) {
+    return 0;
+  }
+  const startSeason = currentAcademicSeason(now);
+  let season: Exclude<GraduationSeason, ''> = startSeason;
+  let year = now.getFullYear();
+  let count = 0;
+  for (let guard = 0; guard < 32; guard += 1) {
+    count += 1;
+    if (season === graduationSeason && year === graduationYear) return count;
+    if (season === 'Fall') {
+      season = 'Spring';
+      year += 1;
+    } else if (season === 'Spring') {
+      if (graduationSeason === 'Summer' && year === graduationYear) season = 'Summer';
+      else season = 'Fall';
+    } else {
+      season = 'Fall';
+    }
+  }
+  return 0;
+}
+
+export type ProgramLevel = 'undergraduate' | 'graduate';
+
 export interface OnboardingAnswers {
   schoolId: SchoolId | null;
+  /** Undergraduate or graduate/professional catalog and planning defaults. */
+  programLevel: ProgramLevel;
+  /** Degree programs the student explicitly selected, primary first. */
+  programIds: string[];
+  /** Published minors the student wants included in the plan. */
+  minorIds: string[];
+  /** Published certificates at the selected program level. */
+  certificateIds: string[];
+  /**
+   * Named focus/emphasis choices, keyed by the requirement id published with
+   * the program. Keeping the requirement in the key supports degrees with
+   * more than one independent set of required choices.
+   */
+  emphasisSelections: Record<string, string[]>;
+  /** Primary degree-granting college, inferred from the selected major when unambiguous. */
+  collegeId: string;
+  /** Current year in the program, confirmed after the open-ended questions. */
+  academicYear: AcademicYear;
+  /** Explicit schedule horizon; the open-ended answer is used to prefill it. */
+  graduationSeason: GraduationSeason;
+  graduationYear: number | null;
+  /** UGA courses the student explicitly marked as completed. */
+  alreadyTakenCourseCodes: string[];
+  /** Other subjects and interests the student wants the plan to consider. */
   studying: string;
   timeline: string;
   after: string;
@@ -183,6 +177,16 @@ export interface OnboardingAnswers {
 
 export const EMPTY_ANSWERS: OnboardingAnswers = {
   schoolId: null,
+  programLevel: 'undergraduate',
+  programIds: [UNDECIDED_PROGRAM_ID],
+  minorIds: [],
+  certificateIds: [],
+  emphasisSelections: {},
+  collegeId: '',
+  academicYear: '',
+  graduationSeason: '',
+  graduationYear: null,
+  alreadyTakenCourseCodes: [],
   studying: '',
   timeline: '',
   after: '',
@@ -204,15 +208,11 @@ export function questionsFor(school: School | undefined): Array<{
   return [
     {
       key: 'studying',
-      // MERGE-UGA: behavior, merges with no conflict. UGA rewords this for every school to 'What else should the plan make
-      // room for?', since its onboarding picks the major into answers.programIds. Illinois still guesses the degree from
-      // answers.studying (guessProgram in planner-workspace.tsx), so the picked major is ignored and a minor named here can be guessed as the major.
-      // Keep both: plan Illinois from a picked programIds entry (not UNDECIDED), or keep this question for Illinois.
-      label: 'What are you studying, or thinking about studying?',
-      hint: 'A declared major, two you are torn between, or just the subjects you like.',
+      label: 'What else should the plan make room for?',
+      hint: 'Possible fields of study, interests, or subjects you want to explore. Additional programs and certificates are selected from the catalog with your degree.',
       placeholder: s
-        ? `I am in ${college} doing psychology but I have taken two CS classes and liked them more. Thinking about switching or adding a CS minor.`
-        : 'Psychology, but I like my CS classes more.',
+        ? `I am in ${college} and considering a computer science minor. I would also like room for psychology and linguistics.`
+        : 'A computer science minor, plus room to explore psychology.',
     },
     {
       key: 'timeline',
@@ -231,6 +231,43 @@ export function questionsFor(school: School | undefined): Array<{
   ];
 }
 
+const ACADEMIC_YEAR_PATTERNS: Array<[Exclude<AcademicYear, ''>, RegExp]> = [
+  ['fifth-plus', /\b(?:fifth|5th)(?:[- ]year)?\b/i],
+  ['fourth', /\b(?:fourth|4th)(?:[- ]year)?\b|\bsenior\b/i],
+  ['third', /\b(?:third|3rd)(?:[- ]year)?\b|\bjunior\b/i],
+  ['second', /\b(?:second|2nd)(?:[- ]year)?\b|\bsophomore\b/i],
+  ['first', /\b(?:first|1st)(?:[- ]year)?\b|\bfreshm[ae]n\b/i],
+];
+
+export function inferAcademicYear(text: string): AcademicYear {
+  return ACADEMIC_YEAR_PATTERNS.find(([, pattern]) => pattern.test(text))?.[0] ?? '';
+}
+
+export function inferGraduationTarget(text: string): {
+  season: GraduationSeason;
+  year: number | null;
+} {
+  const graduationClause = text.match(
+    /(?:graduat\w*|finish\w*|complet\w*|done|degree)\b[^.\n]{0,55}/i,
+  )?.[0] ?? '';
+  const season = graduationClause.match(/\b(spring|summer|fall)\b/i)?.[1];
+  const year = graduationClause.match(/\b(20\d{2})\b/)?.[1];
+  return {
+    season: season
+      ? (`${season[0].toUpperCase()}${season.slice(1).toLowerCase()}` as GraduationSeason)
+      : '',
+    year: year ? Number(year) : null,
+  };
+}
+
+/** Structured confirmation wins when free-form text and the selected date disagree. */
+export function timelineForPlanning(answers: OnboardingAnswers): string {
+  const target = answers.graduationSeason && answers.graduationYear
+    ? `I plan to graduate ${answers.graduationSeason} ${answers.graduationYear}.`
+    : '';
+  return [target, answers.timeline].filter(Boolean).join(' ');
+}
+
 /**
  * v2, not v1. A v1 setup could name any of five schools, four of which this
  * build cannot plan, and one that did was quietly moved to Illinois and its
@@ -239,17 +276,66 @@ export function questionsFor(school: School | undefined): Array<{
  */
 const KEY = 'fourYear.onboarding.v2';
 
-// MERGE-UGA: UGA's version of this function merges in with no conflict. It gives programIds: [] to every setup saved by the Illinois build,
-// and UGA's app-shell offers 'Continue with my saved plan' only when programIds is non-empty. With that line a
-// returning Illinois student loses the link, and redoing the questions runs clearSavedPlan, deleting their saved board.
-// Keep both: gate the resume link on programIds for UGA only, or on a saved v4 board existing.
-export function loadAnswers(): OnboardingAnswers | null {
+/** Last-used setup by default, or the independent saved setup for one school. */
+export function loadAnswers(schoolId?: SchoolId): OnboardingAnswers | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const raw = (schoolId ? window.localStorage.getItem(`${KEY}.${schoolId}`) : null)
+      ?? window.localStorage.getItem(KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as OnboardingAnswers;
-    return parsed.schoolId ? parsed : null;
+    const parsed = JSON.parse(raw) as Partial<OnboardingAnswers>;
+    if (!parsed.schoolId || (schoolId && parsed.schoolId !== schoolId)) return null;
+    return {
+      ...EMPTY_ANSWERS,
+      ...parsed,
+      programLevel: parsed.programLevel === 'graduate' ? 'graduate' : 'undergraduate',
+      programIds: Array.isArray(parsed.programIds)
+        ? parsed.programIds.filter((id): id is string => typeof id === 'string')
+        : [],
+      minorIds: Array.isArray(parsed.minorIds)
+        ? parsed.minorIds.filter((id): id is string => typeof id === 'string')
+        : [],
+      certificateIds: Array.isArray(parsed.certificateIds)
+        ? parsed.certificateIds.filter((id): id is string => typeof id === 'string')
+        : [],
+      emphasisSelections:
+        parsed.emphasisSelections && typeof parsed.emphasisSelections === 'object'
+          ? Object.fromEntries(
+              Object.entries(parsed.emphasisSelections).map(([key, value]) => [
+                key,
+                Array.isArray(value)
+                  ? value.filter((id): id is string => typeof id === 'string')
+                  : [],
+              ]),
+            )
+          : {},
+      collegeId: (() => {
+        const id =
+          typeof parsed.collegeId === 'string'
+            ? normalizeUgaCollegeId(parsed.collegeId)
+            : '';
+        return UGA_COLLEGE_BY_ID.has(id) ? id : '';
+      })(),
+      academicYear: ['first', 'second', 'third', 'fourth', 'fifth-plus'].includes(
+        parsed.academicYear ?? '',
+      )
+        ? (parsed.academicYear as AcademicYear)
+        : '',
+      graduationSeason: ['Spring', 'Summer', 'Fall'].includes(parsed.graduationSeason ?? '')
+        ? (parsed.graduationSeason as GraduationSeason)
+        : '',
+      graduationYear:
+        typeof parsed.graduationYear === 'number' &&
+        parsed.graduationYear >= 2000 &&
+        parsed.graduationYear <= 2100
+          ? parsed.graduationYear
+          : null,
+      alreadyTakenCourseCodes: Array.isArray(parsed.alreadyTakenCourseCodes)
+        ? parsed.alreadyTakenCourseCodes.filter(
+            (code): code is string => typeof code === 'string',
+          )
+        : [],
+    };
   } catch {
     return null;
   }
@@ -257,15 +343,32 @@ export function loadAnswers(): OnboardingAnswers | null {
 
 export function saveAnswers(a: OnboardingAnswers) {
   try {
+    // Preserve the older single-key setup before another school's first save
+    // replaces the last-used pointer. Existing students need no migration UI.
+    const previousRaw = window.localStorage.getItem(KEY);
+    if (previousRaw) {
+      try {
+        const previous = JSON.parse(previousRaw) as Partial<OnboardingAnswers>;
+        if (previous.schoolId && !window.localStorage.getItem(`${KEY}.${previous.schoolId}`)) {
+          window.localStorage.setItem(`${KEY}.${previous.schoolId}`, previousRaw);
+        }
+      } catch {
+        // A malformed previous setup must not prevent saving the new one.
+      }
+    }
+    if (a.schoolId) window.localStorage.setItem(`${KEY}.${a.schoolId}`, JSON.stringify(a));
     window.localStorage.setItem(KEY, JSON.stringify(a));
   } catch {
     /* private browsing; the session still works, it just will not be remembered */
   }
 }
 
-export function clearAnswers() {
+export function clearAnswers(schoolId?: SchoolId) {
   try {
-    window.localStorage.removeItem(KEY);
+    const current = loadAnswers();
+    const target = schoolId ?? current?.schoolId;
+    if (target) window.localStorage.removeItem(`${KEY}.${target}`);
+    if (!schoolId || current?.schoolId === schoolId) window.localStorage.removeItem(KEY);
   } catch {
     /* nothing to do */
   }
@@ -274,7 +377,13 @@ export function clearAnswers() {
 /** A short line for the planner header, so the answers stay visible. */
 export function summarize(a: OnboardingAnswers): string {
   const school = SCHOOLS.find((s) => s.id === a.schoolId);
-  return [school?.short, a.studying.split(/[.\n]/)[0]?.trim()].filter(Boolean).join(' · ');
+  const college = a.schoolId === 'uga' ? UGA_COLLEGE_BY_ID.get(a.collegeId)?.name : null;
+  const graduation = a.graduationSeason && a.graduationYear
+    ? `${a.graduationSeason} ${a.graduationYear}`
+    : null;
+  return [school?.short, college, graduation, a.studying.split(/[.\n]/)[0]?.trim()]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 
@@ -336,11 +445,7 @@ export function examRows(taken: PriorExam, table: ExamCreditEntry[]): ExamCredit
   });
 }
 
-// MERGE-UGA: UGA kept the old first-matching-row applyExamCredit, so UGA students get this version after the merge.
-// This only matches 3-digit codes, so UGA's 4-digit codes skip count-once and every distinct row is summed:
-// UGA IB Italian SL 7 goes from 10 to 21 hours. Widening to \d{3,4} fixes that and AP English Lang + Lit (12 to 6),
-// but drops AP Calc AB + BC to 4 (should be 8). Re-test UGA exam pairs against public/uga-exam-credit.json.
-const GRANT_COURSE = /^[A-Z]{2,5} \d{3}[A-Z]?$/;
+const GRANT_COURSE = /^[A-Z]{2,5} \d{3,4}[A-Z]?$/;
 
 /**
  * Turn the exams a student reports into the credit the school actually
@@ -370,13 +475,36 @@ export function applyExamCredit(
   for (const e of table) {
     if (e.courses.length === 1 && GRANT_COURSE.test(grantCode(e.courses[0])) && e.credits > 0) alone.set(grantCode(e.courses[0]), e.credits);
   }
+  // Cumulative rows establish missing course hours without guessing: MATH
+  // 2250 = 4 and MATH 2250 + 2260 = 8 establishes MATH 2260 = 4.
+  let learned = true;
+  while (learned) {
+    learned = false;
+    for (const row of table) {
+      const codes = [...new Set(row.courses.map(grantCode))];
+      if (!codes.length || codes.some((code) => !GRANT_COURSE.test(code)) || row.credits <= 0) continue;
+      const unknown = codes.filter((code) => !alone.has(code));
+      if (unknown.length !== 1) continue;
+      const remaining = row.credits - codes.reduce((sum, code) => sum + (alone.get(code) ?? 0), 0);
+      if (remaining <= 0) continue;
+      alone.set(unknown[0], remaining);
+      learned = true;
+    }
+  }
   let credits = 0;
+  const countedGrants = new Set<string>();
 
   for (const taken of exams) {
     const rows = examRows(taken, table);
     if (rows.length === 0) { unmatched.push(taken); continue; }
     for (const row of rows) {
       const codes = row.courses.map(grantCode);
+      const grantKey = `${[...codes].sort().join(',')}|${row.credits}`;
+      if (countedGrants.has(grantKey)) {
+        row.exemptOnly.forEach((c) => exemptCourses.add(grantCode(c)));
+        continue;
+      }
+      countedGrants.add(grantKey);
       const real = codes.filter((c) => GRANT_COURSE.test(c));
       const known = real.every((c) => alone.has(c));
       if (known) {

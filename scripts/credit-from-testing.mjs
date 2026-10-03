@@ -70,7 +70,7 @@ function parseCredit(text) {
 
   const granted = [];
   const exempt = [];
-  let cursor = 0;
+  const cursor = 0;
   for (const c of courses) {
     const mark = marks.find((m) => m.at > c.at && m.at >= cursor);
     const hours = mark ? mark.hours : null;
@@ -140,7 +140,7 @@ const run = async () => {
   }
 
   if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
-  const exams = [...new Set(entries.map((e) => `${e.kind}|${e.exam}`))].length;
+  const exams = new Set(entries.map((e) => `${e.kind}|${e.exam}`)).size;
   writeFileSync(OUT, JSON.stringify({
     source: "reg.uga.edu/student-records/credit-from-testing",
     fetchedAt: new Date().toISOString(),

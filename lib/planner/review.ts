@@ -266,7 +266,7 @@ export function momentumReview(input: MomentumInput): { flags: ReviewFlag[]; fac
    * one-credit seminar a Psychology page names three times, and counting it
    * made a year with one PSYC course read as three.
    */
-  const { subjects, primary } = degreeSubjects(input.requirements, input.programName);
+  const { subjects, primary } = degreeSubjects(input.requirements, input.programName, ctx.schoolId);
   const major = new Set(subjects);
   if (primary) major.add(primary);
   if (major.size > 0) {
@@ -400,7 +400,7 @@ export function creditUse(input: CreditUseInput): CreditUse {
   const ctx = input.context;
   const byId = new Map(ctx.courses.map((c) => [c.id, c]));
   const named = namedByDegree(input.requirements, ctx);
-  const { subjects, primary } = degreeSubjects(input.requirements, input.programName);
+  const { subjects, primary } = degreeSubjects(input.requirements, input.programName, ctx.schoolId);
   const major = new Set(subjects);
   if (primary) major.add(primary);
   const boardCodes: string[] = [];
@@ -461,7 +461,7 @@ export function priorCreditUse(input: PriorUseInput): { hoursIn: number; hoursFi
   const ctx = input.context;
   const named = namedByDegree(input.requirements, ctx);
   for (const s of input.satisfied ?? []) for (const code of s.codes) named.add(normaliseCode(code));
-  const { subjects, primary } = degreeSubjects(input.requirements, input.programName);
+  const { subjects, primary } = degreeSubjects(input.requirements, input.programName, ctx.schoolId);
   const major = new Set(subjects);
   if (primary) major.add(primary);
   const byCode = new Map(ctx.courses.map((c) => [normaliseCode(c.code), c]));

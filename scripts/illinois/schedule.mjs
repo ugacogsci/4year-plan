@@ -39,7 +39,7 @@ async function get(url) {
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(String(res.status));
       return await res.text();
-    } catch (e) { if (a === 2) return null; await sleep(3000 * (a + 1)); }
+    } catch { if (a === 2) return null; await sleep(3000 * (a + 1)); }
   }
   return null;
 }
@@ -154,7 +154,6 @@ function parseCourse(html) {
     // at 9:30. meetings[] still carries every part.
     const first = meetings.find((m) => m.start) ?? meetings[0]
       ?? { days: null, start: null, end: null, room: null, building: null };
-    const times = [first.start, first.end].filter(Boolean);
     const place = { room: first.room, building: first.building };
 
     // The details cell is one run of "Label: value" pairs, so each is cut at

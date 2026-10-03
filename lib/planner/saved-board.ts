@@ -21,7 +21,7 @@ import type { OnboardingAnswers } from './onboarding';
 import type { AwayTerm, GeneratedPlan, LanguagePlan, NotPlaced, PoolReport, UnsatisfiedRequirement } from './autoplan';
 import { normalizePriorities, type Priorities } from './priorities';
 import { isPlanState } from './rules';
-import type { PlanState, SemesterSeason } from './types';
+import type { IssueSeverity, PlanState, SemesterSeason } from './types';
 
 /**
  * v4, beside the old key rather than over it. A v3 entry held the terms and
@@ -29,6 +29,8 @@ import type { PlanState, SemesterSeason } from './types';
  * pressed "Save on this device"; it is still read, once, and moved here.
  */
 export const BOARD_KEY = 'fourYear.board.v4';
+/** Keep each university's board when the student switches universities. */
+export const schoolBoardKey = (schoolId: string) => `${BOARD_KEY}.${encodeURIComponent(schoolId)}`;
 export const LEGACY_BOARD_KEY = 'four-year-planner-v3';
 /**
  * ALMA's conversation, per degree (components/planner/advisor.tsx). Named
@@ -166,10 +168,49 @@ export interface PlanSettings {
   planShape: PlanShape;
 }
 
-// MERGE-UGA: UGA saves several plan tabs (plans, planGroups, activePlanId) and the picks they were built for
-// (programIds, minorIds, certificateIds, emphasisSelections), and restores only when those picks still match.
-// v4 holds one board and one programId and parseSavedBoard checks only schoolId, so UGA's extra tabs vanish on reload.
-// Keep both: add those fields here, read them in parseSavedBoard, and keep UGA's picks-match check on restore.
+export interface SavedPlanTab {
+  id: string;
+  name: string;
+  groupId: string;
+  plan: PlanState;
+  /** Every alternative keeps its own generation report and editing provenance. */
+  board?: BoardState;
+  issueSeverity?: IssueSeverity | null;
+  issueSummary?: string;
+}
+
+export interface SavedPlanGroup {
+  id: string;
+  name: string;
+  color: string;
+}
+
+/** Shared earned credit cannot remain scheduled in an alternative plan. */
+export function reconcileCompletedCourses(board: BoardState, sharedCompletedIds: readonly string[]): BoardState {
+  const completed = new Set([...board.plan.completedCourseIds, ...sharedCompletedIds]);
+  const newlyHeld = completed.size !== board.plan.completedCourseIds.length;
+  const stillScheduled = board.plan.terms.some((term) => term.courseIds.some((id) => completed.has(id)));
+  if (!newlyHeld && !stillScheduled) return board;
+  return {
+    ...board,
+    plan: {
+      ...board.plan,
+      completedCourseIds: [...completed],
+      terms: board.plan.terms.map((term) => ({ ...term, courseIds: term.courseIds.filter((id) => !completed.has(id)) })),
+    },
+    studentAdded: board.studentAdded.filter((id) => !completed.has(id)),
+    repickedFor: null,
+    edited: true,
+  };
+}
+
+/** Legacy alternatives have no report; modern alternatives keep their own provenance. */
+export function reconcileCompletedTab(tab: SavedPlanTab, sharedCompletedIds: readonly string[]): SavedPlanTab {
+  const board = tab.board ?? { plan: tab.plan, report: null, notes: [], studentAdded: [], repickedFor: null, edited: true };
+  const next = reconcileCompletedCourses(board, sharedCompletedIds);
+  return next === board ? tab : { ...tab, plan: next.plan, board: next, issueSeverity: null, issueSummary: '' };
+}
+
 export interface SavedBoard {
   schemaVersion: 4;
   schoolId: string;
@@ -178,6 +219,14 @@ export interface SavedBoard {
   savedAt: string;
   board: BoardState;
   settings: PlanSettings;
+  programIds?: string[];
+  minorIds?: string[];
+  certificateIds?: string[];
+  emphasisSelections?: Record<string, string[]>;
+  programLevel?: 'undergraduate' | 'graduate';
+  plans?: SavedPlanTab[];
+  planGroups?: SavedPlanGroup[];
+  activePlanId?: string;
 }
 
 /** window.localStorage, or a stand-in for it. */
@@ -257,6 +306,59 @@ function readSettings(v: Record<string, unknown>): PlanSettings {
   };
 }
 
+function readBoard(value: unknown): BoardState | null {
+  if (!isObject(value) || !isPlanState(value.plan)) return null;
+  return {
+    plan: value.plan,
+    report: readReport(value.report),
+    notes: isStrings(value.notes) ? value.notes : [],
+    studentAdded: isStrings(value.studentAdded) ? value.studentAdded : [],
+    repickedFor: typeof value.repickedFor === 'string' ? value.repickedFor : null,
+    edited: value.edited === true,
+  };
+}
+
+/** Read both generations of multi-program and alternative-plan saves. */
+function readSelections(value: Record<string, unknown>): Partial<SavedBoard> {
+  const selections: Partial<SavedBoard> = {};
+  for (const key of ['programIds', 'minorIds', 'certificateIds'] as const) {
+    if (isStrings(value[key])) selections[key] = [...new Set(value[key])];
+  }
+  if (isObject(value.emphasisSelections)) {
+    selections.emphasisSelections = Object.fromEntries(
+      Object.entries(value.emphasisSelections).filter((entry): entry is [string, string[]] => isStrings(entry[1])),
+    );
+  }
+  if (value.programLevel === 'graduate' || value.programLevel === 'undergraduate') selections.programLevel = value.programLevel;
+  if (typeof value.activePlanId === 'string') selections.activePlanId = value.activePlanId;
+  if (Array.isArray(value.planGroups)) {
+    const seen = new Set<string>();
+    selections.planGroups = value.planGroups.filter((group): group is SavedPlanGroup => {
+      if (!isObject(group) || typeof group.id !== 'string' || typeof group.name !== 'string' || typeof group.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(group.color) || seen.has(group.id)) return false;
+      seen.add(group.id);
+      return true;
+    });
+  }
+  if (Array.isArray(value.plans)) {
+    const seen = new Set<string>();
+    selections.plans = value.plans.flatMap((tab): SavedPlanTab[] => {
+      if (!isObject(tab) || typeof tab.id !== 'string' || typeof tab.name !== 'string' || !isPlanState(tab.plan) || seen.has(tab.id)) return [];
+      seen.add(tab.id);
+      const board = readBoard(tab.board);
+      return [{
+        id: tab.id,
+        name: tab.name,
+        groupId: typeof tab.groupId === 'string' ? tab.groupId : 'group-1',
+        plan: tab.plan,
+        ...(board ? { board: { ...board, plan: tab.plan } } : {}),
+        issueSeverity: ['error', 'warning', 'info'].includes(String(tab.issueSeverity)) ? tab.issueSeverity as IssueSeverity : null,
+        issueSummary: typeof tab.issueSummary === 'string' ? tab.issueSummary : '',
+      }];
+    });
+  }
+  return selections;
+}
+
 /** A v4 entry for this school, or null. */
 export function parseSavedBoard(raw: string | null, schoolId: string): SavedBoard | null {
   if (!raw) return null;
@@ -283,6 +385,7 @@ export function parseSavedBoard(raw: string | null, schoolId: string): SavedBoar
       edited: board.edited === true,
     },
     settings: readSettings(isObject(parsed.settings) ? parsed.settings : {}),
+    ...readSelections(parsed),
   };
 }
 
@@ -293,10 +396,6 @@ export function parseSavedBoard(raw: string | null, schoolId: string): SavedBoar
  * whether they had changed it first; a credit change then asks before it
  * replaces the board instead of doing so on its own.
  */
-// MERGE-UGA: UGA still saves to four-year-planner-v3 (its 'Save on this device', and every save on the live ORION site),
-// adding plans, planGroups, activePlanId, programIds, minorIds, certificateIds and emphasisSelections. This keeps only the
-// plan and settings, and writeSavedBoard then deletes the v3 key, so a UGA student's plan tabs and minors are lost.
-// Keep both: copy UGA's extra v3 fields into the v4 entry here, and drop UGA's v3 save() in favour of writeSavedBoard.
 export function migrateLegacyBoard(raw: string | null, schoolId: string): SavedBoard | null {
   if (!raw) return null;
   let parsed: unknown;
@@ -314,6 +413,7 @@ export function migrateLegacyBoard(raw: string | null, schoolId: string): SavedB
     savedAt: '',
     board: { plan: parsed.plan, report: null, notes: [], studentAdded: [], repickedFor: null, edited: true },
     settings: readSettings(parsed),
+    ...readSelections(parsed),
   };
 }
 
@@ -326,7 +426,9 @@ export function serializeBoard(saved: SavedBoard): string {
 export function readSavedBoard(storage: BoardStorage | null, schoolId: string): SavedBoard | null {
   if (!storage) return null;
   try {
-    return parseSavedBoard(storage.getItem(BOARD_KEY), schoolId) ?? migrateLegacyBoard(storage.getItem(LEGACY_BOARD_KEY), schoolId);
+    return parseSavedBoard(storage.getItem(schoolBoardKey(schoolId)), schoolId)
+      ?? parseSavedBoard(storage.getItem(BOARD_KEY), schoolId)
+      ?? migrateLegacyBoard(storage.getItem(LEGACY_BOARD_KEY), schoolId);
   } catch {
     return null;
   }
@@ -341,8 +443,22 @@ export function readSavedBoard(storage: BoardStorage | null, schoolId: string): 
 export function writeSavedBoard(storage: BoardStorage | null, serialized: string): boolean {
   if (!storage) return false;
   try {
+    const parsed: unknown = JSON.parse(serialized);
+    if (!isObject(parsed) || typeof parsed.schoolId !== 'string' || !parseSavedBoard(serialized, parsed.schoolId)) return false;
+    // Retain a prior global v4 before replacing its backwards-compatible alias.
+    const previous = storage.getItem(BOARD_KEY);
+    if (previous) {
+      let old: unknown = null;
+      try {
+        old = JSON.parse(previous);
+      } catch { /* An invalid old alias cannot hide the new valid board. */ }
+      if (isObject(old) && typeof old.schoolId === 'string' && old.schoolId !== parsed.schoolId && parseSavedBoard(previous, old.schoolId)) {
+        storage.setItem(schoolBoardKey(old.schoolId), previous);
+      }
+    }
+    storage.setItem(schoolBoardKey(parsed.schoolId), serialized);
     storage.setItem(BOARD_KEY, serialized);
-    storage.removeItem(LEGACY_BOARD_KEY);
+    if (migrateLegacyBoard(storage.getItem(LEGACY_BOARD_KEY), parsed.schoolId)) storage.removeItem(LEGACY_BOARD_KEY);
     return true;
   } catch {
     return false;
@@ -354,9 +470,18 @@ export function writeSavedBoard(storage: BoardStorage | null, serialized: string
  * a new setup and a different degree all end the board; the chat goes with
  * it, so it can never describe a board that is gone.
  */
-export function forgetBoard(storage: BoardStorage | null): void {
+export function forgetBoard(storage: BoardStorage | null, schoolId?: string): void {
   if (!storage) return;
-  for (const key of [BOARD_KEY, LEGACY_BOARD_KEY, CHAT_KEY]) {
+  const keys = [CHAT_KEY];
+  if (schoolId === undefined) keys.push(BOARD_KEY, LEGACY_BOARD_KEY, schoolBoardKey('illinois'), schoolBoardKey('uga'), schoolBoardKey(''), `${CHAT_KEY}.illinois`, `${CHAT_KEY}.uga`);
+  else {
+    keys.push(schoolBoardKey(schoolId), `${CHAT_KEY}.${schoolId}`);
+    try {
+      if (parseSavedBoard(storage.getItem(BOARD_KEY), schoolId)) keys.push(BOARD_KEY);
+      if (migrateLegacyBoard(storage.getItem(LEGACY_BOARD_KEY), schoolId)) keys.push(LEGACY_BOARD_KEY);
+    } catch { /* Storage may be unavailable. */ }
+  }
+  for (const key of keys) {
     try {
       storage.removeItem(key);
     } catch {
@@ -371,9 +496,10 @@ export function forgetBoard(storage: BoardStorage | null): void {
  * to rebuild the board from the About-you answers and reopen a chat about
  * the board before it.
  */
-export function forgetChat(storage: BoardStorage | null): void {
+export function forgetChat(storage: BoardStorage | null, schoolId?: string): void {
   try {
     storage?.removeItem(CHAT_KEY);
+    for (const id of schoolId === undefined ? ['illinois', 'uga'] : [schoolId]) storage?.removeItem(`${CHAT_KEY}.${id}`);
   } catch {
     /* nothing to forget */
   }
@@ -434,6 +560,8 @@ export const UNDO_LIMIT = 20;
  */
 export interface UndoEntry {
   before: BoardState;
+  /** Manual completion edits restore the credit record together with the board. */
+  alreadyTakenCourseCodes?: string[];
   /** Set when the step is one ALMA turn. */
   turn?: {
     id: string;

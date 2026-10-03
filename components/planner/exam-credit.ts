@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { examRows, grantCode, type ExamCreditEntry, type PriorExam, type School } from '@/lib/planner/onboarding';
+import { applyExamCredit, examRows, grantCode, type ExamCreditEntry, type PriorExam, type School } from '@/lib/planner/onboarding';
 
 export interface ExamCreditTable {
   entries: ExamCreditEntry[];
@@ -22,19 +22,9 @@ export interface ExamCreditTable {
 
 const EMPTY: ExamCreditTable = { entries: [], policy: '', source: '' };
 
-/**
- * Where a school's exam table lives.
- *
- * SCHOOLS carries this for UGA and nothing else, and adding Illinois to it
- * means editing lib/planner/onboarding.ts, which another agent owns. The
- * Illinois file is named here instead so the control works today; the right
- * home for this line is the School record, and it should move there.
- */
+/** The source belongs to the school registry, shared with all other loaders. */
 export function examCreditUrl(school: School | undefined): string | null {
-  if (!school) return null;
-  if (school.examCredit) return school.examCredit;
-  if (school.id === 'illinois') return '/illinois-exam-credit.json';
-  return null;
+  return school?.examCredit ?? null;
 }
 
 let cache: { url: string; table: Promise<ExamCreditTable> } | null = null;
@@ -144,26 +134,35 @@ export function examElectiveHours(
   creditsOf?: (code: string) => number | null,
 ): number {
   if (exams.length === 0 || table.length === 0) return 0;
-  let hours = 0;
+  const seen = new Set<string>();
+  let recordedHours = 0;
+  let indirectHours = 0;
   for (const taken of exams) {
     for (const row of examRows(taken, table)) {
       if (row.noCredit || row.credits <= 0) continue;
       const codes = row.courses.map(grantCode);
-      const subjectHours = codes.filter((c) => !COURSE_CODE.test(c));
-      const recorded = subjectHours.some((c) => alreadyCounted.has(c.toUpperCase().replace(/\s+/g, ' ').trim()));
-      const real = codes.filter((c) => COURSE_CODE.test(c));
+      const key = `${[...codes].sort().join(',')}|${row.credits}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const real = codes.filter((code) => COURSE_CODE.test(code));
+      const recorded = codes.some((code) => !COURSE_CODE.test(code) && alreadyCounted.has(code));
       if (!creditsOf) {
-        if (real.length > 0 || recorded) continue;
-        hours += row.credits;
+        if (real.length === 0 && !recorded) indirectHours += row.credits;
         continue;
       }
-      const catalogHours = real.reduce((sum, c) => sum + (creditsOf(c) ?? 0), 0);
-      const rest = row.credits - catalogHours;
-      // The record already lists this row's subject hours; only a correction downward is kept.
-      hours += recorded ? Math.min(rest, 0) : rest;
+      if (recorded) {
+        recordedHours += Math.max(0, row.credits - real.reduce((sum, code) => sum + (creditsOf(code) ?? 0), 0));
+      }
     }
   }
-  return Math.round(hours * 100) / 100;
+  if (!creditsOf) return Math.round(indirectHours * 100) / 100;
+  // Count the union of grants once, then correct the union of catalog courses.
+  // Per-exam corrections double count a shared course (AB + BC both grant
+  // MATH 2250); this also preserves exact earned hours on older catalog rows.
+  const granted = applyExamCredit(exams, table);
+  const catalogHours = granted.creditCourses.filter((code) => COURSE_CODE.test(code))
+    .reduce((sum, code) => sum + (creditsOf(code) ?? 0), 0);
+  return Math.round((granted.credits - catalogHours - recordedHours) * 100) / 100;
 }
 
 /**

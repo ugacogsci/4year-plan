@@ -9,11 +9,10 @@
  * 888px of panel on arrival for settings almost nobody changes.
  */
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import Image from 'next/image';
+import { Info, RotateCcw, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-// MERGE-UGA: UGA deleted this NativeSelect import (its Programs section uses ProgramPicker); Illinois added
-// cn and the priorities imports below it. UGA winning breaks the priorities panel (presets, Format select).
-// Keep Illinois's lines; UGA's new imports above and below this spot merge cleanly.
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { cn } from '@/lib/utils';
 import {
@@ -24,6 +23,10 @@ import {
   type PriorityPreset,
 } from '@/lib/planner/priorities';
 import type { RequirementArea } from '@/lib/planner/scheduler';
+import { ProgramPicker, type ProgramOption } from './program-picker';
+import { EmphasisPicker } from './emphasis-picker';
+import type { UgaSelectionRequirement } from './uga-source';
+import type { ProgramLevel } from '@/lib/planner/onboarding';
 
 const PRESET_ROWS: Array<[Exclude<PriorityPreset, 'custom'>, string]> = [
   ['balanced', 'Balanced'],
@@ -61,13 +64,10 @@ interface RailProps {
   schoolShort: string;
   portal: string;
   programName: string | null;
-  // MERGE-UGA: UGA replaces programUrl/programId/onProgramChange with programUrls, onClose, priorCourses,
-  // programLevel, programIds/minors/certificates and emphasis props (+ change handlers). Git takes UGA's props,
-  // so Illinois's <StudentProfilePanel> call in planner-workspace.tsx fails tsc until it passes them; UGA's
-  // call in turn lacks Illinois's priorities/onPrioritiesChange/onRepick (added below) and needs those too.
-  programUrl: string | null;
+  programUrls: Array<{ name: string; url: string }>;
   digest: string;
   onStartOver: () => void;
+  onClose: () => void;
   plannedCredits: string;
   /**
    * The whole sentence about where the student is, shown only when they walked
@@ -77,10 +77,25 @@ interface RailProps {
   creditNote?: string | null;
   degreeTotal: number | null;
   priorCount: number;
+  priorCourses: Array<{ code: string; title: string }>;
   areas: AreaRow[];
-  programs: Array<{ id: string; name: string }>;
-  programId: string | null;
-  onProgramChange: (id: string) => void;
+  programLevel: ProgramLevel;
+  supportsGraduatePrograms: boolean;
+  supportsMultiplePrograms?: boolean;
+  supportsTeachingRatings?: boolean;
+  onProgramLevelChange: (level: ProgramLevel) => void;
+  programs: ProgramOption[];
+  programIds: string[];
+  onProgramsChange: (ids: string[]) => void;
+  minors: ProgramOption[];
+  minorIds: string[];
+  onMinorsChange: (ids: string[]) => void;
+  certificates: ProgramOption[];
+  certificateIds: string[];
+  onCertificatesChange: (ids: string[]) => void;
+  emphasisRequirements: UgaSelectionRequirement[];
+  emphasisSelections: Record<string, string[]>;
+  onEmphasisChange: (next: Record<string, string[]>) => void;
   minimumTermCredits: number;
   onMinimumChange: (value: number) => void;
   /** What a term should hold, or null for an even spread. The scheduler goes past it only to fit the degree in time. */
@@ -106,22 +121,69 @@ interface RailProps {
   transcript?: ReactNode;
 }
 
+/**
+ * Keep free-form typing local until the student leaves the field.
+ *
+ * The committed value changes elective ranking. Sending every keystroke to the
+ * workspace made an open replacement picker rescore the full catalog while the
+ * textarea was still handling its own change event, which was both slow and
+ * could drive React into a nested-update loop.
+ */
+function CareerInterestsField({
+  initialValue,
+  onCommit,
+}: {
+  initialValue: string;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(initialValue);
+
+  return (
+    <label className="rail-field">
+      <span>What you want to be doing after</span>
+      <textarea
+        rows={3}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          if (draft !== initialValue) onCommit(draft);
+        }}
+      />
+    </label>
+  );
+}
+
 export function StudentProfilePanel({
   schoolName,
   schoolShort,
   portal,
   programName,
-  programUrl,
-  digest,
+  programUrls,
   onStartOver,
+  onClose,
   plannedCredits,
   creditNote,
   degreeTotal,
   priorCount,
+  priorCourses,
   areas,
+  programLevel,
+  supportsGraduatePrograms,
+  supportsMultiplePrograms = false,
+  supportsTeachingRatings = false,
+  onProgramLevelChange,
   programs,
-  programId,
-  onProgramChange,
+  programIds,
+  onProgramsChange,
+  minors,
+  minorIds,
+  onMinorsChange,
+  certificates,
+  certificateIds,
+  onCertificatesChange,
+  emphasisRequirements,
+  emphasisSelections,
+  onEmphasisChange,
   minimumTermCredits,
   onMinimumChange,
   targetTermCredits,
@@ -152,21 +214,34 @@ export function StudentProfilePanel({
   const quiet = unnamedRows.length - unnamed.length;
 
   return (
-    <aside className="rail" aria-label="Your profile and progress">
+    <aside
+      id="planner-progress"
+      className="rail"
+      aria-label="Your profile and progress"
+      data-school={schoolShort}
+    >
+      <button
+        type="button"
+        className="rail-close"
+        onClick={onClose}
+        aria-label="Close progress"
+      >
+        <X aria-hidden="true" />
+      </button>
       <div className="rail-school">
-        <strong>{programName ?? 'No degree chosen'}</strong>
-        <span>{schoolName}</span>
+        <span className="rail-school-mark" aria-hidden="true">
+          <Image
+            src={schoolShort === 'UGA' ? '/uga-school-logo.png' : '/illinois-school-logo.png'}
+            alt=""
+            className={schoolShort === 'UGA' ? undefined : 'is-illinois-original'}
+            width={schoolShort === 'UGA' ? 628 : 1408}
+            height={schoolShort === 'UGA' ? 628 : 1408}
+          />
+        </span>
+        <span className="rail-school-name">{schoolName}</span>
       </div>
 
-      {digest && (
-        <div className="profile-digest">
-          <h3>Your setup</h3>
-          <p>{digest}</p>
-          <button type="button" className="again" onClick={onStartOver}>
-            Start over
-          </button>
-        </div>
-      )}
+      <h2 className="rail-program-name">{programName ?? 'No degree chosen'}</h2>
 
       <div className="rail-progress">
         <div className="rail-progress-head">
@@ -174,83 +249,126 @@ export function StudentProfilePanel({
           <span>{degreeTotal ? `of ${degreeTotal} for the degree` : 'degree total not published'}</span>
         </div>
         <Bar percent={degreeTotal ? percentOf(plannedCredits, degreeTotal) : 0} />
-        <div className="rail-progress-head">
-          <span>Already taken</span>
-          <span>{priorCount} course{priorCount === 1 ? '' : 's'}</span>
-        </div>
-        {transcript}
+        <details className="rail-completed">
+          <summary>
+            <span>Already taken</span>
+            <span>{priorCount} course{priorCount === 1 ? '' : 's'}</span>
+          </summary>
+          {priorCourses.length > 0 && (
+            <div className="completed-course-list" aria-label="Classes already taken">
+              {priorCourses.map((course) => (
+                <span key={course.code} title={course.title}>
+                  {course.code}
+                </span>
+              ))}
+            </div>
+          )}
+          {transcript}
+        </details>
         {creditNote && <p className="rail-credit-note">{creditNote}</p>}
       </div>
 
       {areas.length > 0 && (
-        // MERGE-UGA: UGA wrapped this list in <details className="rail-requirements"> (met/total summary, numbered
-        // rows, 'cr' units, {pools} moved inside); Illinois changed the rows (figureOf/targetOf, row.note tooltip, is-met).
-        // Illinois alone leaves UGA's closing </details> unmatched; UGA alone shows Illinois's course/semester rows
-        // as 'N cr' with no bar. Use UGA's wrapper with Illinois's row contents.
-        <div className="requirement-list">
-          {named.map(({ row, key, heading }) => (
-            <div className={`requirement-row${row.satisfied ? ' is-met' : ''}`} key={key}>
-              <div>
-                <span title={row.note ? `${heading}. ${row.note}` : (heading ?? undefined)}>{heading}</span>
-                {/* No bar without a target. An area whose hours the degree page
-                    does not publish has nothing to be a fraction of, and a bar
-                    stuck at zero next to 73 earned hours reads as no progress. */}
-                <span>{figureOf(row)}</span>
+        <details className="rail-requirements">
+          <summary>
+            <span>Degree requirements</span>
+            <strong>{areas.filter((row) => row.satisfied).length}/{areas.length}</strong>
+          </summary>
+          <div className="requirement-list">
+            {named.map(({ row, key, heading }, index) => (
+              <div className={`requirement-row${row.satisfied ? ' is-met' : ''}`} key={key}>
+                <span className="requirement-index" aria-hidden="true">{index + 1}.</span>
+                <div>
+                  <span title={row.note ? `${heading}. ${row.note}` : (heading ?? undefined)}>{heading}</span>
+                  <span>{figureOf(row)}</span>
+                </div>
+                {targetOf(row) > 0 && <Bar percent={row.percent} />}
               </div>
-              {targetOf(row) > 0 && <Bar percent={row.percent} />}
-            </div>
-          ))}
-          {/* The heading slot says the page has no heading here. It is not a
-              name, and it must not look like one: the placeholder these rows
-              used to carry, "Requirements 3", was a number this product made up
-              and showed to students as the catalog's own words. */}
-          {unnamed.map(({ row, key }) => (
-            <div className="requirement-row" key={key}>
-              <div>
-                <span
-                  className="requirement-unnamed"
-                  title="The catalog page prints this block of requirements with no heading."
-                >
-                  No heading published
-                </span>
-                <span>{row.area.hours ? `${row.earned}/${row.area.hours}` : `${row.earned} hr`}</span>
+            ))}
+            {unnamed.map(({ row, key }, index) => (
+              <div className="requirement-row" key={key}>
+                <span className="requirement-index" aria-hidden="true">{named.length + index + 1}.</span>
+                <div>
+                  <span className="requirement-unnamed" title="The catalog page prints this block with no heading.">
+                    No heading published
+                  </span>
+                  <span>{figureOf(row)}</span>
+                </div>
+                {targetOf(row) > 0 && <Bar percent={row.percent} />}
               </div>
-              {row.area.hours > 0 && <Bar percent={row.percent} />}
-            </div>
-          ))}
-          {quiet > 0 && (
-            <p className="requirement-unnamed">
-              {quiet} more {quiet === 1 ? 'part' : 'parts'} of that page{' '}
-              {quiet === 1 ? 'prints' : 'print'} no heading and no hours, so there is nothing to
-              measure {quiet === 1 ? 'it' : 'them'} against.
-            </p>
-          )}
-        </div>
+            ))}
+            {quiet > 0 && <p className="requirement-unnamed">{quiet} unmeasured catalog {quiet === 1 ? 'section' : 'sections'} hidden.</p>}
+          </div>
+          {pools}
+        </details>
       )}
 
-      {pools}
-
-      <details className="rail-section">
-        <summary>Degree</summary>
-        <label className="rail-field">
-          <span>Which degree are you planning?</span>
-          <NativeSelect
-            value={programId ?? ''}
-            onChange={(event) => onProgramChange(event.target.value)}
-          >
-            <NativeSelectOption value="">Pick a degree</NativeSelectOption>
-            {programs.map((p) => (
-              <NativeSelectOption key={p.id} value={p.id}>
-                {p.name}
-              </NativeSelectOption>
+      <details className="rail-section" id="rail-programs">
+        <summary>Programs</summary>
+        {supportsGraduatePrograms && (
+          <label className="rail-field rail-program-level">
+            <span>Program level</span>
+            <select
+              value={programLevel}
+              onChange={(event) =>
+                onProgramLevelChange(event.target.value as ProgramLevel)
+              }
+            >
+              <option value="undergraduate">Undergraduate</option>
+              <option value="graduate">Graduate &amp; professional</option>
+            </select>
+          </label>
+        )}
+        <span className="rail-program-label">
+          {programLevel === 'graduate' ? 'Degree programs' : 'Majors'}
+        </span>
+        <ProgramPicker
+          compact
+          multiple={supportsMultiplePrograms}
+          kindLabel={programLevel === 'graduate' ? 'degree' : 'major'}
+          options={programs}
+          selectedIds={programIds}
+          onChange={onProgramsChange}
+        />
+        {minors.length > 0 && (
+          <>
+            <span className="rail-program-label">Minors</span>
+            <ProgramPicker
+              compact
+              kindLabel="minor"
+              options={minors}
+              selectedIds={minorIds}
+              onChange={onMinorsChange}
+            />
+          </>
+        )}
+        {certificates.length > 0 && (
+          <>
+            <span className="rail-program-label">
+              {programLevel === 'graduate' ? 'Graduate certificates' : 'Certificates'}
+            </span>
+            <ProgramPicker
+              compact
+              kindLabel="certificate"
+              options={certificates}
+              selectedIds={certificateIds}
+              onChange={onCertificatesChange}
+            />
+          </>
+        )}
+        <EmphasisPicker
+          compact
+          requirements={emphasisRequirements}
+          selections={emphasisSelections}
+          onChange={onEmphasisChange}
+        />
+        {programUrls.length > 0 && (
+          <p className="rail-note program-catalog-links" style={{ margin: 0, paddingTop: 0, border: 0 }}>
+            {programUrls.map((program) => (
+              <a key={program.url} href={program.url} target="_blank" rel="noreferrer">
+                {program.name} catalog page
+              </a>
             ))}
-          </NativeSelect>
-        </label>
-        {programUrl && (
-          <p className="rail-note" style={{ margin: 0, paddingTop: 0, border: 0 }}>
-            <a href={programUrl} target="_blank" rel="noreferrer">
-              The catalog page these requirements came from
-            </a>
           </p>
         )}
       </details>
@@ -281,24 +399,17 @@ export function StudentProfilePanel({
             onChange={(event) => onMinimumChange(Number(event.target.value))}
           />
         </label>
-        <p className="rail-field" style={{ fontSize: 'var(--fs-micro)', color: '#6f8098' }}>
+        <p className="rail-field rail-helper">
           Blank means balanced: every term takes an even share of what is left. Press Rebuild
           after changing these. Your graduation date comes first, so a term goes past the number
           you set only when the degree would not fit in time otherwise, and never past 18.
         </p>
-        {/* MERGE-UGA: UGA replaced this textarea with <CareerInterestsField> (commits on blur; committing every
-           keystroke re-ranked the catalog and could loop React) and reworded the hint; Illinois only reworded the hint.
-           Keep UGA's field with Illinois's hint text; Illinois winning silently drops UGA's fix.
-        */}
-        <label className="rail-field">
-          <span>What you want to be doing after</span>
-          <textarea
-            rows={3}
-            value={careerInterests}
-            onChange={(event) => onCareerChange(event.target.value)}
-          />
-        </label>
-        <p className="rail-field" style={{ fontSize: 'var(--fs-micro)', color: '#6f8098' }}>
+        <CareerInterestsField
+          key={careerInterests}
+          initialValue={careerInterests}
+          onCommit={onCareerChange}
+        />
+        <p className="rail-field rail-helper">
           The words here steer the electives toward what you wrote, and the bot reads them too.
         </p>
 
@@ -306,7 +417,7 @@ export function StudentProfilePanel({
           <span className="rail-priorities-head">What makes a class a good pick</span>
           <fieldset className="rail-presets">
             <legend className="sr-only">Priority presets</legend>
-            {PRESET_ROWS.map(([name, label]) => (
+            {PRESET_ROWS.filter(([name]) => supportsTeachingRatings || name !== 'teaching').map(([name, label]) => (
               <button
                 key={name}
                 type="button"
@@ -324,7 +435,7 @@ export function StudentProfilePanel({
               </button>
             ))}
           </fieldset>
-          {KNOBS.map((knob) => (
+          {KNOBS.filter((knob) => supportsTeachingRatings || knob !== 'teaching').map((knob) => (
             <div key={knob} className="rail-knob">
               <span>{PRIORITY_LABELS[knob]}</span>
               <fieldset className="rail-knob-seg">
@@ -373,33 +484,45 @@ export function StudentProfilePanel({
           <p className="rail-field" style={{ fontSize: 'var(--fs-micro)', color: '#6f8098' }}>
             Re-pick swaps the courses the planner chose, the elective slots and the from-a-list
             picks, for the best under these priorities. Required courses and anything you added
-            stay where they are. Rebuild starts the whole board over. Workload comes
-            from Illinois grade history and teaching from the university&apos;s own Teachers Ranked
-            as Excellent lists; a course missing from either is not marked down for it.
+            stay where they are. Rebuild starts the whole board over.{' '}
+            {supportsTeachingRatings
+              ? "Workload comes from Illinois grade history and teaching from the university's own Teachers Ranked as Excellent lists; a course missing from either is not marked down for it."
+              : 'Suggestions use the available catalog and your interests. A course is not penalized for missing workload or teaching data.'}
           </p>
         </div>
       </details>
 
-      <p className="rail-note">
-        Some of this is estimated. Check the catalog before you register.
-        <Popover>
-          <PopoverTrigger render={<button type="button">What is estimated?</button>} />
-          <PopoverContent align="start" className="w-80">
-            <div className="health-popover">
-              {caveats.map((line) => (
-                <p key={line} style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.5 }}>
-                  {line}
-                </p>
-              ))}
-              <p style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.5 }}>
-                {schoolShort} and {portal} remain the source of truth. Nothing you type
-                here leaves this device. A transcript you upload is sent once to be read
-                and is not kept.
+      <Popover>
+        <PopoverTrigger
+          render={
+            <button
+              type="button"
+              className="rail-info-trigger"
+              aria-label="Plan assumptions and setup"
+              title="Plan assumptions and setup"
+            />
+          }
+        >
+          <Info aria-hidden="true" />
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-80">
+          <div className="health-popover">
+            {caveats.map((line) => (
+              <p key={line} style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.5 }}>
+                {line}
               </p>
-            </div>
-          </PopoverContent>
-        </Popover>
-      </p>
+            ))}
+            <p style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.5 }}>
+              {schoolShort} and {portal} remain the source of truth. Nothing you type
+              here leaves this device. A transcript you upload is sent once to be read
+              and is not kept.
+            </p>
+            <button type="button" className="rail-restart-button" onClick={onStartOver}>
+              <RotateCcw aria-hidden="true" /> Change university or restart setup
+            </button>
+          </div>
+        </PopoverContent>
+      </Popover>
     </aside>
   );
 }

@@ -1,7 +1,8 @@
 'use client';
 
 import { useId, useMemo, useRef, useState } from 'react';
-import { loadIllinoisIndex } from '@/lib/planner/illinois-load';
+import { loadSchoolCatalog } from './school-source';
+import { isSupportedSchool } from '@/lib/planner/schools';
 import type { School } from '@/lib/planner/onboarding';
 import {
   IMAGE_MEDIA_TYPES,
@@ -64,16 +65,18 @@ export function TranscriptUpload({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [catalog, setCatalog] = useState<CatalogLite[] | null>(null);
+  const [cachedCatalog, setCatalog] = useState<{ schoolId: string; courses: CatalogLite[] } | null>(null);
+  const catalog = cachedCatalog?.schoolId === school?.id ? cachedCatalog?.courses : null;
   const [query, setQuery] = useState('');
 
-  /** Only Illinois has a catalog in this build. Elsewhere every line is shown as unmatched, which is the truth. */
+  /** Never reuse the previous school's catalog after switching universities. */
   async function catalogLite(): Promise<CatalogLite[]> {
-    if (catalog) return catalog;
-    if (school?.id !== 'illinois') return [];
-    const index = (await loadIllinoisIndex()) ?? [];
-    const lite = index.map((c) => ({ code: normalizeCourseCode(c.code), title: c.title, credits: c.credits, level: c.level, cluster: c.cluster, tags: c.tags }));
-    setCatalog(lite);
+    if (!isSupportedSchool(school?.id)) throw new Error('Choose a university first.');
+    if (cachedCatalog?.schoolId === school.id) return cachedCatalog.courses;
+    const index = await loadSchoolCatalog(school.id);
+    if (!index?.length) throw new Error('The university catalog could not load. Try again before matching this transcript.');
+    const lite = index.map((c) => ({ code: normalizeCourseCode(c.code), title: c.title, credits: c.credits, level: Math.floor(Number(c.code.match(/\d+/)?.[0] ?? 0) / (school.id === 'uga' ? 10 : 1) / 100) * 100, cluster: c.cluster, tags: c.tags }));
+    setCatalog({ schoolId: school.id, courses: lite });
     return lite;
   }
 
@@ -107,7 +110,7 @@ export function TranscriptUpload({
       const res = await fetch('/api/transcript', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ files }),
+        body: JSON.stringify({ files, schoolId: school?.id }),
       });
       const json = (await res.json().catch(() => ({}))) as { reading?: TranscriptReading; error?: string };
       if (!res.ok || !json.reading) {
@@ -125,19 +128,20 @@ export function TranscriptUpload({
         const named = json.reading.exams.map((e) => `${e.kind} ${e.exam}${e.score ? ` (${e.score})` : ''}`).join(', ');
         setNotice(
           added > 0
-            ? `Found ${json.reading.exams.length} ${json.reading.exams.length === 1 ? 'exam' : 'exams'} (${named}); added ${added} to your AP and IB list with the credit Illinois grants.`
-            : `Found ${named || 'no exams'}, but none matched a score Illinois grants credit for, so nothing was added. Check them in the AP and IB list.`,
+            ? `Found ${json.reading.exams.length} ${json.reading.exams.length === 1 ? 'exam' : 'exams'} (${named}); added ${added} to your AP and IB list with the credit ${school?.short ?? 'your university'} grants.`
+            : `Found ${named || 'no exams'}, but none matched a score ${school?.short ?? 'your university'} grants credit for, so nothing was added. Check them in the AP and IB list.`,
         );
         return;
       }
       if (addTo) {
         // More pages of the same record: the lines already settled keep the
         // student's choices, and only the new lines are matched.
-        const fresh = matchTranscript(json.reading, names[0], lite, names, guide);
+        const fresh = matchTranscript(json.reading, names[0], lite, names, guide, isSupportedSchool(school?.id) ? school.id : undefined);
         const seen = new Set(addTo.courses.map((c) => `${c.code}|${c.term ?? ''}`));
         const added = fresh.courses.filter((c) => !seen.has(`${c.code}|${c.term ?? ''}`));
         onChange({
           ...addTo,
+          schoolId: fresh.schoolId,
           institution: addTo.institution ?? fresh.institution,
           files: [...(addTo.files ?? [addTo.fileName]), ...names],
           courses: [...addTo.courses, ...added],
@@ -145,10 +149,10 @@ export function TranscriptUpload({
           notes: [...addTo.notes, ...fresh.notes.filter((n) => !addTo.notes.includes(n))],
         });
       } else {
-        onChange(matchTranscript(json.reading, names[0], lite, names, guide));
+        onChange(matchTranscript(json.reading, names[0], lite, names, guide, isSupportedSchool(school?.id) ? school.id : undefined));
       }
-    } catch {
-      setError('The transcript could not be sent. Check your connection and try again.');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'The transcript could not be sent. Check your connection and try again.');
     } finally {
       setBusy(null);
       // So the same file can be picked again after a failure.
@@ -174,6 +178,7 @@ export function TranscriptUpload({
       illinoisCredits: course.credits,
     };
     const base: TranscriptRecord = record ?? {
+      schoolId: isSupportedSchool(school?.id) ? school.id : undefined,
       fileName: 'Added by you',
       readAt: new Date().toISOString(),
       institution: null,
@@ -223,7 +228,7 @@ export function TranscriptUpload({
       </label>
       {!compact && (
         <span className="transcript-hint">
-          Your transcript, your Illinois academic history, a Transfer Evaluation Report, a degree audit, an AP
+          Your transcript, your {school?.short ?? 'university'} academic history, a transfer evaluation, a degree audit, an AP
           or IB score report, or a screenshot of a course list from {school?.portal ?? 'your student portal'} or
           Canvas. Several files at once is fine. It is read once to list your courses and is not kept.
         </span>
@@ -242,7 +247,7 @@ export function TranscriptUpload({
           {record.institution && (
             <p className="transcript-meta">
               Issued by {record.institution}
-              {record.home === false ? '. Its codes are that school\'s; each line below says what it counts as at Illinois.' : '.'}
+              {record.home === false ? ` . Its codes are that school's; each line below says what it counts as at ${school?.short ?? 'your university'}.` : '.'}
             </p>
           )}
           <details className="transcript-review" open={!compact}>
@@ -251,7 +256,7 @@ export function TranscriptUpload({
             </summary>
             <ul className="transcript-list">
               {record.courses.map((c, i) => {
-                const foreign = c.from ? !isHomeTranscript(c.from) : record.home === false;
+                const foreign = c.from ? !isHomeTranscript(c.from, record.schoolId ?? (isSupportedSchool(school?.id) ? school.id : undefined)) : record.home === false;
                 const options = countsOptions(c, foreign, known);
                 const value = c.counts === 'course' && c.matched ? `course:${c.matched}` : c.counts;
                 return (
@@ -259,7 +264,7 @@ export function TranscriptUpload({
                     <span className="transcript-line">
                       <span className="transcript-code">{c.code}</span>{' '}
                       <span className="transcript-meta">
-                        {[c.title, c.credits !== null ? `${c.credits} cr` : c.assumedCredits ? `${c.assumedCredits} cr assumed (none printed)` : null, c.grade, c.term, c.from && !isHomeTranscript(c.from) ? c.from : null, c.iai ? `IAI ${c.iai}` : null, c.also?.length ? `also ${c.also.join(', ')}` : null, c.counts === 'hours' && c.genEdTags?.length ? `counts for ${c.genEdTags.join(', ')}` : null, c.matchNote && c.counts !== 'course' ? c.matchNote : null]
+                        {[c.title, c.credits !== null ? `${c.credits} cr` : c.assumedCredits ? `${c.assumedCredits} cr assumed (none printed)` : null, c.grade, c.term, c.from && foreign ? c.from : null, c.iai ? `IAI ${c.iai}` : null, c.also?.length ? `also ${c.also.join(', ')}` : null, c.counts === 'hours' && c.genEdTags?.length ? `counts for ${c.genEdTags.join(', ')}` : null, c.matchNote && c.counts !== 'course' ? c.matchNote : null]
                           .filter(Boolean)
                           .join(' · ')}
                       </span>

@@ -1,9 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-// MERGE-UGA: conflict here and at the saved-board import below. UGA added `import Image from 'next/image'`
-// and `import type { SchoolId } from '@/lib/planner/onboarding'`; Illinois added Undo2 here and CHAT_KEY below.
-// Either side alone fails tsc (Image and SchoolId, or CHAT_KEY, not found). Keep all four imports.
+import Image from 'next/image';
 import { ArrowUp, Check, CircleAlert, Loader2, Undo2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -17,6 +15,7 @@ import {
 } from '@/lib/planner/advisor';
 import type { Source } from '@/lib/planner/ask-router';
 import { CHAT_KEY } from '@/lib/planner/saved-board';
+import type { SchoolId } from '@/lib/planner/onboarding';
 
 /**
  * The bot's panel: a column beside the board that holds a conversation which
@@ -50,12 +49,11 @@ import { CHAT_KEY } from '@/lib/planner/saved-board';
  * The bot has the school's name, ALMA at Illinois, the same one its TRU
  * tenant answers to, so a student meets one bot across both products.
  */
-// MERGE-UGA: merges clean but breaks callers. UGA added required schoolId, schoolName and onOpen; Illinois
-// added optional turns (ALMA's undo). Illinois's <BotPanel> in planner-workspace.tsx then fails tsc (TS2739),
-// and UGA's call passes no turns, so undo is silently off for UGA. Pass all four from the workspace.
 export interface BotPanelProps {
   /** ALMA, TRU, REV: the school's own bot name. */
   botName: string;
+  schoolId: SchoolId | null;
+  schoolName: string;
   schoolShort: string;
   /** The degree the board is for. A new degree is a new conversation. */
   programId: string | null;
@@ -64,9 +62,10 @@ export interface BotPanelProps {
   execute: AdvisorExecutor;
   /** Questions and requests offered when the conversation is empty. */
   openers: string[];
-  /** False until a plan and the catalog are loaded. */
+  /** False until the catalog is loaded. An empty board is still ready for questions. */
   ready: boolean;
   open: boolean;
+  onOpen: () => void;
   onClose: () => void;
   /** The board's undo for ALMA's turns. Absent where the board keeps no undo for them. */
   turns?: BotTurns;
@@ -129,7 +128,7 @@ function toolLabel(name: AdvisorToolName, input: Record<string, unknown>): strin
     case 'planner_answer':
       return 'Checking the board';
     case 'university_answer':
-      return `Reading Illinois pages`;
+      return 'Reading university pages';
     default:
       return name;
   }
@@ -271,49 +270,53 @@ function toolCallIds(messages: AdvisorMessage[]): Set<string> {
   return ids;
 }
 
-/**
- * The bot's button, for the board's own toolbar. A diamond, the bot's name,
- * and a line saying what it is for, so nobody has to guess that it is a bot.
- * The line leads with Illinois, not the schedule: the bot answers anything on
- * the university's pages, and the plan is one more thing it can do.
- */
-// MERGE-UGA: UGA rewrote BotLauncher (no botName prop; now a small toggle for the chat-history drawer, with no
-// 'Ask ALMA' label) and replaced OrionMark below with AssistantAvatar; both merge in without a conflict.
-// Illinois's <BotLauncher botName=...> in planner-workspace.tsx then fails tsc (TS2322), and any <OrionMark />
-// kept in BotPanel is undefined. Keep UGA's version and drop botName at the call site.
-export function BotLauncher({ botName, open, onToggle }: { botName: string; open: boolean; onToggle: () => void }) {
+/** The compact-screen control for the transcript drawer. */
+export function BotLauncher({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   return (
     <button
       type="button"
       className={cn('bot-launch', open && 'is-open')}
-      aria-pressed={open}
-      aria-label={open ? `Close ${botName}` : `Open ${botName}`}
-      title={open ? `Close ${botName}` : `Ask ${botName} anything about Illinois, or about your plan.`}
+      aria-expanded={open}
+      aria-controls="planner-chat-history"
+      aria-label={open ? 'Close planning assistant' : 'Open planning assistant'}
+      title={open ? 'Close planning assistant' : 'Open planning assistant'}
       onClick={onToggle}
     >
-      <span className="bot-diamond">
-        <OrionMark />
+      <span className="bot-launch-mark" aria-hidden="true">
+        <span />
       </span>
-      <span className="bot-launch-text">Questions about Illinois? Changes to your plan?</span>
-      <strong>Ask {botName}</strong>
     </button>
   );
 }
 
-/**
- * Orion's mark, kept.
- *
- * The planner grew out of Cameron's Semantic Course Map, whose assistant,
- * Orion, was a four-pointed star in a violet-to-sky circle at the bottom right
- * of the map. The star is that one, drawn rather than typed so it renders the
- * same on every platform; the circle is the CSS on .bot-diamond and
- * .bot-avatar. The bot's name changed with the school, the mark did not.
- */
-function OrionMark() {
+/** The supplied assistant artwork, switching poses while a response is being prepared. */
+function AssistantAvatar({
+  schoolId,
+  thinking = false,
+}: {
+  schoolId: SchoolId | null;
+  thinking?: boolean;
+}) {
+  const hasSchoolHat = schoolId === 'uga' || schoolId === 'illinois';
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
-      <path d="M12 1.5c.7 6.2 4.3 9.8 10.5 10.5-6.2.7-9.8 4.3-10.5 10.5-.7-6.2-4.3-9.8-10.5-10.5 6.2-.7 9.8-4.3 10.5-10.5Z" />
-    </svg>
+    <span className={cn('assistant-avatar', thinking && 'is-thinking')} aria-hidden="true">
+      <span className="assistant-pose assistant-pose-idle">
+        <Image src="/assistant-poses.png" alt="" width={2160} height={1620} />
+      </span>
+      <span className="assistant-pose assistant-pose-thinking">
+        <Image src="/assistant-poses.png" alt="" width={2160} height={1620} />
+      </span>
+      {hasSchoolHat && (
+        <span className={cn('assistant-hat', `is-${schoolId}`)}>
+          <Image
+            src="/assistant-hats.png"
+            alt=""
+            width={2160}
+            height={1620}
+          />
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -328,10 +331,21 @@ function Typing() {
   );
 }
 
-// MERGE-UGA: conflict. UGA destructures schoolId, schoolName and onOpen here; Illinois added turns.
-// The merged body uses all of them (send() calls onOpen() and passes schoolName, the undo code reads turns,
-// the avatar reads schoolId), so either side alone fails tsc ('Cannot find name'). Destructure all of them.
-export function BotPanel({ botName, schoolShort, programId, board, execute, openers, ready, open, onClose, turns }: BotPanelProps) {
+export function BotPanel({
+  botName,
+  schoolId,
+  schoolName,
+  schoolShort,
+  programId,
+  board,
+  execute,
+  openers,
+  ready,
+  open,
+  onOpen,
+  onClose,
+  turns,
+}: BotPanelProps) {
   const [messages, setMessages] = useState<AdvisorMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [streaming, setStreaming] = useState('');
@@ -341,29 +355,31 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
   const abort = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatKey = `${CHAT_KEY}.${schoolId ?? 'unknown'}`;
 
   // One conversation per degree, remembered on this device.
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(CHAT_KEY);
+      const raw = window.localStorage.getItem(chatKey)
+        ?? (schoolId === 'illinois' ? window.localStorage.getItem(CHAT_KEY) : null);
       const saved = raw ? (JSON.parse(raw) as { programId: string | null; messages: AdvisorMessage[] }) : null;
       // oxlint-disable-next-line react/react-compiler
       setMessages(saved && saved.programId === programId && Array.isArray(saved.messages) ? saved.messages : []);
     } catch {
       setMessages([]);
     }
-  }, [programId]);
+  }, [programId, chatKey, schoolId]);
 
   const remember = useCallback(
     (next: AdvisorMessage[]) => {
       setMessages(next);
       try {
-        window.localStorage.setItem(CHAT_KEY, JSON.stringify({ programId, messages: next.slice(-KEEP) }));
+        window.localStorage.setItem(chatKey, JSON.stringify({ programId, messages: next.slice(-KEEP) }));
       } catch {
         /* private browsing; the conversation lives for the session */
       }
     },
-    [programId],
+    [programId, chatKey],
   );
 
   useEffect(() => {
@@ -399,6 +415,7 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
   async function send(text: string) {
     const userText = text.trim();
     if (!userText || busy || !ready) return;
+    onOpen();
     setDraft('');
     setError(null);
     setBusy(true);
@@ -414,10 +431,13 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
     turns?.begin();
     try {
       const turn = await runAdvisorTurn({
+        schoolId: schoolId ?? undefined,
         messages: start,
         userText,
         board,
         bot: botName,
+        schoolName,
+        schoolShort,
         execute,
         signal: controller.signal,
         events: {
@@ -465,166 +485,149 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
 
   const { lines, turnTools } = linesOf(messages);
   const lastText = lastAssistantText(messages);
-  // MERGE-UGA: conflict, and neither side compiles alone. UGA rebuilt the panel below (history drawer, avatar,
-  // suggestion + FAQ buttons, no OrionMark); Illinois added these undo consts, the 'note' line and the 'Undo these
-  // changes' button. Illinois's side leaves broken JSX against UGA's layout; UGA's drops undo and fails on 'note' lines.
-  // Keep UGA's layout and re-add these two consts, the note branch and the undo button.
   const latest = turns?.latest ?? null;
-  /** The turn whose changes are the newest undo step: only its last reply offers to undo them. */
   const undoableTurn = latest && !busy ? turnTools.findIndex((ids) => ids.some((id) => latest.toolIds.includes(id))) : -1;
+  const suggestedQuestion = lastText
+    ? 'What should I double-check before registration?'
+    : openers[0] ?? `What should I know about my ${schoolShort} plan?`;
+  const fillPrompt = (text: string) => {
+    setDraft(text);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const hasConversation = lines.length > 0 || busy || Boolean(streaming) || Boolean(activity) || Boolean(error);
 
   return (
-    <section className={cn('bot-panel', !open && 'is-closed')} aria-label={botName} aria-hidden={!open}>
-      <header className="bot-head">
-        <span className="bot-diamond">
-          <OrionMark />
-        </span>
-        <div>
-          <h2>
-            {botName} <span className="bot-head-sub">course assistant · powered by Claude</span>
-          </h2>
-          <p>Anything about {schoolShort}: classes, deadlines, housing, offices, majors. It also reads your plan and can change it when you ask.</p>
-        </div>
-        <div className="bot-head-actions">
-          {messages.length > 0 && (
-            <button type="button" onClick={reset} title="Forget this conversation and start again">
-              New chat
-            </button>
-          )}
-          <button type="button" onClick={onClose} aria-label={`Close ${botName}`}>
-            <X aria-hidden="true" style={{ width: 14, height: 14 }} />
-          </button>
-        </div>
-      </header>
-
-      <div className="bot-log" ref={logRef}>
-        {lines.length === 0 && !busy && (
-          <div className="bot-row">
-            <span className="bot-avatar" aria-hidden="true">
-              <OrionMark />
-            </span>
-            <div className="bot-msg assistant">
-              {ready
-                ? `Ask me anything about ${schoolShort}: a class, a deadline, where an office is, what a major needs, how to drop or add a course. I can also read your plan, so ask about a term, or tell me what you would rather be taking and I will change it for you.`
-                : 'The board is still loading.'}
-            </div>
-          </div>
-        )}
-        {lines.map((line, i) => {
-          if (line.kind === 'user') {
-            return (
-              <div key={i} className="bot-msg user">
-                {line.text}
-              </div>
-            );
-          }
-          if (line.kind === 'note') {
-            return (
-              <div key={i} className="bot-tool bot-note">
-                <Undo2 aria-hidden="true" />
-                <span>{line.text}</span>
-              </div>
-            );
-          }
-          if (line.kind === 'tool') {
-            return (
-              <div key={i} className={`bot-tool ${line.state}`}>
-                {line.state === 'ok' ? <Check aria-hidden="true" /> : <CircleAlert aria-hidden="true" />}
-                <span>
-                  {line.label}
-                  {line.detail ? ` — ${line.detail}` : ''}
-                </span>
-              </div>
-            );
-          }
-          return (
-            <div key={i} className="bot-row">
-              <span className="bot-avatar" aria-hidden="true">
-                <OrionMark />
-              </span>
-              <div style={{ display: 'grid', gap: 6, justifyItems: 'start', minWidth: 0 }}>
-                <div className="bot-msg assistant">{line.text}</div>
-                {line.last && line.turn === undoableTurn && latest && turns && (
-                  <button
-                    type="button"
-                    className="bot-undo"
-                    onClick={() => turns.undo(latest.id)}
-                    title={`Put the board back the way it was before this message. Everything ${botName} changed for it goes; nothing else does.`}
-                  >
-                    <Undo2 aria-hidden="true" /> Undo these changes
-                  </button>
-                )}
-                {line.sources.length > 0 && (
-                  <ul className="bot-sources">
-                    {line.sources.slice(0, 4).map((s) => (
-                      <li key={s.url}>
-                        <a href={s.url} target="_blank" rel="noreferrer">
-                          {s.title || s.host}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          );
-        })}
-        {activity && (
-          <div className={`bot-tool ${activity.state === 'running' ? '' : activity.state}`}>
-            {activity.state === 'running' ? (
-              <Loader2 aria-hidden="true" className="bot-spin" />
-            ) : activity.state === 'ok' ? (
-              <Check aria-hidden="true" />
-            ) : (
-              <CircleAlert aria-hidden="true" />
+    <section
+      className="bot-panel"
+      data-conversation={hasConversation ? 'true' : 'false'}
+      data-history={open ? 'open' : 'closed'}
+      aria-label={botName}
+    >
+      <div
+        id="planner-chat-history"
+        className="bot-history"
+        data-open={open ? 'true' : 'false'}
+      >
+        <header className="bot-head">
+          <h2>{botName}</h2>
+          <div className="bot-head-actions">
+            {messages.length > 0 && (
+              <button type="button" onClick={reset} title="Forget this conversation and start again">
+                New chat
+              </button>
             )}
-            <span>
-              {activity.label}
-              {activity.detail ? ` — ${activity.detail}` : ''}
-            </span>
+            <button type="button" onClick={onClose} aria-label={`Close ${botName}`}>
+              <X aria-hidden="true" style={{ width: 14, height: 14 }} />
+            </button>
           </div>
+        </header>
+
+        <div className="bot-log" ref={logRef}>
+          {!hasConversation && (
+            <p className="bot-empty">Ask a question whenever the plan needs a second look.</p>
+          )}
+          {lines.map((line, i) => {
+            if (line.kind === 'user') {
+              return (
+                <div key={i} className="bot-msg user">
+                  {line.text}
+                </div>
+              );
+            }
+            if (line.kind === 'note') {
+              return (
+                <div key={i} className="bot-tool bot-note">
+                  <Undo2 aria-hidden="true" />
+                  <span>{line.text}</span>
+                </div>
+              );
+            }
+            if (line.kind === 'tool') {
+              return (
+                <div key={i} className={`bot-tool ${line.state}`}>
+                  {line.state === 'ok' ? <Check aria-hidden="true" /> : <CircleAlert aria-hidden="true" />}
+                  <span>
+                    {line.label}
+                    {line.detail ? ` — ${line.detail}` : ''}
+                  </span>
+                </div>
+              );
+            }
+            return (
+              <div key={i} className="bot-row">
+                <div style={{ display: 'grid', gap: 6, justifyItems: 'start', minWidth: 0 }}>
+                  <div className="bot-msg assistant">{line.text}</div>
+                  {line.last && line.turn === undoableTurn && latest && turns && (
+                    <button
+                      type="button"
+                      className="bot-undo"
+                      onClick={() => turns.undo(latest.id)}
+                      title={`Restore the board to before this ${botName} message.`}
+                    >
+                      <Undo2 aria-hidden="true" /> Undo these changes
+                    </button>
+                  )}
+                  {line.sources.length > 0 && (
+                    <ul className="bot-sources">
+                      {line.sources.slice(0, 4).map((s) => (
+                        <li key={s.url}>
+                          <a href={s.url} target="_blank" rel="noreferrer">
+                            {s.title || s.host}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {activity && (
+            <div className={`bot-tool ${activity.state === 'running' ? '' : activity.state}`}>
+              {activity.state === 'running' ? (
+                <Loader2 aria-hidden="true" className="bot-spin" />
+              ) : activity.state === 'ok' ? (
+                <Check aria-hidden="true" />
+              ) : (
+                <CircleAlert aria-hidden="true" />
+              )}
+              <span>
+                {activity.label}
+                {activity.detail ? ` — ${activity.detail}` : ''}
+              </span>
+            </div>
+          )}
+          {streaming && (
+            <div className="bot-row">
+              <div className="bot-msg assistant">{streaming}</div>
+            </div>
+          )}
+          {busy && !streaming && !activity && (
+            <div className="bot-row">
+              <Typing />
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <p className="bot-error" role="alert">
+            {error}
+          </p>
         )}
-        {streaming && (
-          <div className="bot-row">
-            <span className="bot-avatar" aria-hidden="true">
-              <OrionMark />
-            </span>
-            <div className="bot-msg assistant">{streaming}</div>
-          </div>
-        )}
-        {busy && !streaming && !activity && (
-          <div className="bot-row">
-            <span className="bot-avatar" aria-hidden="true">
-              <OrionMark />
-            </span>
-            <Typing />
-          </div>
-        )}
+        <div className="bot-history-avatar">
+          <AssistantAvatar schoolId={schoolId} thinking={busy} />
+        </div>
       </div>
 
-      {error && (
-        <p className="bot-error" role="alert">
-          {error}
-        </p>
-      )}
-
-      {lines.length === 0 && !busy && ready && openers.length > 0 && (
-        <div className="bot-chips">
-          {openers.map((opener) => (
-            <button key={opener} type="button" className="bot-chip" onClick={() => void send(opener)}>
-              {opener}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <form
-        className="bot-compose"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void send(draft);
-        }}
-      >
+      <div className="bot-prompt">
+        <form
+          className="bot-compose"
+          data-suggestion={!draft && ready && !busy ? 'true' : undefined}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void send(draft);
+          }}
+        >
         <textarea
           ref={inputRef}
           rows={1}
@@ -649,7 +652,34 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
             <ArrowUp aria-hidden="true" />
           </button>
         )}
-      </form>
+        {!draft && ready && !busy && (
+          <button
+            type="button"
+            className="bot-suggestion"
+            title="Put this suggested follow-up in the message box"
+            onClick={() => fillPrompt(suggestedQuestion)}
+          >
+            {suggestedQuestion}
+          </button>
+        )}
+        </form>
+
+        {ready && openers.length > 0 && (
+          <div className="bot-faqs" aria-label="Frequently asked questions">
+            <span>FAQ</span>
+            {openers.slice(0, 4).map((opener) => (
+              <button
+                key={opener}
+                type="button"
+                title="Put this question in the message box"
+                onClick={() => fillPrompt(opener)}
+              >
+                {opener}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }

@@ -1,3 +1,4 @@
+import { isSupportedSchool, type SupportedSchoolId } from './schools';
 /**
  * The advisor: a model that can read the board and change it.
  *
@@ -27,19 +28,14 @@ export const ADVISOR_MODEL = 'claude-opus-5';
 // The tools, as the model sees them
 // ---------------------------------------------------------------------------
 
-// MERGE-UGA: one list for every school. UGA only reworded search_courses, term_summary, university_answer.
-// Illinois grew it from 9 tools to 23; several are Illinois-only (exam_credit, program_admission,
-// find_equivalent, course_syllabus, record_prior_credit). UGA's executor answers only the first 9, so UGA
-// students get Illinois answers or 'Unknown tool'. Keep both: export shared + Illinois-only lists; route.ts picks.
 export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
-    // MERGE-UGA: conflict in this description. UGA: 'the Illinois catalog' -> 'the active university catalog'.
-    // Illinois added the fit (0 to 1, with reasons) and apply_first sentences its search results now carry.
+        // Illinois added the fit (0 to 1, with reasons) and apply_first sentences its search results now carry.
     // Taking UGA's drops the fit guidance; taking Illinois's tells UGA students they search the Illinois catalog.
     // Keep Illinois's text with UGA's 'active university catalog' wording.
     name: 'search_courses',
     description:
-      'Find courses in the Illinois catalog by code, title or department, e.g. "history", "HIST 2", "data science". When term is given, only courses the student could actually take in that term are returned: prerequisites met by what is earlier on the board, class standing met, nothing the catalog says does not count beside a course already held, nothing already on the board. Each result carries fit: how well it matches the student\'s priorities (0 to 1) and the reasons in words, and apply_first when the course is behind an application. Use this before adding or replacing anything, and prefer the better fit when the student has not named a course.',
+      'Find courses in the active university catalog by code, title or department, e.g. "history", "HIST 2", "data science". When term is given, only courses the student could actually take in that term are returned: prerequisites met by what is earlier on the board, class standing met, nothing the catalog says does not count beside a course already held, nothing already on the board. Each result carries fit: how well it matches the student\'s priorities (0 to 1) and the reasons in words, and apply_first when the course is behind an application. Use this before adding or replacing anything, and prefer the better fit when the student has not named a course.',
     input_schema: {
       type: 'object',
       properties: {
@@ -74,13 +70,12 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
-    // MERGE-UGA: conflict in this description. UGA swapped 'how heavy it reads against Illinois grade history'
-    // for 'any available workload evidence'; Illinois added the crnc_eligible/crnc_why clause.
+        // for 'any available workload evidence'; Illinois added the crnc_eligible/crnc_why clause.
     // Taking UGA's drops the CR/NC clause; taking Illinois's promises UGA students Illinois grade history.
     // Keep Illinois's CR/NC clause with UGA's 'any available workload evidence' wording.
     name: 'term_summary',
     description:
-      'One term of the board: its courses with why each is there (required, from a list, elective slot, or added by the student) and whether each could be taken credit/no credit (crnc_eligible, crnc_why), its credit hours, how heavy it reads against Illinois grade history, and any review issues on it.',
+      'One term of the board: its courses with why each is there (required, from a list, elective slot, or added by the student) and whether each could be taken credit/no credit (crnc_eligible, crnc_why), its credit hours, any available workload evidence, and any review issues on it.',
     input_schema: {
       type: 'object',
       properties: { term: { type: 'string', description: 'A term label like "Spring 2028".' } },
@@ -374,7 +369,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'university_answer',
     description:
-      "Ask about the University of Illinois itself: registration, deadlines, drop rules, parking, housing, offices, policies, anything on its published pages. Returns an answer with the pages it came from. Use it for anything the board cannot answer, and pass on its sources.",
+      "Ask about the student's selected university: registration, deadlines, drop rules, parking, housing, offices, policies, or anything on its published pages. Returns an answer with the pages it came from. Use it for anything the board cannot answer, and pass on its sources.",
     input_schema: {
       type: 'object',
       properties: { question: { type: 'string' } },
@@ -446,6 +441,13 @@ export function isBoardNote(text: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Tools are capabilities of the selected school, never inferred from the bot's display name.
+export function advisorTools(schoolId: SupportedSchoolId): Anthropic.Beta.BetaTool[] {
+  if (schoolId === 'illinois') return ADVISOR_TOOLS;
+  const shared = new Set(['search_courses', 'course_details', 'term_summary', 'add_course', 'remove_course', 'replace_course', 'move_course', 'university_answer']);
+  return ADVISOR_TOOLS.filter((tool) => shared.has(tool.name));
+}
+
 // What the model is told, once
 // ---------------------------------------------------------------------------
 
@@ -457,10 +459,6 @@ export function isBoardNote(text: string): boolean {
  * not print is left to university_answer. Colleges' load rules live in
  * college-rules.ts and reach the model through set_plan_shape.
  */
-// MERGE-UGA: conflict starts at the comment above and runs through advisorSystem's first two lines. UGA's side
-// has no ILLINOIS_RULES, WHO_DECIDES or SITUATIONS, so taking it deletes them and the prompt fails tsc.
-// Keep all three, but add them to the prompt only for Illinois: they hold Illinois deadlines, offices and
-// crisis phone numbers (CARE Center, Emergency Dean) that must never reach a UGA student.
 const ILLINOIS_RULES = [
   // registrar.illinois.edu/registration/registration-process/max-min-enrollment-levels/ (read 2026-09-24): full time
   // is 12 or more hours in fall or spring; 18 is the maximum without approval (9 in summer); college approval below 12.
@@ -534,11 +532,32 @@ const SITUATIONS = [
   "- A career goal: the summers after the second and third years are the usual internship summers, so ask before booking classes in them (set_plan_shape stops for the answer). Where the degree has a research, independent study, thesis or capstone course, mention it for year 3 or 4. The board lists the programs for their goal that a student applies to (the Gies finance academies, FIN 390 to 396, for one): say the program exists, who applies and when, and never book it. A course whose tool result carries apply_first is the same kind: added only after the student says they were admitted.",
 ].join('\n');
 
-// MERGE-UGA: conflict. UGA changed this to advisorSystem(bot, schoolName, schoolShort). route.ts and a ${schoolShort}
-// line in the prompt below both merge in from UGA, so keeping this 1-arg line fails tsc.
-// UGA's line alone gives UGA students the Illinois prompt below (Illinois rules, offices, CARE Center numbers, Parkland).
-// Keep UGA's 3 args and add a schoolId; include the Illinois-only sections only when it is 'illinois'.
-export function advisorSystem(bot: string): string {
+function ugaAdvisorSystem(bot: string, schoolName: string, schoolShort: string): string {
+  return `You are ${bot}, the ${schoolName} assistant. Students ask you anything about ${schoolShort}: registration, deadlines, dropping and adding, tuition, housing, dining, parking, offices and who to contact, majors and what they need, campus life, policies. You answer those from the university's own published pages through the university_answer tool. You also sit inside a four-year course planner: the student is looking at their board, one column per term, a card per course, and you can read it and change it with tools.
+
+What you are for
+- Answer any question about ${schoolShort}, from its pages, with the page named. That is most of what students ask; treat it as the main job, not a sideline.
+- Answer questions about the student's own plan, and change the plan when the student wants it changed.
+- When the student expresses an interest ("I really like history", "I want more data science"), act on it: search for courses in that area that are eligible in a term, replace elective slots with the best fits, and tell them what you did. Do not stop to ask which term unless it genuinely matters; act, then offer alternatives and ask if they want more.
+- When a request is ambiguous in a way that changes what you would do (which of two required courses to drop, whether to keep a course they said they liked), ask one short question and wait.
+- Keep the conversation: remember what they told you earlier in this chat and build on it.
+
+Rules about the board
+- Every card on the board is marked required, from a list, elective slot, or added by the student. Prefer changing elective slots. Never remove or replace a required or from-a-list course unless the student has clearly said yes to removing that specific course in this conversation; then, and only then, call the tool with confirmed true. If they ask you to drop one, say what it is required for and ask for a yes.
+- Use the tools for every fact. Do not state a course's prerequisites, credits, difficulty or description from memory; call course_details or term_summary. Do not claim a course is eligible in a term without search_courses or a successful add.
+- A tool that fails says why. Relay the reason plainly and try the next best option (another term, another course).
+- Keep terms between the student's minimum and 18 credits. Replacing keeps the size; adding raises it, so prefer replacing an elective slot when a term is already full.
+
+How to talk
+- Plain, short, specific. Name courses by code and title, and name the term. Say exactly what changed: "Replaced one elective with HIST 2111, American History to 1865, in Spring 2029."
+- No headers, no bullet lists longer than four items, no markdown tables. A short paragraph or a few lines.
+- When university_answer returns sources, mention where the answer came from in a few words. Never invent a page, office, deadline or policy.
+- You are not a licensed academic advisor and you do not register anyone. Where a decision has consequences (dropping a required course, overloading), say so once and let the student decide.`;
+}
+
+
+export function advisorSystem(bot: string, schoolName = 'University of Illinois Urbana-Champaign', schoolShort = 'Illinois', schoolId: SupportedSchoolId = schoolShort === 'UGA' ? 'uga' : 'illinois'): string {
+  if (schoolId === 'uga') return ugaAdvisorSystem(bot, schoolName, schoolShort);
   return `You are ${bot}, the University of Illinois Urbana-Champaign assistant. Students ask you anything about Illinois: registration, deadlines, dropping and adding, tuition, housing, dining, parking, offices and who to contact, majors and what they need, campus life, policies. You answer those from the university's own published pages through the university_answer tool. You also sit inside a four-year course planner: the student is looking at their board, one column per term, a card per course, and you can read it and change it with tools.
 
 How to reason
@@ -567,7 +586,7 @@ Students with credit coming in
 - In-progress courses count as done for planning; a W or an F does not; a developmental course (numbered 0xx) never transfers. A transcript line counted as hours is real credit toward the total that fills no requirement; a line matched to an Illinois course fills whatever that course fills.
 
 What you are for
-- Answer any question about Illinois, from its pages, with the page named. That is most of what students ask; treat it as the main job, not a sideline.
+- Answer any question about ${schoolShort}, from its pages, with the page named. That is most of what students ask; treat it as the main job, not a sideline.
 - Answer questions about the student's own plan, and change the plan when the student wants it changed.
 - When the student expresses an interest or a career goal ("I really like history", "I want more data science", "stuff for a data job", "I'm pre-PT"), record it with set_priorities interests (their words) and relevance 2, keeping workload where it was unless they say difficulty does not matter; read interests_heard, active_tracks and active_topics in the result. When they change their goal ("actually I'm not pre-med anymore, I want UX research"), call it with interests_mode replace and the new words; when they drop it and name no other ("forget pre-med"), use interests_mode clear. The board description lists the stored career words and the active career tracks: when those no longer match what the student says they want, replace or clear them before anything else. When the result has track_courses, tell the student which courses their track requires are on the board and which are not, and that pressing Rebuild books the missing ones before any other elective and places them earliest (the plan's notes name any it still cannot fit). Then, if the re-pick did not already bring courses in that area, search for them, replace elective slots with the best fits, and tell them what you did. Do not stop to ask which term unless it genuinely matters; act, then offer alternatives and ask if they want more.
 - When a request is ambiguous in a way that changes what you would do (which of two required courses to drop, whether to keep a course they said they liked), ask one short question and wait.
@@ -633,13 +652,16 @@ async function advisorStep(
   messages: AdvisorMessage[],
   board: string,
   bot: string,
+  schoolName: string,
+  schoolShort: string,
+  schoolId: SupportedSchoolId,
   onText: ((delta: string) => void) | undefined,
   signal: AbortSignal | undefined,
 ): Promise<AdvisorStep> {
   const res = await fetch('/api/advisor', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages, board, bot }),
+    body: JSON.stringify({ messages, board, bot, schoolId }),
     signal,
   });
   if (!res.ok || !res.body) {
@@ -692,13 +714,25 @@ export async function runAdvisorTurn(input: {
   board: () => string;
   /** The name the bot answers to: ALMA at Illinois. */
   bot: string;
+  schoolName: string;
+  schoolShort: string;
+  schoolId?: string;
   execute: AdvisorExecutor;
   events?: AdvisorTurnEvents;
   signal?: AbortSignal;
 }): Promise<{ messages: AdvisorMessage[]; refused: string | null }> {
   const messages: AdvisorMessage[] = [...input.messages, { role: 'user', content: input.userText }];
   for (let step = 0; step < MAX_STEPS; step += 1) {
-    const reply = await advisorStep(messages, input.board(), input.bot, input.events?.onText, input.signal);
+    const reply = await advisorStep(
+      messages,
+      input.board(),
+      input.bot,
+      input.schoolName,
+      input.schoolShort,
+      isSupportedSchool(input.schoolId) ? input.schoolId : input.schoolShort === 'UGA' ? 'uga' : 'illinois',
+      input.events?.onText,
+      input.signal,
+    );
     messages.push({ role: 'assistant', content: reply.content as Anthropic.Beta.BetaContentBlockParam[] });
     input.events?.onStep?.(messages);
     if (reply.stop_reason === 'refusal') {

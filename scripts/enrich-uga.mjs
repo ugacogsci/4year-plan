@@ -9,7 +9,7 @@
  *
  *   Prerequisite               "CSCI 1301-1301L or CSCI 1301E"
  *   Semester Course Offered    "Offered fall, spring and summer"
- *   Credit Hours               "3"
+ *   page heading               "CSCI 1302 | 4 hours"
  *
  * Without prerequisites a planner cannot order a degree, and without offering
  * terms it will happily schedule a spring-only course in the fall. The map
@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
-const SRC = join(ROOT, "..", "semantic-course-map", "frontend", "public", "data", "database_mapped_tsne_500.json");
+const SRC = join(ROOT, "..", "semantic-course-map", "frontend", "public", "data", "database_mapped_pacmap_o.json");
 const OUT = join(ROOT, "data", "uga-courses.json");
 const UA = "TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)";
 
@@ -38,8 +38,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Pull one labelled field out of the details page. The page renders each as a
  *  heading followed by its value, so take the text between this label and the
  *  next one rather than guessing at class names that may change. */
-const LABELS = ["Prerequisite", "Corequisite", "Semester Course Offered", "Grading System",
-                "Credit Hours", "Student learning Outcomes", "Course Objectives", "Topical Outline"];
+const LABELS = [
+  'Prerequisite',
+  'Corequisite',
+  'Semester Course Offered',
+  'Grading System',
+  'Student learning Outcomes',
+  'Course Objectives',
+  'Topical Outline',
+];
 function field(text, label) {
   const i = text.indexOf(label);
   if (i < 0) return "";
@@ -58,6 +65,25 @@ const flatten = (html) =>
       .replace(/<[^>]+>/g, " | ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
       .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
       .replace(/(\s*\|\s*)+/g, " | ").replace(/\s+/g, " ");
+
+/**
+ * Credit hours are not a labelled detail field on the current Bulletin. They
+ * sit beside the course code above the title ("CSCI 1302 | 4 hours"). Reading
+ * a nonexistent "Credit Hours" field made every one of 14,092 courses fall
+ * back to three credits. Only inspect the page prefix, before Course
+ * Description, so an hour count in prerequisite prose cannot be mistaken for
+ * the course's own value.
+ */
+function creditHours(html) {
+  const prefix = flatten(html).split('Course Description', 1)[0] ?? '';
+  const range = prefix.match(
+    /\b(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s+hours?\b/i,
+  );
+  if (range) return { credits: Number(range[1]), creditsMax: Number(range[2]) };
+  const fixed = prefix.match(/\b(\d+(?:\.\d+)?)\s+hours?\b/i);
+  const credits = fixed ? Number(fixed[1]) : null;
+  return { credits, creditsMax: credits };
+}
 
 /** "Offered fall, spring and summer" -> ["Fall","Spring"] in the planner's shape. */
 function seasons(s) {
@@ -101,22 +127,24 @@ const run = async () => {
       try {
         const res = await fetch(c.url, { headers: { "User-Agent": UA }, redirect: "follow", signal: AbortSignal.timeout(20000) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const t = flatten(await res.text());
-        const pre = field(t, "Prerequisite");
-        const off = field(t, "Semester Course Offered");
-        const cr = field(t, "Credit Hours");
+        const html = await res.text();
+        const t = flatten(html);
+        const pre = field(t, 'Prerequisite');
+        const off = field(t, 'Semester Course Offered');
+        const credit = creditHours(html);
         const codes = prereqCodes(pre);
         if (codes.length) withPre++;
         done.push({
           ...c,
-          credits: Number((cr.match(/\d+(\.\d+)?/) ?? [3])[0]) || 3,
+          credits: credit.credits ?? 3,
+          creditsMax: credit.creditsMax ?? credit.credits ?? 3,
           prerequisiteText: pre,
           prerequisites: codes,
           offeredText: off,
           offeredIn: seasons(off),
         });
         ok++;
-      } catch (e) {
+      } catch {
         fail++;
         done.push({ ...c, credits: 3, prerequisiteText: "", prerequisites: [], offeredText: "", offeredIn: ["Fall", "Spring"] });
       }

@@ -1,6 +1,6 @@
 {
   "school": "illinois",
-  "fetchedAt": "2026-09-23T05:50:36.178Z",
+  "fetchedAt": "2026-10-03T09:03:52.710Z",
   "sources": {
     "catalog": {
       "source": "catalog.illinois.edu/courses-of-instruction",
@@ -23,8 +23,8 @@
       "courses": 4452
     },
     "map": {
-      "method": "all-MiniLM-L6-v2 (384d) -> umap(k=15, min_dist=0.1) -> rank-normalised 4..96",
-      "builtAt": "2026-09-20T21:16:48.914Z",
+      "method": "all-MiniLM-L6-v2 (384d) -> umap(k=15, min_dist=0.1) -> linearly-normalised 3..97",
+      "builtAt": "2026-09-26T03:22:18.807Z",
       "count": 9440
     }
   },
@@ -45,7 +45,7 @@
     "catalogCourses": 9440,
     "undergraduateCourses": 6110,
     "withParsedPrereq": 2384,
-    "withLowConfidencePrereq": 56,
+    "withLowConfidencePrereq": 65,
     "withPrereqTextOnly": 1361,
     "withPrereqNoteOnly": 51,
     "withStandingRequirement": 419,
@@ -59,12 +59,12 @@
     "variableCredit": 1829,
     "unknownCredit": 0,
     "droppedProgramRows": 0,
-    "droppedTotalRows": 333,
-    "poolGroups": 423,
+    "droppedTotalRows": 341,
+    "poolGroups": 466,
     "implausibleProgramTotals": 0,
-    "programsWithGenEd": 269,
-    "genEdCategories": 2380,
-    "genEdCategoriesFromCampus": 591
+    "programsWithGenEd": 306,
+    "genEdCategories": 2723,
+    "genEdCategoriesFromCampus": 665
   },
   "counts": {
     "indexed": 6110,
@@ -279,24 +279,24 @@
   ],
   "artifacts": {
     "index.json": {
-      "raw": 1205854,
-      "gzip": 202176
+      "raw": 1206183,
+      "gzip": 197858
     },
     "prereqs.json": {
-      "raw": 1226195,
-      "gzip": 100676
+      "raw": 1226269,
+      "gzip": 100558
     },
     "grades.json": {
       "raw": 281487,
-      "gzip": 34063
+      "gzip": 33479
     },
     "sections.json": {
-      "raw": 1542152,
-      "gzip": 118985
+      "raw": 1789091,
+      "gzip": 146618
     },
     "programs.json": {
-      "raw": 104989,
-      "gzip": 10291
+      "raw": 105038,
+      "gzip": 10266
     }
   },
   "notes": [

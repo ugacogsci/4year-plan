@@ -39,12 +39,54 @@ import type { PoolConstraint, RequirementBlock } from '@/lib/planner/illinois-da
 function constraintOnBoard(
   constraint: PoolConstraint,
   held: Set<string>,
-): { met: boolean; from: string | null; picked: string[] } {
+  context: PlanningContext,
+): {
+  met: boolean;
+  from: string | null;
+  picked: string[];
+  count: number;
+  hoursTarget: number | null;
+  hours: number;
+} {
   const lists = constraint.lists.map((list) => ({
     label: list.label,
     codes: new Set(list.codes.map(normaliseCode)),
   }));
-  if (lists.length === 0) return { met: true, from: null, picked: [] };
+  if (lists.length === 0)
+    return { met: true, from: null, picked: [], count: 0, hoursTarget: constraint.hours ?? null, hours: 0 };
+
+  const hourCodes = new Set((constraint.hourCodes ?? []).map(normaliseCode));
+  const hourCourses = [...held].filter((code) => hourCodes.has(code));
+  const hours = planCreditRange(hourCourses, context).min;
+  const hoursMet = constraint.hours === undefined || hours >= constraint.hours;
+
+  if (constraint.distinctLists) {
+    const matchedCourse = new Map<string, number>();
+    const match = (listIndex: number, seen: Set<string>): boolean => {
+      for (const code of [...held].sort()) {
+        if (seen.has(code) || !lists[listIndex].codes.has(code)) continue;
+        seen.add(code);
+        const previous = matchedCourse.get(code);
+        if (previous === undefined || match(previous, seen)) {
+          matchedCourse.set(code, listIndex);
+          return true;
+        }
+      }
+      return false;
+    };
+    let count = 0;
+    for (let index = 0; index < lists.length; index += 1) {
+      if (match(index, new Set<string>())) count += 1;
+    }
+    return {
+      met: count >= constraint.n && hoursMet,
+      from: null,
+      picked: [...matchedCourse.keys()].sort(),
+      count,
+      hoursTarget: constraint.hours ?? null,
+      hours,
+    };
+  }
 
   if (constraint.single && lists.length > 1) {
     let best: { label: string; picked: string[] } = { label: lists[0].label, picked: [] };
@@ -53,19 +95,42 @@ function constraintOnBoard(
       if (picked.length > best.picked.length) best = { label: list.label, picked };
     }
     return {
-      met: best.picked.length >= constraint.n,
+      met: best.picked.length >= constraint.n && hoursMet,
       from: best.picked.length > 0 ? best.label : null,
       picked: best.picked,
+      count: best.picked.length,
+      hoursTarget: constraint.hours ?? null,
+      hours,
     };
   }
 
   const union = new Set(lists.flatMap((list) => [...list.codes]));
   const picked = [...held].filter((code) => union.has(code)).sort();
   return {
-    met: picked.length >= constraint.n,
+    met: picked.length >= constraint.n && hoursMet,
     from: lists.length === 1 ? lists[0].label : null,
     picked,
+    count: picked.length,
+    hoursTarget: constraint.hours ?? null,
+    hours,
   };
+}
+
+function constraintProgress(constraint: {
+  n: number;
+  count: number;
+  hoursTarget: number | null;
+  hours: number;
+}): string {
+  const parts = [
+    constraint.n > 0
+      ? `${constraint.count} of ${constraint.n} required selections`
+      : null,
+    constraint.hoursTarget !== null
+      ? `${constraint.hours} of ${constraint.hoursTarget} upper-division hours`
+      : null,
+  ].filter(Boolean);
+  return `This plan has ${parts.join(' and ')}`;
 }
 
 /** Every code a pool's catalog list names, whether or not the snapshot has it. */
@@ -122,37 +187,45 @@ export function livePools({
 
   const claimed = new Set<string>();
   const mine: string[][] = base.map(() => []);
+  const earned: string[][] = base.map(() => []);
+
+  const claim = (code: string, index: number): void => {
+    claimed.add(code);
+    // Earned credit takes precedence if a stale alternative also schedules it.
+    // Either representation contributes one course, never both.
+    (prior.has(code) ? earned[index] : mine[index]).push(code);
+  };
 
   // Courses this pool already held keep their pool, so a student who has not
-  // touched an elective does not see it jump to another heading.
+  // touched an elective does not see it jump to another heading. Completing a
+  // planned course changes its status, not the requirement it satisfies.
   base.forEach((pool, index) => {
-    for (const raw of pool.picked) {
+    for (const raw of [...pool.fromPriorCredit, ...pool.picked]) {
       const code = normaliseCode(raw);
-      if (!boardSet.has(code) || claimed.has(code)) continue;
-      claimed.add(code);
-      mine[index].push(code);
+      if ((!boardSet.has(code) && !prior.has(code)) || claimed.has(code)) continue;
+      claim(code, index);
     }
   });
 
-  // Then whatever the student added, in board order so the panel lists a pool's
-  // courses the way the plan reads left to right.
+  // Then newly added planned courses, in board order. New earned credit with
+  // no recorded pool owner needs a rebuild: it may already satisfy a named
+  // non-pool requirement, and recounting must not spend that credit twice.
   for (const code of board) {
-    if (claimed.has(code)) continue;
+    if (claimed.has(code) || prior.has(code)) continue;
     const index = members.findIndex((set) => set.has(code));
     if (index < 0) continue;
-    claimed.add(code);
-    mine[index].push(code);
+    claim(code, index);
   }
 
   return base.map((pool, index) => {
     const picked = mine[index];
-    const free = pool.fromPriorCredit.filter((code) => prior.has(normaliseCode(code)));
-    const held = [...free.map(normaliseCode), ...picked];
+    const free = earned[index];
+    const held = [...free, ...picked];
     const heldSet = new Set(held);
     const block = blockById.get(pool.requirementId);
     const constraints =
       block && block.rule.kind === 'pool'
-        ? block.rule.constraints.map((c) => ({ text: c.text, n: c.n, ...constraintOnBoard(c, heldSet) }))
+        ? block.rule.constraints.map((c) => ({ text: c.text, n: c.n, ...constraintOnBoard(c, heldSet, context) }))
         : pool.constraints;
 
     /**
@@ -188,10 +261,6 @@ export function livePools({
  * in the plan" after the student added the sixth course is telling them to fix
  * something they have already fixed.
  */
-// MERGE-UGA: UGA's version of this file arrives whole (Illinois never changed it). Its message reads constraint.count,
-// hoursTarget and hours, which Illinois's PoolReport constraints in autoplan.ts lack (tsc TS2345). A pool whose block is
-// not loaded falls back to those, and prints 'This plan has undefined of 2 required selections'. Keep both: add those
-// fields to PoolReport.constraints, and keep UGA's PoolConstraint hours/hourCodes/distinctLists in illinois-data.ts.
 export function poolShortfalls(pools: PoolReport[]): UnsatisfiedRequirement[] {
   const out: UnsatisfiedRequirement[] = [];
   for (const pool of pools) {
@@ -236,7 +305,7 @@ export function poolShortfalls(pools: PoolReport[]): UnsatisfiedRequirement[] {
         areaLabel: pool.areaLabel,
         label: pool.label,
         // The sentence, then the count, and no attempt to explain it away.
-        message: `${constraint.text} This plan has ${constraint.picked.length} of ${constraint.n}.`,
+        message: `${constraint.text} ${constraintProgress(constraint)}.`,
         reason: 'constraint-unmet',
         url: pool.url,
       });

@@ -1,6 +1,7 @@
+import { schoolById, isSupportedSchool } from '@/lib/planner/schools';
 import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
-import { ADVISOR_MODEL, ADVISOR_TOOLS, advisorSystem, type AdvisorMessage } from '@/lib/planner/advisor';
+import { ADVISOR_MODEL, advisorTools, advisorSystem, type AdvisorMessage } from '@/lib/planner/advisor';
 
 /**
  * One step of the advisor's loop.
@@ -28,11 +29,19 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  const body = (await req.json().catch(() => ({}))) as { messages?: unknown; board?: unknown; bot?: unknown };
+  const body = (await req.json().catch(() => ({}))) as {
+    messages?: unknown;
+    board?: unknown;
+    bot?: unknown;
+    schoolId?: unknown;
+  };
   const messages = Array.isArray(body.messages) ? (body.messages as AdvisorMessage[]) : [];
   const board = typeof body.board === 'string' ? body.board.slice(0, MAX_BOARD_CHARS) : '';
-  // The bot's name is the school's, and a name is all it may be.
-  const bot = typeof body.bot === 'string' && /^[A-Za-z][A-Za-z .'-]{0,23}$/.test(body.bot) ? body.bot : 'the assistant';
+  if (!isSupportedSchool(body.schoolId)) {
+    return NextResponse.json({ error: 'Choose a supported university before asking the adviser.' }, { status: 400 });
+  }
+  const schoolId = body.schoolId;
+  const school = schoolById(schoolId)!;
   if (messages.length === 0 || messages.length > MAX_MESSAGES) {
     return NextResponse.json({ error: 'Send between 1 and 120 messages.' }, { status: 400 });
   }
@@ -62,17 +71,10 @@ export async function POST(req: Request) {
           // job. Streaming keeps the wait honest.
           output_config: { effort: 'high' },
           system: [
-            // MERGE-UGA: UGA calls advisorSystem(bot, schoolName, schoolShort) here, both names read from the request body.
-            // This file auto-merges to UGA's call, but Illinois's advisorSystem(bot) takes one argument (tsc TS2554) and always
-            // says it is the University of Illinois assistant. Keep both: take UGA's 3-argument signature, keep Illinois's rules
-            // for 'illinois' only, and send schoolName/schoolShort from advisor.tsx.
-            { type: 'text', text: advisorSystem(bot), cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: advisorSystem(school.bot, school.name, school.short, schoolId), cache_control: { type: 'ephemeral' } },
             { type: 'text', text: `The board right now:\n\n${board}` },
           ],
-          // MERGE-UGA: UGA left this line alone, but Illinois's ADVISOR_TOOLS now has 23 tools, several Illinois-only
-          // (Illinois AP table, Gies/Grainger admission, Illinois syllabi). As is, every UGA student gets them all.
-          // Keep both: pick the list by schoolId here (all 23 for illinois; for uga only what its executor answers).
-          tools: ADVISOR_TOOLS,
+          tools: advisorTools(schoolId),
           messages,
         });
         for await (const event of run) {

@@ -1,89 +1,83 @@
 # Architecture
 
-## Guiding idea
-
-The product has two different jobs: determine whether a plan satisfies explicit constraints, and help a person explore good alternatives. Keep those jobs separate. Degree audit and prerequisite logic must be deterministic; semantic similarity and AI-assisted preference interpretation are advisory signals.
-
-## Current slice
+ORION has one shared React workspace and deterministic planning engine.
+School-specific data and policy enter through explicit adapters.
 
 ```text
-React planner workspace
-        |
-        v
-Pure planning functions  <---  Typed domain contracts
-        |
-        v
-Illustrative in-memory catalog and program definition
+School registry (identity, sources, capabilities)
+              |
+School adapter (Illinois or UGA)
+  catalog / programs / planning context
+              |
+Shared generatePlan / validatePlan
+              |
+Semester board / progress / alternatives / adviser edits
+              |
+School-scoped local saves and portable exports
 ```
 
-The current app runs without accounts or a backend. Profiles and plans can be saved to local browser storage for demo purposes. `lib/planner/rules.ts` owns calculations and warnings. Components render the setup rail, four-year board, live checks, and integrated semantic course finder while dispatching user actions.
+## School boundary
 
-## Target shape
+`lib/planner/schools.ts` is safe to import on the server and client. It defines
+supported schools, names, catalog and exam-credit locations and capabilities.
 
-```text
-Web client
-   |
-   v
-Planner API  --->  Planning and audit engine
-   |                    |
-   v                    v
-Postgres            Versioned requirement definitions
-   ^
-   |
-Scheduled ingestion jobs ---> source snapshots + provenance
-```
+`components/planner/school-source.ts` defines `SchoolAdapter<Data, Summary>`.
+Each implementation provides `load`, `courses`, `programs`, `context` and
+`loadProgram`. Program results share `SchoolProgram`: summary, normalized
+requirements, requirement blocks, source URL and optional elective policy.
+The existing staged source hooks remain for progressive loading; workspace
+program loading and context construction use the adapters.
 
-Suggested early stack:
+Illinois loads generated shards through `illinois-load.ts`, parses published
+requirements and retains richer language, offering, admission and grade data.
+UGA normalizes joint listings and four-digit course variants, program choices
+and prerequisites in `uga-source.tsx`. Neither loader substitutes another
+school's catalog after a failure.
 
-- React/TypeScript client
-- A small TypeScript or Python API, chosen by the team maintaining ingestion and optimization
-- Postgres through a low-cost managed provider
-- Scheduled GitHub Actions or provider cron jobs for refreshes
-- Object storage only if raw snapshots become too large for the database
+`PlanningContext.schoolId` makes differing elective policies explicit.
+Prerequisite, credit, requirement and validation contracts remain shared.
+Omitted school IDs preserve historical Illinois library callers; production
+adapters always supply one.
 
-Do not introduce microservices at this stage. One deployable API with clear modules is enough.
+## Workspace and state
 
-## Core modules
+The workspace combines UGA majors/minors/certificates and emphasis choices.
+Illinois actively plans one degree and uses its published college rules for
+second-program comparisons. A tab holds both its course plan and the generation
+report, notes and editing provenance. Switching tabs must not discard which
+courses are required, electives or student-added.
 
-`catalog`: canonical courses, aliases, credits, descriptions, and prerequisite expressions.
+Saved boards use `fourYear.board.v4.<school>`; a legacy global v4 alias and UGA
+v3 entries migrate without deleting another school's save. Profiles and chats
+are school-scoped as well. A save is validated before restoration. Storage
+failure leaves session planning available.
 
-`programs`: catalog-year-specific programs and requirement trees.
+School changes retain saved work. Starting over explicitly resets only the
+current school. Imported plans must belong to the selected school and reference
+its catalog/programs.
 
-`sections`: term-specific sections, meetings, instructors, capacity, and snapshot timestamps.
+## Transcript and adviser boundary
 
-`plans`: user-authored terms, completed courses, preferences, and manual overrides.
+Transcript requests carry a supported school ID. The reader extracts printed
+facts, while local code matches against that school's normalized catalog.
+Matching codes from an unrelated institution are never automatically accepted
+as home-university courses. Illinois transfer guides and composition sequences
+apply only to Illinois. AP/IB grants count a course once across overlapping exams.
 
-`audit`: requirement allocation, prerequisites, residency rules, credit totals, and explanations.
+Adviser requests carry the school ID. The server derives the name and available
+tools from supported metadata. UGA never receives Illinois admission, transfer
+guide, exam-policy or syllabus tools it cannot execute. Shared board edits use
+the same deterministic checks as manual edits. Illinois retains its extended
+review and per-turn undo.
 
-`generator`: proposes plans under hard constraints and ranks alternatives using soft preferences.
+## Verification and future schools
 
-`discovery`: embeddings, similarity, semantic clusters, and career/interest metadata.
+Run `npm run build` before `npm run test:full`; build regeneration and tests
+must not run concurrently. The adapter tests load the real browser data path,
+then run the shared engine. Missing-file tests, school isolation and migration
+tests guard boundaries that cannot be proven by type checking alone.
 
-## Planning contract
-
-A future generator should accept a versioned input and return multiple scored candidates:
-
-```ts
-interface GeneratePlanInput {
-  programIds: string[];
-  catalogYear: string;
-  completedCourseIds: string[];
-  graduationTerm: string;
-  preferences: {
-    creditRange?: [number, number];
-    avoidDays?: string[];
-    preferredFormats?: string[];
-    interests?: string[];
-  };
-}
-```
-
-Hard constraints include prerequisites, required courses, credit limits, term availability, and graduation date. Soft constraints include instructor preference, location, modality, class size, and interest similarity. Every proposed plan should carry human-readable reasons and unresolved assumptions.
-
-## Data versioning
-
-Never overwrite a volatile fact without retaining its source and capture time. Program rules should be keyed by catalog year. Section and capacity records should be append-only snapshots or otherwise auditable. Plans should record the requirement version against which they were last checked.
-
-## Privacy
-
-The demo has no accounts. Before storing real student data, define the minimum data required, retention and deletion behavior, access controls, incident response, and whether any integration brings the system under FERPA or institutional policy. Avoid collecting grades or identifiers unless they are genuinely needed.
+A third school needs an adapter, source snapshots, declared capabilities and
+the same contract tests. Add its identity only as available when its data and
+planning behavior are verified. New academic rules belong in explicit adapter
+policy or a documented common contract, not display-name comparisons.

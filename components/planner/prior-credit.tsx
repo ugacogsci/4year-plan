@@ -1,11 +1,9 @@
 'use client';
 
-// MERGE-UGA: both sides added useEffect to this import (only the order differs). Illinois also imports
-// matchDocumentExams on the next line for the transcript onExams handler below; UGA's version lacks it.
-// Take Illinois's two lines.
 import { useMemo, useState, useEffect } from 'react';
 import { examCreditUrl, matchDocumentExams, useExamCredit } from './exam-credit';
 import { TranscriptUpload } from './transcript-upload';
+import { loadSchoolCatalog } from './school-source';
 import type { TranscriptRecord } from '@/lib/planner/transcript';
 import {
   applyExamCredit,
@@ -35,10 +33,9 @@ export function PriorCredit({
   onChange,
   transcript,
   onTranscriptChange,
-  // MERGE-UGA: props conflict here and in the type below. UGA added alreadyTakenCourseCodes = [] and
-  // onAlreadyTakenChange (its 'Classes already taken' search); Illinois added grainger (Grainger AP table,
-  // used by onExams below). Keep all three in both places: each side's onboarding.tsx passes its own.
   grainger = false,
+  alreadyTakenCourseCodes = [],
+  onAlreadyTakenChange,
 }: {
   school: School | undefined;
   exams: PriorExam[];
@@ -52,13 +49,12 @@ export function PriorCredit({
   onTranscriptChange?: (next: TranscriptRecord | null) => void;
   /** Whether the student is heading for Grainger, which has its own calculus table. */
   grainger?: boolean;
+  alreadyTakenCourseCodes?: string[];
+  onAlreadyTakenChange?: (next: string[]) => void;
 }) {
   const loaded = useExamCredit(school);
   const table = loaded.entries;
   const [query, setQuery] = useState('');
-  // MERGE-UGA: both sides added state + a fetch effect here: Illinois loads /illinois/languages.json for the
-  // language picker; UGA loads school.catalog for the already-taken search. Independent; keep both.
-  // Either side alone leaves languageNames or courseQuery/courseCatalog undefined further down.
   /** The registrar's language names, for the picker. Empty until the small file arrives. */
   const [languageNames, setLanguageNames] = useState<string[]>([]);
   useEffect(() => {
@@ -74,6 +70,24 @@ export function PriorCredit({
       live = false;
     };
   }, [school?.id]);
+  const [courseQuery, setCourseQuery] = useState('');
+  const [courseCatalog, setCourseCatalog] = useState<Array<{ code: string; title: string }> | null>(null);
+
+  useEffect(() => {
+    if (!school?.catalog) return;
+    let cancelled = false;
+    void loadSchoolCatalog(school.id)
+      .then((rows) => {
+        if (cancelled) return;
+        setCourseCatalog(rows ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setCourseCatalog([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [school?.catalog, school?.id]);
   /**
    * Whether this school has a table at all, which is not the same as whether it
    * has loaded. A school with no table gets no search box: an input that
@@ -97,6 +111,23 @@ export function PriorCredit({
     if (!q) return [];
     return examList.filter((e) => `${e.kind} ${e.exam}`.toLowerCase().includes(q)).slice(0, 6);
   }, [examList, query]);
+
+  const selectedCourseCodes = useMemo(
+    () => new Set(alreadyTakenCourseCodes.map((code) => code.replace(/\s+/g, ' ').trim().toUpperCase())),
+    [alreadyTakenCourseCodes],
+  );
+  const courseByCode = useMemo(
+    () => new Map((courseCatalog ?? []).map((course) => [course.code.replace(/\s+/g, ' ').trim().toUpperCase(), course])),
+    [courseCatalog],
+  );
+  const courseMatches = useMemo(() => {
+    const query = courseQuery.trim().toLowerCase();
+    if (!query) return [];
+    return (courseCatalog ?? [])
+      .filter((course) => !selectedCourseCodes.has(course.code.replace(/\s+/g, ' ').trim().toUpperCase()))
+      .filter((course) => `${course.code} ${course.title}`.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [courseCatalog, courseQuery, selectedCourseCodes]);
 
   const scoresFor = (kind: string, exam: string) =>
     table
@@ -148,10 +179,6 @@ export function PriorCredit({
 
   return (
     <div className="prior">
-      {/* MERGE-UGA: UGA put its 'Classes already taken at {school.short}' block (shown only when school.catalog is
-         set, so UGA only) at this same spot as Illinois's language question (Illinois only). Keep both blocks.
-         Git shares their last '</div>' and ')}', so each block needs its own closing '</div>' and ')}'.
-      */}
       {school?.id === 'illinois' && (
         <div className="onb-q">
           <span className="onb-q-label">Language other than English in high school</span>
@@ -196,6 +223,64 @@ export function PriorCredit({
               ))}
             </datalist>
           </div>
+        </div>
+      )}
+      {school?.catalog && onAlreadyTakenChange && (
+        <div className="prior-block">
+          <span className="onb-q-label">Classes already taken at {school.short}</span>
+          <span className="onb-q-hint">
+            Search the complete course catalog and add every class you have finished. These courses count toward requirements and will not be scheduled again when you rebuild.
+          </span>
+          <input
+            className="prior-search"
+            value={courseQuery}
+            placeholder={courseCatalog === null ? `Loading ${school.short} courses...` : 'Search by course code or title'}
+            aria-label={`Search ${school.short} courses already taken`}
+            disabled={courseCatalog === null}
+            onChange={(event) => setCourseQuery(event.target.value)}
+          />
+          {courseMatches.length > 0 && (
+            <ul className="prior-matches">
+              {courseMatches.map((course) => (
+                <li key={course.code}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAlreadyTakenChange([...alreadyTakenCourseCodes, course.code]);
+                      setCourseQuery('');
+                    }}
+                  >
+                    <strong>{course.code}</strong> <span>{course.title}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {courseQuery.trim() && courseCatalog !== null && courseMatches.length === 0 && (
+            <p className="prior-waiting">No unselected course matches that search.</p>
+          )}
+          {alreadyTakenCourseCodes.length > 0 && (
+            <ul className="prior-chosen prior-course-chosen">
+              {alreadyTakenCourseCodes.map((code) => {
+                const course = courseByCode.get(code.replace(/\s+/g, ' ').trim().toUpperCase());
+                return (
+                  <li key={code}>
+                    <span className="prior-name">
+                      <strong>{code}</strong>{course?.title ? ` · ${course.title}` : ''}
+                    </span>
+                    <button
+                      type="button"
+                      className="prior-remove"
+                      aria-label={`Remove ${code}`}
+                      onClick={() => onAlreadyTakenChange(alreadyTakenCourseCodes.filter((candidate) => candidate !== code))}
+                    >
+                      &times;
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       )}
 
@@ -340,7 +425,7 @@ export function PriorCredit({
           value={transferText}
           placeholder={
             school
-              ? `Two semesters of dual enrollment at ${school.feeders.split(',')[0]}: ENGL 1101, ENGL 1102, POLS 1101. Also a summer class at ${school.feeders.split(',')[1]?.trim() ?? 'a community college'}.`
+              ? `Credit from ${school.feeders.split(',')[0]}, evaluated as ${school.id === 'illinois' ? 'RHET 105, MATH 221' : 'ENGL 1101, ENGL 1102, POLS 1101'}. Also a summer class at ${school.feeders.split(',')[1]?.trim() ?? 'a community college'}.`
               : 'Where the credit came from and roughly what transferred.'
           }
           onChange={(e) => onChange({ exams, transferText: e.target.value })}

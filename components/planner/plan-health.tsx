@@ -28,9 +28,6 @@ export interface HealthGroup {
   issue: PlanIssue;
 }
 
-// MERGE-UGA: UGA added isTermIssue() here (semester-column.tsx and planner-workspace.tsx import it); Illinois
-// added reviewTitle() (planner-workspace.tsx and __advisor-packet.check.mjs import it). Keep both functions.
-// Git shares one closing '}' between them, so give each function its own '}' or the file will not parse.
 /**
  * "Area: requirement", the title of a requirement's row. An area-wide
  * requirement carries the area's name as its label, so the pair would read
@@ -43,6 +40,13 @@ export function reviewTitle(area: string | null | undefined, label: string | nul
   const l = label?.trim() ?? '';
   if (!l || l === a) return a || 'A requirement on the degree page';
   return a ? `${a}: ${l}` : l;
+}
+
+/** Issues about the shape of one whole semester rather than one course. */
+export function isTermIssue(issue: PlanIssue): boolean {
+  return /^(?:ap-(?:load|minimum|variable|unknown-credits|hard|weighed)-|load-|minimum-load-)/.test(
+    issue.id,
+  );
 }
 
 /** Identical messages become one row. Distinct ones never merge. */
@@ -78,7 +82,7 @@ export function PlanHealthList({
   if (groups.length === 0) {
     return (
       <div className="health-empty">
-        <CheckCircle2 /> Nothing to review. Every course clears its prerequisites.
+        <CheckCircle2 /> No plan-wide notes. Course and semester warnings appear directly on the board.
       </div>
     );
   }

@@ -406,7 +406,7 @@ export function boardChecker(input: BoardCheckInput): SwapCheck {
   const genEdBlocks = genEdRules(input.requirements);
   const categoriesMet = (b: PlanState): boolean[] => genEdCategoriesMet(b, genEdBlocks, ctx, byId);
   const metBefore = categoriesMet(input.board);
-  const who = { ...input, primary: degreeSubjects(input.requirements, input.programName).primary };
+  const who = { ...input, primary: degreeSubjects(input.requirements, input.programName, input.context.schoolId).primary };
   return (next, from, termId, add, removed) => {
     const term = next.terms.find((t) => t.id === termId);
     const was = from.terms.find((t) => t.id === termId);
@@ -798,7 +798,7 @@ export function repickBoard(input: RepickInput): RepickResult {
 
   // --- a named career track first ------------------------------------------
   const trackCodes = new Set<string>();
-  for (const track of interestProfileOf(input.career ?? input.interests).tracks) {
+  for (const track of interestProfileOf(input.career ?? input.interests, input.context.schoolId).tracks) {
     for (const need of track.courses) {
       if (need.need !== 'required') continue;
       const codes = need.codes.map(normaliseCode);

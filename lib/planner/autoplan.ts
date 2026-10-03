@@ -1,7 +1,3 @@
-// MERGE-UGA: 19 conflicts in this file. Keep this Illinois engine and re-add UGA's pieces at each MERGE-UGA.
-// Not origin/uga's whole copy: it lacks 41 Illinois exports (degreeSubjects, GenEdCredit, LanguagePlan...),
-// so Illinois files fail tsc. Not this whole copy either: it drops UGA's auto-merged fields (PoolReport
-// count/hours...) and live-pools.ts fails tsc. Resolved as the markers say, it type-checked in a trial.
 import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from './types';
 import { termLoad, type GradeRow } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
@@ -46,8 +42,6 @@ import { DEFAULT_PRIORITIES } from './priorities';
 // three for nothing.
 // ---------------------------------------------------------------------------
 
-// MERGE-UGA: Illinois added bundles? and set? here; UGA's copy lacks them, and programs-compare.ts and
-// review.ts read .bundles. Keep Illinois's interface. Both are optional, so UGA's choice rows still fit.
 export interface PlanCourseChoice {
   /** Codes that are interchangeable for this one slot, as "CS 210 or CS 211". */
   codes: string[];
@@ -87,15 +81,17 @@ export interface PlanPoolList {
  * difference between "three from one list" and "three across eight lists", and
  * it is read from the catalog's sentence, which `text` carries verbatim.
  */
-// MERGE-UGA: UGA adds distinctLists?, hours? and hourCodes? here (git auto-merges them; PoolConstraint in
-// illinois-data.ts gets the same). UGA's fillPool/constraintStatus code reads them for 'N different areas'
-// and credit-hour rules. Taking Illinois's whole file drops them, and those UGA rules are then silently
-// never filled or checked. Keep them.
 export interface PlanPoolConstraint {
   text: string;
   n: number;
   lists: PlanPoolList[];
   single: boolean;
+  /** Count represented named lists rather than courses in their union. */
+  distinctLists?: boolean;
+  /** Optional credit-hour floor inside `hourCodes`. */
+  hours?: number;
+  /** Courses whose credit contributes to `hours`. */
+  hourCodes?: string[];
 }
 
 export type PlanRule =
@@ -118,10 +114,6 @@ export type PlanRule =
       joinedByOr?: boolean;
     }
   | {
-      // MERGE-UGA: conflict just below. Both sides rewrote the one-line 'hours' member: Illinois added minLevel?/
-      // exclude?, UGA added source?: 'catalog' | 'explicit-elective' | 'parser-gap' (git shows it as a 2nd member).
-      // Merge into ONE member with all three. Without source?, tsc fails where generatePlan reads rule.source;
-      // with two members, tsc fails 9 times. Same fix in illinois-data.ts RequirementRule.
       kind: 'hours';
       hours: number;
       genEd: string[] | null;
@@ -130,6 +122,7 @@ export type PlanRule =
       minLevel?: number | null;
       /** Codes the page rules out of this block. */
       exclude?: string[];
+      source?: 'catalog' | 'explicit-elective' | 'parser-gap';
     }
   /**
    * One general education category, sized in hours or in courses or both.
@@ -161,13 +154,9 @@ export type PlanRule =
       label: string;
     }
   | { kind: 'unparsed'; text: string }
-  // MERGE-UGA: Illinois-only rule kind (UGA's copy lacks it); review.ts and programs-compare.ts branch on
-  // kind 'language'. Keep this line whatever happens to the 'hours' member above.
   | { kind: 'language'; semesters: 3 | 4; text: string };
 
 /** What a college publishes about getting in from another college on campus: courses to have done, and by when. */
-// MERGE-UGA: AdmissionRoute, AdmissionTable and LanguageTable (next ~60 lines) are Illinois-only; UGA's copy
-// lacks them and admission-route.ts, illinois-load.ts and illinois-progress.ts import them. Keep them.
 export interface AdmissionRoute {
   name: string;
   path: string;
@@ -369,6 +358,8 @@ export type PrereqMatcher = (
 };
 
 export interface PlanningContext {
+  /** Selects campus-specific ranking policies; omitted preserves existing Illinois callers. */
+  schoolId?: 'illinois' | 'uga';
   /** Catalog courses in the planner's own shape. Credits and titles come from here, never from a program row. */
   courses: Course[];
   /**
@@ -406,9 +397,6 @@ export interface PlanningContext {
    * entry has not run in any of them; the ranker puts it last, the fill
    * marks it down, and the validator says so on the card.
    */
-  // MERGE-UGA: offerings, offeringTerms, offeringAliases and languages (below) and excellent/excellentTerms
-  // (above) are Illinois-only on PlanningContext; advisor-packet.ts, programs-compare.ts and review.ts read
-  // them. Keep them; UGA just leaves them unset.
   offerings?: Map<string, string[]>;
   offeringTerms?: string[];
   /** New course number -> the old number whose offering history it carries. */
@@ -463,9 +451,6 @@ export interface PriorCredit {
 }
 
 /** Who a student is as they start at Illinois, for the courses written for one group of students. */
-// MERGE-UGA: Arrival, arrivalFromWords, GenEdCredit, AwayKind/AwayTerm/awayCredits and ResidencyRule/Report
-// (next ~150 lines) are Illinois-only; repick.ts, review.ts, transcript.ts, saved-board.ts and
-// illinois-progress.ts import them. Keep them.
 export interface Arrival {
   /** Coming from another school: LAS 102 "Transfer Advantage", not LAS 101. */
   transfer: boolean;
@@ -506,8 +491,6 @@ export interface GenEdCredit {
   tags: string[];
 }
 
-// MERGE-UGA: Illinois added stated?, away? and summers? here (UGA's Horizon has none). buildHorizon,
-// extendForAway and programs-compare.ts use them. Keep Illinois's; it already covers UGA's summer graduation.
 export interface Horizon {
   startSeason: SemesterSeason;
   startYear: number;
@@ -642,6 +625,20 @@ export interface AutoplanInput {
    * three-credit last term. Null when the page publishes none.
    */
   degreeTotal?: number | null;
+  /**
+   * Maximum unnamed elective hours the catalog explicitly permits. When this
+   * is a number, the planner stops there instead of using electives to conceal
+   * a requirement parser gap. Omit it for catalogs whose degree total is the
+   * only published boundary.
+   */
+  electiveHoursLimit?: number | null;
+  /**
+   * Continue to the published degree total after the explicit elective space
+   * is full. Used only for a reviewed program whose overlapping and
+   * college-wide requirements make the area subtotals smaller than 120 unique
+   * credits; the extra courses remain visibly editable electives.
+   */
+  fillToDegreeTotal?: boolean;
   /** The student's own words about what they study and want, for ranking elective picks. */
   interests?: string;
   /**
@@ -652,9 +649,6 @@ export interface AutoplanInput {
   career?: string;
   /** The degree's name, "Psychology, BSLAS", which names the major better than a thin page does. */
   programName?: string;
-  // MERGE-UGA: conflict. Illinois adds programCollege ... residency below; UGA adds electiveLevelRange and
-  // autoPrerequisiteLevelRange (its electiveHoursLimit/fillToDegreeTotal auto-merge above). Keep both lists:
-  // Illinois-only fails tsc 8 times in generatePlan, UGA-only 62 times. UGA's planner-workspace passes all 4.
   /** The college the degree sits in, as the catalog codes it: "bus", "engineering", "las", "aces", "faa", "media", "education", "ahs", "socw", "ischool". */
   programCollege?: string;
   /**
@@ -781,6 +775,10 @@ export interface AutoplanInput {
    * advisor act on.
    */
   residency?: ResidencyRule | null;
+  /** Course-number range eligible for generated elective slots. */
+  electiveLevelRange?: { min: number; maxExclusive: number };
+  /** Course-number range the planner may insert automatically as prerequisites. */
+  autoPrerequisiteLevelRange?: { min: number; maxExclusive: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -880,11 +878,12 @@ export interface PoolReport {
   /** How many courses the page lists here, and how many of those the snapshot has. */
   listed: number;
   available: number;
-  // MERGE-UGA: UGA adds count, hoursTarget and hours to each constraint row here (auto-merges). live-pools.ts's
-  // constraintProgress() needs them: without them tsc fails at live-pools.ts:300. Keep them.
   constraints: Array<{
     text: string;
     n: number;
+    count: number;
+    hoursTarget: number | null;
+    hours: number;
     met: boolean;
     /** The list the courses came from, when the sentence asks for a single one. */
     from: string | null;
@@ -934,8 +933,6 @@ export interface PriorLearningCheck {
   message: string;
 }
 
-// MERGE-UGA: Illinois added language, admission, bookedFor, genEdPicks, residency, away, gate and
-// credits.aim/away here; UGA's copy lacks them and saved-board.ts and programs-compare.ts read them. Keep.
 export interface GeneratedPlan {
   plan: PlanState;
   terms: PlannedTerm[];
@@ -1138,6 +1135,20 @@ export function normaliseCode(code: string): string {
   if (normalisedCodes.size >= 50000) normalisedCodes.clear();
   normalisedCodes.set(code, out);
   return out;
+}
+
+/**
+ * UGA publishes online (E), honors (H), service-learning (S), and
+ * writing-intensive (W) versions as separate catalog rows. They remain
+ * separate map nodes, but a degree plan should not spend two elective slots
+ * on two versions of the same course.
+ */
+function electiveVariantKey(code: string): string {
+  return normaliseCode(code).replace(/^(\S+\s+\d{4})[EHWS]$/, '$1');
+}
+
+function isElectiveVariant(code: string): boolean {
+  return electiveVariantKey(code) !== normaliseCode(code);
 }
 
 function expandEquivalents(code: string, equivalents: Map<string, string[]>): string[] {
@@ -1886,9 +1897,6 @@ export function planCreditRange(
   pinned?: Map<string, number>,
 ): CreditTotal {
   const ranges = ctx.creditRanges;
-  // MERGE-UGA: conflict. Both sides cached this lookup (Illinois: catalogByCode; UGA: lazy creditCourseIndex).
-  // Keep this line, then delete UGA's auto-merged `byCode ??= creditCourseIndex(ctx);` below (TS2588: it
-  // assigns to a const) and the then-unused creditCourseIndex helper. UGA's side alone also compiles.
   const byCode = catalogByCode(ctx.courses);
   let min = 0;
   let max = 0;
@@ -1914,6 +1922,7 @@ export function planCreditRange(
       if (range.variable) variable = true;
       continue;
     }
+    // When no range is published, fall back to the shared catalog index.
     const course = byCode.get(code);
     if (!course) {
       unknown += 1;
@@ -2607,13 +2616,30 @@ function fillPool(slot: PlanSlot, pool: PoolContext): PoolFill {
    */
   const ordered = (slot.constraints ?? [])
     .slice()
-    .sort((a, b) => Number(b.single) - Number(a.single) || b.n - a.n);
+    .sort(
+      (a, b) =>
+        Number(Boolean(b.distinctLists)) - Number(Boolean(a.distinctLists)) ||
+        Number(b.single) - Number(a.single) ||
+        (b.hours ?? 0) - (a.hours ?? 0) ||
+        b.n - a.n,
+    );
 
   for (const c of ordered) {
     const lists = c.lists.map((l) => ({ label: l.label, codes: new Set(l.codes.map(normaliseCode)) }));
     if (lists.length === 0) continue;
 
-    if (c.single && lists.length > 1) {
+    if (c.distinctLists) {
+      while (constraintStatus(c, held, pool.creditsOf).count < c.n) {
+        const before = constraintStatus(c, held, pool.creditsOf).count;
+        const next = openBy(pool.order).find((code) => {
+          const trial = new Set(held);
+          trial.add(code);
+          return constraintStatus(c, trial, pool.creditsOf).count > before;
+        });
+        if (!next) break;
+        take(next);
+      }
+    } else if (c.single && lists.length > 1) {
       let best: { fill: string[] } | null = null;
       for (const list of lists) {
         const already = [...held].filter((code) => list.codes.has(code)).length;
@@ -2629,14 +2655,27 @@ function fillPool(slot: PlanSlot, pool: PoolContext): PoolFill {
       // states is one an advisor sends back.
       if (!best) continue;
       for (const code of best.fill) take(code);
-      continue;
+    } else {
+      const union = new Set(lists.flatMap((l) => [...l.codes]));
+      const already = [...held].filter((code) => union.has(code)).length;
+      const need = c.n - already;
+      if (need > 0) {
+        for (const code of openBy(pool.order, union).slice(0, need)) take(code);
+      }
     }
 
-    const union = new Set(lists.flatMap((l) => [...l.codes]));
-    const already = [...held].filter((code) => union.has(code)).length;
-    const need = c.n - already;
-    if (need <= 0) continue;
-    for (const code of openBy(pool.order, union).slice(0, need)) take(code);
+    if (c.hours && c.hours > 0) {
+      const hourCodes = new Set((c.hourCodes ?? []).map(normaliseCode));
+      const hoursHeld = () =>
+        [...held]
+          .filter((code) => hourCodes.has(code))
+          .reduce((sum, code) => sum + pool.creditsOf(code), 0);
+      while (hoursHeld() < c.hours) {
+        const next = openBy(pool.order, hourCodes)[0];
+        if (!next) break;
+        take(next);
+      }
+    }
   }
 
   const hoursHeld = (): number => [...held].reduce((sum, code) => sum + pool.creditsOf(code), 0);
@@ -2665,7 +2704,7 @@ function fillPool(slot: PlanSlot, pool: PoolContext): PoolFill {
     constraints: (slot.constraints ?? []).map((c) => ({
       text: c.text,
       n: c.n,
-      ...constraintStatus(c, held),
+      ...constraintStatus(c, held, pool.creditsOf),
     })),
   };
 }
@@ -2685,9 +2724,53 @@ function fillPool(slot: PlanSlot, pool: PoolContext): PoolFill {
 function constraintStatus(
   c: PlanPoolConstraint,
   held: Set<string>,
-): { met: boolean; from: string | null; picked: string[] } {
+  creditsOf: (code: string) => number = () => 0,
+): {
+  met: boolean;
+  from: string | null;
+  picked: string[];
+  count: number;
+  hoursTarget: number | null;
+  hours: number;
+} {
   const lists = c.lists.map((l) => ({ label: l.label, codes: new Set(l.codes.map(normaliseCode)) }));
-  if (lists.length === 0) return { met: true, from: null, picked: [] };
+  if (lists.length === 0)
+    return { met: true, from: null, picked: [], count: 0, hoursTarget: c.hours ?? null, hours: 0 };
+
+  const hourCodes = new Set((c.hourCodes ?? []).map(normaliseCode));
+  const hours = [...held]
+    .filter((code) => hourCodes.has(code))
+    .reduce((sum, code) => sum + creditsOf(code), 0);
+  const hoursMet = c.hours === undefined || hours >= c.hours;
+
+  if (c.distinctLists) {
+    const matchedCourse = new Map<string, number>();
+    const match = (listIndex: number, seen: Set<string>): boolean => {
+      for (const code of [...held].sort()) {
+        if (seen.has(code) || !lists[listIndex].codes.has(code)) continue;
+        seen.add(code);
+        const previous = matchedCourse.get(code);
+        if (previous === undefined || match(previous, seen)) {
+          matchedCourse.set(code, listIndex);
+          return true;
+        }
+      }
+      return false;
+    };
+    let count = 0;
+    for (let index = 0; index < lists.length; index += 1) {
+      if (match(index, new Set<string>())) count += 1;
+    }
+    const picked = [...matchedCourse.keys()].sort();
+    return {
+      met: count >= c.n && hoursMet,
+      from: null,
+      picked,
+      count,
+      hoursTarget: c.hours ?? null,
+      hours,
+    };
+  }
 
   if (c.single && lists.length > 1) {
     let best: { label: string; picked: string[] } = { label: lists[0].label, picked: [] };
@@ -2696,15 +2779,40 @@ function constraintStatus(
       if (picked.length > best.picked.length) best = { label: list.label, picked };
     }
     return {
-      met: best.picked.length >= c.n,
+      met: best.picked.length >= c.n && hoursMet,
       from: best.picked.length > 0 ? best.label : null,
       picked: best.picked,
+      count: best.picked.length,
+      hoursTarget: c.hours ?? null,
+      hours,
     };
   }
 
   const union = new Set(lists.flatMap((l) => [...l.codes]));
   const picked = [...held].filter((code) => union.has(code)).sort();
-  return { met: picked.length >= c.n, from: lists.length === 1 ? lists[0].label : null, picked };
+  return {
+    met: picked.length >= c.n && hoursMet,
+    from: lists.length === 1 ? lists[0].label : null,
+    picked,
+    count: picked.length,
+    hoursTarget: c.hours ?? null,
+    hours,
+  };
+}
+
+function constraintProgress(c: {
+  n: number;
+  count: number;
+  hoursTarget: number | null;
+  hours: number;
+}): string {
+  const parts = [
+    c.n > 0 ? `${c.count} of ${c.n} required selections` : null,
+    c.hoursTarget !== null
+      ? `${c.hours} of ${c.hoursTarget} upper-division hours`
+      : null,
+  ].filter(Boolean);
+  return `This plan has ${parts.join(' and ')}`;
 }
 
 /** Fewest new courses wins, then the cheaper set of them. Total, so it is stable. */
@@ -2800,10 +2908,6 @@ export function extendForAway(horizon: Horizon): Horizon {
  * loop stepped fall to spring to fall, never reached "Summer 2029", and built
  * the 32-term guard instead, a plan a year longer than asked.
  */
-// MERGE-UGA: 2 conflicts. The first runs from outOfSeason above to `let season` below; the second is the
-// Spring branch. UGA only reformatted this and added a summer-graduation step, which Illinois's `summers`
-// set already does. Take Illinois's side of both: UGA's first side drops outOfSeason, extendForAway and
-// SUMMER_MAX (103 tsc errors); its Spring branch compiles but ignores summers the student asked for.
 function buildHorizon(horizon: Horizon): Array<{ id: string; label: string; season: SemesterSeason; calendarYear: number; index: number }> {
   const out: Array<{ id: string; label: string; season: SemesterSeason; calendarYear: number; index: number }> = [];
   const summers = new Set(horizon.summers ?? []);
@@ -2945,6 +3049,7 @@ function findCoRequisiteBundle(
  * course the plan had refused, or refuse one it had placed.
  */
 interface ElectiveScoring {
+  schoolId?: PlanningContext['schoolId'];
   byCode: Map<string, Course>;
   /** The subject the degree names most: FIN for Finance, CS for Computer Science. */
   primarySubject: string | null;
@@ -3008,9 +3113,6 @@ function lightStep(q: QualityResult): number {
  * name, word by word, is the test, and "Undeclared" and "any major" pass.
  */
 /** How the catalog names each college, lower-cased, so a restriction naming the college matches its own students. */
-// MERGE-UGA: COLLEGE_WORDS through closedToProgram (next ~155 lines) are Illinois-only exports; repick.ts
-// and programs-compare.ts import restrictionClosesTo, prereqNamesOtherCollege, prereqNeeds* and closedTo*
-// from here. Keep them.
 export const COLLEGE_WORDS: Record<string, string[]> = {
   bus: ['gies', 'college of business', 'business'],
   engineering: ['grainger', 'college of engineering', 'engineering'],
@@ -3300,7 +3402,7 @@ export function qualityScorer(input: {
 }): (code: string) => QualityResult {
   const ctx = input.context;
   const byCode = new Map(ctx.courses.map((c) => [normaliseCode(c.code), c]));
-  const majors = degreeSubjectsOf(input.requirements, input.programName);
+  const majors = degreeSubjectsOf(input.requirements, input.programName, input.context.schoolId);
   const carried = new Set<string>();
   for (const raw of input.carriedCodes ?? []) for (const t of byCode.get(normaliseCode(raw))?.tags ?? []) carried.add(t);
   const wantedTags = new Set([...genEdTagsOf(input.requirements)].filter((t) => !carried.has(t)));
@@ -3546,6 +3648,7 @@ function readSubjectNamed(programName: string, onPage: Map<string, number>): str
 function degreeSubjectsOf(
   requirements: PlanRequirement[],
   programName?: string,
+  schoolId?: PlanningContext['schoolId'],
 ): { subjects: Set<string>; primary: string | null } {
   const count = new Map<string, number>();
   const onPage = new Map<string, number>();
@@ -3556,13 +3659,25 @@ function degreeSubjectsOf(
     // subject of the degree: counting it made Spanish one of a Psychology
     // degree's own subjects, and the elective fill then booked four more
     // Spanish courses as though the major asked for them.
-    // MERGE-UGA: conflict. Illinois skips the language row and weighs long lists by share (here/total below);
-    // UGA skips its core menus by areaLabel and any list over 30 choices. Keep Illinois's lines plus UGA's
-    // areaLabel skip (changes no Illinois board). Make the >30 skip UGA-only: it changed 140 of 1848 Illinois
-    // sweep boards. UGA's side alone fails tsc (here/total undefined).
     if (requirement.label.startsWith('Language other than English')) continue;
     const here = new Map<string, number>();
     let total = 0;
+    const area = (requirement.areaLabel ?? '').toLowerCase();
+    // Campus core menus can contain dozens of HIST, ENGL or language rows. They
+    // describe ways to satisfy general education, not what the major is made
+    // of. Counting those rows made HIST the "primary subject" for Cognitive
+    // Science and consequently filled its open credits with history courses.
+    if (
+      /general education|general electives?|free electives?|core curriculum/.test(area) ||
+      /(?:^|:\s*)(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences)\b/.test(area)
+    ) {
+      continue;
+    }
+    // A long menu describes breadth, even when it sits in Area VI or a
+    // college requirement whose label does not say "core". Letting all forty
+    // departments in that menu define the major made Psychology electives
+    // look like advanced GEOL, PHYS, and MARS courses.
+    if (schoolId === 'uga' && rule.choices.length > 30) continue;
     for (const choice of rule.choices) {
       for (const code of choice.codes) {
         const subject = normaliseCode(code).split(' ')[0];
@@ -3596,11 +3711,22 @@ function interestWordsOf(text: string | undefined): string[] {
 
 /** The career goals and topics in a student's words, read once per text. */
 const profileCache = new Map<string, InterestProfile>();
-export function interestProfileOf(text: string | undefined): InterestProfile {
-  const key = (text ?? '').trim();
+export function interestProfileOf(text: string | undefined, schoolId?: PlanningContext['schoolId']): InterestProfile {
+  const words = (text ?? '').trim();
+  const key = `${schoolId === 'uga' ? 'uga' : 'illinois'}:${words}`;
   const hit = profileCache.get(key);
   if (hit) return hit;
-  const made = interestProfile(key);
+  const profile = interestProfile(words);
+  // The curated courses, department prefixes and pre-health guides are Illinois
+  // policies. UGA still benefits from the student's words and general topic
+  // vocabulary, but cannot inherit Illinois requirements or advising contacts.
+  const made: InterestProfile = schoolId === 'uga'
+    ? {
+        ...profile,
+        tracks: [], subjects: [], courses: [], apply: [],
+        topics: profile.topics.map(({ note: _note, source: _source, ...topic }) => ({ ...topic, subjects: [], courses: [], apply: [] })),
+      }
+    : profile;
   if (profileCache.size > 50) profileCache.clear();
   profileCache.set(key, made);
   return made;
@@ -3615,8 +3741,8 @@ export function interestProfileOf(text: string | undefined): InterestProfile {
  * student a software engineering one; 106 of 308 program names named a topic
  * on their own. Callers that pass no `career` are read the old way.
  */
-function careerProfileOf(input: { interests?: string; career?: string }): InterestProfile {
-  return interestProfileOf(input.career ?? input.interests);
+function careerProfileOf(input: { interests?: string; career?: string; context?: Pick<PlanningContext, 'schoolId'> }): InterestProfile {
+  return interestProfileOf(input.career ?? input.interests, input.context?.schoolId);
 }
 
 /**
@@ -3696,9 +3822,6 @@ const DESCRIPTION_ONLY_MAJORS: Record<string, string> = {
 const COLLEGE_SUBJECTS: Record<string, string> = { LAS: 'las', ENG: 'engineering', BUS: 'bus', AHS: 'ahs', ACES: 'aces', EDUC: 'education', FAA: 'faa', MDIA: 'media' };
 
 /** The group of students a course is written for: its title, prerequisite sentence and section restrictions say. */
-// MERGE-UGA: StudentGroup through freeElectiveBar (next ~380 lines) are Illinois-only exports; repick.ts,
-// review.ts and programs-compare.ts import audienceOf, isMathOrStatistics, degreeMath, admissionGate,
-// heldForGroup and freeElectiveBar from here. Keep them.
 export type StudentGroup = 'international' | 'transfer' | 'first-year';
 
 /**
@@ -4336,14 +4459,15 @@ function levelFits(code: string, hoursBefore: number, standing: StandingThreshol
  * prior keeps a two-credit seminar from winning on a good instructor; the
  * score decides among the courses that pass it.
  */
-// MERGE-UGA: 2 conflicts inside. Illinois rebuilt the weights around the quality scorer (q.score, dormant,
-// closedToMajor); UGA kept the old weights and added interest-word hits and a stray-lab rule. Take Illinois's
-// side of both (UGA's fail tsc: subjectMatches is gone, isLab spans both). To keep UGA's lab rule, port
-// isLab and its two lab lines behind a UGA switch (the -Infinity line also needs UGA's interestHits).
 function scoreElective(code: string, s: ElectiveScoring): number {
   const course = s.byCode.get(code);
   if (!course) return Number.NEGATIVE_INFINITY;
   if (s.barred?.(code)) return Number.NEGATIVE_INFINITY;
+  const isLab = code.endsWith('L') || /\b(?:lab|laboratory)\b/i.test(course.title);
+  if (s.schoolId === 'uga' && isLab && course.cluster !== s.primarySubject) {
+    const courseWords = `${course.title} ${course.description} ${course.tags.join(' ')}`.toLowerCase();
+    if (!s.interestWords.some((word) => courseWords.includes(word))) return Number.NEGATIVE_INFINITY;
+  }
   let score = 0;
   // Three points for the major's own subject: enough that a course in it
   // holds a free elective slot against a course elsewhere whose only edge is
@@ -4392,39 +4516,107 @@ function scoreElective(code: string, s: ElectiveScoring): number {
   score += 1.5 * (q.interest ?? 0);
   // Lighter workload matters most: the measure again, on its own (lightFirst).
   if (s.lightFirst) score += LIGHT_POINTS * (q.lightness ?? 0);
+  if (s.schoolId === 'uga' && isLab) score -= 8;
   return score;
 }
 
 /**
- * Whether one more elective from this subject is reasonable. Five MATH courses
- * for a Finance major is not a plan, it is a sort order showing through, so
- * subjects outside the degree get two. The major itself gets ten, because a
- * page that names only 34 of Psychology's 120 credits leaves the rest of the
- * major unnamed, and a Psychology plan made of thirty introductions to other
- * departments is not a Psychology plan. The degree's other subjects get four.
+ * Whether one more elective from this subject is reasonable. Illinois allows
+ * ten from the primary subject, four from other degree subjects, two elsewhere;
+ * UGA keeps the narrower five/three/one distribution from its reviewed plans.
  */
-function subjectRoomLeft(subject: string, taken: Map<string, number>, primary: string | null, degreeSubjects: Set<string>): boolean {
+function subjectRoomLeft(subject: string, taken: Map<string, number>, primary: string | null, degreeSubjects: Set<string>, schoolId?: PlanningContext['schoolId']): boolean {
   const n = taken.get(subject) ?? 0;
-  // MERGE-UGA: UGA changed these caps to 5/3/1 (and the doc above); in the dry run git took that silently.
-  // In a trial merge that alone failed Illinois's electives check twice (Emma, Psychology got IS 380, closed
-  // to her major). Keep both: make the caps a per-school input (Illinois 10/4/2, UGA 5/3/1).
-  const cap = subject === primary ? 10 : degreeSubjects.has(subject) ? 4 : 2;
+  const caps = schoolId === 'uga' ? [5, 3, 1] : [10, 4, 2];
+  const cap = subject === primary ? caps[0] : degreeSubjects.has(subject) ? caps[1] : caps[2];
   return n < cap;
 }
 
+/** Stable tie-break that does not turn the catalog's alphabet into advice. */
+function electiveTie(code: string): number {
+  let hash = 2166136261;
+  for (const character of code) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
 /** The catalog, best elective first, minus what the caller rules out. */
-// MERGE-UGA: conflict at the sort. UGA's limit = 800 and levelRange (< 500) params auto-merge above; UGA's
-// side adds variant dedupe, a hash tie-break and a department round-robin. Illinois's side alone fails tsc
-// (no return). In trials the round-robin failed 9 Illinois check cases and the hash tie changed 321 of 1848
-// boards: make both UGA-only, keep the dedupe, pass Infinity as limit from Illinois (a8bb1b4 dropped 800).
-function rankedElectivePool(ctx: PlanningContext, s: ElectiveScoring, exclude: (code: string) => boolean): string[] {
-  return ctx.courses
+function rankedElectivePool(
+  ctx: PlanningContext,
+  s: ElectiveScoring,
+  exclude: (code: string) => boolean,
+  limit = Number.POSITIVE_INFINITY,
+  levelRange = { min: 0, maxExclusive: 500 },
+): string[] {
+  const ranked = ctx.courses
     .map((c) => normaliseCode(c.code))
+    // Both catalogs carry more than one academic level. Keep undergraduate
+    // filler below 500 by default, while graduate callers can explicitly ask
+    // for UGA's 6000- through 9000-level catalog rows. courseLevel maps UGA's
+    // four-digit numbers and Illinois's three-digit numbers onto one scale.
+    .filter((code) => {
+      const level = courseLevel(code);
+      return level >= levelRange.min && level < levelRange.maxExclusive;
+    })
     .filter((code) => !exclude(code))
     .map((code) => ({ code, score: scoreElective(code, s) }))
     .filter((c) => Number.isFinite(c.score))
-    .sort((a, b) => b.score - a.score || courseLevel(a.code) - courseLevel(b.code) || a.code.localeCompare(b.code))
-    .map((c) => c.code);
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        (ctx.schoolId === 'uga' ? Number(isElectiveVariant(a.code)) - Number(isElectiveVariant(b.code)) : 0) ||
+        courseLevel(a.code) - courseLevel(b.code) ||
+        (ctx.schoolId === 'uga' ? electiveTie(a.code) - electiveTie(b.code) : a.code.localeCompare(b.code)),
+    );
+
+  // Keep the ordinary catalog row when equivalent delivery/honors variants
+  // tie. If a requirement restricts the pool to only one variant, that row is
+  // still retained because its siblings were filtered out above.
+  const seenVariants = new Set<string>();
+  const distinct = ranked.filter(({ code }) => {
+    const key = electiveVariantKey(code);
+    if (seenVariants.has(key)) return false;
+    seenVariants.add(key);
+    return true;
+  });
+  if (ctx.schoolId !== 'uga') return distinct.slice(0, limit).map(({ code }) => code);
+
+  // Pull from department queues with a small repeat penalty. Relevance still
+  // leads, but sixty equally suitable replacement choices no longer begin
+  // with every A-prefix department or twenty rows from one subject.
+  const queues = new Map<string, Array<{ code: string; score: number }>>();
+  for (const row of distinct) {
+    const subject = s.byCode.get(row.code)?.cluster ?? row.code.split(' ')[0];
+    const queue = queues.get(subject);
+    if (queue) queue.push(row);
+    else queues.set(subject, [row]);
+  }
+  const used = new Map<string, number>();
+  const out: string[] = [];
+  while (out.length < limit) {
+    let bestSubject: string | null = null;
+    let bestAdjusted = Number.NEGATIVE_INFINITY;
+    let bestTie = Number.POSITIVE_INFINITY;
+    for (const [subject, queue] of queues) {
+      const next = queue[0];
+      if (!next) continue;
+      const adjusted = next.score - (used.get(subject) ?? 0) * 1.5;
+      const tie = electiveTie(next.code);
+      if (adjusted > bestAdjusted || (adjusted === bestAdjusted && tie < bestTie)) {
+        bestSubject = subject;
+        bestAdjusted = adjusted;
+        bestTie = tie;
+      }
+    }
+    if (bestSubject === null) break;
+    const next = queues.get(bestSubject)?.shift();
+    if (!next) break;
+    out.push(next.code);
+    used.set(bestSubject, (used.get(bestSubject) ?? 0) + 1);
+  }
+  return out;
 }
 
 function electiveWhy(course: Course | undefined, degreeSubjects: Set<string>, q?: QualityResult): string {
@@ -4439,8 +4631,6 @@ function electiveWhy(course: Course | undefined, degreeSubjects: Set<string>, q?
   return `${head}${chosen}${against.length > 0 ? ` Keep in mind: ${against.slice(0, 2).join('; ')}.` : ''}`;
 }
 
-// MERGE-UGA: score, fit, reasons and unknown are Illinois-only (UGA's ElectiveOption is code/why); repick.ts
-// reads fit and reasons. Keep Illinois's interface.
 export interface ElectiveOption {
   code: string;
   why: string;
@@ -4471,9 +4661,6 @@ export function electiveOptions(input: {
   /** The career words alone, as AutoplanInput.career. */
   career?: string;
   programName?: string;
-  // MERGE-UGA: conflict in electiveOptions' input. Illinois adds priorities, programCollege, including,
-  // electiveCodes and quality (and career above); UGA adds candidateCodes and electiveLevelRange, which UGA's
-  // replacement chooser passes. Keep both lists with one limit/standingHours. UGA-only fails tsc 12 times.
   priorities?: Priorities;
   programCollege?: string;
   /**
@@ -4498,6 +4685,9 @@ export function electiveOptions(input: {
    * under "best teaching", nearly all of it re-scoring the same 6,000 courses.
    */
   quality?: (code: string) => QualityResult;
+  /** Restrict the eligibility check to one published requirement list. */
+  candidateCodes?: ReadonlySet<string>;
+  electiveLevelRange?: { min: number; maxExclusive: number };
 }): ElectiveOption[] {
   const ctx = input.context;
   const term = input.plan.terms.find((t) => t.id === input.termId);
@@ -4550,13 +4740,15 @@ export function electiveOptions(input: {
       hoursBefore += codes.reduce((sum, c) => sum + creditsOf(c), 0);
     }
   }
+  const occupiedVariants = new Set([...held, ...onBoard].map(electiveVariantKey));
 
-  const majors = degreeSubjectsOf(input.requirements, input.programName);
+  const majors = degreeSubjectsOf(input.requirements, input.programName, input.context.schoolId);
   // Categories the board does not yet carry a course for.
   const carried = new Set<string>();
   for (const code of [...onBoard, ...held]) for (const t of byCode.get(code)?.tags ?? []) carried.add(t);
   const wantedTags = new Set([...genEdTagsOf(input.requirements)].filter((t) => !carried.has(t)));
   const scoring: ElectiveScoring = {
+    schoolId: ctx.schoolId,
     byCode,
     primarySubject: majors.primary,
     degreeSubjects: majors.subjects,
@@ -4580,10 +4772,6 @@ export function electiveOptions(input: {
       wantedTags,
     }),
   };
-  // MERGE-UGA: conflict. Keep Illinois's keep/perSubject and add UGA's exclusions to the filter below:
-  // occupiedVariants (with `&& code !== keep`, or the slot's own course is never ranked) and candidateCodes;
-  // pass Infinity and input.electiveLevelRange too. UGA's side alone fails tsc (keep/perSubject undefined).
-  // Illinois's alone ignores candidateCodes, so UGA's list chooser can miss list courses ranked past `limit`.
   const keep = input.including ? normaliseCode(input.including) : null;
   const perSubject = new Map<string, number>();
   for (const raw of input.electiveCodes ?? []) {
@@ -4595,7 +4783,11 @@ export function electiveOptions(input: {
   const pool = rankedElectivePool(
     ctx,
     scoring,
-    (code) => (onBoard.has(code) && code !== keep) || held.has(code) || creditsOf(code) <= 0,
+    (code) => (onBoard.has(code) && code !== keep) || held.has(code) ||
+      (occupiedVariants.has(electiveVariantKey(code)) && code !== keep) || creditsOf(code) <= 0 ||
+      (input.candidateCodes !== undefined && !input.candidateCodes.has(code)),
+    Number.POSITIVE_INFINITY,
+    input.electiveLevelRange,
   );
   const out: ElectiveOption[] = [];
   const optionFor = (code: string, course: Course): ElectiveOption => {
@@ -4605,7 +4797,7 @@ export function electiveOptions(input: {
   for (const code of pool) {
     const course = byCode.get(code);
     if (!course) continue;
-    if (code !== keep && input.electiveCodes && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects)) continue;
+    if (code !== keep && input.electiveCodes && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId)) continue;
     if (code !== keep && preparesForHeld(code, ctx.prereqs, (c) => onBoard.has(c) || held.has(c))) continue;
     if (outOfSeason(course, term.season, published.has(code))) continue;
     const needs = ctx.prereqs?.get(code)?.standing;
@@ -4627,8 +4819,6 @@ export function electiveOptions(input: {
   return out;
 }
 
-// MERGE-UGA: Illinois-only export (UGA's copy lacks it); advisor-packet.ts, repick.ts, saved-board.ts and
-// illinois-progress.ts import it. Keep it.
 export interface LanguagePlan {
   name: string;
   semesters: 3 | 4;
@@ -5259,7 +5449,7 @@ function trialStands(paced: GeneratedPlan, plain: GeneratedPlan, input: Autoplan
   const held = new Set(input.prior.courseCodes.map(normaliseCode));
   const byCode = catalogByCode(ctx.courses);
   const arrival: Arrival = { transfer: input.arrival?.transfer ?? false, international: input.arrival?.international ?? false };
-  const page = input.pageSubjects ?? degreeSubjectsOf(input.requirements, input.programName);
+  const page = input.pageSubjects ?? degreeSubjectsOf(input.requirements, input.programName, input.context.schoolId);
   const inMajor = (code: string) => (page.subjects.has(code.split(' ')[0]) || page.primary === code.split(' ')[0]) && planCreditRange([code], ctx).max >= 2;
   const measure = (g: GeneratedPlan) => {
     // The board before its last move, the pairs spread (prePairsOf).
@@ -5483,7 +5673,7 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
   const firstTerm = (code: string) => firstYear && firstTermCourse(byCode.get(code), ctx, arrival);
   const isMath = degreeMath(ctx, input.requirements, [...at.keys(), ...held]);
   const residency = input.residency ? residencyReport(input.residency, g, ctx) : null;
-  const page = input.pageSubjects ?? degreeSubjectsOf(input.requirements, input.programName);
+  const page = input.pageSubjects ?? degreeSubjectsOf(input.requirements, input.programName, input.context.schoolId);
   const inMajor = (code: string) => (page.subjects.has(code.split(' ')[0]) || page.primary === code.split(' ')[0]) && planCreditRange([code], ctx).max >= 2;
   const hardIn = g.terms.map((t) => t.codes.map(normaliseCode).filter(isHard).length);
   const regularTerms = g.terms.filter((t) => t.season !== 'Summer');
@@ -5717,7 +5907,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     languageExempt: expansion.exempt,
     earlyTags: route ? route.required.map((item) => item.genEd).filter((t): t is string => Boolean(t)) : [],
     dueByTerm: route && route.dueTermIndex !== undefined ? Object.fromEntries(admission.codes.map((c) => [c, route.dueTermIndex as number])) : undefined,
-    pageSubjects: degreeSubjectsOf(build.asRead ? asReadBefore(given.requirements) : given.requirements, given.programName),
+    pageSubjects: degreeSubjectsOf(build.asRead ? asReadBefore(given.requirements) : given.requirements, given.programName, given.context.schoolId),
     paceYearOne: build.pace,
     soonerDates: build.sooner,
     plainEngine: build.plain === true,
@@ -5749,7 +5939,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
   const inner = (horizon: Horizon) => {
     if (given.plainEngine === true) return once(horizon, { pace: false, sooner: false, plain: true, asRead: true, before: true });
     // The major's subjects as the review reads them, from the page's own rows.
-    const measured = { ...raw, horizon, prior, pageSubjects: degreeSubjectsOf(given.requirements, given.programName) };
+    const measured = { ...raw, horizon, prior, pageSubjects: degreeSubjectsOf(given.requirements, given.programName, given.context.schoolId) };
     const measures = new Map<GeneratedPlan, GateMeasure>();
     const measureOf = (g: GeneratedPlan): GateMeasure => {
       const known = measures.get(g);
@@ -5829,7 +6019,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
      * Elsewhere the boards they build are the release's again, and building
      * them was most of what the second pass cost.
      */
-    const who = { college: raw.programCollege ?? null, primary: degreeSubjectsOf([...admission.added, ...expansion.requirements], raw.programName).primary, programName: raw.programName };
+    const who = { college: raw.programCollege ?? null, primary: degreeSubjectsOf([...admission.added, ...expansion.requirements], raw.programName, raw.context.schoolId).primary, programName: raw.programName };
     const nowBar = electiveBarFor(context, catalogByCode(context.courses), who, false);
     const thenBar = electiveBarFor(context, catalogByCode(context.courses), who, true);
     const touched =
@@ -5857,7 +6047,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
   // that way), then each trial without the other. The boards built and not
   // chosen go back with it, for the gate above.
   const improved = (horizon: Horizon, build: Omit<Build, 'pace' | 'sooner'>): { board: GeneratedPlan; untried: GeneratedPlan[] } => {
-    const measured = { ...raw, horizon, prior, pageSubjects: degreeSubjectsOf(given.requirements, given.programName) };
+    const measured = { ...raw, horizon, prior, pageSubjects: degreeSubjectsOf(given.requirements, given.programName, given.context.schoolId) };
     const tried = once(horizon, { ...build, pace: true, sooner: true });
     const taken = trialsTaken.get(tried);
     if (!taken) return { board: tried, untried: [] };
@@ -5964,7 +6154,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   // The shared index (catalogByCode), the same map this build made for itself; nothing here writes to it.
   const byCode = catalogByCode(ctx.courses);
   /** Who the plan is for, so a course "for Non-Engineers" never fills an engineer's category. */
-  const degreeRead = degreeSubjectsOf(input.requirements, input.programName);
+  const degreeRead = degreeSubjectsOf(input.requirements, input.programName, input.context.schoolId);
   const nestedParent = nestedParents(input.requirements);
   const who: Audience = { college: input.programCollege ?? null, primary: degreeRead.primary };
   /** Courses written for another group of students, which the planner never suggests as a free elective. */
@@ -6034,7 +6224,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * categories get filled; the elective fill below rebuilds it with only the
    * ones still open.
    */
-  const majorsForRank = degreeSubjectsOf(input.requirements, input.programName);
+  const majorsForRank = degreeSubjectsOf(input.requirements, input.programName, input.context.schoolId);
   const qualityAtPlacement = qualityFor(ctx, byCode, {
     priorities: prefs.priorities,
     interestWords: interestWordsOf(input.interests),
@@ -6170,13 +6360,35 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the board is a course in the wrong term, and passing `chosen` here let CHEM
    * 105 sit in a first-year fall on the strength of a CHEM 204 in year four.
    */
-  // MERGE-UGA: conflict; either side alone compiles but loses a rule. Illinois wraps the matcher in
-  // exemptionAwareMatcher; UGA drops prerequisites outside autoPrerequisiteLevelRange (graduate plans).
-  // Keep both: name this result catalogMatch, then add UGA's prerequisiteIsInPlanLevel wrapper as `match`.
-  const match = exemptionAwareMatcher(
+  const catalogMatch = exemptionAwareMatcher(
     exclusionAwareMatcher(baseMatch, conflicts, ctx.prereqs, equivalents, [earned]),
     ctx.prereqs, conflicts, equivalents, [satisfiedForPrereq, chosen], placementReading,
   );
+  const prerequisiteIsInPlanLevel = (group: PlanPrereqGroup): boolean => {
+    if (!input.autoPrerequisiteLevelRange) return true;
+    return group.any.some((raw) => {
+      const level = courseLevel(normaliseCode(raw));
+      return (
+        level === 0 ||
+        (level >= input.autoPrerequisiteLevelRange!.min &&
+          level < input.autoPrerequisiteLevelRange!.maxExclusive)
+      );
+    });
+  };
+  // Graduate admission establishes undergraduate preparation outside the
+  // graduate program of study. Keep those catalog prerequisites visible in
+  // review, but do not let them block or inflate the generated degree plan.
+  const match: PrereqMatcher = input.autoPrerequisiteLevelRange
+    ? (spec, earlier, sameTerm, equivalentMap) => {
+        const result = catalogMatch(spec, earlier, sameTerm, equivalentMap);
+        return {
+          ...result,
+          missing: result.missing.filter(prerequisiteIsInPlanLevel),
+          uncertain: result.uncertain.filter(prerequisiteIsInPlanLevel),
+          priorLearning: result.priorLearning?.filter(prerequisiteIsInPlanLevel),
+        };
+      }
+    : catalogMatch;
 
   /**
    * The term list, built before the courses are chosen rather than after.
@@ -6299,7 +6511,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * `have` is a snapshot of what is chosen when the pool runs, which is why the
    * memo is built per pool rather than once.
    */
-  const poolOrderFor = (have: Set<string>) => {
+  const poolOrderFor = (have: Set<string>, sequence = new Set<string>()) => {
     const memo = new Map<string, number>();
     // Remembered by code (rememberedBy) for the pool's sorts, as its
     // prerequisite cost already is: nothing it reads changes while the pool
@@ -6326,10 +6538,6 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       // is the only number the catalog guarantees. Filling an eighteen-hour
       // pool out of those makes the eighteen meaningless, so among equally
       // reachable courses the one with a fixed credit line goes first.
-      // MERGE-UGA: conflict. Illinois built a longer pick key (rememberedBy); UGA added a `sequence` flag (its
-      // poolOrderFor(have, sequence) parameter auto-merges above) and a hash tie-break. Keep Illinois's key and
-      // comparator, add `sequence.has(code) ? 1 : 0` after inCatalog (hash tie UGA-only if wanted). UGA's side
-      // alone is a syntax error (missing `)`).
       const variable = reallyVariable(ctx.creditRanges?.get(code)) ? 1 : 0;
       /**
        * The degree's own subjects first, when they cost no more than one extra
@@ -6375,7 +6583,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        * the same list picks as before.
        */
       const light = lightFirst(prefs.priorities) ? [lightStep(qualityAtPlacement(code))] : [];
-      const key = [inCatalog, listAudience(code), gatedPick(code), unverifiable, clash, aside, wanted, own, extra, ...light, variable, ...byPriority, chain];
+      const key = [inCatalog, sequence.has(code) ? 1 : 0, listAudience(code), gatedPick(code), unverifiable, clash, aside, wanted, own, extra, ...light, variable, ...byPriority, chain];
       const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
       if (traced && normaliseCode(traced) === code) console.error(`  [PLAN_DEBUG] ${code} list-pick key [inCatalog, audience, gated, unverifiable, clash, aside, wanted, own, extra, ${light.length ? 'light, ' : ''}variable, unknown, -score, -known, chain] = ${JSON.stringify(key)}`);
       return key;
@@ -6427,6 +6635,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const best = (codes: string[]): string | null =>
     codes.length === 0 ? null : codes.slice().sort((a, b) => gatedPick(a) - gatedPick(b) || compareRank(rank(a), rank(b), a, b))[0];
 
+  const chosenEquivalent = (code: string): string | null =>
+    expandEquivalents(code, equivalents).find((candidate) => chosen.has(candidate)) ?? null;
+
   /**
    * The course that fills one slot, and whether it is already filling another.
    *
@@ -6435,11 +6646,15 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the second slot shared keeps it out of the unsatisfied list, where it would
    * read as a hole in the degree that is not there.
    */
-  // MERGE-UGA: UGA's reuse-first lines merge in here silently: a row now takes a course already chosen for
-  // another row (or its twin) before an open one. Of 1848 Illinois sweep boards only Teaching of French
-  // changed (FR 335 fills two rows, FR 301 dropped); Illinois checks pass. Keep, or limit it to UGA/twins.
   const pickFromOption = (option: string[]): { code: string; shared: boolean } | null => {
     for (const code of option) if (earned.has(code)) return { code, shared: false };
+    // Reuse an ordinary/online/honors version already selected by another
+    // requirement before considering a fresh alternative. Looking only at
+    // exact codes scheduled ENGL 1101 and ENGL 1101E in the same UGA plan.
+    const shared = best(
+      [...new Set(option.map(chosenEquivalent).filter((code): code is string => code !== null))],
+    );
+    if (shared) return { code: shared, shared: true };
     const open = best(option.filter((code) => !chosen.has(code)));
     if (open) return { code: open, shared: false };
     const taken = best(option.filter((code) => chosen.has(code)));
@@ -6615,19 +6830,33 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       continue;
     }
 
-    // MERGE-UGA: git takes UGA's rewrite of this block silently. It reads rule.source (the 'hours' type needs
-    // source?) and rewords both messages for Illinois plans too, so __schedule-quality.check.mjs no longer
-    // finds 'page does not name courses for'. Keep Illinois's two messages for when source is unset.
-    if (requirement.rule.kind === 'hours' && (!requirement.rule.genEd || requirement.rule.genEd.length === 0)) {
-      const filled = (input.degreeTotal ?? null) !== null;
+    if (
+      requirement.rule.kind === 'hours' &&
+      (!requirement.rule.genEd || requirement.rule.genEd.length === 0)
+    ) {
+      const explicitElective = requirement.rule.source === 'explicit-elective';
+      const parserGap = requirement.rule.source === 'parser-gap';
+      const filled =
+        explicitElective ||
+        (!parserGap && (input.degreeTotal ?? null) !== null);
       unsatisfied.push({
         requirementId: requirement.id,
         areaLabel: requirement.areaLabel,
         label: requirement.label || requirement.areaLabel,
-        reason: filled ? 'filled-by-electives' : 'no-course-data',
-        message: filled
-          ? `${requirement.rule.hours} hours the page does not name courses for. The plan fills them with elective slots; tap any slot to choose what goes there.`
-          : `${requirement.rule.hours} hours. The page does not say which courses count.`,
+        reason: parserGap
+          ? 'no-course-data'
+          : filled
+            ? 'filled-by-electives'
+            : 'no-course-data',
+        message: parserGap
+          ? input.fillToDegreeTotal
+            ? `The catalog page leaves ${requirement.rule.hours} required credit ${requirement.rule.hours === 1 ? 'hour' : 'hours'} unnamed here. Editable courses bring the plan to the published degree total, but an advisor should confirm what belongs in this requirement.`
+            : `This draft is incomplete. It could not read ${requirement.rule.hours} required credit ${requirement.rule.hours === 1 ? 'hour' : 'hours'} from the catalog, and it has not replaced them with electives.`
+          : explicitElective
+            ? `${requirement.rule.hours} general-elective credit ${requirement.rule.hours === 1 ? 'hour is' : 'hours are'} included in the plan. Each elective card can be changed to another eligible course.`
+            : filled
+              ? `${requirement.rule.hours} hours the page does not name courses for. The plan fills them with elective slots; tap any slot to choose what goes there.`
+              : `${requirement.rule.hours} hours. The page does not say which courses count.`,
         url: requirement.url,
       });
       continue;
@@ -6658,12 +6887,25 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
          * different numbers whenever a chosen course does not fit, and the row
          * a student reads has to be the second one.
          */
+        const broadCore = /(?:^|:\s*)(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences)\b/i.test(slot.areaLabel);
+        const sequence = broadCore
+          ? genEdSequenceMembers(slot.options.flat())
+          : new Set<string>();
         const fill = fillPool(slot, {
           byCode,
           earned,
-          taken: new Set(chosen.keys()),
+          // A pool must not choose the online or honors version of a course
+          // already committed elsewhere on the board.
+          taken: new Set(
+            [...chosen.keys()].flatMap((code) =>
+              expandEquivalents(code, equivalents),
+            ),
+          ),
           creditsOf,
-          order: poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()])),
+          order: poolOrderFor(
+            new Set([...satisfiedForPrereq, ...chosen.keys()]),
+            sequence,
+          ),
           reachable: (code) => (rankDepth.get(code) ?? 0) < terms.length,
           conflict: (code, insidePool) => conflictFor(code, insidePool),
           nested: nestedCounted.get(requirement.id),
@@ -7145,6 +7387,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   // So are groups the catalog says school work also satisfies. See
   // priorLearningChecks below for the one that put MATH 112 in every plan.
   const addedPrerequisites: Array<{ code: string; requiredBy: string }> = [];
+  const outsideLevelPrereqs = new Map<string, { code: string; needs: string }>();
   const unresolvedPrereqs: Array<{ code: string; needs: string }> = [];
   /** Prerequisite groups no course can fill any more, because of an exclusion. */
   const closedPrereqs: Array<{ code: string; needs: string; alternatives: string[]; by: string }> = [];
@@ -7204,6 +7447,16 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       unresolvedPrereqs.push({ code, needs: group.any.join(' or ') });
       return null;
     }
+    const eligibleByLevel = input.autoPrerequisiteLevelRange
+      ? inCatalog.filter((alt) => {
+          const level = courseLevel(alt);
+          return level === 0 || (level >= input.autoPrerequisiteLevelRange!.min && level < input.autoPrerequisiteLevelRange!.maxExclusive);
+        })
+      : inCatalog;
+    if (eligibleByLevel.length === 0) {
+      outsideLevelPrereqs.set(code, { code, needs: group.any.join(' or ') });
+      return null;
+    }
 
     /**
      * A prerequisite the catalog will not pay for is not one to book.
@@ -7219,7 +7472,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * snapshot happens not to carry is left to the not-placed list, so the
      * two never say different things about one course.
      */
-    const open = inCatalog.filter((alt) => conflictFor(alt) === null);
+    const open = eligibleByLevel.filter((alt) => conflictFor(alt) === null);
     if (open.length === 0) {
       const blocker = groupClosedByExclusion(group, conflicts, [earned, chosen], equivalents);
       if (blocker !== null) {
@@ -7304,10 +7557,6 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           exemptionsWaiting.push({ code, group });
           continue;
         }
-        // MERGE-UGA: conflict. Illinois moved this booking into bookFor() above; UGA added an
-        // autoPrerequisiteLevelRange filter to the old inline copy. Keep this line; move UGA's eligibleByLevel /
-        // outsideLevelPrereqs block into bookFor() after its inCatalog check (return null there, and build `open`
-        // from eligibleByLevel). UGA's side alone fails tsc (no inCatalog here).
         const pick = bookFor(code, group, alternatives);
         if (pick === null) continue;
         if (forTrack) trackPrereqs.add(pick);
@@ -7548,6 +7797,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   }
   if (addedPrerequisites.length > 0) {
     notes.push(`Added ${addedPrerequisites.length} course${addedPrerequisites.length === 1 ? '' : 's'} that the degree page does not list but the catalog requires as prerequisites.`);
+  }
+  if (outsideLevelPrereqs.size > 0) {
+    const skipped = [...outsideLevelPrereqs.values()];
+    notes.push(
+      `${skipped.length} prerequisite${skipped.length === 1 ? '' : 's'} fall outside this degree's course level, so the plan did not add ${skipped.length === 1 ? 'it' : 'them'} as degree credit. Review ${skipped.slice(0, 3).map((item) => item.code).join(', ')}${skipped.length > 3 ? ` and ${skipped.length - 3} more` : ''} with your advisor.`,
+    );
   }
   // Every one of these, not a sample. Each is a course the student may have to
   // add, and the one left out is the one they needed.
@@ -9103,7 +9358,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const constraints = (slot.constraints ?? []).map((c) => ({
       text: c.text,
       n: c.n,
-      ...constraintStatus(c, heldSet),
+      ...constraintStatus(c, heldSet, creditsOf),
     }));
     return {
       requirementId: slot.requirementId,
@@ -9188,7 +9443,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         label: pool.label,
         reason: 'constraint-unmet',
         // The sentence, then the count, and no attempt to explain it away.
-        message: `${c.text} This plan has ${c.picked.length} of ${c.n}.`,
+        message: `${c.text} ${constraintProgress(c)}.`,
         url: pool.url,
       });
     }
@@ -9268,13 +9523,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       Math.max(credits.target ?? credits.min, Math.ceil(Math.max(0, remainingDegree - fillShape.summers * SUMMER_AIM) / Math.max(1, fillShape.regular)), credits.min),
     );
     fillAim = overallAim;
-    const majors = degreeSubjectsOf(input.requirements, input.programName);
+    const majors = degreeSubjectsOf(input.requirements, input.programName, input.context.schoolId);
     const stillWanted = new Set<string>();
     for (const u of unsatisfied) {
       const req = input.requirements.find((r) => r.id === u.requirementId);
       if (req && req.rule.kind === 'gened') for (const t of req.rule.genEd) stillWanted.add(t);
     }
     const scoring: ElectiveScoring = {
+      schoolId: ctx.schoolId,
       byCode,
       primarySubject: majors.primary,
       degreeSubjects: majors.subjects,
@@ -9299,14 +9555,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       }, input.qualityMemo),
     };
     const plannedAll = new Set<string>([...placed.values()].flat());
+    const plannedVariants = new Set(
+      [...plannedAll, ...earned, ...exempt].map(electiveVariantKey),
+    );
     const perSubject = new Map<string, number>();
-    // MERGE-UGA: big conflict. Keep Illinois's block and add UGA's pieces: plannedVariants in the candidates
-    // filter, input.electiveLevelRange (and no 800 cap) for rankedElectivePool, and UGA's electiveTarget const
-    // after `total`. Illinois-only fails tsc (the auto-merged fill loop reads electiveTarget); UGA-only fails 53.
-    // A course behind an application (FIN 391, "Admission by application
-    // only") is a program the student applies to, not an elective slot the
-    // planner may fill: Marcus, a Finance freshman, had FIN 391 through 395
-    // booked as one-credit electives. The student can still add one by hand.
     const behindApplication = (code: string) => behindApplicationIn(ctx.prereqs, code);
     /*
      * The catalog ranked once for every board generatePlan builds for this
@@ -9317,10 +9569,13 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      */
     // By the bar too (scoring.barred): the floor fills by the rules before the filler work (AutoplanInput.fillerRules).
     const rankingKey = `${input.fillerRules === false ? 'before:' : ''}${[...stillWanted].sort().join('|')}`;
-    const ranked = input.electiveRanking?.get(rankingKey) ?? rankedElectivePool(ctx, scoring, () => false);
+    const ranked = input.electiveRanking?.get(rankingKey) ?? rankedElectivePool(ctx, scoring, () => false, Number.POSITIVE_INFINITY, input.electiveLevelRange);
     input.electiveRanking?.set(rankingKey, ranked);
-    const candidates = ranked.filter((code) => !(plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who) || behindApplication(code)));
+    const candidates = ranked.filter((code) => !(plannedAll.has(code) || earned.has(code) || exempt.has(code) || plannedVariants.has(electiveVariantKey(code)) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who) || behindApplication(code)));
     let total = priorCreditTotal + awayCreditTotal + [...placed.values()].flat().reduce((sum, code) => sum + creditsOf(code), 0);
+    const electiveTarget = typeof input.electiveHoursLimit === 'number' && !input.fillToDegreeTotal
+      ? Math.min(degreeTotalPublished, total + Math.max(0, input.electiveHoursLimit))
+      : degreeTotalPublished;
     /**
      * Where the hours past the degree total come from, so the note names the
      * real cause. Maya's AP credit and the Computer Engineering courses come
@@ -9548,7 +9803,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     for (const { ceiling: roundCeiling, summerCeiling, summersOnly, loose, steps } of rounds) {
       if (summersOnly && fillShape.summers === 0) continue;
       let progress = true;
-      while (total < degreeTotalPublished && progress) {
+      while (total < electiveTarget && progress) {
         progress = false;
         // The lightest term by credits first, and between terms of equal
         // credits the easier one by grade history, so a free pick lands where
@@ -9558,7 +9813,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           .filter((term) => !summersOnly || isSummer(term))
           .sort((a, b) => planCreditRange(placed.get(a.id) ?? [], ctx).min - planCreditRange(placed.get(b.id) ?? [], ctx).min || termDifficulty(a) - termDifficulty(b) || a.index - b.index);
         for (const term of order) {
-          if (total >= degreeTotalPublished) break;
+          if (total >= electiveTarget) break;
           const here = placed.get(term.id) ?? [];
           placed.set(term.id, here);
           const running = planCreditRange(here, ctx).min;
@@ -9582,13 +9837,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const tooBig = (hours: number) => running + hours > cap;
           const fitsHere = (code: string): boolean => {
             if (plannedAll.has(code)) return false;
-            // MERGE-UGA: conflict; either side alone compiles but drops a guard. Keep both Illinois checks and add UGA's
-            // `if (plannedVariants.has(electiveVariantKey(code))) return false;`.
             if (input.notTowardDegree?.(code)) return false;
             if (preparesForHeld(code, ctx.prereqs, (c) => plannedAll.has(c) || earned.has(c), !plainEngine)) return false;
+            if (plannedVariants.has(electiveVariantKey(code))) return false;
             const course = byCode.get(code);
             if (!course) return false;
-            if (!trackWanted.has(code) && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects)) return false;
+            if (!trackWanted.has(code) && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId)) return false;
             if (tooBig(creditsOf(code))) return false;
             if (outOfSeason(course, term.season, published.has(code))) return false;
             // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
@@ -9607,6 +9861,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (!pick) continue;
           here.push(pick);
           plannedAll.add(pick);
+          plannedVariants.add(electiveVariantKey(pick));
           chosen.set(pick, { requirementId: null, label: 'Elective' });
           total += creditsOf(pick);
           const subject = byCode.get(pick)?.cluster ?? '';
@@ -9713,13 +9968,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       return faults;
     };
     let topped = true;
-    // MERGE-UGA: UGA's `while (topped && total < electiveTarget)` and an in-loop break merge in here silently.
-    // Illinois's top-up may pass the degree total to keep fall/spring terms at the minimum; with UGA's stop a
-    // trial failed 3 Illinois check cases (Theatre term under 12, FSHN 249, CHEM 102 term). Put UGA's stop
-    // behind a UGA-only switch.
-    while (topped) {
+    while (topped && (ctx.schoolId !== 'uga' || total < electiveTarget)) {
       topped = false;
       for (const term of usedTerms) {
+        if (ctx.schoolId === 'uga' && total >= electiveTarget) break;
         const here = placed.get(term.id) ?? [];
         const running = planCreditRange(here, ctx).min;
         // A summer term is never topped up to the fall and spring minimum.
@@ -9738,13 +9990,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const tooBig = (hours: number) => running + hours > credits.max;
         const fitsHere = (code: string): boolean => {
           if (plannedAll.has(code)) return false;
-          // MERGE-UGA: same conflict as the fill's fitsHere above: keep both Illinois checks and UGA's plannedVariants
-          // line. Either side alone compiles but drops a guard.
           if (input.notTowardDegree?.(code)) return false;
           if (preparesForHeld(code, ctx.prereqs, (c) => plannedAll.has(c) || earned.has(c), !plainEngine)) return false;
+          if (plannedVariants.has(electiveVariantKey(code))) return false;
           const course = byCode.get(code);
           if (!course) return false;
-          if (!trackWanted.has(code) && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects)) return false;
+          if (!trackWanted.has(code) && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId)) return false;
           if (tooBig(creditsOf(code))) return false;
           if (outOfSeason(course, term.season, published.has(code))) return false;
           // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
@@ -9778,6 +10029,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         if (!pick) continue;
         here.push(pick);
         plannedAll.add(pick);
+        plannedVariants.add(electiveVariantKey(pick));
         chosen.set(pick, { requirementId: null, label: 'Elective' });
         const overBefore = overTotal();
         total += creditsOf(pick);
@@ -10000,7 +10252,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (input.notTowardDegree?.(code)) return false;
           if (preparesForHeld(code, ctx.prereqs, (c) => plannedAll.has(c) || earned.has(c), !plainEngine)) return false;
           const course = byCode.get(code);
-          if (!course || isMathOrStatistics(course) || !subjectRoomLeft(course.cluster, taken, majors.primary, majors.subjects)) return false;
+          if (!course || isMathOrStatistics(course) || !subjectRoomLeft(course.cluster, taken, majors.primary, majors.subjects, ctx.schoolId)) return false;
           // The most courses of one subject in the term stays what it was.
           if (Math.max(...[...bySubject.keys(), course.cluster].map((s) => (bySubject.get(s) ?? 0) - (s === smallSubject ? 1 : 0) + (s === course.cluster ? 1 : 0))) !== mostOfOne) return false;
           if (outOfSeason(course, term.season, published.has(code))) return false;
@@ -10123,13 +10375,18 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     if (credits.target !== null && overallAim > credits.target) {
       notes.push(`Terms aim for about ${overallAim} credits rather than the ${credits.target} you asked for, because ${remainingDegree} credits are left toward the ${degreeTotalPublished} this degree takes, over ${termsPhrase(fillTerms.length)} before ${input.horizon.gradSeason} ${input.horizon.gradYear}${summerShare}.${threes}`);
     } else if (credits.target === null) {
-      // MERGE-UGA: conflict. Illinois reworded this note and moved the elective note into slotsNote() below;
-      // UGA rewrote that elective note (electiveHoursLimit wording). Keep Illinois's lines and put UGA's wording
-      // inside slotsNote(). UGA's side compiles but prints two elective notes and the old aim note.
       notes.push(`Terms aim for about ${overallAim} credits, an even share of the ${remainingDegree} credits left toward the ${degreeTotalPublished} this degree takes, over ${termsPhrase(fillTerms.length)}${summerShare}.${threes} Set a number in Preferences to aim higher or lower.`);
     }
-    const slotsNote = (): string =>
-      `${electives.length} ${electives.length === 1 ? 'slot is an elective' : 'slots are electives'} that fill the ${degreeTotalPublished} credits this degree takes beyond what its page names. Each holds a suggested course; tap it to choose from everything you could take that term.`;
+    const slotsNote = (): string => {
+      if (typeof input.electiveHoursLimit === 'number') {
+        const electiveCredits = electives.reduce((sum, elective) => sum + creditsOf(elective.code), 0);
+        const beyond = Math.max(0, electiveCredits - input.electiveHoursLimit);
+        return beyond > 0
+          ? `${input.electiveHoursLimit} elective credits fill the general-elective space published for this degree. ${beyond} additional editable credits bring the plan to ${degreeTotalPublished}; they cover overlapping core/major credit and college-wide requirements that this degree page does not enumerate. Confirm those ${beyond} credits in DegreeWorks or with an advisor.`
+          : `${electives.length} ${electives.length === 1 ? 'editable course fills' : 'editable courses fill'} the general-elective space published for this degree. Tap any elective card to choose another eligible course.`;
+      }
+      return `${electives.length} ${electives.length === 1 ? 'slot is an elective' : 'slots are electives'} that fill the ${degreeTotalPublished} credits this degree takes beyond what its page names. Each holds a suggested course; tap it to choose from everything you could take that term.`;
+    };
     // Said again by landThreeHour when a pad it made unneeded goes.
     slotsSaid = electives.length > 0 ? slotsNote() : null;
     if (slotsSaid) notes.push(slotsSaid);
@@ -10148,9 +10405,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         ? `${fillTerms.length} ${fillTerms.length === 1 ? 'term holds' : 'terms hold'} at most ${capacity} at ${credits.max} each`
         : `${fillShape.regular} fall and spring ${fillShape.regular === 1 ? 'term' : 'terms'} at ${credits.max} and ${fillShape.summers} ${fillShape.summers === 1 ? 'summer' : 'summers'} at ${summerMax} hold at most ${capacity}`;
       notes.push(
-        // MERGE-UGA: conflict; either side alone compiles but drops a note. Keep all three: UGA's 'stops here' note
-        // when electiveHoursLimit is a number and !fillToDegreeTotal, then this capacity note, then the fallback.
-        needed > capacity
+        typeof input.electiveHoursLimit === 'number' && !input.fillToDegreeTotal
+          ? `This draft schedules ${Math.round(total)} of ${degreeTotalPublished} credits. It stops here instead of using extra electives to cover requirements the catalog data could not identify.`
+          : needed > capacity
           ? `Finishing by ${input.horizon.gradSeason} ${input.horizon.gradYear} needs ${Math.round(needed)} more credits, and ${holds}. This plan reaches ${Math.round(total)} of ${degreeTotalPublished}; ${fillShape.summers === 0 ? 'a summer session, one more term, or a later finish date' : 'one more term or a later finish date'} closes the gap.`
           : `This plan reaches ${Math.round(total)} of the ${degreeTotalPublished} credits the degree takes. Nothing else eligible fit before ${input.horizon.gradSeason} ${input.horizon.gradYear}.`,
       );
@@ -11957,8 +12214,6 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
 // validatePlan
 // ---------------------------------------------------------------------------
 
-// MERGE-UGA: Illinois added programName, programCollege, away, language, firstYear and arrival; UGA's copy
-// lacks them and programs-compare.ts passes programName. Keep Illinois's interface.
 export interface ValidateOptions {
   /** The degree and its college, so a registration restriction naming them reads as open. */
   programName?: string;
@@ -12818,8 +13073,6 @@ export function distinctHeld(
 }
 
 /** The degree's own subjects and its major subject, as the planner reads them. For the rail. */
-// MERGE-UGA: Illinois-only export (UGA's copy lacks it); illinois-progress.ts, programs-compare.ts, repick.ts
-// and review.ts import it. Keep it.
-export function degreeSubjects(requirements: PlanRequirement[], programName?: string): { subjects: Set<string>; primary: string | null } {
-  return degreeSubjectsOf(requirements, programName);
+export function degreeSubjects(requirements: PlanRequirement[], programName?: string, schoolId?: PlanningContext['schoolId']): { subjects: Set<string>; primary: string | null } {
+  return degreeSubjectsOf(requirements, programName, schoolId);
 }

@@ -15,7 +15,6 @@
  * Output: public/illinois-catalog.json
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { decode } from 'node:querystring';
 
 const UA = 'TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)';
 const BASE = 'https://catalog.illinois.edu';

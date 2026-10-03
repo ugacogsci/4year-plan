@@ -16,21 +16,21 @@
  * now sibling columns of the same frame.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Image from 'next/image';
 import {
-  // MERGE-UGA: icon/component imports conflict (here and the ./advisor to ./plan-health block below).
-  // UGA adds FolderPlus, GripVertical, Moon, Plus, Save, Sun, IssueBadge, isTermIssue; Illinois adds Printer,
-  // toast/Toaster, BotTurns, AdvisorPacketDialog, reviewTitle. Keep the union: either list alone fails tsc.
-  // AlertCircle, ChevronDown, Info, Sparkles, Popover, PlanHealthList only fed UI UGA removes; drop if it stays gone.
-  AlertCircle,
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
-  Info,
   Printer,
-  Sparkles,
+  FolderPlus,
+  GripVertical,
+  Moon,
+  Plus,
+  Sun,
   Undo2,
+  User,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -45,28 +45,29 @@ import { BotLauncher, BotPanel, type BotTurns } from './advisor';
 import { AdvisorPacketDialog } from './advisor-packet';
 import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
-import { groupIssues, PlanHealthList, reviewTitle } from './plan-health';
+import { groupIssues, PlanHealthList, reviewTitle, isTermIssue } from './plan-health';
+import { IssueBadge } from './issue-badge';
 import { SemesterColumn } from './semester-column';
 import { illinoisProgress } from './illinois-progress';
 import { StudentProfilePanel, type AreaRow } from './student-profile-panel';
+import { ProgramPicker } from './program-picker';
+import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
 import {
-  buildContext,
-  guessProgram,
   loadFullIllinois,
-  loadProgram,
   plannableProgram,
   readHorizon,
   readPriorCredit,
   readPrograms,
   useIllinoisCore,
-  type LoadedProgram,
 } from './illinois-source';
+import { illinoisAdapter, ugaAdapter, type SchoolProgram } from './school-source';
 import { comparePrograms, CS_MINOR, placementsOnBoard, resolveProgram, secondMajorsWithinReach, type ProgramSide } from '@/lib/planner/programs-compare';
 import {
-  guessUgaProgram,
-  loadUgaProgram,
+  canonicalUgaCode,
+  isUgaGraduateDegree,
+  isUgaUndergraduateDegree,
+  ugaSelectionRequirements,
   useUgaData,
-  type UgaLoadedProgram,
 } from './uga-source';
 import {
   arrivalFromWords,
@@ -92,15 +93,16 @@ import {
   type GeneratedPlan,
   type NotPlaced,
   type PlanningContext,
-  // MERGE-UGA: Illinois dropped `type PoolReport` from this import (PlanReport moved to saved-board.ts).
-  // UGA's new replacementScope() merges in with no conflict and still types `pools: PoolReport[]`, so the
-  // merged file fails tsc (TS2304 Cannot find name 'PoolReport'). Re-add `type PoolReport,` here.
+  type PoolReport,
   type ValidateOptions,
 } from '@/lib/planner/autoplan';
 import {
   forgetBoard,
   forgetChat,
   NO_SHAPE,
+  parseSavedBoard,
+  migrateLegacyBoard,
+  reconcileCompletedTab,
   pushUndo,
   readSavedBoard,
   repickInReport,
@@ -114,6 +116,8 @@ import {
   type PlanSettings,
   type PlanShape,
   type SavedBoard,
+  type SavedPlanTab,
+  type SavedPlanGroup,
   type UndoEntry,
 } from '@/lib/planner/saved-board';
 import { livePools, poolShortfalls } from './live-pools';
@@ -129,12 +133,8 @@ import {
 } from '@/lib/planner/priorities';
 import type { Alternative, ElectiveOf } from './course-card';
 import { plural } from './words';
-// MERGE-UGA: lib imports conflict (here and the types/onboarding/transcript block below). UGA adds
-// ProgramRequirements, IssueSeverity, UNDECIDED_PROGRAM_ID, timelineForPlanning, ProgramLevel,
-// degreeCompletionIssue and the theme helpers; Illinois adds exam, admission, transcript, repick, review
-// and packet helpers. Keep the union: either list alone fails tsc.
 import { alignExamsToCollege, examCourses, examCreditNotes, examElectiveHours, examGenEdCredits, examSchedule, matchDocumentExams, useExamCredit } from './exam-credit';
-import { areaProgress } from '@/lib/planner/scheduler';
+import { areaProgress, type ProgramRequirements } from '@/lib/planner/scheduler';
 import { admissionGoal, chooseAdmission, describeAdmissionChoice, goalFromQuery, readEntry, type AdmissionChoice } from '@/lib/planner/admission-route';
 import { routeQuestion, sectionRowsFrom, type AskContext, type PlannedCourse } from '@/lib/planner/ask-router';
 import { createSamplePlan, sampleCourses, samplePrograms } from '@/lib/planner/sample-data';
@@ -147,7 +147,7 @@ import {
   isPlanState,
 } from '@/lib/planner/rules';
 import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from '@/lib/planner/types';
-import { clearAnswers, schoolById, summarize, type ExamCreditEntry, type OnboardingAnswers } from '@/lib/planner/onboarding';
+import { clearAnswers, schoolById, UNDECIDED_PROGRAM_ID, timelineForPlanning, type ProgramLevel, type ExamCreditEntry, type OnboardingAnswers } from '@/lib/planner/onboarding';
 import {
   normalizeCourseCode,
   normalizeTerm,
@@ -166,15 +166,75 @@ import { distinctHeld, heldTowardDegree, type GenEdCredit, type Horizon, type Pl
 import { boardChecker, genEdCandidates, genEdWhy, notRegistrable, planMarks, repickBoard, repickSignature, type RepickChange } from '@/lib/planner/repick';
 import { creditUse, editFlags, enteringAsFirstYear, flagsCaused, isEditFlag, momentumReview, priorCreditUse, summerSuggestions, withSummer } from '@/lib/planner/review';
 import { buildAdvisorPacket, cardRole, type AdvisorPacket, type CardRole } from '@/lib/planner/advisor-packet';
+import { degreeCompletionIssue } from '@/lib/planner/completion';
+import {
+  PLANNER_THEME_STORAGE_KEY,
+  type PlannerTheme,
+} from '@/lib/planner/theme';
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail, loadIllinoisSyllabi } from '@/lib/planner/illinois-load';
 import type { AdvisorExecutor } from '@/lib/planner/advisor';
+import type { RequirementBlock } from '@/lib/planner/illinois-data';
 
-// MERGE-UGA: UGA keeps STORAGE_KEY and adds UNDECIDED_PROGRAM and openPlanThrough() here; Illinois deleted
-// STORAGE_KEY (boards now save through saved-board.ts v4). Keep UNDECIDED_PROGRAM and openPlanThrough
-// (programOptions and the Undecided open plan use them). Drop STORAGE_KEY: writeSavedBoard deletes that
-// same v3 key on every autosave.
+const UNDECIDED_PROGRAM = {
+  id: UNDECIDED_PROGRAM_ID,
+  name: 'Undecided / exploring programs',
+};
+
+/** Event handlers use opaque IDs; no clock reads are part of rendering. */
+function newWorkspaceId(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+
+/** Publish an event's new values for the next tool call before React rerenders. */
+function updateLiveToolState<T extends object>(ref: { current: T }, patch: Partial<T>): void {
+  ref.current = { ...ref.current, ...patch };
+}
+
+function openPlanThrough(
+  horizon: {
+    startSeason: SemesterSeason;
+    startYear: number;
+    gradSeason: SemesterSeason;
+    gradYear: number;
+  },
+  completedCourseIds: string[],
+): PlanState {
+  const terms: PlanTerm[] = [];
+  let season = horizon.startSeason;
+  let year = horizon.startYear;
+  for (let index = 0; index < 32; index += 1) {
+    terms.push({
+      id: `${year}-${season.toLowerCase()}`,
+      label: `${season} ${year}`,
+      year: Math.min(4, Math.floor(index / 2) + 1),
+      season,
+      courseIds: [],
+    });
+    if (season === horizon.gradSeason && year === horizon.gradYear) break;
+    if (season === 'Fall') {
+      season = 'Spring';
+      year += 1;
+    } else if (
+      season === 'Spring' &&
+      horizon.gradSeason === 'Summer' &&
+      year === horizon.gradYear
+    ) {
+      season = 'Summer';
+    } else {
+      season = 'Fall';
+    }
+  }
+  return {
+    schemaVersion: 1,
+    programId: UNDECIDED_PROGRAM_ID,
+    graduationLabel: `${horizon.gradSeason} ${horizon.gradYear}`,
+    completedCourseIds,
+    terms,
+  };
+}
+
 /**
  * Whether a course answers a search: by code, by title, or by the name of its
  * department, so "accounting" finds ACCY and not only the titles that spell it.
@@ -187,10 +247,6 @@ function matchesQuery(course: Course, q: string): boolean {
   );
 }
 
-// MERGE-UGA: UGA's dark mode merges in with no conflict but touches window.localStorage unguarded:
-// readStoredTheme in the theme useState initializer, setItem in the theme effect. Where the getter throws
-// (the case this helper exists for) the planner now crashes instead of running unsaved.
-// Route both through deviceStorage().
 /** This device's storage, or null where the browser refuses it (some private windows throw on the getter). */
 function deviceStorage(): BoardStorage | null {
   try {
@@ -205,8 +261,8 @@ function deviceStorage(): BoardStorage | null {
  * Onboarding calls it, so a new setup builds a new plan and starts a new
  * conversation rather than one about a board that is gone.
  */
-export function clearSavedPlan(): void {
-  forgetBoard(deviceStorage());
+export function clearSavedPlan(schoolId?: string): void {
+  forgetBoard(deviceStorage(), schoolId);
 }
 
 /**
@@ -220,6 +276,7 @@ export function clearSavedPlan(): void {
 function creditKeyOf(answers: OnboardingAnswers | null | undefined): string {
   return [
     ...transcriptCodes(answers?.transcript).sort(),
+    ...(answers?.alreadyTakenCourseCodes ?? []).map(normCode).sort(),
     `h${transcriptHours(answers?.transcript)}|${transcriptCreditAdjustment(answers?.transcript)}`,
     ...(answers?.exams ?? []).map((e) => `${e.kind}|${e.exam}|${e.score}`),
     answers?.transferText ?? '',
@@ -241,10 +298,111 @@ function calendarYearOf(term: { id: string; label: string; year: number }): numb
 }
 
 
-/** What the constellation paints. See mapCourses below for why it is bounded. */
-const MAP_LIMIT = 240;
-
 const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
+
+interface ReplacementScope {
+  /** Null means a true open elective; a set means stay inside this requirement. */
+  codes: Set<string> | null;
+  label: string;
+}
+
+function choiceCodes(block: RequirementBlock): Set<string> {
+  const out = new Set<string>();
+  if (block.rule.kind !== 'all' && block.rule.kind !== 'choose' && block.rule.kind !== 'pool') {
+    return out;
+  }
+  for (const choice of block.rule.choices) {
+    for (const code of [...choice.codes, ...choice.substitutes]) out.add(normCode(code));
+  }
+  return out;
+}
+
+/** The academically meaningful boundary around one replacement list. */
+function replacementScope(input: {
+  course: Course;
+  blocks: RequirementBlock[];
+  pools: PoolReport[];
+  isOpenElective: boolean;
+  isPrerequisite: boolean;
+  catalog: Course[];
+}): ReplacementScope {
+  const code = normCode(input.course.code);
+  if (input.isOpenElective) {
+    return {
+      codes: null,
+      label: 'Any course that fits this term and still counts toward the degree total.',
+    };
+  }
+
+  // A replacement also has to preserve downstream prerequisites. Until the
+  // planner can re-solve those dependencies after a swap, do not offer a
+  // same-area course that would make a later card invalid.
+  if (input.isPrerequisite) {
+    return {
+      codes: new Set([code]),
+      label: 'This course is needed as a prerequisite for another course in the plan.',
+    };
+  }
+
+  const pool = input.pools.find((candidate) =>
+    candidate.picked.some((picked) => normCode(picked) === code),
+  );
+  if (pool) {
+    const block = input.blocks.find((candidate) => candidate.id === pool.requirementId);
+    const codes = block ? choiceCodes(block) : new Set(
+      [...pool.picked, ...pool.alternatives, ...pool.fromPriorCredit].map(normCode),
+    );
+    return { codes, label: `Courses published for ${pool.label}.` };
+  }
+
+  // An "all" row is the narrowest rule: only the alternatives printed on
+  // that row can stand in for it. Check these before broader choose/pool lists.
+  for (const block of input.blocks) {
+    if (block.rule.kind !== 'all') continue;
+    const row = block.rule.choices.find((choice) =>
+      [...choice.codes, ...choice.substitutes].some((candidate) => normCode(candidate) === code),
+    );
+    if (!row) continue;
+    return {
+      codes: new Set([...row.codes, ...row.substitutes].map(normCode)),
+      label: `Catalog-listed alternatives for ${block.label || block.areaLabel}.`,
+    };
+  }
+
+  for (const block of input.blocks) {
+    if (block.rule.kind !== 'choose' && block.rule.kind !== 'pool') continue;
+    const codes = choiceCodes(block);
+    if (codes.has(code)) {
+      return { codes, label: `Courses published for ${block.label || block.areaLabel}.` };
+    }
+  }
+
+  // General education choices are attached to an area rather than an
+  // explicit course list. Courses tagged for the same area are the honest set.
+  for (const block of input.blocks) {
+    if (block.rule.kind !== 'gened') continue;
+    if (!input.course.requirementIds.includes(block.areaId) &&
+        !input.course.requirementIds.includes(block.id)) continue;
+    const codes = input.catalog
+      .filter((candidate) =>
+        candidate.requirementIds.includes(block.areaId) || candidate.requirementIds.includes(block.id),
+      )
+      .map((candidate) => normCode(candidate.code));
+    return { codes: new Set(codes), label: `Courses that fulfill ${block.label || block.areaLabel}.` };
+  }
+
+  if (input.course.pathwayRole === 'required') {
+    return {
+      codes: new Set([code]),
+      label: 'This course is fixed by the published degree requirements.',
+    };
+  }
+
+  return {
+    codes: null,
+    label: 'Other courses that fit this term and count toward the degree total.',
+  };
+}
 
 /**
  * autoplan's NotPlaced reasons, in the product's own words.
@@ -289,10 +447,6 @@ function describeAway(a: AwayTerm): string {
   return `${a.season} ${a.year} (${what}${awayCredits(a)} hours)`;
 }
 
-// MERGE-UGA: UGA adds Stored (v3), PlanTab/PlanGroup, UndoSnapshot, LoadedBundle and combinePrograms here;
-// Illinois adds describeShape through describeGoals. Keep both (the } after the block is shared: add one).
-// Stored and UndoSnapshot can go once save/undo use saved-board.ts. combinePrograms reads the hours rule's
-// `source`, which illinois-data.ts must keep from UGA.
 /** The plan shape in a sentence for ALMA's board description. Empty when nothing is set. */
 function describeShape(shape: PlanShape): string {
   const parts = [
@@ -305,8 +459,8 @@ function describeShape(shape: PlanShape): string {
 }
 
 /** What the planner could make of a student's words about what they want to do, for ALMA to say back. */
-function heardInterests(text: string): string[] {
-  const profile = interestProfileOf(text);
+function heardInterests(text: string, schoolId: 'illinois' | 'uga'): string[] {
+  const profile = interestProfileOf(text, schoolId);
   return profile.heard.length > 0 ? profile.heard : interestWordsFrom(text);
 }
 
@@ -327,32 +481,145 @@ function arrivalOf(answers: OnboardingAnswers | null | undefined): Arrival {
  * could not see that "pre-med" was still stored after the student moved on to
  * UX research, and the pre-medicine track kept first claim on the electives.
  */
-function describeGoals(studying: string, career: string): string {
-  const profile = interestProfileOf(career);
+function describeGoals(studying: string, career: string, schoolId: 'illinois' | 'uga'): string {
+  const profile = interestProfileOf(career, schoolId);
   const tracks = profile.tracks.map((track) => track.name);
   const topics = profile.topics.map((topic) => topic.label);
   // "Investment banking" is also a program Marcus applies to as a sophomore
   // (FIN 391), which no elective slot will ever book for him.
-  const apply = describeApplicationPrograms(career);
+  const apply = schoolId === 'illinois' ? describeApplicationPrograms(career) : null;
   return `What the student said they study: ${studying.trim() || 'nothing yet'}. Career words the planner reads goals from: ${career.trim() ? `"${career.trim()}"` : 'none'}. Career tracks active: ${tracks.join(', ') || 'none'}. Interest topics active: ${topics.join(', ') || 'none'}.${apply ? ` ${apply}` : ''}`;
+}
+
+type PlanTab = SavedPlanTab;
+type PlanGroup = SavedPlanGroup;
+
+const DEFAULT_PLAN_GROUP: PlanGroup = {
+  id: 'group-1',
+  name: 'Group 1',
+  color: '#7a8b9b',
+};
+
+const PLAN_GROUP_COLORS = [
+  '#7a8b9b',
+  '#b44d54',
+  '#3f7f72',
+  '#b08332',
+  '#5b75a6',
+  '#8564a8',
+];
+
+type SourceProgram = SchoolProgram;
+
+/** One or more catalog degree pages presented to the planner as one board. */
+interface LoadedBundle {
+  summary: { id: string; name: string; totalCredits: number | null };
+  program: ProgramRequirements;
+  blocks: RequirementBlock[];
+  sources: SourceProgram[];
+  urls: Array<{ name: string; url: string }>;
+  electiveHours?: number;
+  fillToDegreeTotal?: boolean;
+}
+
+/** Campus-wide requirements a double major completes once, not once per page. */
+function isSharedCoreArea(label: string): boolean {
+  return (
+    /general education|core curriculum/i.test(label) ||
+    /^(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences)\b/i.test(label.trim())
+  );
+}
+
+function combinePrograms(sources: SourceProgram[]): LoadedBundle | null {
+  if (sources.length === 0) return null;
+  const multiple = sources.length > 1;
+  const names = sources.map((source) => source.program.name);
+  const totalCredits = sources.reduce<number | null>((largest, source) => {
+    const total = source.summary.totalCredits ?? source.program.totalCredits;
+    if (total === null) return largest;
+    return Math.max(largest ?? 0, total);
+  }, null);
+  const qualify = (source: SourceProgram, label: string) =>
+    multiple ? `${source.program.name}: ${label}` : label;
+  const blocks = sources.flatMap((source, sourceIndex) =>
+    source.blocks
+      .filter(
+        (block) =>
+          !multiple || (
+            !(sourceIndex > 0 && (block.rule.kind === 'gened' || isSharedCoreArea(block.areaLabel))) &&
+            (block.rule.kind !== 'hours' || block.rule.source !== 'explicit-elective')
+          ),
+      )
+      .map((block) => ({
+        ...block,
+        areaLabel: qualify(source, block.areaLabel),
+      })),
+  );
+  const program: ProgramRequirements = {
+    id: sources.map((source) => source.program.id).join('+'),
+    college: [...new Set(sources.map((source) => source.program.college))].join(' + '),
+    degree: [...new Set(sources.map((source) => source.program.degree))].join(' + '),
+    name: names.join(' + '),
+    areas: sources.flatMap((source, sourceIndex) =>
+      source.program.areas
+        .filter(
+          (area) =>
+            !multiple || (
+              !/^(?:general|free) electives?\b/i.test(area.label) &&
+              !(sourceIndex > 0 && isSharedCoreArea(area.label))
+            ),
+        )
+        .map((area) => ({
+          ...area,
+          label: qualify(source, area.label),
+        })),
+    ),
+    totalCredits,
+    areaHours: sources.reduce((sum, source) => sum + source.program.areaHours, 0),
+  };
+  const electiveHours = sources.reduce(
+    (sum, source) => sum + (source.electiveHours ?? 0),
+    0,
+  );
+  return {
+    summary: { id: program.id, name: program.name, totalCredits },
+    program,
+    blocks,
+    sources,
+    urls: sources.map((source) => ({ name: source.program.name, url: source.url })),
+    // A second major replaces free-elective room rather than adding another
+    // degree's full elective allowance. Leaving the cap undefined lets the
+    // combined requirements fill naturally to the shared degree total.
+    electiveHours: multiple ? undefined : electiveHours,
+    fillToDegreeTotal:
+      sources.some(
+        (source) => 'fillToDegreeTotal' in source && source.fillToDegreeTotal,
+      ),
+  };
 }
 
 export function PlannerWorkspace({
   answers,
   onAnswersChange,
+  onChangeUniversity,
 }: {
   answers?: OnboardingAnswers;
   /** The shell owns the answers. A transcript added from the rail goes back through here. */
   onAnswersChange?: (next: OnboardingAnswers) => void;
+  /** Leave the current school's plan intact while choosing another university. */
+  onChangeUniversity?: () => void;
 }) {
   const school = schoolById(answers?.schoolId ?? null);
   const isIllinois = school?.id === 'illinois';
   const isUga = school?.id === 'uga';
+  const programLevel: ProgramLevel = answers?.programLevel ?? 'undergraduate';
+  const isGraduatePlan = isUga && programLevel === 'graduate';
+  const defaultMinimumTermCredits = isGraduatePlan ? 9 : 12;
+  const defaultTargetTermCredits = isGraduatePlan ? 9 : null;
   const isCatalogSchool = isIllinois || isUga;
-  const { status: illinoisStatus, core, coverage: illinoisCoverage } = useIllinoisCore(Boolean(isIllinois));
-  const { status: ugaStatus, data: uga, coverage: ugaCoverage } = useUgaData(Boolean(isUga));
+  const { status: illinoisStatus, core } = useIllinoisCore(Boolean(isIllinois));
+  const { status: ugaStatus, data: uga } = useUgaData(Boolean(isUga));
   const status = isIllinois ? illinoisStatus : isUga ? ugaStatus : 'unavailable';
-  const coverage = isIllinois ? illinoisCoverage : isUga ? ugaCoverage : '';
   /**
    * The AP and IB credit the registrar grants, so the plan starts where the
    * student starts. Naming the exams in onboarding and then planning as if they
@@ -360,10 +627,6 @@ export function PlannerWorkspace({
    */
   const examCredit = useExamCredit(school);
 
-  // MERGE-UGA: UGA adds plan tabs/groups, termWidths, an UndoSnapshot stack and programIds/minorIds/
-  // certificateIds, deriving programId from programIds[0]; Illinois types the stack as UndoEntry and adds
-  // boardEdited, undoneTurns, saveState, saveTick beside the old programId useState. Keep both, minus
-  // Illinois's programId state and UGA's UndoSnapshot stack; setProgramId calls become setProgramIds.
   const [plan, setPlan] = useState<PlanState | null>(null);
   /**
    * Steps back, newest last. Each holds the whole board, report and all
@@ -384,7 +647,36 @@ export function PlannerWorkspace({
   const [saveState, setSaveState] = useState<'none' | 'saved' | 'failed'>('none');
   /** Bumped when a ref the save reads changes on its own (the re-pick signature). */
   const [saveTick, setSaveTick] = useState(0);
-  const [programId, setProgramId] = useState<string | null>(null);
+  const [planTabs, setPlanTabs] = useState<PlanTab[]>([]);
+  const [planGroups, setPlanGroups] = useState<PlanGroup[]>([{ ...DEFAULT_PLAN_GROUP }]);
+  const [draggingPlanTabId, setDraggingPlanTabId] = useState<string | null>(null);
+  const [dragOverPlanGroupId, setDragOverPlanGroupId] = useState<string | null>(null);
+  const [activePlanId, setActivePlanId] = useState('plan-1');
+  const [termWidths, setTermWidths] = useState<Record<string, number>>({});
+  const [programIds, setProgramIds] = useState<string[]>(() => isIllinois ? (answers?.programIds ?? []).slice(0, 1) : answers?.programIds ?? []);
+  const [minorIds, setMinorIds] = useState<string[]>(() => isUga ? answers?.minorIds ?? [] : []);
+  const [certificateIds, setCertificateIds] = useState<string[]>(() => isUga ? answers?.certificateIds ?? [] : []);
+  const programId = programIds[0] ?? null;
+  const isUndecided = programIds.includes(UNDECIDED_PROGRAM_ID);
+  const emphasisKey = JSON.stringify(
+    Object.entries(answers?.emphasisSelections ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+  );
+  const selectedProgramIds = useMemo(
+    () => [...programIds, ...minorIds, ...certificateIds],
+    [programIds, minorIds, certificateIds],
+  );
+  const programKey = [
+    `level:${programLevel}`,
+    `degree:${programIds.join(',')}`,
+    `minor:${minorIds.join(',')}`,
+    `certificate:${certificateIds.join(',')}`,
+    `emphasis:${emphasisKey}`,
+  ].join('|');
+  useEffect(() => {
+    if (!isIllinois || !answers || !onAnswersChange) return;
+    if (answers.programIds.length <= 1 && answers.minorIds.length === 0 && answers.certificateIds.length === 0) return;
+    onAnswersChange({ ...answers, programIds: answers.programIds.slice(0, 1), minorIds: [], certificateIds: [], emphasisSelections: {} });
+  }, [isIllinois, answers, onAnswersChange]);
   /**
    * The degree page, tagged with the degree it belongs to.
    *
@@ -394,25 +686,30 @@ export function PlannerWorkspace({
    * comparison rather than a second piece of state set inside an effect.
    */
   const [fetched, setFetched] = useState<{
-    id: string;
-    value: LoadedProgram | UgaLoadedProgram | null;
+    key: string;
+    value: LoadedBundle | null;
   } | null>(null);
   const [planNotes, setPlanNotes] = useState<string[]>([]);
   const [report, setReport] = useState<PlanReport | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const [mapFocusRequest, setMapFocusRequest] = useState<{ courseId: string; sequence: number } | null>(null);
   const [focusTermId, setFocusTermId] = useState<string | null>(null);
   const [targetTermId, setTargetTermId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [finderOpen, setFinderOpen] = useState(false);
-  /** The bot's column. Opening it folds the finder, so the board keeps its room. */
+  const [mapHeight, setMapHeight] = useState<number | null>(null);
+  /** The guide opens beside the board when there is room, never over it on arrival. */
   const [chatOpen, setChatOpen] = useState(false);
+  const [theme, setTheme] = useState<PlannerTheme>('light');
   const botName = school?.bot ?? 'Assistant';
   const [dragUsable, setDragUsable] = useState(true);
-  const [narrow, setNarrow] = useState(false);
-  const [railOpen, setRailOpen] = useState(false);
-  const [minimumTermCredits, setMinimumTermCredits] = useState(12);
+  const [railOpen, setRailOpen] = useState(true);
+  const [minimumTermCredits, setMinimumTermCredits] = useState(
+    defaultMinimumTermCredits,
+  );
   /** The elective slot being chosen for, if any. Drives the finder's list. */
   const [chooser, setChooser] = useState<{ termId: string; courseId: string } | null>(null);
+  const [chooserOnMap, setChooserOnMap] = useState(false);
   /**
    * The advisor packet on screen, or null. Built when the student opens it
    * rather than on every render, because the backup for each of next term's
@@ -476,13 +773,10 @@ export function PlannerWorkspace({
   useEffect(() => {
     planRef.current = plan;
   }, [plan]);
-  // MERGE-UGA: UGA starts targetTermCredits at defaultTargetTermCredits (9 for graduate plans); Illinois adds
-  // the priorities state on the next line. UGA's side alone: `priorities` is undefined in buildPlan and the
-  // ALMA tools. Illinois's side alone: graduate plans start balanced, not at 9. Keep UGA's initializer and
-  // Illinois's priorities line.
-  const [targetTermCredits, setTargetTermCredits] = useState<number | null>(null);
+  const [targetTermCredits, setTargetTermCredits] = useState<number | null>(
+    defaultTargetTermCredits,
+  );
   const [priorities, setPriorities] = useState<Priorities>(DEFAULT_PRIORITIES);
-
   const [careerInterests, setCareerInterests] = useState(answers?.after ?? '');
   /**
    * The student dropped their goal through ALMA. careerInterests starts as the
@@ -508,43 +802,65 @@ export function PlannerWorkspace({
    * The status line is read by screen readers and nobody else. Anything a
    * student pressed a button for is told back on screen as well.
    */
-  function notify(title: string, description?: string, type: 'success' | 'info' = 'success') {
+  const notify = useCallback((title: string, description?: string, type: 'success' | 'info' = 'success') => {
     setStatus(description ? `${title} ${description}` : title);
     toast.add({ title, description, type, timeout: 9000 });
-  }
+  }, []);
   const restored = useRef<SavedBoard | null>(null);
+  const restoreAttempted = useRef(false);
+  const pendingSave = useRef<{ payload: string; body: string } | null>(null);
+  const lastSaved = useRef<string | null>(null);
   const rulerRef = useRef<HTMLDivElement | null>(null);
   const lastBucket = useRef<string | null>(null);
 
+  useEffect(() => {
+    try {
+      // One hydration pass reads browser-only appearance after the server render.
+      // oxlint-disable-next-line react/react-compiler
+      setTheme(deviceStorage()?.getItem(PLANNER_THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light');
+    } catch { /* Appearance stays usable when storage is blocked. */ }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.plannerTheme = theme;
+    document.documentElement.style.colorScheme = theme;
+    try { deviceStorage()?.setItem(PLANNER_THEME_STORAGE_KEY, theme); } catch { /* Appearance is session-only. */ }
+    return () => {
+      delete document.documentElement.dataset.plannerTheme;
+      document.documentElement.style.colorScheme = '';
+    };
+  }, [theme]);
+
   /**
-   * The finder opens itself on a wide screen and stays shut on a narrow one.
-   *
-   * The declutter spec wanted it collapsed everywhere. It is open here at 1280px
-   * and up for one reason: the user's hard requirement is dragging a course out
-   * of the map into a semester, and a map behind a click reads as a map that was
-   * removed. Below 1100px the column cannot fit, drag has nowhere to land, and
-   * the finder overlays the board instead.
+   * The finder stays present at every useful width. The layout alone decides
+   * whether progress and chat are columns or drawers, so resizing cannot strand
+   * the map or leave a hidden side panel without a matching button.
    *
    * Only a change of bucket moves it. Setting it on every resize event would
    * reopen a finder the student had just closed, or shut one they had just
    * opened, every time the window moved a pixel.
    */
   useEffect(() => {
-    const bucketOf = (w: number) => (w >= 1280 ? 'wide' : w >= 1100 ? 'medium' : 'narrow');
+    const bucketOf = (w: number) => (w >= 1280 ? 'wide' : w > 1180 ? 'medium' : 'narrow');
     const measure = () => {
       const bucket = bucketOf(window.innerWidth);
-      setDragUsable(bucket !== 'narrow');
-      setNarrow(window.innerWidth < 900);
+      const firstMeasure = lastBucket.current === null;
+      setDragUsable(window.innerWidth >= 700);
       if (bucket === lastBucket.current) return;
       lastBucket.current = bucket;
-      // 'medium' is 1100 to 1280, which is a 13 inch laptop, and leaving the
-      // finder shut there meant the map was not on the page at all on a very
-      // common screen. Drag from the map is the feature; it opens by default
-      // anywhere it can actually be used.
-      if (bucket === 'wide' || bucket === 'medium') setFinderOpen(true);
+      // Keep the map open when it is part of the page. At compact widths it is
+      // still the first block in the center flow rather than a side overlay.
+      if (firstMeasure || bucket === 'wide' || bucket === 'medium') setFinderOpen(true);
+      if (firstMeasure && (bucket === 'wide' || bucket === 'medium')) {
+        setChatOpen(true);
+        setRailOpen(true);
+      }
       // An overlay on top of the board is not somewhere to leave a panel the
       // student did not ask for.
-      if (bucket === 'narrow') setFinderOpen(false);
+      if (bucket === 'narrow') {
+        setChatOpen(false);
+        setRailOpen(false);
+      }
     };
     measure();
     window.addEventListener('resize', measure);
@@ -563,38 +879,206 @@ export function PlannerWorkspace({
     for (const course of catalog) map.set(normCode(course.code), course);
     return map;
   }, [catalog]);
+  const manuallyCompletedCodes = useMemo(
+    () => (answers?.alreadyTakenCourseCodes ?? []).map((code) => isUga ? canonicalUgaCode(code) : normCode(code)),
+    [answers?.alreadyTakenCourseCodes, isUga],
+  );
+  const sharedCompletedIds = useMemo(
+    () => manuallyCompletedCodes.map((code) => byCode.get(code)?.id).filter((id): id is string => Boolean(id)),
+    [manuallyCompletedCodes, byCode],
+  );
 
   const programOptions = useMemo(() => {
     if (isIllinois) {
-      return (core?.programs ?? [])
+      return [UNDECIDED_PROGRAM, ...(core?.programs ?? [])
         .filter(plannableProgram)
         .map((p) => ({ id: p.id, name: p.name }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .sort((a, b) => a.name.localeCompare(b.name))];
     }
-    // MERGE-UGA: UGA's uga-source.tsx arrives whole (Illinois never changed it) and uga.programs now holds 783 programs:
-    // 161 bachelor's plus 123 minors, 113 certificates and 386 graduate degrees. This list and guessUgaProgram below treat
-    // all as degrees; UGA's own example answer ('considering a computer science minor') picks 'Minor in Computer Science'.
-    // Keep both: filter with isUgaUndergraduateDegree here and in the guess; offer the rest through UGA's picker.
-    if (isUga) return (uga?.programs ?? []).map((program) => ({ id: program.id, name: program.name }));
+    if (isUga) {
+      return [UNDECIDED_PROGRAM, ...(uga?.programs ?? [])
+        .filter((program) =>
+          programLevel === 'graduate'
+            ? isUgaGraduateDegree(program)
+            : isUgaUndergraduateDegree(program),
+        )
+        .map((program) => ({ id: program.id, name: program.name }))
+        .sort((left, right) => left.name.localeCompare(right.name))];
+    }
     return samplePrograms.map((p) => ({ id: p.id, name: `${p.name}, ${p.degree}` }));
-  }, [isIllinois, isUga, core, uga]);
+  }, [isIllinois, isUga, core, uga, programLevel]);
+
+  const minorOptions = useMemo(
+    () =>
+      isUga && !isGraduatePlan
+        ? (uga?.programs ?? [])
+            .filter((program) => program.degree === 'MINOR' && program.areaHours > 0)
+            .map((program) => ({ id: program.id, name: program.name }))
+        : [],
+    [isUga, isGraduatePlan, uga],
+  );
+  const certificateOptions = useMemo(
+    () =>
+      isUga
+        ? (uga?.programs ?? [])
+            .filter(
+              (program) =>
+                program.degree === (isGraduatePlan ? 'CERT-GM' : 'CERT-UG') &&
+                program.areaHours > 0,
+            )
+            .map((program) => ({ id: program.id, name: program.name }))
+        : [],
+    [isUga, isGraduatePlan, uga],
+  );
+  const emphasisRequirements = useMemo(
+    () =>
+      isUga
+        ? (uga?.programs ?? [])
+            .filter((program) => programIds.includes(program.id))
+            .flatMap(ugaSelectionRequirements)
+        : [],
+    [isUga, uga, programIds],
+  );
+  const emphasesComplete = emphasisSelectionsComplete(
+    emphasisRequirements,
+    answers?.emphasisSelections ?? {},
+  );
+
+  const forgetThisBoard = useCallback(() => {
+    pendingSave.current = null;
+    lastSaved.current = null;
+    forgetBoard(deviceStorage(), school?.id ?? '');
+  }, [school]);
+
+  const resetProgramPlan = useCallback(() => {
+    forgetThisBoard();
+    restored.current = null;
+    planRef.current = null;
+    studentAdded.current = new Set();
+    repickedFor.current = null;
+    lastBuild.current = null;
+    setUndoStack([]);
+    setUndoneTurns([]);
+    setBoardEdited(false);
+    setFetched(null);
+    setPlan(null);
+    setReport(null);
+    setPlanNotes([]);
+    setPlanTabs([]);
+    setPlanGroups([{ ...DEFAULT_PLAN_GROUP }]);
+    setDraggingPlanTabId(null);
+    setDragOverPlanGroupId(null);
+    setActivePlanId('plan-1');
+    setTermWidths({});
+  }, [forgetThisBoard]);
+
+  const changeProgramLevel = useCallback(
+    (nextLevel: ProgramLevel) => {
+      if (nextLevel === programLevel) return;
+      const nextProgramIds = [UNDECIDED_PROGRAM_ID];
+      setProgramIds(nextProgramIds);
+      setMinorIds([]);
+      setCertificateIds([]);
+      setMinimumTermCredits(nextLevel === 'graduate' ? 9 : 12);
+      setTargetTermCredits(nextLevel === 'graduate' ? 9 : null);
+      resetProgramPlan();
+      if (answers && onAnswersChange) {
+        onAnswersChange({
+          ...answers,
+          programLevel: nextLevel,
+          programIds: nextProgramIds,
+          minorIds: [],
+          certificateIds: [],
+          emphasisSelections: {},
+          collegeId: '',
+        });
+      }
+    },
+    [answers, onAnswersChange, programLevel, resetProgramPlan],
+  );
+
+  const changePrograms = useCallback((ids: string[]) => {
+    let next = isIllinois ? ids.slice(0, 1) : ids;
+    if (next.length === 0) next = [UNDECIDED_PROGRAM_ID];
+    else if (next.includes(UNDECIDED_PROGRAM_ID) && next.length > 1) {
+      next = programIds.includes(UNDECIDED_PROGRAM_ID)
+        ? next.filter((id) => id !== UNDECIDED_PROGRAM_ID)
+        : [UNDECIDED_PROGRAM_ID];
+    }
+    setProgramIds(next);
+    resetProgramPlan();
+    if (answers && onAnswersChange) {
+      const selected = new Set(next);
+      const emphasisSelections = Object.fromEntries(
+        Object.entries(answers.emphasisSelections).filter(([key]) =>
+          [...selected].some((id) => key.startsWith(`${id}::`)),
+        ),
+      );
+      onAnswersChange({ ...answers, programIds: next, emphasisSelections });
+    }
+  }, [answers, onAnswersChange, programIds, resetProgramPlan, isIllinois]);
+
+  const changeMinors = useCallback((ids: string[]) => {
+    setMinorIds(ids);
+    resetProgramPlan();
+    if (answers && onAnswersChange) onAnswersChange({ ...answers, minorIds: ids });
+  }, [answers, onAnswersChange, resetProgramPlan]);
+
+  const changeCertificates = useCallback((ids: string[]) => {
+    setCertificateIds(ids);
+    resetProgramPlan();
+    if (answers && onAnswersChange) onAnswersChange({ ...answers, certificateIds: ids });
+  }, [answers, onAnswersChange, resetProgramPlan]);
+
+  const changeEmphases = useCallback((emphasisSelections: Record<string, string[]>) => {
+    resetProgramPlan();
+    if (answers && onAnswersChange) onAnswersChange({ ...answers, emphasisSelections });
+  }, [answers, onAnswersChange, resetProgramPlan]);
+
+  const replaceActivePlan = useCallback((next: PlanState) => {
+    planRef.current = next;
+    setPlan(next);
+    setPlanTabs((current) => {
+      if (current.length === 0) {
+        return [{ id: activePlanId, name: 'Plan 1', groupId: DEFAULT_PLAN_GROUP.id, plan: next }];
+      }
+      return current.map((candidate) =>
+        candidate.id === activePlanId ? { ...candidate, plan: next } : candidate,
+      );
+    });
+  }, [activePlanId]);
 
   // ---- restore -------------------------------------------------------------
 
   useEffect(() => {
+    if (restoreAttempted.current) return;
+    restoreAttempted.current = true;
     /**
      * The board saved on this device for this school (v4, or a v3 entry moved
      * to v4; saved-board.ts), put back as it was: cards, report, settings.
      * A broken or missing entry gives a fresh plan, and then the saved chat
      * goes too, because it was about a board that is not coming back.
      */
-    // MERGE-UGA: UGA reads its own v3 entry (tabs, groups, majors/minors) and restores only if the saved
-    // selection matches; Illinois reads v4 via readSavedBoard and calls setProgramId, gone after the merge.
-    // Keep Illinois's reader: seed setProgramIds([saved.programId]) only when programIds is empty, and skip a
-    // board saved for another selection. migrateLegacyBoard drops UGA's saved tabs/groups.
     const saved = readSavedBoard(deviceStorage(), school?.id ?? '');
     if (!saved) {
-      forgetChat(deviceStorage());
+      forgetChat(deviceStorage(), school?.id ?? '');
+      return;
+    }
+    const savedProgramIds = saved.programIds ?? (saved.programId ? [saved.programId] : []);
+    if (isIllinois && (savedProgramIds.length > 1 || (saved.minorIds?.length ?? 0) > 0 || (saved.certificateIds?.length ?? 0) > 0)) {
+      forgetChat(deviceStorage(), school?.id ?? '');
+      queueMicrotask(() => notify('Choose one Illinois degree to plan', 'Use the adviser’s program comparison to assess an additional degree and its college rules.', 'info'));
+      return;
+    }
+    const selectionsMatch = programIds.length === 0 || (
+      [...savedProgramIds].sort().join('|') === [...programIds].sort().join('|') &&
+      [...(saved.minorIds ?? [])].sort().join('|') === [...minorIds].sort().join('|') &&
+      [...(saved.certificateIds ?? [])].sort().join('|') === [...certificateIds].sort().join('|') &&
+      JSON.stringify(Object.entries(saved.emphasisSelections ?? {}).sort(([a], [b]) => a.localeCompare(b))) === emphasisKey &&
+      (!saved.programLevel || saved.programLevel === programLevel)
+    );
+    if (!selectionsMatch) {
+      forgetChat(deviceStorage(), school?.id ?? '');
       return;
     }
     restored.current = saved;
@@ -605,8 +1089,21 @@ export function PlannerWorkspace({
      * then owns, so the cascade the compiler warns about is one extra render
      * on arrival and never again.
      */
-    // oxlint-disable-next-line react/react-compiler
-    setProgramId(saved.programId);
+    if (programIds.length === 0) {
+      // One-time hydration restores the saved program before its catalog fetch.
+      // oxlint-disable-next-line react/react-compiler
+      setProgramIds(savedProgramIds);
+      setMinorIds(saved.minorIds ?? []);
+      setCertificateIds(saved.certificateIds ?? []);
+      if (answers && onAnswersChange) onAnswersChange({
+        ...answers,
+        programIds: savedProgramIds,
+        minorIds: saved.minorIds ?? [],
+        certificateIds: saved.certificateIds ?? [],
+        emphasisSelections: saved.emphasisSelections ?? {},
+        programLevel: saved.programLevel ?? programLevel,
+      });
+    }
     setMinimumTermCredits(saved.settings.minimumTermCredits);
     setTargetTermCredits(saved.settings.targetTermCredits);
     setPlanShape(saved.settings.planShape);
@@ -614,68 +1111,68 @@ export function PlannerWorkspace({
     setPriorities(saved.settings.priorities);
     setCareerInterests(saved.settings.careerInterests);
     setCareerCleared(saved.settings.careerCleared);
-  }, [school]);
+  }, [school, programIds, minorIds, certificateIds, emphasisKey, programLevel, answers, onAnswersChange, isIllinois, notify]);
 
-  // ---- pick a degree -------------------------------------------------------
-
-  useEffect(() => {
-    // MERGE-UGA: UGA deleted this guess effect and the guessProgram/guessUgaProgram imports: degrees are now
-    // picked explicitly into answers.programIds, and an empty list shows UGA's 'Choose your degree program'
-    // picker. Illinois's side alone calls setProgramId, which no longer exists. Take UGA's side; a returning
-    // student's degree then comes from the restore effect above.
-    // The saved board names its degree; a guess landing in the same pass
-    // would replace it with whatever the About-you words point at.
-    if (programId || restored.current?.programId) return;
-    const guess = isIllinois && core
-      ? guessProgram(answers?.studying ?? '', (core.programs ?? []).filter(plannableProgram))
-      : isUga && uga
-        ? guessUgaProgram(answers?.studying ?? '', uga.programs)
-        : null;
-    if (guess) {
-      /**
-       * A guess, not a derivation. The student can change it in the rail and
-       * that choice has to survive, so this writes the degree once when the
-       * catalog lands and never overrules them afterwards.
-       */
-      // oxlint-disable-next-line react/react-compiler
-      setProgramId(guess.id);
-      setStatus(`Planning ${guess.name}`);
-    }
-  }, [isIllinois, isUga, core, uga, programId, answers]);
-
+  // ---- load the explicitly selected degree pages ---------------------------
 
   useEffect(() => {
-    if (!programId) return;
+    if (programIds.length === 0) return;
+    if (isUndecided) return;
+    if (isUga && !emphasesComplete) return;
     if (isUga && uga) {
-      const program = uga.programs.find((candidate) => candidate.id === programId);
-      if (program) {
-        // The UGA degree file is already in memory, so there is no asynchronous
-        // page fetch to subscribe to as there is for an Illinois shard.
-        // oxlint-disable-next-line react/react-compiler
-        setFetched({ id: programId, value: loadUgaProgram(uga, program) });
-      }
-      return;
+      let cancelled = false;
+      const selected = selectedProgramIds
+        .map((id) => uga.programs.find((candidate) => candidate.id === id))
+        .filter((program): program is NonNullable<typeof program> => Boolean(program));
+      void Promise.all(selected.map((program, index) =>
+        ugaAdapter.loadProgram(uga, program, {
+          resetRequirements: index === 0,
+          emphasisSelections: answers?.emphasisSelections,
+        }),
+      )).then((results) => {
+        if (cancelled) return;
+        const sources = results.filter((source): source is SchoolProgram => source !== null);
+        setFetched({ key: programKey, value: sources.length === selectedProgramIds.length ? combinePrograms(sources) : null });
+      }).catch(() => {
+        if (cancelled) return;
+        setFetched({ key: programKey, value: null });
+        notify('Program requirements could not be loaded', 'Choose the program again or reload to retry.', 'info');
+      });
+      return () => { cancelled = true; };
     }
-    if (!isIllinois || !core) return;
-    const summary = (core.programs ?? []).find((candidate) => candidate.id === programId);
-    if (!summary) return;
+    if (!isIllinois || !core || programIds.length !== 1) return;
+    const summaries = programIds
+      .map((id) => (core.programs ?? []).find((candidate) => candidate.id === id))
+      .filter((summary): summary is NonNullable<typeof summary> => Boolean(summary));
     let cancelled = false;
-    void loadProgram(core, summary).then((result) => {
+    void Promise.all(summaries.map((summary, index) => illinoisAdapter.loadProgram(core, summary, { resetRequirements: index === 0 }))).then((results) => {
       if (cancelled) return;
-      // Recorded even when the page could not be read, so the board stops
-      // saying "Reading the degree page" about a page that is not coming.
-      setFetched({ id: programId, value: result });
+      const sources = results.filter((result): result is SchoolProgram => result !== null);
+      setFetched({
+        key: programKey,
+        value:
+          summaries.length === programIds.length && sources.length === programIds.length
+            ? combinePrograms(sources)
+            : null,
+      });
+    }).catch(() => {
+      if (cancelled) return;
+      setFetched({ key: programKey, value: null });
+      notify('Program requirements could not be loaded', 'Choose the program again or reload to retry.', 'info');
     });
     return () => {
       cancelled = true;
     };
-  }, [isIllinois, isUga, core, uga, programId]);
+  }, [isIllinois, isUga, isUndecided, core, uga, programIds, selectedProgramIds, programKey, emphasisKey, answers?.emphasisSelections, emphasesComplete, notify]);
 
-  // MERGE-UGA: UGA keys the degree page by programKey (the merged `fetched` is {key, value: LoadedBundle});
-  // Illinois adds examsAligned, catalogCredits and admissionChoice between `loaded` and `programBusy`.
-  // Illinois's fetched?.id lines no longer compile; UGA's side drops memos buildPlan needs. Keep UGA's
-  // `loaded` and `programBusy` lines with Illinois's three memos between them.
-  const loaded = fetched?.id === programId ? fetched.value : null;
+  const loaded = useMemo<LoadedBundle | null>(() => {
+    if (isUndecided) return {
+      summary: { id: UNDECIDED_PROGRAM_ID, name: UNDECIDED_PROGRAM.name, totalCredits: null },
+      program: { id: UNDECIDED_PROGRAM_ID, name: UNDECIDED_PROGRAM.name, college: '', degree: '', totalCredits: null, areaHours: 0, areas: [] },
+      blocks: [], sources: [], urls: [],
+    };
+    return fetched?.key === programKey ? fetched.value : null;
+  }, [isUndecided, fetched, programKey]);
 
   /**
    * The student's exams, priced from the table for the college of the degree
@@ -710,13 +1207,13 @@ export function PlannerWorkspace({
     return chooseAdmission(table, goal, readEntry(words, answers?.transcript, start), start);
   }, [core, loaded, answers, careerInterests, planShape]);
   const admissionRoute = admissionChoice?.front ? admissionChoice.route : null;
-  const programBusy = Boolean(isCatalogSchool && programId) && fetched?.id !== programId;
+  const programBusy = Boolean(isCatalogSchool && programIds.length > 0 && !isUndecided) && fetched?.key !== programKey;
 
   // ---- the planning context -------------------------------------------------
 
   const context: PlanningContext | null = useMemo(() => {
-    if (isIllinois && core) return buildContext(core, loaded?.blocks ?? [], null).context;
-    if (isUga && uga) return uga.context;
+    if (isIllinois && core) return illinoisAdapter.context(core, loaded?.blocks ?? []);
+    if (isUga && uga) return ugaAdapter.context(uga);
     return null;
   }, [isIllinois, isUga, core, uga, loaded]);
 
@@ -725,27 +1222,20 @@ export function PlannerWorkspace({
   const buildPlan = useCallback(() => {
     if (!isCatalogSchool) {
       const sample = createSamplePlan();
-      // MERGE-UGA: demo-plan branch. UGA calls replaceActivePlan(sample) so the plan tabs get a first tab;
-      // Illinois resets repickedFor/studentAdded and calls setPlan. Keep the two ref resets plus
-      // replaceActivePlan(sample).
       repickedFor.current = null;
       studentAdded.current = new Set();
-      setPlan(sample);
+      replaceActivePlan(sample);
       setPlanNotes([]);
       setReport(null);
       setBoardEdited(false);
       setTargetTermId(sample.terms[0]?.id ?? '');
       // The demo plan names its own program. Without this the rail reads
       // "No degree chosen" above a board full of that degree's courses.
-      setProgramId((current) => current ?? sample.programId);
+      setProgramIds((current) => current.length > 0 ? current : [sample.programId]);
       return;
     }
-    if (!context || !loaded) return;
+    if (!context) return;
 
-    // MERGE-UGA: UGA adds alreadyTakenCourseCodes to prior, the Undecided open plan, a try/catch and graduate/
-    // elective-cap options Illinois's AutoplanInput lacks (see autoplan.ts). Illinois adds exams, priorities,
-    // shape, admission, residency, and closes this withGenEdCredit( (UGA's side alone: parse error). Keep
-    // Illinois's side, add UGA's pieces and its `if (!loaded) return;` (the guard above lost `!loaded`).
     const prior = withGenEdCredit(readPriorCredit(
       answers?.transferText ?? '',
       answers?.exams.length ?? 0,
@@ -756,7 +1246,7 @@ export function PlannerWorkspace({
       // still be planned as though they were starting from nothing. The
       // transcript's lines ride in the same list, already matched against the
       // catalog and checked by the student when they reviewed the reading.
-      [...examCourses(exams, examCredit.entries, (code) => byCode.has(code)), ...transcriptCodes(answers?.transcript)],
+      [...examCourses(exams, examCredit.entries, (code) => byCode.has(code)), ...transcriptCodes(answers?.transcript), ...manuallyCompletedCodes],
       Boolean(answers?.transcript),
       // Hours with no course to hold them: AP credit granted as "ECON 1--",
       // and every transfer line the student is counting as hours toward the
@@ -766,6 +1256,31 @@ export function PlannerWorkspace({
       answers?.language ?? null,
     ), answers, exams, examCredit.entries, catalogCredits);
     const horizon = horizonFor(answers, core?.meta?.term?.year ?? new Date().getFullYear(), planShape);
+
+    if (isUndecided) {
+      const completedCourseIds = prior.courseCodes
+        .map((code) => byCode.get(normCode(code))?.id)
+        .filter((id): id is string => Boolean(id));
+      const openPlan = openPlanThrough(horizon, completedCourseIds);
+      replaceActivePlan(openPlan);
+      setChooser(null);
+      setChooserOnMap(false);
+      setTargetTermId(openPlan.terms[0]?.id ?? '');
+      setPlanNotes([
+        'This is an open plan because no degree program is selected. Add courses from the map, or choose a program in Preferences to rebuild against published requirements.',
+      ]);
+      setReport(null);
+      studentAdded.current = new Set();
+      repickedFor.current = null;
+      lastBuild.current = null;
+      setBoardEdited(false);
+      if (keepUndoOnBuild.current) keepUndoOnBuild.current = false;
+      else setUndoStack([]);
+      setStatus('Open plan built. Choose courses from the map or select a degree program in Preferences.');
+      return;
+    }
+
+    if (!loaded) return;
 
     const publishedTotal = loaded.summary.totalCredits || loaded.program.totalCredits || null;
     const planInput: AutoplanInput = {
@@ -781,6 +1296,11 @@ export function PlannerWorkspace({
       // A published total of 0 is a page the crawl could not read a total from,
       // not a degree of no credits: English BALAS planned 2 terms and 28 hours.
       degreeTotal: publishedTotal || (isIllinois ? 120 : null),
+      electiveHoursLimit: isUga ? loaded.electiveHours : undefined,
+      fillToDegreeTotal: isUga ? loaded.fillToDegreeTotal : undefined,
+      standingHours: isGraduatePlan ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 } : undefined,
+      electiveLevelRange: isGraduatePlan ? { min: 600, maxExclusive: 1000 } : undefined,
+      autoPrerequisiteLevelRange: isGraduatePlan ? { min: 600, maxExclusive: 1000 } : undefined,
       interests: [answers?.studying ?? '', careerText].join(' '),
       // Goals come from what the student wants to do, never from the major's
       // name: "Psychology" alone was booking psychopathology as their goal.
@@ -790,7 +1310,7 @@ export function PlannerWorkspace({
       arrival: arrivalOf(answers),
       // The review's own rule, so the planner arranges year one for the
       // student the review measures it for, and no one else.
-      firstYear: enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
+      firstYear: isIllinois && enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
       admissionRoute,
       // Illinois's residency rule, from its transfer-credit page: 45 hours at
       // Illinois, 21 of them at the 300 level or above. What the student has
@@ -806,7 +1326,13 @@ export function PlannerWorkspace({
           }
         : null,
     };
-    let generated = generatePlan(planInput);
+    let generated: GeneratedPlan;
+    try {
+      generated = generatePlan(planInput);
+    } catch (error) {
+      notify('The draft could not be generated', error instanceof Error ? error.message : 'Try another program or reload its catalog.', 'info');
+      return;
+    }
     let builtFrom = planInput;
     /**
      * "Spread my hard classes out": one hardest-band course a term, kept only
@@ -845,7 +1371,7 @@ export function PlannerWorkspace({
     if (admissionChoice && !(admissionChoice.front && !admissionChoice.route?.applySemesters)) {
       generated.notes.push(describeAdmissionChoice(admissionChoice));
     }
-    generated.notes.push(
+    if (isIllinois) generated.notes.push(
       ...examCreditNotes({
         words: [answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? '', careerInterests].join(' '),
         examCodes: examCourses(exams, examCredit.entries, (code) => byCode.has(code)),
@@ -865,8 +1391,9 @@ export function PlannerWorkspace({
     for (const s of examsAligned.switched) {
       generated.notes.push(`Your ${s.from.replace(/\s+-\s+Entering.*$/, '')} credit is priced from the table for students entering ${s.to.endsWith('Entering Grainger') ? 'Grainger' : 'colleges other than Grainger'}, the college of this degree.`);
     }
-    setPlan(generated.plan);
+    replaceActivePlan(generated.plan);
     setChooser(null);
+    setChooserOnMap(false);
     setTargetTermId(generated.plan.terms[0]?.id ?? '');
     setPlanNotes(generated.notes);
     // Only the parts of the report a board edit cannot change (reportOf).
@@ -880,18 +1407,20 @@ export function PlannerWorkspace({
      * that turn's single step already holds the board from before it, and
      * "Undo these changes" has to be able to put it back.
      */
-    // MERGE-UGA: UGA's side keeps the old setReport({...}) and setUndoStack([]) that Illinois replaced with
-    // reportOf above and this keepUndoOnBuild check, and adds needsAttention, which the status line reads.
-    // Keep these two lines plus UGA's needsAttention. Next hunk: union both buildPlan dep lists, keep
-    // Illinois's shape/credit watchers and applyBoard (have it call replaceActivePlan).
     if (keepUndoOnBuild.current) keepUndoOnBuild.current = false;
     else setUndoStack([]);
+    const needsAttention =
+      generated.notPlaced.length > 0 ||
+      generated.unsatisfied.some(
+        (row) =>
+          row.reason !== 'filled-by-electives' && row.reason !== 'not-parsed',
+      );
     setStatus(
-      generated.unsatisfied.length || generated.notPlaced.length
-        ? 'Plan built. Open the review list to see what it could not do.'
-        : 'Plan built. Nothing to review.',
+      needsAttention
+        ? 'Draft built. Review the items that still need attention.'
+        : 'Plan built. Nothing needs attention.',
     );
-  }, [isCatalogSchool, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape]);
+  }, [isCatalogSchool, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, isUga, isGraduatePlan, isUndecided, replaceActivePlan, notify, manuallyCompletedCodes]);
 
   /**
    * Credit that changes after the board exists rebuilds the board.
@@ -923,7 +1452,7 @@ export function PlannerWorkspace({
     buildPlan();
     notify('Plan rebuilt to your new shape', boardEdited ? 'Your earlier edits to the board were replaced.' : undefined, 'info');
     // Keyed on the shape; the rest is read fresh when it fires.
-  }, [shapeKey, plan, context, loaded, boardEdited, buildPlan]);
+  }, [shapeKey, plan, context, loaded, boardEdited, buildPlan, notify]);
   useEffect(() => {
     if (lastCreditKey.current === null) {
       lastCreditKey.current = creditKey;
@@ -947,19 +1476,20 @@ export function PlannerWorkspace({
     }
     // Only a change in the key does anything; the other dependencies are read
     // fresh when it does and are otherwise a no-op through the early return.
-  }, [creditKey, plan, context, loaded, boardEdited, buildPlan]);
+  }, [creditKey, plan, context, loaded, boardEdited, buildPlan, notify]);
 
   /** Put a board back: an undo step, or the board saved on this device. */
-  function applyBoard(state: BoardState) {
+  const applyBoard = useCallback((state: BoardState, updateActiveTab = true) => {
     planRef.current = state.plan;
-    setPlan(state.plan);
+    if (updateActiveTab) replaceActivePlan(state.plan);
+    else setPlan(state.plan);
     setReport(state.report);
     setPlanNotes(state.notes);
     studentAdded.current = new Set(state.studentAdded);
     repickedFor.current = state.repickedFor;
     setBoardEdited(state.edited);
     setChooser(null);
-  }
+  }, [replaceActivePlan]);
 
   useEffect(() => {
     if (plan) return;
@@ -967,16 +1497,56 @@ export function PlannerWorkspace({
     if (restored.current) {
       const saved = restored.current;
       restored.current = null;
-      // MERGE-UGA: UGA restores the saved plan tabs, groups and active tab here; Illinois restores one board with
-      // applyBoard. UGA's side alone reads saved.plan/plans/planGroups/activePlanId, which SavedBoard v4 lacks.
-      // Keep applyBoard, then restore tabs/groups once SavedBoard stores them (see the autosave below).
-      applyBoard(saved.board);
-      setTargetTermId(saved.board.plan.terms[0]?.id ?? '');
+      const rawSavedPlans = (saved.plans ?? []).filter(
+        (candidate) =>
+          candidate &&
+          typeof candidate.id === 'string' &&
+          typeof candidate.name === 'string' &&
+          isPlanState(candidate.plan),
+      );
+      const savedGroups = (saved.planGroups ?? []).filter(
+        (candidate) =>
+          candidate &&
+          typeof candidate.id === 'string' &&
+          typeof candidate.name === 'string' &&
+          typeof candidate.color === 'string' &&
+          /^#[0-9a-f]{6}$/i.test(candidate.color),
+      );
+      const restoredGroups = savedGroups.length > 0
+        ? savedGroups
+        : [{ ...DEFAULT_PLAN_GROUP }];
+      const restoredGroupIds = new Set(restoredGroups.map((group) => group.id));
+      const fallbackGroupId = restoredGroups[0].id;
+      const savedPlans = rawSavedPlans.map((candidate) => ({
+        ...candidate,
+        groupId:
+          typeof candidate.groupId === 'string' && restoredGroupIds.has(candidate.groupId)
+            ? candidate.groupId
+            : fallbackGroupId,
+      }));
+      const activeId = savedPlans.some(
+        (candidate) => candidate.id === saved.activePlanId,
+      )
+        ? (saved.activePlanId as string)
+        : savedPlans[0]?.id ?? 'plan-1';
+      const activePlan =
+        savedPlans.find((candidate) => candidate.id === activeId)?.plan ??
+        saved.board.plan;
+      setPlanTabs(
+        savedPlans.length > 0
+          ? savedPlans
+          : [{ id: activeId, name: 'Plan 1', groupId: fallbackGroupId, plan: activePlan }],
+      );
+      setPlanGroups(restoredGroups);
+      setActivePlanId(activeId);
+      const activeTab = savedPlans.find((candidate) => candidate.id === activeId);
+      applyBoard(activeTab?.board ?? { ...saved.board, plan: activePlan }, false);
+      setTargetTermId(activePlan.terms[0]?.id ?? '');
       setStatus('Your saved plan, restored from this device.');
       return;
     }
-    if (!isCatalogSchool || (context && loaded)) buildPlan();
-  }, [plan, isCatalogSchool, context, loaded, buildPlan]);
+    if (!isCatalogSchool || (context && (loaded || isUndecided))) buildPlan();
+  }, [plan, isCatalogSchool, isUndecided, context, loaded, buildPlan, applyBoard]);
 
   // ---- saved on this device -------------------------------------------------
 
@@ -993,8 +1563,6 @@ export function PlannerWorkspace({
    * "Leave site?": there is nothing unsaved to warn about.
    */
   /** The write waiting to go out: the entry, and its body without the time, to compare the next one with. */
-  const pendingSave = useRef<{ payload: string; body: string } | null>(null);
-  const lastSaved = useRef<string | null>(null);
   /** Write what is waiting, if anything; false when the browser refused it. */
   const writePending = useCallback((): boolean | null => {
     const pending = pendingSave.current;
@@ -1012,12 +1580,21 @@ export function PlannerWorkspace({
       return;
     }
     const saved: Omit<SavedBoard, 'savedAt'> = {
-      // MERGE-UGA: this autosave keeps one board and one programId. After the merge UGA's plan tabs, groups
-      // and activePlanId are never saved (majors/minors persist through answers), so extra tabs vanish on
-      // reload. Add plans/planGroups/activePlanId (and programKey) to SavedBoard here and in saved-board.ts.
       schemaVersion: 4,
       schoolId: school?.id ?? '',
       programId,
+      programIds,
+      minorIds,
+      certificateIds,
+      emphasisSelections: answers?.emphasisSelections ?? {},
+      programLevel,
+      plans: planTabs.map((tab) => tab.id === activePlanId ? {
+        ...tab,
+        plan,
+        board: { plan, report, notes: planNotes, studentAdded: [...studentAdded.current], repickedFor: repickedFor.current, edited: boardEdited },
+      } : reconcileCompletedTab(tab, sharedCompletedIds)),
+      planGroups,
+      activePlanId,
       board: {
         plan,
         report,
@@ -1040,7 +1617,7 @@ export function PlannerWorkspace({
       if (ok !== null) setSaveState(ok ? 'saved' : 'failed');
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [plan, report, planNotes, boardEdited, programId, school, minimumTermCredits, targetTermCredits, careerInterests, careerCleared, priorities, planShape, saveTick, writePending]);
+  }, [plan, report, planNotes, boardEdited, programId, school, minimumTermCredits, targetTermCredits, careerInterests, careerCleared, priorities, planShape, saveTick, writePending, programIds, minorIds, certificateIds, answers?.emphasisSelections, programLevel, planTabs, planGroups, activePlanId, sharedCompletedIds]);
   useEffect(() => {
     const flush = () => {
       const ok = writePending();
@@ -1063,11 +1640,6 @@ export function PlannerWorkspace({
    * about it, together, and any write still waiting, so a reload straight
    * after Start over does not put the old board back.
    */
-  function forgetThisBoard() {
-    pendingSave.current = null;
-    lastSaved.current = null;
-    forgetBoard(deviceStorage());
-  }
 
   // ---- derived --------------------------------------------------------------
 
@@ -1086,8 +1658,6 @@ export function PlannerWorkspace({
     return out;
   }, [plan, courseIndex]);
 
-  // MERGE-UGA: UGA adds completedCourses (the rail's priorCourses list) here; Illinois adds priorCreditHours,
-  // which the credit total, validatePlan and ALMA read. Not alternatives: keep both memos.
   /**
    * Every hour the student holds, as the registrar would count it: each held
    * class once at its catalog hours (none the plan forfeited), plus exam and
@@ -1102,6 +1672,14 @@ export function PlannerWorkspace({
     const once = distinctHeld([...completedCodes].filter((code) => !forfeited.has(code)), context).codes;
     return planCreditRange(once, context).min + priorHoursOf(answers, exams, examCredit.entries, catalogCredits);
   }, [context, report, completedCodes, answers, exams, examCredit, catalogCredits]);
+  const completedCourses = useMemo(
+    () =>
+      (plan?.completedCourseIds ?? [])
+        .map((id) => courseIndex.get(id))
+        .filter((course): course is Course => Boolean(course))
+        .map((course) => ({ code: course.code, title: course.title })),
+    [plan, courseIndex],
+  );
 
   /** Every course code on the board, in term order. */
   const boardCodes = useMemo(() => {
@@ -1258,35 +1836,13 @@ export function PlannerWorkspace({
     ];
   }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits, admissionChoice]);
 
-  // MERGE-UGA: UGA moved `issues` below `areas` (its degreeCompletionIssue reads areas, pools, credits) and
-  // adds planWideIssues/planWideSeverity for the plan tabs; Illinois passes more validatePlan options here.
-  // Keeping both declares `issues` twice. Keep one, after `areas`: Illinois's validatePlan options plus
-  // UGA's completion issue and planWide* memos.
-  const issues = useMemo(() => {
-    if (!plan) return [];
-    const validation = context
-      ? validatePlan(plan, context, {
-          minimumTermCredits,
-          programName: loaded?.program.name,
-          programCollege: loaded?.program.college,
-          priorCredits: priorCreditHours,
-          away: report?.away,
-          language: report?.language ?? null,
-          firstYear: enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
-          arrival: arrivalOf(answers),
-        }).filter(
-          (issue) => !isUga || !issue.id.startsWith('ap-weighed-'),
-        )
-      : [];
-    const rows = context
-      ? [...unmet, ...validation]
-      : getPlanIssues(plan, catalog, { minimumTermCredits });
-    return rows.map((issue) => ({ ...issue, message: withCourseCodes(issue.message) }));
-  }, [plan, context, isUga, unmet, minimumTermCredits, catalog, loaded, priorCreditHours, report, answers]);
-
   /** The degree on screen, from whichever source this school has. */
   const activeProgramName =
-    loaded?.program.name ?? programOptions.find((p) => p.id === programId)?.name ?? null;
+    loaded?.program.name ??
+    (programIds
+        .map((id) => programOptions.find((program) => program.id === id)?.name)
+        .filter((name): name is string => Boolean(name))
+        .join(' + ') || null);
   const activeProgramTotal =
     loaded?.program.totalCredits ||
     samplePrograms.find((p) => p.id === programId)?.totalCredits ||
@@ -1409,12 +1965,115 @@ export function PlannerWorkspace({
         if (course) have.add(normCode(course.code));
       }
     }
-    // MERGE-UGA: UGA passes equivalents + allowCrossAreaOverlap and rebuilds UGA's General Electives row from
-    // credits.total.min (then its moved `issues` block); Illinois only grew the dep list for the
-    // illinoisProgress branch above. Keep UGA's body with the union of both dep lists: UGA's short list leaves
-    // Illinois's rows stale.
-    return areaProgress(loaded.program, have);
-  }, [loaded, plan, completedCodes, courseIndex, isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits, context]);
+    const progress = areaProgress(
+      loaded.program,
+      have,
+      context?.equivalents,
+      { allowCrossAreaOverlap: isUga },
+    );
+    if (!isUga) return progress;
+
+    // UGA's General Electives row is the degree credit left after the named
+    // areas have claimed their capped hours. That includes editable elective
+    // cards and the extra hour of a four-credit course filling a three-credit
+    // area. Counting only cards labelled "elective" understated this row even
+    // when the board had reached the published degree total.
+    const namedCredits = progress
+      .filter((row) => !/^(?:general|free) electives?\b/i.test(row.area.label))
+      .reduce((sum, row) => sum + row.earned, 0);
+    const unassignedCredits = Math.max(0, credits.total.min - namedCredits);
+    return progress.map((row) => {
+      if (!/^(?:general|free) electives?\b/i.test(row.area.label)) return row;
+      const earned = Math.min(row.area.hours, unassignedCredits);
+      return {
+        ...row,
+        earned,
+        percent: row.area.hours
+          ? Math.round((earned / row.area.hours) * 100)
+          : 0,
+        satisfied: row.area.hours > 0 && earned >= row.area.hours,
+      };
+    });
+  }, [
+    loaded,
+    plan,
+    completedCodes,
+    courseIndex,
+    isUga,
+    context,
+    credits.total.min, isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits,
+  ]);
+
+  /**
+   * The review list follows the edited board, not only the generation report.
+   * A plan may be valid when generated and stop being valid after a course is
+   * removed or replaced, so the first red row gives the overall consequence
+   * before the specific prerequisite and requirement details below it.
+   */
+  const issues = useMemo(() => {
+    if (!plan) return [];
+    const validation = context
+      ? validatePlan(plan, context, {
+          minimumTermCredits,
+          programName: loaded?.program.name,
+          programCollege: loaded?.program.college,
+          priorCredits: priorCreditHours,
+          away: report?.away,
+          language: report?.language ?? null,
+          firstYear: isIllinois && enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
+          arrival: arrivalOf(answers),
+          standingHours: isGraduatePlan ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 } : undefined,
+        }).filter(
+          (issue) => !isUga || !issue.id.startsWith('ap-weighed-'),
+        )
+      : [];
+    const rows = context
+      ? [...unmet, ...validation]
+      : getPlanIssues(plan, catalog, { minimumTermCredits });
+    const currentCredits = context ? credits.total.min : getPlanCredits(plan, catalog).total;
+    const incompleteAreas = areas.filter((row) => row.area.hours > 0 && !row.satisfied);
+    const incompletePools = pools.filter(
+      (pool) =>
+        (pool.hoursTarget !== null && pool.hours < pool.hoursTarget) ||
+        (pool.countTarget !== null && pool.count < pool.countTarget),
+    );
+    const completionIssue = degreeCompletionIssue({
+      currentCredits,
+      requiredCredits: activeProgramTotal,
+      incompleteRequirementNames: [
+        ...incompleteAreas.map((row) => row.area.label).filter(Boolean),
+        ...incompletePools.map((pool) => pool.label).filter(Boolean),
+      ],
+      termId: plan.terms[0]?.id ?? '',
+    });
+    return [completionIssue, ...rows]
+      .filter((issue): issue is PlanIssue => Boolean(issue))
+      .map((issue) => ({ ...issue, message: withCourseCodes(issue.message) }));
+  }, [
+    plan,
+    context,
+    isUga,
+    unmet,
+    minimumTermCredits,
+    catalog,
+    credits.total.min,
+    activeProgramTotal,
+    areas,
+    pools,
+    loaded, priorCreditHours, report, answers, isIllinois, isGraduatePlan,
+  ]);
+
+  const planWideIssues = useMemo(
+    () => groupIssues(issues.filter((issue) => !issue.courseId && !isTermIssue(issue))),
+    [issues],
+  );
+  const planWideSeverity = planWideIssues[0]?.severity ?? null;
+  const planWideSummary = planWideIssues.map((group) => `${group.title}: ${group.message}`).join('\n\n');
+  const tabIssueSeverity = (candidate: PlanTab) =>
+    candidate.id === activePlanId ? planWideSeverity : (candidate.issueSeverity ?? null);
+  const tabIssueSummary = (candidate: PlanTab) => candidate.id === activePlanId
+    ? planWideSummary
+    : candidate.issueSummary || 'This plan has notes to review. Open the plan to refresh its warning details.';
 
   /**
    * Which pool each planned course is filling, and what that pool still wants.
@@ -1443,14 +2102,6 @@ export function PlannerWorkspace({
     [pools, byCode, report],
   );
 
-  /**
-   * What the map paints, in priority order, capped at 240.
-   *
-   * The old slice took every Nth course out of the catalog and labelled the
-   * result "881 courses", which reads as the whole catalog and is not. A map a
-   * student can act on shows what their own degree and their own search point
-   * at, and the count below it says how many of how many.
-   */
   /** Whether the query matches anything at all, so the panel can say when it does not. */
   const searchHits = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -1465,8 +2116,7 @@ export function PlannerWorkspace({
    *
    * The map answers a search by lighting dots, and forty accountancy courses
    * light one cluster the size of a thumbnail. The list is the same matches
-   * with their codes and titles, catalog-wide rather than capped at the 240 the
-   * map paints. Code matches first, because a student who typed "ACCY 3" wants
+   * with their codes and titles. Code matches first, because a student who typed "ACCY 3" wants
    * ACCY 301 above a title that mentions accountancy.
    */
   const searchResults = useMemo((): Course[] => {
@@ -1484,47 +2134,8 @@ export function PlannerWorkspace({
     return [...byCodeHit, ...byTitleHit, ...bySubjectHit].slice(0, 80);
   }, [catalog, searchQuery]);
 
-  const mapCourses = useMemo(() => {
-    const picked = new Map<string, Course>();
-    const take = (c?: Course) => {
-      if (c && !picked.has(c.id)) picked.set(c.id, c);
-    };
-    plannedCourseIds.forEach((id) => take(courseIndex.get(id)));
-
-    // What the student searched for goes on before the degree fill, not after.
-    // The degree lists alone exhaust MAP_LIMIT on Computer Science, so the
-    // search loop used to break on its first iteration and 5,870 of the 6,110
-    // courses could never be found at all. A search that silently returns the
-    // same 240 dots is worse than no search.
-    const query = searchQuery.trim().toLowerCase();
-    if (query) {
-      for (const course of catalog) {
-        if (picked.size >= MAP_LIMIT) break;
-        if (matchesQuery(course, query)) take(course);
-      }
-    }
-
-    if (loaded) {
-      const wanted = new Set(loaded.blocks.map((b) => b.areaId));
-      for (const course of catalog) {
-        if (picked.size >= MAP_LIMIT) break;
-        if (course.requirementIds.some((id) => wanted.has(id))) take(course);
-      }
-    }
-    for (const course of catalog) {
-      if (picked.size >= MAP_LIMIT) break;
-      take(course);
-    }
-    return [...picked.values()];
-  }, [catalog, courseIndex, loaded, plannedCourseIds, searchQuery]);
-
   const selectedCourse = selectedCourseId ? courseIndex.get(selectedCourseId) : undefined;
 
-  // MERGE-UGA: UGA adds clonePlan, the plan-tab/group functions, resizeTerm and markCourseCompleted here;
-  // Illinois adds boardNow/settingsNow, undo-step commit and the ALMA turn functions. Keep all (the } after
-  // the block is shared: add one). UGA's tabs hold only a PlanState, so report/studentAdded stay with the
-  // active tab; switching tabs shows another tab's card marks unless tabs store a BoardState.
-  // ---- plan edits -----------------------------------------------------------
 
   /**
    * The board as it stands, report and all: what one undo step puts back and
@@ -1564,18 +2175,20 @@ export function PlannerWorkspace({
    * back the whole answer: three history courses in, three elective slots out.
    * `added` are cards that read "added" from now on.
    */
-  // MERGE-UGA: UGA's commit(next, alreadyTakenCodes?) updates the active tab and answers; this one records
-  // undo steps and ALMA turns, and ALMA tools call commit(next, { by: 'alma' }), which UGA's signature
-  // rejects. Keep this one, add an alreadyTaken option, and call replaceActivePlan(next) instead of setPlan.
-  function commit(next: PlanState, options: { by?: 'student' | 'alma'; summary?: string; added?: string[] } = {}) {
+  function commit(next: PlanState, options: { by?: 'student' | 'alma'; summary?: string; added?: string[]; alreadyTaken?: string[] } = {}) {
     const before = boardNow();
     if (!before) return;
     if (options.by === 'alma' && almaTurn.current) almaChanged(options.summary ?? null);
-    else setUndoStack((current) => pushUndo(current, { before }));
+    else setUndoStack((current) => pushUndo(current, { before, ...(options.alreadyTaken ? { alreadyTakenCourseCodes: answers?.alreadyTakenCourseCodes ?? [] } : {}) }));
     if (options.added?.length) studentAdded.current = new Set([...studentAdded.current, ...options.added]);
     planRef.current = next;
-    setPlan(next);
+    replaceActivePlan(next);
     setBoardEdited(true);
+    if (options.alreadyTaken && answers && onAnswersChange) {
+      // The edit already moved this credit off the board; keep the rest of the student's plan.
+      creditRestored.current = true;
+      onAnswersChange({ ...answers, alreadyTakenCourseCodes: options.alreadyTaken });
+    }
   }
 
   /**
@@ -1599,7 +2212,7 @@ export function PlannerWorkspace({
     const before = boardNow();
     almaTurn.current = before
       ? {
-          id: `turn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          id: newWorkspaceId('turn'),
           before,
           settings: settingsNow(),
           transcript: live.current.answers?.transcript ?? null,
@@ -1635,6 +2248,183 @@ export function PlannerWorkspace({
       ...(transcriptNow !== turn.transcript ? { transcript: { value: turn.transcript } } : {}),
     };
     setUndoStack((current) => current.map((entry) => (entry.turn?.id === turn.id ? { ...entry, turn: record } : entry)));
+}
+
+  const clonePlan = (source: PlanState): PlanState => ({
+    ...source,
+    completedCourseIds: [...source.completedCourseIds],
+    terms: source.terms.map((term) => ({
+      ...term,
+      courseIds: [...term.courseIds],
+    })),
+  });
+
+  function switchPlanTab(id: string) {
+    if (id === activePlanId) return;
+    const storedTarget = planTabs.find((candidate) => candidate.id === id);
+    if (!storedTarget) return;
+    const target = reconcileCompletedTab(storedTarget, sharedCompletedIds);
+    const currentBoard = boardNow();
+    setPlanTabs((current) =>
+      current.map((candidate) =>
+        candidate.id === activePlanId && plan
+          ? { ...candidate, plan, board: currentBoard ?? undefined, issueSeverity: planWideSeverity, issueSummary: planWideSummary }
+          : candidate.id === id ? target : candidate,
+      ),
+    );
+    setActivePlanId(id);
+    applyBoard(target.board ?? { plan: target.plan, report: null, notes: [], studentAdded: [], repickedFor: null, edited: true }, false);
+    setUndoStack([]);
+    setSelectedCourseId(null);
+    setFocusTermId(null);
+    setTargetTermId(target.plan.terms[0]?.id ?? '');
+    setStatus(`${target.name} is open.`);
+  }
+
+  function duplicatePlanTab(groupId?: string) {
+    if (!plan) return;
+    const used = new Set(planTabs.map((candidate) => candidate.name));
+    let number = planTabs.length + 1;
+    while (used.has(`Plan ${number}`)) number += 1;
+    const copy = clonePlan(plan);
+    const id = newWorkspaceId('plan');
+    const currentBoard = boardNow();
+    const destinationGroupId = groupId ??
+      planTabs.find((candidate) => candidate.id === activePlanId)?.groupId ??
+      planGroups[0]?.id ??
+      DEFAULT_PLAN_GROUP.id;
+    setPlanTabs((current) => [
+      ...current.map((candidate) =>
+        candidate.id === activePlanId
+          ? { ...candidate, plan, board: currentBoard ?? undefined, issueSeverity: planWideSeverity, issueSummary: planWideSummary }
+          : candidate,
+      ),
+      {
+        id,
+        name: `Plan ${number}`,
+        groupId: destinationGroupId,
+        plan: copy,
+        board: { ...(currentBoard ?? { report: null, notes: [], studentAdded: [], repickedFor: null, edited: true }), plan: copy },
+        issueSeverity: planWideSeverity,
+        issueSummary: planWideSummary,
+      },
+    ]);
+    setActivePlanId(id);
+    setPlan(copy);
+    planRef.current = copy;
+    setUndoStack([]);
+    setSelectedCourseId(null);
+    setStatus(`Plan ${number} created from the current plan.`);
+  }
+
+  function createPlanGroup() {
+    if (!plan) return;
+    const used = new Set(planGroups.map((group) => group.name));
+    let number = planGroups.length + 1;
+    while (used.has(`Group ${number}`)) number += 1;
+    const group: PlanGroup = {
+      id: newWorkspaceId('group'),
+      name: `Group ${number}`,
+      color: PLAN_GROUP_COLORS[planGroups.length % PLAN_GROUP_COLORS.length],
+    };
+    setPlanGroups((current) => [...current, group]);
+    duplicatePlanTab(group.id);
+  }
+
+  function renamePlanTab(id: string, name: string) {
+    setPlanTabs((current) =>
+      current.map((candidate) => candidate.id === id ? { ...candidate, name } : candidate),
+    );
+  }
+
+  function renamePlanGroup(id: string, name: string) {
+    setPlanGroups((current) =>
+      current.map((group) => group.id === id ? { ...group, name } : group),
+    );
+  }
+
+  function recolorPlanGroup(id: string, color: string) {
+    setPlanGroups((current) =>
+      current.map((group) => group.id === id ? { ...group, color } : group),
+    );
+  }
+
+  function movePlanTabToGroup(tabId: string, targetGroupId: string) {
+    const moving = planTabs.find((candidate) => candidate.id === tabId);
+    if (!moving || moving.groupId === targetGroupId) return;
+    const sourceGroupId = moving.groupId;
+    const next = planTabs.filter((candidate) => candidate.id !== tabId);
+    next.push({
+      ...moving,
+      groupId: targetGroupId,
+      plan: moving.id === activePlanId && plan ? plan : moving.plan,
+    });
+    setPlanTabs(next);
+    if (!next.some((candidate) => candidate.groupId === sourceGroupId)) {
+      setPlanGroups((current) => current.filter((group) => group.id !== sourceGroupId));
+    }
+    const targetName = planGroups.find((group) => group.id === targetGroupId)?.name ?? 'the group';
+    setStatus(`${moving.name} moved to ${targetName}.`);
+  }
+
+  function movePlanTabToAdjacentGroup(tabId: string, direction: -1 | 1) {
+    const moving = planTabs.find((candidate) => candidate.id === tabId);
+    if (!moving) return;
+    const sourceIndex = planGroups.findIndex((group) => group.id === moving.groupId);
+    const target = planGroups[sourceIndex + direction];
+    if (target) movePlanTabToGroup(tabId, target.id);
+  }
+
+  function closePlanTab(id: string) {
+    if (planTabs.length <= 1) return;
+    const index = planTabs.findIndex((candidate) => candidate.id === id);
+    if (index < 0) return;
+    const remaining = planTabs.filter((candidate) => candidate.id !== id);
+    setPlanTabs(remaining);
+    const remainingGroupIds = new Set(remaining.map((candidate) => candidate.groupId));
+    setPlanGroups((current) => current.filter((group) => remainingGroupIds.has(group.id)));
+    if (id !== activePlanId) return;
+    const next = reconcileCompletedTab(remaining[Math.min(index, remaining.length - 1)], sharedCompletedIds);
+    setActivePlanId(next.id);
+    applyBoard(next.board ?? { plan: next.plan, report: null, notes: [], studentAdded: [], repickedFor: null, edited: true }, false);
+    setUndoStack([]);
+    setSelectedCourseId(null);
+    setTargetTermId(next.plan.terms[0]?.id ?? '');
+    setStatus(`${next.name} is open.`);
+  }
+
+  function resizeTerm(termId: string, width: number) {
+    setTermWidths((current) =>
+      current[termId] === width ? current : { ...current, [termId]: width },
+    );
+  }
+
+  function markCourseCompleted(courseId: string, termId: string) {
+    if (!plan) return;
+    const course = courseIndex.get(courseId);
+    if (!course) return;
+    const completedCodes = [...new Set([
+      ...(answers?.alreadyTakenCourseCodes ?? []),
+      course.code,
+    ])];
+    commit(
+      {
+        ...plan,
+        completedCourseIds: plan.completedCourseIds.includes(courseId)
+          ? plan.completedCourseIds
+          : [...plan.completedCourseIds, courseId],
+        terms: plan.terms.map((term) => ({
+          ...term,
+          courseIds: term.courseIds.filter((id) => id !== courseId),
+        })),
+      },
+      { alreadyTaken: completedCodes },
+    );
+    setSelectedCourseId(null);
+    setFocusTermId(null);
+    setStatus(
+      `${course.code} is now already taken. It was removed from ${plan.terms.find((term) => term.id === termId)?.label ?? 'the schedule'} and still counts toward your requirements.`,
+    );
   }
 
   function addCourse(courseId: string, termId: string) {
@@ -1645,18 +2435,17 @@ export function PlannerWorkspace({
       setStatus(`${course.code} is already in the plan.`);
       return;
     }
+    const asCompleted = termId === 'completed';
     commit(
-      termId === 'completed'
+      asCompleted
         ? { ...plan, completedCourseIds: [...plan.completedCourseIds, courseId] }
         : {
             ...plan,
             terms: plan.terms.map((term) =>
               term.id === termId ? { ...term, courseIds: [...term.courseIds, courseId] } : term,
             ),
-          },
-      // MERGE-UGA: UGA's second argument writes the course to answers.alreadyTakenCourseCodes when it is marked
-      // completed; Illinois's marks the card as student-added. Pass both through Illinois's options object.
-      { added: termId === 'completed' ? [] : [courseId] },
+      },
+      { added: asCompleted ? [] : [courseId], alreadyTaken: asCompleted ? [...new Set([...(answers?.alreadyTakenCourseCodes ?? []), course.code])] : undefined },
     );
     setSelectedCourseId(courseId);
     setFocusTermId(termId === 'completed' ? null : termId);
@@ -1668,14 +2457,10 @@ export function PlannerWorkspace({
   }
 
   /**
-   * The slot's chooser: everything the student could take in that term, best
-   * fit first, read off the board as it stands. Built only while a slot is open,
-   * because it walks the whole catalog against the board's prerequisites.
+   * Eligible replacements for one card. First establish which published
+   * requirement the card is filling, then apply the term's prerequisite,
+   * offering, standing, duplicate-credit and already-planned checks.
    */
-  // MERGE-UGA: chooser conflict (2 hunks). UGA: chooserData scoped by replacementScope() over
-  // planWithoutCourse, replacementCourseIds, prepareReplacement. Illinois: priorForOptions/interestsText (also
-  // read by re-pick and ALMA) and chooserOptions {options, whys}, read by the merged CourseExplorer. Keep both;
-  // drop UGA's `const chooserOptions = ...` (name clash); port candidateCodes/electiveLevelRange to electiveOptions.
   /** What the student walks in with, as the option lists and the re-pick read it. */
   const priorForOptions = useMemo(
     () =>
@@ -1683,47 +2468,116 @@ export function PlannerWorkspace({
         answers?.transferText ?? '',
         answers?.exams.length ?? 0,
         byCode,
-        [...examCourses(exams, examCredit.entries, (code) => byCode.has(code)), ...transcriptCodes(answers?.transcript)],
+        [...examCourses(exams, examCredit.entries, (code) => byCode.has(code)), ...transcriptCodes(answers?.transcript), ...manuallyCompletedCodes],
         Boolean(answers?.transcript),
         priorHoursOf(answers, exams, examCredit.entries, catalogCredits),
         answers?.languageYears ?? null,
         answers?.language ?? null,
       ), answers, exams, examCredit.entries, catalogCredits),
-    [answers, byCode, examCredit, exams, catalogCredits],
+    [answers, byCode, examCredit, exams, catalogCredits, manuallyCompletedCodes],
   );
   // careerInterests starts as the 'after' answer and replaces it once edited;
   // joining both counted the same words twice. The studying answer adds free
   // words and subjects here; goals are read from careerText alone.
   const interestsText = [answers?.studying ?? '', careerText].join(' ');
 
-  const chooserOptions = useMemo((): { options: Course[]; whys: Map<string, string> } => {
-    if (!chooser || !plan || !context || !loaded) return { options: [], whys: new Map() };
-    const options: Course[] = [];
+  const chooserData = useMemo((): { label: string; options: Course[]; whys: Map<string, string> } | null => {
+    if (!chooser || !plan || !context || !loaded) return null;
+    const oldCourse = courseIndex.get(chooser.courseId);
+    if (!oldCourse) return null;
+    const isPrerequisite = plan.terms.some((term) =>
+      term.courseIds.some((id) => courseIndex.get(id)?.prerequisites.includes(oldCourse.id)),
+    );
+    const scope = replacementScope({
+      course: oldCourse,
+      blocks: loaded.blocks,
+      pools,
+      isOpenElective: electiveOf.get(oldCourse.id)?.kind === 'elective',
+      isPrerequisite,
+      catalog,
+    });
+    const planWithoutCourse: PlanState = {
+      ...plan,
+      terms: plan.terms.map((term) =>
+        term.id === chooser.termId
+          ? { ...term, courseIds: term.courseIds.filter((id) => id !== chooser.courseId) }
+          : term,
+      ),
+    };
     const whys = new Map<string, string>();
-    for (const option of electiveOptions({
+    const options = electiveOptions({
       context,
       requirements: loaded.blocks,
-      plan,
+      plan: planWithoutCourse,
       termId: chooser.termId,
       prior: priorForOptions,
       interests: interestsText,
       career: careerText,
-      programName: loaded.program.name,
       programCollege: loaded.program.college,
       priorities,
-      limit: 80,
-    })) {
-      const course = byCode.get(normCode(option.code));
-      if (!course) continue;
-      options.push(course);
-      whys.set(course.id, option.reasons.length > 0 ? option.reasons.slice(0, 3).join('; ') : option.why);
-    }
-    return { options, whys };
-  }, [chooser, plan, context, loaded, byCode, priorForOptions, interestsText, careerText, priorities]);
+      programName: loaded.program.name,
+      standingHours: isGraduatePlan
+        ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 }
+        : undefined,
+      electiveLevelRange: isGraduatePlan
+        ? { min: 600, maxExclusive: 1000 }
+        : undefined,
+      candidateCodes: scope.codes ?? undefined,
+      limit: scope.codes === null ? catalog.length : Math.max(800, scope.codes.size),
+    })
+      .filter((option) => normCode(option.code) !== normCode(oldCourse.code))
+      .filter((option) => scope.codes === null || scope.codes.has(normCode(option.code)))
+      .map((option) => {
+        const course = byCode.get(normCode(option.code));
+        if (course) whys.set(course.id, option.reasons.length ? option.reasons.slice(0, 3).join('; ') : option.why);
+        return course;
+      })
+      .filter((course): course is Course => Boolean(course));
+    return { label: scope.label, options, whys };
+  }, [
+    chooser,
+    plan,
+    context,
+    loaded,
+    courseIndex,
+    pools,
+    electiveOf,
+    catalog,
+    byCode,
+    isGraduatePlan,
+    priorForOptions, interestsText, careerText, priorities,
+  ]);
+
+  const chooserOptions = { options: chooserData?.options ?? [], whys: chooserData?.whys ?? new Map<string, string>() };
+  const replacementCourseIds = useMemo(
+    () => new Set((chooserOnMap ? chooserData?.options ?? [] : []).map((course) => course.id)),
+    [chooserData, chooserOnMap],
+  );
+
+  function prepareReplacement(courseId: string, termId: string) {
+    setChooser({ termId, courseId });
+    setChooserOnMap(false);
+  }
 
   function openChooser(courseId: string, termId: string) {
-    setChooser({ termId, courseId });
+    prepareReplacement(courseId, termId);
     setSearchQuery('');
+    setChooserOnMap(true);
+    setFinderOpen(true);
+  }
+
+  function showReplacementCourse(courseId: string) {
+    const course = courseIndex.get(courseId);
+    if (!course) return;
+    setSelectedCourseId(courseId);
+    setSearchQuery(course.code);
+    setChooserOnMap(true);
+    setFinderOpen(true);
+  }
+
+  function showReplacements() {
+    setSearchQuery('');
+    setChooserOnMap(true);
     setFinderOpen(true);
   }
 
@@ -1743,9 +2597,12 @@ export function PlannerWorkspace({
         t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === oldId ? newId : id)) } : t,
       ),
     });
-    // The slot stays an elective slot, now holding what the student chose.
-    noteElectiveSwap(oldCourse?.code ?? '', course.code, 'You chose it for this elective slot.');
+    // A true open-elective card remains an open-elective card after a swap.
+    if (oldCourse && electiveOf.get(oldCourse.id)?.kind === 'elective') {
+      noteElectiveSwap(oldCourse.code, course.code, 'You chose it for this elective slot.');
+    }
     setChooser(null);
+    setChooserOnMap(false);
     setSelectedCourseId(newId);
     setStatus(`${course.code} replaces ${oldCourse?.code ?? 'the elective'} in ${plan.terms.find((t) => t.id === termId)?.label ?? 'that term'}.`);
   }
@@ -1773,26 +2630,49 @@ export function PlannerWorkspace({
     setStatus(`${course?.code ?? 'Course'} removed.`);
   }
 
-  function moveCourse(courseId: string, fromTermId: string, toTermId: string) {
-    if (!plan || fromTermId === toTermId) return;
+  function moveCourse(
+    courseId: string,
+    fromTermId: string,
+    toTermId: string,
+    targetCourseId?: string,
+    placeAfter = false,
+  ) {
+    if (!plan || targetCourseId === courseId) return;
     const destination = plan.terms.find((t) => t.id === toTermId);
     if (!destination) return;
     const course = courseIndex.get(courseId);
+    const reordered = destination.courseIds.filter((id) => id !== courseId);
+    const targetIndex = targetCourseId ? reordered.indexOf(targetCourseId) : -1;
+    if (targetIndex === -1) reordered.push(courseId);
+    else reordered.splice(targetIndex + (placeAfter ? 1 : 0), 0, courseId);
+    if (
+      fromTermId === toTermId &&
+      destination.courseIds.every((id, index) => reordered[index] === id)
+    ) {
+      return;
+    }
     commit({
       ...plan,
       terms: plan.terms.map((term) => {
+        if (fromTermId === toTermId && term.id === toTermId) {
+          return { ...term, courseIds: reordered };
+        }
         if (term.id === fromTermId) {
           return { ...term, courseIds: term.courseIds.filter((id) => id !== courseId) };
         }
         if (term.id === toTermId) {
-          return { ...term, courseIds: [...term.courseIds, courseId] };
+          return { ...term, courseIds: reordered };
         }
         return term;
       }),
     });
     setSelectedCourseId(courseId);
     setFocusTermId(toTermId);
-    setStatus(`${course?.code ?? 'Course'} moved to ${destination.label}.`);
+    setStatus(
+      fromTermId === toTermId
+        ? `${course?.code ?? 'Course'} reordered within ${destination.label}.`
+        : `${course?.code ?? 'Course'} moved to ${destination.label}.`,
+    );
   }
 
   function selectPlanned(courseId: string, termId: string) {
@@ -1815,6 +2695,16 @@ export function PlannerWorkspace({
     document
       .getElementById(issue.courseId ? `planned-${issue.termId}-${issue.courseId}` : `term-${issue.termId}`)
       ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
+
+  function showWarningCourse(courseId: string) {
+    if (!courseIndex.has(courseId)) return;
+    setChooser(null);
+    setChooserOnMap(false);
+    setSearchQuery('');
+    setSelectedCourseId(courseId);
+    setFinderOpen(true);
+    setMapFocusRequest((current) => ({ courseId, sequence: (current?.sequence ?? 0) + 1 }));
   }
 
   // ---- the advisor's hands and eyes ----------------------------------------
@@ -1932,8 +2822,9 @@ export function PlannerWorkspace({
       language: L.language,
       // Read for this student: a transfer or a continuing sophomore is never
       // told a first-term seminar belongs in "the first year".
-      firstYear: enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
+      firstYear: isIllinois && enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
       arrival: arrivalOf(L.answers),
+      standingHours: isGraduatePlan ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 } : undefined,
     };
   }
 
@@ -1953,7 +2844,7 @@ export function PlannerWorkspace({
       board,
       requirements: L.loaded.blocks,
       programName: L.loaded.program.name,
-      firstYear: enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
+      firstYear: isIllinois && enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
       targetTermCredits: L.targetTermCredits ?? null,
       built: L.report?.builtTerms ?? null,
       planAim: L.report?.aim ?? null,
@@ -2013,7 +2904,7 @@ export function PlannerWorkspace({
   /** The published total a swap must not take the plan below, read the way buildPlan reads it. */
   function degreeTotalNow(): number | null {
     const loadedNow = live.current.loaded;
-    if (!loadedNow) return null;
+    if (!loadedNow || isUndecided) return null;
     return loadedNow.summary.totalCredits || loadedNow.program.totalCredits || (isIllinois ? 120 : null);
   }
 
@@ -2083,7 +2974,7 @@ export function PlannerWorkspace({
     const who = {
       programName: L.loaded.program.name,
       programCollege: L.loaded.program.college,
-      primary: degreeSubjects(L.loaded.blocks, L.loaded.program.name).primary,
+      primary: degreeSubjects(L.loaded.blocks, L.loaded.program.name, ctx.schoolId).primary,
       arrival: arrivalOf(L.answers),
     };
     return (course) => notRegistrable(course, ctx, who) === null;
@@ -2307,7 +3198,7 @@ export function PlannerWorkspace({
    * student names asks for it.
    */
   function trackRowOf(code: string, trackName: string | undefined): string[] | null {
-    const track = interestProfileOf(live.current.careerText).tracks.find((t) => t.name === trackName);
+    const track = interestProfileOf(live.current.careerText, isUga ? 'uga' : 'illinois').tracks.find((t) => t.name === trackName);
     const row = track?.courses.find((c) => c.codes.some((x) => normCode(x) === normCode(code)));
     return row ? row.codes.map(normCode) : null;
   }
@@ -2335,12 +3226,14 @@ export function PlannerWorkspace({
     const lines: string[] = [today];
     const last = board.terms[board.terms.length - 1]?.label ?? '';
     lines.push(
-      `Degree: ${L.loaded.program.name}, University of Illinois. Published total: ${L.activeProgramTotal ?? 'not published'} credits. Plan: ${L.totalCredits} through ${last}.`,
+      `Degree: ${L.loaded.program.name}, ${school?.name ?? 'selected university'}. Published total: ${L.activeProgramTotal ?? 'not published'} credits. Plan: ${L.totalCredits} through ${last}.`,
     );
     // Who ALMA sends the student to for what it cannot decide: a Media student's
     // late drop is a petition at 119 Gregory Hall, not "your advisor".
-    const college = collegeRulesFor(L.loaded.program.college);
-    lines.push(`College: ${college.name}. Its office for loads, CR/NC, grade replacement, late drops and petitions: ${college.office}.`);
+    if (isIllinois) {
+      const college = collegeRulesFor(L.loaded.program.college);
+      lines.push(`College: ${college.name}. Its office for loads, CR/NC, grade replacement, late drops and petitions: ${college.office}.`);
+    } else lines.push(`College: ${L.loaded.program.college || 'not selected'}. Consult the university catalog and college adviser for loads, grading options, late drops and petitions.`);
     lines.push(
       'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [career track: X] a course the student\'s career track X requires; keep it unless they drop the goal, and ask before removing or replacing it. [language] part of the language sequence for the language requirement; the language is the student\'s choice, the level is not. [gen ed pick] the planner chose it for a general education category; swap it for another course that carries the same categories. [prerequisite] the planner booked it because a later course needs it. [added] the student or you put it there.',
     );
@@ -2352,7 +3245,7 @@ export function PlannerWorkspace({
     lines.push(
       `Credit load: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'an even share of what is left'}, never above 18.${describeShape(planShapeRef.current)} Section times on cards come from ${L.core?.meta?.term?.label ?? 'one crawled term'}.`,
     );
-    lines.push(describeGoals(L.answers?.studying ?? '', L.careerText));
+    lines.push(describeGoals(L.answers?.studying ?? '', L.careerText, isUga ? 'uga' : 'illinois'));
     lines.push(`Priorities, which decide the elective picks and the order of choices: ${describePriorities(L.priorities)}`);
     if (L.language) lines.push(`Language requirement: ${L.language.name}, semesters ${L.language.completed + 1} to ${L.language.semesters} planned (${L.language.codes.join(', ')}). ${L.language.why}`);
     if (L.admission) lines.push(`Getting into ${L.admission.name} (${L.admission.path}): the student is not in this college yet. Its courses (${L.admission.codes.join(', ')}) are placed first, due by ${L.admission.requiredBy}. ${L.admission.eligibility.join(' ')} Source: ${L.admission.source}`);
@@ -2407,9 +3300,15 @@ export function PlannerWorkspace({
     // A change this call makes is filed under it, for the reply's undo.
     if (almaTurn.current) almaTurn.current.toolId = call?.id ?? null;
     const L = live.current;
-    const board = planRef.current;
     const ctx = L.context;
-    if (!board || !ctx || !L.loaded) return { ok: false, error: 'The board is not loaded yet.' };
+    if (!ctx || !L.loaded) return { ok: false, error: 'The course catalog is not loaded yet.' };
+    const board = planRef.current ?? {
+      schemaVersion: 1,
+      programId: L.loaded.program.id,
+      graduationLabel: '',
+      completedCourseIds: [],
+      terms: [],
+    } satisfies PlanState;
     const str = (key: string) => (typeof input[key] === 'string' ? (input[key] as string).trim() : '');
     const termList = board.terms.map((t) => t.label).join(', ');
     const termOf = (label: string) => {
@@ -2465,6 +3364,7 @@ export function PlannerWorkspace({
       return { crnc_eligible: answer.eligible, crnc_why: answer.why };
     };
     const crncAnswer = (c: Course) => {
+      if (!isIllinois) return { eligible: null, why: 'Grading-option eligibility is not modeled for this university. Check its catalog and ask your adviser.' };
       if (!holding(c.id)) return crncEligibility({ role: null, tags: c.tags, college: L.loaded?.program.college });
       const role = roleOf(c);
       const code = normCode(c.code);
@@ -2654,11 +3554,11 @@ export function PlannerWorkspace({
       }
       case 'course_details': {
         const c = courseOf(str('code'));
-        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
-        const detail = await loadIllinoisCourseDetail(c.code);
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
+        const detail = isIllinois ? await loadIllinoisCourseDetail(c.code) : null;
         const key = normCode(c.code);
         const grade = L.core?.grades?.get(key);
-        const prereq = L.core?.prereqs?.get(key);
+        const prereq = ctx.prereqs?.get(key);
         // The window the scorer weighs, read the way quality.ts reads it, so
         // ALMA's answer for this course is the card's answer.
         const p = L.priorities;
@@ -2667,19 +3567,17 @@ export function PlannerWorkspace({
           ok: true,
           ...describe(c),
           role_on_board: holding(c.id) ? roleOf(c) : null,
-          // MERGE-UGA: UGA falls back to the course's own description, prerequisiteText and prerequisites (UGA courses
-          // have no Illinois detail page); Illinois adds CRNC info. Keep ...crncOf(c) and UGA's three fallback lines.
           ...crncOf(c),
-          description: detail?.course?.description ?? null,
-          prerequisite_sentence: prereq?.text || detail?.course?.prereqText || null,
-          prerequisite_groups: prereq?.groups?.map((g) => g.any) ?? [],
+          description: detail?.course?.description || c.description || null,
+          prerequisite_sentence: prereq?.text || detail?.course?.prereqText || c.prerequisiteText || null,
+          prerequisite_groups: prereq?.groups?.map((g) => g.any) ?? (c.prerequisites.length > 0 ? [c.prerequisites] : []),
           standing_required: prereq?.standing ?? null,
           grade_history: grade
             ? { gpa: grade.gpa, a_percent: grade.aPct, drop_percent: grade.withdrawPct, difficulty_0_to_100: grade.difficulty, students: grade.n }
             : null,
           sections_in_crawled_term: L.core?.sections?.get(key)?.total ?? 0,
           ...sectionTimes(detail?.sections?.sections ?? [], L.core?.sections?.get(key)?.meet, L.core?.meta?.term?.label ?? null, wanted),
-          does_not_count_with: L.core?.exclusions?.get(key) ?? [],
+          does_not_count_with: ctx.exclusions?.get(key) ?? [],
         };
       }
       case 'course_syllabus': {
@@ -2728,7 +3626,7 @@ export function PlannerWorkspace({
       }
       case 'add_course': {
         const c = courseOf(str('code'));
-        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         const already = holding(c.id);
         if (already) return { ok: false, reason: `${c.code} is already on the board in ${already.label}.` };
         if (board.completedCourseIds.includes(c.id)) return { ok: false, reason: `${c.code} is marked as already taken.` };
@@ -2748,7 +3646,7 @@ export function PlannerWorkspace({
       }
       case 'remove_course': {
         const c = courseOf(str('code'));
-        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         const t = holding(c.id);
         if (!t) return { ok: false, reason: `${c.code} is not on the board.` };
         const stop = guard(c, 'removed');
@@ -2766,8 +3664,8 @@ export function PlannerWorkspace({
       case 'replace_course': {
         const oldC = courseOf(str('remove'));
         const newC = courseOf(str('add'));
-        if (!oldC) return { ok: false, reason: `${str('remove') || 'That'} is not in the Illinois catalog.` };
-        if (!newC) return { ok: false, reason: `${str('add') || 'That'} is not in the Illinois catalog.` };
+        if (!oldC) return { ok: false, reason: `${str('remove') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
+        if (!newC) return { ok: false, reason: `${str('add') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         const t = holding(oldC.id);
         if (!t) return { ok: false, reason: `${oldC.code} is not on the board.` };
         const already = holding(newC.id);
@@ -2795,7 +3693,7 @@ export function PlannerWorkspace({
       }
       case 'move_course': {
         const c = courseOf(str('code'));
-        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         const from = holding(c.id);
         if (!from) return { ok: false, reason: `${c.code} is not on the board.` };
         // A summer the plan does not have yet ("Summer 2027") is added with
@@ -2829,7 +3727,7 @@ export function PlannerWorkspace({
         const rows = [];
         for (const c of courses) {
           const key = normCode(c.code);
-          const prereq = L.core?.prereqs?.get(key);
+          const prereq = ctx.prereqs?.get(key);
           const grade = L.core?.grades?.get(key);
           const detail = await loadIllinoisCourseDetail(c.code);
           const verdict = term && !holding(c.id) ? check(withCourseIn(board, c.id, term.id), c, term.id) : null;
@@ -2859,7 +3757,7 @@ export function PlannerWorkspace({
           for (const id of later.courseIds) {
             const other = L.courseIndex.get(id);
             if (!other || other.id === c.id) continue;
-            const groups = L.core?.prereqs?.get(normCode(other.code))?.groups ?? [];
+            const groups = ctx.prereqs?.get(normCode(other.code))?.groups ?? [];
             if (groups.some((g) => g.any.map(normCode).includes(key))) unlocks.push(`${other.code} in ${later.label}`);
           }
         }
@@ -3160,7 +4058,7 @@ export function PlannerWorkspace({
         }
         const next = normalizePriorities({ ...base, noEarly: L.priorities.noEarly, format: L.priorities.format, notBefore: L.priorities.notBefore, notAfter: L.priorities.notAfter, freeDays: L.priorities.freeDays, ...knobs });
         setPriorities(next);
-        live.current = { ...live.current, priorities: next };
+        updateLiveToolState(live, { priorities: next });
         /**
          * The student's own words about what they want, written where the
          * planner reads them. Before this, "I want to go into machine
@@ -3174,7 +4072,7 @@ export function PlannerWorkspace({
          */
         const mode: InterestsMode = input.interests_mode === 'replace' || input.interests_mode === 'clear' ? input.interests_mode : 'add';
         const said = typeof input.interests === 'string' ? input.interests.trim() : '';
-        const tracksBefore = interestProfileOf(careerTextRef.current).tracks;
+        const tracksBefore = interestProfileOf(careerTextRef.current, isUga ? 'uga' : 'illinois').tracks;
         let heard: string[] | null = null;
         let stored: string | null = null;
         if (said || mode === 'clear') {
@@ -3182,13 +4080,13 @@ export function PlannerWorkspace({
           setCareerInterests(stored);
           setCareerCleared(stored === '');
           careerTextRef.current = stored;
-          live.current = { ...live.current, interestsText: [L.answers?.studying ?? '', stored].join(' '), careerText: stored };
-          if (said) heard = heardInterests(stored);
+          updateLiveToolState(live, { interestsText: [L.answers?.studying ?? '', stored].join(' '), careerText: stored });
+          if (said) heard = heardInterests(stored, isUga ? 'uga' : 'illinois');
         }
         const outcome = input.repick === false ? { changes: [], unchanged: false } : repickElectives(next, 'alma');
         // Net changes, one per course that left or joined the board.
         const repicked = outcome.changes.map((c) => ({ term: c.term, from: c.from, to: c.to, why: c.why, ...(c.track ? { career_track: c.track } : {}) }));
-        const profile = interestProfileOf(live.current.careerText);
+        const profile = interestProfileOf(live.current.careerText, isUga ? 'uga' : 'illinois');
         const dropped = tracksBefore.filter((track) => !profile.tracks.includes(track)).map((track) => track.name);
         /**
          * Programs the student's goals name that are entered by application,
@@ -3309,8 +4207,8 @@ export function PlannerWorkspace({
             } else problems.push('target_credits must be a whole number from 6 to 18, or null for an even share.');
           }
         }
-        if (overload !== null) problems.unshift(`${overloadAnswer(college, overload)} Keep the plan at 18 or under, and tell the student this.`);
-        const notes = underload !== null ? { underload: underloadNote(college, underload) } : {};
+        if (overload !== null) problems.unshift(`${isIllinois ? overloadAnswer(college, overload) : 'This planner caps terms at 18 credits; consult your college about an overload.'} Keep the plan at 18 or under, and tell the student this.`);
+        const notes = underload !== null ? { underload: isIllinois ? underloadNote(college, underload) : 'Check your university and program full-time enrollment rules before choosing a reduced load.' } : {};
         if (input.finish !== undefined) {
           if (input.finish === null || input.finish === 'default') nextShape.finish = null;
           else {
@@ -3586,10 +4484,7 @@ export function PlannerWorkspace({
           id: L.loaded.summary.id,
           name: L.loaded.program.name,
           college: L.loaded.program.college,
-          // MERGE-UGA: after the merge L.loaded is UGA's LoadedBundle, which has urls[] not url (TS2551). With two
-          // majors selected its summary and blocks are the combined bundle, not one program. Use
-          // L.loaded.urls[0]?.url, and compare from L.loaded.sources[0] when more than one program is selected.
-          url: L.loaded.url,
+          url: L.loaded.urls[0]?.url ?? null,
           totalCredits: degreeTotalNow(),
           requirements: L.loaded.blocks,
         };
@@ -3726,13 +4621,14 @@ export function PlannerWorkspace({
    * settings and the record that turn changed, and its reply is told.
    */
   function undo() {
-    // MERGE-UGA: UGA's undo pops an UndoSnapshot, calls replaceActivePlan and restores
-    // answers.alreadyTakenCourseCodes; Illinois pops an UndoEntry and the merged lines below call
-    // applyBoard(entry.before). Keep Illinois's `entry`; add alreadyTakenCourseCodes to UndoEntry and restore it.
     const entry = undoStack.at(-1);
     if (!entry) return;
     setUndoStack((current) => current.slice(0, -1));
     applyBoard(entry.before);
+    if (entry.alreadyTakenCourseCodes && answers && onAnswersChange) {
+      creditRestored.current = true;
+      onAnswersChange({ ...answers, alreadyTakenCourseCodes: entry.alreadyTakenCourseCodes });
+    }
     const turn = entry.turn;
     if (turn) {
       if (turn.settings) {
@@ -3768,9 +4664,6 @@ export function PlannerWorkspace({
     else setStatus('Last change undone.');
   }
 
-  // MERGE-UGA: UGA adds save(), a manual v3 write of plans/groups/programIds; Illinois adds undoAlmaTurn and
-  // autosaves v4 instead. Keep undoAlmaTurn (the } below is shared: keeping both needs one more). Don't keep
-  // save() as is: writeSavedBoard deletes the v3 key on the next autosave. Put tabs/ids in SavedBoard instead.
   /** "Undo these changes" on an ALMA reply: only while that turn is still the newest step. */
   function undoAlmaTurn(id: string) {
     if (undoStack.at(-1)?.turn?.id !== id) return;
@@ -3788,7 +4681,28 @@ export function PlannerWorkspace({
 
   function exportPlan() {
     if (!plan) return;
-    const blob = new Blob([JSON.stringify({ school: school?.id, programId, plan }, null, 2)], {
+    const blob = new Blob([JSON.stringify({
+      schemaVersion: 4,
+      schoolId: school?.id ?? '',
+      school: school?.id,
+      savedAt: new Date().toISOString(),
+      board: boardNow(),
+      settings: settingsNow(),
+      programLevel,
+      programIds,
+      minorIds,
+      certificateIds,
+      emphasisSelections: answers?.emphasisSelections ?? {},
+      programId,
+      plan,
+      plans: planTabs.map((candidate) =>
+        candidate.id === activePlanId
+          ? { ...candidate, plan, board: boardNow(), issueSeverity: planWideSeverity, issueSummary: planWideSummary }
+          : reconcileCompletedTab(candidate, sharedCompletedIds),
+      ),
+      planGroups,
+      activePlanId,
+    }, null, 2)], {
       type: 'application/json',
     });
     const a = document.createElement('a');
@@ -3806,19 +4720,52 @@ export function PlannerWorkspace({
       const file = input.files?.[0];
       if (!file) return;
       try {
-        const parsed = JSON.parse(await file.text()) as { plan?: unknown; programId?: unknown };
-        if (isPlanState(parsed.plan)) {
-          // MERGE-UGA: UGA resets the plan tabs/groups to one tab after loading a file; Illinois pushes an undo step
-          // and applyBoard()s the file's plan. Keep both: pushUndo + applyBoard, then
-          // setPlanTabs/setPlanGroups/setActivePlanId.
-          // A file holds the terms and nothing about why each card is there,
-          // so the report of the board it replaces does not come with it.
-          const before = boardNow();
-          if (before) setUndoStack((current) => pushUndo(current, { before }));
-          applyBoard({ plan: parsed.plan, report: null, notes: [], studentAdded: [], repickedFor: null, edited: true });
-          setStatus('Plan loaded from the file.');
+        const raw = await file.text();
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Not a plan');
+        const data = parsed as Record<string, unknown>;
+        const fileSchool = data.schoolId ?? data.school;
+        if (typeof fileSchool === 'string' && fileSchool !== (school?.id ?? '')) {
+          notify('This plan belongs to another university', 'Switch to that university before loading this file.', 'info');
+          return;
         }
-        if (typeof parsed.programId === 'string') setProgramId(parsed.programId);
+        const saved = parseSavedBoard(raw, school?.id ?? '') ?? migrateLegacyBoard(JSON.stringify({
+          ...data, schemaVersion: 3, schoolId: fileSchool ?? school?.id ?? '',
+        }), school?.id ?? '');
+        if (!saved) throw new Error('Not a supported plan');
+        const ids = saved.programIds ?? (saved.programId ? [saved.programId] : []);
+        const minors = saved.minorIds ?? [];
+        const certificates = saved.certificateIds ?? [];
+        if (isIllinois && (ids.length > 1 || minors.length > 0 || certificates.length > 0)) {
+          notify('This file contains multiple Illinois programs', 'Choose one Illinois degree to plan. Use program comparison to evaluate a second degree.', 'info');
+          return;
+        }
+        const knownPrograms = new Set([UNDECIDED_PROGRAM_ID, ...(isIllinois ? core?.programs ?? [] : uga?.programs ?? []).map((p) => p.id)]);
+        if ([...ids, ...minors, ...certificates].some((id) => !knownPrograms.has(id))) throw new Error('The program does not belong to the current catalog');
+        const boards = [saved.board.plan, ...(saved.plans ?? []).map((tab) => tab.plan)];
+        if (boards.some((board) => [...board.completedCourseIds, ...board.terms.flatMap((term) => term.courseIds)].some((id) => !courseIndex.has(id)))) {
+          throw new Error('Some courses do not belong to the current catalog');
+        }
+        // Restoration reuses the same validated tab/group path as a browser reload.
+        pendingSave.current = null;
+        restored.current = saved;
+        setUndoStack([]);
+        setUndoneTurns([]);
+        setProgramIds(ids);
+        setMinorIds(minors);
+        setCertificateIds(certificates);
+        setMinimumTermCredits(saved.settings.minimumTermCredits);
+        setTargetTermCredits(saved.settings.targetTermCredits);
+        setCareerInterests(saved.settings.careerInterests);
+        setCareerCleared(saved.settings.careerCleared);
+        setPriorities(saved.settings.priorities);
+        setPlanShape(saved.settings.planShape);
+        planShapeRef.current = saved.settings.planShape;
+        lastBuild.current = null;
+        forgetChat(deviceStorage(), school?.id ?? '');
+        setPlan(null);
+        planRef.current = null;
+        if (answers && onAnswersChange) onAnswersChange({ ...answers, programIds: ids, minorIds: minors, certificateIds: certificates, emphasisSelections: saved.emphasisSelections ?? {}, programLevel: saved.programLevel ?? programLevel });
       } catch {
         setStatus('That file could not be read as a plan.');
       }
@@ -3828,7 +4775,15 @@ export function PlannerWorkspace({
 
   async function sharePlan() {
     if (!plan) return;
-    const encoded = btoa(encodeURIComponent(JSON.stringify({ programId, plan })));
+    const encoded = btoa(encodeURIComponent(JSON.stringify({
+      schoolId: school?.id ?? '',
+      programIds,
+      minorIds,
+      certificateIds,
+      emphasisSelections: answers?.emphasisSelections ?? {},
+      programId,
+      plan,
+    })));
     try {
       await navigator.clipboard.writeText(
         `${window.location.origin}${window.location.pathname}#plan=${encoded}`,
@@ -3840,9 +4795,14 @@ export function PlannerWorkspace({
   }
 
   function startOver() {
-    clearAnswers();
+    clearAnswers(school?.id);
     forgetThisBoard();
     window.location.reload();
+  }
+
+  function changeUniversity() {
+    writePending();
+    onChangeUniversity?.();
   }
 
   // ---- the ask router's context ---------------------------------------------
@@ -3891,7 +4851,7 @@ export function PlannerWorkspace({
       selectedCode: selectedCourse ? normCode(selectedCourse.code) : null,
       focusTermId,
       program: loaded?.program ?? null,
-      programUrl: loaded?.url ?? null,
+      programUrl: loaded?.urls[0]?.url ?? null,
     };
   }, [isIllinois, plan, courseIndex, completedCodes, selectedCourse, focusTermId, loaded]);
 
@@ -3926,40 +4886,47 @@ export function PlannerWorkspace({
     );
   }
 
-  if (isCatalogSchool && !programId) {
+  if (isCatalogSchool && programIds.length === 0) {
     return (
       <main className="planner-loading">
         <div>
-          <h1>Which degree are you planning?</h1>
+          <h1>Choose your degree program</h1>
           <p>
-            Your answers did not point clearly at one of the {programOptions.length} {school?.short}
-            degrees with published course lists, so pick it rather than have one picked wrong.
+            {isIllinois
+              ? 'Choose the degree to plan. Ask the adviser to compare another program and its additional requirements.'
+              : 'Select a program explicitly. Add another to build a combined plan from both published requirement pages.'}
           </p>
-          <select
-            className="prior-search"
-            aria-label="Pick your degree"
-            defaultValue=""
-            onChange={(event) => setProgramId(event.target.value || null)}
-          >
-            <option value="">Pick a degree</option>
-            {programOptions.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <ProgramPicker
+            multiple={isUga}
+            options={programOptions}
+            selectedIds={programIds}
+            onChange={changePrograms}
+          />
         </div>
       </main>
     );
   }
 
-  // MERGE-UGA: UGA's side deletes this line, the counts below and the board-bar review Popover
-  // (PlanHealthList), showing plan-wide IssueBadges instead; git raises no conflict. openPacket below still
-  // reads `grouped` (TS2304). Keep `const grouped` for the packet, and decide whether the review list stays.
+  if (isUga && !emphasesComplete) {
+    return (
+      <main className="planner-loading">
+        <div>
+          <h1>Choose your required program paths</h1>
+          <p>
+            This degree has named choices that change which courses belong in the plan. Select them before the schedule is generated.
+          </p>
+          <EmphasisPicker
+            requirements={emphasisRequirements}
+            selections={answers?.emphasisSelections ?? {}}
+            onChange={changeEmphases}
+          />
+        </div>
+      </main>
+    );
+  }
+
   const grouped = groupIssues(issues);
   const actionable = grouped.filter((g) => g.severity !== 'info').length;
-  const errors = grouped.filter((g) => g.severity === 'error').length;
-  const warnings = grouped.filter((g) => g.severity === 'warning').length;
   const years = plan ? [...new Set(plan.terms.map((t) => t.year))] : [];
 
   const caveats = [
@@ -3968,8 +4935,25 @@ export function PlannerWorkspace({
     ...(core?.meta?.notes ?? []).map(studentWording),
     ...(isUga
       ? [
-          'UGA requirements and prerequisite sentences were mechanically parsed from the Bulletin. Confirm the finished plan in DegreeWorks with an advisor.',
-          'UGA offering terms are catalog patterns, not live section availability. Grade history, instructors, meeting times, rooms, and open seats are not loaded in this prototype.',
+          'This planning draft uses requirements and prerequisites from the UGA Bulletin. DegreeWorks and your advisor remain the official check for graduation.',
+          'Course availability is based on catalog patterns, not live registration. This prototype does not yet know current instructors, meeting times, rooms, or open seats.',
+          ...(isGraduatePlan
+            ? [
+                'UGA considers 9 graduate credits a normal full-time fall or spring load. Some assistantships require 12; change Preferences if that applies to you.',
+              ]
+            : []),
+        ]
+      : []),
+    ...(programIds.length > 1
+      ? [
+          isGraduatePlan
+            ? 'This combined graduate draft includes every named requirement from the selected degree pages and counts shared courses once. Dual-degree approval, residency, and program-of-study rules still need advisor confirmation.'
+            : 'This double-major draft combines every named requirement from the selected degree pages and counts shared courses once. College residency rules and whether the pairing is one degree or two still need advisor confirmation.',
+        ]
+      : []),
+    ...(minorIds.length + certificateIds.length > 0
+      ? [
+          'Selected minors and certificates are planned from their published requirement pages and share courses where the catalog allows. Residency, grade, and application rules still need advisor confirmation.',
         ]
       : []),
     'Prerequisites are parsed from catalog sentences. Anything about placement or consent is not checked here.',
@@ -4011,9 +4995,7 @@ export function PlannerWorkspace({
         program: {
           name: activeProgramName ?? 'Your plan',
           college: loaded?.program.college ?? null,
-          // MERGE-UGA: after the merge `loaded` is UGA's LoadedBundle, which has urls[] (one per selected program),
-          // not url (TS2551). Use loaded?.urls[0]?.url ?? null, or list every page for a double major.
-          url: loaded?.url ?? null,
+          url: loaded?.urls[0]?.url ?? null,
           total: degreeTotalNow() ?? activeProgramTotal,
           totalPublished: !isCatalogSchool || Boolean(loaded?.summary.totalCredits || loaded?.program.totalCredits),
         },
@@ -4049,6 +5031,8 @@ export function PlannerWorkspace({
       data-finder={finderOpen ? 'open' : 'closed'}
       data-chat={chatOpen ? 'open' : 'closed'}
       data-rail={railOpen ? 'open' : 'closed'}
+      data-theme={theme}
+      style={mapHeight === null ? undefined : ({ '--map-row-h': `${mapHeight}px` } as CSSProperties)}
     >
       <output aria-live="polite" className="sr-only">
         {status_}
@@ -4056,31 +5040,11 @@ export function PlannerWorkspace({
       <Toaster />
 
       <header className="app-header">
-        <a className="brand" href="#top" aria-label="Four Year Planner home">
-          <Image src="/constellation-logo.png" alt="" width={30} height={30} priority />
-          <span>
-            {/* The school comes from the student's own choice. Hardcoding one
-                university's name over another's catalog was a false statement
-                on the first line of the page. */}
-            <strong>{school?.short ?? 'Four Year'} Planner</strong>
-            <small>from the Semantic Course Map</small>
-          </span>
+        <a className="brand" href="#top" aria-label="ORION planner home">
+          <Image src="/orion-logo.png" alt="" width={44} height={44} priority />
+          <span className="brand-name">ORION</span>
         </a>
-        <p className="header-coverage">{isCatalogSchool ? coverage : 'Demo catalog'}</p>
         <div className="header-actions">
-          {narrow && (
-            <Button
-              variant="outline"
-              // MERGE-UGA: header/menu conflict (this hunk and the profile menu below). UGA: logo rail toggle; Undo, dark
-              // mode, majors, university, Save in the menu. Illinois: save badge, ALMA-aware Undo button, Print for my
-              // advisor. Illinois's side alone uses `narrow` (UGA deleted it) and puts UGA's toggle logo inside the Undo
-              // button. Keep UGA's toggle and menu with Illinois's badge, Undo label and Print; drop Save (autosave).
-              aria-expanded={railOpen}
-              onClick={() => setRailOpen((open) => !open)}
-            >
-              Progress
-            </Button>
-          )}
           {saveState !== 'none' && (
             <span
               className={`save-status${saveState === 'failed' ? ' is-failed' : ''}`}
@@ -4096,31 +5060,72 @@ export function PlannerWorkspace({
           )}
           <Button
             variant="outline"
-            size="icon"
-            title={newestTurn ? `Undo the changes ${botName} made answering one message` : 'Undo the last change'}
-            aria-label={newestTurn ? `Undo the changes ${botName} made answering one message` : 'Undo the last change'}
-            disabled={undoStack.length === 0}
-            onClick={undo}
+            className="rail-toggle"
+            aria-expanded={railOpen}
+            aria-controls="planner-progress"
+            aria-label={railOpen ? 'Close progress' : 'Open progress'}
+            title={railOpen ? 'Close progress' : 'Open progress'}
+            onClick={() => setRailOpen((open) => !open)}
           >
-            <Undo2 />
+            <Image
+              className={`rail-toggle-school-logo${isIllinois && !railOpen ? ' is-illinois-original' : ''}`}
+              src={
+                isUga
+                  ? railOpen
+                    ? '/uga-toggle-logo.png'
+                    : '/uga-school-logo.png'
+                  : isIllinois
+                    ? railOpen
+                      ? '/illinois-toggle-logo.png'
+                      : '/illinois-school-logo.png'
+                    : '/orion-logo.png'
+              }
+              alt=""
+              width={28}
+              height={28}
+              aria-hidden="true"
+            />
           </Button>
+          {isCatalogSchool && (
+            <BotLauncher
+              open={chatOpen}
+              onToggle={() => setChatOpen((current) => !current)}
+            />
+          )}
           <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="outline" />}>
-              Plan <ChevronDown />
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="profile-menu-trigger"
+                  aria-label="Profile and settings"
+                  title="Profile and settings"
+                />
+              }
+            >
+              <User />
             </DropdownMenuTrigger>
-            {/* MERGE-UGA: __advisor-packet.check.mjs reads this file as text and tests only the FIRST DropdownMenuContent with
-               align end for 'Print for my advisor'. UGA's header adds a profile menu (className w-56 profile-menu) without that
-               item; if it ends up above this one the check fails though the app works. Keep both: put the print item in UGA's
-               menu too, or make the check find this menu by its className.
-            */}
-            <DropdownMenuContent align="end" className="w-56">
-              {/* A status, not a button: the board saves itself after every
-                  change. Here as well as in the header, which hides it on a
-                  narrow screen. */}
-              <DropdownMenuItem disabled>
-                {saveState === 'failed' ? <AlertTriangle /> : <CheckCircle2 />}
-                {saveState === 'failed' ? 'Not saved on this device' : saveState === 'saved' ? 'Saved on this device' : 'Saves on this device as you go'}
+            <DropdownMenuContent align="end" className="w-56 profile-menu">
+              <DropdownMenuItem disabled={undoStack.length === 0} onClick={undo}>
+                <Undo2 /> {newestTurn ? `Undo ${botName}'s changes` : 'Undo last change'}
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setTheme((current) => (current === 'light' ? 'dark' : 'light'))}>
+                {theme === 'light' ? <Moon /> : <Sun />} Use {theme === 'light' ? 'dark' : 'light'} mode
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setRailOpen(true);
+                  requestAnimationFrame(() => {
+                    const details = document.getElementById('rail-programs') as HTMLDetailsElement | null;
+                    if (details) details.open = true;
+                    details?.scrollIntoView({ block: 'nearest' });
+                  });
+                }}
+              >
+                Change majors and programs
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={changeUniversity} disabled={!onChangeUniversity}>Change university</DropdownMenuItem>
               <DropdownMenuItem onClick={openPacket} disabled={!plan}>
                 <Printer /> Print for my advisor
               </DropdownMenuItem>
@@ -4137,19 +5142,15 @@ export function PlannerWorkspace({
         schoolShort={school?.short ?? 'Your school'}
         portal={school?.portal ?? 'your student portal'}
         programName={activeProgramName}
-        // MERGE-UGA: UGA's props on this panel merge in with no conflict: programUrls={loaded?.urls ?? []}, onClose,
-        // programLevel, supportsGraduatePrograms, onProgramLevelChange and the multi-program props. Illinois's
-        // RailProps has programUrl/programId/onProgramChange instead (TS2322), so student-profile-panel.tsx must
-        // accept UGA's props and Illinois's (priorities, onRepick, ...) when its own conflict is resolved.
-        programUrl={loaded?.url ?? null}
-        digest={answers ? summarize(answers) : ''}
+        programUrls={loaded?.urls ?? []}
+        digest={answers ? [school?.short, activeProgramName].filter(Boolean).join(' · ') : ''}
         onStartOver={startOver}
+        onClose={() => setRailOpen(false)}
         plannedCredits={totalCredits}
         creditNote={creditNote}
         degreeTotal={activeProgramTotal}
-        // MERGE-UGA: UGA counts completedCourseIds and adds priorCourses={completedCourses}; Illinois counts
-        // distinct held codes (a cross-listed class once). Keep Illinois's priorCount plus UGA's priorCourses prop.
         priorCount={context ? distinctHeld([...completedCodes], context).codes.length : (plan?.completedCourseIds.length ?? 0)}
+        priorCourses={completedCourses}
         transcript={
           <TranscriptUpload
             school={school}
@@ -4161,6 +5162,9 @@ export function PlannerWorkspace({
               // Prior credit changed, so the board is rebuilt from it. The same
               // move as choosing a different degree.
               setPlan(null);
+              setPlanTabs([]);
+              setPlanGroups([{ ...DEFAULT_PLAN_GROUP }]);
+              setActivePlanId('plan-1');
             }}
             onExams={(found) => {
               if (!answers || !onAnswersChange) return 0;
@@ -4174,21 +5178,23 @@ export function PlannerWorkspace({
           />
         }
         areas={areas}
+        programLevel={programLevel}
+        supportsGraduatePrograms={isUga}
+        onProgramLevelChange={changeProgramLevel}
         programs={programOptions}
-        // MERGE-UGA: UGA's multi-select props (programIds, minors, certificates, emphases via changePrograms etc.)
-        // replace Illinois's programId/onProgramChange, which needs setProgramId (gone). Keep UGA's, but call
-        // forgetThisBoard() in resetProgramPlan as this handler did: Illinois's restore does not check the degree,
-        // so a reload before the new board saves brings back the old degree's board.
-        programId={programId}
-        onProgramChange={(id) => {
-          // The board of the old degree ends here, and ALMA's conversation
-          // about it with it.
-          forgetThisBoard();
-          setProgramId(id || null);
-          // The board is rebuilt for the new degree; `loaded` follows the id
-          // on its own, so there is nothing else to clear here.
-          setPlan(null);
-        }}
+        programIds={programIds}
+        supportsMultiplePrograms={isUga}
+        supportsTeachingRatings={isIllinois}
+        onProgramsChange={changePrograms}
+        minors={minorOptions}
+        minorIds={minorIds}
+        onMinorsChange={changeMinors}
+        certificates={certificateOptions}
+        certificateIds={certificateIds}
+        onCertificatesChange={changeCertificates}
+        emphasisRequirements={emphasisRequirements}
+        emphasisSelections={answers?.emphasisSelections ?? {}}
+        onEmphasisChange={changeEmphases}
         minimumTermCredits={minimumTermCredits}
         onMinimumChange={setMinimumTermCredits}
         targetTermCredits={targetTermCredits}
@@ -4236,65 +5242,190 @@ export function PlannerWorkspace({
       />
 
       <section className="board-region" aria-label="Your semesters">
-        <div className="board-bar">
-          <div className="board-bar-facts">
-            <strong>{activeProgramName ?? 'Your plan'}</strong>
-            <span>{totalCredits}</span>
-            {plan && plan.terms.length > 0 && (
-              <span>through {plan.terms[plan.terms.length - 1].label}</span>
-            )}
-          </div>
-
-          {isIllinois && (
-            <BotLauncher
-              // MERGE-UGA: UGA deletes this launcher (no conflict) and adds one in the header for every catalog school,
-              // without botName. Illinois's BotLauncher requires botName (TS2741 if advisor.tsx keeps Illinois's): pass
-              // botName={botName} there. This copy also closed the finder when chat opened; UGA's does not.
-              botName={botName}
-              open={chatOpen}
-              onToggle={() => {
-                if (!chatOpen) setFinderOpen(false);
-                setChatOpen((current) => !current);
-              }}
-            />
-          )}
-
-          <Popover>
-            <PopoverTrigger
-              render={
+        <div
+          className="plan-tabs"
+          role="tablist"
+          tabIndex={-1}
+          aria-label="Degree plan alternatives"
+          onDragOver={(event) => {
+            if (!draggingPlanTabId) return;
+            const group = (event.target as HTMLElement).closest<HTMLElement>('[data-plan-group-id]');
+            const groupId = group?.dataset.planGroupId;
+            if (!groupId) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            setDragOverPlanGroupId(groupId);
+          }}
+          onDrop={(event) => {
+            if (!draggingPlanTabId) return;
+            const group = (event.target as HTMLElement).closest<HTMLElement>('[data-plan-group-id]');
+            const groupId = group?.dataset.planGroupId;
+            if (!groupId) return;
+            event.preventDefault();
+            const tabId = event.dataTransfer.getData('application/x-orion-plan-tab') || draggingPlanTabId;
+            movePlanTabToGroup(tabId, groupId);
+            setDraggingPlanTabId(null);
+            setDragOverPlanGroupId(null);
+          }}
+        >
+          {planGroups.map((group) => {
+            const groupTabs = planTabs.filter((candidate) => candidate.groupId === group.id);
+            if (groupTabs.length === 0) return null;
+            return (
+              <fieldset
+                key={group.id}
+                className="plan-tab-group"
+                data-plan-group-id={group.id}
+                data-drop-target={dragOverPlanGroupId === group.id ? 'true' : undefined}
+                style={{ '--plan-group-color': group.color } as CSSProperties}
+              >
+                <legend className="sr-only">{group.name} plan group</legend>
+                <label className="plan-group-color" title={`Change ${group.name} color`}>
+                  <span className="sr-only">Change {group.name} color</span>
+                  <input
+                    type="color"
+                    value={group.color}
+                    onChange={(event) => recolorPlanGroup(group.id, event.target.value)}
+                  />
+                </label>
+                <input
+                  className="plan-group-name"
+                  aria-label={`Rename ${group.name}`}
+                  value={group.name}
+                  onChange={(event) => renamePlanGroup(group.id, event.target.value)}
+                  onBlur={(event) => renamePlanGroup(group.id, event.target.value.trim() || 'Untitled group')}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                  }}
+                />
+                {groupTabs.map((candidate) => (
+                  <div
+                    key={candidate.id}
+                    className="plan-tab-shell"
+                    data-active={candidate.id === activePlanId ? 'true' : undefined}
+                    data-dragging={candidate.id === draggingPlanTabId ? 'true' : undefined}
+                  >
+                    <button
+                      type="button"
+                      className="plan-tab-drag-handle"
+                      draggable
+                      aria-label={`Move ${candidate.name} to another group`}
+                      title="Drag to another group. Keyboard: Alt + Left or Right Arrow."
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('application/x-orion-plan-tab', candidate.id);
+                        setDraggingPlanTabId(candidate.id);
+                        setDragOverPlanGroupId(null);
+                      }}
+                      onDragEnd={() => {
+                        setDraggingPlanTabId(null);
+                        setDragOverPlanGroupId(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (!event.altKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+                        event.preventDefault();
+                        movePlanTabToAdjacentGroup(candidate.id, event.key === 'ArrowLeft' ? -1 : 1);
+                      }}
+                    >
+                      <GripVertical aria-hidden="true" />
+                    </button>
+                    <div className="plan-tab-label">
+                      <input
+                        role="tab"
+                        aria-selected={candidate.id === activePlanId}
+                        aria-label={`Rename ${candidate.name}${tabIssueSeverity(candidate) ? `, has a ${tabIssueSeverity(candidate)} plan-wide note` : ''}`}
+                        className="plan-tab-button"
+                        value={candidate.name}
+                        onFocus={() => switchPlanTab(candidate.id)}
+                        onChange={(event) => renamePlanTab(candidate.id, event.target.value)}
+                        onBlur={(event) => renamePlanTab(candidate.id, event.target.value.trim() || 'Untitled plan')}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') event.currentTarget.blur();
+                        }}
+                      />
+                      {tabIssueSeverity(candidate) && (
+                        <IssueBadge
+                          variant="dot"
+                          title={`${candidate.name}: plan-wide notes`}
+                          message={tabIssueSummary(candidate)}
+                          severity={tabIssueSeverity(candidate)!}
+                          onClick={() => switchPlanTab(candidate.id)}
+                          coursesByCode={byCode}
+                          onShowCourse={(courseId) => {
+                            switchPlanTab(candidate.id);
+                            showWarningCourse(courseId);
+                          }}
+                        />
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="plan-tab-close"
+                      aria-label={`Close ${candidate.name}`}
+                      title={`Close ${candidate.name}`}
+                      disabled={planTabs.length <= 1}
+                      onClick={() => closePlanTab(candidate.id)}
+                    >
+                      <X />
+                    </button>
+                  </div>
+                ))}
                 <button
                   type="button"
-                  aria-label={`Review ${grouped.length} thing${grouped.length === 1 ? '' : 's'} in this plan`}
-                  className={`review-chip${errors ? ' has-error' : warnings ? ' has-warning' : ''}`}
-                />
-              }
-            >
-              {/* Only errors and warnings are "to review". The rest are notes:
-                  the catalog's own words and where the elective hours went, and
-                  a red "13 to review" over nine of those sent students hunting
-                  for problems that were not there. */}
-              {grouped.length === 0 ? (
-                <>
-                  <CheckCircle2 /> Nothing to review
-                </>
-              ) : actionable === 0 ? (
-                <>
-                  <Info /> {grouped.length} {grouped.length === 1 ? 'note' : 'notes'}
-                </>
-              ) : (
-                <>
-                  {errors ? <AlertCircle /> : <AlertTriangle />} {actionable} to review
-                  {grouped.length > actionable ? `, ${grouped.length - actionable} ${grouped.length - actionable === 1 ? 'note' : 'notes'}` : ''}
-                </>
-              )}
+                  className="plan-tab-add"
+                  aria-label={`Add a plan to ${group.name}`}
+                  title={`Duplicate the current plan in ${group.name}`}
+                  disabled={!plan}
+                  onClick={() => duplicatePlanTab(group.id)}
+                >
+                  <Plus />
+                </button>
+              </fieldset>
+            );
+          })}
+          <button
+            type="button"
+            className="plan-group-add"
+            aria-label="Create a new plan group"
+            title="Create a color-coded plan group"
+            disabled={!plan}
+            onClick={createPlanGroup}
+          >
+            <FolderPlus />
+          </button>
+        </div>
+        <div className="board-bar">
+          <Popover>
+            <PopoverTrigger render={<Button variant="outline" aria-label="Review this plan" />}>
+              {actionable > 0 ? `${actionable} to review` : 'Review plan'} <ChevronDown />
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-80">
+            <PopoverContent align="end" className="health-popover-content">
               <PlanHealthList groups={grouped} onSelectIssue={selectIssue} />
             </PopoverContent>
           </Popover>
+          {planWideIssues.length > 0 && (
+            <div className="plan-wide-issues" aria-label="Plan-wide notes">
+              {planWideIssues.map((group) => (
+                <IssueBadge
+                  key={group.key}
+                  title={
+                    group.count > 1
+                      ? `${group.title} and ${group.count - 1} more like it`
+                      : group.title
+                  }
+                  message={group.message}
+                  severity={group.severity}
+                  side="bottom"
+                  onClick={() => selectIssue(group.issue)}
+                  coursesByCode={byCode}
+                  onShowCourse={showWarningCourse}
+                />
+              ))}
+            </div>
+          )}
 
           <Button variant="outline" onClick={buildPlan} disabled={programBusy}>
-            <Sparkles /> Rebuild
+            Rebuild
           </Button>
         </div>
 
@@ -4305,7 +5436,14 @@ export function PlannerWorkspace({
           <div className="year-ruler" aria-hidden="true" ref={rulerRef}>
             <div className="year-ruler-track">
               {years.map((year) => {
-                const count = plan.terms.filter((t) => t.year === year).length;
+                const termsInYear = plan.terms.filter((t) => t.year === year);
+                const count = termsInYear.length;
+                const custom = termsInYear.filter((term) => termWidths[term.id] !== undefined);
+                const customWidth = custom.reduce(
+                  (sum, term) => sum + (termWidths[term.id] ?? 0),
+                  0,
+                );
+                const defaults = count - custom.length;
                 return (
                   /* Measured in the same two tokens the board's columns use, so
                      that a breakpoint which narrows a column moves the year
@@ -4315,10 +5453,10 @@ export function PlannerWorkspace({
                   <span
                     key={year}
                     style={{
-                      width: `calc(${count} * var(--col-w) + ${count - 1} * var(--col-gap))`,
+                      width: `calc(${defaults} * var(--col-w) + ${customWidth}px + ${count - 1} * var(--col-gap))`,
                     }}
                   >
-                    {year}
+                    Year {year}
                   </span>
                 );
               })}
@@ -4346,6 +5484,8 @@ export function PlannerWorkspace({
                 term={term}
                 allTerms={plan.terms}
                 courseIndex={courseIndex}
+                coursesByCode={byCode}
+                onShowCourse={showWarningCourse}
                 issues={issues}
                 selectedCourseId={selectedCourseId}
                 credits={credits.label}
@@ -4353,17 +5493,29 @@ export function PlannerWorkspace({
                 onSelectCourse={selectPlanned}
                 onMoveCourse={moveCourse}
                 onRemoveCourse={removeCourse}
+                onMarkCourseCompleted={markCourseCompleted}
                 onAddCourse={openFinderFor}
                 onDropCourse={addCourse}
-                // MERGE-UGA: UGA's props on this call merge in with no conflict: onFindAlternatives goes;
-                // onMarkCourseCompleted, replacement, onPrepareReplacement, onReplaceCourse, onShowReplacementCourse,
-                // onShowReplacements, width, onWidthChange arrive beside Illinois's alternativesFor/onSwapCourse.
-                // semester-column.tsx must accept both sets when its own conflict is resolved (else TS2322 here).
-                onFindAlternatives={selectPlanned}
+                replacement={
+                  chooser && chooserData
+                    ? {
+                        courseId: chooser.courseId,
+                        termId: chooser.termId,
+                        label: chooserData.label,
+                        options: chooserData.options,
+                      }
+                    : null
+                }
+                onPrepareReplacement={prepareReplacement}
+                onReplaceCourse={chooseElective}
+                onShowReplacementCourse={showReplacementCourse}
+                onShowReplacements={showReplacements}
                 onChooseElective={openChooser}
                 alternativesFor={alternativesFor}
                 onSwapCourse={swapCourse}
                 electiveOf={electiveOf}
+                width={termWidths[term.id]}
+                onWidthChange={resizeTerm}
               />
             );
           })}
@@ -4371,25 +5523,24 @@ export function PlannerWorkspace({
       </section>
 
       <CourseExplorer
-        // MERGE-UGA: git merges UGA's props into this call with no conflict: courses={catalog} (mapCourses and
-        // MAP_LIMIT deleted), theme, onHeightChange, onRemoveCourse, highlightedCourseIds, chooserOnMap. Taking this
-        // Illinois call whole fails tsc (TS2739: UGA's CourseExplorerProps needs those four). Keep UGA's props; they
-        // need replacementCourseIds (chooser hunk), and chooser= still reads Illinois's chooserOptions {options, whys}.
         searchHits={searchHits}
         results={searchResults}
         chooser={
-          chooser && plan
+          chooser && chooserOnMap && plan
             ? {
                 termLabel: plan.terms.find((t) => t.id === chooser.termId)?.label ?? 'that term',
                 replacing: courseIndex.get(chooser.courseId)?.code ?? 'the elective',
                 options: chooserOptions.options,
                 whys: chooserOptions.whys,
                 onPick: (courseId) => chooseElective(chooser.termId, chooser.courseId, courseId),
-                onCancel: () => setChooser(null),
+                onCancel: () => {
+                  setChooser(null);
+                  setChooserOnMap(false);
+                },
               }
             : null
         }
-        courses={mapCourses}
+        courses={catalog}
         catalogSize={catalog.length}
         core={core}
         schoolId={school?.id ?? null}
@@ -4397,15 +5548,20 @@ export function PlannerWorkspace({
         plannedCourseIds={plannedCourseIds}
         completedCodes={completedCodes}
         selectedCourseId={selectedCourseId}
+        focusRequest={mapFocusRequest}
         targetTermId={targetTermId}
         searchQuery={searchQuery}
         open={finderOpen}
+        theme={theme}
         dragUsable={dragUsable}
+        onHeightChange={setMapHeight}
         onOpenChange={setFinderOpen}
         onSearchChange={setSearchQuery}
         onTargetTermChange={setTargetTermId}
         onSelectCourse={setSelectedCourseId}
         onAddCourse={addCourse}
+        onRemoveCourse={removeCourse}
+        highlightedCourseIds={replacementCourseIds}
       />
 
       {/**
@@ -4420,31 +5576,26 @@ export function PlannerWorkspace({
         * rebuilt from the new board, and an answer still in flight from the old
         * degree resolves into an unmounted component and is dropped.
         */}
-      {isIllinois && (
+      {isCatalogSchool && (
         <BotPanel
-          // MERGE-UGA: UGA's lines here merge in with no conflict: shown for every catalog school, key and programId
-          // become programKey, and schoolId/schoolName/onOpen are added, which Illinois's BotPanelProps lacks (TS2322
-          // until advisor.tsx accepts them). Chats saved under a bare programId no longer match and are dropped once.
-          key={programId ?? 'no-degree'}
+          key={programKey || 'no-degree'}
           botName={botName}
+          schoolId={school?.id ?? null}
+          schoolName={school?.name ?? 'your university'}
           schoolShort={school?.short ?? 'your school'}
-          programId={programId}
+          programId={programKey || null}
           board={describeBoard}
           execute={advisorExecute}
           open={chatOpen}
+          onOpen={() => setChatOpen(true)}
           onClose={() => setChatOpen(false)}
           openers={[
-            'How do I drop a class?',
-            'When is tuition due?',
-            'Where do I find my academic advisor?',
-            'I really like history. Can you work some in?',
+            'Does this plan meet my degree requirements?',
+            `How do I find my ${school?.short ?? 'university'} advisor?`,
+            'Can you suggest an elective based on my interests?',
             'Which term is hardest?',
           ]}
-          // MERGE-UGA: UGA sets ready={Boolean(context)} (ALMA opens before a board exists, and on the Undecided
-          // open plan) and drops turns; Illinois waits for the board and passes turns={almaTurns} for 'Undo these
-          // changes'. Keep turns. Suggest ready={Boolean(plan && context && (loaded || isUndecided))}: Illinois's
-          // commit() silently drops edits when no board exists.
-          ready={Boolean(plan && context && loaded)}
+          ready={Boolean(plan && context && (loaded || isUndecided))}
           turns={almaTurns}
         />
       )}
@@ -4624,10 +5775,12 @@ function termOrd(season: SemesterSeason, year: number): number {
  * use rather than a copy of it.
  */
 function horizonFor(answers: OnboardingAnswers | null | undefined, nowYear: number, shape: PlanShape): Horizon {
-  // MERGE-UGA: UGA's onboarding adds graduationSeason/graduationYear answers and its buildPlan reads
-  // readHorizon(timelineForPlanning(answers)). This reads answers.timeline only, so a graduation term picked
-  // in UGA's onboarding is ignored after the merge. Use timelineForPlanning(answers) here.
-  const read = readHorizon(answers?.timeline ?? '', { season: 'Fall', year: nowYear });
+  const read = readHorizon(answers ? timelineForPlanning(answers) : '', { season: 'Fall', year: nowYear });
+  if (answers?.graduationSeason && answers.graduationYear && termOrd(answers.graduationSeason, answers.graduationYear) >= termOrd(read.startSeason, read.startYear)) {
+    read.gradSeason = answers.graduationSeason;
+    read.gradYear = answers.graduationYear;
+    read.stated = true;
+  }
   /**
    * A record with courses in progress in the plan's first term means the
    * student is taking that term now: those courses are counted as done, so

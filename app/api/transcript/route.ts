@@ -1,3 +1,5 @@
+import { isSupportedSchool, type SupportedSchoolId } from '@/lib/planner/schools';
+import { transcriptSystem } from '@/lib/planner/transcript-reader';
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
@@ -54,8 +56,8 @@ const Course = z.object({
   term: z.string().nullable().describe('The term, written as "Fall 2024" whatever the document prints ("FA24", "2024FA", "Fall Semester 2024"). Null when the document does not say.'),
   status: z.enum(['completed', 'in_progress', 'withdrawn', 'failed', 'transfer', 'exam', 'no_credit']),
   from: z.string().nullable().describe('The school that taught the course, when the document names one and it is not the issuer: the school named over a transfer block, the sending institution on an evaluation report, a school in parentheses beside the line. Null when the issuer taught it or nothing says.'),
-  equivalent: z.string().nullable().describe('The University of Illinois course the document itself prints as this line\'s equivalent, as printed ("MATH 221", "HIST 1--"): the right-hand column of a Transfer Evaluation Report, the Illinois code beside a transfer line on a degree audit. Null when the document prints none. Never guess one.'),
-  equivalent_credits: z.number().nullable().describe('The Illinois hours printed beside the equivalent, when the document prints them separately from the line\'s own hours. Null otherwise.'),
+  equivalent: z.string().nullable().describe('The selected university course the document itself prints as this line\'s equivalent: the destination column of a transfer evaluation or the destination code beside a transfer line on an audit. Null when the document prints none. Never guess one.'),
+  equivalent_credits: z.number().nullable().describe('The destination university hours printed beside the equivalent, when the document prints them separately from the line\'s own hours. Null otherwise.'),
   iai: z.string().nullable().describe('An Illinois Articulation Initiative code printed beside the line, like "M1 900" or "C1 900", or null.'),
   gen_ed: z.string().nullable().describe('General education categories the document prints beside this line, as printed ("Gen Ed: SBS", "Humanities", "NST-Life"). Null when it prints none. Never infer one.'),
 });
@@ -68,31 +70,6 @@ const Reading = z.object({
   exams: z.array(z.object({ kind: z.string(), exam: z.string(), score: z.string().nullable(), subscore: z.string().nullable().describe('A subscore the document prints for this exam: the AB subscore of AP Calculus BC, the aural subscore of AP Music Theory. Null when none.') })),
   notes: z.array(z.string()),
 });
-
-// MERGE-UGA: Illinois rewrote this prompt for Illinois only (Illinois equivalents, IAI codes, uAchieve). UGA never
-// changed this route, and its planner and credit step still upload here, so after the merge a UGA transcript is read
-// as one sent to Illinois. Keep both: send the school from transcript-upload.tsx and use this wording only for 'illinois'.
-const SYSTEM = `You read what a student has uploaded to a University of Illinois Urbana-Champaign four-year degree planner: a transcript, a degree audit, a Transfer Evaluation Report, a Student Self-Service academic history, a DegreeWorks or uAchieve page, a Canvas course list, or a plain typed list. The student will review every line you return before anything counts, so completeness and fidelity matter more than judgement: return one entry per course line, as printed, in the order printed, across every file and page.
-
-For each line:
-- code: the subject and catalog number as printed. Keep another school's codes the way that school prints them ("ENGLI 1101", "MAT 128"). Illinois prints indirect credit as "HIST 1--" (hours in a subject, no particular class); keep that shape.
-- title, credits, grade: as printed. Credits are the hours on the line itself; when a document prints the line's hours and Illinois hours in separate columns, credits is the line's own and equivalent_credits the Illinois hours.
-- term: written as "Fall 2024" (Fall, Spring, Summer or Winter, then the four-digit year) whatever shorthand the document uses. Null when nothing says.
-- status: "completed" for a passing letter grade or CR, S, P, PS, or for a course listed under a past term with no grade printed (a Canvas "past enrollments" list); "in_progress" for a current term, a course marked IP, or a current-enrollments list; "withdrawn" for W, WX, WD; "failed" for F, NC, U, or a failing grade; "transfer" for credit accepted from another institution (grade TR, T, TC, or a transfer-credit block); "exam" for test credit (AP, IB, CLEP, A-Level, proficiency or departmental exams, grade CR); "no_credit" when the document itself says the line earns nothing (developmental or remedial, marked "no credit", 0 hours granted, repeated, not transferable).
-- from: the school that taught the course when the document names one and it is not the issuer. On an Illinois record, the transfer block is headed with the school's name; on an evaluation report the sending institution is named once for every line; a degree audit may put it in parentheses beside the line. Null otherwise.
-- equivalent: only what the document itself prints as the Illinois equivalent of this line, as printed. A Transfer Evaluation Report has a column for it; a degree audit lists the Illinois code with the sending school's course in parentheses, in which case the Illinois code is the code and the sending school's course goes in from (school) and is not a second line. Never invent an equivalent.
-- iai: an IAI code printed beside the line, else null.
-- gen_ed: the general education categories the document prints for the line (an evaluation report's "Gen Ed: SBS", an audit's category heading the line sits under), else null.
-
-For the document:
-- institution: the school that issued it (the university on the letterhead, the school named in the header). A Transfer Evaluation Report from Illinois is issued by Illinois; the sending school goes in each line's from.
-- kind: transcript, degree_audit (DARS, uAchieve, DegreeWorks, an audit by requirement), transfer_report (a transfer credit evaluation), course_list (Canvas, a registration list, a typed list), score_report (an AP, IB or other exam score report with no course lines), or other.
-- hours_unit: "quarter" when the document states quarter hours or the school is on quarters and says so; "semester" when it states semester hours; null when it does not say. Never convert the hours yourself.
-- A degree audit lists requirements still needed next to courses taken: return only courses taken or in progress, never a course the audit lists as still needed or as an option.
-- exams: the AP, IB, CLEP, A-Level or other exams the document names together with a score, the exam name as printed ("Calculus AB", "Psychology", "Biology HL") and kind "AP", "IB", "CLEP" or "A-Level". Empty when it prints none. Where the registrar has already posted the exam as a course line, keep the course line too. A score report has exams and no course lines; that is a complete reading.
-- notes: one sentence for anything you could not read or had to leave out, and for any reading you made that the student should check (a cut-off header, a list with no grades printed). Otherwise empty.
-
-Do not invent lines, grades, hours or equivalents. If a line is unreadable, leave it out and say so in notes. If several files were sent, read them as one document in the order given and do not repeat a line that appears on two of them.`;
 
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status });
 
@@ -130,6 +107,8 @@ function readFile(file: Partial<TranscriptUploadFile>, index: number): { blocks:
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as Partial<TranscriptUploadBody> | null;
   if (!body || typeof body !== 'object') return json({ error: 'Send a file to read.' }, 400);
+  if (!isSupportedSchool(body.schoolId)) return json({ error: 'Choose a supported university before reading a transcript.' }, 400);
+  const schoolId: SupportedSchoolId = body.schoolId;
 
   const files: Array<Partial<TranscriptUploadFile>> = 'files' in body && Array.isArray(body.files) ? body.files : [body as Partial<TranscriptUploadFile>];
   if (files.length === 0) return json({ error: 'Send a file to read.' }, 400);
@@ -164,7 +143,7 @@ export async function POST(req: Request) {
     const response = await client.messages.parse({
       model: MODEL,
       max_tokens: 16000,
-      system: SYSTEM,
+      system: transcriptSystem(schoolId),
       messages: [{ role: 'user', content }],
       output_config: { format: zodOutputFormat(Reading) },
     });

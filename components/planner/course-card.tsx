@@ -1,12 +1,9 @@
 'use client';
 
-// MERGE-UGA: icon imports conflict. UGA swapped AlertCircle/CircleAlert for Check (its 'Already taken' button);
-// Illinois added ChevronDown (the alternatives chevron). Either side alone leaves one icon undefined.
-// Keep ChevronDown and Check. AlertCircle/CircleAlert end up unused (UGA removed the 'check' chip).
+import { useRef, useState } from 'react';
 import {
+  Check,
   ChevronDown,
-  AlertCircle,
-  CircleAlert,
   GripVertical,
   ListChecks,
   LockKeyhole,
@@ -15,9 +12,6 @@ import {
   Shuffle,
   Trash2,
 } from 'lucide-react';
-// MERGE-UGA: delete this line when merging. UGA added `import { useRef, useState } from 'react'` at the top;
-// git keeps both with no conflict and tsc fails: Duplicate identifier 'useState'.
-import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -33,6 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { clusterColor } from './cluster-color';
+import { IssueBadge } from './issue-badge';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 import type { PlanMark } from '@/lib/planner/repick';
 
@@ -61,7 +56,10 @@ interface CourseCardProps {
   term: PlanTerm;
   allTerms: PlanTerm[];
   selected: boolean;
+  dropPosition?: 'before' | 'after';
   issues: PlanIssue[];
+  coursesByCode: ReadonlyMap<string, Course>;
+  onShowCourse: (courseId: string) => void;
   electiveOf?: ElectiveOf;
   /** Opens the chooser for an elective slot. The card body does this in place of selecting. */
   onChoose?: (courseId: string, termId: string) => void;
@@ -74,7 +72,16 @@ interface CourseCardProps {
   onSelect: (courseId: string, termId: string) => void;
   onMove: (courseId: string, fromTermId: string, toTermId: string) => void;
   onRemove: (courseId: string, termId: string) => void;
-  onFindAlternatives: (courseId: string, termId: string) => void;
+  onMarkCompleted: (courseId: string, termId: string) => void;
+  replacement: {
+    active: boolean;
+    label: string;
+    options: Course[];
+    onLoad: () => void;
+    onPick: (courseId: string) => void;
+    onShowCourse: (courseId: string) => void;
+    onShowAll: () => void;
+  };
 }
 
 /** "3 cr", or "1 to 4 cr" for the 1,829 Illinois courses with a range. */
@@ -88,7 +95,10 @@ export function CourseCard({
   term,
   allTerms,
   selected,
+  dropPosition,
   issues,
+  coursesByCode,
+  onShowCourse,
   electiveOf,
   onChoose,
   alternativesFor,
@@ -96,22 +106,38 @@ export function CourseCard({
   onSelect,
   onMove,
   onRemove,
-  onFindAlternatives,
+  onMarkCompleted,
+  replacement,
 }: CourseCardProps) {
-  // MERGE-UGA: UGA replaced these lines with card-resize state (cardRef, resizeStart, cardHeight, resizeTo)
-  // used by its <article ref/style> and resize handle; Illinois added alternatives + swappable for the chevron.
-  // Either side alone leaves the other's names undefined. Keep both; highestIssue can go (UGA dropped the
-  // 'check' chip that read it and shows one IssueBadge per issue instead).
-  const highestIssue = issues.find((issue) => issue.severity === 'error') ?? issues[0];
   const [alternatives, setAlternatives] = useState<Alternative[] | null>(null);
   // A track card is there for the student's goal (PHYS 101 for physical
   // therapy school), so it offers no "better" course to trade it for.
   const swappable = Boolean(electiveOf && electiveOf.kind !== 'prerequisite' && electiveOf.kind !== 'track' && alternativesFor && onSwap);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const resizeStart = useRef<{ pointerId: number; y: number; height: number } | null>(null);
+  const [cardHeight, setCardHeight] = useState<number | null>(null);
+
+  function resizeTo(height: number) {
+    setCardHeight(Math.max(104, Math.min(440, Math.round(height))));
+  }
 
   return (
+    // Drag is progressive enhancement; every action also has a keyboard control.
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <article
+      ref={cardRef}
       id={`planned-${term.id}-${course.id}`}
       className={cn('course-card group', selected && 'course-card-selected')}
+      data-course-id={course.id}
+      data-drop-position={dropPosition}
+      data-resized={cardHeight !== null ? 'true' : undefined}
+      style={cardHeight === null ? undefined : { height: `${cardHeight}px` }}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData('application/x-course-id', course.id);
+        event.dataTransfer.setData('application/x-term-id', term.id);
+        event.dataTransfer.effectAllowed = 'move';
+      }}
     >
       <button
         type="button"
@@ -131,6 +157,24 @@ export function CourseCard({
         className="course-cluster-dot"
         style={{ backgroundColor: clusterColor(course.cluster) }}
       />
+      {issues.length > 0 && (
+        <span
+          className="course-card-issues"
+          aria-label={`${issues.length} course ${issues.length === 1 ? 'note' : 'notes'}`}
+        >
+          {issues.map((issue) => (
+            <IssueBadge
+              key={issue.id}
+              title={issue.title}
+              message={issue.message}
+              severity={issue.severity}
+              side="left"
+              coursesByCode={coursesByCode}
+              onShowCourse={onShowCourse}
+            />
+          ))}
+        </span>
+      )}
       <button
         type="button"
         className="course-card-body focus-visible:outline-none"
@@ -140,19 +184,12 @@ export function CourseCard({
             : onSelect(course.id, term.id)
         }
       >
-        {/* The credit hours are the last thing on this row rather than a
-            sibling of this button.
-            Outside it they were one more thing the card's single line had to
-            fit, and in the 228px columns the 768px layout uses it could not:
-            the card held its own min-content width, ran 112px past the column,
-            and the credits on every card in the leftmost column were clipped
-            off. On this row they keep their place at the right and wrap under
-            the code when the column is too narrow for both. */}
         <span className="course-card-code-row">
           <span className="course-card-code">{course.code}</span>
+          <span className="course-card-credits">{creditLabel(course)}</span>
           {course.pathwayRole === 'required' && !electiveOf && (
-            <span className="course-required" title="Required by this degree">
-              <LockKeyhole /> required
+            <span className="course-required" title="Required by this degree" aria-label="Required by this degree">
+              <LockKeyhole />
             </span>
           )}
           {electiveOf && (
@@ -170,34 +207,12 @@ export function CourseCard({
                         : `${electiveOf.label}. ${electiveOf.detail}`
               }
             >
-              {/* MERGE-UGA: UGA made this badge icon-only (text left only in the hover title, as it did for 'required');
-                 Illinois added a label per kind ('for <track>', 'language · switch ▾', 'gen ed · swap ▾', 'prerequisite').
-                 Pick one design: Illinois's visible text, or UGA's icon with that text moved into an aria-label.
-              */}
               <ListChecks /> {electiveOf.kind === 'elective' ? 'elective · tap to choose' : electiveOf.kind === 'track' ? `for ${electiveOf.track ?? electiveOf.label}` : electiveOf.kind === 'language' ? 'language · switch ▾' : electiveOf.kind === 'gened' ? 'gen ed · swap ▾' : electiveOf.kind === 'prerequisite' ? 'prerequisite' : 'from a list'}
             </span>
           )}
-          {highestIssue && (
-            <span
-              className={cn(
-                'course-check',
-                highestIssue.severity === 'error' ? 'text-destructive' : 'text-warning',
-              )}
-              title={highestIssue.message}
-            >
-              {highestIssue.severity === 'error' ? <AlertCircle /> : <CircleAlert />}
-              check
-            </span>
-          )}
-          <span className="course-card-credits">{creditLabel(course)}</span>
         </span>
         <span className="course-card-title">{course.title}</span>
       </button>
-      {/* MERGE-UGA: both sides added a control here: Illinois this alternatives chevron, UGA an 'Already taken'
-         button (onMarkCompleted). Keep both; either side alone drops the other's feature.
-         UGA's globals.css puts every .course-card > [data-slot=dropdown-menu-trigger] at grid column 4, row 2,
-         so this chevron sits on top of the ⋯ menu button: give .course-alt-trigger its own grid cell.
-      */}
       {/* The recommendation with its alternatives behind it: this card is the
           planner's pick for the slot or the list, and the chevron shows what
           else would fit, best first, each with the reason it is offered. */}
@@ -255,10 +270,7 @@ export function CourseCard({
               onClick={() =>
                 electiveOf.kind === 'elective' && onChoose
                   ? onChoose(course.id, term.id)
-                  // MERGE-UGA: UGA removed the onFindAlternatives prop (that merges with no conflict), so this line fails tsc.
-                  // Illinois passes selectPlanned as both onFindAlternatives and onSelect, so onSelect(course.id, term.id)
-                  // keeps Illinois's behavior; or call replacement.onLoad(); replacement.onShowAll() to open UGA's picker.
-                  : onFindAlternatives(course.id, term.id)
+                  : onSelect(course.id, term.id)
               }
             >
               See all options
@@ -266,6 +278,14 @@ export function CourseCard({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+      <button
+        type="button"
+        className="course-complete-button"
+        onClick={() => onMarkCompleted(course.id, term.id)}
+        title={`Mark ${course.code} as already taken`}
+      >
+        <Check aria-hidden="true" /> Already taken
+      </button>
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={`Options for ${course.code}`}
@@ -281,6 +301,14 @@ export function CourseCard({
           <DropdownMenuGroup>
             <DropdownMenuLabel>{course.code}</DropdownMenuLabel>
           </DropdownMenuGroup>
+          <DropdownMenuItem
+            onClick={() => {
+              replacement.onLoad();
+              replacement.onShowAll();
+            }}
+          >
+            <Shuffle /> Replace course
+          </DropdownMenuItem>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <MoveRight /> Move to
@@ -300,9 +328,6 @@ export function CourseCard({
                 ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
-          <DropdownMenuItem onClick={() => onFindAlternatives(course.id, term.id)}>
-            <Shuffle /> Find a replacement
-          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
@@ -312,6 +337,43 @@ export function CourseCard({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <button
+        type="button"
+        className="course-resize-handle"
+        aria-label={`Resize ${course.code} card vertically`}
+        title="Drag to resize course card"
+        draggable={false}
+        onDragStart={(event) => event.preventDefault()}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const height = cardRef.current?.getBoundingClientRect().height;
+          if (!height) return;
+          resizeStart.current = { pointerId: event.pointerId, y: event.clientY, height };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const start = resizeStart.current;
+          if (!start || start.pointerId !== event.pointerId) return;
+          resizeTo(start.height + event.clientY - start.y);
+        }}
+        onPointerUp={(event) => {
+          if (resizeStart.current?.pointerId !== event.pointerId) return;
+          resizeStart.current = null;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={() => {
+          resizeStart.current = null;
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+          event.preventDefault();
+          const height = cardHeight ?? cardRef.current?.getBoundingClientRect().height ?? 104;
+          resizeTo(height + (event.key === 'ArrowDown' ? 16 : -16));
+        }}
+      >
+        <span aria-hidden="true" />
+      </button>
     </article>
   );
 }

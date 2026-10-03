@@ -539,9 +539,6 @@ export interface PoolList {
  * pool's own six courses may be chosen, which is why they live here and not as
  * sibling requirements.
  */
-// MERGE-UGA: UGA adds distinctLists?, hours? and hourCodes? here (auto-merges; mirrors PlanPoolConstraint in
-// autoplan.ts). live-pools.ts, uga-source.tsx and uga-program-overrides.ts use them. Taking this whole file
-// drops them and live-pools.ts fails tsc 8 times. Keep them.
 export interface PoolConstraint {
   /** The catalog's own sentence. Quoted verbatim wherever this is shown. */
   text: string;
@@ -551,6 +548,12 @@ export interface PoolConstraint {
   lists: PoolList[];
   /** True when all n have to come from ONE of `lists` rather than spread across them. */
   single: boolean;
+  /** Count how many named lists are represented, assigning each course once. */
+  distinctLists?: boolean;
+  /** Optional credit-hour floor inside `hourCodes`. */
+  hours?: number;
+  /** Courses whose credit contributes to `hours`. */
+  hourCodes?: string[];
 }
 
 export type RequirementRule =
@@ -589,10 +592,6 @@ export type RequirementRule =
       joinedByOr?: boolean;
     }
   | {
-      // MERGE-UGA: conflict (hunk right after this member). UGA added source?: 'catalog' | 'explicit-elective' | 'parser-gap'
-      // to the 'hours' rule; Illinois added minLevel and exclude. Illinois wins: uga-source.tsx's two source: literals and
-      // UGA's rule.source reads fail to compile. UGA wins: two 'hours' members, so minLevel/exclude/source reads fail.
-      // Keep both: one 'hours' member with minLevel, exclude and source.
       kind: 'hours';
       hours: number;
       genEd: string[] | null;
@@ -606,6 +605,8 @@ export type RequirementRule =
       minLevel?: number | null;
       /** Codes the page rules out: "Exceptions to the list are: ASTR 100, PHYS 101 and PHYS 102, and CHEM 101." */
       exclude?: string[];
+      /** Distinguishes explicit electives from requirements missing course data. */
+      source?: 'catalog' | 'explicit-elective' | 'parser-gap';
     }
   /**
    * One campus general education category, as the degree page states it.
@@ -650,8 +651,6 @@ export type RequirementRule =
    * depend on the student, so the adapter records the level and the engine
    * turns it into courses once it knows them.
    */
-  // MERGE-UGA: Illinois-only rule kind (UGA's copy lacks it). This file builds it and illinois-progress.ts
-  // branches on kind 'language'. Keep this line whatever happens to the 'hours' member above.
   | { kind: 'language'; semesters: 3 | 4; text: string };
 
 /**
@@ -695,8 +694,6 @@ export interface CourseChoice {
    * page's order. `codes` still holds the first course of each set, so a
    * reader that knows nothing of sets sees the alternatives.
    */
-  // MERGE-UGA: Illinois-only field (UGA's CourseChoice lacks it); illinois-progress.ts reads it, so keep it.
-  // It is optional, so the CourseChoice rows uga-source.tsx builds still type-check.
   bundles?: string[][];
 }
 
@@ -4127,11 +4124,8 @@ export function adaptIllinoisPrograms(
       const areaId = `${raw.id}::${ai}`;
       const schedulerGroups: RequirementGroup[] = [];
 
-      // MERGE-UGA: behavior, merges with no conflict. UGA adds areaLabel below: an unheaded area borrows its first labelled
-      // block's label, else 'Degree requirements', and its unlabelled blocks take that as their label. Illinois leaves these
-      // empty on purpose: illinois-progress.ts then heads the row by the rule's own words or courses, else 'No heading published'.
-      // Merged, rows get a sibling's heading. Keep Illinois's labels here; apply UGA's fallback only in UGA's own UI.
       const rules = byArea[ai] ?? { blocks: [], droppedRows: 0, droppedTotalRows: 0, pools: 0, areaHours: null };
+      const areaLabel = area.label ?? '';
       dropped += rules.droppedRows;
       droppedTotalRows += rules.droppedTotalRows;
       poolGroups += rules.pools;
@@ -4148,7 +4142,7 @@ export function adaptIllinoisPrograms(
           // several blocks, which today is the gen-ed table and nothing else.
           id: `${raw.id}::${ai}::${block.groupIndex}${block.idSuffix ? `::${block.idSuffix}` : ''}`,
           areaId,
-          areaLabel: area.label,
+          areaLabel,
           label,
           hours: block.hours,
           // programs.mjs's hours() keeps only the first number it sees, so a
@@ -4216,10 +4210,10 @@ export function adaptIllinoisPrograms(
 
       // The area's own subtotal row counts as its size where the heading
       // prints none, so Business Core reads 48 of 57 rather than 48 of 48.
-      areas.push({ label: area.label, hours: area.hours ?? rules.areaHours ?? 0, groups: schedulerGroups });
+      areas.push({ label: areaLabel, hours: area.hours ?? rules.areaHours ?? 0, groups: schedulerGroups });
       requirements.push({
         id: areaId,
-        label: area.label,
+        label: areaLabel,
         targetCredits: area.hours ?? rules.areaHours ?? 0,
         description: area.groups?.find((g) => g.note)?.note ?? '',
       });

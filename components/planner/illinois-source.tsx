@@ -86,9 +86,9 @@ export function useIllinoisCore(enabled: boolean): CoreState {
     let cancelled = false;
     void loadIllinoisCore().then((core) => {
       if (cancelled) return;
-      // An empty index is a build that did not run, not a university with no
-      // courses, and the board must say so rather than render nothing.
-      const ok = core.index.length > 0;
+      // The catalog, degree pages, prerequisites and credit exclusions are
+      // required to build a trustworthy plan. Enrichment may arrive later.
+      const ok = core.index.length > 0 && core.prereqs && core.programs && core.exclusions;
       setState({
         status: ok ? 'ready' : 'unavailable',
         core: ok ? core : null,
@@ -438,6 +438,7 @@ export function buildContext(
 
   const season = (core.meta?.term?.term ?? 'fall').toLowerCase();
   const context: PlanningContext = {
+    schoolId: 'illinois',
     courses: core.index,
     prereqs: core.prereqs
       ? (core.prereqs as unknown as Map<string, PlanPrereq>)
@@ -1011,10 +1012,6 @@ export function readHorizon(
 
   // A graduation on or before the first term is a misread, not a plan, and
   // shipping it produced a one-semester degree. Fall back rather than show it.
-  // MERGE-UGA: conflict. UGA changed <= to < so a graduation term equal to the start term (a final-semester date from
-  // its onboarding picker) is kept; Illinois rewrote this with ordOf/startOrd and keeps <= (same-term graduation = misread).
-  // Illinois wins: that date resets to Spring start+4. UGA wins: same result, since fits() above already drops it.
-  // Keep ordOf/startOrd; to allow it, change both fits() and this check, ideally only for a date the student confirmed.
   if (ordOf(gradSeason, gradYear) <= startOrd || gradYear > startYear + 8) {
     gradSeason = 'Spring';
     gradYear = startYear + 4;

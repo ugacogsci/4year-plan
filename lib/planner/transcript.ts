@@ -1,3 +1,4 @@
+import { schoolById, type SupportedSchoolId } from './schools';
 /**
  * A transcript, read by the model and matched against the catalog.
  *
@@ -139,6 +140,8 @@ export interface TranscriptCourseRecord extends TranscriptCourse {
 
 /** What the student keeps, alongside the rest of their answers. */
 export interface TranscriptRecord {
+  /** Destination university whose catalog was used to match this record. */
+  schoolId?: SupportedSchoolId;
   fileName: string;
   readAt: string;
   institution: string | null;
@@ -173,7 +176,7 @@ export interface TranscriptUploadFile {
  * or several read together so a course list that spans two screenshots is
  * one list with one institution.
  */
-export type TranscriptUploadBody = TranscriptUploadFile | { files: TranscriptUploadFile[] };
+export type TranscriptUploadBody = (TranscriptUploadFile | { files: TranscriptUploadFile[] }) & { schoolId?: SupportedSchoolId };
 
 export const TRANSCRIPT_MAX_BYTES = 10 * 1024 * 1024;
 export const TRANSCRIPT_MAX_FILES = 8;
@@ -240,13 +243,10 @@ export function normalizeTerm(raw: string | null): string | null {
  * into an Illinois planner, and the codes either match the catalog or they do
  * not.
  */
-// MERGE-UGA: Home means UIUC only, and UGA never changed this file. After the merge a UGA student's own UGA transcript
-// is 'another school': with no UGA catalog every line counts as transfer hours toward the total (the old code counted
-// none), while the plan still books those same courses, so the hours are counted twice.
-// Keep both: pass the school in, treat its own name as home, and match against that school's codes.
-export function isHomeTranscript(institution: string | null | undefined): boolean {
+export function isHomeTranscript(institution: string | null | undefined, schoolId: SupportedSchoolId = 'illinois'): boolean {
   if (!institution || !institution.trim()) return true;
   const name = institution.toLowerCase();
+  if (schoolId === 'uga') return /\b(university of georgia|uga)\b/.test(name) && !/\b(west|north|state)\b/.test(name);
   if (/\b(urbana|champaign|uiuc)\b/.test(name)) return true;
   if (/university of illinois/.test(name) && !/\b(chicago|springfield|uic|uis)\b/.test(name)) return true;
   return false;
@@ -319,7 +319,9 @@ export function matchTranscript(
   files: string[] = [fileName],
   /** Published guides of which Illinois gen-ed categories another school's courses meet. */
   guide: TransferGenEdGuide | null = null,
+  schoolId: SupportedSchoolId = 'illinois',
 ): TranscriptRecord {
+  const schoolName = schoolById(schoolId)!.short;
   const known = new Map(catalog.map((c) => [c.code, c]));
   /**
    * Whose codes the document prints.
@@ -332,7 +334,7 @@ export function matchTranscript(
    * named on it is judged by its codes: when most of them are not in the
    * catalog, they are another school's.
    */
-  const issuerIsHome = isHomeTranscript(reading.institution);
+  const issuerIsHome = isHomeTranscript(reading.institution, schoolId);
   const quarter = reading.hoursUnit === 'quarter';
   const creditsOfCode = (code: string | null | undefined): number | null => (code ? known.get(code)?.credits ?? null : null);
   const knownShare = reading.courses.length > 0
@@ -346,7 +348,7 @@ export function matchTranscript(
     const c = quarter && raw.credits !== null ? { ...raw, credits: Math.round(raw.credits * (2 / 3) * 100) / 100 } : raw;
     const code = normalizeCourseCode(c.code);
     const term = normalizeTerm(c.term);
-    const taughtElsewhere = codesAreIllinois ? false : c.from ? !isHomeTranscript(c.from) : !home;
+    const taughtElsewhere = codesAreIllinois ? false : c.from ? !isHomeTranscript(c.from, schoolId) : !home;
     const base: TranscriptCourseRecord = {
       ...c,
       code,
@@ -386,7 +388,7 @@ export function matchTranscript(
     if (isDevelopmental(code, c.title) || c.status === 'no_credit') {
       return { ...base, status: 'no_credit', counts: 'none', use: false };
     }
-    const proposals = proposeEquivalents({ code, title: c.title, credits: c.credits }, catalog);
+    const proposals = schoolId === 'illinois' ? proposeEquivalents({ code, title: c.title, credits: c.credits }, catalog) : [];
     const best = proposals[0];
     if (best && best.confidence === 'high') {
       const also = proposals.filter((p) => p.pairedWith === best.code).map((p) => p.code);
@@ -401,7 +403,7 @@ export function matchTranscript(
   // hours until the student says otherwise.
   let assumed = 0;
   for (const line of courses) {
-    const foreign = line.from ? !isHomeTranscript(line.from) : false;
+    const foreign = line.from ? !isHomeTranscript(line.from, schoolId) : false;
     if (!foreign || line.credits !== null || line.equivalentCredits != null || !earns(line.status)) continue;
     line.assumedCredits = 3;
     assumed += 1;
@@ -415,8 +417,8 @@ export function matchTranscript(
   // first, then what the document prints beside the line.
   const tagsOf = (code: string) => catalog.find((c) => c.code === code)?.tags ?? [];
   for (const line of courses) {
-    const foreign = line.from ? !isHomeTranscript(line.from) : false;
-    if (!foreign) continue;
+    const foreign = line.from ? !isHomeTranscript(line.from, schoolId) : false;
+    if (!foreign || schoolId !== 'illinois') continue;
     const school = guideSchool(guide, line.from);
     const entry = school?.courses[line.code];
     const printed = genEdTagsFromText(line.genEdText);
@@ -440,7 +442,7 @@ export function matchTranscript(
   // nearly every Illinois community college gives them (ENG 101 and 102,
   // ENGLI 1101 and 1102): Joliet's "Rhetoric" and "Critical Writing and
   // Research" are the same two courses under other names.
-  const foreignLine = (c: TranscriptCourseRecord) => c.use && c.matchedBy !== 'code' && c.matchedBy !== 'printed' && Boolean(c.from) && !isHomeTranscript(c.from);
+  const foreignLine = (c: TranscriptCourseRecord) => c.use && c.matchedBy !== 'code' && c.matchedBy !== 'printed' && Boolean(c.from) && !isHomeTranscript(c.from, schoolId);
   const writingTitle = /\b(composition|rhetoric|writing|english)\b/i;
   const isCompOne = (c: TranscriptCourseRecord) =>
     (c.proposals ?? [])[0]?.code === 'RHET 105' || (/^(ENG|ENGL|ENGLI|WRT|WRIT|RHET|ENC)\s(101|1101|111|1110)$/.test(c.code) && writingTitle.test(c.title ?? ''));
@@ -452,7 +454,7 @@ export function matchTranscript(
   const iaiFirst = courses.find((c) => c.use && /C1\s*900/i.test(c.iai ?? ''));
   const iaiSecond = courses.find((c) => c.use && /C1\s*901/i.test(c.iai ?? ''));
   const pairFirst = compFirst && compSecond ? compFirst : iaiFirst && iaiSecond ? iaiFirst : null;
-  if (pairFirst && known.has('RHET 105')) {
+  if (schoolId === 'illinois' && pairFirst && known.has('RHET 105')) {
     Object.assign(pairFirst, {
       matched: 'RHET 105',
       matchedBy: 'proposal',
@@ -482,23 +484,24 @@ export function matchTranscript(
       Object.assign(line, { counts: 'hours', matched: null, matchedBy: null, illinoisCredits: null, also: undefined, matchNote: `${earlier.code} already counts as ${earlier.matched}` });
     }
   }
-  if (quarter) notes.unshift('This transcript is in quarter hours; each line\'s hours are converted to semester hours at two-thirds, the usual conversion. Your Transfer Evaluation Report shows the figure Illinois settles on.');
-  const foreign = codesAreIllinois ? [] : courses.filter((c) => c.from ? !isHomeTranscript(c.from) : !home);
+  if (quarter) notes.unshift(`This transcript is in quarter hours; each line's hours are converted to semester hours at two-thirds. Your ${schoolName} transfer evaluation determines the accepted hours.`);
+  const foreign = codesAreIllinois ? [] : courses.filter((c) => c.from ? !isHomeTranscript(c.from, schoolId) : !home);
   if (!reading.institution && !home) {
-    notes.unshift('No school is named on this list and most of its codes are not Illinois courses, so they are read as another school\'s.');
+    notes.unshift(`No school is named on this list and most of its codes are not ${schoolName} courses, so they are read as another school's.`);
   }
   if (foreign.length > 0) {
     const proposed = foreign.filter((c) => c.use && c.matchedBy === 'proposal').length;
     const asHours = foreign.filter((c) => c.counts === 'hours').length;
     const where = reading.institution && !home ? reading.institution : [...new Set(foreign.map((c) => c.from).filter(Boolean))].join(', ') || 'another school';
     notes.unshift(
-      `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Illinois decides what transfers and as which course (Transferology is the estimate, the Transfer Evaluation Report the decision).${
-        proposed > 0 ? ` ${proposed} ${proposed === 1 ? 'has' : 'have'} a likely Illinois equivalent filled in from the catalog's titles; check each.` : ''
-      }${asHours > 0 ? ` ${asHours} ${asHours === 1 ? 'counts' : 'count'} as hours toward the total until you pick the Illinois course it became.` : ''}`,
+      `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. ${schoolName} decides what transfers and as which course; check the university transfer evaluation.${
+        proposed > 0 ? ` ${proposed} ${proposed === 1 ? 'has' : 'have'} a likely ${schoolName} equivalent filled in from the catalog's titles; check each.` : ''
+      }${asHours > 0 ? ` ${asHours} ${asHours === 1 ? 'counts' : 'count'} as hours toward the total until you pick the ${schoolName} course it became.` : ''}`,
     );
   }
   return {
     fileName,
+    schoolId,
     readAt: new Date().toISOString(),
     institution: reading.institution,
     kind: reading.kind,
@@ -600,7 +603,7 @@ export function transcriptIndirectCodes(record: TranscriptRecord | null | undefi
 
 /** Whether a line was taught somewhere other than Illinois. */
 export function lineIsForeign(record: TranscriptRecord, c: TranscriptCourseRecord): boolean {
-  if (c.from) return !isHomeTranscript(c.from);
+  if (c.from) return !isHomeTranscript(c.from, record.schoolId);
   // Records saved before lines carried their school: the document decides.
   return record.home === false && c.matchedBy !== 'student';
 }

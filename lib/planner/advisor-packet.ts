@@ -403,7 +403,7 @@ function fillsOf(course: Course, role: CardRole, input: PacketInput): string {
       return listed ? named(listed) : 'Named by the degree page';
     }
     case 'from a list':
-      return mark?.label ?? 'A list on the degree page';
+      return mark?.label?.trim() || 'A list on the degree page';
     case 'gen ed pick':
       return mark?.label ? `Gen ed: ${mark.label}` : 'A general education category';
     case 'career track':

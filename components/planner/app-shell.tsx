@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { Onboarding } from './onboarding';
 import { clearSavedPlan, PlannerWorkspace } from './planner-workspace';
 import { isReadySchool, loadAnswers, saveAnswers, type OnboardingAnswers } from '@/lib/planner/onboarding';
@@ -13,10 +14,10 @@ import { isReadySchool, loadAnswers, saveAnswers, type OnboardingAnswers } from 
  * what was said last time, and one link skips to the saved plan for anyone who
  * has nothing to change. New answers build a new plan.
  *
- * Answers live in localStorage. Nothing about a student leaves the device
- * until there is a backend and a FERPA review, which is the boundary the
- * project README draws. The one exception is a transcript the student chooses
- * to upload: it is sent once to /api/transcript to be read, and not kept.
+ * Answers and boards live in localStorage. Using the adviser sends the
+ * conversation and relevant planning context to the configured model service.
+ * An uploaded transcript is sent once to /api/transcript to be read; this app
+ * does not persist the uploaded document on the server.
  */
 export function AppShell() {
   const [saved, setSaved] = useState<OnboardingAnswers | null>(null);
@@ -41,30 +42,38 @@ export function AppShell() {
   if (!ready) return null;
   if (!answers) {
     return (
-      // MERGE-UGA: conflict. UGA wraps <Onboarding> in <TooltipProvider> and offers resume only if saved.programIds is non-empty;
-      // Illinois only reworded the comment below (ALMA's chat is cleared too). Keep UGA's JSX with Illinois's comment.
-      // Catch: setups saved before the merge load with programIds [] (loadAnswers), so returning Illinois students get no
-      // 'Continue with my saved plan', and Build then wipes their saved board and chat. Consider exempting Illinois from that check.
-      <Onboarding
-        initial={saved}
-        onResume={saved ? () => setAnswers(saved) : undefined}
-        onDone={(next) => {
-          // A board saved under the previous answers would otherwise win over
-          // the plan these answers are about to build, and ALMA's conversation
-          // about that board goes with it.
-          clearSavedPlan();
-          setAnswers(next);
-        }}
-      />
+      <TooltipProvider>
+        <Onboarding
+          initial={saved}
+          onResume={(next) => {
+            saveAnswers(next);
+            setAnswers(next);
+          }}
+          onDone={(next) => {
+            // A board saved under the previous answers would otherwise win over
+            // the plan these answers are about to build, and its conversation
+            // must be cleared with it.
+            clearSavedPlan(next.schoolId ?? undefined);
+            setAnswers(next);
+          }}
+        />
+      </TooltipProvider>
     );
   }
   return (
-    <PlannerWorkspace
-      answers={answers}
-      onAnswersChange={(next) => {
-        saveAnswers(next);
-        setAnswers(next);
-      }}
-    />
+    <TooltipProvider>
+      <PlannerWorkspace
+        key={answers.schoolId}
+        answers={answers}
+        onChangeUniversity={() => {
+          setSaved(answers);
+          setAnswers(null);
+        }}
+        onAnswersChange={(next) => {
+          saveAnswers(next);
+          setAnswers(next);
+        }}
+      />
+    </TooltipProvider>
   );
 }

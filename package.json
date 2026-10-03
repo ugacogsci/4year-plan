@@ -9,10 +9,16 @@
     "dev": "vinext dev",
     "build:illinois": "node --experimental-strip-types scripts/illinois/build-index.mjs",
     "build": "npm run build:illinois && vinext build",
+    "deploy": "npm run build && wrangler deploy",
+    "data:uga:pacmap": "node scripts/apply-uga-pacmap.mjs",
+    "check:uga": "node --experimental-strip-types scripts/uga-check.mjs",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/check-planners.mjs",
+    "test:full": "node scripts/check-planners.mjs --full",
+    "test:map-interactions": "node --experimental-strip-types lib/planner/__map-interactions.check.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",

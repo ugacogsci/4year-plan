@@ -1,48 +1,39 @@
 # Roadmap
 
-## Milestone 1: trustworthy manual planner
+## Current delivery: unified Illinois and UGA
 
-- Validate one program and one catalog year with an advisor
-- Model requirement groups, alternatives, prerequisites, and double-counting rules
-- Add rule-engine unit tests and fixtures
-- Persist named plans through a repository interface
-- Import a small, repeatable course-catalog snapshot
-- Run five student usability sessions
+The implementation and acceptance criteria are in
+[UNIFICATION_PLAN.md](UNIFICATION_PLAN.md). Both school histories converge into
+one application. Existing school branches remain historical references; shared
+fixes should land on main.
 
-## Milestone 2: generated starter plans
+## Next: validated student pilot
 
-- Define hard and soft constraint contracts
-- Generate two or three explainable candidate paths
-- Show why each course was placed and what can replace it
-- Add schedule, offering-frequency, and course-load constraints
-- Compare generated plans against advisor-created fixtures
+Before enabling a public pilot, review and resolve the inherited dependency
+security advisories. The October 3 integration audit reported 14 high-severity
+package entries (including transitive tooling); neither school branch's lockfile
+was changed by this integration. Re-audit after targeted upgrades and rerun the
+build, browser smoke tests and full planner suite. Keep public model endpoints
+disabled until abuse controls and spending limits are in place.
 
-## Milestone 3: current-term decisions
+1. Have advisers review representative Illinois and UGA degree fixtures.
+2. Record each unresolved parser requirement and distinguish it from a real
+   academic requirement that the student has not met.
+3. Validate UGA graduate requirements before presenting graduate plans as
+   complete; retain preparation warnings until then.
+4. Test transfer/exam combinations against reviewed registrar examples.
+5. Observe students creating, editing, comparing and exporting plans.
 
-- Ingest sections, meeting times, capacity, instructor, and location with timestamps
-- Add time-conflict and travel-time checks
-- Notify users when a volatile plan assumption changes
-- Establish freshness targets and graceful stale-data behavior
+Done for this milestone means a defined set of catalog-year/program fixtures
+has human review, regression coverage and documented remaining exceptions.
 
-## Parallel work packets
+## After the pilot
 
-`Requirements`: encode and verify the Cognitive Science A.B. for one catalog year.
+- Improve data freshness and source provenance display.
+- Reduce initial client bundle size while preserving staged catalog loading.
+- Extract more workspace actions into reusable modules as behavior stabilizes.
+- Expand school capabilities only when the supporting data and policy exist.
+- Add a third school through the common adapter and contract suite.
 
-`Rules`: add tests, prerequisite expression trees, double-counting, and substitutions.
-
-`Planner UI`: add keyboard reordering, plan comparison, completed-course management, and richer mobile map controls.
-
-`Data`: inventory official sources and build one idempotent catalog import.
-
-`Discovery`: adapt the current semantic map to consume canonical course IDs from this app.
-
-`Research`: interview students/advisors, prioritize pain points, and test willingness to pay.
-
-## Decisions still needed
-
-- First supported program and catalog year
-- Primary launch user: students, advisors, or both
-- Reliable and permitted source for current sections and capacity
-- Rules for substitutions, transfer credit, exceptions, and double majors
-- Authentication timing and privacy policy
-- Free versus paid boundary
+Accounts, institution integrations and paid plans require a separate product
+decision. They are not prerequisites for using or testing this local-save pilot.
