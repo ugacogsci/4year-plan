@@ -1,0 +1,599 @@
+{
+ "_about": "Curated-list names (lists.json) joined to OneIllinois directory ids, checked by hand against data/clubs/directory.json read 2026-10-04 (1,197 groups). Each name maps to { id, name } (the directory name for that id, so a rename shows up), or to { id: null, note } when no registered group matches; every null says why. `wrongAutoMatch` records the three automatic matches the research got wrong (DESIGN 2.1): they are never used. tag.mjs warns when an id is gone or renamed, and prints every list name with a null id on each run.",
+ "checked": "2026-10-04",
+ "directory": {
+  "read": "2026-10-04",
+  "groups": 1197
+ },
+ "lists": {
+  "prelaw-2025-26": {
+   "Asian Pre-Law Association (APLA)": {
+    "id": "35543",
+    "name": "Asian Pre-Law Association"
+   },
+   "Evexia": {
+    "id": null,
+    "note": "Not in OneIllinois on 2026-10-04 under this name or a close one (searched by name and by its words)."
+   },
+   "Illini Student Advocacy": {
+    "id": "36705",
+    "name": "Illini Student Advocacy By Illinois PIRG"
+   },
+   "Illinois Trial Team": {
+    "id": "35934",
+    "name": "Illinois Trial Team"
+   },
+   "Illinois Undergraduate Law Review": {
+    "id": "36348",
+    "name": "Undergraduate Law Review at the University of Illinois at Urbana-Champaign"
+   },
+   "Illinois Undergraduate Moot Court Team": {
+    "id": "35936",
+    "name": "Illinois Undergraduate Moot Court Team"
+   },
+   "J.U.R.Y. (Justice Under Restorative Youth)": {
+    "id": "36963",
+    "name": "Justice Under Restorative Youth"
+   },
+   "Kappa Alpha Pi (KAP)": {
+    "id": "35987",
+    "name": "Kappa Alpha Pi"
+   },
+   "Lady Justice Journal": {
+    "id": null,
+    "note": "Not in OneIllinois on 2026-10-04 under this name or a close one (searched by name and by its words)."
+   },
+   "Latinx in Law": {
+    "id": "36020",
+    "name": "Latinx in Law",
+    "note": "Not 36021 Latinx Law Students Association, which is a College of Law group."
+   },
+   "Minority Association for Future Attorneys (MAFA)": {
+    "id": "36065",
+    "name": "Minority Association for Future Attorneys"
+   },
+   "Phi Alpha Delta (PAD)": {
+    "id": "36133",
+    "name": "Phi Alpha Delta - Pre-Law Undergraduate Chapter",
+    "note": "The undergraduate chapter. Not 36134, the Magruder Chapter at the College of Law."
+   },
+   "Phi Delta Phi (PDP)": {
+    "id": "36140",
+    "name": "Phi Delta Phi - Illini Hall"
+   },
+   "Pi Lambda Sigma (POLIS)": {
+    "id": "36950",
+    "name": "Pi Lambda Sigma"
+   },
+   "UIUC Pre-Law Honors Society": {
+    "id": "36171",
+    "name": "Pre-Law Honors Society: The Order of Prospective Lawyers"
+   },
+   "Women’s Undergraduate Law Society (WULS)": {
+    "id": "36385",
+    "name": "Women's Undergraduate Law Society"
+   }
+  },
+  "engineering-council": {
+   "Arab American Association of Engineers and Architects (AAAEA)": {
+    "id": "35529",
+    "name": "Arab American Association of Engineers and Architects"
+   },
+   "Alpha Chi Sigma": {
+    "id": "35480",
+    "name": "Alpha Chi Sigma"
+   },
+   "Alpha Omega Epsilon (AOE)": {
+    "id": "35491",
+    "name": "Alpha Omega Epsilon Engineering Sorority"
+   },
+   "American Chemical Society": {
+    "id": "35508",
+    "name": "American Chemical Society",
+    "note": "Not 36297, the East Central Illinois section's Women Chemists Committee."
+   },
+   "American Institute of Aeronautics and Astronautics": {
+    "id": "35512",
+    "name": "American Institute of Aeronautics and Astronautics Student Branch"
+   },
+   "American Institute of Chemical Engineers": {
+    "id": "35514",
+    "name": "American Institute of Chemical Engineers"
+   },
+   "American Nuclear Society": {
+    "id": "35519",
+    "name": "American Nuclear Society, University of Illinois Student Section"
+   },
+   "American Railway Engineering and Maintenance-of-Way Association (AREMA)": {
+    "id": "36412",
+    "name": "American Railway Engineering and Maintenance-of-Way Association Student Chapter at UIUC"
+   },
+   "American Society of Agricultural and Biological Engineers": {
+    "id": "35523",
+    "name": "American Society of Agricultural and Biological Engineers"
+   },
+   "American Society of Civil Engineers (ASCE)": {
+    "id": "35524",
+    "name": "American Society of Civil Engineers"
+   },
+   "American Society of Mechanical Engineers (ASME)": {
+    "id": "35525",
+    "name": "American Society of Mechanical Engineers"
+   },
+   "Association for Computing Machinery (ACM)": {
+    "id": "35545",
+    "name": "Association for Computing Machinery"
+   },
+   "Biomedical Engineering Journal Club (BMEJ)": {
+    "id": "35571",
+    "name": "Biomedical Engineering Journal Club"
+   },
+   "Black, Indigenous, Latino in Tech (B[U]ILT)": {
+    "id": "36435",
+    "name": "Black, Indigenous, and Latino in Tech - B[U]ILT by ColorStack",
+    "note": "Matched by hand: the directory name adds \"by ColorStack\"."
+   },
+   "Boring Illini": {
+    "id": "36935",
+    "name": "The Boring Illini"
+   },
+   "Biomedical Engineering Society (BMES)": {
+    "id": "35572",
+    "name": "Biomedical Engineering Society",
+    "note": "Not 35764 Graduate Biomedical Engineering Society."
+   },
+   "Chinese Engineering Student Association (CESA)": {
+    "id": "35609",
+    "name": "Chinese Engineering Students Association (CESA)"
+   },
+   "Concrete Canoe": {
+    "id": "36672",
+    "name": "Concrete Canoe at UIUC"
+   },
+   "CUBE Consulting": {
+    "id": "35601",
+    "name": "Champaign-Urbana Business and Engineering Consulting",
+    "note": "Matched by hand: CUBE is Champaign-Urbana Business and Engineering Consulting, as its own page says."
+   },
+   "Design, Build, Fly (DBF)": {
+    "id": "35672",
+    "name": "Design Build Fly"
+   },
+   "ECE Pulse": {
+    "id": "36190",
+    "name": "Pulse",
+    "note": "Matched by hand: the directory lists it as \"Pulse\", a student conference on electrical and computer engineering."
+   },
+   "Eco Illini Supermileage": {
+    "id": "35690",
+    "name": "Eco Illini Supermileage"
+   },
+   "Empowering Minorities and Building Representation Across Civil and Environmental Engineering (EMBRACE)": {
+    "id": "36601",
+    "name": "Empowering Minorities and Building Representation Across Civil and Environmental Engineering (EMBRACE)"
+   },
+   "Enactus": {
+    "id": "35701",
+    "name": "Enactus"
+   },
+   "Engineers in Action Bridge Program": {
+    "id": "35706",
+    "name": "Engineers in Action Bridge Program"
+   },
+   "Engineering Outreach Society (EOS)": {
+    "id": null,
+    "note": "Not in OneIllinois on 2026-10-04 under this name or a close one (searched by name and by its words)."
+   },
+   "Engineers Without Borders (EWB)": {
+    "id": "35707",
+    "name": "Engineers Without Borders, UIUC Chapter"
+   },
+   "Eta Kappa Nu (HKN)": {
+    "id": "35713",
+    "name": "Eta Kappa Nu Electrical and Computer Engineering Society"
+   },
+   "Founders": {
+    "id": "36476",
+    "name": "Founders - Illinois Entrepreneurs"
+   },
+   "Illinois Design Challenge": {
+    "id": null,
+    "note": "Not in OneIllinois on 2026-10-04 under this name or a close one (searched by name and by its words)."
+   },
+   "Illini Electric Motorsports (IEM)": {
+    "id": "35834",
+    "name": "Illini Electric Motorsports"
+   },
+   "Illini EV Concept": {
+    "id": "35838",
+    "name": "Illini EV Concept"
+   },
+   "illiniGEM": {
+    "id": null,
+    "note": "Not in OneIllinois on 2026-10-04 under this name or a close one (searched by name and by its words)."
+   },
+   "Illinois Medical Advancements in Design and Engineering (i-MADE)": {
+    "id": "35904",
+    "name": "Illinois Medical Advancements through Design and Engineering",
+    "note": "Matched by hand: the directory says \"through Design and Engineering\"."
+   },
+   "Illini Pullers": {
+    "id": "35861",
+    "name": "Illini Pullers of the ASABE ¼ Scale Tractor Design Team"
+   },
+   "Illinois Robotics in Space (IRIS)": {
+    "id": "35917",
+    "name": "Illinois Robotics in Space"
+   },
+   "Illinois Semiconductor Student Alliance (ISSA)": {
+    "id": "35919",
+    "name": "Illinois Semiconductor Student Alliance"
+   },
+   "Illini Solar Car (ISC)": {
+    "id": "35868",
+    "name": "Illini Solar Car"
+   },
+   "Illinois Solar Decathlon (ISD)": {
+    "id": "35922",
+    "name": "Illinois Solar Decathlon"
+   },
+   "Illinois Space Society (ISS)": {
+    "id": "35923",
+    "name": "Illinois Space Society"
+   },
+   "Illini Vex Robotics": {
+    "id": "35881",
+    "name": "Illini VEX Robotics"
+   },
+   "Illinois Water Resources Association (IWRA)": {
+    "id": null,
+    "wrongAutoMatch": "35969 International Water Resources Association",
+    "note": "Nulled as DESIGN 2.1 says: the research auto-matched it to 35969 International Water Resources Association. Checked by hand: 35969's own page names itself the Illinois Water Resources Association, a group for graduate students in the water resources program, so it is the same group, and not one to recommend. overrides.json marks 35969 graduate."
+   },
+   "Institute of Electrical and Electronic Engineers (IEEE)": {
+    "id": "35953",
+    "name": "Institute of Electrical and Electronics Engineers",
+    "note": "Matched by hand: the directory spells it \"Electronics\"."
+   },
+   "Institute of Industrial and Systems Engineers (IISE)": {
+    "id": "35954",
+    "name": "Institute of Industrial & Systems Engineers"
+   },
+   "Institute of Transportation Engineers (ITE)": {
+    "id": "35955",
+    "name": "Institute of Transportation Engineers UIUC Chapter"
+   },
+   "iRobotics": {
+    "id": "35976",
+    "name": "iRobotics"
+   },
+   "Keramos": {
+    "id": "35998",
+    "name": "Keramos"
+   },
+   "Liquid Rocketry at Illinois": {
+    "id": "36037",
+    "name": "Liquid Rocketry at Illinois"
+   },
+   "Material Advantage (MA)": {
+    "id": "36047",
+    "name": "Material Advantage"
+   },
+   "MedLaunch": {
+    "id": "36052",
+    "name": "MedLaunch"
+   },
+   "Minorities in Aerospace (MAero)": {
+    "id": null,
+    "note": "Not in OneIllinois on 2026-10-04 under this name or a close one (searched by name and by its words)."
+   },
+   "Muslim Tech Collaborative (MTC)": {
+    "id": "36779",
+    "name": "Muslim Tech Collaborative UIUC"
+   },
+   "National Organization for Business and Engineering (NOBE)": {
+    "id": "36088",
+    "name": "National Organization for Business and Engineering"
+   },
+   "National Society of Black Engineers (NSBE)": {
+    "id": "36089",
+    "name": "National Society of Black Engineers"
+   },
+   "Neurotech@UIUC": {
+    "id": "36094",
+    "name": "NeuroTech@UIUC"
+   },
+   "Offroad Illini SAE Baja (BAJA)": {
+    "id": "36114",
+    "name": "Off-Road Illini",
+    "note": "Matched by hand: the directory lists it as \"Off-Road Illini\", a design-and-build competition team."
+   },
+   "Omega Chi Epsilon (OXE)": {
+    "id": "36115",
+    "name": "Omega Chi Epsilon - Chemical Engineering Honor Society"
+   },
+   "open-source@illinois": {
+    "id": null,
+    "note": "Not in OneIllinois on 2026-10-04 under this name or a close one (searched by name and by its words)."
+   },
+   "Phi Sigma Rho (PSR)": {
+    "id": "36145",
+    "name": "Phi Sigma Rho Engineering Sorority"
+   },
+   "Pi Tau Sigma-Mechanical Engineering Honor Society (PTS)": {
+    "id": null,
+    "note": "Not in OneIllinois on 2026-10-04 under this name or a close one (searched by name and by its words)."
+   },
+   "Product Space UIUC": {
+    "id": "36591",
+    "name": "Product Space UIUC"
+   },
+   "Robobrawl": {
+    "id": "36202",
+    "name": "Robobrawl"
+   },
+   "Rube Goldberg Society": {
+    "id": "36205",
+    "name": "Rube Goldberg Society"
+   },
+   "Society for Women in Physics (SWIP)": {
+    "id": "36238",
+    "name": "Society for Women in Physics"
+   },
+   "Society of Engineering Mechanics (SEM)": {
+    "id": "36233",
+    "name": "Society for Engineering Mechanics"
+   },
+   "Society of Hispanic Professional Engineers (SHPE)": {
+    "id": "36240",
+    "name": "Society of Hispanic Professional Engineers"
+   },
+   "Society of Physics Students (SPS)": {
+    "id": "36150",
+    "name": "Physics Society / Society of Physics Students",
+    "wrongAutoMatch": "36902 Grainger Physics",
+    "note": "The research auto-matched it to 36902 Grainger Physics, an office account; that match is wrong and not used. Matched by hand to the group whose name says \"Society of Physics Students\"."
+   },
+   "Steel Bridge": {
+    "id": "36257",
+    "name": "Steel Bridge"
+   },
+   "Student Aircraft Builders (SAB)": {
+    "id": "36264",
+    "name": "Student Aircraft Builders"
+   },
+   "Society of Women Engineers (SWE)": {
+    "id": "36243",
+    "name": "Society of Women Engineers",
+    "note": "Not 35771 Graduate Women in the Society of Women Engineers."
+   },
+   "Tau Beta Pi (TBP)": {
+    "id": "36289",
+    "name": "Tau Beta Pi Engineering Honor Society"
+   },
+   "Theta Tau": {
+    "id": "36330",
+    "name": "Theta Tau Professional Engineering Fraternity"
+   },
+   "Transportation & Development Institute (T&DI)": {
+    "id": "36335",
+    "name": "Transportation and Development Institute Graduate Student Organization",
+    "note": "Matched by hand. It is the ASCE T&DI graduate student organization, so the name rules drop it as graduate."
+   },
+   "Undergraduate Research in Scientific Advancement (URSA)": {
+    "id": "36185",
+    "name": "Undergraduate Research in Scientific Advancement"
+   },
+   "Triangle Fraternity": {
+    "id": "36337",
+    "name": "Triangle Fraternity"
+   },
+   "Women in Aerospace (WIA)": {
+    "id": "36373",
+    "name": "Women in Aerospace"
+   },
+   "Women in Chemical Sciences (WiCS)": {
+    "id": "36375",
+    "name": "Women in Chemical Sciences"
+   },
+   "Women in Civil & Environmental Engineering": {
+    "id": "36376",
+    "name": "Women in Civil and Environmental Engineering",
+    "note": "Matched by hand: \"and\" for \"&\"."
+   },
+   "Women in Computer Science (WCS)": {
+    "id": "36377",
+    "name": "Women in Computer Science"
+   },
+   "Women in Data Science (WiDS)": {
+    "id": "36723",
+    "name": "Women in Data Science Urbana-Champaign",
+    "wrongAutoMatch": "35898 Illinois Data Science Club",
+    "note": "The research auto-matched it to 35898 Illinois Data Science Club; that match is wrong and not used. Matched by hand to Women in Data Science Urbana-Champaign."
+   },
+   "Women in Electrical and Computer Engineering (WECE)": {
+    "id": "36378",
+    "name": "Women in Electrical and Computer Engineering"
+   },
+   "Women in Nuclear": {
+    "id": "36380",
+    "name": "Women in Nuclear Student Chapter at the University of Illinois"
+   },
+   "Women in Mechanical Science and Engineering (WiM)": {
+    "id": "36379",
+    "name": "Women in Mechanical Science and Engineering"
+   },
+   "Zero2One": {
+    "id": null,
+    "note": "Not in OneIllinois on 2026-10-04 under this name or a close one (searched by name and by its words)."
+   },
+   "Structural Engineers Association of Illinois (SEAOI)": {
+    "id": "36621",
+    "name": "Structural Engineers Association of Illinois Student Chapter (SEAOI)"
+   }
+  },
+  "gies-cop": {
+   "Accounting Club": {
+    "id": "35458",
+    "name": "Accounting Club"
+   },
+   "ActGreen": {
+    "id": "35461",
+    "name": "ActGreen"
+   },
+   "Alpha Kappa Psi": {
+    "id": "35489",
+    "name": "Alpha Kappa Psi Professional Business Fraternity"
+   },
+   "American Marketing Association": {
+    "id": "35516",
+    "name": "American Marketing Association"
+   },
+   "Ascend": {
+    "id": "35537",
+    "name": "Ascend UIUC Chapter"
+   },
+   "Association for Information Systems": {
+    "id": null,
+    "note": "Not in OneIllinois on 2026-10-04 under this name or a close one (searched by name and by its words)."
+   },
+   "Association of Latino Professionals for America": {
+    "id": "35477",
+    "name": "ALPFA Illinois",
+    "note": "Matched by hand: ALPFA is the Association of Latino Professionals For America; the directory lists \"ALPFA Illinois\"."
+   },
+   "Beta Alpha Psi": {
+    "id": "35566",
+    "name": "Beta Alpha Psi"
+   },
+   "Black Business Network": {
+    "id": "35574",
+    "name": "Black Business Network"
+   },
+   "Enactus": {
+    "id": "35701",
+    "name": "Enactus"
+   },
+   "Equity Research Association": {
+    "id": "35712",
+    "name": "Equity Research Association"
+   },
+   "FACES Consulting": {
+    "id": "35717",
+    "name": "FACES Consulting"
+   },
+   "Illinois Business Council": {
+    "id": "35590",
+    "name": "Business Council",
+    "note": "The directory lists it as \"Business Council\"."
+   },
+   "Illinois Consulting Academy": {
+    "id": null,
+    "note": "A Gies program with its page on giesgroups.illinois.edu, not a registered student organization in OneIllinois."
+   },
+   "Illinois Investment Management Academy": {
+    "id": null,
+    "note": "A Gies program (giesbusiness.illinois.edu/investment-management-academy), not a registered student organization in OneIllinois."
+   },
+   "Illinois Sports Business Conference": {
+    "id": "35925",
+    "name": "Illinois Sports Business Conference"
+   },
+   "Investment Portfolio Organization": {
+    "id": "35972",
+    "name": "Investment Portfolio Organization"
+   },
+   "Macro Investing Association": {
+    "id": "36774",
+    "name": "Macro Investing Association"
+   },
+   "Minority Business Students Association": {
+    "id": "36067",
+    "name": "Minority Business Students Association"
+   },
+   "OTCR Consulting": {
+    "id": "36120",
+    "name": "OTCR Consulting"
+   },
+   "Phi Chi Theta": {
+    "id": "36138",
+    "name": "Phi Chi Theta Professional Business Fraternity"
+   },
+   "Phi Gamma Nu": {
+    "id": "36142",
+    "name": "Phi Gamma Nu Professional Business Fraternity"
+   },
+   "Pi Rho Omega": {
+    "id": "36154",
+    "name": "Pi Rho Omega"
+   },
+   "Prime Mergers and Acquisitions": {
+    "id": "36179",
+    "name": "Prime Mergers & Acquisitions"
+   },
+   "Rho Epsilon": {
+    "id": "36201",
+    "name": "Rho Epsilon, Student Real Estate Association"
+   },
+   "Society of Women in Business": {
+    "id": "36244",
+    "name": "Society of Women in Business"
+   },
+   "Student Consulting for Nonprofit Organizations": {
+    "id": "36275",
+    "name": "Students Consulting for Nonprofit Organizations",
+    "note": "The directory says \"Students Consulting\"."
+   },
+   "Supply Chain Management Association": {
+    "id": "36283",
+    "name": "Supply Chain Management Association an ASCM Chapter"
+   },
+   "TAMID": {
+    "id": "36288",
+    "name": "TAMID Group at Illinois"
+   },
+   "Zero2One": {
+    "id": null,
+    "note": "Not in OneIllinois on 2026-10-04 under this name or a close one (searched by name and by its words)."
+   }
+  },
+  "siebel": {
+   "Association for Computing Machinery (ACM)": {
+    "id": "35545",
+    "name": "Association for Computing Machinery"
+   },
+   "HackIllinois": {
+    "id": null,
+    "note": "ACM's hackathon, which the page lists under ACM; not registered on its own in OneIllinois."
+   },
+   "Reflections | Projections": {
+    "id": null,
+    "note": "ACM's conference, which the page lists under ACM; not registered on its own in OneIllinois."
+   },
+   "B[U]ILT (Black, Indigenous, LatinX in Technology)": {
+    "id": "36435",
+    "name": "Black, Indigenous, and Latino in Tech - B[U]ILT by ColorStack"
+   },
+   "Computer Science Graduate Student Organization (CSGSO)": {
+    "id": null,
+    "note": "For graduate students (the page says so); not in OneIllinois under this name, and would be dropped as graduate anyway."
+   },
+   "Founders": {
+    "id": "36476",
+    "name": "Founders - Illinois Entrepreneurs"
+   },
+   "QueerCoded": {
+    "id": null,
+    "note": "Not in OneIllinois on 2026-10-04 under this name or a close one (searched by name and by its words)."
+   },
+   "Society for Industrial and Applied Mathematics (SIAM)": {
+    "id": "36549",
+    "name": "Society for Industrial and Applied Mathematics"
+   },
+   "Women in Computer Science (WCS)": {
+    "id": "36377",
+    "name": "Women in Computer Science"
+   }
+  }
+ }
+}

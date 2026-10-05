@@ -1,0 +1,991 @@
+{
+ "_about": "National professional bodies, honor societies and professional fraternities with a chapter in OneIllinois (DESIGN 2.6, evidence 2). Hand-checked: each row's `match` (a case-insensitive regex source, tested on the club name only) matched exactly one group in the directory read 2026-10-04, recorded in `checked`; tag.mjs warns when a row matches nothing, more than one group, or a different id. `subjects` are course prefixes in public/illinois/index.json; `goals` are CAREER_TRACKS / INTEREST_TOPICS ids from lib/planner/career-tracks.ts (\"@health\" stands for every health track, i.e. every track but pre-law); `college` is a programs.json college code; `kind` overrides the name-and-category kind when the row knows better (a self-tagged \"Honorary\" that is not an honor society).",
+ "checked": "2026-10-04",
+ "rows": [
+  {
+   "national": "ACM",
+   "match": "association for computing machinery",
+   "subjects": [
+    "CS"
+   ],
+   "goals": [
+    "software-engineering"
+   ],
+   "checked": {
+    "id": "35545",
+    "name": "Association for Computing Machinery"
+   }
+  },
+  {
+   "national": "IEEE",
+   "match": "institute of electrical and electronics? engineers",
+   "subjects": [
+    "ECE"
+   ],
+   "goals": [
+    "hardware"
+   ],
+   "checked": {
+    "id": "35953",
+    "name": "Institute of Electrical and Electronics Engineers"
+   }
+  },
+  {
+   "national": "ASME",
+   "match": "american society of mechanical engineers",
+   "subjects": [
+    "ME",
+    "TAM"
+   ],
+   "checked": {
+    "id": "35525",
+    "name": "American Society of Mechanical Engineers"
+   }
+  },
+  {
+   "national": "ASCE",
+   "match": "american society of civil engineers",
+   "subjects": [
+    "CEE"
+   ],
+   "checked": {
+    "id": "35524",
+    "name": "American Society of Civil Engineers"
+   }
+  },
+  {
+   "national": "ACI",
+   "match": "american concrete institute",
+   "subjects": [
+    "CEE"
+   ],
+   "checked": {
+    "id": "35510",
+    "name": "American Concrete Institute"
+   }
+  },
+  {
+   "national": "ITE",
+   "match": "institute of transportation engineers",
+   "subjects": [
+    "CEE"
+   ],
+   "checked": {
+    "id": "35955",
+    "name": "Institute of Transportation Engineers UIUC Chapter"
+   }
+  },
+  {
+   "national": "SEAOI",
+   "match": "structural engineers association",
+   "subjects": [
+    "CEE"
+   ],
+   "checked": {
+    "id": "36621",
+    "name": "Structural Engineers Association of Illinois Student Chapter (SEAOI)"
+   }
+  },
+  {
+   "national": "AISC",
+   "match": "american institute of steel construction",
+   "subjects": [
+    "CEE"
+   ],
+   "checked": {
+    "id": "37046",
+    "name": "American Institute of Steel Construction University of Illinois Student Chapter"
+   }
+  },
+  {
+   "national": "AIAA",
+   "match": "aeronautics and astronautics",
+   "subjects": [
+    "AE"
+   ],
+   "checked": {
+    "id": "35512",
+    "name": "American Institute of Aeronautics and Astronautics Student Branch"
+   }
+  },
+  {
+   "national": "BMES",
+   "match": "^biomedical engineering society$",
+   "subjects": [
+    "BIOE"
+   ],
+   "goals": [
+    "biotech"
+   ],
+   "checked": {
+    "id": "35572",
+    "name": "Biomedical Engineering Society"
+   }
+  },
+  {
+   "national": "AIChE",
+   "match": "american institute of chemical engineers",
+   "subjects": [
+    "CHBE"
+   ],
+   "checked": {
+    "id": "35514",
+    "name": "American Institute of Chemical Engineers"
+   }
+  },
+  {
+   "national": "ASABE",
+   "match": "american society of agricultural and biological engineers",
+   "subjects": [
+    "ABE"
+   ],
+   "checked": {
+    "id": "35523",
+    "name": "American Society of Agricultural and Biological Engineers"
+   }
+  },
+  {
+   "national": "ANS",
+   "match": "american nuclear society",
+   "subjects": [
+    "NPRE"
+   ],
+   "checked": {
+    "id": "35519",
+    "name": "American Nuclear Society, University of Illinois Student Section"
+   }
+  },
+  {
+   "national": "IISE",
+   "match": "institute of industrial (&|and) systems engineers",
+   "subjects": [
+    "IE",
+    "SE"
+   ],
+   "checked": {
+    "id": "35954",
+    "name": "Institute of Industrial & Systems Engineers"
+   }
+  },
+  {
+   "national": "ACS",
+   "match": "^american chemical society$",
+   "subjects": [
+    "CHEM"
+   ],
+   "checked": {
+    "id": "35508",
+    "name": "American Chemical Society"
+   }
+  },
+  {
+   "national": "SPS",
+   "match": "society of physics students",
+   "subjects": [
+    "PHYS"
+   ],
+   "checked": {
+    "id": "36150",
+    "name": "Physics Society / Society of Physics Students"
+   }
+  },
+  {
+   "national": "Material Advantage",
+   "match": "^material advantage$",
+   "subjects": [
+    "MSE"
+   ],
+   "checked": {
+    "id": "36047",
+    "name": "Material Advantage"
+   }
+  },
+  {
+   "national": "AIAS",
+   "match": "american institute of architecture students",
+   "subjects": [
+    "ARCH"
+   ],
+   "checked": {
+    "id": "35513",
+    "name": "American Institute of Architecture Students"
+   }
+  },
+  {
+   "national": "ASLA",
+   "match": "american society of landscape architect",
+   "subjects": [
+    "LA"
+   ],
+   "checked": {
+    "id": "36847",
+    "name": "American Society of Landscape Architecture University of Illinois Urbana-Champaign"
+   }
+  },
+  {
+   "national": "AMA",
+   "match": "^american marketing association$",
+   "subjects": [
+    "BADM"
+   ],
+   "goals": [
+    "marketing"
+   ],
+   "checked": {
+    "id": "35516",
+    "name": "American Marketing Association"
+   }
+  },
+  {
+   "national": "AAF",
+   "match": "american advertising federation",
+   "subjects": [
+    "ADV"
+   ],
+   "goals": [
+    "marketing"
+   ],
+   "kind": "professional-society",
+   "note": "Self-tags \"Honorary\" in the directory; it is a professional society, not an honor society.",
+   "checked": {
+    "id": "35504",
+    "name": "American Advertising Federation at the University of Illinois"
+   }
+  },
+  {
+   "national": "ASCM",
+   "match": "supply chain management association",
+   "goals": [
+    "supply-chain"
+   ],
+   "checked": {
+    "id": "36283",
+    "name": "Supply Chain Management Association an ASCM Chapter"
+   }
+  },
+  {
+   "national": "Beta Alpha Psi",
+   "match": "^beta alpha psi$",
+   "subjects": [
+    "ACCY"
+   ],
+   "goals": [
+    "accounting"
+   ],
+   "kind": "honor",
+   "note": "An honor organization for accounting, finance and information-systems students: membership needs coursework and a GPA. Not a fraternity.",
+   "checked": {
+    "id": "35566",
+    "name": "Beta Alpha Psi"
+   }
+  },
+  {
+   "national": "NABA",
+   "match": "national association of black accountants",
+   "subjects": [
+    "ACCY"
+   ],
+   "goals": [
+    "accounting"
+   ],
+   "checked": {
+    "id": "36509",
+    "name": "National Association of Black Accountants"
+   }
+  },
+  {
+   "national": "ALPFA",
+   "match": "^alpfa\\b",
+   "goals": [
+    "accounting",
+    "finance"
+   ],
+   "note": "The Association of Latino Professionals For America.",
+   "checked": {
+    "id": "35477",
+    "name": "ALPFA Illinois"
+   }
+  },
+  {
+   "national": "Gamma Iota Sigma",
+   "match": "^gamma iota sigma$",
+   "subjects": [
+    "ASRM"
+   ],
+   "goals": [
+    "financial-planning"
+   ],
+   "kind": "professional-fraternity",
+   "checked": {
+    "id": "35742",
+    "name": "Gamma Iota Sigma"
+   }
+  },
+  {
+   "national": "AKPsi",
+   "match": "alpha kappa psi",
+   "goals": [
+    "finance",
+    "consulting",
+    "marketing"
+   ],
+   "kind": "professional-fraternity",
+   "checked": {
+    "id": "35489",
+    "name": "Alpha Kappa Psi Professional Business Fraternity"
+   }
+  },
+  {
+   "national": "Delta Sigma Pi",
+   "match": "delta sigma pi",
+   "goals": [
+    "finance",
+    "consulting",
+    "accounting",
+    "marketing"
+   ],
+   "kind": "professional-fraternity",
+   "checked": {
+    "id": "35667",
+    "name": "Delta Sigma Pi Business Fraternity"
+   }
+  },
+  {
+   "national": "Phi Gamma Nu",
+   "match": "phi gamma nu",
+   "goals": [
+    "finance",
+    "consulting",
+    "accounting",
+    "marketing"
+   ],
+   "kind": "professional-fraternity",
+   "checked": {
+    "id": "36142",
+    "name": "Phi Gamma Nu Professional Business Fraternity"
+   }
+  },
+  {
+   "national": "Phi Chi Theta",
+   "match": "phi chi theta",
+   "goals": [
+    "finance",
+    "consulting",
+    "accounting",
+    "marketing"
+   ],
+   "kind": "professional-fraternity",
+   "checked": {
+    "id": "36138",
+    "name": "Phi Chi Theta Professional Business Fraternity"
+   }
+  },
+  {
+   "national": "AED",
+   "match": "alpha epsilon delta",
+   "goals": [
+    "@health",
+    "nursing"
+   ],
+   "note": "The health pre-professional society: every health track the planner knows, plus nursing.",
+   "checked": {
+    "id": "35483",
+    "name": "Alpha Epsilon Delta Pre-Health Society"
+   }
+  },
+  {
+   "national": "AMSA",
+   "match": "american medical student association pre-?med",
+   "goals": [
+    "pre-medicine"
+   ],
+   "checked": {
+    "id": "35517",
+    "name": "American Medical Student Association Pre-Med"
+   }
+  },
+  {
+   "national": "PAD",
+   "match": "phi alpha delta - pre-law",
+   "goals": [
+    "pre-law"
+   ],
+   "kind": "professional-fraternity",
+   "note": "The undergraduate chapter only; the Magruder Chapter is the College of Law's.",
+   "checked": {
+    "id": "36133",
+    "name": "Phi Alpha Delta - Pre-Law Undergraduate Chapter"
+   }
+  },
+  {
+   "national": "SPJ",
+   "match": "society of professional journalists",
+   "subjects": [
+    "JOUR"
+   ],
+   "goals": [
+    "journalism"
+   ],
+   "checked": {
+    "id": "36242",
+    "name": "Society of Professional Journalists"
+   }
+  },
+  {
+   "national": "NABJ",
+   "match": "national association of black journalists",
+   "subjects": [
+    "JOUR"
+   ],
+   "goals": [
+    "journalism"
+   ],
+   "checked": {
+    "id": "36510",
+    "name": "National Association of Black Journalists"
+   }
+  },
+  {
+   "national": "NAHJ",
+   "match": "national association of hispanic journalists",
+   "subjects": [
+    "JOUR"
+   ],
+   "goals": [
+    "journalism"
+   ],
+   "checked": {
+    "id": "36511",
+    "name": "National Association of Hispanic Journalists"
+   }
+  },
+  {
+   "national": "NSSLHA",
+   "match": "national student speech language and hearing",
+   "subjects": [
+    "SHS"
+   ],
+   "goals": [
+    "speech-language-pathology"
+   ],
+   "checked": {
+    "id": "36090",
+    "name": "National Student Speech Language and Hearing Association"
+   }
+  },
+  {
+   "national": "ASBMB",
+   "match": "biochemistry and molecular biology",
+   "subjects": [
+    "MCB",
+    "BIOC"
+   ],
+   "checked": {
+    "id": "35522",
+    "name": "American Society for Biochemistry and Molecular Biology Student Chapter at UIUC"
+   }
+  },
+  {
+   "national": "TWS",
+   "match": "the wildlife society",
+   "subjects": [
+    "NRES"
+   ],
+   "goals": [
+    "climate-environment"
+   ],
+   "checked": {
+    "id": "36327",
+    "name": "The Wildlife Society, University of Illinois at Urbana-Champaign Student Chapter"
+   }
+  },
+  {
+   "national": "Epsilon Delta",
+   "match": "epsilon delta professional teaching",
+   "subjects": [
+    "EDUC",
+    "CI"
+   ],
+   "goals": [
+    "education"
+   ],
+   "kind": "professional-fraternity",
+   "checked": {
+    "id": "35711",
+    "name": "Epsilon Delta Professional Teaching Organization"
+   }
+  },
+  {
+   "national": "IEA-Aspiring Educators",
+   "match": "illinois education association",
+   "subjects": [
+    "EDUC",
+    "CI"
+   ],
+   "goals": [
+    "education"
+   ],
+   "checked": {
+    "id": "35901",
+    "name": "Illinois Education Association - Aspiring Educators"
+   }
+  },
+  {
+   "national": "Theta Tau",
+   "match": "theta tau professional engineering",
+   "college": "engineering",
+   "kind": "professional-fraternity",
+   "checked": {
+    "id": "36330",
+    "name": "Theta Tau Professional Engineering Fraternity"
+   }
+  },
+  {
+   "national": "Tau Beta Pi",
+   "match": "tau beta pi",
+   "college": "engineering",
+   "kind": "honor",
+   "checked": {
+    "id": "36289",
+    "name": "Tau Beta Pi Engineering Honor Society"
+   }
+  },
+  {
+   "national": "Chi Epsilon",
+   "match": "chi epsilon civil engineering honor",
+   "subjects": [
+    "CEE"
+   ],
+   "kind": "honor",
+   "checked": {
+    "id": "36446",
+    "name": "Chi Epsilon Civil Engineering Honor Society"
+   }
+  },
+  {
+   "national": "Omega Chi Epsilon",
+   "match": "omega chi epsilon",
+   "subjects": [
+    "CHBE"
+   ],
+   "kind": "honor",
+   "checked": {
+    "id": "36115",
+    "name": "Omega Chi Epsilon - Chemical Engineering Honor Society"
+   }
+  },
+  {
+   "national": "Psi Eta Mu",
+   "match": "psi eta mu",
+   "subjects": [
+    "IS"
+   ],
+   "goals": [
+    "data-science"
+   ],
+   "kind": "professional-fraternity",
+   "checked": {
+    "id": "36188",
+    "name": "Psi Eta Mu - iSchool Professional Fraternity"
+   }
+  },
+  {
+   "national": "Phi Mu Alpha",
+   "match": "phi mu alpha sinfonia",
+   "subjects": [
+    "MUS"
+   ],
+   "kind": "professional-fraternity",
+   "checked": {
+    "id": "36806",
+    "name": "Phi Mu Alpha Sinfonia Fraternity"
+   }
+  },
+  {
+   "national": "Alpha Chi Sigma",
+   "match": "^alpha chi sigma$",
+   "subjects": [
+    "CHEM"
+   ],
+   "kind": "professional-fraternity",
+   "checked": {
+    "id": "35480",
+    "name": "Alpha Chi Sigma"
+   }
+  },
+  {
+   "national": "HFES",
+   "match": "human factors and ergonomics society",
+   "subjects": [
+    "IE",
+    "PSYC"
+   ],
+   "goals": [
+    "ux-hci"
+   ],
+   "checked": {
+    "id": "35804",
+    "name": "Human Factors and Ergonomics Society at the University of Illinois Urbana-Champaign"
+   }
+  },
+  {
+   "national": "IEEE-HKN",
+   "match": "^eta kappa nu\\b",
+   "subjects": [
+    "ECE"
+   ],
+   "kind": "honor",
+   "note": "IEEE's honor society.",
+   "checked": {
+    "id": "35713",
+    "name": "Eta Kappa Nu Electrical and Computer Engineering Society"
+   }
+  },
+  {
+   "national": "AREMA",
+   "match": "american railway engineering and maintenance",
+   "subjects": [
+    "CEE"
+   ],
+   "checked": {
+    "id": "36412",
+    "name": "American Railway Engineering and Maintenance-of-Way Association Student Chapter at UIUC"
+   }
+  },
+  {
+   "national": "ASHRAE",
+   "match": "heating, refrigeration (&|and) air-conditioning engineers",
+   "subjects": [
+    "ME"
+   ],
+   "checked": {
+    "id": "36770",
+    "name": "American Society of the Heating, Refrigeration & Air-Conditioning Engineers"
+   }
+  },
+  {
+   "national": "AGC",
+   "match": "associated general contractors of america",
+   "subjects": [
+    "CEE"
+   ],
+   "checked": {
+    "id": "36881",
+    "name": "Associated General Contractors of America Student Chapter at University of Illinois Urbana-Champaign"
+   }
+  },
+  {
+   "national": "CMAA",
+   "match": "construction management association of america",
+   "subjects": [
+    "CEE"
+   ],
+   "checked": {
+    "id": "36849",
+    "name": "Construction Management Association of America"
+   }
+  },
+  {
+   "national": "AAEES",
+   "match": "american academy of environmental engineers and scientists",
+   "subjects": [
+    "CEE"
+   ],
+   "goals": [
+    "climate-environment"
+   ],
+   "checked": {
+    "id": "37142",
+    "name": "American Academy of Environmental Engineers and Scientists – UIUC"
+   }
+  },
+  {
+   "national": "SAE",
+   "match": "^sae aero\\b",
+   "subjects": [
+    "AE"
+   ],
+   "kind": "competition-team",
+   "note": "SAE International's Aero Design competition team.",
+   "checked": {
+    "id": "36988",
+    "name": "SAE Aero @ Illinois"
+   }
+  },
+  {
+   "national": "ISPE",
+   "match": "international society for pharmaceutical engineering",
+   "subjects": [
+    "CHBE"
+   ],
+   "goals": [
+    "biotech"
+   ],
+   "checked": {
+    "id": "36937",
+    "name": "International Society for Pharmaceutical Engineering"
+   }
+  },
+  {
+   "national": "INMM",
+   "match": "institute of nuclear materials management",
+   "subjects": [
+    "NPRE"
+   ],
+   "checked": {
+    "id": "37073",
+    "name": "Institute of Nuclear Materials Management Student Chapter"
+   }
+  },
+  {
+   "national": "SAMPE",
+   "match": "society for the advancement of material and process engineering",
+   "subjects": [
+    "MSE"
+   ],
+   "checked": {
+    "id": "37017",
+    "name": "Society for the Advancement of Material and Process Engineering UIUC Chapter"
+   }
+  },
+  {
+   "national": "AFS",
+   "match": "american fisheries society",
+   "subjects": [
+    "NRES"
+   ],
+   "goals": [
+    "climate-environment"
+   ],
+   "checked": {
+    "id": "36411",
+    "name": "American Fisheries Society, U of I Student Subunit"
+   }
+  },
+  {
+   "national": "SIAM",
+   "match": "^society for industrial and applied mathematics$",
+   "subjects": [
+    "MATH"
+   ],
+   "checked": {
+    "id": "36549",
+    "name": "Society for Industrial and Applied Mathematics"
+   }
+  },
+  {
+   "national": "NSBP",
+   "match": "national society of black physicists",
+   "subjects": [
+    "PHYS"
+   ],
+   "checked": {
+    "id": "37066",
+    "name": "National Society of Black Physicists - University of Illinois Urbana-Champaign Student Chapter"
+   }
+  },
+  {
+   "national": "NOBCChE",
+   "match": "professional advancement of black chemists and chemical engineers",
+   "subjects": [
+    "CHEM",
+    "CHBE"
+   ],
+   "checked": {
+    "id": "35914",
+    "name": "Illinois National Organization for the Professional Advancement of Black Chemists and Chemical Engineers Student Chapter"
+   }
+  },
+  {
+   "national": "NOMAS",
+   "match": "national organization of minority architecture students",
+   "subjects": [
+    "ARCH"
+   ],
+   "checked": {
+    "id": "36315",
+    "name": "The National Organization of Minority Architecture Students"
+   }
+  },
+  {
+   "national": "WiN",
+   "match": "^women in nuclear\\b",
+   "subjects": [
+    "NPRE"
+   ],
+   "checked": {
+    "id": "36380",
+    "name": "Women in Nuclear Student Chapter at the University of Illinois"
+   }
+  },
+  {
+   "national": "WiCyS",
+   "match": "^women in cybersecurity\\b",
+   "goals": [
+    "cybersecurity"
+   ],
+   "checked": {
+    "id": "36579",
+    "name": "Women In CyberSecurity Student Chapter"
+   }
+  },
+  {
+   "national": "NSBE",
+   "match": "^national society of black engineers$",
+   "college": "engineering",
+   "checked": {
+    "id": "36089",
+    "name": "National Society of Black Engineers"
+   }
+  },
+  {
+   "national": "SHPE",
+   "match": "^society of hispanic professional engineers$",
+   "college": "engineering",
+   "checked": {
+    "id": "36240",
+    "name": "Society of Hispanic Professional Engineers"
+   }
+  },
+  {
+   "national": "SWE",
+   "match": "^society of women engineers$",
+   "college": "engineering",
+   "checked": {
+    "id": "36243",
+    "name": "Society of Women Engineers"
+   }
+  },
+  {
+   "national": "SASE",
+   "match": "^society of asian scientists and engineers$",
+   "college": "engineering",
+   "checked": {
+    "id": "36239",
+    "name": "Society of Asian Scientists and Engineers"
+   }
+  },
+  {
+   "national": "KSEA",
+   "match": "korean-american scientists and engineers association",
+   "college": "engineering",
+   "checked": {
+    "id": "36006",
+    "name": "Korean-American Scientists and Engineers Association"
+   }
+  },
+  {
+   "national": "AAAEA",
+   "match": "^arab american association of engineers and architects$",
+   "college": "engineering",
+   "kind": "professional-society",
+   "note": "Self-tags \"Honorary\"; a professional society.",
+   "checked": {
+    "id": "35529",
+    "name": "Arab American Association of Engineers and Architects"
+   }
+  },
+  {
+   "national": "Ascend",
+   "match": "^ascend\\b",
+   "college": "bus",
+   "kind": "professional-society",
+   "checked": {
+    "id": "35537",
+    "name": "Ascend UIUC Chapter"
+   }
+  },
+  {
+   "national": "AMWA",
+   "match": "american medical women.?s association",
+   "goals": [
+    "pre-medicine"
+   ],
+   "note": "Its page says it is open to students interested in becoming part of the medical field.",
+   "checked": {
+    "id": "35518",
+    "name": "American Medical Women's Association at UIUC"
+   }
+  },
+  {
+   "national": "Phi Delta Epsilon",
+   "match": "^phi delta epsilon medical fraternity$",
+   "goals": [
+    "pre-medicine"
+   ],
+   "kind": "professional-fraternity",
+   "note": "Self-tags \"Honorary\"; a pre-medical professional fraternity.",
+   "checked": {
+    "id": "36139",
+    "name": "Phi Delta Epsilon Medical Fraternity"
+   }
+  },
+  {
+   "national": "Phi Delta Phi",
+   "match": "^phi delta phi\\b",
+   "goals": [
+    "pre-law"
+   ],
+   "kind": "professional-fraternity",
+   "note": "On Pre-Law Advising's list, which describes a pre-law professional and social group; self-tags \"Honorary\".",
+   "checked": {
+    "id": "36140",
+    "name": "Phi Delta Phi - Illini Hall"
+   }
+  },
+  {
+   "national": "Phi Alpha Theta",
+   "match": "^phi alpha theta$",
+   "subjects": [
+    "HIST"
+   ],
+   "kind": "honor",
+   "checked": {
+    "id": "36135",
+    "name": "Phi Alpha Theta"
+   }
+  },
+  {
+   "national": "Sigma Alpha Iota",
+   "match": "sigma alpha iota",
+   "subjects": [
+    "MUS"
+   ],
+   "kind": "professional-fraternity",
+   "checked": {
+    "id": "36218",
+    "name": "Sigma Alpha Iota International Music Fraternity for Women"
+   }
+  },
+  {
+   "national": "Sigma Alpha",
+   "match": "^sigma alpha professional agricultural sorority$",
+   "college": "aces",
+   "kind": "professional-fraternity",
+   "checked": {
+    "id": "36219",
+    "name": "Sigma Alpha Professional Agricultural Sorority"
+   }
+  },
+  {
+   "national": "NSCS",
+   "match": "national society of collegiate scholars",
+   "kind": "honor",
+   "checked": {
+    "id": "36512",
+    "name": "National Society of Collegiate Scholars"
+   }
+  },
+  {
+   "national": "NBA",
+   "match": "national band association",
+   "subjects": [
+    "MUS"
+   ],
+   "checked": {
+    "id": "36085",
+    "name": "National Band Association, UIUC Collegiate Chapter"
+   }
+  }
+ ]
+}
