@@ -22,6 +22,10 @@ TypeScript, so a plain `node` command works.
      when the feed was read, `events.json`.
    - `--offline` re-parses the scrubbed copies in `data/clubs/raw/` with no
      network at all. Use it whenever you only changed parsing.
+   - `--feed-only` reads the events feed and nothing else (its two hops),
+     and re-parses the cached directory page. The page's date and text
+     hashes stay as they were, so a reading pass in progress is not
+     disturbed.
    - `--accept-drop` lets the group count move more than 15% from the last
      parse. Use it only when you have checked that the drop is real, such as
      just after the June registration cutoff.
@@ -35,7 +39,9 @@ TypeScript, so a plain `node` command works.
      alias, national row or override whose club was renamed or is gone.
      Read those warnings after every crawl.
 3. **Reading pass (optional; needs the owner's go-ahead):** see `READING.md`.
-   It has not been run yet. Without it, no club has a `does` line and kinds
+   First run 2026-10-05 over the 2026-10-04 directory: `facts.json` holds
+   1,067 clubs, 1,033 with a `does` line, and 1,029 of the 1,063 shipped
+   clubs carry one. Without `facts.json`, no club has a `does` line and kinds
    come from names, categories and the tables.
 4. **Build:** `node scripts/illinois/clubs/build.mjs` (`--dry-run` first if
    you like)
@@ -106,23 +112,49 @@ is not a course prefix, and any field it does not know.
 - On 2026-10-04:
   - 1,197 groups on the page, and 1,197 parsed;
   - 46 of them are office accounts, which are dropped;
-  - 86 are for students already in graduate, law, medical or veterinary
-    school, which are dropped;
-  - **1,065 shipped**.
+  - 87 are for students already in graduate, law, medical or veterinary
+    school, which are dropped (39 graduate, 31 law, 11 medical, 6
+    veterinary; the reading pass of 2026-10-05 added the Illinois
+    Jurisprudence Society, a College of Law group);
+  - 1 has no link at all: Animal Liberation UIUC listed `https://example.com/`
+    as its website, and the calendar names no profile for it. The parse
+    drops placeholder addresses (example.com/.net/.org, the reserved
+    `.example`, `.test`, `.invalid` and `.localhost` names, localhost and
+    bare IPs), and the build leaves out a club with no link
+    (`counts.dropped.noLink`) rather than make one up;
+  - **1,063 shipped**.
 
 **The events feed:**
 `https://one.illinois.edu/ical/urbanachampaign/ical_urbanachampaign.ics`
-- It redirects to the same path on `static-prod-us-east-1.campusgroups.com`.
-- **Not read yet.** That host's `/robots.txt` answered 403 on 2026-10-04.
-  The house rule, shared with the syllabus fetcher, reads any answer other
-  than 200, 404 or 410 as "disallow everything", so `crawl.mjs` refused the
-  feed.
-- Until the owner decides otherwise:
-  - the file has `calendar: null`;
-  - no event dates ship;
-  - no club is ranked down for having no events;
-  - 76 shipped clubs link to their own website rather than a OneIllinois
-    profile.
+- It redirects (302) to the same path on
+  `static-prod-us-east-1.campusgroups.com`, and that host's `/robots.txt`
+  answers 403.
+- **Read under the one exception to the house robots rule, approved by the
+  owner on 2026-10-05** (`ROBOTS_EXCEPTION` in `crawl.mjs`):
+  - why it is allowed: one.illinois.edu links the feed and its own
+    robots.txt allows `/ical/`; RFC 9309 section 2.3.1.3 reads a 4xx
+    robots.txt as "unavailable", which means no rules;
+  - what it covers: that host, paths under `/ical/urbanachampaign/`, and a
+    robots.txt that answered 4xx (not 429), reached only through the feed's
+    checked redirect;
+  - everything else keeps the house rule: any other path or host, a 5xx or
+    no answer, and a robots.txt that answers 200 (its rules then apply);
+  - every request it lets through is marked `"exception": true` in
+    `data/clubs/fetchlog.jsonl`, and `__clubs-parse.check.mjs` checks the
+    log never shows another path on that host.
+- First read 2026-10-05: 6,304,459 bytes, Last-Modified Sun, 04 Oct 2026
+  04:45:40 GMT, 7,024 events from 2026-07-09 to 2027-05-12, every one
+  joined to its group by slug. Later reads send `If-None-Match` and
+  `If-Modified-Since`, so an unchanged feed is a 304.
+- What it gives:
+  - event dates per club (`events.last`, up to 3 `events.next`, `n120`),
+    counted from the day the calendar was read. The feed starts in early
+    July, so "the last 120 days" sees about 90 days of it in October;
+  - 420 shipped clubs with an event in the last 120 days and 334 with one
+    coming up; the 598 with neither are ranked x0.9, a tiebreak only;
+  - OneIllinois profiles for 49 groups the page linked only to their own
+    website (40 of them shipped clubs), joined on the exact group name. 35
+    shipped clubs still link their own website.
 
 **Curated lists** (`lists.json`, read 2026-10-04):
 
@@ -175,8 +207,9 @@ These are hard rules, not preferences.
   - A login or Shibboleth redirect ends the run.
   - A 403 ends the run.
   - A 429 or 5xx is retried once.
-- A run is the page plus, once allowed, the feed's two hops. robots.txt is
-  added when the cached copy is older than a day.
+- robots.txt has one exception, for the events feed only (see Sources).
+- A run is the page plus the feed's two hops. robots.txt is added when the
+  cached copy is older than a day.
 - Every request and every cache read is a line in `data/clubs/fetchlog.jsonl`.
 - **Never fetched:**
   - `/events` (it needs a login);
@@ -233,21 +266,59 @@ It then runs `recommendClubs` for each student and checks four things:
   links the directory;
 - every student's list follows the rules.
 
-Scoreboard on 2026-10-05, directory read 2026-10-04, no reading pass, no
-calendar:
+Scoreboard on 2026-10-05, directory read 2026-10-04, calendar read
+2026-10-05, reading pass stored and checked (`READING.md`, "What the
+checkers found"):
 
 | | Number | Bar |
 |---|---|---|
 | 1 | Goals with 3+ joinable clubs: **40 of 44**. The other 4 show the thin message: speech-language pathology 2, athletic training 0, supply chain 1, I/O psychology/HR 2 | 40 |
-| 2 | Lists passing every rule (stand-in until the spot check runs): **24 of 24** | 24 (20 useful once graded) |
+| 2 | Lists graded useful by the model spot check: **13 of 24** (8 mixed, 3 not useful). Every list still passes every rule (the stand-in, 24 of 24) | 20 |
 | 3 | Bad picks: **0** | 0 |
-| 4 | True "why" lines: not graded yet (needs the model spot check, `--grades`) | 95% |
-| + | Gold club shown / in the first 3 / in the first 6: **24 / 22 / 24** | 24 and 20 |
+| 4 | True "why" lines (spot check): **139 of 165, 84.2%** | 95% |
+| + | Gold club shown / in the first 3 / in the first 6: **24 / 24 / 24** | 24 and 20 |
+
+Before the reading pass the same board read 40 of 44 and 24 / 22 / 24. With
+the readers' facts alone it fell to 39 of 44: the readers marked the Student
+Academy of Audiology's audience unclear and called Retrocomputing and
+Hardware a social club, which cost speech-language pathology and hardware a
+club each. The check put both back by hand (`overrides.json`), and the
+board is 40 of 44 again.
+
+Pre-veterinary is not one of the thin four, but not through general
+pre-health clubs: since 2026-10-05 the "Pre-Health" name rule and Alpha
+Epsilon Delta's national row cover every health track except pre-vet (as the
+prototype did), so a pre-vet student sees the Pre-Vet Club, VAW Global
+Veterinary Outreach, and two clubs `overrides.json` adds by hand (One Health
+Alliance, and PAWS for animal experience hours).
 
 Five goals reach 3 only through clubs for their wider field, which the check
 prints as a note:
 - cybersecurity and game design: software engineering clubs;
 - investment banking, real estate and commercial banking: finance clubs.
 
-The model spot check (`clubs-design/eval/spotcheck-grader.md`) has not been
-run. Pass its output with `--grades spotcheck.json` to fill lines 2 and 4.
+The model spot check (`clubs-design/eval/spotcheck-grader.md`) fills lines 2
+and 4: `node lib/planner/__clubs.check.mjs --grades <file>`. What it found:
+
+- **2026-10-05, list check, all 24 practice students** (Opus, graded without
+  seeing the gold or trap lists; grades in
+  `data/clubs/reading/spotcheck-2026-10-05.json`, which stays local). Board:
+  40 of 44, **13 of 24 useful**, 0 bad picks, **84.2% true why lines** (139 of
+  165 picks; 86 of 108 in the visible top five). Lines 2 and 4 miss their
+  bars, so `--grades` fails; without it the check passes. The most common
+  failures:
+  - Why lines that overstate a club (17 of the 26 false; the other 9 are
+    the starter lines below). Seven general pre-health clubs are
+    headed "About nursing" for the nursing student. General business
+    fraternities are called "a finance club" or "about accounting/CPA"
+    (national rows give each one four fields). The Venture Capital
+    Association is called investment banking.
+  - Goals the planner cannot hear (orchestra trumpet, nonprofit for kids,
+    ad-agency creative director). The major's one or two clubs come first, then three starter
+    clubs labeled "A good first club while you decide", with no message
+    that the goal went unheard (`empty` is set only when nothing matched).
+  - Lists filled from the wider field instead of saying the goal is thin.
+    Pre-PT and nursing each have one club of their own, then eight general
+    pre-health clubs. With 3 picks at most per goal, the robotics student gets
+    railway and transportation societies (degree subjects) in rows 6 to 10,
+    while six more robotics teams are left out.

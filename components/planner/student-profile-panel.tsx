@@ -104,6 +104,8 @@ interface RailProps {
   pools?: ReactNode;
   /** The transcript upload, rendered by the caller for the same reason the pools are. */
   transcript?: ReactNode;
+  /** "Clubs for your goals", rendered by the caller like the pools; Illinois only. */
+  clubs?: ReactNode;
 }
 
 export function StudentProfilePanel({
@@ -134,6 +136,7 @@ export function StudentProfilePanel({
   caveats,
   pools,
   transcript,
+  clubs,
 }: RailProps) {
   const rows = areas.map((row, index) => ({
     row,
@@ -230,6 +233,8 @@ export function StudentProfilePanel({
 
       {pools}
 
+      {clubs}
+
       <details className="rail-section">
         <summary>Degree</summary>
         <label className="rail-field">
@@ -255,7 +260,8 @@ export function StudentProfilePanel({
         )}
       </details>
 
-      <details className="rail-section">
+      {/* The ids let the clubs section's "Change my goals" open this and put the cursor in the goals box. */}
+      <details className="rail-section" id="rail-preferences">
         <summary>Preferences</summary>
         <label className="rail-field">
           <span>Credits you want each term, about</span>
@@ -293,13 +299,16 @@ export function StudentProfilePanel({
         <label className="rail-field">
           <span>What you want to be doing after</span>
           <textarea
+            id="rail-career"
             rows={3}
             value={careerInterests}
             onChange={(event) => onCareerChange(event.target.value)}
           />
         </label>
         <p className="rail-field" style={{ fontSize: 'var(--fs-micro)', color: '#6f8098' }}>
-          The words here steer the electives toward what you wrote, and the bot reads them too.
+          {clubs
+            ? 'The words here steer the electives toward what you wrote and pick the clubs under Clubs for your goals. The bot reads them too.'
+            : 'The words here steer the electives toward what you wrote, and the bot reads them too.'}
         </p>
 
         <div className="rail-priorities">

@@ -54,7 +54,10 @@ student to a club they cannot join, so when the text does not say, answer
 `unclear` rather than guess.
 
 Return one entry for EVERY club in the batch, with its `id` and `hash` copied
-exactly, in file order. Use only the values listed at the top of the batch.
+exactly, in file order. Take each hash from the line under that club's own
+id: on 2026-10-05 a reader shifted hashes by one club through half a batch,
+and `store-facts.mjs` refused all 19. Use only the values listed at the top
+of the batch.
 
 **kind**: what the club mainly is.
 - `pre-professional`: prepares members for a professional school (pre-med,
@@ -113,7 +116,10 @@ category alone.
 goals the club is plainly about: its activities prepare members for that kind
 of work or study. Not for a word that merely appears ("laws of physics" is not
 law; a fraternity that "builds leaders" is not entrepreneurship). Social,
-Greek, faith, cultural and sport clubs get no goals. The build keeps a goal
+Greek, faith, cultural and sport clubs get no goals. A club for pre-health
+students in general gets every health track but pre-veterinary, plus
+nursing, not pre-medicine alone; a club for one community (women, Latino
+students) still gets the goals its activities serve. The build keeps a goal
 only where one of the club's own directory categories agrees with it, so a
 stray one does no harm, but leave it out anyway.
 
@@ -144,5 +150,30 @@ the "true facts" numbers reported after every rebuild.
 
 ## What the checkers found
 
-Not run yet. After each run, add a dated bullet here: how many of the 40
-clubs had every fact right, and the one or two most common mistakes.
+After each run, add a dated bullet here: how many of the 40 clubs had every
+fact right, and the one or two most common mistakes.
+
+- **2026-10-05**, first full pass (1,067 clubs, 43 Sonnet readers), checked
+  by Opus over the 40-club sample (seed 2026-10-04; grades in
+  `data/clubs/reading/check-grades.json`). **35 of 40 had every fact
+  right.** Kind and audience 40 of 40, identity 39, joining 38, goals 38; all
+  38 `does` lines true, none copied (the longest shared run was 6 words).
+  The mistakes: goals left out (a general pre-health club given pre-medicine
+  only; health care management not given public health), joining off by one
+  step (an honors society marked open, a welcoming club marked unclear from
+  the OneIllinois flag alone; neither ships), and one program for students
+  from under-represented groups not marked identity. Store step: 1,031 of
+  1,067 entries kept at first. 36 were refused because the reader copied the
+  wrong hash, shifted by one club through a run of a batch (19 in batch 12,
+  8 in batch 19), while the facts were for the right club; 39 `does` lines
+  were left out (33 over 20 words or 140 characters, 6 with an 8-word run).
+  All 77 were checked by hand against the text and stored again from a
+  corrections file: 1,067 facts, 1,033 with `does`. Beyond the sample, the
+  general pre-health miss repeated in 6 more clubs, and 2 clubs plainly for
+  undergraduates (Latinx in Law, Student Academy of Audiology) were marked
+  unclear and dropped off the rail; `overrides.json` has 13 rows dated
+  2026-10-05 for all of these. Watch next time: a reader's kind can strip a
+  club's name goals (Retrocomputing and Hardware, social; the Latine Social
+  Work Organization, cultural), and a club whose category kind is asked-only
+  keeps its goals held back even when the reader's kind is not (Hearts in
+  Practice needed `kind` in its override).

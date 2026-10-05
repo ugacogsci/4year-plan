@@ -49,7 +49,8 @@ export interface IllinoisClubsFile {
     onPage: number;
     parsed: number;
     shipped: number;
-    dropped: { office: number; graduate: number; law: number; medical: number; veterinary: number; hidden?: number };
+    /** noLink: a club whose only link was a placeholder (example.com) and the calendar named no profile for it. */
+    dropped: { office: number; graduate: number; law: number; medical: number; veterinary: number; hidden?: number; noLink?: number };
     /** Clubs kept inside the 120-day grace window after the directory stopped listing them. */
     unlisted: number;
   };
@@ -269,6 +270,12 @@ export interface ClubResult {
    * club for them or the major.
    */
   empty?: 'no-words' | 'unheard' | 'no-match';
+  /**
+   * The student's words say they are still deciding ("I have no idea yet",
+   * "undecided") and name no goal. The card says so instead of "nothing
+   * matched": the starter clubs are for exploring, which is what they asked.
+   */
+  undecided?: true;
 }
 
 // ===========================================================================
@@ -386,12 +393,38 @@ const STOPWORDS = new Set([
   'team', 'teams', 'have', 'has', 'not', 'yet', 'out', 'get', 'more', 'most', 'also', 'just', 'one', 'ones', 'from',
 ]);
 
+/**
+ * Words that say the student has not chosen yet. Read only when no goal is
+ * heard: "not sure between pre-med and pre-PT" names two goals and is not
+ * undecided here.
+ */
+const UNDECIDED =
+  /\b(undecided|undeclared|unsure|indecisive|no idea|no clue|(not sure|not certain|don'?t know|do not know)(?=\s*(yet|what|which|where|about|$|[.,;!?]))|not decided|haven'?t decided|have not decided|still deciding|still figuring|figur(e|ing) (it|that|things) out|dunno|idk|exploring|explore my options|open to anything|keep(ing)? my options open)\b/i;
+
+/** True when the words say the student is still deciding (UNDECIDED). */
+export const soundsUndecided = (careerText: string): boolean => UNDECIDED.test(careerText);
+
 // ===========================================================================
 // Small helpers
 // ===========================================================================
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const article = (phrase: string) => (/^[aeiou]/i.test(phrase) ? 'An' : 'A');
+/**
+ * A kind as a noun phrase for a why line: "a service club", "an arts and
+ * performance group". Four KIND_LABELs are field names, not nouns, and read
+ * "An arts and performance" on their own.
+ */
+const KIND_NOUN: Partial<Record<ClubKind, string>> = {
+  'arts-performance': 'arts and performance group',
+  media: 'student media group',
+  'government-advocacy': 'government and advocacy group',
+  'sport-recreation': 'sport and recreation club',
+};
+const kindPhrase = (kind: ClubKind) => {
+  const noun = KIND_NOUN[kind] ?? KIND_LABEL[kind].toLowerCase();
+  return `${article(noun)} ${noun}`;
+};
 
 /** At most WHY_MAX characters, cut at a word. */
 export function clip(line: string, max: number = WHY_MAX): string {
@@ -504,6 +537,26 @@ export function eventLine(club: Club, today: Date | string = new Date()): string
 export function freshness(data: Pick<IllinoisClubsFile, 'checked'>, today: Date | string = new Date()): { checked: string; label: string; days: number; stale: boolean } {
   const days = daysBetween(data.checked, dayOf(today));
   return { checked: data.checked, label: shortDate(data.checked), days, stale: days > STALE_DAYS };
+}
+
+/** Goal words the planner hears, for the card that heard none. */
+export const EXAMPLE_GOALS = ['pre-law', 'consulting', 'data science', 'journalism'];
+
+/**
+ * The card's words above the list when there is no goal to show clubs for
+ * (DESIGN 4.1), or null when the list speaks for itself. A student who says
+ * they are still deciding is told the list is for exploring, not that their
+ * words "matched nothing": not having chosen is an answer, not a miss.
+ */
+export function emptyNote(result: Pick<ClubResult, 'empty' | 'undecided'>, careerText: string): string | null {
+  if (result.empty === 'no-words') return 'Say what you want to do after you graduate, and clubs for it show up here.';
+  // Before the 'unheard' test: a student with a major gets its clubs, so `empty` is unset, and is still
+  // deciding all the same (find_clubs tells ALMA so whenever `undecided` is set).
+  if (result.undecided) return 'You said you are still deciding, so here are clubs for exploring. When a goal comes to mind, add it and clubs for it show up here.';
+  if (result.empty !== 'unheard') return null;
+  const words = careerText.length > 60 ? `${careerText.slice(0, 57).trimEnd()}...` : careerText;
+  const examples = `${EXAMPLE_GOALS.slice(0, -1).map((w) => `“${w}”`).join(', ')} or “${EXAMPLE_GOALS[EXAMPLE_GOALS.length - 1]}”`;
+  return `Nothing in “${words}” matched a goal the planner knows yet. Words like ${examples} work.`;
 }
 
 /** The pick's why line, clipped. */
@@ -623,7 +676,7 @@ function otherEvidence(club: Club, ctx: Context): Evidence[] {
       const namesIt = new RegExp(`\\b${escapeRe(major)}\\b`, 'i').test(club.name);
       out.push(club.national
         ? { v: EVIDENCE.national, kind: 'major', basis: 'national', goal: 'major', why: `The ${club.national} student chapter, for ${major} students` }
-        : { v: EVIDENCE.subject, kind: 'major', basis: 'subject', goal: 'major', why: namesIt ? `Named for ${major}, your major` : `${article(KIND_LABEL[club.kind])} ${KIND_LABEL[club.kind].toLowerCase()} close to ${major}, your major` });
+        : { v: EVIDENCE.subject, kind: 'major', basis: 'subject', goal: 'major', why: namesIt ? `Named for ${major}, your major` : `${kindPhrase(club.kind)} close to ${major}, your major` });
     } else if (listed) {
       out.push({ v: EVIDENCE.subject, kind: 'major', basis: 'subject', goal: 'major', why: `On ${listed.short}, for ${major} students` });
     } else {
@@ -810,7 +863,8 @@ export function recommendClubs(data: IllinoisClubsFile, student: ClubStudent | n
       picks.push({ club, score: 0, goal: 'starter', basis: 'starter', why: 'A good first club while you decide', cautions: cautionsOf(club, student, data.checked), ...eventField(club, today) });
     }
   }
-  return { goals, picks, communities, thin, matched, ...(empty ? { empty } : {}) };
+  const undecided = ctx.goals.length === 0 && !options.only && soundsUndecided(careerText);
+  return { goals, picks, communities, thin, matched, ...(empty ? { empty } : {}), ...(undecided ? { undecided: true as const } : {}) };
 }
 
 /**
@@ -893,7 +947,7 @@ function wordHit(club: Club, q: { word: string; stem: string; ask: Ask | null },
   }
   const aff = (club.affiliations ?? []).find((a) => re.test(a));
   if (aff) hits.push({ v: 0.8, why: `Affiliated with ${aff}` });
-  if (q.ask?.kinds?.includes(club.kind)) hits.push({ v: 0.8, why: `${article(KIND_LABEL[club.kind])} ${KIND_LABEL[club.kind].toLowerCase()}` });
+  if (q.ask?.kinds?.includes(club.kind)) hits.push({ v: 0.8, why: kindPhrase(club.kind) });
   const cat = club.categories.find((c) => re.test(c));
   if (cat) hits.push({ v: 0.7, why: `Listed under ${cat} in ${sourceName}` });
   if (club.does && re.test(club.does)) hits.push({ v: 0.6, why: `Its ${sourceName} page describes ${q.word}` });

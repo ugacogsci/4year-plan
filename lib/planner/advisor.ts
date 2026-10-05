@@ -16,6 +16,7 @@
  * ask for a confirmation the model has to obtain in the conversation first.
  */
 import type Anthropic from '@anthropic-ai/sdk';
+import { CLUBS_RULES, FIND_CLUBS_TOOL } from './clubs-tool';
 
 export type AdvisorMessage = Anthropic.Beta.BetaMessageParam;
 export type AdvisorBlock = Anthropic.Beta.BetaContentBlock;
@@ -382,6 +383,8 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
       additionalProperties: false,
     },
   },
+  // Illinois only, like course_syllabus: the club directory is Illinois's. Defined in clubs-tool.ts.
+  FIND_CLUBS_TOOL,
 ];
 
 export type AdvisorToolName =
@@ -407,7 +410,8 @@ export type AdvisorToolName =
   | 'record_prior_credit'
   | 'drop_prior_credit'
   | 'planner_answer'
-  | 'university_answer';
+  | 'university_answer'
+  | 'find_clubs';
 
 /**
  * Runs one tool against the real board. Implemented by the workspace.
@@ -588,6 +592,9 @@ Rules about the board
 
 Illinois rules you state (read on the university's pages; say which)
 ${ILLINOIS_RULES}
+
+Clubs (the university's own directory, through find_clubs)
+${CLUBS_RULES}
 
 Situations
 ${SITUATIONS}

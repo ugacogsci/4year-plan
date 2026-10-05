@@ -193,7 +193,7 @@ export function runFindClubs(
     ...(communities.length ? { communities } : {}),
     ...(thin.length ? { thin } : {}),
     ...(none ? { none: `No club in ${data.source.name} matched ${query ? `"${query}"` : goalAsked ? `"${goalAsked}"` : "the student's goals or major"}. Say so, and give ${data.source.url} to browse every club.` } : {}),
-    note: `Name only these clubs, by these names. Clubs change every year; each club page has the latest.${fresh.stale ? ` The list is from ${fresh.label} and may be out of date: say so.` : ''}${result.empty === 'unheard' ? ' The student\'s words name no goal the planner knows; the list is from their major or the starter clubs.' : ''}`,
+    note: `Name only these clubs, by these names. Clubs change every year; each club page has the latest.${fresh.stale ? ` The list is from ${fresh.label} and may be out of date: say so.` : ''}${result.undecided ? ' The student says they are still deciding; these are clubs for exploring (their major\'s, or the starter clubs). Say that, not that nothing matched.' : result.empty === 'unheard' ? ' The student\'s words name no goal the planner knows; the list is from their major or the starter clubs.' : ''}`,
     sources,
   };
 }

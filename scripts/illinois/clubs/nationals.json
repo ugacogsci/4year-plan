@@ -1,5 +1,5 @@
 {
- "_about": "National professional bodies, honor societies and professional fraternities with a chapter in OneIllinois (DESIGN 2.6, evidence 2). Hand-checked: each row's `match` (a case-insensitive regex source, tested on the club name only) matched exactly one group in the directory read 2026-10-04, recorded in `checked`; tag.mjs warns when a row matches nothing, more than one group, or a different id. `subjects` are course prefixes in public/illinois/index.json; `goals` are CAREER_TRACKS / INTEREST_TOPICS ids from lib/planner/career-tracks.ts (\"@health\" stands for every health track, i.e. every track but pre-law); `college` is a programs.json college code; `kind` overrides the name-and-category kind when the row knows better (a self-tagged \"Honorary\" that is not an honor society).",
+ "_about": "National professional bodies, honor societies and professional fraternities with a chapter in OneIllinois (DESIGN 2.6, evidence 2). Hand-checked: each row's `match` (a case-insensitive regex source, tested on the club name only) matched exactly one group in the directory read 2026-10-04, recorded in `checked`; tag.mjs warns when a row matches nothing, more than one group, or a different id. `subjects` are course prefixes in public/illinois/index.json; `goals` are CAREER_TRACKS / INTEREST_TOPICS ids from lib/planner/career-tracks.ts (\"@health\" stands for every health track but pre-veterinary, i.e. every track but pre-law and pre-veterinary: a general pre-health society is not a pre-vet club); `college` is a programs.json college code; `kind` overrides the name-and-category kind when the row knows better (a self-tagged \"Honorary\" that is not an honor society).",
  "checked": "2026-10-04",
  "rows": [
   {
@@ -387,7 +387,7 @@
     "@health",
     "nursing"
    ],
-   "note": "The health pre-professional society: every health track the planner knows, plus nursing.",
+   "note": "The health pre-professional society: every health track the planner knows but pre-veterinary, plus nursing.",
    "checked": {
     "id": "35483",
     "name": "Alpha Epsilon Delta Pre-Health Society"

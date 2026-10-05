@@ -445,6 +445,40 @@ Canvas behind a login, so the research estimated public syllabi for about a
 fifth of the catalog, concentrated in Grainger, IB, MCB, Math, Chemistry and
 Economics.
 
+### Club recommendations
+
+An Illinois student's rail has a "Clubs for your goals" section under "Pick
+from a list", and ALMA has a `find_clubs` tool. Both run one function,
+`recommendClubs` in `lib/planner/clubs.ts`, over
+`public/illinois/clubs.json`, so ALMA asked with no query names the clubs the
+rail shows. Nothing here touches the board or the undo stack.
+- The clubs come from OneIllinois, the university's student-organization
+  directory, and its public events calendar, read by hand with
+  `scripts/illinois/clubs/` (its README has how to run it, the refresh dates
+  and the privacy rules). Officer names, emails and the clubs' own text never
+  ship; a row shows the club's name linked to its own page, one "why" line
+  from a fixed template, the kind of club, its next or last event, and a
+  caution such as "By invitation".
+- Goals are read from the same words that steer the electives ("What you want
+  to be doing after"); the major's name is never read as a goal. The single
+  strongest piece of evidence counts: a university office's list, a club named
+  for the goal, a club about the topic, then the major's subjects and the
+  college. Five show, "Show more" reaches ten, at most three a goal, and the
+  last visible row goes to the major's best club.
+- Social, Greek and faith clubs are never career picks; ALMA names them only
+  when the student asks for that kind of group. Identity-centered groups sit
+  in a folded "Communities in these fields" row, matched by goal only. A goal
+  with fewer than three clubs says so and links the directory.
+- The footer names the directory and the day it was read, and turns amber
+  after 120 days. When `clubs.json` is missing the section hides itself.
+- ALMA's rules (`CLUBS_RULES` in `lib/planner/clubs-tool.ts`): at most four
+  clubs a reply, only clubs the tool returned, the source and date said once,
+  and a question about clubs is never a change of goal.
+
+`__clubs.check.mjs` and four `__clubs-*.check.mjs` checks hold the data and
+the lists to the bars; the scoreboard and the latest graded spot check are in
+`scripts/illinois/clubs/README.md`.
+
 ### The board review
 
 `review_board` (`lib/planner/review.ts`, `__review.check.mjs`) reads the board

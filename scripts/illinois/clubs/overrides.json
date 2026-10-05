@@ -443,6 +443,151 @@
     "software-engineering"
    ],
    "note": "Its page is about practicing coding problems for software industry interviews."
+  },
+  "37129": {
+   "name": "One Health Alliance At Illinois",
+   "goalsAdd": [
+    "pre-veterinary"
+   ],
+   "note": "Added 2026-10-05, when general pre-health clubs stopped counting for pre-vet. Its page describes an undergraduate group spanning animal, human and environmental health, whose members work toward certifications that include veterinary medicine."
+  },
+  "36973": {
+   "name": "Program for Animal Welfare Through Service at Illinois",
+   "goalsAdd": [
+    "pre-veterinary"
+   ],
+   "note": "Added 2026-10-05, when general pre-health clubs stopped counting for pre-vet. Its page describes hands-on volunteer work with animals at local organizations, open to any student; animal experience is what vet school applicants are asked for."
+  },
+  "35628": {
+   "name": "College of Nursing at Urbana Urban Health Program",
+   "identity": true,
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page offers an early look at nursing study and careers to prospective students from groups under-represented in nursing, so it is centered on a shared background: the communities row, not the general nursing list. The reader said false."
+  },
+  "36871": {
+   "name": "Hearts in Practice",
+   "kind": "pre-professional",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page is for pre-health students in general (panels with health professionals, pre-health workshops, volunteer hours), not pre-med alone; the reader kept only pre-medicine. Kind pre-professional, as the reader said: its Identity & Culture category made tag.mjs call it cultural and hold its goals back. Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "35739": {
+   "name": "Future Health Care Executives",
+   "goalsAdd": [
+    "public-health"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). A student society for future leaders in health care management. The planner files health administration under public health (its words include health care management); the reader gave no goal."
+  },
+  "35756": {
+   "name": "Global Medical Training",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page offers medical relief trips, volunteering and patient-care learning to pre-health students in general; the reader kept only pre-medicine. Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "36073": {
+   "name": "Mu Epsilon Delta",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page describes a brotherhood across the pre-health fields; the reader named five tracks and left out occupational therapy, optometry and nursing. Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "36664": {
+   "name": "Heart of Kindness UIUC",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page offers pre-health workshops, mentoring on shadowing and clinical experience, and service, for students exploring many health careers; the reader kept only pre-medicine. Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "36851": {
+   "name": "Hands of Health",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page ties its hand-skill practice to medicine, dentistry and other health careers and calls itself a pre-health community; the reader kept pre-medicine and pre-dental. Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "37041": {
+   "name": "Campana de Salud",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page offers volunteer roles at community health fairs to pre-health undergraduates as well as medical and nursing students; the reader kept only pre-medicine (and public health). Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "37026": {
+   "name": "Female Future Health Professionals",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page supports women on pre-health paths with mentoring, service and hands-on experience; the reader gave no goal. Identity stays true, so it shows in the communities row. Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "36020": {
+   "name": "Latinx in Law",
+   "audience": "undergrad",
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page addresses Latino students drawn to the law and helps them prepare for law school, so it is a pre-law group undergraduates can join. The reader marked the audience unclear, which kept it off the rail."
+  },
+  "36263": {
+   "name": "Student Academy of Audiology",
+   "audience": "undergrad",
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page speaks for students heading toward careers in audiology and names no graduate program or degree, so an undergraduate aiming at audiology fits. The reader marked the audience unclear, which kept it off the rail."
+  },
+  "36200": {
+   "name": "Retrocomputing and Hardware at Illinois",
+   "kind": "academic",
+   "note": "Added 2026-10-05 from the reading check (READING.md). Computer hardware is its main subject, with repair and FPGA emulation projects its page links to coursework: a technical club, so it keeps the hardware goal its name gives. The reader called it social, which drops every goal."
+  },
+  "36745": {
+   "name": "The Latine Social Work Organization",
+   "kind": "professional-society",
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page is about putting social work values into practice through advocacy, mental health and outreach committees, for undergraduates and graduates: a club for one field with a Latine focus (identity stays true), not mainly a cultural one. The reader's cultural kind dropped its counseling goal."
   }
  }
 }

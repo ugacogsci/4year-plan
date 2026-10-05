@@ -130,6 +130,8 @@ function toolLabel(name: AdvisorToolName, input: Record<string, unknown>): strin
       return 'Checking the board';
     case 'university_answer':
       return `Reading Illinois pages`;
+    case 'find_clubs':
+      return s('query') ? `Looking up clubs for “${s('query')}”` : s('goal') ? `Looking up clubs for ${s('goal')}` : 'Looking up clubs for your goals';
     default:
       return name;
   }
@@ -188,6 +190,16 @@ function sourcesIn(messages: AdvisorMessage[], fromIndex: number): Source[] {
     }
   }
   return out;
+}
+
+/**
+ * The sources a reply names come first, so the four links under it are the
+ * ones it talks about: find_clubs returns up to ten clubs and ALMA names at
+ * most four, not always the first four. Stable, so the rest keep their order.
+ */
+function namedFirst(sources: Source[], text: string): Source[] {
+  const named = (s: Source) => Boolean(s.title) && text.includes(s.title);
+  return [...sources.filter(named), ...sources.filter((s) => !named(s))];
 }
 
 /**
@@ -556,7 +568,7 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
                 )}
                 {line.sources.length > 0 && (
                   <ul className="bot-sources">
-                    {line.sources.slice(0, 4).map((s) => (
+                    {namedFirst(line.sources, line.text).slice(0, 4).map((s) => (
                       <li key={s.url}>
                         <a href={s.url} target="_blank" rel="noreferrer">
                           {s.title || s.host}

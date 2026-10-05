@@ -28,7 +28,10 @@
  *     the number in the 120 days before the page was read;
  *   - keeps a club the directory stopped listing for 120 days after it was
  *     last seen (the grace window: Orange groups drop off around Jun 1 and
- *     Blue around Dec 16, and many re-register), then lets it go.
+ *     Blue around Dec 16, and many re-register), then lets it go;
+ *   - leaves out a club with no link at all (counts.dropped.noLink): its
+ *     only link was a placeholder the parse dropped (https://example.com/)
+ *     and the calendar named no profile for it. A link is never made up.
  *
  * Never wipes. A missing or unreadable input, a failed guard, or a file that
  * would be 15% smaller than the last one leaves public/illinois/clubs.json as
@@ -81,7 +84,7 @@ export const SHIPPED = {
   calendar: ['url', 'lastModified', 'read'],
   list: ['id', 'title', 'short', 'url', 'read', 'goal', 'weight', 'college', 'subject'],
   counts: ['onPage', 'parsed', 'shipped', 'dropped', 'unlisted'],
-  dropped: ['office', 'graduate', 'law', 'medical', 'veterinary', 'hidden'],
+  dropped: ['office', 'graduate', 'law', 'medical', 'veterinary', 'hidden', 'noLink'],
   club: ['id', 'name', 'url', 'profile', 'website', 'categories', 'affiliations', 'kind', 'identity', 'national', 'audience', 'joining', 'goals', 'subjects', 'colleges', 'lists', 'does', 'thin', 'starter', 'events', 'firstSeen', 'lastSeen'],
   goal: ['id', 'from', 'list'],
   events: ['last', 'next', 'n120'],
@@ -240,11 +243,12 @@ export function buildClubsFile({ tagged, directory, events = null, facts = null,
     facts: { rows: Object.keys(factsById).length, used: 0, stale: 0, unknownIds: 0, kindChanged: 0, droppedByReading: 0, goalsAdded: 0, goalsDisagreed: 0, doesShipped: 0, doesDropped: [] },
     events: { calendar: Boolean(directory.calendar && events), joined: 0 },
     grace: { kept: [], expired: 0, untaggedMissing: 0 },
+    noLink: [],
   };
   const tagIds = new Set(tagged.clubs.map((c) => String(c.id)));
   report.facts.unknownIds = Object.keys(factsById).filter((id) => !tagIds.has(id)).length;
 
-  const dropped = { office: 0, graduate: 0, law: 0, medical: 0, veterinary: 0, hidden: 0 };
+  const dropped = { office: 0, graduate: 0, law: 0, medical: 0, veterinary: 0, hidden: 0, noLink: 0 };
   const groupById = new Map(directory.groups.map((g) => [String(g.id), g]));
   const clubs = [];
   for (const tagRow of tagged.clubs) {
@@ -257,6 +261,11 @@ export function buildClubsFile({ tagged, directory, events = null, facts = null,
       if (notes.doesDropped) report.facts.doesDropped.push(`${row.id} ${row.name}: ${notes.doesDropped}`);
     }
     if (row.dropped) { dropped[row.dropped] = (dropped[row.dropped] ?? 0) + 1; continue; }
+    if (!row.url) {
+      dropped.noLink += 1;
+      report.noLink.push(`${row.id} ${row.name}`);
+      continue;
+    }
     const ev = events?.clubs?.[row.id] ?? groupById.get(String(row.id))?.events ?? null;
     const shippedEvents = directory.calendar ? shipEvents(ev ?? { n120: 0 }) : null;
     if (ev) report.events.joined += 1;
@@ -295,7 +304,7 @@ export function buildClubsFile({ tagged, directory, events = null, facts = null,
       onPage: directory.counts.onPage,
       parsed: directory.counts.parsed,
       shipped: clubs.length,
-      dropped: Object.fromEntries(Object.entries(dropped).filter(([k, v]) => k !== 'hidden' || v > 0)),
+      dropped: Object.fromEntries(Object.entries(dropped).filter(([k, v]) => !['hidden', 'noLink'].includes(k) || v > 0)),
       unlisted: report.grace.kept.length,
     },
     clubs,
@@ -504,19 +513,22 @@ function printReport({ file, report, inputs, text, dryRun }) {
   console.log(`  directory read ${file.checked}: ${c.onPage} on the page, ${c.parsed} parsed`);
   console.log(`  dropped: ${Object.entries(c.dropped).map(([k, v]) => `${k} ${v}`).join(', ')}; kept in the ${GRACE_DAYS}-day grace window: ${c.unlisted}${report.grace.expired ? `; let go after ${GRACE_DAYS} days: ${report.grace.expired}` : ''}${report.grace.untaggedMissing ? `; missing from the directory with no earlier build to ship from: ${report.grace.untaggedMissing}` : ''}`);
   for (const g of report.grace.kept) console.log(`    grace: ${g}`);
+  for (const g of report.noLink) console.log(`    no link (its only link was a placeholder, and the calendar named no profile): ${g}`);
   console.log(`  kinds: ${tally(clubs.map((x) => x.kind))}`);
   console.log(`  audience: ${tally(clubs.map((x) => x.audience))}; joining: ${tally(clubs.map((x) => x.joining))}`);
   const recommendable = clubs.filter((x) => !ASKED_ONLY_KINDS.has(x.kind));
   console.log(`  asked-only kinds (social, Greek, faith, cultural, sport): ${clubs.length - recommendable.length}; recommendable kinds: ${recommendable.length}, of which ${recommendable.filter((x) => x.goals.length || x.subjects?.length || x.colleges?.length || x.lists?.length).length} carry a goal, subject, college or list`);
   console.log(`  identity ${clubs.filter((x) => x.identity).length}; national chapters ${clubs.filter((x) => x.national).length}; starters ${clubs.filter((x) => x.starter).length}; thin ${clubs.filter((x) => x.thin).length}; with does ${clubs.filter((x) => x.does).length}`);
-  console.log(`  links: ${clubs.filter((x) => x.profile).length} OneIllinois profiles, ${clubs.filter((x) => !x.profile).length} the club's own website`);
+  const fromFeed = new Set(inputs.directory.groups.filter((g) => g.profileFrom === 'feed').map((g) => String(g.id)));
+  console.log(`  links: ${clubs.filter((x) => x.profile).length} OneIllinois profiles (${clubs.filter((x) => fromFeed.has(x.id)).length} of them recovered from the calendar), ${clubs.filter((x) => !x.profile).length} the club's own website`);
   const f = report.facts;
   console.log(inputs.facts
     ? `  reading pass (facts.json, ${f.rows} rows): used ${f.used}, stale (text changed since it was read) ${f.stale}, not in the directory ${f.unknownIds}; kinds changed ${f.kindChanged}, dropped as graduate/professional ${f.droppedByReading}, goals added ${f.goalsAdded}, goals left out for no agreeing category ${f.goalsDisagreed}, does shipped ${f.doesShipped}, does left out ${f.doesDropped.length}`
     : '  reading pass: no scripts/illinois/clubs/facts.json yet, so no `does` lines and no reading-pass goals; kinds come from names, categories and the tables');
   for (const d of f.doesDropped.slice(0, 10)) console.log(`    does left out: ${d}`);
+  const idle = clubs.filter((x) => !(x.events?.n120 > 0 || x.events?.next?.length));
   console.log(file.calendar
-    ? `  events: calendar read ${file.calendar.read}; ${report.events.joined} clubs with any event, ${clubs.filter((x) => x.events?.n120 > 0).length} with one in the last 120 days, ${clubs.filter((x) => x.events?.next?.length).length} with one coming up`
+    ? `  events: calendar read ${file.calendar.read} (Last-Modified ${file.calendar.lastModified ?? '?'}); ${report.events.joined} clubs with any event, ${clubs.filter((x) => x.events?.n120 > 0).length} with one in the last 120 days, ${clubs.filter((x) => x.events?.next?.length).length} with one coming up; ${idle.length} with neither, ranked x0.9 (${idle.filter((x) => !ASKED_ONLY_KINDS.has(x.kind)).length} of a recommendable kind)`
     : '  events: the calendar feed was not read (directory.json calendar is null), so no event dates ship and no club is ranked down for having none');
   const byGoal = [...GOAL_IDS].map((id) => [id, recommendable.filter((x) => x.audience !== 'check' && x.goals.some((g) => g.id === id)).length]);
   const three = byGoal.filter(([, n]) => n >= 3).length;

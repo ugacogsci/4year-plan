@@ -4,6 +4,7 @@
  *
  *   node scripts/illinois/clubs/crawl.mjs                two requests, plus robots.txt at most once a day per host
  *   node scripts/illinois/clubs/crawl.mjs --offline      no network at all: re-parse what data/clubs/raw/ holds
+ *   node scripts/illinois/clubs/crawl.mjs --feed-only    read only the events feed; re-parse the cached directory page
  *   node scripts/illinois/clubs/crawl.mjs --accept-drop  the group count may move more than 15% from the last parse
  *
  * The two requests (DESIGN 2.1):
@@ -21,6 +22,19 @@
  *     syllabus fetcher: 404/410 means no rules; any other answer that is not a
  *     200 means "disallow everything". A robots.txt is reused for a day
  *     (data/clubs/raw/robots/);
+ *   - ONE exception to that house rule, approved by the owner on 2026-10-05
+ *     (ROBOTS_EXCEPTION below): the feed's second hop. The feed is linked from
+ *     one.illinois.edu, whose robots.txt allows /ical/, and one.illinois.edu
+ *     answers it with a 302 to static-prod-us-east-1.campusgroups.com, whose
+ *     /robots.txt answers 403. RFC 9309 section 2.3.1.3 reads a 4xx robots.txt
+ *     as "unavailable": no rules, the crawler MAY fetch. So on that host, for
+ *     paths under /ical/urbanachampaign/ only, a 4xx robots.txt (not 429) is
+ *     read as no rules. Everything else keeps the house rule: any other path
+ *     on that host, any other host, a 5xx or no answer, and a robots.txt that
+ *     answers 200 with rules (those rules then apply, Disallow included). The
+ *     exception is reached only through the feed's checked redirect, after
+ *     one.illinois.edu's own robots.txt has allowed the feed, and every
+ *     request it lets through says so in the fetch log;
  *   - one request at a time, at least 1.1 s apart (or the host's Crawl-delay,
  *     when its robots.txt sets a longer one); redirect: 'manual'; no
  *     cookies (Node's fetch keeps no jar and nothing here sets one);
@@ -45,7 +59,14 @@
  * whole of data/clubs/ is git-ignored by its own .gitignore ("*").
  *
  * If the count guard fails, nothing is overwritten: the last good cache and
- * outputs stay, and the scrubbed page is set aside as *.rejected.html.
+ * outputs stay, and the scrubbed page is set aside as *.rejected.html. The
+ * scrubbed feed is cached as soon as it is read, whatever the page's guard
+ * says, so a failed parse never costs the host a second download.
+ *
+ * --feed-only reads the feed and nothing else from the network (its two hops,
+ * plus a robots.txt older than a day), and re-parses the directory page cached
+ * in data/clubs/raw/. directory.json keeps the page's own date and text
+ * hashes, so a reading pass in progress is not disturbed.
  */
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -77,7 +98,49 @@ const MAX_BYTES = 40 * 1024 * 1024;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const offline = process.argv.includes('--offline');
+const feedOnly = !offline && process.argv.includes('--feed-only');
 const acceptDrop = process.argv.includes('--accept-drop');
+const isMain = Boolean(process.argv[1]) && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+/**
+ * The one exception to the house robots rule (see the header). Approved by the
+ * owner on 2026-10-05 for the OneIllinois events feed and nothing else.
+ */
+export const ROBOTS_EXCEPTION = Object.freeze({
+  host: FEED_REDIRECT.host,
+  pathPrefix: '/ical/urbanachampaign/',
+  approved: '2026-10-05',
+  basis: 'RFC 9309 section 2.3.1.3: a 4xx robots.txt is unavailable, so no rules; one.illinois.edu/robots.txt allows /ical/ and links the feed',
+});
+
+/**
+ * robots.txt's answer for one URL: { allowed, rule, exception }. `robots` is
+ * { verdict: 'rules' | 'allow-all' | 'deny-all', status, parsed }, as
+ * robotsFor() returns it. The house rule throughout, except ROBOTS_EXCEPTION:
+ * that host, that path, a robots.txt that answered 4xx other than 429.
+ */
+export function robotsDecision(robots, url) {
+  const u = new URL(url);
+  const status = Number(robots?.status) || 0;
+  if (
+    robots?.verdict === 'deny-all' &&
+    status >= 400 && status < 500 && status !== 429 &&
+    u.protocol === 'https:' &&
+    u.host === ROBOTS_EXCEPTION.host &&
+    u.pathname.startsWith(ROBOTS_EXCEPTION.pathPrefix) &&
+    !u.pathname.includes('..') &&
+    !u.search
+  ) {
+    return {
+      allowed: true,
+      rule: `robots.txt answered ${status}: unavailable, so no rules (RFC 9309 2.3.1.3); owner-approved exception of ${ROBOTS_EXCEPTION.approved} for ${ROBOTS_EXCEPTION.host}${ROBOTS_EXCEPTION.pathPrefix} only`,
+      exception: true,
+    };
+  }
+  const d = decide(robots.parsed, url);
+  const rule = robots?.verdict === 'deny-all' ? `robots.txt answered ${status || 'nothing'}; read as disallow-all` : d.rule;
+  return { allowed: d.allowed, rule, exception: false };
+}
 
 /** Ends the run: a 403, a login, a refused path, a second failure. */
 class Stop extends Error {}
@@ -157,7 +220,7 @@ async function politeGet(url, { headers = {}, source, robots, timeoutMs = 180_00
       if (len > MAX_BYTES) { await r.body?.cancel(); outcome = 'too-large'; } else body = Buffer.from(await r.arrayBuffer());
     } else await r.body?.cancel().catch(() => {});
     lastAt = Date.now();
-    log({ url, robots: robots?.verdict ?? 'n/a', rule: robots?.rule ?? null, status: r.status, outcome, ms: lastAt - t0, bytes: body?.length ?? 0, cached: false, conditional, source, attempt });
+    log({ url, robots: robots?.verdict ?? 'n/a', rule: robots?.rule ?? null, ...(robots?.exception ? { exception: true } : {}), status: r.status, outcome, ms: lastAt - t0, bytes: body?.length ?? 0, cached: false, conditional, source, attempt });
     if (outcome === 'too-large' || (body && body.length > MAX_BYTES)) throw new Stop(`${url}: larger than ${MAX_BYTES} bytes`);
     if (r.status === 403) throw new Stop(`${url}: 403 to the house agent; the host does not want us, stopping`);
     if (r.status === 429 || r.status >= 500) {
@@ -216,12 +279,11 @@ async function robotsFor(origin) {
   return { ...saved, parsed: verdict === 'rules' ? parseRobots(text) : verdict === 'allow-all' ? ALLOW_ALL : DENY_ALL };
 }
 
-/** { verdict: 'allow'|'disallow', rule, crawlDelay (seconds, or null) } for one URL. */
+/** { verdict: 'allow'|'disallow', rule, exception, crawlDelay (seconds, or null) } for one URL. */
 async function permission(url) {
   const robots = await robotsFor(new URL(url).origin);
-  const d = decide(robots.parsed, url);
-  const rule = robots.verdict === 'deny-all' ? `robots.txt answered ${robots.status || 'nothing'}; read as disallow-all` : d.rule;
-  return { verdict: d.allowed ? 'allow' : 'disallow', rule, crawlDelay: groupFor(robots.parsed).crawlDelay };
+  const d = robotsDecision(robots, url);
+  return { verdict: d.allowed ? 'allow' : 'disallow', rule: d.rule, exception: d.exception, crawlDelay: groupFor(robots.parsed).crawlDelay };
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +342,7 @@ async function fetchFeed() {
       console.warn(`  feed: robots.txt on ${to.host} disallows ${to.pathname} (${hop.rule}); not read`);
       return null;
     }
+    if (hop.exception) console.log(`  feed: ${to.host}: ${hop.rule}`);
     const headers = { accept: 'text/calendar' };
     if (prior?.finalUrl === finalUrl && prior.etag) headers['if-none-match'] = prior.etag;
     if (prior?.finalUrl === finalUrl && prior.lastModified) headers['if-modified-since'] = prior.lastModified;
@@ -300,6 +363,30 @@ async function fetchFeed() {
   return { ics, meta, fresh: true };
 }
 
+/**
+ * The feed for this run: read now, or the last cached copy when it could not
+ * be read, or null. A stop here ends the requests, not the parse: the page
+ * already in hand is still parsed and kept.
+ */
+async function readFeedOrCache() {
+  let feed = await fetchFeed().catch((e) => {
+    if (!(e instanceof Stop)) throw e;
+    console.warn(`  feed STOPPED: ${e.message}`);
+    return null;
+  });
+  if (feed) {
+    say(`  ${feed.fresh ? `${feed.meta.bytes} bytes, ${feed.meta.scrub.events} events, scrubbed to ${feed.meta.scrub.bytesOut} bytes` : 'not modified (304), reusing the cached copy'}; Last-Modified ${feed.meta.lastModified ?? '?'}`);
+    // Cached at once, scrubbed: the feed does not depend on the page's count
+    // guard, and a later failure must not cost the host a second download.
+    if (feed.fresh) writeAtomic(FILES.feed, feed.ics);
+    writeAtomic(FILES.feedMeta, `${JSON.stringify(feed.meta, null, 1)}\n`);
+  } else if (existsSync(FILES.feed) && existsSync(FILES.feedMeta)) {
+    feed = { ics: readFileSync(FILES.feed, 'utf8'), meta: JSON.parse(readFileSync(FILES.feedMeta, 'utf8')), fresh: false };
+    console.warn(`  WARNING: the feed was not read this run; using the copy read ${feed.meta.fetchedAt}`);
+  } else console.warn('  WARNING: no events feed this run and none cached; events.json is not written');
+  return feed;
+}
+
 // ---------------------------------------------------------------------------
 
 function ensureDataDir() {
@@ -316,13 +403,18 @@ async function main() {
   let page;
   let feed;
 
-  if (offline) {
+  if (offline || feedOnly) {
     if (!existsSync(FILES.page) || !existsSync(FILES.pageMeta)) {
-      console.error('nothing cached under data/clubs/raw/; run once without --offline');
+      console.error(`nothing cached under data/clubs/raw/; run once without ${offline ? '--offline' : '--feed-only'}`);
       process.exit(1);
     }
     page = { html: readFileSync(FILES.page, 'utf8'), meta: JSON.parse(readFileSync(FILES.pageMeta, 'utf8')) };
     log({ url: DIRECTORY_URL, robots: 'n/a', status: page.meta.status, outcome: 'offline-cache', cached: true, source: 'directory' });
+  }
+  if (feedOnly) {
+    say(`--feed-only: the directory page read ${page.meta.fetchedAt} is re-parsed from data/clubs/raw/; reading ${FEED_URL}`);
+    feed = await readFeedOrCache();
+  } else if (offline) {
     if (existsSync(FILES.feed) && existsSync(FILES.feedMeta)) {
       feed = { ics: readFileSync(FILES.feed, 'utf8'), meta: JSON.parse(readFileSync(FILES.feedMeta, 'utf8')), fresh: false };
       log({ url: FEED_URL, robots: 'n/a', status: feed.meta.lastStatus ?? feed.meta.status, outcome: 'offline-cache', cached: true, source: 'feed' });
@@ -333,35 +425,21 @@ async function main() {
     page = await fetchDirectory();
     say(`  ${page.meta.bytes} bytes in ${page.meta.ms} ms; scrubbed to ${page.meta.scrub.bytesOut} bytes: ${page.meta.scrub.contactBlocks} contact blocks, ${page.meta.scrub.names} contact names (never stored), ${page.meta.scrub.namesBlanked} repeats blanked, ${page.meta.scrub.uids} uids, ${page.meta.scrub.images} images, ${page.meta.scrub.emails} emails, ${page.meta.scrub.phones} phone numbers dropped`);
     say(`reading ${FEED_URL}`);
-    // A stop here ends the requests, not the parse: the page already read is still parsed and kept.
-    feed = await fetchFeed().catch((e) => {
-      if (!(e instanceof Stop)) throw e;
-      console.warn(`  feed STOPPED: ${e.message}`);
-      return null;
-    });
-    if (feed) say(`  ${feed.fresh ? `${feed.meta.bytes} bytes, ${feed.meta.scrub.events} events, scrubbed to ${feed.meta.scrub.bytesOut} bytes` : 'not modified (304), reusing the cached copy'}; Last-Modified ${feed.meta.lastModified ?? '?'}`);
-    else if (existsSync(FILES.feed) && existsSync(FILES.feedMeta)) {
-      feed = { ics: readFileSync(FILES.feed, 'utf8'), meta: JSON.parse(readFileSync(FILES.feedMeta, 'utf8')), fresh: false };
-      console.warn(`  WARNING: the feed was not read this run; using the copy read ${feed.meta.fetchedAt}`);
-    } else console.warn('  WARNING: no events feed this run and none cached; events.json is not written');
+    feed = await readFeedOrCache();
   }
 
   const result = parseAll({ html: page.html, htmlMeta: page.meta, ics: feed?.ics ?? null, icsMeta: feed ? { ...feed.meta, fetchedAt: feed.meta.checkedAt ?? feed.meta.fetchedAt } : null, previous, acceptDrop });
   for (const w of result.guard.warnings) console.warn(`  guard warning: ${w}`);
   if (!result.guard.ok) {
-    if (!offline) writeAtomic(FILES.rejected, page.html);
+    if (!offline && !feedOnly) writeAtomic(FILES.rejected, page.html);
     for (const f of result.guard.failures) console.error(`  GUARD FAILED: ${f}`);
-    console.error(`nothing overwritten${offline ? '' : `; the scrubbed page is set aside as ${FILES.rejected}`}`);
+    console.error(`nothing overwritten${offline || feedOnly ? '' : `; the scrubbed page is set aside as ${FILES.rejected}`}`);
     process.exit(1);
   }
 
-  if (!offline) {
+  if (!offline && !feedOnly) {
     writeAtomic(FILES.page, page.html);
     writeAtomic(FILES.pageMeta, `${JSON.stringify(page.meta, null, 1)}\n`);
-    if (feed?.meta) {
-      if (feed.fresh) writeAtomic(FILES.feed, feed.ics);
-      writeAtomic(FILES.feedMeta, `${JSON.stringify(feed.meta, null, 1)}\n`);
-    }
   }
   const sizes = writeOutputs(DATA, result);
   report(result, sizes);
@@ -377,16 +455,21 @@ function report({ directory: d, events }, sizes) {
   console.log(`  links, clubs only: profile ${c.clubLinks.profile}, own website only ${c.clubLinks.websiteOnly}, none ${c.clubLinks.none}`);
   console.log(`  membership closed ${c.membershipClosed}; restricted ${c.restricted}; no categories ${c.noCategories}; no mission ${c.noMission}; median mission ${c.missionWordsMedian} words`);
   console.log(`  tags: ${d.vocabulary.topical.length} topical + ${d.vocabulary.affiliations.length} affiliations; new ${JSON.stringify(d.vocabulary.added)}; gone ${JSON.stringify(d.vocabulary.gone)}`);
+  if (c.links.placeholdersDropped) console.log(`  placeholder links dropped (reserved or test addresses): ${c.links.placeholdersDropped}`);
   if (events) {
     console.log(`  feed: ${events.calendar.events} events, ${events.calendar.firstDate} to ${events.calendar.lastDate}; joined by slug ${events.counts.bySlug}, by name ${events.counts.byName}, unjoined ${events.counts.unjoined} (${events.counts.unjoinedOrganizers} organizers)`);
-    console.log(`  events, relative to ${d.checked}: groups with any ${c.events.groupsWithAny}; clubs with one in the last 120 days ${c.events.clubsN120}; clubs with one coming up ${c.events.clubsUpcoming}; clubs with either ${c.events.clubsActive}`);
+    console.log(`  profiles recovered from the feed for groups the page linked off-site or not at all: ${events.recovered.profiles} (name shown with two slugs ${events.recovered.ambiguous}, slug already another group's ${events.recovered.slugTaken})`);
+    console.log(`  events, relative to ${events.today} (the day the calendar was read): groups with any ${c.events.groupsWithAny}; clubs with one in the last 120 days ${c.events.clubsN120}; clubs with one coming up ${c.events.clubsUpcoming}; clubs with either ${c.events.clubsActive}`);
   }
   if (d.problems.length) console.log(`  parse problems ${d.problems.length}: ${JSON.stringify(d.problems.slice(0, 5))}`);
   if (d.missing.length) console.log(`  missing since the last parse ${d.missing.length} (kept 120 days)`);
   if (!offline) console.log(`  requests sent this run: ${sent}`);
 }
 
-main().catch((e) => {
-  console.error(e instanceof Stop ? `STOPPED: ${e.message}` : e?.stack ?? e);
-  process.exit(1);
-});
+// Imported by the checks for ROBOTS_EXCEPTION and robotsDecision; runs only as a script.
+if (isMain) {
+  main().catch((e) => {
+    console.error(e instanceof Stop ? `STOPPED: ${e.message}` : e?.stack ?? e);
+    process.exit(1);
+  });
+}

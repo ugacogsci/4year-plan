@@ -16,7 +16,7 @@
  * now sibling columns of the same frame.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import {
   // MERGE-UGA: icon/component imports conflict (here and the ./advisor to ./plan-health block below).
@@ -119,7 +119,7 @@ import {
   type UndoEntry,
 } from '@/lib/planner/saved-board';
 import { livePools, poolShortfalls } from './live-pools';
-import { careerWordsAfter, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
+import { CAREER_TRACKS, careerWordsAfter, INTEREST_TOPICS, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
 import { describeExcellent, interestWordsFrom, sectionTimes } from '@/lib/planner/quality';
 import {
@@ -172,6 +172,10 @@ import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail, loadIllinoisSyllabi } from '@/lib/planner/illinois-load';
 import type { AdvisorExecutor } from '@/lib/planner/advisor';
+import { ClubPicks } from './club-picks';
+import { clubStudentOf, type ClubStudent, type IllinoisClubsFile } from '@/lib/planner/clubs';
+import { loadIllinoisClubs } from '@/lib/planner/clubs-load';
+import { runFindClubs } from '@/lib/planner/clubs-tool';
 
 // MERGE-UGA: UGA keeps STORAGE_KEY and adds UNDECIDED_PROGRAM and openPlanThrough() here; Illinois deleted
 // STORAGE_KEY (boards now save through saved-board.ts v4). Keep UNDECIDED_PROGRAM and openPlanThrough
@@ -337,6 +341,27 @@ function describeGoals(studying: string, career: string): string {
   // (FIN 391), which no elective slot will ever book for him.
   const apply = describeApplicationPrograms(career);
   return `What the student said they study: ${studying.trim() || 'nothing yet'}. Career words the planner reads goals from: ${career.trim() ? `"${career.trim()}"` : 'none'}. Career tracks active: ${tracks.join(', ') || 'none'}. Interest topics active: ${topics.join(', ') || 'none'}.${apply ? ` ${apply}` : ''}`;
+}
+
+/** Goal names, for a club's why line about a goal the student did not name (a family's parent). */
+const CLUB_VOCABULARY = { tracks: CAREER_TRACKS, topics: INTEREST_TOPICS };
+
+/**
+ * Who the clubs rail and find_clubs rank for (clubs-design DESIGN 3.1): goals
+ * from the career words alone (never the major's name), the degree's subjects
+ * and college, and whether they enter as a first-year, when honor societies
+ * count half. Built the way __clubs.check.mjs builds its practice students.
+ */
+function clubStudentFor(careerText: string, loaded: LoadedProgram | UgaLoadedProgram | null, answers: OnboardingAnswers | null | undefined): ClubStudent {
+  return clubStudentOf({
+    careerText,
+    hear: interestProfileOf,
+    programName: loaded?.program.name ?? null,
+    college: loaded?.program.college ?? null,
+    degree: loaded ? degreeSubjects(loaded.blocks, loaded.program.name) : null,
+    firstYear: enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
+    vocabulary: CLUB_VOCABULARY,
+  });
 }
 
 export function PlannerWorkspace({
@@ -721,6 +746,38 @@ export function PlannerWorkspace({
     if (isUga && uga) return uga.context;
     return null;
   }, [isIllinois, isUga, core, uga, loaded]);
+
+  // ---- clubs ----------------------------------------------------------------
+
+  /**
+   * Who "Clubs for your goals" ranks for, over the deferred career words: the
+   * Illinois goal box commits on every keystroke, and the clubs follow the
+   * words without re-ranking on each letter. Nothing here touches the board.
+   */
+  const deferredCareer = useDeferredValue(careerText);
+  const clubStudent = useMemo(
+    () => (isIllinois ? clubStudentFor(deferredCareer, loaded, answers) : null),
+    [isIllinois, deferredCareer, loaded, answers],
+  );
+  /** The first goal the student named: ALMA's clubs opener asks about it in place of tuition. */
+  const clubGoal = clubStudent ? (clubStudent.profile.tracks[0]?.name ?? clubStudent.profile.topics.find((t) => clubStudent.profile.heard.includes(t.label))?.label ?? null) : null;
+  /** The club file once it has loaded, for describeBoard. The rail and find_clubs share its one fetch. */
+  const clubFile = useRef<IllinoisClubsFile | null>(null);
+  useEffect(() => {
+    if (!isIllinois) return;
+    void loadIllinoisClubs().then((r) => {
+      if (r.ok) clubFile.current = r.value;
+    });
+  }, [isIllinois]);
+  /** The clubs card's "Change my goals": the rail (the overlay on a phone), Preferences open, the cursor in the goals box. */
+  function editGoals() {
+    if (narrow) setRailOpen(true);
+    requestAnimationFrame(() => {
+      const preferences = document.getElementById('rail-preferences');
+      if (preferences instanceof HTMLDetailsElement) preferences.open = true;
+      document.getElementById('rail-career')?.focus();
+    });
+  }
 
   // ---- the plan -------------------------------------------------------------
 
@@ -2364,6 +2421,11 @@ export function PlannerWorkspace({
       `Credit load: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'an even share of what is left'}, never above 18.${describeShape(planShapeRef.current)} Section times on cards come from ${L.core?.meta?.term?.label ?? 'one crawled term'}.`,
     );
     lines.push(describeGoals(L.answers?.studying ?? '', L.careerText));
+    // The rail's clubs, once the file has loaded, so ALMA and the rail name the same ones.
+    const clubs = isIllinois && clubFile.current ? runFindClubs({}, clubStudentFor(L.careerText, L.loaded, L.answers), clubFile.current) : null;
+    if (clubs?.ok && clubs.clubs.length > 0) {
+      lines.push(`Clubs for your goals (rail): ${clubs.clubs.slice(0, 3).map((c) => c.name).join('; ')} for ${clubs.goals_used.map((g) => g.label).join(', ') || clubs.clubs[0].for_goal}, from ${clubs.source.name} checked ${clubs.source.checked}; find_clubs returns the same list.`);
+    }
     lines.push(`Priorities, which decide the elective picks and the order of choices: ${describePriorities(L.priorities)}`);
     if (L.language) lines.push(`Language requirement: ${L.language.name}, semesters ${L.language.completed + 1} to ${L.language.semesters} planned (${L.language.codes.join(', ')}). ${L.language.why}`);
     if (L.admission) lines.push(`Getting into ${L.admission.name} (${L.admission.path}): the student is not in this college yet. Its courses (${L.admission.codes.join(', ')}) are placed first, due by ${L.admission.requiredBy}. ${L.admission.eligibility.join(' ')} Source: ${L.admission.source}`);
@@ -3726,6 +3788,14 @@ export function PlannerWorkspace({
         const data = (await res.json().catch(() => ({}))) as { text?: string; error?: string; sources?: unknown; grounded?: boolean };
         return { ok: res.ok, text: data.text || data.error || 'No answer came back.', sources: Array.isArray(data.sources) ? data.sources : [], grounded: Boolean(data.grounded) };
       }
+      case 'find_clubs': {
+        // Read-only: no undo step, no confirmation. Ranked for the words as they are now, so a goal
+        // set_priorities stored earlier in this turn counts. Its sources link each club under the reply.
+        if (!isIllinois) return { ok: false, reason: 'The club directory is Illinois\'s; this school has none here.', sources: [] };
+        const clubs = await loadIllinoisClubs();
+        if (clubs.ok) clubFile.current = clubs.value;
+        return runFindClubs(input, clubStudentFor(L.careerText, L.loaded, L.answers), clubs.ok ? clubs.value : null);
+      }
       default:
         return { ok: false, error: `Unknown tool ${String(name)}.` };
     }
@@ -4244,6 +4314,20 @@ export function PlannerWorkspace({
             }}
           />
         }
+        clubs={
+          isIllinois ? (
+            <ClubPicks
+              student={clubStudent}
+              botName={botName}
+              onEditGoals={editGoals}
+              onOpenAlma={() => {
+                setRailOpen(false);
+                setFinderOpen(false);
+                setChatOpen(true);
+              }}
+            />
+          ) : undefined
+        }
       />
 
       <section className="board-region" aria-label="Your semesters">
@@ -4446,7 +4530,7 @@ export function PlannerWorkspace({
           onClose={() => setChatOpen(false)}
           openers={[
             'How do I drop a class?',
-            'When is tuition due?',
+            clubGoal ? `Which clubs should I join for ${clubGoal}?` : 'When is tuition due?',
             'Where do I find my academic advisor?',
             'I really like history. Can you work some in?',
             'Which term is hardest?',

@@ -30,7 +30,11 @@
  *     the events feed, whose CONTACT link names the slug, joined on the exact
  *     group name. It is never built from an off-site link: the prototype made
  *     https://one.illinois.edu/www.aim-illinois.com/ that way, 78 times.
- *   - url is the profile when there is one, else the club's own website.
+ *   - url is the profile when there is one, else the club's own website. A
+ *     placeholder link is never a website: example.com/.net/.org, the
+ *     reserved .example, .test, .invalid and .localhost names, localhost and
+ *     bare IP addresses (Animal Liberation UIUC, id 36823, listed
+ *     https://example.com/ on 2026-10-04). It is dropped and reported.
  *   - categories are split by matching the page's own tag list (41 tags, read
  *     from its "Group Category" menu), never on commas: "Technology,
  *     Engineering & Mathematics" is one tag.
@@ -336,11 +340,33 @@ export function profileSlug(href) {
   return u.pathname.match(/^\/([A-Za-z0-9_-]+)\/(?:home\/?)?$/)?.[1] ?? null;
 }
 
-/** An off-site http(s) link, trimmed, or null. */
+/**
+ * A host that is never a club's real site: the names reserved for examples
+ * and tests (RFC 2606, RFC 6761: example.com/.net/.org, .example, .test,
+ * .invalid, .localhost), localhost, and bare IP addresses.
+ */
+export function placeholderHost(hostname) {
+  const h = String(hostname ?? '').toLowerCase().replace(/\.$/, '');
+  return (
+    h === 'localhost' ||
+    /(^|\.)(example\.(com|net|org)|example|test|invalid|localhost)$/.test(h) ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(h) ||
+    h.startsWith('[')
+  );
+}
+
+/** True when href is an http(s) link to a placeholder host (placeholderHost). */
+export function placeholderLink(href) {
+  let u;
+  try { u = new URL(String(href).trim()); } catch { return false; }
+  return /^https?:$/.test(u.protocol) && placeholderHost(u.hostname);
+}
+
+/** An off-site http(s) link, trimmed, or null. Never a placeholder (placeholderHost). */
 export function offSite(href) {
   let u;
   try { u = new URL(String(href).trim()); } catch { return null; }
-  if (!/^https?:$/.test(u.protocol) || u.host === HOST || !u.host.includes('.')) return null;
+  if (!/^https?:$/.test(u.protocol) || u.host === HOST || !u.host.includes('.') || placeholderHost(u.hostname)) return null;
   return String(href).trim();
 }
 
@@ -410,14 +436,17 @@ export function parseDirectory(html) {
     let slug = null;
     let website = null;
     const odd = [];
+    const placeholders = [];
     for (const h of hrefs) {
       const s = profileSlug(h);
       if (s) { slug ??= s; continue; }
       const w = offSite(h);
       if (w) { website ??= w; continue; }
+      if (placeholderLink(h)) { if (!placeholders.includes(h.trim())) placeholders.push(h.trim()); continue; }
       if (h.trim()) odd.push(h.trim());
     }
     if (odd.length) problems.push({ id, name, problem: 'a link that is neither a profile nor a website', links: odd });
+    if (placeholders.length) problems.push({ id, name, problem: 'a placeholder link (a reserved or test address), dropped', links: placeholders });
 
     const grey = inline(it.match(/<p class="h5 media-heading grey-element">([\s\S]*?)<\/p>/)?.[1]);
     const type = typeNames.find((t) => grey === t || grey.startsWith(`${t} - `)) ?? null;
@@ -439,6 +468,7 @@ export function parseDirectory(html) {
       office: OFFICE.has(type),
       slug,
       website,
+      placeholder: placeholders.length > 0,
       categories: tags.filter((t) => !t.startsWith(AFFILIATION)),
       affiliations: tags.filter((t) => t.startsWith(AFFILIATION)).map((t) => t.slice(AFFILIATION.length)),
       membershipClosed: /membership is closed|data-original-title="Membership Closed"/i.test(it),
@@ -581,7 +611,12 @@ export function parseAll({ html, htmlMeta, ics, icsMeta, previous, acceptDrop = 
   const guard = countGuard({ page: dir.page, parsed: dir.groups.length, byType, previous: previous?.counts?.parsed ?? null, checked, acceptDrop });
 
   const feed = ics ? parseFeed(ics) : null;
-  const join = feed ? joinFeed(dir.groups, feed.events, checked) : { clubs: {}, counts: null, recovered: null };
+  // Event dates are judged from the day the calendar was read (the ClubEvents
+  // fields say "as of the day the calendar was read"), which is the day the
+  // page was read when one run reads both. Fixed by the feed's own stamp, so a
+  // re-parse gives the same numbers.
+  const eventsDay = icsMeta?.fetchedAt ? centralDate(new Date(icsMeta.fetchedAt)) : checked;
+  const join = feed ? joinFeed(dir.groups, feed.events, eventsDay) : { clubs: {}, counts: null, recovered: null };
 
   const prevById = new Map((previous?.groups ?? []).map((g) => [g.id, g]));
   const groups = dir.groups.map((g) => {
@@ -637,6 +672,7 @@ export function parseAll({ html, htmlMeta, ics, icsMeta, previous, acceptDrop = 
       profileFromFeed: groups.filter((g) => g.profileFrom === 'feed').length,
       websiteOnly: groups.filter((g) => !g.profile && g.website).length,
       websiteHttp: groups.filter((g) => (g.website ?? '').startsWith('http:')).length,
+      placeholdersDropped: dir.groups.filter((g) => g.placeholder).length,
       none: groups.filter((g) => !g.url).length,
     },
     clubLinks: {
@@ -650,6 +686,7 @@ export function parseAll({ html, htmlMeta, ics, icsMeta, previous, acceptDrop = 
     noMission: groups.filter((g) => !g.missionWords).length,
     missionWordsMedian: median(groups.map((g) => g.missionWords).filter(Boolean)),
     events: {
+      day: feed ? eventsDay : null,
       groupsWithAny: groups.filter((g) => g.events).length,
       groupsN120: groups.filter((g) => g.events?.n120 > 0).length,
       clubsN120: clubs.filter((g) => g.events?.n120 > 0).length,
@@ -687,7 +724,7 @@ export function parseAll({ html, htmlMeta, ics, icsMeta, previous, acceptDrop = 
     groups,
     missing,
   };
-  const eventsFile = feed ? { version: 1, today: checked, calendar, counts: join.counts, recovered: join.recovered, clubs: join.clubs } : null;
+  const eventsFile = feed ? { version: 1, today: eventsDay, calendar, counts: join.counts, recovered: join.recovered, clubs: join.clubs } : null;
   return { directory, texts, events: eventsFile, guard };
 }
 

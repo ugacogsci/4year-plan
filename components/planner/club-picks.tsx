@@ -5,9 +5,7 @@
  *
  * The workspace renders it and hands it to StudentProfilePanel through a
  * `clubs` slot right after "Pick from a list", the way `pools` and
- * `transcript` arrive: the rail owns where it sits, not what it says. Not
- * wired in yet; that waits for the other session's edits to land (DESIGN 6,
- * steps 14 and 15).
+ * `transcript` arrive: the rail owns where it sits, not what it says.
  *
  * It shows the same list ALMA's find_clubs returns with no query: one
  * recommendClubs over public/illinois/clubs.json, for the ClubStudent the
@@ -24,7 +22,9 @@
  *
  * States: loading (three grey rows), file missing (the section hides itself,
  * so the UI can ship before the data), load failed (Try again), no goal
- * words, words that name no known goal, a thin goal, and the list.
+ * words, words that name no known goal, words that say the student is still
+ * deciding (clubs for exploring, not "nothing matched"), a thin goal, and the
+ * list.
  */
 
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
@@ -34,6 +34,7 @@ import { plural } from './words';
 import {
   KIND_LABEL,
   RAIL_VISIBLE,
+  emptyNote,
   freshness,
   recommendClubs,
   thinNote,
@@ -56,8 +57,6 @@ type Load =
 const OPEN_KEY = 'planner.clubs.open';
 /** How many picks "Show more" reaches. */
 const MOST = 10;
-/** Goal words the planner hears, for the card that heard none. */
-const EXAMPLE_GOALS = ['pre-law', 'consulting', 'data science', 'journalism'];
 
 export interface ClubPicksProps {
   /**
@@ -178,7 +177,8 @@ export function ClubPicks({ student, onEditGoals, onOpenAlma, botName = 'ALMA', 
               </ul>
             </details>
           )}
-          <Footer data={load.data} today={today} onEditGoals={result.empty ? undefined : onEditGoals} />
+          {/* "Change my goals" once: the message's own goal button stands in for it when there is a message. */}
+          <Footer data={load.data} today={today} onEditGoals={emptyNote(result, who?.careerText ?? '') ? undefined : onEditGoals} />
         </>
       )}
     </details>
@@ -201,10 +201,12 @@ function Message({
   onOpenAlma?: () => void;
   botName: string;
 }) {
+  const note = emptyNote(result, careerText);
+  if (!note) return null;
   if (result.empty === 'no-words') {
     return (
       <div className="club-empty">
-        <p>Say what you want to do after you graduate, and clubs for it show up here.</p>
+        <p>{note}</p>
         <p className="club-actions">
           <button type="button" onClick={onEditGoals}>
             Add my goals
@@ -214,29 +216,24 @@ function Message({
       </div>
     );
   }
-  if (result.empty === 'unheard') {
-    const words = careerText.length > 60 ? `${careerText.slice(0, 57).trimEnd()}...` : careerText;
-    return (
-      <div className="club-empty">
-        <p>
-          Nothing in &ldquo;{words}&rdquo; matched a goal the planner knows yet. Words like{' '}
-          {`${EXAMPLE_GOALS.slice(0, -1).map((w) => `“${w}”`).join(', ')} or “${EXAMPLE_GOALS[EXAMPLE_GOALS.length - 1]}”`} work.
-        </p>
-        <p className="club-actions">
-          <button type="button" onClick={onEditGoals}>
-            Change my goals
+  // 'unheard': words that name no goal the planner knows; or words that say the student is still
+  // deciding, with or without clubs for their major above the starters.
+  return (
+    <div className="club-empty">
+      <p>{note}</p>
+      <p className="club-actions">
+        <button type="button" onClick={onEditGoals}>
+          {result.undecided ? 'Add a goal' : 'Change my goals'}
+        </button>
+        {onOpenAlma && (
+          <button type="button" onClick={onOpenAlma}>
+            Ask {botName}
           </button>
-          {onOpenAlma && (
-            <button type="button" onClick={onOpenAlma}>
-              Ask {botName}
-            </button>
-          )}
-          <BrowseAll data={data} />
-        </p>
-      </div>
-    );
-  }
-  return null;
+        )}
+        <BrowseAll data={data} />
+      </p>
+    </div>
+  );
 }
 
 interface Group {

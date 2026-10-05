@@ -19,7 +19,8 @@
  *   3. the club's NAME read by interestProfile(), the same rules that read a
  *      student's own goal sentence, so "pre-med" means one thing for courses
  *      and for clubs. On top of it, one club-name alias: "Pre-Health" (and
- *      "health professions") is every health track plus nursing. Choirs,
+ *      "health professions") is every health track but pre-vet, plus nursing
+ *      (HEALTH_TRACKS). Choirs,
  *      choruses and a cappella groups are arts by kind only; no goal.
  *   4. the reading pass (step 5) adds goals later, in build.mjs, kept only
  *      where a directory category agrees: GOAL_CATEGORIES below is that map.
@@ -81,8 +82,15 @@ export const TABLES = {
 export const TRACK_IDS = CAREER_TRACKS.map((t) => t.id);
 export const TOPIC_IDS = INTEREST_TOPICS.map((t) => t.id);
 export const GOAL_IDS = new Set([...TRACK_IDS, ...TOPIC_IDS]);
-/** Every track but pre-law: the Career Center's Health Professions Advising covers all eight, pre-vet included. */
-export const HEALTH_TRACKS = TRACK_IDS.filter((id) => id !== 'pre-law');
+/**
+ * The tracks a general pre-health club is for: every track but pre-law and
+ * pre-veterinary. Health Professions Advising covers pre-vet too, but a
+ * pre-health club (Alpha Epsilon Delta, the Pre-Health Psychology
+ * Association) is about human medicine and its neighbours, so it is not "for
+ * your goal" to a pre-vet student; the Pre-Vet Club and the clubs named for
+ * veterinary work are. The prototype drew the same line (review, 2026-10-05).
+ */
+export const HEALTH_TRACKS = TRACK_IDS.filter((id) => id !== 'pre-law' && id !== 'pre-veterinary');
 const label = (id) => CAREER_TRACKS.find((t) => t.id === id)?.name ?? INTEREST_TOPICS.find((t) => t.id === id)?.label ?? id;
 
 /**
@@ -147,7 +155,7 @@ const GRAD_MISSION = /\b(law students|jd students|students (at|of|in) the colleg
 /** Names that center a shared identity or background (the prototype's list, plus a few). Never inferred about a student. */
 const IDENTITY = /\b(black|african|afro|hispanic|latin[aoxe]s?|latinx|latine|chicano|asian|pacific islanders?|korean|chinese|taiwanese|indian|desi|south asian|arab|palestinian|middle eastern|mena|muslims?|jewish|jews|christians?|catholics?|hindus?|sikhs?|women|woman|female|girls?|lgbtq\+?|queer|gay|lesbian|transgender|minority|minorities|first[-\s]gen(eration)?|native|indigenous|veterans?|hellenic|greek american|filipino|vietnamese|bipoc|deaf|disabled)\b/i;
 
-/** Pre-health clubs serve every health track, plus nursing. */
+/** Pre-health clubs serve every health track but pre-vet (HEALTH_TRACKS), plus nursing. */
 const PRE_HEALTH = /\bpre[-\s]?health\b|\bhealth\s+professions?\b|\bfuture\s+health\s+professionals?\b/i;
 const PRE_PROFESSIONAL = /\bpre[-\s]?(med|dent|health|law|vet|pharm|opt|pa\b|pt\b|ot\b|physical|occupational|physician|anesthes|genetic|podiatr|nurs|chiro|audiol)/i;
 const PROF_FRAT = /\bprofessional\b.*\b(fraternity|sorority)\b|\b(engineering|business|medical|music|law|legal|agricultural|pharmacy|chemistry|dental|journalism|education|nursing|architecture|accounting)\s+(fraternity|sorority)\b|\bpre-?law (undergraduate|honou?rs? society)\b/i;
