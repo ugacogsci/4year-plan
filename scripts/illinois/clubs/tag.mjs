@@ -28,8 +28,10 @@
  *      tagged Delta Chi as law ("laws") and steel construction as UX.
  *   5. overrides.json, hand-checked, by id: audience, kind, identity, goals
  *      added or removed, course subjects added (a competition team about the
- *      major whose name does not say so: Steel Bridge -> CEE), hidden, starter
- *      (true, or 'undeclared' for a starter only a student with no major sees).
+ *      major whose name does not say so: Steel Bridge -> CEE), the majors a
+ *      subject several majors share is for (HK: Kinesiology only), hidden,
+ *      starter (true, or 'undeclared' for a starter only a student with no
+ *      major sees), and our own `does` line (applied in build.mjs).
  *
  * Who a group is for (DESIGN 2.5): office accounts and groups for students
  * already in graduate, law, medical or veterinary school are kept in
@@ -67,6 +69,7 @@ if (isMain && !process.execArgv.some((a) => a.includes('strip-types'))) {
 
 const { interestProfile, CAREER_TRACKS, INTEREST_TOPICS } = await import(pathToFileURL(join(ROOT, 'lib', 'planner', 'career-tracks.ts')).href);
 const { ILLINOIS_SUBJECT_NAMES } = await import(pathToFileURL(join(ROOT, 'lib', 'planner', 'illinois-subjects.ts')).href);
+const { majorNameOf } = await import(pathToFileURL(join(ROOT, 'lib', 'planner', 'clubs.ts')).href);
 
 // CLUBS_DATA points a test run somewhere else, as in crawl.mjs; the pipeline never sets it.
 const DATA = process.env.CLUBS_DATA ? resolve(process.env.CLUBS_DATA) : join(ROOT, 'data', 'clubs');
@@ -190,17 +193,17 @@ export const SUBJECT_NAMES = Object.entries(ILLINOIS_SUBJECT_NAMES)
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
 
 /** The four hand-checked tables, read and validated. Throws on anything that would tag wrongly. */
-export function loadTables(paths = TABLES, { subjects, colleges } = {}) {
+export function loadTables(paths = TABLES, { subjects, colleges, majors } = {}) {
   const lists = readJson(paths.lists).lists;
   const aliases = readJson(paths.aliases).lists;
   const nationals = readJson(paths.nationals).rows;
   const overrides = readJson(paths.overrides).overrides;
-  validateTables({ lists, aliases, nationals, overrides }, { subjects, colleges });
+  validateTables({ lists, aliases, nationals, overrides }, { subjects, colleges, majors });
   return { lists, aliases, nationals, overrides };
 }
 
 /** The goal-id guard and its siblings. Collects every problem, then throws once. */
-export function validateTables({ lists, aliases, nationals, overrides }, { subjects, colleges } = {}) {
+export function validateTables({ lists, aliases, nationals, overrides }, { subjects, colleges, majors } = {}) {
   const problems = [];
   const goal = (id, where) => {
     if (id === '@health') return;
@@ -241,7 +244,7 @@ export function validateTables({ lists, aliases, nationals, overrides }, { subje
     if (row.kind && !CLUB_KINDS.has(row.kind)) problems.push(`${where}: unknown kind "${row.kind}"`);
   }
 
-  const FIELDS = new Set(['name', 'audience', 'kind', 'identity', 'goalsAdd', 'goalsRemove', 'subjectsAdd', 'hide', 'starter', 'note']);
+  const FIELDS = new Set(['name', 'audience', 'kind', 'identity', 'goalsAdd', 'goalsRemove', 'subjectsAdd', 'majors', 'does', 'hide', 'starter', 'note']);
   for (const [id, o] of Object.entries(overrides)) {
     const where = `overrides.json ${id}`;
     if (!/^\d+$/.test(id)) problems.push(`${where}: the key must be a directory id`);
@@ -253,6 +256,11 @@ export function validateTables({ lists, aliases, nationals, overrides }, { subje
     for (const s of o.subjectsAdd ?? []) subject(s, where);
     if ('identity' in o && typeof o.identity !== 'boolean') problems.push(`${where}: identity is true or false`);
     if ('starter' in o && ![true, false, 'undeclared'].includes(o.starter)) problems.push(`${where}: starter is true, false or 'undeclared'`);
+    // majors: the program names (programs.json, before the comma) a club on a shared subject is for. It needs a subject.
+    if ('majors' in o && (!Array.isArray(o.majors) || o.majors.length === 0 || !o.majors.every((m) => typeof m === 'string' && /^[A-Z][A-Za-z&,' -]{2,60}$/.test(m)))) problems.push(`${where}: majors is a list of major names`);
+    if ('majors' in o && !(o.subjectsAdd ?? []).length) problems.push(`${where}: majors scopes a subject, so the row needs subjectsAdd`);
+    if (majors && Array.isArray(o.majors)) for (const m of o.majors) if (!majors.has(m)) problems.push(`${where}: major "${m}" is not a program name in programs.json (the name before ":" and the degree)`);
+    if ('does' in o && (typeof o.does !== 'string' || !o.does.trim())) problems.push(`${where}: does is our own one-line description`);
   }
 
   const mapped = Object.keys(GOAL_CATEGORIES);
@@ -425,6 +433,7 @@ export function tagGroup(group, ctx) {
     goals: [...goals.values()],
     ...(heldBack.length ? { goalsHeldBack: heldBack } : {}),
     subjects: [...subjects],
+    ...(override?.majors?.length ? { majors: [...override.majors] } : {}),
     colleges: [...colleges],
     lists: listIdx,
     ...(group.missionWords < 15 ? { thin: true } : {}),
@@ -575,8 +584,11 @@ function readTexts(file) {
 function vocabularyOnDisk() {
   const index = readJson(join(ROOT, 'public', 'illinois', 'index.json'));
   const subjects = new Set(index.map((r) => String(r.code).split(' ')[0]));
-  const colleges = new Set(readJson(join(ROOT, 'public', 'illinois', 'programs.json')).map((p) => p.college).filter(Boolean));
-  return { subjects, colleges };
+  const programs = readJson(join(ROOT, 'public', 'illinois', 'programs.json'));
+  const colleges = new Set(programs.map((p) => p.college).filter(Boolean));
+  // The major names clubs.ts reads from a program (majorNameOf), for overrides.json `majors`.
+  const majors = new Set(programs.map((p) => majorNameOf(p.name)).filter(Boolean));
+  return { subjects, colleges, majors };
 }
 
 /** A list as the app sees it (DESIGN 2.9 ClubList): what it is, where it is, and what it counts as. */

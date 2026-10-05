@@ -1,5 +1,5 @@
 {
- "_about": "Hand-checked corrections, keyed by OneIllinois id (DESIGN 2.6, evidence 5). Each entry names the group (tag.mjs warns if the directory renames it or drops it) and may set: audience ('undergrad' | 'both' | 'check' | 'grad' | 'law' | 'med' | 'vet'; the last four drop the group from the file), kind (a ClubKind), identity (true or false: centered on a shared identity, which decides the folded communities row), goalsAdd / goalsRemove (CAREER_TRACKS / INTEREST_TOPICS ids), subjectsAdd (course prefixes in index.json, for a club about the major whose name does not say so), hide (true: never shipped), starter (true: shown to a student with no goal yet; 'undeclared': only to one with no major yet, never to a declared major; false: never). Every entry says why in `note`, from the group's own directory page or another source named there. First rows written 2026-10-04. Rows added 2026-10-05 (the step-11 check) were read by hand against each group's own directory text in data/clubs/texts.jsonl, locally, with no new requests; their notes paraphrase it.",
+ "_about": "Hand-checked corrections, keyed by OneIllinois id (DESIGN 2.6, evidence 5). Each entry names the group (tag.mjs warns if the directory renames it or drops it) and may set: audience ('undergrad' | 'both' | 'check' | 'grad' | 'law' | 'med' | 'vet'; the last four drop the group from the file), kind (a ClubKind), identity (true or false: centered on a shared identity, which decides the folded communities row), goalsAdd / goalsRemove (CAREER_TRACKS / INTEREST_TOPICS ids), subjectsAdd (course prefixes in index.json, for a club about the major whose name does not say so), majors (program names as the planner reads them, before ':' and the degree: with subjectsAdd, the subject counts only for students in these majors, for a prefix several majors share, such as HK or FSHN), does (our own one-line description, replacing the reading pass's; it must pass the same 20-word and no-copy rules), hide (true: never shipped), starter (true: shown to a student with no goal yet; 'undeclared': only to one with no major yet, never to a declared major; false: never). Every entry says why in `note`, from the group's own directory page or another source named there. First rows written 2026-10-04. Rows added 2026-10-05 (the step-11 check) were read by hand against each group's own directory text in data/clubs/texts.jsonl, locally, with no new requests; their notes paraphrase it.",
  "checked": "2026-10-04",
  "overrides": {
   "36087": {
@@ -411,7 +411,13 @@
   "36000": {
    "name": "Kinesiology Student Association",
    "kind": "academic",
-   "note": "Its page is for students in kinesiology heading to health science careers. Kind academic: the category rules called it service. No subject added: HK spans Kinesiology and Community Health, and the club is for kinesiology."
+   "subjectsAdd": [
+    "HK"
+   ],
+   "majors": [
+    "Kinesiology"
+   ],
+   "note": "Its page is for students in kinesiology heading to health science careers. Kind academic: the category rules called it service. Subject HK, for the Kinesiology major only (round 2, 2026-10-05): HK holds both Kinesiology and Community Health, and this is the kinesiology students' own association, so `majors` keeps it from a Community Health student."
   },
   "36598": {
    "name": "Climate and Meteorological Association of Students",
@@ -474,8 +480,8 @@
   },
   "35628": {
    "name": "College of Nursing at Urbana Urban Health Program",
-   "identity": true,
-   "note": "Added 2026-10-05 from the reading check (READING.md). Its page offers an early look at nursing study and careers to prospective students from groups under-represented in nursing, so it is centered on a shared background: the communities row, not the general nursing list. The reader said false."
+   "identity": false,
+   "note": "Changed 2026-10-05 after the second spot check (round 2). Its page offers prospective students from under-represented groups an early look at nursing study and careers, and also academic support for every student it serves; its name centers no group. It is one of the few nursing clubs on this campus, so it belongs in the nursing list itself rather than only the folded communities row. The reading check had marked it identity-centered (the reader had not)."
   },
   "36871": {
    "name": "Hearts in Practice",
@@ -602,6 +608,63 @@
    "name": "The Latine Social Work Organization",
    "kind": "professional-society",
    "note": "Added 2026-10-05 from the reading check (READING.md). Its page is about putting social work values into practice through advocacy, mental health and outreach committees, for undergraduates and graduates: a club for one field with a Latine focus (identity stays true), not mainly a cultural one. The reader's cultural kind dropped its counseling goal."
+  },
+  "37136": {
+   "name": "Vantage Acquisitions Group",
+   "goalsAdd": [
+    "investment-banking"
+   ],
+   "note": "Added 2026-10-05 after the second spot check (round 2). Its page is about mergers and acquisitions, corporate finance and advisory work: members study deals that were really announced, build financial models and present them to people working in the field. The reading pass found investment banking too, but a reading goal alone ranked it under the cutoff; this makes it a goal of its own, beside the M&A club."
+  },
+  "36764": {
+   "name": "Illini Business Forum",
+   "goalsAdd": [
+    "investment-banking"
+   ],
+   "does": "Members learn about careers in investment banking, consulting, accounting and private equity through case projects and guest speakers.",
+   "note": "Added 2026-10-05 after the second spot check (round 2). Its page introduces several business-service careers and lists investment banking first, with accounting, finance, consulting and private equity, and says any major may join easily. The reader's one-line description said only 'corporate services', so this row gives our own line naming the fields, and makes investment banking a goal of its own (the reading pass also found accounting, finance and consulting)."
+  },
+  "35548": {
+   "name": "Association of Food Technologists",
+   "subjectsAdd": [
+    "FSHN"
+   ],
+   "majors": [
+    "Food Science"
+   ],
+   "note": "Added 2026-10-05 after the second spot check (round 2). A professional group that helps food science students, and students of other majors, toward careers in food. FSHN also holds Hospitality Management and the two nutrition majors, so `majors` keeps it to Food Science."
+  },
+  "35801": {
+   "name": "Hospitality Management Association",
+   "subjectsAdd": [
+    "FSHN"
+   ],
+   "majors": [
+    "Hospitality Management"
+   ],
+   "note": "Added 2026-10-05 after the second spot check (round 2). The social and professional group of Hospitality Management students: members meet others in the program, make industry contacts and gain experience together. FSHN also holds Food Science and the nutrition majors, so `majors` keeps it to Hospitality Management."
+  },
+  "36270": {
+   "name": "Student Dietetic Association",
+   "subjectsAdd": [
+    "FSHN"
+   ],
+   "majors": [
+    "Dietetics and Nutrition",
+    "Nutrition and Health"
+   ],
+   "note": "Added 2026-10-05 after the second spot check (round 2). A professional group for students aiming to become registered dietitian nutritionists (professional events, nutrition volunteering, meeting people in the field). It suits the two nutrition majors under FSHN, not Food Science or Hospitality Management."
+  },
+  "36108": {
+   "name": "NutrImpact",
+   "subjectsAdd": [
+    "FSHN"
+   ],
+   "majors": [
+    "Dietetics and Nutrition",
+    "Nutrition and Health"
+   ],
+   "note": "Added 2026-10-05 after the second spot check (round 2). Its page describes the same aim as the Student Dietetic Association: students working toward becoming registered dietitian nutritionists, with professional events and nutrition volunteering. It suits the two nutrition majors under FSHN, not Food Science or Hospitality Management."
   }
  }
 }

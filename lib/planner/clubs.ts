@@ -136,6 +136,13 @@ export interface Club {
   goals: ClubGoal[];
   /** Course prefixes it is about: 'ME'. */
   subjects?: string[];
+  /**
+   * The majors it is for, when its subject is shared by several (HK holds
+   * Kinesiology and Community Health; FSHN holds Food Science, Hospitality
+   * Management and the nutrition majors). Set by hand in overrides.json. With
+   * it, the subject counts only for a student in one of these majors.
+   */
+  majors?: string[];
   /** programs.json college codes: 'engineering'. */
   colleges?: string[];
   lists?: number[];
@@ -271,12 +278,18 @@ export interface ClubResult {
   /** The goals heard, in the order the student named them. */
   goals: Array<{ id: string; label: string }>;
   picks: ClubPick[];
-  /** Identity-centered clubs matched by a heard goal: the folded "Communities in these fields" row. */
+  /**
+   * Identity-centered clubs matched by a heard goal: the folded "Communities in
+   * these fields" row. A club for a community the student says they belong to
+   * ("I'm a first-gen Latina student") is in `picks` instead.
+   */
   communities: ClubPick[];
   /** Goals with fewer than 3 matching clubs: the card says so and links the directory. */
   thin: string[];
-  /** How many clubs matched each heard goal (0.5 or more), communities aside. */
+  /** How many clubs matched each heard goal (0.5 or more), communities and clubs named for a whole family of goals aside. */
   matched: Record<string, number>;
+  /** For a thin goal: how many of its own clubs are in `communities` (thinNote counts them), when any are. */
+  communityMatched?: Record<string, number>;
   /**
    * 'no-words': nothing written (or ALMA cleared it); 'unheard': words, but no
    * goal the planner knows and no major match; 'no-match': goals heard, and no
@@ -320,6 +333,8 @@ export const EVIDENCE: Record<Exclude<ClubBasis, 'starter' | 'search'>, number> 
   college: 0.3, // the student's college: its affiliation tag or a college list
 };
 export const AGREE_BONUS = 0.15; // two different kinds of evidence agree
+/** It fits two or more of the goals the student named: "climate policy" and an advocacy group for the climate. */
+export const GOALS_AGREE_BONUS = 0.15;
 export const SPECIFIC_BONUS = 0.05; // named for this goal and at most one other
 export const NATIONAL_BONUS = 0.03; // a chapter of a national body
 export const UMBRELLA_PENALTY = 0.1; // named for 5+ goals: the club for this goal alone comes first
@@ -402,6 +417,31 @@ export const GOAL_FAMILY: Record<string, string[]> = {
  */
 const SIBLINGS_FIT = new Set(['finance']);
 const FAMILY_PARENT = new Map(Object.entries(GOAL_FAMILY).flatMap(([parent, kids]) => kids.map((k) => [k, parent] as const)));
+/**
+ * Siblings close enough to rank with the goal's own clubs, ahead of clubs for
+ * the whole field. Investment banking and markets recruit through the same
+ * investing clubs: stock pitches, valuation and financial models, the skills
+ * the investment-banking topic itself hears ("valuation", "financial
+ * modeling"). The why line still says "close to": an equity research club is
+ * not an investment banking club. A finance club for the whole field (fintech,
+ * quant) and the farther siblings (real estate, insurance) come after them.
+ */
+export const NEAR_SIBLINGS: Record<string, string[]> = { 'investment-banking': ['markets'], markets: ['investment-banking'] };
+
+/**
+ * Policy and politics are what a club does, so the directory's activity
+ * categories and the government-and-advocacy kind say a club fits them; a
+ * field category ("Business", "Health") is too broad to say a club fits a
+ * goal. Used only to count how many of the student's goals a club fits
+ * (GOALS_AGREE_BONUS): an environmental advocacy group fits "climate policy"
+ * twice, a fisheries society once.
+ */
+const ACTIVITY_GOALS: Record<string, string[]> = {
+  'Ideology & Politics': ['public-policy', 'politics'],
+  'Advocacy & Activism': ['public-policy'],
+  'Student Governance & Councils': ['politics'],
+};
+const KIND_GOALS: Partial<Record<ClubKind, string[]>> = { 'government-advocacy': ['public-policy', 'politics'] };
 
 /** programs.json college codes, for "Affiliated with ..." lines. */
 export const COLLEGE_NAME: Record<string, string> = {
@@ -472,7 +512,36 @@ export function familyLine(club: Club, label: (id: string) => string): string | 
   if (national.length < 2) return null;
   if (club.kind === 'professional-fraternity' && national.every((g) => BUSINESS_GOALS.has(g.id))) return BUSINESS_FRATERNITY_WHY;
   const fields = national.map((g) => label(g.id));
-  return `The ${club.national ?? club.name} chapter, for students heading into ${fields.slice(0, -1).join(', ')} and ${fields[fields.length - 1]}`;
+  return chapterLine(club, (body) => `The ${body} chapter, for students heading into ${fields.slice(0, -1).join(', ')} and ${fields[fields.length - 1]}`);
+}
+
+/**
+ * How a why line names a club's national body. Its letters when the club's
+ * own name uses them ("ALPFA Illinois"); otherwise the body's name as the
+ * club's name gives it, without the campus and "Student Chapter": "National
+ * Band Association", never "NBA", which reads as basketball (spot check,
+ * round 2). A student sees letters they cannot place as often as not.
+ */
+export function nationalName(club: Pick<Club, 'name' | 'national'>): string {
+  const letters = club.national ?? club.name;
+  if (!club.national || new RegExp(`\\b${escapeRe(club.national)}\\b`, 'i').test(club.name)) return letters;
+  // "National Band Association, UIUC Collegiate Chapter": the comma before the campus or chapter ends the body's
+  // name; a comma inside it ("Heating, Refrigeration & Air-Conditioning") does not.
+  const spelled = club.name
+    .split(/\s+[–—-]\s+|\s+\/\s+/)[0]
+    .replace(/,\s*(uiuc|u of i|university|illinois|urbana|collegiate|student|chapter)\b.*$/i, '')
+    .replace(/^the\s+/i, '')
+    .replace(/\s+(at|of)\s+(the\s+)?(university of illinois|uiuc|u of i)\b.*$/i, '')
+    .replace(/\s+(uiuc|university of illinois)\b.*$/i, '')
+    .replace(/\s+(student\s+)?(chapter|section|branch|subunit)\b.*$/i, '')
+    .trim();
+  return spelled || letters;
+}
+
+/** A line naming the national body spelled out (nationalName), or by its letters when that would run past WHY_MAX. */
+function chapterLine(club: Club, line: (body: string) => string): string {
+  const spelled = line(nationalName(club));
+  return spelled.length <= WHY_MAX ? spelled : line(club.national ?? club.name);
 }
 
 // ===========================================================================
@@ -569,6 +638,24 @@ const tokens = (text: string): string[] =>
 
 const stemsOf = (word: string): string[] => WORD_FORMS[word] ?? [stem(word)];
 
+/**
+ * Words with a common sense that has nothing to do with a goal, in the
+ * phrases that give that sense away: "a pilot plant" or "a pilot program" is
+ * not flying, and "a space for ace students", "a welcoming space" or "Product
+ * Space" is not outer space. In a club's facts the word is dropped there, so
+ * "become a pilot" no longer finds a biodiesel club and "work in space" no
+ * longer finds a comedy club (review, 2026-10-05). Where the word means the
+ * goal ("drone pilots", "the Illinois Space Society") it still counts. The
+ * other word of the phrase stays.
+ */
+const OTHER_SENSE: Array<[RegExp, string]> = [
+  [/\bpilot(s|ed|ing)?(?=[\s-]+(plant|plants|program|programs|project|projects|study|studies|test|tests|testing|phase|run|runs|scale|site|sites|course|courses|class|classes|episode|episodes|cohort|cohorts|year)\b)/gi, ' '],
+  [/\b(safe|safer|shared|inclusive|welcoming|brave|open|creative|collaborative|community|campus|third|maker|makers|study|work|working|practice|rehearsal|living|green|physical|virtual|online|meeting|event|events|social|common|white|blank|product|design|supportive|comfortable|positive|dedicated|quiet|judgment-free|judgement-free)([\s-]+)spaces?\b/gi, '$1$2'],
+  [/\bspaces?(?=\s+(for|to|where|in which|that|of belonging)\b)/gi, ' '],
+];
+/** A club's own facts with the other-sense words taken out (OTHER_SENSE). */
+export const withoutOtherSense = (text: string): string => OTHER_SENSE.reduce((t, [re, put]) => t.replace(re, put), text);
+
 /** One word of the student's, with the stems it matches. */
 export interface StudentWord {
   word: string;
@@ -622,8 +709,8 @@ function factIndex(data: IllinoisClubsFile): FactIndex {
     const add = (text: string, where: FactWord['where'], category?: string) => {
       for (const form of tokens(text)) for (const s of stemsOf(form)) if (!own.has(s)) own.set(s, { form, where, ...(category ? { category } : {}) });
     };
-    add(club.name, 'name');
-    if (club.does) add(club.does, 'does');
+    add(withoutOtherSense(club.name), 'name');
+    if (club.does) add(withoutOtherSense(club.does), 'does');
     for (const c of club.categories) add(c, 'category', c);
     byClub.set(club.id, own);
     for (const s of own.keys()) df.set(s, (df.get(s) ?? 0) + 1);
@@ -877,12 +964,19 @@ export function whyLine(pick: Pick<ClubPick, 'why'>): string {
  * 4.1): how many matched, and the directory to browse instead of a padded
  * list. "Only 2 clubs in OneIllinois matched pre-optometry." [Browse them all]
  */
-export function thinNote(data: Pick<IllinoisClubsFile, 'source'>, label: string, matched: number): { text: string; link: string; href: string } {
+export function thinNote(data: Pick<IllinoisClubsFile, 'source'>, label: string, matched: number, inCommunities = 0): { text: string; link: string; href: string } {
+  // Clubs for the goal that are centered on one community sit in the folded row; the count says so, so a
+  // student who opens it is not told "only 2" and then finds 4 (spot check, round 2).
+  // With none of its own, "No club ... yet, plus 2" would contradict itself: "except 2" (review, round 3).
+  const plus = inCommunities > 0 ? `, ${matched === 0 ? 'except' : 'plus'} ${inCommunities} in “${COMMUNITIES_HEADING}” below` : '';
   const text = matched === 0
-    ? `No club in ${data.source.name} matched ${label} yet.`
-    : `Only ${matched} ${matched === 1 ? 'club' : 'clubs'} in ${data.source.name} matched ${label}.`;
+    ? `No club in ${data.source.name} matched ${label} yet${plus}.`
+    : `Only ${matched} ${matched === 1 ? 'club' : 'clubs'} in ${data.source.name} matched ${label}${plus}.`;
   return { text, link: matched === 0 ? 'Browse every club' : 'Browse them all', href: data.source.url };
 }
+
+/** The folded row's heading, as the rail shows it (without its count). */
+export const COMMUNITIES_HEADING = 'Communities in these fields';
 
 // ===========================================================================
 // Scoring one club
@@ -896,7 +990,39 @@ interface Evidence {
   goal: string;
   why: string;
   specific?: boolean;
+  /** A near sibling (NEAR_SIBLINGS): ranks with the goal's own clubs. */
+  near?: true;
 }
+
+/**
+ * Where a goal pick stands in its goal's list, before its score:
+ *   1  the goal's own clubs: named for it, on a list for it, covered by the
+ *      track, or a near sibling (NEAR_SIBLINGS);
+ *   2  weaker or wider evidence: the reading pass alone, the wider field (a
+ *      finance club for investment banking) and farther siblings (a real
+ *      estate club);
+ *   3  clubs named for a whole family of goals (familyLine): general
+ *      pre-health clubs, business fraternities, multi-goal national chapters.
+ * Order: tier 3 last; then the clubs fitting more of the student's goals
+ * (`fits`; "climate policy": an advocacy group read as climate before a
+ * fisheries society named for it); then the tier; then the score. So a
+ * business fraternity never takes a row from the M&A club, and the pre-PT
+ * club and the nursing clubs lead their lists (spot check, round 2). Picks
+ * that are not for a goal (major, words) rank as tier 1, fits 1.
+ */
+interface Rank {
+  tier: 1 | 2 | 3;
+  fits: number;
+}
+const RANKS = new WeakMap<ClubPick, Rank>();
+const rankOf = (x: ClubPick): Rank => RANKS.get(x) ?? { tier: 1, fits: 1 };
+/** The order of picks within a goal (Rank), with `rank` read from a map the caller may adjust. */
+const rankOrder = (rank: (x: ClubPick) => Rank) => (a: ClubPick, b: ClubPick) => {
+  const ra = rank(a);
+  const rb = rank(b);
+  return Number(ra.tier === 3) - Number(rb.tier === 3) || rb.fits - ra.fits || ra.tier - rb.tier || byScore(a, b);
+};
+const byRank = rankOrder(rankOf);
 
 interface Context {
   data: IllinoisClubsFile;
@@ -945,11 +1071,23 @@ function contextFor(data: IllinoisClubsFile, student: ClubStudent | null, profil
  * nursing"; a business fraternity is one, never "a finance club" (familyLine).
  * A university office's list says what it says.
  */
-function goalEvidence(club: Club, named: Set<string>, read: Set<string>, ctx: Context): Evidence | null {
+function goalEvidence(club: Club, named: Set<string>, read: Set<string>, ctx: Context): (Evidence & { general?: true }) | null {
   const ev = goalEvidenceOf(club, named, read, ctx);
   if (!ev || ev.basis === 'list') return ev;
   const family = familyLine(club, ctx.label);
-  return family ? { ...ev, why: family } : ev;
+  return family ? { ...ev, why: family, general: true } : ev;
+}
+
+/**
+ * How many of the student's goals a club fits: tagged for it (any source), or,
+ * for policy and politics, an activity category or the advocacy kind that
+ * says it does that work (ACTIVITY_GOALS). 1 when the student named one goal.
+ */
+function goalsFitted(club: Club, goals: string[]): number {
+  if (goals.length < 2) return 1;
+  const tagged = new Set(club.goals.map((g) => g.id));
+  const doing = new Set([...club.categories.flatMap((c) => ACTIVITY_GOALS[c] ?? []), ...(KIND_GOALS[club.kind] ?? [])]);
+  return Math.max(1, goals.filter((g) => tagged.has(g) || doing.has(g)).length);
 }
 
 /** Goal evidence: the student's own goals first, in the order named. */
@@ -975,19 +1113,23 @@ function goalEvidenceOf(club: Club, named: Set<string>, read: Set<string>, ctx: 
       why: isTrack ? `For your goal: ${label(g)}` : `About ${label(g)}, which you said you want`,
     };
   }
+  // The wider field says what the club is and that it is close, never that one field "is part of" the other:
+  // a data science club is not part of software engineering (spot check, round 2).
   for (const g of goals) {
     const parent = FAMILY_PARENT.get(g);
     if (parent && named.has(parent)) {
-      return { v: EVIDENCE.family, kind: 'goal', basis: 'family', goal: g, why: `${article(label(parent))} ${label(parent)} club; ${label(g)} is part of ${label(parent)}` };
+      return { v: EVIDENCE.family, kind: 'goal', basis: 'family', goal: g, why: `${article(label(parent))} ${label(parent)} club, close to ${label(g)}` };
     }
     const child = GOAL_FAMILY[g]?.find((y) => named.has(y));
-    if (child) return { v: EVIDENCE.family, kind: 'goal', basis: 'family', goal: g, why: `About ${label(child)}, part of ${label(g)}` };
+    if (child) return { v: EVIDENCE.family, kind: 'goal', basis: 'family', goal: g, why: `${article(label(child))} ${label(child)} club, close to ${label(g)}` };
   }
   // A sibling field only after every goal's own field: a finance club outranks a real-estate club for "investment banking".
+  // A near sibling (NEAR_SIBLINGS) is marked: it ranks with the goal's own clubs.
   for (const g of goals) {
     const parent = FAMILY_PARENT.get(g);
-    const sibling = parent && SIBLINGS_FIT.has(parent) ? GOAL_FAMILY[parent].find((y) => y !== g && named.has(y)) : undefined;
-    if (sibling) return { v: EVIDENCE.sibling, kind: 'goal', basis: 'sibling', goal: g, why: `${article(label(sibling))} ${label(sibling)} club, close to ${label(g)}` };
+    const fits = parent && SIBLINGS_FIT.has(parent) ? GOAL_FAMILY[parent].filter((y) => y !== g && named.has(y)) : [];
+    const sibling = fits.find((y) => NEAR_SIBLINGS[g]?.includes(y)) ?? fits[0];
+    if (sibling) return { v: EVIDENCE.sibling, kind: 'goal', basis: 'sibling', goal: g, ...(NEAR_SIBLINGS[g]?.includes(sibling) ? { near: true } : {}), why: `${article(label(sibling))} ${label(sibling)} club, close to ${label(g)}` };
   }
   for (const c of covered) {
     if (!named.has(c)) continue;
@@ -1007,16 +1149,20 @@ function otherEvidence(club: Club, ctx: Context): Evidence[] {
   const s = ctx.student;
   const lists = ctx.data.lists;
   const onLists = (club.lists ?? []).map((i) => lists[i]).filter((l): l is ClubList => Boolean(l));
-  if (s?.primary) {
+  // A club set by hand for some of the majors its subject holds (KSA for Kinesiology, not Community Health,
+  // both HK) is about the subject only for a student in one of them.
+  const forMajor = !club.majors?.length || Boolean(s?.majorName && club.majors.some((m) => m.toLowerCase() === (s.majorName as string).toLowerCase()));
+  if (s?.primary && forMajor) {
     const major = s.majorName ?? s.primary;
     const listed = onLists.find((l) => l.subject === s.primary);
     if (club.subjects?.includes(s.primary)) {
       // "Named for" only when the name says it. A team about the major whose name does not (Steel Bridge,
       // hand-checked as civil engineering) is "close to" it: one prefix can hold two majors (CEE: civil and environmental).
+      // A club set by hand for this major (club.majors) is "for students in" it.
       const namesIt = new RegExp(`\\b${escapeRe(major)}\\b`, 'i').test(club.name);
       out.push(club.national
-        ? { v: EVIDENCE.national, kind: 'major', basis: 'national', goal: 'major', why: `The ${club.national} student chapter, for ${major} students` }
-        : { v: EVIDENCE.subject, kind: 'major', basis: 'subject', goal: 'major', why: namesIt ? `Named for ${major}, your major` : `${kindPhrase(club.kind)} close to ${major}, your major` });
+        ? { v: EVIDENCE.national, kind: 'major', basis: 'national', goal: 'major', why: chapterLine(club, (body) => `The ${body} student chapter, for ${major} students`) }
+        : { v: EVIDENCE.subject, kind: 'major', basis: 'subject', goal: 'major', why: namesIt ? `Named for ${major}, your major` : club.majors?.length ? `${kindPhrase(club.kind)} for students in ${major}, your major` : `${kindPhrase(club.kind)} close to ${major}, your major` });
     } else if (listed) {
       out.push({ v: EVIDENCE.subject, kind: 'major', basis: 'subject', goal: 'major', why: `On ${listed.short}, for ${major} students` });
     } else {
@@ -1081,16 +1227,20 @@ function scoreClub(club: Club, ctx: Context, today: string): ClubPick | null {
   if (ev.length === 0) return null;
   ev.sort((a, b) => b.v - a.v);
   const best = ev[0];
+  const fits = goal ? goalsFitted(club, ctx.goals) : 1;
   let score =
     best.v +
     (new Set(ev.map((e) => e.kind)).size >= 2 ? AGREE_BONUS : 0) +
+    (fits >= 2 ? GOALS_AGREE_BONUS : 0) +
     (best.kind === 'goal' && best.specific ? SPECIFIC_BONUS : 0) +
     (club.national ? NATIONAL_BONUS : 0) -
     (best.kind === 'goal' && named.size >= 5 ? UMBRELLA_PENALTY : 0);
   score *= factor;
   score *= conditionFactor(club, ctx);
-  if (club.kind === 'honor' && ctx.student?.firstYear) score *= 0.5;
   if (score < MIN_SCORE) return null;
+  // A first-year cannot join most honor societies yet: half weight, so it ranks after the clubs they can join
+  // now, but after the cutoff, so it is still shown. Beta Alpha Psi is what a future CPA works toward (spot check, round 2).
+  if (club.kind === 'honor' && ctx.student?.firstYear) score *= 0.5;
   // A goal heard: their other words in the club's facts order ties, after the cutoff so they never
   // decide whether a club is in ("management" puts Illinois Consulting Group's management consulting first).
   if (ctx.goals.length > 0 && ctx.words.length > 0) {
@@ -1098,7 +1248,7 @@ function scoreClub(club: Club, ctx: Context, today: string): ClubPick | null {
     if (m) score += WORDS_TIE * Math.min(2, m.weight);
   }
   const shown = goal ?? best;
-  return {
+  const pick: ClubPick = {
     club,
     score,
     goal: shown.goal,
@@ -1107,6 +1257,8 @@ function scoreClub(club: Club, ctx: Context, today: string): ClubPick | null {
     cautions: cautionsOf(club, ctx.student, ctx.data.checked),
     ...eventField(club, today),
   };
+  if (goal) RANKS.set(pick, { tier: goal.general ? 3 : goal.basis === 'reading' || goal.basis === 'family' || (goal.basis === 'sibling' && !goal.near) ? 2 : 1, fits });
+  return pick;
 }
 
 /** The factors for how open and how live a club is (DESIGN 3.3). */
@@ -1154,6 +1306,11 @@ export interface RecommendOptions {
  * The clubs for one student, best first (DESIGN 3.4).
  *
  *   1. Goals in the order the student named them, at most `perGoal` each, in rounds.
+ *      Within a goal: its own clubs, then the wider field (with the goal's
+ *      best club named for a whole family of goals), then the rest of those
+ *      family clubs; a club fitting more of the student's goals first within
+ *      each, then score (Rank). A goal with fewer than 3 clubs of its own is
+ *      thin, however many family clubs follow (spot check, round 2).
  *   2. When the goals fill the visible rows, the last visible row goes to the
  *      best major club ("For your major": ASME for "design robots").
  *   3. Then the rest by score, still at most `perGoal` a goal, leaving out
@@ -1167,7 +1324,9 @@ export interface RecommendOptions {
  *      starters are labelled general for that student; `empty` when nothing
  *      but the starters came back.
  *   Identity-centered clubs matched by a heard goal go to `communities`, at
- *   most 3; a major match alone never puts one there, and none is ever in `picks`.
+ *   most 3; a major match alone never puts one there. One is in `picks` only
+ *   when the student says they belong to its community ("I'm a first-gen
+ *   Latina student"), and then ranks with the goal's own clubs.
  */
 export function recommendClubs(data: IllinoisClubsFile, student: ClubStudent | null, options: RecommendOptions = {}): ClubResult {
   const limit = options.limit ?? 10;
@@ -1189,12 +1348,32 @@ export function recommendClubs(data: IllinoisClubsFile, student: ClubStudent | n
   scored.sort(byScore);
   scored = dedupe(scored);
 
-  const general = scored.filter((x) => !x.club.identity);
-  // How many clubs fit each goal, whichever goal a club ended up listed under.
+  // A community the student says they belong to ("I'm a first-gen Latina student"): its clubs for their goal
+  // join the main list with the goal's own clubs, rather than wait folded in the communities row. Only from
+  // their own words about themselves (communitiesNamed), never inferred.
+  const named = careerText && !options.only ? communitiesNamed(careerText) : [];
+  const theirs = (x: ClubPick) => x.club.identity && ctx.goals.includes(x.goal) && named.some((re) => communityNamed(x.club, re));
+  // Within a goal its own clubs come first, then the wider field, then clubs named for a whole family of goals
+  // (Rank). The goal's best family club ranks with the wider field: one business fraternity among the finance
+  // clubs, not four after the real-estate club. Goals fitted, then score, order each tier. Dedupe ran on score,
+  // so the stronger of two chapters is kept.
+  const ranks = new Map<ClubPick, Rank>();
+  const familyShown = new Set<string>();
+  for (const x of [...scored].sort(byRank)) {
+    const r = rankOf(x);
+    if (theirs(x)) ranks.set(x, { ...r, tier: 1 });
+    else if (r.tier === 3 && !x.club.identity && !familyShown.has(x.goal)) {
+      familyShown.add(x.goal);
+      ranks.set(x, { ...r, tier: 2 });
+    } else ranks.set(x, r);
+  }
+  const general = scored.filter((x) => !x.club.identity || theirs(x)).sort(rankOrder((x) => ranks.get(x) ?? rankOf(x)));
+  // How many clubs fit each goal, whichever goal a club ended up listed under, and not counting clubs named for a
+  // whole family of goals: a goal with one pre-PT club is thin, however many general pre-health clubs follow it.
   const matched: Record<string, number> = {};
   for (const g of ctx.goals) {
     const one = { ...ctx, goals: [g] };
-    matched[g] = dedupe(data.clubs.map((c) => scoreClub(c, one, today)).filter((x): x is ClubPick => x !== null && x.goal === g && !x.club.identity)).length;
+    matched[g] = dedupe(data.clubs.map((c) => scoreClub(c, one, today)).filter((x): x is ClubPick => x !== null && x.goal === g && !x.club.identity)).filter((x) => rankOf(x).tier < 3).length;
   }
 
   const picks: ClubPick[] = [];
@@ -1217,18 +1396,30 @@ export function recommendClubs(data: IllinoisClubsFile, student: ClubStudent | n
       picks.length = Math.min(picks.length, limit);
     }
   }
-  // 3. The rest by score, still at most perGoal a goal, but not the weak fill (another subject of the degree, the college);
-  // 4. then the goals' clubs past the cap, so the fill never hides them (six robotics teams behind railway societies);
-  // 5. then the fill.
+  // 3. The rest by score, still at most perGoal a goal, but not the weak fill (another subject of the degree, the college),
+  //    and, when a goal was heard, one major club only: the major's best club keeps its row, its others wait;
+  // 4. then the goals' clubs past the cap, so the fill never hides them (six robotics teams behind railway societies,
+  //    and behind a second major club: ASHRAE had the fifth row for "design robots", spot check round 2);
+  // 5. then the major's other clubs, then the fill.
   const weakFill = (x: ClubPick) => x.basis === 'degree-subject' || x.basis === 'college';
-  for (const x of general) if (!weakFill(x)) take(x);
+  const majorWaits = (x: ClubPick) => ctx.goals.length > 0 && x.goal === 'major' && picks.some((y) => y.goal === 'major');
+  for (const x of general) if (!weakFill(x) && !majorWaits(x)) take(x);
   for (const x of general) if (ctx.goals.includes(x.goal)) take(x, false);
+  for (const x of general) if (!weakFill(x)) take(x, false);
   for (const x of general) take(x, false);
 
   const goals = ctx.goals.map((id) => ({ id, label: ctx.label(id) }));
   const thin = ctx.goals.filter((g) => matched[g] < PER_GOAL);
   // Social, Greek and faith clubs never get here: their kind factor is 0.
-  const communities = options.communities === false ? [] : scored.filter((x) => x.club.identity && ctx.goals.includes(x.goal)).slice(0, COMMUNITIES);
+  // Faith clubs are never offered unasked (decision 5), not even folded: a faith-centered pre-health club
+  // reaches the main list only when the student says they belong to that faith (theirs).
+  const faith = (club: Club) => club.kind === 'faith' || club.categories.includes('Faith, Religion & Spirituality');
+  const communities = options.communities === false ? [] : scored.filter((x) => x.club.identity && ctx.goals.includes(x.goal) && !theirs(x) && !faith(x.club)).slice(0, COMMUNITIES);
+  const communityMatched: Record<string, number> = {};
+  for (const g of thin) {
+    const n = communities.filter((x) => x.goal === g && rankOf(x).tier < 3).length;
+    if (n > 0) communityMatched[g] = n;
+  }
 
   const undecided = ctx.goals.length === 0 && !options.only && soundsUndecided(careerText);
   // Words, no goal the planner knows, and not "still deciding": the card says so plainly.
@@ -1255,10 +1446,41 @@ export function recommendClubs(data: IllinoisClubsFile, student: ClubStudent | n
     communities,
     thin,
     matched,
+    ...(Object.keys(communityMatched).length ? { communityMatched } : {}),
     ...(empty ? { empty } : {}),
     ...(undecided ? { undecided: true as const } : {}),
     ...(unknownGoal ? { unknownGoal: true as const } : {}),
   };
+}
+
+/** Where a student says who they are: "I'm a ...", "I am ...", "as a ..." (not "such as a ..."), "being a ...". */
+const SAYS_WHO = /\b(i'?m|i am|(?<!such )as an?|being an?)\s+([^.,;!?]{1,60})/gi;
+/**
+ * Where what they say of themselves stops: a joining word, a preposition, a
+ * verb, a "no". "I'm a first-gen Latina student and ..." is about the student
+ * up to "and"; "I'm interested in women's health", "I'm not Latina" and "as a
+ * doctor serving Black communities" say nothing about who they are (review,
+ * round 3: each had put an identity club in the main list).
+ */
+const SAID_STOPS = /^(and|but|or|so|who|that|which|in|into|on|about|with|for|to|from|at|of|by|than|like|not|never|no|want|wants|would|will|can|could|hope|plan)$|^[a-z]+ing$/;
+/**
+ * The communities a student says they belong to ("I'm a first-gen Latina
+ * student"), as ASKS's identity patterns: only words they wrote about
+ * themselves, up to SAID_STOPS. "women's health" or "international business"
+ * names a field, not the student, so neither counts, and "international" never does.
+ */
+function communitiesNamed(text: string): RegExp[] {
+  const words: string[] = [];
+  const said = text.toLowerCase().replace(/[‘’]/g, "'").replace(/first[\s-]+gen(eration)?/g, 'first-gen');
+  for (const m of said.matchAll(SAYS_WHO)) {
+    const after = m[2].split(/[^a-z0-9-]+/).filter(Boolean);
+    if (after[0] === 'a' || after[0] === 'an') after.shift();
+    for (const w of after.slice(0, 5)) {
+      if (SAID_STOPS.test(w)) break;
+      words.push(w);
+    }
+  }
+  return ASKS.filter((a) => a.identity && !a.word.test('international') && words.some((w) => a.word.test(w))).map((a) => a.identity as RegExp);
 }
 
 /**
@@ -1336,7 +1558,7 @@ interface Hit { v: number; why: string; named: number }
 function wordHit(club: Club, q: { word: string; stem: string; ask: Ask | null; shown: string }, sourceName: string): Hit | null {
   const re = new RegExp(`\\b${escapeRe(q.stem)}`, 'i');
   const hits: Array<{ v: number; why: string; byKind?: true }> = [];
-  if (re.test(club.name)) hits.push({ v: 1, why: `Its name matches "${q.shown}"` });
+  if (re.test(withoutOtherSense(club.name))) hits.push({ v: 1, why: `Its name matches "${q.shown}"` });
   if (q.ask?.identity) {
     if (q.ask.identity.test(club.name)) hits.push({ v: 0.95, why: `Its name matches "${q.shown}"` });
     const aff = (club.affiliations ?? []).find((a) => q.ask?.identity?.test(a));
@@ -1348,7 +1570,7 @@ function wordHit(club: Club, q: { word: string; stem: string; ask: Ask | null; s
   if (q.ask?.kinds?.includes(club.kind)) hits.push({ v: 0.8, why: kindPhrase(club.kind), byKind: true });
   const cat = club.categories.find((c) => re.test(c));
   if (cat) hits.push({ v: 0.7, why: `Listed under ${cat} in ${sourceName}` });
-  if (club.does && re.test(club.does)) hits.push({ v: 0.6, why: `Its ${sourceName} page describes ${q.shown}` });
+  if (club.does && re.test(withoutOtherSense(club.does))) hits.push({ v: 0.6, why: `Its ${sourceName} page describes ${q.shown}` });
   if (hits.length === 0) return null;
   const best = hits.sort((a, b) => b.v - a.v)[0];
   const own = hits.find((h) => !h.byKind);

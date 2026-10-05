@@ -91,6 +91,14 @@ A row may set any of these fields:
 - `goalsAdd` and `goalsRemove`: CAREER_TRACKS or INTEREST_TOPICS ids.
 - `subjectsAdd`: course prefixes, for a team about the major whose name does
   not say so, such as Steel Bridge for CEE.
+- `majors`: with `subjectsAdd`, the majors the club is for when several share
+  the prefix, as the planner reads them from the program name (before ":" and
+  the degree). The Kinesiology Student Association is HK for "Kinesiology"
+  only, not Community Health; the FSHN clubs are each for their own major.
+  `tag.mjs` refuses a name that is not a program in `programs.json`.
+- `does`: our own one-line description, replacing the reading pass's. It must
+  pass the same rules (20 words, 140 characters, no 8-word run of the club's
+  text), or the build stops.
 - `hide`
 - `starter`: true (shown to a student with no goal yet), `"undeclared"` (only
   to a student with no major yet: the Exploratory Students Association), or
@@ -102,6 +110,19 @@ warning) and `note`.
 Write the note in your own words: say what the club's page says, never quote
 it. `tag.mjs` refuses any goal id the planner does not have, any subject that
 is not a course prefix, and any field it does not know.
+
+Two rules in `build.mjs` (`applyHandRules`) run after the reading pass, on
+our own facts, never the club's text:
+- a club about managing one's own money (personal finance, financial
+  literacy, budgeting and credit, in its name or `does` line) carries no
+  finance-career goal and no FIN subject: the Personal Finance Club, NextGen
+  Finance Initiative, the Illinois Personal Wealth Management Club and Sprout
+  UIUC on 2026-10-05;
+- a party or partisan group (by its name) carries no career goal: the
+  planner never sends a student to a party from a career goal, and ALMA finds
+  one when asked.
+A goal an override added is never taken away by either. The build prints
+both lists.
 
 ## Sources
 
@@ -357,3 +378,59 @@ and 4: `node lib/planner/__clubs.check.mjs --grades <file>`. What it found:
   - ALMA's search puts every club holding the asked word ("a cappella", even
     one by audition or not taking sign-ups) before clubs that are only the
     kind asked for.
+
+- **2026-10-05, round 2** (Opus, blind; grades in
+  `data/clubs/reading/grades-round2.json`): **18 of 24 useful** (6 mixed, 0
+  not useful), **166 of 170 why lines true (97.6%)**. The mixed lists were the
+  two finance students, the CPA, nursing, pre-PT and climate policy. Fixed the
+  same day (not re-graded yet; the automatic check passes, gold 24 / 23 / 24,
+  0 bad picks, 40 of 44 goals):
+  - Personal-finance literacy clubs carry no finance-career goal or FIN
+    subject (`applyHandRules`, above). Vantage Acquisitions Group and Illini
+    Business Forum are tagged investment banking by hand (`overrides.json`;
+    the Forum also gets our own `does` line naming its fields). Markets clubs
+    are a near sibling of investment banking (`NEAR_SIBLINGS` in
+    `lib/planner/clubs.ts`): they rank with its own clubs, and still say
+    "close to". "Investment banking in Chicago" now shows Prime M&A, Illini
+    Business Forum, Vantage, the Investment Portfolio Organization and the
+    Equity Research Association first.
+  - Within a goal its own clubs come first, then the wider field with the
+    goal's best family club (one business fraternity, one general pre-health
+    club), then the other family clubs (`Rank` in `clubs.ts`). A goal with
+    fewer than 3 clubs of its own is thin, however many family clubs follow,
+    and the thin message counts its clubs in the communities row. Pre-PT,
+    nursing, accounting and five other health tracks now say so.
+  - A first-year's half weight for an honor society comes after the cutoff:
+    Beta Alpha Psi shows for the CPA student, after the Accounting Club and
+    before the business fraternities.
+  - The College of Nursing at Urbana Urban Health Program is in the nursing
+    list itself (`overrides.json`: its name centers no group, and it also
+    serves every student). The Black and Hispanic student nursing
+    associations stay in the communities row.
+  - The Kinesiology Student Association is HK for Kinesiology students only
+    (`majors`), so a pre-PT kinesiology student sees it as the major's club.
+    The Association of Food Technologists, the Hospitality Management
+    Association, the Student Dietetic Association and NutrImpact are FSHN for
+    their own majors.
+  - A club fitting more of the student's goals ranks first within its goal,
+    and gets `GOALS_AGREE_BONUS`. Policy and politics count by the activity
+    categories and the advocacy kind (`ACTIVITY_GOALS`), so for "climate
+    policy for the government" Students for Environmental Concerns and the
+    Green Leadership Council (a reading-pass goal) come before the fisheries
+    and wildlife societies, which leave the first ten.
+  - A community the student says they belong to ("I'm a first-gen Latina
+    student") brings its clubs for their goal into the main list (ALPFA, in
+    the first three); only words about themselves count, never "women's
+    health" or "international business".
+  - When a goal is heard, the major's best club keeps its row and the
+    major's other clubs wait behind the goal's (ASHRAE no longer takes the
+    robotics student's fifth row).
+  - Why lines: the wider field says "close to", never "is part of"; a
+    national body's letters the club's name does not use are spelled out
+    ("The National Band Association student chapter"), unless the line would
+    run past 110 characters.
+  - The word match drops a word in a phrase that gives it another sense
+    (`OTHER_SENSE`): "pilot plant", "a space for", "a welcoming space",
+    "Product Space". "become a pilot" no longer finds the biodiesel club, and
+    "work in space" no longer finds Product Space or clubs offering "a
+    supportive space".

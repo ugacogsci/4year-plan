@@ -24,6 +24,9 @@
  *     since it was read (same hash): kind, identity, audience, how to join,
  *     goals (kept only where one of the club's own directory categories agrees,
  *     tag.mjs GOAL_CATEGORIES), and `does`, our own line about the club;
+ *   - then applies the hand rules (applyHandRules): an override's own `does`
+ *     line, no finance-career goal or FIN subject on a personal-finance club,
+ *     and no career goal on a party group;
  *   - joins event dates when the calendar was read: last, up to 3 next, and
  *     the number in the 120 days before the page was read;
  *   - keeps a club the directory stopped listing for 120 days after it was
@@ -85,7 +88,7 @@ export const SHIPPED = {
   list: ['id', 'title', 'short', 'url', 'read', 'goal', 'weight', 'college', 'subject'],
   counts: ['onPage', 'parsed', 'shipped', 'dropped', 'unlisted'],
   dropped: ['office', 'graduate', 'law', 'medical', 'veterinary', 'hidden', 'noLink'],
-  club: ['id', 'name', 'url', 'profile', 'website', 'categories', 'affiliations', 'kind', 'identity', 'national', 'audience', 'joining', 'goals', 'subjects', 'colleges', 'lists', 'does', 'thin', 'starter', 'events', 'firstSeen', 'lastSeen'],
+  club: ['id', 'name', 'url', 'profile', 'website', 'categories', 'affiliations', 'kind', 'identity', 'national', 'audience', 'joining', 'goals', 'subjects', 'majors', 'colleges', 'lists', 'does', 'thin', 'starter', 'events', 'firstSeen', 'lastSeen'],
   goal: ['id', 'from', 'list'],
   events: ['last', 'next', 'n120'],
 };
@@ -168,6 +171,60 @@ export function applyFacts(row, fact, { override, source } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// rules over the finished facts
+
+/**
+ * A club about managing one's own money: personal finance, financial
+ * literacy, budgeting and credit. Read from its name and our own `does` line,
+ * never its text. Such a club teaches money skills to anyone; it is not a
+ * finance-career club, so it carries no finance-career goal and is not the
+ * Finance major's club. The spot check (round 2) found the Personal Finance
+ * Club called "close to investment banking" and NextGen Finance Initiative, a
+ * budgeting workshop for families, called "a finance club".
+ */
+export const PERSONAL_FINANCE = /\bpersonal[\s-]+(financ\w*|wealth|money)\b|\bfinancial[\s-]+(literacy|wellness|well-being|wellbeing|education|independence)\b|\bmoney[\s-]+management\b|\bmanag\w*\s+(their\s+|your\s+|one'?s\s+)?(own\s+)?(money|finances)\b|\bbudget\w*\b.{0,40}\bcredit\b/i;
+/** The finance-career goals (the finance family, clubs.ts GOAL_FAMILY) and the Finance major's subject. */
+export const FINANCE_CAREER_GOALS = new Set(['finance', 'investment-banking', 'markets', 'financial-planning', 'real-estate', 'commercial-banking']);
+const FINANCE_SUBJECTS = new Set(['FIN']);
+/**
+ * A party or partisan group, by its name. The planner never sends a student
+ * to a party from a career goal (overrides.json, I-Public Affairs Committee);
+ * ALMA finds one when the student asks. The reading pass tags some of them
+ * politics, which the reading weight would now let through.
+ */
+export const PARTISAN = /\brepublicans?\b|\bdemocrats\b|\bdemocratic\s+socialists?\b|\bsocialists?\b|\blibertarians?\b|\bturning point\b|\byoung americans for liberty\b|\bconservatives?\b|\bprogressives?\b/i;
+
+/**
+ * The hand-checked line and the rules above, on a row after the reading pass.
+ * An override's `does` replaces the reader's (it must pass the same rules, or
+ * the build stops); goals an override added are never taken away here.
+ * Returns { row, notes }.
+ */
+export function applyHandRules(row, { override, source } = {}) {
+  const notes = {};
+  let out = row;
+  if (override?.does !== undefined) {
+    const problem = doesProblem(override.does, source);
+    if (problem) throw new Error(`overrides.json ${row.id} ${row.name}: its does line cannot ship: ${problem}`);
+    out = { ...out, does: override.does.trim() };
+    notes.doesOverride = 1;
+  }
+  const keep = (g) => g.from === 'override';
+  if (PERSONAL_FINANCE.test(`${out.name} ${out.does ?? ''}`)) {
+    const goals = (out.goals ?? []).filter((g) => keep(g) || !FINANCE_CAREER_GOALS.has(g.id));
+    const subjects = (out.subjects ?? []).filter((s) => !FINANCE_SUBJECTS.has(s));
+    if (goals.length !== (out.goals ?? []).length || subjects.length !== (out.subjects ?? []).length) notes.personalFinance = 1;
+    out = { ...out, goals, subjects };
+  }
+  if (PARTISAN.test(out.name)) {
+    const goals = (out.goals ?? []).filter(keep);
+    if (goals.length !== (out.goals ?? []).length) notes.partisan = 1;
+    out = { ...out, goals };
+  }
+  return { row: out, notes };
+}
+
+// ---------------------------------------------------------------------------
 // one shipped row
 
 /** A tagged (or previously shipped) row as it ships: the whitelist, empty optionals left out. */
@@ -187,6 +244,7 @@ export function shipRow(row, events) {
     joining: row.joining,
     goals: (row.goals ?? []).map((g) => (g.list === undefined ? { id: g.id, from: g.from } : { id: g.id, from: g.from, list: g.list })),
     ...(row.subjects?.length ? { subjects: [...row.subjects] } : {}),
+    ...(row.majors?.length ? { majors: [...row.majors] } : {}),
     ...(row.colleges?.length ? { colleges: [...row.colleges] } : {}),
     ...(row.lists?.length ? { lists: [...row.lists] } : {}),
     ...(row.does ? { does: row.does } : {}),
@@ -244,6 +302,7 @@ export function buildClubsFile({ tagged, directory, events = null, facts = null,
     events: { calendar: Boolean(directory.calendar && events), joined: 0 },
     grace: { kept: [], expired: 0, untaggedMissing: 0 },
     noLink: [],
+    hand: { does: 0, personalFinance: [], partisan: [] },
   };
   const tagIds = new Set(tagged.clubs.map((c) => String(c.id)));
   report.facts.unknownIds = Object.keys(factsById).filter((id) => !tagIds.has(id)).length;
@@ -254,11 +313,17 @@ export function buildClubsFile({ tagged, directory, events = null, facts = null,
   for (const tagRow of tagged.clubs) {
     let row = tagRow;
     if (!row.dropped) {
-      const { row: withFacts, used, notes } = applyFacts(row, factsById[row.id], { override: overrides[row.id], source: texts?.get(row.id) ?? null });
+      const source = texts?.get(row.id) ?? null;
+      const { row: withFacts, used, notes } = applyFacts(row, factsById[row.id], { override: overrides[row.id], source });
       row = withFacts;
       if (used) report.facts.used += 1;
       for (const k of ['stale', 'kindChanged', 'droppedByReading', 'goalsAdded', 'goalsDisagreed', 'doesShipped']) report.facts[k] += notes[k] ?? 0;
       if (notes.doesDropped) report.facts.doesDropped.push(`${row.id} ${row.name}: ${notes.doesDropped}`);
+      const hand = applyHandRules(row, { override: overrides[row.id], source });
+      row = hand.row;
+      if (hand.notes.doesOverride) report.hand.does += 1;
+      if (hand.notes.personalFinance) report.hand.personalFinance.push(`${row.id} ${row.name}`);
+      if (hand.notes.partisan) report.hand.partisan.push(`${row.id} ${row.name}`);
     }
     if (row.dropped) { dropped[row.dropped] = (dropped[row.dropped] ?? 0) + 1; continue; }
     if (!row.url) {
@@ -527,6 +592,8 @@ function printReport({ file, report, inputs, text, dryRun }) {
     ? `  reading pass (facts.json, ${f.rows} rows): used ${f.used}, stale (text changed since it was read) ${f.stale}, not in the directory ${f.unknownIds}; kinds changed ${f.kindChanged}, dropped as graduate/professional ${f.droppedByReading}, goals added ${f.goalsAdded}, goals left out for no agreeing category ${f.goalsDisagreed}, does shipped ${f.doesShipped}, does left out ${f.doesDropped.length}`
     : '  reading pass: no scripts/illinois/clubs/facts.json yet, so no `does` lines and no reading-pass goals; kinds come from names, categories and the tables');
   for (const d of f.doesDropped.slice(0, 10)) console.log(`    does left out: ${d}`);
+  const h = report.hand;
+  console.log(`  hand rules: ${h.does} does line(s) from overrides.json; personal-finance clubs with no finance-career goal or FIN subject (${h.personalFinance.length}): ${h.personalFinance.join('; ') || '-'}; party groups with no career goal (${h.partisan.length}): ${h.partisan.join('; ') || '-'}`);
   const idle = clubs.filter((x) => !(x.events?.n120 > 0 || x.events?.next?.length));
   console.log(file.calendar
     ? `  events: calendar read ${file.calendar.read} (Last-Modified ${file.calendar.lastModified ?? '?'}); ${report.events.joined} clubs with any event, ${clubs.filter((x) => x.events?.n120 > 0).length} with one in the last 120 days, ${clubs.filter((x) => x.events?.next?.length).length} with one coming up; ${idle.length} with neither, ranked x0.9 (${idle.filter((x) => !ASKED_ONLY_KINDS.has(x.kind)).length} of a recommendable kind)`

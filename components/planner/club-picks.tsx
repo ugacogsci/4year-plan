@@ -33,6 +33,7 @@ import { ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { plural } from './words';
 import {
+  COMMUNITIES_HEADING,
   KIND_LABEL,
   RAIL_VISIBLE,
   emptyNote,
@@ -170,7 +171,7 @@ export function ClubPicks({ student, onEditGoals, onOpenAlma, botName = 'ALMA', 
           )}
           {result.communities.length > 0 && (
             <details className="club-communities">
-              <summary>Communities in these fields ({result.communities.length})</summary>
+              <summary>{COMMUNITIES_HEADING} ({result.communities.length})</summary>
               <ul className="club-list">
                 {result.communities.map((pick) => (
                   <Row key={pick.club.id} pick={pick} data={load.data} />
@@ -261,7 +262,7 @@ function groupsOf(result: ClubResult, data: IllinoisClubsFile, more: boolean): G
     key: g.id,
     heading: `For ${g.label}`,
     picks: shown.filter((p) => p.goal === g.id),
-    ...(result.thin.includes(g.id) ? { thin: thinNote(data, g.label, result.matched[g.id] ?? 0) } : {}),
+    ...(result.thin.includes(g.id) ? { thin: thinNote(data, g.label, result.matched[g.id] ?? 0, result.communityMatched?.[g.id] ?? 0) } : {}),
   }));
   // No goal heard: their own words' clubs come first, then the major's (recommendClubs orders them so).
   const tail: Array<[string, string]> = [
