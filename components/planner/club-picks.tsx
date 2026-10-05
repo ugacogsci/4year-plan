@@ -22,9 +22,10 @@
  *
  * States: loading (three grey rows), file missing (the section hides itself,
  * so the UI can ship before the data), load failed (Try again), no goal
- * words, words that name no known goal, words that say the student is still
- * deciding (clubs for exploring, not "nothing matched"), a thin goal, and the
- * list.
+ * words, words that name no known goal (said plainly, above the clubs whose
+ * own facts match the words, then the major's, then general ones), words that
+ * say the student is still deciding (clubs for exploring, not "nothing
+ * matched"), a thin goal, and the list.
  */
 
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
@@ -216,8 +217,9 @@ function Message({
       </div>
     );
   }
-  // 'unheard': words that name no goal the planner knows; or words that say the student is still
-  // deciding, with or without clubs for their major above the starters.
+  // 'unheard' or unknownGoal: words that name no goal the planner knows (the note says so, and where the
+  // clubs below came from: their words, their major, or general clubs); or words that say the student is
+  // still deciding, with or without clubs for their major above the starters.
   return (
     <div className="club-empty">
       <p>{note}</p>
@@ -246,7 +248,9 @@ interface Group {
 
 /**
  * The picks the rail shows, under one heading per goal in the order the
- * student named them, then "For your major" and the starters. The first
+ * student named them, then "From what you wrote", "For your major" and the
+ * starters ("Good first clubs", or "General clubs" for a goal the planner
+ * does not know). The first
  * RAIL_VISIBLE picks show (in the rotation's order, so every goal gets its
  * turn); "Show more" reaches the rest. A thin goal keeps its heading and says
  * how many matched, even when none of its clubs is in the visible rows.
@@ -259,10 +263,12 @@ function groupsOf(result: ClubResult, data: IllinoisClubsFile, more: boolean): G
     picks: shown.filter((p) => p.goal === g.id),
     ...(result.thin.includes(g.id) ? { thin: thinNote(data, g.label, result.matched[g.id] ?? 0) } : {}),
   }));
+  // No goal heard: their own words' clubs come first, then the major's (recommendClubs orders them so).
   const tail: Array<[string, string]> = [
-    ['major', 'For your major'],
     ['words', 'From what you wrote'],
+    ['major', 'For your major'],
     ['starter', 'Good first clubs'],
+    ['general', 'General clubs'],
   ];
   for (const [key, heading] of tail) out.push({ key, heading, picks: shown.filter((p) => p.goal === key) });
   return out.filter((g) => g.picks.length > 0 || g.thin);

@@ -191,7 +191,7 @@ export function shipRow(row, events) {
     ...(row.lists?.length ? { lists: [...row.lists] } : {}),
     ...(row.does ? { does: row.does } : {}),
     ...(row.thin ? { thin: true } : {}),
-    ...(row.starter ? { starter: true } : {}),
+    ...(row.starter ? { starter: row.starter === 'undeclared' ? 'undeclared' : true } : {}),
     ...(events ? { events } : {}),
     firstSeen: row.firstSeen,
     lastSeen: row.lastSeen,
@@ -365,6 +365,7 @@ export function shippedProblems(file, { texts = null, vocabulary = null } = {}) 
     if (!CLUB_KINDS.has(c.kind)) bad.push(`${where}: kind "${c.kind}"`);
     if (!AUDIENCES.has(c.audience)) bad.push(`${where}: audience "${c.audience}" does not ship`);
     if (!JOININGS.has(c.joining)) bad.push(`${where}: joining "${c.joining}"`);
+    if (c.starter !== undefined && c.starter !== true && c.starter !== 'undeclared') bad.push(`${where}: starter "${c.starter}" is not true or 'undeclared'`);
     for (const g of c.goals ?? []) {
       if (!GOAL_IDS.has(g.id)) bad.push(`${where}: goal "${g.id}" is not a current goal id`);
       if (!GOAL_FROM.has(g.from)) bad.push(`${where}: goal source "${g.from}"`);

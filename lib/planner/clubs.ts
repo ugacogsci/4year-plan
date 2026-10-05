@@ -143,8 +143,12 @@ export interface Club {
   does?: string;
   /** Its directory description is under 15 words. */
   thin?: true;
-  /** Shown to a student with no goal yet. */
-  starter?: true;
+  /**
+   * Shown to a student with no goal yet. 'undeclared': only to a student with
+   * no major yet (the Exploratory Students Association is the Division of
+   * Exploratory Studies' group), never to a declared major.
+   */
+  starter?: true | 'undeclared';
   events?: ClubEvents;
   firstSeen: string;
   /** Earlier than the file's `checked` means it is in the grace window. */
@@ -155,10 +159,14 @@ export interface Club {
 // The student
 // ===========================================================================
 
-/** Goal names, for why lines about a goal the student did not name (the parent of a family). */
+/**
+ * Goal names, for why lines about a goal the student did not name (the parent
+ * of a family); and a topic's subjects, so a student with no goal heard sees
+ * the clubs of their major's field (marketing clubs for an Advertising major).
+ */
 export interface GoalVocabulary {
   tracks: Array<Pick<CareerTrack, 'id' | 'name'>>;
-  topics: Array<Pick<InterestTopic, 'id' | 'label'>>;
+  topics: Array<Pick<InterestTopic, 'id' | 'label'> & { subjects?: string[] }>;
 }
 
 export interface ClubStudent {
@@ -244,7 +252,12 @@ export interface ClubPick {
   club: Club;
   /** Not shown to students. Not capped at 1: the bonuses order ties. */
   score: number;
-  /** The goal id this pick is under, or 'major', 'words', 'starter', 'search'. */
+  /**
+   * The goal id this pick is under, or 'major', 'words', 'search'; 'starter'
+   * (a first club, for a student who is deciding or wrote nothing) or
+   * 'general' (a starter shown to a student whose goal the planner does not
+   * know: labelled general, never "while you decide").
+   */
   goal: string;
   basis: ClubBasis;
   /** One template line, at most 110 characters. */
@@ -276,6 +289,13 @@ export interface ClubResult {
    * matched": the starter clubs are for exploring, which is what they asked.
    */
   undecided?: true;
+  /**
+   * Words that name a goal the planner does not know ("work for a nonprofit
+   * that helps kids") and do not say the student is still deciding. The card
+   * says so plainly above the list, which holds the clubs whose own facts
+   * match their words, then their major's, then general clubs.
+   */
+  unknownGoal?: true;
 }
 
 // ===========================================================================
@@ -292,7 +312,9 @@ export const EVIDENCE: Record<Exclude<ClubBasis, 'starter' | 'search'>, number> 
   covered: 0.7, // a topic the student's track covers: a law club for "pre-law"
   national: 0.7, // the national society of the major's subject: ASME for Mechanical Engineering
   subject: 0.7, // named for the major's subject, or on its department's list
-  words: 0.55, // a word the student wrote is in its name, only when no goal was heard
+  // No goal heard: words the student wrote are in its name (0.75), or in our own line about it or its
+  // directory categories (WORDS_FACTS, 0.65); +0.05 when two or more of their words are (WORDS_MORE).
+  words: 0.75,
   reading: 0.5, // the reading pass found the goal in its page, and a directory category agrees
   'degree-subject': 0.45, // another subject of the degree
   college: 0.3, // the student's college: its affiliation tag or a college list
@@ -301,6 +323,22 @@ export const AGREE_BONUS = 0.15; // two different kinds of evidence agree
 export const SPECIFIC_BONUS = 0.05; // named for this goal and at most one other
 export const NATIONAL_BONUS = 0.03; // a chapter of a national body
 export const UMBRELLA_PENALTY = 0.1; // named for 5+ goals: the club for this goal alone comes first
+export const WORDS_FACTS = 0.65; // no goal heard: the student's words in our `does` line or its categories, not its name
+export const WORDS_MORE = 0.05; // ... two or more of their words, not one
+export const WORDS_CLOSE = 0.05; // ... only words close to theirs ("children" for "kids"), none of their own
+/** No goal heard: a club tagged for a topic whose subjects include the major (a marketing club for Advertising). */
+export const MAJOR_FIELD = 0.65;
+/** A goal heard: each specific word of theirs in a club's facts adds this, at most twice, after the cutoff; a tiebreak only. */
+export const WORDS_TIE = 0.02;
+/**
+ * How specific a word is, by how many clubs' facts (name, `does`, categories)
+ * hold it: in at most SPECIFIC_DF it counts 1, in at most COMMON_DF it counts
+ * a half, and in more ("research" is in 47) it never counts. A club matches
+ * the student's words when they add up to 1: one specific word, or two common
+ * ones, never one generic word.
+ */
+export const SPECIFIC_DF = 20;
+export const COMMON_DF = 30;
 export const MIN_SCORE = 0.5;
 export const PER_GOAL = 3;
 export const RAIL_VISIBLE = 5;
@@ -403,6 +441,269 @@ const UNDECIDED =
 
 /** True when the words say the student is still deciding (UNDECIDED). */
 export const soundsUndecided = (careerText: string): boolean => UNDECIDED.test(careerText);
+
+/** A starter's why line for a student still deciding or with no words, and for one whose goal the planner does not know. */
+export const STARTER_WHY = 'A good first club while you decide';
+export const GENERAL_WHY = 'A general club for any student, not matched to your goal';
+
+// ===========================================================================
+// Clubs named for a whole family of goals
+// ===========================================================================
+
+/** Every health track but pre-law and pre-vet, plus nursing: the goals a general pre-health club carries (tag.mjs HEALTH_TRACKS). */
+const HEALTH_GOAL = /^(pre-(?!law$|veterinary$)[a-z-]+|nursing)$/;
+const BUSINESS_GOALS = new Set(['finance', 'consulting', 'accounting', 'marketing']);
+export const PRE_HEALTH_WHY = 'A pre-health club for students heading to health professions';
+export const BUSINESS_FRATERNITY_WHY = 'A professional business fraternity, for students heading into business careers';
+
+/**
+ * What a club named for a whole family of goals is, for its why line, or
+ * null. A general pre-health club carries every health track (from its name,
+ * a national row or an override), and a business fraternity's national row
+ * names four business fields; neither is "about nursing" or "a finance club",
+ * so the line says what the club is (review, 2026-10-05). Any other national
+ * row with two or more goals names the chapter and its fields. Goals from a
+ * list or the reading pass do not count: they are about this club alone.
+ */
+export function familyLine(club: Club, label: (id: string) => string): string | null {
+  const own = club.goals.filter((g) => g.from !== 'reading' && g.from !== 'list');
+  if (own.filter((g) => HEALTH_GOAL.test(g.id)).length >= 5) return PRE_HEALTH_WHY;
+  const national = own.filter((g) => g.from === 'national');
+  if (national.length < 2) return null;
+  if (club.kind === 'professional-fraternity' && national.every((g) => BUSINESS_GOALS.has(g.id))) return BUSINESS_FRATERNITY_WHY;
+  const fields = national.map((g) => label(g.id));
+  return `The ${club.national ?? club.name} chapter, for students heading into ${fields.slice(0, -1).join(', ')} and ${fields[fields.length - 1]}`;
+}
+
+// ===========================================================================
+// The student's own words, against a club's facts
+// ===========================================================================
+
+/**
+ * Words that say nothing about which club fits, on top of STOPWORDS: roles
+ * and titles ("director" found the National Band Association's band
+ * directors for an ad agency's creative director), family ("my sister is
+ * pre-law"), and the verbs of a goal sentence.
+ */
+const WORD_STOP = new Set([
+  'work', 'works', 'worked', 'job', 'jobs', 'play', 'playing', 'help', 'helps', 'helping', 'make', 'making', 'doing', 'get', 'got',
+  'director', 'directors', 'manager', 'managers', 'analyst', 'analysts', 'officer', 'executive', 'assistant', 'associate', 'coordinator',
+  'specialist', 'lead', 'leader', 'leaders', 'head', 'chief', 'owner', 'founder', 'intern', 'internship', 'internships', 'position', 'role',
+  'firm', 'firms', 'companies', 'big', 'small', 'top', 'pro', 'careers', 'field', 'fields', 'industry', 'day', 'life', 'kind', 'lot', 'lots',
+  'love', 'hope', 'plan', 'plans', 'dream', 'goal', 'goals', 'future', 'graduation', 'degree', 'major', 'minor', 'college', 'class', 'classes',
+  'course', 'courses', 'sister', 'brother', 'mom', 'mother', 'dad', 'father', 'parent', 'parents', 'friend', 'friends', 'cousin', 'aunt',
+  'uncle', 'roommate', 'girlfriend', 'boyfriend', 'family', 'pre', 'non', 'new', 'own', 'way', 'well', 'too', 'very', 'much', 'many',
+  'who', 'why', 'was', 'were', 'will', 'did', 'does', 'all', 'but', 'its', 'his', 'her', 'she', 'him', 'they', 'them', 'use', 'run',
+  'people', 'person', 'actually', 'anymore', 'instead', 'either', 'both', 'year', 'something', 'someone', 'things', 'stuff', 'place',
+  // Words a goal sentence uses that club lines also use in passing, and that are in too few of them for the
+  // count to rule out (review, 2026-10-05): "make money" found seven charities that raise money, "open a
+  // bakery" a tango club open to beginners, "travel the world" teams that travel to competitions.
+  'open', 'opening', 'money', 'earn', 'earning', 'pay', 'paid', 'salary', 'rich', 'wealthy', 'change', 'changes', 'changing',
+  'difference', 'impact', 'matter', 'travel', 'travels', 'traveling', 'travelling', 'remote', 'remotely', 'home', 'office', 'desk',
+  'outside', 'fun', 'real', 'full', 'time', 'success', 'successful', 'opportunity', 'opportunities', 'connections', 'area', 'areas',
+  'related', 'save', 'saving', 'live', 'lives', 'living', 'grow', 'growing', 'global', 'country', 'city', 'state', 'states', 'united',
+  'america', 'public', 'coach', 'coaching', 'personal', 'becoming',
+]);
+
+/**
+ * Words the stem would fold into another word: "planes" into "plan", "news"
+ * into "new", "anime" into "animal", "minority" into "minor". Kept apart.
+ */
+const KEEP_APART: Record<string, string> = {
+  plane: 'plane',
+  planes: 'plane',
+  news: 'news',
+  anime: 'anime',
+  minority: 'minorit',
+  minorities: 'minorit',
+};
+
+/** Short forms and irregular words, as the stems they stand for. Applied to a club's facts as to the student's words. */
+const WORD_FORMS: Record<string, string[]> = {
+  ad: ['advertis'],
+  ads: ['advertis'],
+  kid: ['child', 'youth'],
+  kids: ['child', 'youth'],
+  children: ['child'],
+  childhood: ['child'],
+};
+
+/**
+ * A light English stem: plurals, then one derivational ending, then a final
+ * e, a or y, so "musicians" and "musical" are "music", "orchestral" and
+ * "orchestra" one word, "advertising" and "advertisement" one word, and
+ * "policy" never "police".
+ */
+export function stem(word: string): string {
+  let s = word.toLowerCase();
+  if (WORD_FORMS[s]) return WORD_FORMS[s][0];
+  if (KEEP_APART[s]) return KEEP_APART[s];
+  if (s.length <= 3) return s;
+  if (s.endsWith('sses')) s = s.slice(0, -2);
+  else if (s.endsWith('ies')) s = `${s.slice(0, -3)}y`;
+  else if (/(sh|ch|x|z|ss)es$/.test(s)) s = s.slice(0, -2);
+  else if (/[^su]s$/.test(s) && !s.endsWith('is')) s = s.slice(0, -1);
+  const endings: Array<[string, string]> = [
+    ['ization', 'ize'], ['ational', 'ate'], ['ation', 'ate'], ['ments', ''], ['ment', ''], ['ings', ''], ['ing', ''], ['ians', ''], ['ian', ''],
+    ['ists', ''], ['ist', ''], ['ical', 'ic'], ['ance', ''], ['ence', ''], ['ant', ''], ['ent', ''], ['ers', ''], ['er', ''], ['ed', ''],
+    ['ive', ''], ['ity', ''], ['ness', ''], ['al', ''],
+  ];
+  for (const [end, put] of endings) {
+    if (s.endsWith(end) && s.length - end.length + put.length >= 4) {
+      s = s.slice(0, -end.length) + put;
+      break;
+    }
+  }
+  if (s.length > 4 && /[eay]$/.test(s)) s = s.endsWith('y') ? `${s.slice(0, -1)}i` : s.slice(0, -1);
+  return s;
+}
+
+/** A text's words, lower case, "non-profit" as one word. */
+const tokens = (text: string): string[] =>
+  text
+    .toLowerCase()
+    .replace(/[’']s\b/g, '')
+    .replace(/\bnon[-\s]+(profit)/g, 'non$1')
+    .split(/[^a-z]+/)
+    .filter((w) => w.length >= 2);
+
+const stemsOf = (word: string): string[] => WORD_FORMS[word] ?? [stem(word)];
+
+/** One word of the student's, with the stems it matches. */
+export interface StudentWord {
+  word: string;
+  stems: string[];
+}
+
+/**
+ * The words of the student's goal sentence worth matching against a club's
+ * facts: not a stop word, not a role or a relative, and not a word the goal
+ * reader hears as a goal on its own. The last keeps out a goal the reader set
+ * aside on purpose: "my sister is pre-law" hears no goal, and "law" must not
+ * come back as a word match.
+ */
+export function studentWords(text: string, hear?: (t: string) => InterestProfile): StudentWord[] {
+  const out: StudentWord[] = [];
+  for (const word of tokens(text)) {
+    if (out.some((w) => w.word === word)) continue;
+    if (STOPWORDS.has(word) || WORD_STOP.has(word)) continue;
+    if (!WORD_FORMS[word] && word.length < 3) continue;
+    if (hear) {
+      const p = hear(word);
+      if (p.tracks.length > 0 || p.heard.length > 0) continue;
+    }
+    out.push({ word, stems: stemsOf(word) });
+  }
+  return out;
+}
+
+interface FactWord {
+  /** The word as the club's facts have it. */
+  form: string;
+  where: 'name' | 'does' | 'category';
+  category?: string;
+}
+interface FactIndex {
+  /** How many clubs' facts hold each stem. */
+  df: Map<string, number>;
+  /** Club id -> stem -> where it first appears: the name, then our `does` line, then a category. */
+  byClub: Map<string, Map<string, FactWord>>;
+}
+const FACTS = new WeakMap<IllinoisClubsFile, FactIndex>();
+
+/** The stems of every club's name, `does` line and categories, built once per file. */
+function factIndex(data: IllinoisClubsFile): FactIndex {
+  const had = FACTS.get(data);
+  if (had) return had;
+  const df = new Map<string, number>();
+  const byClub = new Map<string, Map<string, FactWord>>();
+  for (const club of data.clubs) {
+    const own = new Map<string, FactWord>();
+    const add = (text: string, where: FactWord['where'], category?: string) => {
+      for (const form of tokens(text)) for (const s of stemsOf(form)) if (!own.has(s)) own.set(s, { form, where, ...(category ? { category } : {}) });
+    };
+    add(club.name, 'name');
+    if (club.does) add(club.does, 'does');
+    for (const c of club.categories) add(c, 'category', c);
+    byClub.set(club.id, own);
+    for (const s of own.keys()) df.set(s, (df.get(s) ?? 0) + 1);
+  }
+  const index = { df, byClub };
+  FACTS.set(data, index);
+  return index;
+}
+
+/**
+ * Directory categories that name a field (tag.mjs FIELD), plus Performance
+ * Arts, the field of a music or theatre major's own clubs. A word match
+ * counts as in the student's field when the club shares one of these with
+ * the clubs of their major: "bridges" for a Civil Engineering student is
+ * Steel Bridge, not the Life-Line Bridge Foundation, a charity.
+ */
+const FIELD_CATEGORIES = new Set([
+  'Agricultural', 'Business', 'Education, Pedagogy & Instruction', 'Environmental & Sustainability', 'Health & Human Sciences', 'Humanities',
+  'Information & Data Sciences', 'Law', 'Life & Physical Sciences', 'Media Arts', 'Social & Behavioral Sciences',
+  'Technology, Engineering & Mathematics', 'Veterinary', 'Performance Arts',
+]);
+
+/** The field categories of the clubs about the student's major (its subject, or on its department's list). */
+function majorFieldsOf(data: IllinoisClubsFile, primary: string | null | undefined): Set<string> {
+  const out = new Set<string>();
+  if (!primary) return out;
+  for (const club of data.clubs) {
+    const about = club.subjects?.includes(primary) || (club.lists ?? []).some((i) => data.lists[i]?.subject === primary);
+    if (about) for (const c of club.categories) if (FIELD_CATEGORIES.has(c)) out.add(c);
+  }
+  return out;
+}
+
+/** How much one stem counts, by how many clubs hold it. */
+const specificity = (df: number): number => (df <= SPECIFIC_DF ? 1 : df <= COMMON_DF ? 0.5 : 0);
+
+interface WordsMatch {
+  /** The weights added up: 1 or more is a match. */
+  weight: number;
+  /** One of their words is in the club's name. */
+  inName: boolean;
+  found: Array<{ word: string; fact: FactWord }>;
+}
+
+/** The student's words in one club's facts, or null when none counts. */
+function wordsMatch(club: Club, words: StudentWord[], index: FactIndex): WordsMatch | null {
+  const facts = index.byClub.get(club.id);
+  if (!facts || words.length === 0) return null;
+  let weight = 0;
+  let inName = false;
+  const found: WordsMatch['found'] = [];
+  for (const w of words) {
+    let best: { v: number; fact: FactWord } | null = null;
+    for (const s of w.stems) {
+      const fact = facts.get(s);
+      if (!fact) continue;
+      const v = specificity(index.df.get(s) ?? 0);
+      if (v > 0 && (!best || v > best.v)) best = { v, fact };
+    }
+    if (!best) continue;
+    weight += best.v;
+    if (best.fact.where === 'name') inName = true;
+    found.push({ word: w.word, fact: best.fact });
+  }
+  return found.length ? { weight, inName, found } : null;
+}
+
+/** "from what you wrote" when the club's word is the student's, "close to what you wrote" for "children" against "kids". */
+const sameWord = (a: string, b: string) => a === b || (!WORD_FORMS[a] && !WORD_FORMS[b] && stem(a) === stem(b));
+const fromWhat = (found: WordsMatch['found']) => (found.every((f) => sameWord(f.fact.form, f.word)) ? 'from what you wrote' : 'close to what you wrote');
+
+/** The why line for a words match: the club's own words, quoted, and where they are. */
+function wordsWhy(m: WordsMatch, sourceName: string): string {
+  const inName = m.found.filter((f) => f.fact.where === 'name');
+  if (inName.length) return `Its name has "${inName[0].fact.form}", ${fromWhat(inName.slice(0, 1))}`;
+  const inDoes = m.found.filter((f) => f.fact.where === 'does').slice(0, 2);
+  if (inDoes.length) return `Its ${sourceName} page mentions ${inDoes.map((f) => `"${f.fact.form}"`).join(' and ')}, ${fromWhat(inDoes)}`;
+  const cat = m.found[0].fact.category ?? m.found[0].fact.form;
+  return `Listed under ${cat} in ${sourceName}, ${fromWhat(m.found.slice(0, 1))}`;
+}
 
 // ===========================================================================
 // Small helpers
@@ -546,17 +847,24 @@ export const EXAMPLE_GOALS = ['pre-law', 'consulting', 'data science', 'journali
  * The card's words above the list when there is no goal to show clubs for
  * (DESIGN 4.1), or null when the list speaks for itself. A student who says
  * they are still deciding is told the list is for exploring, not that their
- * words "matched nothing": not having chosen is an answer, not a miss.
+ * words "matched nothing": not having chosen is an answer, not a miss. A
+ * student who named a goal the planner does not know is told so plainly, and
+ * where the clubs below came from instead.
  */
-export function emptyNote(result: Pick<ClubResult, 'empty' | 'undecided'>, careerText: string): string | null {
+export function emptyNote(result: Pick<ClubResult, 'empty' | 'undecided' | 'unknownGoal'> & { picks?: Array<Pick<ClubPick, 'goal'>> }, careerText: string): string | null {
   if (result.empty === 'no-words') return 'Say what you want to do after you graduate, and clubs for it show up here.';
   // Before the 'unheard' test: a student with a major gets its clubs, so `empty` is unset, and is still
   // deciding all the same (find_clubs tells ALMA so whenever `undecided` is set).
   if (result.undecided) return 'You said you are still deciding, so here are clubs for exploring. When a goal comes to mind, add it and clubs for it show up here.';
-  if (result.empty !== 'unheard') return null;
+  if (result.empty !== 'unheard' && !result.unknownGoal) return null;
   const words = careerText.length > 60 ? `${careerText.slice(0, 57).trimEnd()}...` : careerText;
   const examples = `${EXAMPLE_GOALS.slice(0, -1).map((w) => `“${w}”`).join(', ')} or “${EXAMPLE_GOALS[EXAMPLE_GOALS.length - 1]}”`;
-  return `Nothing in “${words}” matched a goal the planner knows yet. Words like ${examples} work.`;
+  const from = new Set((result.picks ?? []).map((p) => p.goal));
+  if (result.empty === 'unheard' || (!from.has('words') && !from.has('major'))) {
+    return `Nothing in “${words}” matched a goal the planner knows yet. Words like ${examples} work.`;
+  }
+  const below = from.has('words') && from.has('major') ? 'match your own words or your major' : from.has('words') ? 'match your own words' : 'are for your major';
+  return `The planner does not know “${words}” as a goal yet, so the clubs below ${below}. Goal words like ${examples} bring clubs for a goal.`;
 }
 
 /** The pick's why line, clipped. */
@@ -598,7 +906,15 @@ interface Context {
   covered: string[];
   coveredBy: Map<string, string>;
   label: (id: string) => string;
-  words: string[];
+  /** The student's own words worth matching (studentWords): evidence when no goal is heard, a tiebreak when one is. */
+  words: StudentWord[];
+  facts: FactIndex;
+  /** Clubs whose facts match the student's words, in their field, when no goal is heard: they come first. */
+  wordHits: Set<string>;
+  /** The field categories of the major's own clubs (majorFieldsOf); empty when it has none. */
+  majorFields: Set<string>;
+  /** Topic id -> the subjects it is about, from the vocabulary. */
+  topicSubjects: Map<string, string[]>;
   calendarRead: boolean;
   /** Clubs whose audience is not confirmed ('check'): only for ALMA's search, never the rail. */
   includeCheck: boolean;
@@ -606,14 +922,38 @@ interface Context {
 
 function contextFor(data: IllinoisClubsFile, student: ClubStudent | null, profile: InterestProfile | null, careerText: string): Context {
   const g = profile ? goalsOf(profile) : { goals: [], tracks: new Set<string>(), covered: [], coveredBy: new Map<string, string>() };
-  const words = g.goals.length
-    ? []
-    : [...new Set(careerText.toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 5 && !STOPWORDS.has(w)))];
-  return { data, student, ...g, label: labeller(student), words, calendarRead: Boolean(data.calendar), includeCheck: false };
+  const words = careerText ? studentWords(careerText, student?.hear) : [];
+  const topicSubjects = new Map((student?.vocabulary?.topics ?? []).filter((t) => t.subjects?.length).map((t) => [t.id, t.subjects as string[]]));
+  return {
+    data,
+    student,
+    ...g,
+    label: labeller(student),
+    words,
+    facts: factIndex(data),
+    wordHits: new Set<string>(),
+    majorFields: g.goals.length ? new Set<string>() : majorFieldsOf(data, student?.primary),
+    topicSubjects,
+    calendarRead: Boolean(data.calendar),
+    includeCheck: false,
+  };
+}
+
+/**
+ * Goal evidence, with the why line a club named for a whole family of goals
+ * needs: a general pre-health club is "A pre-health club ...", never "About
+ * nursing"; a business fraternity is one, never "a finance club" (familyLine).
+ * A university office's list says what it says.
+ */
+function goalEvidence(club: Club, named: Set<string>, read: Set<string>, ctx: Context): Evidence | null {
+  const ev = goalEvidenceOf(club, named, read, ctx);
+  if (!ev || ev.basis === 'list') return ev;
+  const family = familyLine(club, ctx.label);
+  return family ? { ...ev, why: family } : ev;
 }
 
 /** Goal evidence: the student's own goals first, in the order named. */
-function goalEvidence(club: Club, named: Set<string>, read: Set<string>, ctx: Context): Evidence | null {
+function goalEvidenceOf(club: Club, named: Set<string>, read: Set<string>, ctx: Context): Evidence | null {
   const { goals, tracks, covered, coveredBy, label, data } = ctx;
   const lists = data.lists;
   for (const g of goals) {
@@ -684,8 +1024,26 @@ function otherEvidence(club: Club, ctx: Context): Evidence[] {
       if (other) out.push({ v: EVIDENCE['degree-subject'], kind: 'major', basis: 'degree-subject', goal: 'major', why: `About ${other}, a subject in your degree` });
     }
   }
-  const word = ctx.words.find((w) => new RegExp(`\\b${escapeRe(w)}`, 'i').test(club.name));
-  if (word) out.push({ v: EVIDENCE.words, kind: 'words', basis: 'words', goal: 'words', why: `Its name matches "${word}" from what you wrote` });
+  if (ctx.goals.length === 0) {
+    // No goal heard: their own words in the club's name, our line about it or its categories (never one generic word),
+    // and in their field: a match outside it (one word, in a club sharing no field with the major's clubs) still
+    // counts, by its score, but does not come first.
+    const m = wordsMatch(club, ctx.words, ctx.facts);
+    if (m && m.weight >= 1) {
+      const inField = ctx.majorFields.size === 0 || m.weight >= 2 || club.categories.some((c) => ctx.majorFields.has(c)) || out.some((e) => e.kind === 'major');
+      if (inField) ctx.wordHits.add(club.id);
+      // Their own word counts more than a word close to it: "nonprofit" for "nonprofit" before "child" for "kids".
+      const own = m.found.some((f) => sameWord(f.fact.form, f.word));
+      const v = (m.inName ? EVIDENCE.words : WORDS_FACTS) + (m.weight >= 2 ? WORDS_MORE : 0) - (own ? 0 : WORDS_CLOSE);
+      out.push({ v, kind: 'words', basis: 'words', goal: 'words', why: wordsWhy(m, ctx.data.source.name) });
+    }
+    // and the clubs of the major's field: a club tagged for a topic about the major's subject (AMA for Advertising).
+    const field = s?.primary ? club.goals.find((g) => g.from !== 'reading' && ctx.topicSubjects.get(g.id)?.includes(s.primary as string)) : undefined;
+    if (field && s && !out.some((e) => e.kind === 'major') && !familyLine(club, ctx.label)) {
+      const name = ctx.label(field.id);
+      out.push({ v: MAJOR_FIELD, kind: 'major', basis: 'subject', goal: 'major', why: `${article(name)} ${name} club, close to ${s.majorName ?? s.primary}, your major` });
+    }
+  }
   if (s?.college && club.colleges?.includes(s.college)) {
     const list = onLists.find((l) => l.college === s.college);
     const aff = AFFILIATION_OF_COLLEGE[s.college];
@@ -733,6 +1091,12 @@ function scoreClub(club: Club, ctx: Context, today: string): ClubPick | null {
   score *= conditionFactor(club, ctx);
   if (club.kind === 'honor' && ctx.student?.firstYear) score *= 0.5;
   if (score < MIN_SCORE) return null;
+  // A goal heard: their other words in the club's facts order ties, after the cutoff so they never
+  // decide whether a club is in ("management" puts Illinois Consulting Group's management consulting first).
+  if (ctx.goals.length > 0 && ctx.words.length > 0) {
+    const m = wordsMatch(club, ctx.words, ctx.facts);
+    if (m) score += WORDS_TIE * Math.min(2, m.weight);
+  }
   const shown = goal ?? best;
   return {
     club,
@@ -792,10 +1156,16 @@ export interface RecommendOptions {
  *   1. Goals in the order the student named them, at most `perGoal` each, in rounds.
  *   2. When the goals fill the visible rows, the last visible row goes to the
  *      best major club ("For your major": ASME for "design robots").
- *   3. Then the rest by score, still at most `perGoal` a goal, then without
- *      the cap rather than leave rows empty.
- *   4. No goal heard: the major's clubs, then the starter clubs when the
- *      major has fewer than three; `empty` tells the card to ask for a goal.
+ *   3. Then the rest by score, still at most `perGoal` a goal, leaving out
+ *      the weak fill (another subject of the degree, the college); then the
+ *      goals' clubs past the cap, so the fill never hides a strong match for
+ *      the goal when rows are free; then the fill.
+ *   4. No goal heard: first the clubs whose own facts (name, our `does` line,
+ *      categories) hold the student's words, then the major's clubs, then
+ *      the starter clubs when there are fewer than three. `unknownGoal` tells
+ *      the card to say the planner does not know the goal yet, and the
+ *      starters are labelled general for that student; `empty` when nothing
+ *      but the starters came back.
  *   Identity-centered clubs matched by a heard goal go to `communities`, at
  *   most 3; a major match alone never puts one there, and none is ever in `picks`.
  */
@@ -834,9 +1204,12 @@ export function recommendClubs(data: IllinoisClubsFile, student: ClubStudent | n
     if (!x || picks.includes(x) || picks.length >= limit || (cap && capped(x))) return;
     picks.push(x);
   };
+  // 1. The goals in rounds, at most perGoal each; with no goal heard, the clubs whose own facts match their words.
   for (let round = 0; round < perGoal; round += 1) for (const g of ctx.goals) take(general.find((y) => y.goal === g && !picks.includes(y)));
+  if (ctx.goals.length === 0) for (const x of general) if (ctx.wordHits.has(x.club.id)) take(x);
+  // 2. The last visible row for the best major club, when those filled the visible rows.
   if (options.majorSlot !== false && !goalsOnly && picks.length >= visible && !picks.slice(0, visible).some((x) => x.goal === 'major')) {
-    const major = general.find((y) => y.goal === 'major');
+    const major = general.find((y) => y.goal === 'major' && !ctx.wordHits.has(y.club.id));
     if (major) {
       const at = picks.indexOf(major);
       if (at >= 0) picks.splice(at, 1);
@@ -844,7 +1217,12 @@ export function recommendClubs(data: IllinoisClubsFile, student: ClubStudent | n
       picks.length = Math.min(picks.length, limit);
     }
   }
-  for (const x of general) take(x);
+  // 3. The rest by score, still at most perGoal a goal, but not the weak fill (another subject of the degree, the college);
+  // 4. then the goals' clubs past the cap, so the fill never hides them (six robotics teams behind railway societies);
+  // 5. then the fill.
+  const weakFill = (x: ClubPick) => x.basis === 'degree-subject' || x.basis === 'college';
+  for (const x of general) if (!weakFill(x)) take(x);
+  for (const x of general) if (ctx.goals.includes(x.goal)) take(x, false);
   for (const x of general) take(x, false);
 
   const goals = ctx.goals.map((id) => ({ id, label: ctx.label(id) }));
@@ -852,29 +1230,47 @@ export function recommendClubs(data: IllinoisClubsFile, student: ClubStudent | n
   // Social, Greek and faith clubs never get here: their kind factor is 0.
   const communities = options.communities === false ? [] : scored.filter((x) => x.club.identity && ctx.goals.includes(x.goal)).slice(0, COMMUNITIES);
 
+  const undecided = ctx.goals.length === 0 && !options.only && soundsUndecided(careerText);
+  // Words, no goal the planner knows, and not "still deciding": the card says so plainly.
+  const unknownGoal = Boolean(careerText) && ctx.goals.length === 0 && !options.only && !undecided;
   let empty: ClubResult['empty'];
   if (!careerText) empty = 'no-words';
   else if (picks.length === 0) empty = ctx.goals.length ? 'no-match' : 'unheard';
-  // No goal heard and fewer than three clubs for the major: the starters
-  // after them, while the card asks for a goal.
+  // No goal heard and fewer than three clubs from their words and major: the starters after them. For a
+  // student who named a goal the planner does not know they are general clubs, not "while you decide";
+  // a starter for undeclared students is never shown to a declared major.
   if (ctx.goals.length === 0 && !options.only && picks.length < PER_GOAL) {
     for (const club of [...data.clubs].filter((c) => c.starter).sort((a, b) => a.name.localeCompare(b.name, 'en'))) {
       if (picks.length >= limit || picks.some((x) => x.club.id === club.id)) continue;
-      picks.push({ club, score: 0, goal: 'starter', basis: 'starter', why: 'A good first club while you decide', cautions: cautionsOf(club, student, data.checked), ...eventField(club, today) });
+      if (club.starter === 'undeclared' && student?.primary) continue;
+      const pick: ClubPick = unknownGoal
+        ? { club, score: 0, goal: 'general', basis: 'starter', why: GENERAL_WHY, cautions: cautionsOf(club, student, data.checked), ...eventField(club, today) }
+        : { club, score: 0, goal: 'starter', basis: 'starter', why: STARTER_WHY, cautions: cautionsOf(club, student, data.checked), ...eventField(club, today) };
+      picks.push(pick);
     }
   }
-  const undecided = ctx.goals.length === 0 && !options.only && soundsUndecided(careerText);
-  return { goals, picks, communities, thin, matched, ...(empty ? { empty } : {}), ...(undecided ? { undecided: true as const } : {}) };
+  return {
+    goals,
+    picks,
+    communities,
+    thin,
+    matched,
+    ...(empty ? { empty } : {}),
+    ...(undecided ? { undecided: true as const } : {}),
+    ...(unknownGoal ? { unknownGoal: true as const } : {}),
+  };
 }
 
 /**
  * Picks grouped the way the rail shows them: one heading per goal in the order
- * named, then "For your major", "From what you wrote" and the starters.
+ * named, then "From what you wrote", "For your major", and the starters
+ * ("Good first clubs", or "General clubs" when the goal was not one the
+ * planner knows).
  */
 export function groupPicks(result: ClubResult): Array<{ goal: string; heading: string; picks: ClubPick[] }> {
-  const order = [...result.goals.map((g) => g.id), 'major', 'words', 'starter', 'search'];
+  const order = [...result.goals.map((g) => g.id), 'words', 'major', 'starter', 'general', 'search'];
   const labelOf = new Map(result.goals.map((g) => [g.id, g.label]));
-  const headings: Record<string, string> = { major: 'For your major', words: 'From what you wrote', starter: 'Good first clubs', search: 'Matches' };
+  const headings: Record<string, string> = { major: 'For your major', words: 'From what you wrote', starter: 'Good first clubs', general: 'General clubs', search: 'Matches' };
   return order
     .map((goal) => ({ goal, heading: headings[goal] ?? `For ${labelOf.get(goal) ?? goal}`, picks: result.picks.filter((p) => p.goal === goal) }))
     .filter((g) => g.picks.length > 0);
@@ -919,40 +1315,46 @@ const ASKED_ONLY = new Set<ClubKind>(['social', 'greek-social', 'faith', 'cultur
 const communityNamed = (club: Club, re: RegExp) => re.test(club.name) || (club.affiliations ?? []).some((a) => re.test(a)) || Boolean(club.does && re.test(club.does));
 
 /** The query's words, a light singular, and what each one asks for. */
-function queryWords(query: string): Array<{ word: string; stem: string; ask: Ask | null }> {
+function queryWords(query: string): Array<{ word: string; stem: string; ask: Ask | null; shown: string }> {
   const raw = query.toLowerCase().replace(/a\s+cappella/g, 'cappella').replace(/first[\s-]+gen(eration)?/g, 'first-gen').split(/[^a-z0-9-]+/);
-  const out: Array<{ word: string; stem: string; ask: Ask | null }> = [];
+  const out: Array<{ word: string; stem: string; ask: Ask | null; shown: string }> = [];
   for (const w of raw) {
     const word = w.replace(/^-+|-+$/g, '');
     if (word.length < 3 || STOPWORDS.has(word)) continue;
     if (out.some((x) => x.word === word)) continue;
     const stem = word.length > 4 && /[^s]s$/.test(word) ? word.slice(0, -1) : word;
-    out.push({ word, stem, ask: ASKS.find((a) => a.word.test(word)) ?? null });
+    // "a cappella" is read as one word, and shown as the student wrote it.
+    out.push({ word, stem, ask: ASKS.find((a) => a.word.test(word)) ?? null, shown: word === 'cappella' ? 'a cappella' : word });
   }
   return out;
 }
 
-interface Hit { v: number; why: string }
+/** v: how well; named: the strongest hit on the word itself (name, affiliation, category, our line), not on the kind of club. */
+interface Hit { v: number; why: string; named: number }
 
 /** The best way one query word fits one club, or null. */
-function wordHit(club: Club, q: { word: string; stem: string; ask: Ask | null }, sourceName: string): Hit | null {
+function wordHit(club: Club, q: { word: string; stem: string; ask: Ask | null; shown: string }, sourceName: string): Hit | null {
   const re = new RegExp(`\\b${escapeRe(q.stem)}`, 'i');
-  const hits: Hit[] = [];
-  if (re.test(club.name)) hits.push({ v: 1, why: `Its name matches "${q.word}"` });
+  const hits: Array<{ v: number; why: string; byKind?: true }> = [];
+  if (re.test(club.name)) hits.push({ v: 1, why: `Its name matches "${q.shown}"` });
   if (q.ask?.identity) {
-    if (q.ask.identity.test(club.name)) hits.push({ v: 0.95, why: `Its name matches "${q.word}"` });
+    if (q.ask.identity.test(club.name)) hits.push({ v: 0.95, why: `Its name matches "${q.shown}"` });
     const aff = (club.affiliations ?? []).find((a) => q.ask?.identity?.test(a));
     if (aff) hits.push({ v: 0.85, why: `Affiliated with ${aff}` });
-    if (club.identity && club.does && q.ask.identity.test(club.does)) hits.push({ v: 0.8, why: `Its ${sourceName} page describes a ${q.word} community` });
+    if (club.identity && club.does && q.ask.identity.test(club.does)) hits.push({ v: 0.8, why: `Its ${sourceName} page describes a ${q.shown} community` });
   }
   const aff = (club.affiliations ?? []).find((a) => re.test(a));
   if (aff) hits.push({ v: 0.8, why: `Affiliated with ${aff}` });
-  if (q.ask?.kinds?.includes(club.kind)) hits.push({ v: 0.8, why: kindPhrase(club.kind) });
+  if (q.ask?.kinds?.includes(club.kind)) hits.push({ v: 0.8, why: kindPhrase(club.kind), byKind: true });
   const cat = club.categories.find((c) => re.test(c));
   if (cat) hits.push({ v: 0.7, why: `Listed under ${cat} in ${sourceName}` });
-  if (club.does && re.test(club.does)) hits.push({ v: 0.6, why: `Its ${sourceName} page describes ${q.word}` });
+  if (club.does && re.test(club.does)) hits.push({ v: 0.6, why: `Its ${sourceName} page describes ${q.shown}` });
   if (hits.length === 0) return null;
-  return hits.sort((a, b) => b.v - a.v)[0];
+  const best = hits.sort((a, b) => b.v - a.v)[0];
+  const own = hits.find((h) => !h.byKind);
+  // Found by its kind and by the word itself: say both ("An arts and performance group; its OneIllinois page describes a cappella").
+  const why = best.byKind && own ? `${best.why}; ${own.why.charAt(0).toLowerCase()}${own.why.slice(1)}` : best.why;
+  return { v: best.v, why, named: own?.v ?? 0 };
 }
 
 /**
@@ -989,7 +1391,7 @@ export function searchClubs(data: IllinoisClubsFile, query: string, student: Clu
   const empty: ClubResult = { goals: [], picks: [], communities: [], thin: [], matched: {}, empty: 'no-match' };
   if (words.length === 0) return empty;
   const kindsAsked = new Set(words.flatMap((w) => w.ask?.kinds ?? []));
-  const scored: Array<{ pick: ClubPick; n: number }> = [];
+  const scored: Array<{ pick: ClubPick; n: number; named: number }> = [];
   for (const club of data.clubs) {
     // Identity-centered clubs only when the student asks for that community or kind of group.
     if (club.identity && !asksCommunity && !kindsAsked.has(club.kind)) continue;
@@ -1006,10 +1408,17 @@ export function searchClubs(data: IllinoisClubsFile, query: string, student: Clu
     const sum = found.reduce((n, h) => n + h.v, 0);
     const score = (sum / words.length) * conditionFactor(club, { calendarRead: Boolean(data.calendar), data });
     const why = clip([...new Set(found.sort((a, b) => b.v - a.v).map((h) => h.why))].slice(0, 2).map((w, i) => (i === 0 ? w : w.charAt(0).toLowerCase() + w.slice(1))).join('; '));
-    scored.push({ n: found.length, pick: { club, score, goal: 'search', basis: 'search', why, cautions: cautionsOf(club, student, data.checked), ...eventField(club, today) } });
+    scored.push({ n: found.length, named: Math.max(...found.map((h) => h.named)), pick: { club, score, goal: 'search', basis: 'search', why, cautions: cautionsOf(club, student, data.checked), ...eventField(club, today) } });
   }
   if (scored.length === 0) return empty;
   const most = Math.max(...scored.map((x) => x.n));
-  const picks = dedupe(scored.filter((x) => x.n === most).map((x) => x.pick).sort(byScore)).slice(0, limit);
+  // The clubs that hold the asked word itself come before those that are only the kind asked for: every
+  // a cappella group, even one by audition or not taking sign-ups now, before an improv troupe.
+  const picks = dedupe(
+    scored
+      .filter((x) => x.n === most)
+      .sort((a, b) => b.named - a.named || byScore(a.pick, b.pick))
+      .map((x) => x.pick),
+  ).slice(0, limit);
   return { goals: [], picks, communities: [], thin: [], matched: {} };
 }

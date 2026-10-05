@@ -1,5 +1,5 @@
 {
- "_about": "Hand-checked corrections, keyed by OneIllinois id (DESIGN 2.6, evidence 5). Each entry names the group (tag.mjs warns if the directory renames it or drops it) and may set: audience ('undergrad' | 'both' | 'check' | 'grad' | 'law' | 'med' | 'vet'; the last four drop the group from the file), kind (a ClubKind), identity (true or false: centered on a shared identity, which decides the folded communities row), goalsAdd / goalsRemove (CAREER_TRACKS / INTEREST_TOPICS ids), subjectsAdd (course prefixes in index.json, for a club about the major whose name does not say so), hide (true: never shipped), starter (true: shown to a student with no goal yet; false: never). Every entry says why in `note`, from the group's own directory page or another source named there. First rows written 2026-10-04. Rows added 2026-10-05 (the step-11 check) were read by hand against each group's own directory text in data/clubs/texts.jsonl, locally, with no new requests; their notes paraphrase it.",
+ "_about": "Hand-checked corrections, keyed by OneIllinois id (DESIGN 2.6, evidence 5). Each entry names the group (tag.mjs warns if the directory renames it or drops it) and may set: audience ('undergrad' | 'both' | 'check' | 'grad' | 'law' | 'med' | 'vet'; the last four drop the group from the file), kind (a ClubKind), identity (true or false: centered on a shared identity, which decides the folded communities row), goalsAdd / goalsRemove (CAREER_TRACKS / INTEREST_TOPICS ids), subjectsAdd (course prefixes in index.json, for a club about the major whose name does not say so), hide (true: never shipped), starter (true: shown to a student with no goal yet; 'undeclared': only to one with no major yet, never to a declared major; false: never). Every entry says why in `note`, from the group's own directory page or another source named there. First rows written 2026-10-04. Rows added 2026-10-05 (the step-11 check) were read by hand against each group's own directory text in data/clubs/texts.jsonl, locally, with no new requests; their notes paraphrase it.",
  "checked": "2026-10-04",
  "overrides": {
   "36087": {
@@ -36,9 +36,23 @@
   },
   "36885": {
    "name": "Exploratory Students Association",
-   "starter": true,
+   "starter": "undeclared",
    "kind": "academic",
-   "note": "A starter club for a student with no goal yet (DESIGN 3.4). Kind academic: the Division of Exploratory Studies' own student group for undecided students; it ticked only Social & Leisure."
+   "note": "A starter club for a student with no goal yet (DESIGN 3.4). Kind academic: the Division of Exploratory Studies' own student group for undecided students; it ticked only Social & Leisure. Starter 'undeclared' (2026-10-05, after the spot check): it is the group for students who have not chosen a major, so it is never shown to a declared major."
+  },
+  "36360": {
+   "name": "Venture Capital Association",
+   "goalsRemove": [
+    "investment-banking"
+   ],
+   "note": "Added 2026-10-05 after the spot check. The goal reader files \"venture capital\" under investment banking/corporate finance, so the name alone tagged it; its page is about analyzing startups and due diligence for venture funds, not investment banking or corporate finance. It keeps entrepreneurship (its name) and the finance and consulting goals the reading pass found, so a student who says \"venture capital\" still finds it."
+  },
+  "37024": {
+   "name": "Illinois Political Consulting",
+   "goalsRemove": [
+    "consulting"
+   ],
+   "note": "Added 2026-10-05 after the spot check. Political and campaign consulting is politics, not management consulting: its page is about careers in political consulting. The name rule in tag.mjs already drops consulting for a 'political consulting' name; this row also removes the consulting goal the reading pass found. It keeps politics."
   },
   "37006": {
    "name": "Campus Volunteer Leadership Association",

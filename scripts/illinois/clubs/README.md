@@ -92,7 +92,9 @@ A row may set any of these fields:
 - `subjectsAdd`: course prefixes, for a team about the major whose name does
   not say so, such as Steel Bridge for CEE.
 - `hide`
-- `starter`
+- `starter`: true (shown to a student with no goal yet), `"undeclared"` (only
+  to a student with no major yet: the Exploratory Students Association), or
+  false (never).
 
 Every row needs `name` (the directory's name, so a rename shows up as a
 warning) and `note`.
@@ -322,3 +324,36 @@ and 4: `node lib/planner/__clubs.check.mjs --grades <file>`. What it found:
     pre-health clubs. With 3 picks at most per goal, the robotics student gets
     railway and transportation societies (degree subjects) in rows 6 to 10,
     while six more robotics teams are left out.
+
+  Fixed the same day (re-graded later; the automatic check still passes,
+  gold 24 / 23 / 24, 0 bad picks, 40 of 44 goals):
+  - A club named for a whole family of goals says what it is: "A pre-health
+    club for students heading to health professions", "A professional
+    business fraternity, for students heading into business careers", "The
+    ALPFA chapter, for students heading into accounting/CPA and finance"
+    (`familyLine` in `lib/planner/clubs.ts`).
+  - Words that name no goal the planner knows: the card says so plainly
+    (`unknownGoal`), the clubs whose own facts (name, our `does` line,
+    categories) hold the student's words come first, then the major's, then
+    starters labelled "A general club for any student, not matched to your
+    goal". The word match stems both sides, drops stop words, roles and
+    relatives and any word the goal reader hears as a goal on its own ("my
+    sister is pre-law"), and never counts one generic word: a word in more than
+    30 clubs' facts ("research", in 47) counts for nothing alone. The count
+    alone missed words a goal sentence shares with club lines in passing
+    ("make money" found seven charities that raise money; "open", "travel",
+    "change", "remotely", "coach"), so those are stop words too, and the stem
+    keeps "planes" from "plans", "news" from "new" and "anime" from "animals"
+    (review, same day).
+  - Illinois Political Consulting is politics only (`overrides.json`, and a
+    name rule in `tag.mjs` for "political consulting"); the student's other
+    words break ties, so "management consulting" puts Illinois Consulting
+    Group first.
+  - Another subject of the degree, or the college, fills only after every
+    club for the goal: the robotics student sees eight robotics teams.
+  - The Venture Capital Association is not tagged investment banking
+    (`overrides.json`); a "venture capital" student still finds it under
+    entrepreneurship.
+  - ALMA's search puts every club holding the asked word ("a cappella", even
+    one by audition or not taking sign-ups) before clubs that are only the
+    kind asked for.

@@ -28,7 +28,8 @@
  *      tagged Delta Chi as law ("laws") and steel construction as UX.
  *   5. overrides.json, hand-checked, by id: audience, kind, identity, goals
  *      added or removed, course subjects added (a competition team about the
- *      major whose name does not say so: Steel Bridge -> CEE), hidden, starter.
+ *      major whose name does not say so: Steel Bridge -> CEE), hidden, starter
+ *      (true, or 'undeclared' for a starter only a student with no major sees).
  *
  * Who a group is for (DESIGN 2.5): office accounts and groups for students
  * already in graduate, law, medical or veterinary school are kept in
@@ -251,6 +252,7 @@ export function validateTables({ lists, aliases, nationals, overrides }, { subje
     for (const g of [...(o.goalsAdd ?? []), ...(o.goalsRemove ?? [])]) goal(g, where);
     for (const s of o.subjectsAdd ?? []) subject(s, where);
     if ('identity' in o && typeof o.identity !== 'boolean') problems.push(`${where}: identity is true or false`);
+    if ('starter' in o && ![true, false, 'undeclared'].includes(o.starter)) problems.push(`${where}: starter is true, false or 'undeclared'`);
   }
 
   const mapped = Object.keys(GOAL_CATEGORIES);
@@ -264,11 +266,18 @@ export function validateTables({ lists, aliases, nationals, overrides }, { subje
 // ---------------------------------------------------------------------------
 // one group
 
+/**
+ * Political or campaign consulting is politics, not management consulting: the reader hears both in
+ * "Illinois Political Consulting", and the spot check found it first for a management-consulting student.
+ */
+const POLITICAL_CONSULTING = /\b(political|politics|campaigns?|election|electoral)\s+consult(ing|ants?|ancy)?\b/i;
+
 /** Goal ids a club's name names, through the planner's own reader, plus the club-name aliases. */
 export function nameGoals(name) {
   const p = interestProfile(name);
-  const ids = [...p.tracks.map((t) => t.id), ...p.topics.map((t) => t.id)];
+  let ids = [...p.tracks.map((t) => t.id), ...p.topics.map((t) => t.id)];
   if (PRE_HEALTH.test(name)) ids.push(...HEALTH_TRACKS, 'nursing');
+  if (POLITICAL_CONSULTING.test(name)) ids = [...ids.filter((id) => id !== 'consulting'), 'politics'];
   return [...new Set(ids)];
 }
 
@@ -399,7 +408,8 @@ export function tagGroup(group, ctx) {
 
   let dropped = DROP_FOR[audience] ?? null;
   if (override?.hide) dropped = 'hidden';
-  const starter = override?.starter === true;
+  // true, or 'undeclared': a starter for a student with no major yet only (the Exploratory Students Association).
+  const starter = override?.starter === true || override?.starter === 'undeclared' ? override.starter : null;
 
   return {
     ...row,
@@ -418,7 +428,7 @@ export function tagGroup(group, ctx) {
     colleges: [...colleges],
     lists: listIdx,
     ...(group.missionWords < 15 ? { thin: true } : {}),
-    ...(starter ? { starter: true } : {}),
+    ...(starter ? { starter } : {}),
     missionWords: group.missionWords,
     hash: group.hash,
     firstSeen: group.firstSeen,

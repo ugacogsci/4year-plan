@@ -149,12 +149,20 @@ export function runFindClubs(
     // The rail's list. Its communities row stays with the rail: ALMA raises
     // identity groups only when the student asks for that kind of community.
     result = recommendClubs(data, student, { limit, communities: false, today });
-    scope = result.goals.length ? result.goals.map((g) => g.label).join(', ') : result.picks.some((p) => p.goal === 'major') ? 'your major' : 'getting started';
+    scope = result.goals.length
+      ? result.goals.map((g) => g.label).join(', ')
+      : result.picks.some((p) => p.goal === 'words')
+        ? 'what you wrote'
+        : result.picks.some((p) => p.goal === 'major')
+          ? 'your major'
+          : 'getting started';
   }
 
   const label = new Map(result.goals.map((g) => [g.id, g.label]));
   const forGoal = (p: ClubPick) =>
-    label.get(p.goal) ?? ({ major: 'your major', words: 'what you wrote', starter: 'a first club while you decide', search: query || goalAsked } as Record<string, string>)[p.goal] ?? p.goal;
+    label.get(p.goal) ??
+    ({ major: 'your major', words: 'what you wrote', starter: 'a first club while you decide', general: 'no goal: a general club for any student', search: query || goalAsked } as Record<string, string>)[p.goal] ??
+    p.goal;
   const day = dayOf(today);
   const found = (p: ClubPick): FoundClub => {
     const next = (p.club.events?.next ?? []).find((d) => d >= day);
@@ -193,7 +201,7 @@ export function runFindClubs(
     ...(communities.length ? { communities } : {}),
     ...(thin.length ? { thin } : {}),
     ...(none ? { none: `No club in ${data.source.name} matched ${query ? `"${query}"` : goalAsked ? `"${goalAsked}"` : "the student's goals or major"}. Say so, and give ${data.source.url} to browse every club.` } : {}),
-    note: `Name only these clubs, by these names. Clubs change every year; each club page has the latest.${fresh.stale ? ` The list is from ${fresh.label} and may be out of date: say so.` : ''}${result.undecided ? ' The student says they are still deciding; these are clubs for exploring (their major\'s, or the starter clubs). Say that, not that nothing matched.' : result.empty === 'unheard' ? ' The student\'s words name no goal the planner knows; the list is from their major or the starter clubs.' : ''}`,
+    note: `Name only these clubs, by these names. Clubs change every year; each club page has the latest.${fresh.stale ? ` The list is from ${fresh.label} and may be out of date: say so.` : ''}${result.undecided ? ' The student says they are still deciding; these are clubs for exploring (their major\'s, or the starter clubs). Say that, not that nothing matched.' : result.unknownGoal || result.empty === 'unheard' ? ' The student\'s words name no goal the planner knows yet: say so plainly. The clubs come from their own words (for_goal "what you wrote": the club\'s name or page has those words), their major, or are general clubs; never call one a club for their goal.' : ''}`,
     sources,
   };
 }
