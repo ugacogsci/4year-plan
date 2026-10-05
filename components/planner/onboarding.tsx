@@ -151,7 +151,7 @@ export function Onboarding({
                     rows={3}
                     value={answers[q.key]}
                     placeholder={q.placeholder}
-                    onChange={(e) => setAnswers((a) => ({ ...a, [q.key]: e.target.value }))}
+                    onChange={(e) => setAnswers((a) => ({ ...a, [q.key]: e.target.value, ...(q.key === 'timeline' ? { timelineAt: new Date().toISOString() } : {}) }))}
                   />
                 </label>
               ))}

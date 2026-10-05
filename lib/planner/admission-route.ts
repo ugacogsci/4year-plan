@@ -132,7 +132,7 @@ function illinoisSemestersBefore(record: TranscriptRecord | null | undefined, st
  * any, and otherwise from the class year the student gave: a freshman in a
  * fall is in their first semester, a sophomore in a fall their third.
  */
-export function readEntry(words: string, record: TranscriptRecord | null | undefined, start: TermRef): EntryReading {
+export function readEntry(words: string, record: TranscriptRecord | null | undefined, start: TermRef, began: TermRef | null = null): EntryReading {
   const recordFromElsewhere = Boolean(record) && (record?.kind === 'transfer_report' || record?.home === false) && transcriptResidentHours(record).total === 0;
   const saidTransfer = TRANSFER_WORDS.test(words) || FROM_ANOTHER_COLLEGE.test(words);
   const doneHere = illinoisSemestersBefore(record, start);
@@ -156,6 +156,19 @@ export function readEntry(words: string, record: TranscriptRecord | null | undef
     for (const [re, n] of NTH_SEMESTER) {
       const m = words.match(re);
       if (m) { semester = n; why = `you wrote "${m[0]}"`; break; }
+    }
+  }
+  /**
+   * A student who began before the plan's first term (a Fall 2026 freshman
+   * whose plan starts in Spring 2027, written in October) is in a later
+   * semester there: counting the plan's first term as semester 1 put EU's
+   * application windows a term late.
+   */
+  if (semester === null && began && !/high school senior/i.test(words)) {
+    const passed = start.year * 2 + (start.season === 'Spring' ? 0 : 1) - (began.year * 2 + (began.season === 'Spring' ? 0 : 1));
+    if (passed > 0) {
+      semester = passed + 1;
+      why = `you started in ${began.season} ${began.year}`;
     }
   }
   const year = words.match(FIRST_YEAR_WORDS);

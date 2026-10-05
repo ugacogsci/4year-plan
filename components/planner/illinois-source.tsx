@@ -518,8 +518,8 @@ function exclusionsFrom(full: IllinoisData): Map<string, string[]> {
  * A term in a student's own words: "fall 2027", "Spring '28", "May 2028"
  * (a May or December graduation is the spring or fall term), "Dec 2027".
  */
-const SEASON_WORD = /\b(fall|spring|summer|may|december|dec|august|aug)\s*(?:of\s*)?('\d{2}|20\d\d)\b/gi;
-const MONTH_SEASON: Record<string, SemesterSeason> = { fall: 'Fall', spring: 'Spring', summer: 'Summer', may: 'Spring', december: 'Fall', dec: 'Fall', august: 'Summer', aug: 'Summer' };
+const SEASON_WORD = /\b(fall|spring|summer|may|december|dec|august|aug|january|jan)\s*(?:of\s*)?('\d{2}|20\d\d)\b/gi;
+const MONTH_SEASON: Record<string, SemesterSeason> = { fall: 'Fall', spring: 'Spring', summer: 'Summer', may: 'Spring', december: 'Fall', dec: 'Fall', august: 'Summer', aug: 'Summer', january: 'Spring', jan: 'Spring' };
 
 /** Words that mark a date as the END of the plan. */
 const GRAD_CUE = /\b(graduat\w*|finish\w*|done|complete\w*|walk|out by|degree by|by the end of|aiming for|target\w*|class of)\b/gi;
@@ -603,6 +603,10 @@ const COMMA_JOIN = /^\s*,\s*$/;
 /** "fall 2027 through spring 2029", "Fall 2027 - Spring 2029". */
 const RANGE_JOIN = /^\s*(?:-|–|—|to|through|thru|until|till)\s*$/i;
 const RELATIVE_TERM = /\b(this|next|coming)\s+(fall|spring|summer|semester|term)\b/gi;
+/** An incoming student: one who has not started college yet. */
+const INCOMING = /\b(incoming|high school senior|senior in high school|(?:starting|start|begin|beginning)\s+college|entering (?:freshman|first[- ]year))\b/i;
+/** A student in their first year now: "I'm a freshman", "second semester". */
+const NOW_FIRST_YEAR = /\b(freshman|first[- ]year student|(?:first|second) semester)\b/i;
 
 const WORD_NUMBER: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 
@@ -763,7 +767,7 @@ function cueOfDate(
  * follows it ("I've been hoping to finish in 4 years"). "N more years" and "N
  * years left" are plans whatever came before.
  */
-function spanTerms(timeline: string): number | null {
+function spanTerms(timeline: string): { terms: number; more: boolean } | null {
   const SPAN = /\b(\d{1,2}(?:\.5)?|an?|one|two|three|four|five|six|seven|eight|nine|ten)((?:[\s-]+and[\s-]+a[\s-]+half)|\s*½|\s+1\/2)?(\s*-\s*|\s*)(?:more\s+|full\s+|academic\s+)?(years?|yrs?|semesters?|terms?)\b(\s+and\s+a\s+half)?/gi;
   for (const m of timeline.matchAll(SPAN)) {
     const at = m.index ?? 0;
@@ -788,7 +792,7 @@ function spanTerms(timeline: string): number | null {
     const did = [...clause.matchAll(/\b(took|taken|spent|been|attended|served|worked|working|lived|did|after|used)\b/gi)].pop();
     if (!plainly && did && !/\b(graduat\w*|finish\w*|done|complet\w*|want\w*|plan\w*|hop\w*|aim\w*|need\w*|expect\w*|could|can|should|will|would|gonna|intend\w*|try\w*|take|takes|taking|like|told)\b/i.test(clause.slice((did.index ?? 0) + did[0].length))) continue;
     const terms = Math.round(years ? n * 2 : n);
-    if (terms >= 1) return terms;
+    if (terms >= 1) return { terms, more: plainly };
   }
   return null;
 }
@@ -803,6 +807,51 @@ function earlyTerms(timeline: string): number | null {
   const word = (m[1] ?? m[3]).toLowerCase();
   const unit = (m[2] ?? m[4]).toLowerCase();
   return (WORD_NUMBER[word] ?? Number(word)) * (unit.startsWith('y') ? 2 : 1);
+}
+
+/** Today's date in Champaign, where the add deadline is kept, whatever the device's time zone. */
+function champaignDay(today: Date): { y: number; m: number; d: number } {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(today);
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return { y: part('year'), m: part('month'), d: part('day') };
+}
+
+/**
+ * Illinois's last day to add a full-term course, as [month, day]. Fall 2026
+ * is the registrar's own date (Sept 4); other terms fall near the same day
+ * each year, the second Friday of classes, so a term with no known date uses
+ * Sept 4 or Jan 29. A UGA board uses these too until UGA's calendar is read.
+ */
+const ADD_BY: Record<string, [number, number]> = { 'Fall 2026': [9, 4] };
+function addDeadline(season: SemesterSeason, year: number): [number, number] {
+  return ADD_BY[`${season} ${year}`] ?? (season === 'Fall' ? [9, 4] : [1, 29]);
+}
+
+/**
+ * The first fall or spring a student can still sign up for on `today`. A plan
+ * starts here: in October, adding a Fall class has closed, so the first term
+ * a plan can book is Spring. Before this the planner took the crawled term
+ * (Fall 2026) as "now" all year, and a plan built in October booked a full
+ * load into a term half over.
+ */
+export function firstOpenTerm(today: Date): { season: SemesterSeason; year: number } {
+  const day = champaignDay(today);
+  const onOrBefore = (year: number, [m, d]: [number, number]) => day.y < year || (day.y === year && (day.m < m || (day.m === m && day.d <= d)));
+  for (const t of [{ season: 'Spring' as const, year: day.y }, { season: 'Fall' as const, year: day.y }, { season: 'Spring' as const, year: day.y + 1 }]) {
+    if (onOrBefore(t.year, addDeadline(t.season, t.year))) return t;
+  }
+  return { season: 'Fall', year: day.y + 1 };
+}
+
+/**
+ * The term the calendar is in on `today`: January to May is spring, June and
+ * July summer, August to December fall. "This fall" and "next semester" are
+ * read from it, and so is "is under way": in October Fall 2026 is in session
+ * though no longer open, in January "this fall" is Fall 2027.
+ */
+export function calendarTerm(today: Date): { season: SemesterSeason; year: number } {
+  const day = champaignDay(today);
+  return { season: day.m <= 5 ? 'Spring' : day.m <= 7 ? 'Summer' : 'Fall', year: day.y };
 }
 
 /**
@@ -836,6 +885,11 @@ function earlyTerms(timeline: string): number | null {
 export function readHorizon(
   timeline: string,
   startTerm: { season: SemesterSeason; year: number },
+  calendar: { season: SemesterSeason; year: number } | null = null,
+  known: {
+    /** The earliest Illinois term on the student's record, when one was uploaded. */
+    firstTermOnRecord?: { season: SemesterSeason; year: number } | null;
+  } = {},
 ): {
   startSeason: SemesterSeason;
   startYear: number;
@@ -844,9 +898,20 @@ export function readHorizon(
   stated: boolean;
   away: Array<{ season: SemesterSeason; year: number; kind: AwayKind }>;
   summers: number[];
+  /** The term the student began college in, when it is before the plan's first: the finish counts from it. */
+  began: { season: SemesterSeason; year: number } | null;
+  /** Where `began` came from: the student's own words, their record, or "I'm a freshman" this year. */
+  beganFrom: 'words' | 'record' | 'standing' | null;
+  /** True when the student named their start (a date or "this fall"), false when the plan chose it. */
+  datedStart: boolean;
+  /** True when the plan starts the next fall because the student has not started college yet. */
+  incoming: boolean;
 } {
   const ordOf = (season: SemesterSeason, year: number) => year * 3 + (season === 'Spring' ? 0 : season === 'Summer' ? 1 : 2);
   const nowOrd = ordOf(startTerm.season, startTerm.year);
+  // "This fall", "next semester": counted from the term the calendar is in,
+  // which in October is the fall under way, not the spring a plan starts in.
+  const cal = calendar ?? startTerm;
 
   // Every date in the answer, in the order written.
   const dates: Array<{ season: SemesterSeason; year: number; at: number; end: number; relative: boolean }> = [];
@@ -871,13 +936,13 @@ export function readHorizon(
     const which = m[1].toLowerCase();
     let term: { season: SemesterSeason; year: number };
     if (word === 'semester' || word === 'term') {
-      term = which === 'this' ? { season: startTerm.season, year: startTerm.year } : stepTerms(startTerm.season === 'Summer' ? 'Spring' : startTerm.season, startTerm.year, 1);
+      term = which === 'this' ? { season: cal.season, year: cal.year } : stepTerms(cal.season === 'Summer' ? 'Spring' : cal.season, cal.year, 1);
     } else {
       const season = MONTH_SEASON[word];
       const order = { Spring: 0, Summer: 1, Fall: 2 } as const;
-      const same = order[season] === order[startTerm.season];
-      const later = order[season] < order[startTerm.season] || (same && which !== 'this');
-      term = { season, year: startTerm.year + (later ? 1 : 0) };
+      const same = order[season] === order[cal.season];
+      const later = order[season] < order[cal.season] || (same && which !== 'this');
+      term = { season, year: cal.year + (later ? 1 : 0) };
     }
     dates.push({ ...term, at, end, relative: true });
   }
@@ -976,9 +1041,46 @@ export function readHorizon(
   // first start still ahead is the one that counts, so "I started at Parkland
   // in fall 2024 and will transfer fall 2027" starts in Fall 2027.
   const future = found.find((f) => f.cue === 'start' && ordOf(f.season, f.year) > nowOrd);
-  const startSeason = future ? (future.season === 'Summer' ? 'Fall' : future.season) : startTerm.season;
+  const datedStart = found.some((f) => f.cue === 'start');
+  /**
+   * The term the student began in, when it is before the plan's first. The
+   * plan cannot book it, but "four years" and the default finish count from
+   * it: a freshman who started Fall 2026 and builds a plan in October or in
+   * February still finishes in Spring 2030. In order: the latest start they
+   * dated in the past ("started fall 2026"); the first Illinois term on their
+   * record; and for one who says they are a freshman now, this year's fall.
+   */
+  const regular = (t: { season: SemesterSeason; year: number }) => (t.season === 'Summer' ? { season: 'Fall' as const, year: t.year } : t);
+  const pastStart = future ? null : found.filter((f) => f.cue === 'start' && ordOf(f.season, f.year) < nowOrd).sort((a, b) => ordOf(b.season, b.year) - ordOf(a.season, a.year))[0];
+  const onRecord = known.firstTermOnRecord && ordOf(known.firstTermOnRecord.season, known.firstTermOnRecord.year) < nowOrd ? known.firstTermOnRecord : null;
+  const thisYearsFall = { season: 'Fall' as const, year: cal.season === 'Spring' ? cal.year - 1 : cal.year };
+  const freshmanNow =
+    !future && !datedStart && !INCOMING.test(timeline) && NOW_FIRST_YEAR.test(timeline) &&
+    cal.season !== 'Summer' && ordOf(thisYearsFall.season, thisYearsFall.year) < nowOrd;
+  const began = pastStart ? regular(pastStart) : !future && onRecord ? regular(onRecord) : freshmanNow ? thisYearsFall : null;
+  const beganFrom = pastStart ? 'words' : !future && onRecord ? 'record' : freshmanNow ? 'standing' : null;
+  // An incoming student who names no term starts the next fall once this
+  // fall has closed: in October a high school senior starts Fall 2027. Not
+  // when they name a spring or January, and not when the graduation date they
+  // give leaves fewer than eight falls and springs from that fall.
+  const regularBetween = (a: { season: SemesterSeason; year: number }, b: { season: SemesterSeason; year: number }) =>
+    b.year * 2 + (b.season === 'Spring' ? 0 : 1) - (a.year * 2 + (a.season === 'Spring' ? 0 : 1)) + 1;
+  const gradSaid = found.find((f) => f.cue === 'grad');
+  const incoming =
+    !future && !began && !datedStart && startTerm.season === 'Spring' && INCOMING.test(timeline) &&
+    !/\b(spring|january|jan)\b/i.test(timeline) &&
+    !(gradSaid && regularBetween({ season: 'Fall', year: startTerm.year }, gradSaid) < 8);
+  const startSeason = future ? (future.season === 'Summer' ? 'Fall' : future.season) : incoming ? 'Fall' : startTerm.season;
   const startYear = future?.year ?? startTerm.year;
   const startOrd = ordOf(startSeason, startYear);
+  // Where the finish is counted from: the term begun, else the plan's start.
+  // Four years is eight falls and springs from there (a Spring start ends in
+  // Fall three years on, not a ninth term the next Spring). A default that has
+  // already passed (a student who began long ago) falls back to eight terms
+  // from the plan's start.
+  const base = began ?? { season: startSeason, year: startYear };
+  let defaultEnd = stepTerms(base.season === 'Summer' ? 'Fall' : base.season, base.year, 7);
+  if (ordOf(defaultEnd.season, defaultEnd.year) < startOrd) defaultEnd = stepTerms(startSeason, startYear, 7);
 
   // The end, in order of how plainly the student said it: a date with a
   // graduation word; a span ("finish in four years", "two more years", "4.5
@@ -994,19 +1096,24 @@ export function readHorizon(
   // graduation date on or before the start ("I'll finish at Parkland in spring 2027 and start at Illinois
   // fall 2027. Want to be done in two years.") is some other ending, so it
   // gives way to the span instead of sinking the whole answer.
-  const fits = (f: { season: SemesterSeason; year: number }) => ordOf(f.season, f.year) > startOrd && f.year <= startYear + 8;
+  const fits = (f: { season: SemesterSeason; year: number; cue?: DateCue }) =>
+    (ordOf(f.season, f.year) > startOrd || (f.cue === 'grad' && ordOf(f.season, f.year) === startOrd)) && f.year <= startYear + 8;
   const span = spanTerms(timeline);
   const early = earlyTerms(timeline);
   const notStart = found.filter((f) => f.cue !== 'start');
   const lone = notStart.length === 1 && notStart[0].cue === null && fits(notStart[0]) ? notStart[0] : null;
+  // "Two more years" counts from the plan's start; "four years" from the term begun.
+  const spanFrom = span?.more ? { season: startSeason, year: startYear } : base;
+  const fromSpan = span ? stepTerms(spanFrom.season === 'Summer' ? 'Fall' : spanFrom.season, spanFrom.year, span.terms - 1) : null;
   const end =
     found.find((f) => f.cue === 'grad' && fits(f)) ??
-    (span ? stepTerms(startSeason, startYear, span - 1) : null) ??
-    (early ? stepTerms('Spring', startYear + 4, -early) : null) ??
+    fromSpan ??
+    (early ? stepTerms(defaultEnd.season, defaultEnd.year, -early) : null) ??
     lone;
+  const endSaid = Boolean(end && (('cue' in end && end.cue === 'grad') || end === fromSpan));
 
-  let gradSeason: SemesterSeason = end?.season ?? 'Spring';
-  let gradYear = end?.year ?? startYear + 4;
+  let gradSeason: SemesterSeason = end?.season ?? defaultEnd.season;
+  let gradYear = end?.year ?? defaultEnd.year;
   let stated = Boolean(end);
 
   // A graduation on or before the first term is a misread, not a plan, and
@@ -1015,9 +1122,9 @@ export function readHorizon(
   // its onboarding picker) is kept; Illinois rewrote this with ordOf/startOrd and keeps <= (same-term graduation = misread).
   // Illinois wins: that date resets to Spring start+4. UGA wins: same result, since fits() above already drops it.
   // Keep ordOf/startOrd; to allow it, change both fits() and this check, ideally only for a date the student confirmed.
-  if (ordOf(gradSeason, gradYear) <= startOrd || gradYear > startYear + 8) {
-    gradSeason = 'Spring';
-    gradYear = startYear + 4;
+  if (ordOf(gradSeason, gradYear) < startOrd || (ordOf(gradSeason, gradYear) === startOrd && !endSaid) || gradYear > startYear + 8) {
+    gradSeason = defaultEnd.season;
+    gradYear = defaultEnd.year;
     stated = false;
   }
   const gradOrd = ordOf(gradSeason, gradYear);
@@ -1074,7 +1181,7 @@ export function readHorizon(
   for (const f of found) if (f.cue === 'away' && f.season === 'Summer') summerSet.delete(f.year);
   const summers = [...summerSet].filter((y) => ordOf('Summer', y) > startOrd && ordOf('Summer', y) <= gradOrd).sort((a, b) => a - b);
 
-  return { startSeason, startYear, gradSeason, gradYear, stated, away, summers };
+  return { startSeason, startYear, gradSeason, gradYear, stated, away, summers, began, beganFrom, datedStart, incoming };
 }
 
 // ---------------------------------------------------------------------------

@@ -11738,7 +11738,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
 
   // Past the fourth academic year, counted on the calendar; the count in the
   // note is falls and springs, since summers never made a plan longer.
-  const furthestYear = Math.max(0, ...plannedTerms.map((t) => studyYearOf(terms[t.index])));
+  // A plan that starts in a Spring crosses five academic years in eight
+  // terms (Spring 2027 to Fall 2030), which is four years of study: its
+  // years are counted from that Spring, a spring and the fall after it.
+  const springStart = input.horizon.startSeason === 'Spring';
+  const yearsIn = (term: (typeof terms)[number]) => (springStart ? term.calendarYear - input.horizon.startYear + 1 : studyYearOf(term));
+  const furthestYear = Math.max(0, ...plannedTerms.map((t) => yearsIn(terms[t.index])));
   if (furthestYear > 4) {
     const regularCount = plannedTerms.filter((t) => t.season !== 'Summer').length;
     const YEAR_WORD = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];

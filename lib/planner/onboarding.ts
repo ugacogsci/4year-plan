@@ -157,6 +157,12 @@ export interface OnboardingAnswers {
   schoolId: SchoolId | null;
   studying: string;
   timeline: string;
+  /**
+   * When the timeline answer was last written, so "this fall" and "next
+   * spring" are read against that day, not the day a plan is rebuilt.
+   * Absent on answers saved before it existed.
+   */
+  timelineAt?: string;
   after: string;
   /**
    * What the student already has. Without this the planner is guessing at the

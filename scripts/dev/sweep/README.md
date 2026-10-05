@@ -20,7 +20,10 @@ per metric and every degree and goal that got worse, worst first.
 Environment: `SWEEP_JOBS` (workers), `SWEEP_IDS` (only these degree ids),
 `SWEEP_GOALS`, `SWEEP_LANGS`, `SWEEP_STUDYING` (studying words joined into the
 interests as the workspace does), `SWEEP_PLAIN=1` (build with the plain engine
-the year-one gate compares against), `SWEEP_NOTES=1` (keep plan notes).
+the year-one gate compares against), `SWEEP_NOTES=1` (keep plan notes),
+`SWEEP_START="Spring 2027"` (start there instead of Fall 2026, finishing eight
+falls and springs later: what a student who builds a plan after the fall add
+deadline gets).
 
 To compare against an older commit, sweep a detached worktree of it:
 

@@ -40,6 +40,7 @@
  *   SWEEP_IDS=las/psychology-bslas,…  only these degrees
  *   SWEEP_GOALS='none,medical school' only these goals ('none' is no goal)
  *   SWEEP_LANGS=2                     only these language starts
+ *   SWEEP_START='Spring 2027'         the first term (default Fall 2026); a Spring start finishes Fall three years on
  *   SWEEP_STUDYING='pre-med.'         the student's "what are you studying" words,
  *                                     joined before the goal into interests as
  *                                     planner-workspace.tsx joins them. The
@@ -197,7 +198,14 @@ function load(programId) {
   return { summary, program: adapted.programs[0], blocks };
 }
 
-const FOUR_YEARS = { startSeason: 'Fall', startYear: 2026, gradSeason: 'Spring', gradYear: 2030, stated: true };
+// SWEEP_START="Spring 2027" plans a student who starts that term instead,
+// finishing eight falls and springs later (Spring 2027 -> Fall 2030): what a
+// student building a plan after the fall add deadline gets.
+const START = (process.env.SWEEP_START ?? 'Fall 2026').match(/^(Fall|Spring) (\d{4})$/);
+if (!START) throw new Error(`SWEEP_START must look like "Spring 2027", got ${process.env.SWEEP_START}`);
+const FOUR_YEARS = START[1] === 'Fall'
+  ? { startSeason: 'Fall', startYear: Number(START[2]), gradSeason: 'Spring', gradYear: Number(START[2]) + 4, stated: true }
+  : { startSeason: 'Spring', startYear: Number(START[2]), gradSeason: 'Fall', gradYear: Number(START[2]) + 3, stated: true };
 const FRESHMAN = { courseCodes: [], exemptCodes: [], unmatchedCredits: 0, known: true, languageSemesters: 4, languageName: 'Spanish', genEdCredits: [] };
 const codesOf = (ids) => ids.map((id) => norm(byId.get(id)?.code ?? '')).filter(Boolean);
 const codesOn = (b) => b.terms.flatMap((t) => codesOf(t.courseIds));
@@ -333,6 +341,8 @@ function measure(job) {
    */
   const profile = job.goal ? A.interestProfileOf(job.goal) : null;
   const dated = profile ? profile.tracks.flatMap((track) => track.courses.filter((r) => r.due || r.need === 'required').map((r) => ({ track: track.id, row: r }))) : [];
+  // The planner's own date (autoplan's applicationDue): the last spring before
+  // the last fall, Spring 2029 for a Fall 2026 start and Spring 2030 for Spring 2027.
   const dueLabel = `Spring ${FOUR_YEARS.startYear + 3}`;
   const dueIndex = terms.findIndex((t) => t.label === dueLabel);
   const heldSet = new Set(b.held);
