@@ -266,7 +266,9 @@ if (!index) { console.error('index unreachable'); process.exit(1); }
 const paths = [...new Set([...index.matchAll(/href="(\/undergraduate\/[a-z0-9-]+\/[a-z0-9-]+(?:\/[a-z0-9-]+)?\/)"/g)].map((m) => m[1]))];
 console.log(`${paths.length} program pages`);
 
-const DEGREE = /\b(bs|ba|bfa|bsn|barch|bla|bsba|bslas|bmus|bsw|bse)\b/;
+// BALAS (Economics, English...), BLS, BME, BMA, BASA and BFASA were missing, so
+// 76 majors read with no degree and the picker hid them.
+const DEGREE = /\b(bs|ba|bfa|bsn|barch|bla|bsba|bslas|bmus|bsw|bse|balas|bls|bme|bma|basa|bfasa)\b/;
 const out = [];
 for (const [i, path] of paths.entries()) {
   const html = await get(BASE + path);

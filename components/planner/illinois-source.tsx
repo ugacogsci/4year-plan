@@ -154,7 +154,7 @@ export function loadFullIllinois(): Promise<{
 // ---------------------------------------------------------------------------
 
 /** Degrees a four-year planner can actually plan. */
-const UNDERGRAD = /^(AB|BA|BS|BFA|BLA|BMUS|BSLAS|BSW)$/i;
+const UNDERGRAD = /^(AB|BA|BS|BFA|BLA|BMUS|BSLAS|BSW|BALAS|BLS|BME|BMA|BASA|BFASA)$/i;
 
 export function plannableProgram(p: IllinoisProgramSummary): boolean {
   return UNDERGRAD.test(p.degree) && p.dataStatus === 'catalog' && p.courseCount > 0;
