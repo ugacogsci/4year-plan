@@ -168,9 +168,21 @@ build: each retained 120 total credits (4 earned + 116 planned), 12/12 displayed
 requirements, no scheduled duplicate of CSCI 1301 and no false incomplete-degree
 tab error. The browser reported no JavaScript errors.
 
-Release is the merge titled `Unify Illinois and UGA planners behind shared school
-adapters`, preserving both school histories. Main is fast-forwarded only from a
-clean checkout, pushed without force and checked against the remote commit.
+Integration merge: `1a8a8a7`, titled `Unify Illinois and UGA planners behind
+shared school adapters`, preserving both school histories. Local main was
+fast-forwarded from a clean checkout.
+
+The initial access blocker was resolved on October 4 by authenticating as
+`yount17`; GitHub confirms write access to the repository. At the user's request,
+only the two new, unpublished commits were rewritten to use `yount17` and the
+GitHub no-reply address `242299028+yount17@users.noreply.github.com` for both
+author and committer. The reviewed implementation and both parent histories are
+unchanged; global Git identity settings were not modified.
+
+Release target: `origin/main`, using an ordinary `git push origin main` from the
+original checkout. The final task handoff records the published commit after
+checking that remote main matches local main. No force push or deployment is
+part of this release.
 
 ### Remaining limits and follow-up
 
