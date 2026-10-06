@@ -50,7 +50,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { reqKey, onReleaseRows, pastTarget, startOf, targetOf, loadStatics, readingOf, unmetOn, verdicts, report, makeMeasures } from './gate.mjs';
+import { reqKey, onReleaseRows, pastTarget, startOf, targetOf, loadStatics, readingOf, unmetOn, verdicts, report, makeMeasures, yearOneEnd, comp1InYearOne } from './gate.mjs';
 import { takeAllExclusionPairs } from './takeall.mjs';
 
 const args = process.argv.slice(2);
@@ -93,10 +93,7 @@ const added = (now, was) => {
   return [...new Set(now)].filter((x) => !old.has(x));
 };
 const hardTerms = (r, n) => r.terms.filter((t) => t.hard.length >= n).map((t) => `${t.label}: ${t.hard.join(', ')}`);
-const yearOneEnd = (r) => {
-  const last = r.yearOne[r.yearOne.length - 1]?.label;
-  return r.terms.findIndex((t) => t.label === last);
-};
+// Year one is counted from the plan's own first term (gate.mjs yearOneEnd).
 const afterYearOne = (r, at) => at === null || at === undefined || at.term > yearOneEnd(r);
 const seminarPile = (r) => r.firstTermSeminars.length >= 2;
 const LAB_PAIRS = { ...JSON.parse(readFileSync(new URL('./labpairs.json', import.meta.url), 'utf8')), 'CHEM 105': 'CHEM 104', 'MCB 245': 'MCB 244', 'MCB 247': 'MCB 246', 'MCB 251': 'MCB 250' };
@@ -429,6 +426,8 @@ const changedBoards = pairs.filter(({ x, y }) => JSON.stringify(x.terms.map((t) 
     ['Plans short on Illinois residency hours (300+ under 21)', (r) => (hasRes(r) ? r.filter((b) => (b.residency?.upper ?? 99) < 21).length : 'n/a')],
     ['First-year seminars after year one (LAS 100-102, BUS 101, ENG 100, FAA 101, HK 125)', (r) => sum(r, (b) => lateSeminars(b).length)],
     ['  the same, with the colleges\' orientations (the gate\'s count)', (r) => sum(r, (b) => MEASURES.semLate(b).size)],
+    ["Composition I begun after year one or not on the board (years from the plan's first term)", (r) => r.filter((b) => !comp1InYearOne(b)).length],
+    ["  plans the planner warns 'Composition I after the first year' (also a sequence's second half: CMN 112)", (r) => r.filter((b) => (b.warnKeys ?? []).some((k) => k.startsWith('ap-comp1-late-'))).length],
     ['Courses placed before their prerequisite (order faults)', (r) => sum(r, (b) => (b.orderFaults ?? []).length)],
     ["Pre-med/PT rows late or missing (the release's row list)", (r) => sum(r, (b) => b.trackLate.length + b.trackMissing.length)],
     ['Terms used past the target term', (r) => r.filter(pastTarget).length],

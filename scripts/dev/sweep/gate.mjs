@@ -160,7 +160,31 @@ const atOf = (r) => {
   r.terms.forEach((t, i) => t.codes.forEach((c) => w.set(c, i)));
   return w;
 };
-const yearOneEnd = (r) => r.terms.map((t) => t.label).indexOf(r.yearOne[r.yearOne.length - 1].label);
+/**
+ * The last term of year one, counted from the plan's own first term: its
+ * second fall or spring (a summer between them is year one too). Never the
+ * school's academic year: a Spring 2027 starter's year one is Spring 2027
+ * and Fall 2027, so Fall 2027 is not "year two" for her.
+ */
+export function yearOneEnd(r) {
+  let regular = 0;
+  for (let i = 0; i < r.terms.length; i++) {
+    if (isSummer(r.terms[i])) continue;
+    regular += 1;
+    if (regular === 2) return i;
+  }
+  return r.terms.length - 1;
+}
+/**
+ * Composition I begun in year one (the board's first Composition I course,
+ * sweep.mjs comp1, in a term up to yearOneEnd). The validator's
+ * "Composition I after the first year" warning (ap-comp1-late) names every
+ * Composition I course from the third fall or spring on, so it also names
+ * the second half of a two-term sequence begun in year one: CMN 112 after
+ * CMN 111 for a Spring 2027 starter, whose CMN 111 can only be in Fall 2027.
+ * That is not a year-one loss, and the gate does not count it as one.
+ */
+export const comp1InYearOne = (r) => r.comp1 != null && r.comp1.term <= yearOneEnd(r);
 const minus = (a, b) => [...a].filter((v) => !b.has(v));
 
 export function makeMeasures(S) {
@@ -217,7 +241,10 @@ export function makeMeasures(S) {
   const upper = (r) => r.residency?.upper ?? null;
   const WATCH = /^ap-(priorlearning|offering|duplicate|comp1-late|language-gap|dormant|closed|college|admission|snapshot|standing|rare|exclusion|parts|missing)-/;
   const watched = (r) => {
-    const ks = (r.warnKeys ?? []).filter((k) => WATCH.test(k));
+    // A Composition I warning on a board whose Composition I began in year one
+    // (counted from the plan's first term) is a sequence's second half, not a
+    // late Composition I (comp1InYearOne).
+    const ks = (r.warnKeys ?? []).filter((k) => WATCH.test(k) && !(k.startsWith('ap-comp1-late-') && comp1InYearOne(r)));
     const gaps = ks.filter((k) => k.startsWith('ap-language-gap-')).length;
     return new Set([...ks.filter((k) => !k.startsWith('ap-language-gap-')), ...Array.from({ length: gaps }, (_, n) => `ap-language-gap-${n + 1}`)]);
   };
