@@ -400,6 +400,11 @@ function measure(job) {
     notPlaced: g.notPlaced.map((n) => ({ code: norm(n.code), reason: n.reason, requirementId: n.requirementId ?? null, kind: b.L.blocks.find((r) => r.id === n.requirementId)?.rule.kind ?? null })),
     unsatisfied: g.unsatisfied.map((u) => ({ id: u.requirementId, label: u.label, reason: u.reason })),
     errors: issues.filter((i) => i.severity === 'error').map((i) => ({ id: i.id, message: i.message.slice(0, 200) })),
+    // The board's notes about when courses run: "ran once" (ap-rare), "has not
+    // run recently" (ap-dormant), out of season, not in the schedule snapshot,
+    // several parts of term, closed to the major. The offering record and the
+    // class-times crawl move these, and no other field shows it.
+    offeringIssues: issues.filter((i) => /^ap-(offering|snapshot|dormant|rare|closed|parts)-/.test(i.id)).map((i) => i.id),
     yearOne: yearOne.map((t) => ({ label: t.label, cr: t.cr })),
     hardPerTerm: terms.map((t) => t.hard.length),
     stack2: terms.filter((t) => t.hard.length === 2).length,
