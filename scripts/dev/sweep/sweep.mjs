@@ -41,6 +41,20 @@
  *   SWEEP_GOALS='none,medical school' only these goals ('none' is no goal)
  *   SWEEP_LANGS=2                     only these language starts
  *   SWEEP_START='Spring 2027'         the first term (default Fall 2026); a Spring start finishes Fall three years on
+ *   SWEEP_BLOCKS=0                    skip the reading file (below)
+ *
+ * The reading: beside <out.jsonl> the sweep writes <out>.blocks.jsonl, every
+ * requirement block of every swept degree as this checkout reads its page
+ * (blocks.mjs). compare.mjs judges both boards on the after sweep's reading,
+ * so a board that meets more of a page read correctly is not scored as worse
+ * because the old reading counted something else.
+ *
+ * What each row adds for the three-level verdict (gate.mjs): the start and
+ * target finish, the dated career-track rows the board was held to
+ * (trackRows, so compare can measure both boards with the release's own
+ * list), residency hours, the validator's warning ids (warnKeys), which
+ * course each added prerequisite was booked for (addedBy), and each course
+ * not placed with its requirement's kind.
  *   SWEEP_STUDYING='pre-med.'         the student's "what are you studying" words,
  *                                     joined before the goal into interests as
  *                                     planner-workspace.tsx joins them. The
@@ -116,6 +130,18 @@ if (process.env.SWEEP_WORKER === undefined) {
   writeFileSync(OUT, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
   const threw = rows.filter((r) => r.error).length;
   console.error(`${rows.length} boards (${threw} threw) from ${ROOT} in ${Math.round((Date.now() - started) / 1000)}s with ${n} workers -> ${OUT}`);
+  if (process.env.SWEEP_BLOCKS !== '0') {
+    // The reading these boards were built on, for compare.mjs (blocks.mjs).
+    const blocksOut = OUT.replace(/\.jsonl$/, '') + '.blocks.jsonl';
+    const r = spawnSync(process.execPath, [...process.execArgv, join(fileURLToPath(new URL('.', import.meta.url)), 'blocks.mjs'), ROOT, blocksOut], {
+      env: { ...process.env, SWEEP_IDS: IDS.join(',') },
+      stdio: 'inherit',
+    });
+    if (r.status !== 0) {
+      console.error('the reading file (blocks.mjs) failed');
+      process.exit(1);
+    }
+  }
   process.exit(rows.length === JOBS.length ? 0 : 1);
 }
 
@@ -371,7 +397,7 @@ function measure(job) {
     total: g.credits.total.min,
     beyond: Math.max(0, g.credits.total.min - b.degreeTotal),
     filledToMax: g.notes.some((n) => /^Terms were filled to \d+ credits/.test(n)),
-    notPlaced: g.notPlaced.map((n) => ({ code: norm(n.code), reason: n.reason, requirementId: n.requirementId ?? null })),
+    notPlaced: g.notPlaced.map((n) => ({ code: norm(n.code), reason: n.reason, requirementId: n.requirementId ?? null, kind: b.L.blocks.find((r) => r.id === n.requirementId)?.rule.kind ?? null })),
     unsatisfied: g.unsatisfied.map((u) => ({ id: u.requirementId, label: u.label, reason: u.reason })),
     errors: issues.filter((i) => i.severity === 'error').map((i) => ({ id: i.id, message: i.message.slice(0, 200) })),
     yearOne: yearOne.map((t) => ({ label: t.label, cr: t.cr })),
@@ -396,6 +422,15 @@ function measure(job) {
     orderFaults,
     kept: g.gate?.kept ?? null,
     gateWorse: g.gate?.worse ?? [],
+    // For the three-level verdict (gate.mjs) and compare.mjs.
+    start: `${FOUR_YEARS.startSeason} ${FOUR_YEARS.startYear}`,
+    target: `${FOUR_YEARS.gradSeason} ${FOUR_YEARS.gradYear}`,
+    trackDue: dueLabel,
+    trackRows: dated.map(({ track, row }) => `${track}:${row.codes.join('/')}`),
+    held: b.held,
+    residency: g.residency ? { upper: g.residency.plannedUpper, hours: g.residency.plannedHours, ok: g.residency.ok } : null,
+    warnKeys: issues.filter((i) => i.severity !== 'info').map((i) => i.id.replace(`-${i.termId}-`, '-')),
+    addedBy: (g.addedPrerequisites ?? []).map((p) => [norm(p.code), norm(p.requiredBy)]),
   };
 }
 
