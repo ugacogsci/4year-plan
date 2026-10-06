@@ -37,9 +37,10 @@
  *   more real requirements   -> C losses allowed; a B loss only when the
  *                               arithmetic forces it: credits past the total
  *                               grew by no more than the required credits
- *                               newly placed, and a track row went off only
- *                               when the board has no room under 18 for it
- *                               (a row only later is never forced), and never
+ *                               newly placed, and a track row went off or
+ *                               later only when the board has no room under
+ *                               18 for it and the plan names it as needing a
+ *                               summer or an extra term (degreeFirst), and never
  *                               residency, a term over 18 or a three-hardest
  *                               term; otherwise 'engine work'
  *   same real requirements   -> no B loss (else engine work); a C loss only
@@ -49,7 +50,9 @@
  * Track rows are measured on both boards with the release's own row list
  * (the before sweep's trackRows), so a change to career-tracks.ts cannot move
  * the yardstick: the research's track-aces patch showed 32 unchanged boards
- * "worse" for that reason alone. A requirement split into option lists
+ * "worse" for that reason alone. The one row whose list names fewer ways
+ * than its own description, Composition I (RHET 105, "the CMN 111-112
+ * sequence is another"), is read with the sequence (ROW_SEQUENCES). A requirement split into option lists
  * (::3::0 -> ::3::0::opt1) is the same requirement.
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -129,6 +132,20 @@ export function pastTarget(r) {
  * release's): what sweep.mjs computes from the checkout's own rows, from
  * `rows` instead. Each key is "track:CODE/CODE".
  */
+/**
+ * Sequences that meet a release row as its one course does. The pre-health
+ * Composition I row lists RHET 105 alone, and its own description in
+ * career-tracks.ts says "RHET 105 is one way to meet Composition I (the CMN
+ * 111-112 sequence is another)". The catalog will not credit RHET 105 beside
+ * CMN 111 + CMN 112, so a board that books the sequence for its degree's
+ * Communication Option (the ACES degrees, Animal Sciences) can never add
+ * RHET 105: read by RHET 105 alone, the row was "off the board" on every
+ * such pre-med and pre-PT board, and no engine could have met it. The
+ * sequence meets the row in the term of CMN 112, its second half, and only
+ * with CMN 111 on the board or held.
+ */
+const ROW_SEQUENCES = { 'RHET 105': [['CMN 111', 'CMN 112']] };
+
 export function retrack(r, rows, due) {
   const held = new Set((r.held ?? []).map(norm));
   const termOf = (code) => r.terms.findIndex((t) => t.codes.includes(norm(code)));
@@ -138,7 +155,13 @@ export function retrack(r, rows, due) {
   for (const key of rows) {
     const codes = key.slice(key.indexOf(':') + 1).split('/');
     if (codes.some((c) => held.has(norm(c)))) continue;
+    const sequences = codes.length === 1 ? ROW_SEQUENCES[norm(codes[0])] ?? [] : [];
+    if (sequences.some((seq) => seq.every((c) => held.has(c)))) continue;
     const placed = codes.map(termOf).filter((i) => i >= 0);
+    for (const seq of sequences) {
+      const at = seq.map((c) => (held.has(c) ? -2 : termOf(c)));
+      if (at.every((i) => i !== -1)) placed.push(Math.max(...at));
+    }
     if (placed.length === 0) trackMissing.push(key);
     else if (Math.min(...placed) > dueIndex) trackLate.push({ row: key, label: r.terms[Math.min(...placed)].label });
   }
@@ -160,7 +183,31 @@ const atOf = (r) => {
   r.terms.forEach((t, i) => t.codes.forEach((c) => w.set(c, i)));
   return w;
 };
-const yearOneEnd = (r) => r.terms.map((t) => t.label).indexOf(r.yearOne[r.yearOne.length - 1].label);
+/**
+ * The last term of year one, counted from the plan's own first term: its
+ * second fall or spring (a summer between them is year one too). Never the
+ * school's academic year: a Spring 2027 starter's year one is Spring 2027
+ * and Fall 2027, so Fall 2027 is not "year two" for her.
+ */
+export function yearOneEnd(r) {
+  let regular = 0;
+  for (let i = 0; i < r.terms.length; i++) {
+    if (isSummer(r.terms[i])) continue;
+    regular += 1;
+    if (regular === 2) return i;
+  }
+  return r.terms.length - 1;
+}
+/**
+ * Composition I begun in year one (the board's first Composition I course,
+ * sweep.mjs comp1, in a term up to yearOneEnd). The validator's
+ * "Composition I after the first year" warning (ap-comp1-late) names every
+ * Composition I course from the third fall or spring on, so it also names
+ * the second half of a two-term sequence begun in year one: CMN 112 after
+ * CMN 111 for a Spring 2027 starter, whose CMN 111 can only be in Fall 2027.
+ * That is not a year-one loss, and the gate does not count it as one.
+ */
+export const comp1InYearOne = (r) => r.comp1 != null && r.comp1.term <= yearOneEnd(r);
 const minus = (a, b) => [...a].filter((v) => !b.has(v));
 
 export function makeMeasures(S) {
@@ -217,7 +264,10 @@ export function makeMeasures(S) {
   const upper = (r) => r.residency?.upper ?? null;
   const WATCH = /^ap-(priorlearning|offering|duplicate|comp1-late|language-gap|dormant|closed|college|admission|snapshot|standing|rare|exclusion|parts|missing)-/;
   const watched = (r) => {
-    const ks = (r.warnKeys ?? []).filter((k) => WATCH.test(k));
+    // A Composition I warning on a board whose Composition I began in year one
+    // (counted from the plan's first term) is a sequence's second half, not a
+    // late Composition I (comp1InYearOne).
+    const ks = (r.warnKeys ?? []).filter((k) => WATCH.test(k) && !(k.startsWith('ap-comp1-late-') && comp1InYearOne(r)));
     const gaps = ks.filter((k) => k.startsWith('ap-language-gap-')).length;
     return new Set([...ks.filter((k) => !k.startsWith('ap-language-gap-')), ...Array.from({ length: gaps }, (_, n) => `ap-language-gap-${n + 1}`)]);
   };
@@ -434,13 +484,7 @@ export function verdicts(before, after, reading, S, { splitIds = true } = {}) {
         const have = codesOf(a);
         const newly = [...codesOf(b)].filter((c) => !have.has(c) && named.get(a.id)?.has(c)).reduce((s, c) => s + (S.credits.get(c) ?? 3), 0);
         if ('beyond>1' in w) forced = forced && b.beyond - a.beyond <= newly;
-        if ('track' in w) {
-          const lost = w.track.filter(([, , now]) => now === 99).map(([row]) => row);
-          const need = lost.reduce((s, row) => s + Math.max(...row.split('/').map((c) => S.credits.get(c) ?? 3)), 0);
-          const free = b.terms.filter((t) => !isSummer(t)).reduce((s, t) => s + Math.max(0, 18 - t.cr), 0);
-          const lateOnly = w.track.every(([, , now]) => now !== 99);
-          forced = forced && !lateOnly && need > free;
-        }
+        if ('track' in w) forced = forced && degreeFirst(b, w.track, S);
         if ('residency' in w || 'over18' in w || 'stack3' in w) forced = false;
         v = forced ? 'accept: more requirements, forced deadline/hours cost' : 'fix engine first: more requirements but an avoidable deadline/hours cost';
         for (const m of tierB) {
@@ -467,6 +511,67 @@ export function verdicts(before, after, reading, S, { splitIds = true } = {}) {
   const levels = { accepted: 0, blocked: 0, engine: 0 };
   for (const [v, n] of Object.entries(counts)) levels[levelOf(v)] += n;
   return { changed, strictBlocked, counts, levels, reasons, boards, shape: Object.fromEntries(Object.keys(ta).map((m) => [m, [ta[m], tb[m]]])) };
+}
+
+/**
+ * "The degree beats pre-med/PT when both cannot fit, and the plan then says
+ * which track courses need a summer or an extra term" (the owner's decision
+ * of 2026-10-06), on a board that meets more real requirements: its track
+ * rows late or off the board (`rows`, gateWorse's track entries: row, where
+ * it was, where it is, 99 for off) are a cost the arithmetic forces only when
+ *
+ *   - no row off the board has a seat under 18 anywhere: no fall or spring
+ *     has as many hours to spare as any of its courses, with the lab or
+ *     lecture that goes beside it, after the prerequisites it names (room is
+ *     a term's, not hours summed over terms: a 4-hour CHEM 104 does not fit
+ *     two terms with 2 hours each; a row that fits a term after its date
+ *     belongs there, late, not off the board);
+ *   - each row later than its date had no such seat up to its date;
+ *   - and the board says so: every such row's course is named in the plan's
+ *     own "The degree's own courses come first" sentence, which tells the
+ *     student it needs a summer session or an extra term.
+ *
+ * The research's rule summed the hours to spare over every term and never
+ * counted a row only later as forced.
+ */
+export function degreeFirst(b, rows, S) {
+  const at = atOf(b);
+  const held = new Set((b.held ?? []).map(norm));
+  const regular = b.terms.map((t, i) => ({ i, free: Math.max(0, 18 - t.cr) })).filter((t) => !isSummer(b.terms[t.i]));
+  const lectureOf = (code) => S.labs.get(code) ?? null;
+  const labOf = (code) => [...S.labs].find(([, lec]) => lec === code)?.[0] ?? null;
+  /*
+   * Whether one course of a row has a seat under 18 by `last` (a term
+   * index): a fall or spring with its hours to spare, after every
+   * prerequisite group it names is met on the board (or held), and with its
+   * lab or lecture, which go in one term: a 1-hour IB 151 has no seat on
+   * its own, and CHEM 332 none without the CHEM 232 it names.
+   */
+  const seat = (code, last) => {
+    const lecture = lectureOf(code);
+    const lab = labOf(code);
+    const partner = lecture ?? lab;
+    const partnerAt = partner !== null && at.has(partner) ? at.get(partner) : null;
+    const hours = (S.credits.get(code) ?? 3) + (partner !== null && partnerAt === null && !held.has(partner) ? S.credits.get(partner) ?? 3 : 0);
+    let after = -1;
+    for (const g of S.pre.get(code)?.groups ?? []) {
+      if (g.priorLearning || g.concurrent) continue;
+      const names = g.any.map(norm);
+      if (names.some((c) => held.has(c))) continue;
+      const placed = names.filter((c) => at.has(c)).map((c) => at.get(c));
+      if (placed.length === 0) return false;
+      after = Math.max(after, Math.min(...placed));
+    }
+    return regular.some((t) => t.i > after && t.i <= last && (partnerAt === null || t.i === partnerAt) && t.free >= hours);
+  };
+  const end = b.terms.length - 1;
+  const lost = rows.filter(([, , now]) => now === 99).map(([row]) => row);
+  const late = rows.filter(([, , now]) => now !== 99).map(([row]) => row);
+  if (lost.some((row) => row.split('/').some((c) => seat(norm(c), end)))) return false;
+  const due = b.terms.findIndex((t) => t.label === b.trackDue);
+  if (late.some((row) => row.split('/').some((c) => seat(norm(c), due < 0 ? end : due)))) return false;
+  const said = (b.notes ?? []).flatMap((n) => [...n.matchAll(/The degree's own courses come first, so [^.]*\./g)].map((m) => m[0])).join(' ');
+  return [...lost, ...late].every((row) => row.split('/').some((c) => said.includes(c)));
 }
 
 /** The verdict as text lines. */

@@ -33,6 +33,14 @@ What the scoreboard counts, so a number can be trusted:
   row list (the before sweep's `trackRows`): a change to `career-tracks.ts`
   cannot move the yardstick.
 - A pool counts both halves of a pair (STAT 400 & STAT 410).
+- The release's pre-health Composition I row (RHET 105) is met by the CMN
+  111-112 sequence too, as the row's own description says; the catalog will
+  not credit RHET 105 beside it (gate.mjs ROW_SEQUENCES).
+- Year one is the plan's first two falls and springs, counted from its own
+  first term, never the school's academic year. A validator warning
+  "Composition I after the first year" on a board whose Composition I began
+  in year one (CMN 112 after CMN 111 on a spring start) is not counted as a
+  year-one loss; the scoreboard still shows how many plans carry it.
 - An extra term is worse only when the board now finishes after the
   student's target term.
 - Two sweeps with different start terms are refused (`--mixed-starts`).
@@ -46,6 +54,13 @@ or pre-med/PT rows only when the arithmetic forces it; a board that meets
 fewer real requirements is always blocked. Each changed board is accepted,
 blocked or sent to engine work. On the research's sweeps of the parked split
 (c47de54b -> cdc06dd9) it gives 629 accepted, 5 blocked and 196 engine work.
+
+Pre-med/PT rows late or off the board on a board that meets more real
+requirements are a forced cost only by the owner's "the degree beats
+pre-med/PT" rule (gate.mjs degreeFirst): no course of the row has a seat
+under 18 in any fall or spring (by its date, for a row only later), with its
+lab or lecture beside it and after the prerequisites it names, and the plan's
+own track note names the course as needing a summer or an extra term.
 
 `takeall.mjs <blocks.jsonl>` lists the take-all blocks that hold two courses
 the catalog will not credit together, the mark of an option list read as

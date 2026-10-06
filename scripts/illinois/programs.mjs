@@ -63,6 +63,29 @@ function codeIn(html) {
 }
 
 /**
+ * A code cell that is a course printed as plain text, not a link. The ETMA
+ * Department Foundation opens with "ACES 101", no link, no title, and the
+ * Major Core has "ETMA 339" with 3 hours; codeIn finds no link in either, so
+ * both rows were dropped and the core read 3 hours short. Only a cell that is
+ * nothing but a code: "FSHN 300-400" and "Etma Elective course" are not.
+ */
+function plainCodeIn(cell) {
+  const m = text(cell).match(/^(?:or\s+)?([A-Z]{2,4}) (\d{3})(?:\s*&\s*[A-Z]{2,4} \d{3})*$/);
+  return m ? `${m[1]} ${m[2]}` : null;
+}
+
+/**
+ * The courses a code cell joins to its first with "&". "CMN 111 & CMN 112" is
+ * one choice of two courses, and "or CMN 111 & CMN 112" one alternative of
+ * two; codeIn keeps the first code only, so the pair read as CMN 111 alone and
+ * a plan booked it without CMN 112.
+ */
+function partnersIn(cell) {
+  const [, ...rest] = text(cell).split(/\s*&\s*/);
+  return rest.map((part) => part.match(/^([A-Z]{2,4}) (\d{3})\b/)).filter(Boolean).map((m) => `${m[1]} ${m[2]}`);
+}
+
+/**
  * Hours to graduate, as the catalog states it at the bottom of the page.
  *
  * Not the first "Total Hours" on the page: that is the first requirement
@@ -172,11 +195,19 @@ function parseTables(html) {
       }
 
       const isCourseRow = /<td[^>]*class="[^"]*codecol/.test(row);
-      const code = isCourseRow ? codeIn(row) : null;
+      const codeCell = isCourseRow ? (row.match(/<td[^>]*class="[^"]*codecol[^>]*>([\s\S]*?)<\/td>/)?.[1] ?? '') : '';
+      const linked = isCourseRow ? codeIn(row) : null;
+      const code = linked ?? (isCourseRow ? plainCodeIn(codeCell) : null);
+      // "and": the courses each code is taken with, by code (partnersIn).
+      const partners = code ? partnersIn(codeCell) : [];
       if (/orclass/.test(cls)) {
         // An alternative belongs to the course above it, not to itself.
         const prev = current.courses[current.courses.length - 1];
-        if (prev && code) (prev.or ??= []).push(code);
+        if (prev && code) {
+          (prev.or ??= []).push(code);
+          if (partners.length) (prev.and ??= {})[code] = partners;
+          if (!linked) (prev.unlinked ??= []).push(code);
+        }
         continue;
       }
 
@@ -196,12 +227,28 @@ function parseTables(html) {
           title: titleCell ? inner(titleCell) : '',
           credits: hourCell ? hours(hourCell) : null,
           or: undefined,
+          ...(partners.length ? { and: { [code]: partners } } : {}),
+          // The codes printed as plain text (plainCodeIn), this row's own or an alternative's.
+          ...(linked ? {} : { unlinked: [code] }),
         });
         continue;
       }
 
       const comment = text(row.match(/courselistcomment[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '');
-      if (comment) current.note = current.note ? `${current.note} ${comment}` : comment;
+      if (comment) {
+        current.note = current.note ? `${current.note} ${comment}` : comment;
+        /*
+         * The comment row itself, with its own hours cell and where it sits:
+         * "Calculus Option - Select one of the following:" with 4 hours, before
+         * the three calculus rows. Folded into the note alone, the option lists
+         * of one table read as one list, and every course in them as required
+         * (the ACE Department Foundation booked all three calculus courses).
+         * `at` is the index of the next course row in the group, so a comment's
+         * list is the rows from `at` up to the next comment or row with hours.
+         */
+        const cell = row.match(/class="[^"]*hourscol[^>]*>([\s\S]*?)<\/td>/)?.[1];
+        (current.comments ??= []).push({ text: comment, hours: cell === undefined ? null : hours(cell), hoursText: cell === undefined ? null : text(cell) || null, at: current.courses.length });
+      }
     }
     if (current.courses.length || current.note || current.label) groups.push(current);
     // "Students must take a minimum of (6) six additional technical electives
@@ -243,7 +290,8 @@ if (process.argv[2] === '--parse') {
     for (const g of a.groups) {
       if (g.label) console.log(`   [${g.label}]${g.hours ? ' ' + g.hours + 'h' : ''}${g.choose ? ' choose ' + g.choose : ''}`);
       for (const c of g.courses.slice(0, 6)) {
-        console.log(`     ${c.code.padEnd(10)} ${String(c.credits ?? '?').padStart(3)}h  ${c.title.slice(0, 52)}${c.or ? '  (or ' + c.or.join(', ') + ')' : ''}`);
+        const and = c.and ? '  ' + Object.entries(c.and).map(([k, v]) => [k, ...v].join(' & ')).join('; ') : '';
+        console.log(`     ${c.code.padEnd(10)} ${String(c.credits ?? '?').padStart(3)}h  ${c.title.slice(0, 52)}${c.or ? '  (or ' + c.or.join(', ') + ')' : ''}${and}${c.unlinked ? '  [plain text: ' + c.unlinked.join(', ') + ']' : ''}`);
       }
       if (g.courses.length > 6) console.log(`     ... ${g.courses.length - 6} more`);
     }
@@ -259,11 +307,19 @@ if (process.argv[2] === '--parse') {
   process.exit(0);
 }
 
+// --out <file>: write somewhere other than public/illinois-programs.json (a
+// crawl to compare against the shipped one before anything replaces it).
+// --only <id,id>: only these program ids.
+const flag = (name) => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : null; };
+const OUT_FILE = flag('--out') ?? 'public/illinois-programs.json';
+const ONLY = flag('--only')?.split(',') ?? null;
+
 const index = await get(`${BASE}/undergraduate/`);
 if (!index) { console.error('index unreachable'); process.exit(1); }
 
 // /undergraduate/{college}/{program}/ and one level of concentration under it.
-const paths = [...new Set([...index.matchAll(/href="(\/undergraduate\/[a-z0-9-]+\/[a-z0-9-]+(?:\/[a-z0-9-]+)?\/)"/g)].map((m) => m[1]))];
+const paths = [...new Set([...index.matchAll(/href="(\/undergraduate\/[a-z0-9-]+\/[a-z0-9-]+(?:\/[a-z0-9-]+)?\/)"/g)].map((m) => m[1]))]
+  .filter((p) => !ONLY || ONLY.includes(p.split('/').filter(Boolean).slice(1).join('/')));
 console.log(`${paths.length} program pages`);
 
 // BALAS (Economics, English...), BLS, BME, BMA, BASA and BFASA were missing, so
@@ -302,7 +358,7 @@ const empty = out.filter((p) => !p.courseCount).length;
 if (empty) console.log(`\n!! ${empty} program pages parsed to zero courses`);
 
 mkdirSync('public', { recursive: true });
-writeFileSync('public/illinois-programs.json', JSON.stringify({
+writeFileSync(OUT_FILE, JSON.stringify({
   school: 'illinois', source: `${BASE}/undergraduate/`, fetchedAt: new Date().toISOString(), programs: out,
 }));
 console.log(`\n${out.length} programs, ${out.filter((p) => p.courseCount).length} with course lists`);

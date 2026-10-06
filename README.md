@@ -575,6 +575,20 @@ and first-term seminars after year one from 447 to 227. The cost is build
 time: about 1.7 times a930f09's per board, and about 2 seconds for the
 chemistry degrees, on the page's main thread.
 
+### Degrees held at the release
+
+Option lists inside degree tables are read as choices ("Calculus Option -
+Select one of the following"), and the engine fixes that reading needs are
+kept only where the owner's three-level rule accepts every board against
+the release (`scripts/dev/sweep/gate.mjs`, both a Fall 2026 and a Spring
+2027 start). A degree with any board the rule blocks or sends back for
+engine work is held in `lib/planner/held-degrees.ts`: `READ_AS_RELEASED`
+reads its page as the release read it (`adaptIllinoisPrograms`), and
+`PLANNED_AS_RELEASED` also plans it with the release's engine
+(`autoplan-release.ts`, a verbatim copy), for the degrees whose boards the
+fixes alone would leave failing on the release's reading. Each entry says
+which board did not pass. A degree leaves the list once its boards pass.
+
 ### Known gaps
 
 Year one is not finished for every career-track board. The default pre-med
