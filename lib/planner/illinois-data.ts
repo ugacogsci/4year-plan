@@ -3261,6 +3261,26 @@ export function optionListsIn(
 }
 
 /**
+ * A table headed by one comment row, "Select one of the following groups:",
+ * over sets the page prints as one row each: one set, not hours from a list.
+ *
+ * Secondary Education's Composition I is "Select one of the following
+ * groups:" (4 hours) over RHET 101 & RHET 102, CMN 111 & CMN 112, ESL 111 &
+ * ESL 112 and ESL 115. Read as four hours from a list, the engine counted
+ * CMN 111 at its own three hours and took ESL 111 as well, and once each pick
+ * brought its partner (PlanSlot.together) a Mathematics freshman held twelve
+ * hours of Composition I and lost CI 403, CI 404 and EPSY 485 to them. The
+ * count is the page's and the sets are what it counts; the group's hours stay
+ * on the block for the degree total.
+ */
+function oneSetOf(group: RawProgramGroup, choices: CourseChoice[]): boolean {
+  const comments = group.comments ?? [];
+  if (comments.length !== 1 || comments[0].at !== 0) return false;
+  if (!/\bone of the following (?:groups|sequences|sets)\b/i.test(comments[0].text)) return false;
+  return choices.length > 1 && choices.some((choice) => (choice.bundles?.length ?? 0) > 0);
+}
+
+/**
  * Rows the page joins with "OR" and nothing else: one of them, not all.
  *
  * The LAS orientation row prints "LAS 101 OR LAS 100 OR LAS 102", and the
@@ -3909,7 +3929,10 @@ export function requirementRulesForArea(
     let rule: RequirementRule;
     if (r.rows.length > 0) {
       const choices = choicesFrom(r.rows, byCode, [r.label, r.group.note ?? ''].join(' '));
-      if (r.isList || (r.ownChoose !== null && r.ownHours !== null)) {
+      if (oneSetOf(r.group, choices)) {
+        // One of the sets, whatever its hours (oneSetOf).
+        rule = { kind: 'choose', n: 1, choices };
+      } else if (r.isList || (r.ownChoose !== null && r.ownHours !== null)) {
         pools += 1;
         rule = {
           kind: 'pool',
