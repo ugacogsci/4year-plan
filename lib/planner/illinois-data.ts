@@ -578,7 +578,17 @@ export interface PoolConstraint {
 
 export type RequirementRule =
   | { kind: 'all'; choices: CourseChoice[] }
-  | { kind: 'choose'; n: number; choices: CourseChoice[] }
+  | {
+      kind: 'choose';
+      n: number;
+      choices: CourseChoice[];
+      /**
+       * A list split out of a table of required rows (optionListsIn), "Select
+       * three courses from the following": read before the split as a pool,
+       * or as rows to take, and picked from as a pool picks.
+       */
+      list?: boolean;
+    }
   /**
    * "Take N hours, or N courses, from this list."
    *
@@ -4069,7 +4079,7 @@ export function requirementRulesForArea(
         const label = [r.label || area.label || '', list.text].filter(Boolean).join(': ');
         let optionRule: RequirementRule;
         if (list.n !== null) {
-          optionRule = { kind: 'choose', n: list.n, choices };
+          optionRule = { kind: 'choose', n: list.n, choices, list: true };
         } else {
           pools += 1;
           optionRule = { kind: 'pool', hours: list.hours, n: null, choices, lists: [{ label: list.text, codes: choices.flatMap((c) => c.codes) }], constraints: [], from: 'group', label: list.text };
