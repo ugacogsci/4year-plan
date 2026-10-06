@@ -7846,7 +7846,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   /** Rows with a course in the catalog that nothing in this plan could book: the credit rule shut them. */
   const trackShut: string[] = [];
   /** Each track's note, by its place in `notes`, finished once the board is final. */
-  const trackNotes: Array<{ track: CareerTrack; at: number; head: string }> = [];
+  const trackNotes: Array<{ track: CareerTrack; at: number; head: string; missed: string[] }> = [];
   if (input.degreeTotal != null && tracks.length > 0 && terms.length > 0) {
     const inPlan = (c: string) => satisfiedForPrereq.has(c) || chosen.has(c);
     const claimed = new Set(tracks.flatMap((t) => t.courses.filter((r) => r.need !== 'suggested').flatMap((r) => r.codes.map(normaliseCode))));
@@ -10492,6 +10492,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       // courses between terms.
       trackNotes.push({
         track,
+        missed,
         at: notes.length,
         head: `${track.name}: ${booked.length > 0 ? `the plan books ${booked.join(', ')} as electives` : 'no elective room was left for the courses'} from ${track.source.title} (${track.source.url})${trackHeld.length > 0 ? `; you already hold ${[...new Set(trackHeld)].join(', ')}` : ''}${missed.length > 0 ? `; ${missed.join(', ')} did not fit, so plan them with your advisor` : ''}.${shut.length > 0 ? ` ${shut.join('. ')}.` : ''}`,
       });
@@ -13015,16 +13016,30 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     return `the degree's own courses took the room in ${span} first`;
   };
 
-  if (applicationDue !== null) {
-    for (const { track, at, head } of trackNotes) {
-      const late = [...trackRowOf]
-        .filter(([code, r]) => r.track === track && dueOf(r.row) && termOfCode(code) > applicationDue)
-        .map(([code, r]) => {
-          const due = dueOf(r.row) === 'exam' && track.exam ? `before the ${track.exam.name}` : 'before applications go out';
-          return `${code} lands in ${terms[termOfCode(code)].label}, after ${terms[applicationDue].label}, the last term ${due}: ${lateWhy(code, applicationDue)}`;
-        });
-      if (late.length > 0) notes[at] = `${head} ${late.join('. ')}. ${track.note}`;
-    }
+  /*
+   * The degree comes first (the owner's rule of 2026-10-06): where the
+   * degree's own courses and a track's rows cannot all fit, the board keeps
+   * the degree, and the track's note says which of the track's courses need a
+   * summer session or an extra term: the ones that did not fit at all, and
+   * the ones that land after their date, which a summer before it keeps on
+   * time. Said once the board is final, from where each course really sits.
+   */
+  const degreeFirst = (track: CareerTrack, missed: string[], lateCodes: string[]): string => {
+    const off = [...new Set(missed)].filter((code) => termOfCode(code) < 0);
+    const list = (codes: string[]) => (codes.length <= 1 ? codes.join('') : `${codes.slice(0, -1).join(', ')} and ${codes[codes.length - 1]}`);
+    const parts: string[] = [];
+    if (off.length > 0) parts.push(`${list(off)} ${off.length === 1 ? 'needs' : 'need'} a summer session or an extra term`);
+    if (lateCodes.length > 0 && applicationDue !== null) parts.push(`${list(lateCodes)} ${lateCodes.length === 1 ? 'needs' : 'need'} a summer session before ${terms[applicationDue].label} to be on time`);
+    return parts.length > 0 ? ` The degree's own courses come first, so for ${track.name} ${parts.join(', and ')}.` : '';
+  };
+  for (const { track, at, head, missed } of trackNotes) {
+    const lateRows = applicationDue === null ? [] : [...trackRowOf].filter(([code, r]) => r.track === track && dueOf(r.row) && termOfCode(code) > applicationDue);
+    const late = lateRows.map(([code, r]) => {
+      const due = dueOf(r.row) === 'exam' && track.exam ? `before the ${track.exam.name}` : 'before applications go out';
+      return `${code} lands in ${terms[termOfCode(code)].label}, after ${terms[applicationDue as number].label}, the last term ${due}: ${lateWhy(code, applicationDue as number)}`;
+    });
+    const first = degreeFirst(track, missed, lateRows.map(([code]) => code));
+    if (late.length > 0 || first) notes[at] = `${head}${late.length > 0 ? ` ${late.join('. ')}.` : ''}${first} ${track.note}`;
   }
 
   // After every move: the one place a landing course can grow without
