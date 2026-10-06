@@ -33,6 +33,14 @@ What the scoreboard counts, so a number can be trusted:
   row list (the before sweep's `trackRows`): a change to `career-tracks.ts`
   cannot move the yardstick.
 - A pool counts both halves of a pair (STAT 400 & STAT 410).
+- The release's pre-health Composition I row (RHET 105) is met by the CMN
+  111-112 sequence too, as the row's own description says; the catalog will
+  not credit RHET 105 beside it (gate.mjs ROW_SEQUENCES).
+- Year one is the plan's first two falls and springs, counted from its own
+  first term, never the school's academic year. A validator warning
+  "Composition I after the first year" on a board whose Composition I began
+  in year one (CMN 112 after CMN 111 on a spring start) is not counted as a
+  year-one loss; the scoreboard still shows how many plans carry it.
 - An extra term is worse only when the board now finishes after the
   student's target term.
 - Two sweeps with different start terms are refused (`--mixed-starts`).

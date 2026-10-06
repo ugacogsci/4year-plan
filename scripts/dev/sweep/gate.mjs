@@ -49,7 +49,9 @@
  * Track rows are measured on both boards with the release's own row list
  * (the before sweep's trackRows), so a change to career-tracks.ts cannot move
  * the yardstick: the research's track-aces patch showed 32 unchanged boards
- * "worse" for that reason alone. A requirement split into option lists
+ * "worse" for that reason alone. The one row whose list names fewer ways
+ * than its own description, Composition I (RHET 105, "the CMN 111-112
+ * sequence is another"), is read with the sequence (ROW_SEQUENCES). A requirement split into option lists
  * (::3::0 -> ::3::0::opt1) is the same requirement.
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -129,6 +131,20 @@ export function pastTarget(r) {
  * release's): what sweep.mjs computes from the checkout's own rows, from
  * `rows` instead. Each key is "track:CODE/CODE".
  */
+/**
+ * Sequences that meet a release row as its one course does. The pre-health
+ * Composition I row lists RHET 105 alone, and its own description in
+ * career-tracks.ts says "RHET 105 is one way to meet Composition I (the CMN
+ * 111-112 sequence is another)". The catalog will not credit RHET 105 beside
+ * CMN 111 + CMN 112, so a board that books the sequence for its degree's
+ * Communication Option (the ACES degrees, Animal Sciences) can never add
+ * RHET 105: read by RHET 105 alone, the row was "off the board" on every
+ * such pre-med and pre-PT board, and no engine could have met it. The
+ * sequence meets the row in the term of CMN 112, its second half, and only
+ * with CMN 111 on the board or held.
+ */
+const ROW_SEQUENCES = { 'RHET 105': [['CMN 111', 'CMN 112']] };
+
 export function retrack(r, rows, due) {
   const held = new Set((r.held ?? []).map(norm));
   const termOf = (code) => r.terms.findIndex((t) => t.codes.includes(norm(code)));
@@ -138,7 +154,13 @@ export function retrack(r, rows, due) {
   for (const key of rows) {
     const codes = key.slice(key.indexOf(':') + 1).split('/');
     if (codes.some((c) => held.has(norm(c)))) continue;
+    const sequences = codes.length === 1 ? ROW_SEQUENCES[norm(codes[0])] ?? [] : [];
+    if (sequences.some((seq) => seq.every((c) => held.has(c)))) continue;
     const placed = codes.map(termOf).filter((i) => i >= 0);
+    for (const seq of sequences) {
+      const at = seq.map((c) => (held.has(c) ? -2 : termOf(c)));
+      if (at.every((i) => i !== -1)) placed.push(Math.max(...at));
+    }
     if (placed.length === 0) trackMissing.push(key);
     else if (Math.min(...placed) > dueIndex) trackLate.push({ row: key, label: r.terms[Math.min(...placed)].label });
   }
