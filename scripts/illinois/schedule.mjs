@@ -21,28 +21,41 @@
  * is a documented failure mode of the answer engine at this school, so it is
  * captured per section rather than assumed to be "1".
  *
- * Output: public/illinois-sections.json
+ * Output: one file per term, public/illinois-sections-<term id>.json, for
+ * example public/illinois-sections-sp2027.json. Fall 2026 was crawled before
+ * terms had files of their own and lives at public/illinois-sections.json,
+ * which the build still reads; this script never writes that file. The first
+ * version did: its output path was fixed, so a run after Spring 2027 was
+ * published would have replaced the Fall 2026 data after its first subject.
+ *
+ *   node scripts/illinois/schedule.mjs                     newest published term
+ *   node scripts/illinois/schedule.mjs --term sp2027       one named term (fa, sp, su + year)
+ *   node scripts/illinois/schedule.mjs --term sp2027 --subjects CS,REL   a trial on two subjects
+ *   node scripts/illinois/schedule.mjs --term sp2027 --fresh            re-crawl a finished term
+ *
+ * Besides the sections, the file keeps every subject's course list as the
+ * subject page printed it (`listed`), which is exactly the term's offering
+ * record, so offerings.mjs reads it instead of asking for the same 186 pages
+ * again.
+ *
+ * Resuming. A full term is about 4,600 requests and two hours, so progress is
+ * written after every subject to <output>.partial and a rerun picks up where
+ * it stopped. The real file is replaced only when every subject has been read,
+ * so a re-crawl that dies halfway leaves yesterday's complete file in place.
  */
-import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { politeGet, sleep } from './polite-get.mjs';
 
-const UA = 'TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)';
-const BASE = 'https://courses.illinois.edu/schedule';
+const BASE = process.env.ILLINOIS_SCHEDULE_BASE ?? 'https://courses.illinois.edu/schedule';
 const DELAY = 900;
-const OUT = 'public/illinois-sections.json';
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function get(url) {
-  for (let a = 0; a < 3; a++) {
-    try {
-      const res = await fetch(url, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(40_000) });
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error(String(res.status));
-      return await res.text();
-    } catch (e) { if (a === 2) return null; await sleep(3000 * (a + 1)); }
-  }
-  return null;
-}
+/**
+ * A "busy, try later" reply (HTTP 202 with an empty body) used to be read as a
+ * page with no sections, so a busy course was skipped and a busy subject came
+ * back empty, with nothing in the log. politeGet backs off and retries instead,
+ * and a page it still could not read is recorded as unread, not as empty.
+ */
+const get = (url) => politeGet(url);
 
 const ent = (s) => s
   .replace(/&#160;|&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
@@ -205,71 +218,178 @@ if (process.argv[2] === '--parse') {
   process.exit(0);
 }
 
-/** Newest term with a subject list. Runs in September, so fall of this year is the live one. */
+// ---------------------------------------------------------------------------
+// Which term, which file
+// ---------------------------------------------------------------------------
+
+const args = process.argv.slice(2);
+const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const FRESH = args.includes('--fresh');
+const SEASON_OF_ID = { fa: 'fall', sp: 'spring', su: 'summer' };
+const ID_OF_SEASON = { fall: 'fa', spring: 'sp', summer: 'su' };
+
+/**
+ * The subjects a term's index page links to, or null when it links none. Live
+ * and upcoming terms print their list; past terms and not-yet-published ones
+ * do not, which is how the newest published term is found.
+ */
+async function subjectList(y, t) {
+  const html = await get(`${BASE}/${y}/${t}`);
+  await sleep(DELAY);
+  if (!html) return null;
+  const subjects = [...new Set([...html.matchAll(new RegExp(`href="/schedule/${y}/${t}/([A-Z]{2,4})/?"`, 'g'))].map((m) => m[1]))];
+  return subjects.length > 50 ? subjects : null;
+}
+
+/**
+ * Newest term with a subject list, newest first. In October that is next
+ * spring, not this fall: Spring 2027 is published before Fall 2027, so a run
+ * on 2026-10-06 finds Spring 2027 (Fall 2027 has no list until about March).
+ */
 async function findTerm() {
   const year = new Date().getFullYear();
   for (const y of [year + 1, year, year - 1]) {
-    for (const t of ['fall', 'spring', 'summer', 'winter']) {
-      const html = await get(`${BASE}/${y}/${t}`);
-      await sleep(400);
-      if (html && /href="\/schedule\/\d{4}\/\w+\/[A-Z]{2,4}"/.test(html)) {
-        const subjects = [...new Set([...html.matchAll(new RegExp(`href="/schedule/${y}/${t}/([A-Z]{2,4})"`, 'g'))].map((m) => m[1]))];
-        if (subjects.length > 50) return { year: y, term: t, subjects };
-      }
+    for (const t of ['fall', 'summer', 'spring']) {
+      const subjects = await subjectList(y, t);
+      if (subjects) return { year: y, term: t, subjects };
     }
   }
   return null;
 }
 
-const found = await findTerm();
+let found;
+const termArg = flag('--term');
+if (termArg) {
+  const m = termArg.match(/^(fa|sp|su)(\d{4})$/);
+  if (!m) { console.error(`--term takes a term id like sp2027 or fa2026, not "${termArg}"`); process.exit(2); }
+  const y = Number(m[2]);
+  const t = SEASON_OF_ID[m[1]];
+  const subjects = await subjectList(y, t);
+  if (!subjects) { console.error(`${t} ${y}: the Course Explorer lists no subjects for it, so there is nothing to crawl`); process.exit(1); }
+  found = { year: y, term: t, subjects };
+} else {
+  found = await findTerm();
+}
 if (!found) { console.error('no term with a subject list'); process.exit(1); }
 const { year, term, subjects } = found;
-console.log(`term ${term} ${year}, ${subjects.length} subjects`);
+const termId = `${ID_OF_SEASON[term]}${year}`;
+const OUT = `public/illinois-sections-${termId}.json`;
+const WORK = `${OUT}.partial`;
 
-// Resume on rerun: 9,000+ requests is long enough that losing the lot to one
-// crash is a real cost, so the file is written every subject and reread here.
-const done = new Map();
-if (existsSync(OUT)) {
-  try {
-    const prev = JSON.parse(readFileSync(OUT, 'utf8'));
-    if (prev.year === year && prev.term === term) for (const c of prev.courses ?? []) done.set(c.code, c);
-    if (done.size) console.log(`resuming, ${done.size} courses already captured`);
-  } catch {}
+const only = flag('--subjects')?.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean) ?? null;
+if (only) {
+  const unknown = only.filter((s) => !subjects.includes(s));
+  if (unknown.length) { console.error(`not on the ${term} ${year} subject list: ${unknown.join(', ')}`); process.exit(2); }
+}
+const runSubjects = only ? subjects.filter((s) => only.includes(s)) : subjects;
+console.log(`term ${term} ${year} (${termId}), ${subjects.length} subjects${only ? `, this run reads ${runSubjects.join(', ')}` : ''} -> ${OUT}`);
+
+// ---------------------------------------------------------------------------
+// Resume
+// ---------------------------------------------------------------------------
+
+const readJson = (path) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
+const sameTerm = (f) => f !== null && f.year === year && f.term === term;
+const work = !FRESH && existsSync(WORK) ? readJson(WORK) : null;
+const out = existsSync(OUT) ? readJson(OUT) : null;
+let prev = null;
+if (sameTerm(work)) {
+  prev = work;
+  console.log(`resuming ${WORK}`);
+} else if (!FRESH && sameTerm(out) && !out.complete) {
+  prev = out;
+  console.log(`resuming the unfinished ${OUT}`);
+} else if (!FRESH && sameTerm(out) && out.complete) {
+  console.log(`${OUT} is already a complete crawl of ${term} ${year}, fetched ${out.fetchedAt}. Pass --fresh to crawl it again; the file is replaced only when the new crawl finishes.`);
+  process.exit(0);
 }
 
-const courses = [...done.values()];
-let n = 0;
-for (const [si, subj] of subjects.entries()) {
-  const list = await get(`${BASE}/${year}/${term}/${subj}`);
-  await sleep(DELAY);
-  if (!list) { console.log(`${subj}: unreachable`); continue; }
-  const nums = [...new Set([...list.matchAll(new RegExp(`href="/schedule/${year}/${term}/${subj}/(\\d{3})"`, 'g'))].map((m) => m[1]))];
+/** Courses with at least one section row, in crawl order. */
+const courses = prev?.courses ?? [];
+/** SUBJ -> the course numbers its subject page listed: this term's offering record. */
+const listed = prev?.listed ?? {};
+/** Course pages that were read and showed no section rows. Real, but rare enough to name. */
+const noSections = new Set(prev?.noSections ?? []);
+const done = new Set(courses.map((c) => c.code));
+const startedAt = prev?.startedAt ?? new Date().toISOString();
+if (prev) console.log(`  ${done.size} courses already captured, ${Object.keys(listed).length} subject lists already read`);
 
-  let added = 0, withRoom = 0;
+const pending = (subj) => (listed[subj] ?? []).map((num) => `${subj} ${num}`).filter((code) => !done.has(code) && !noSections.has(code));
+
+/**
+ * Complete means every subject on the term's index was read and every course
+ * it listed was read. Unread pages are named in the file, so a gap is a line
+ * in the output rather than a missing subject nobody notices.
+ */
+function body() {
+  const unreadSubjects = subjects.filter((s) => !listed[s]);
+  const unreadCourses = subjects.flatMap(pending);
+  return {
+    school: 'illinois',
+    source: `${BASE}/${year}/${term}`,
+    year,
+    term,
+    startedAt,
+    fetchedAt: new Date().toISOString(),
+    complete: unreadSubjects.length === 0 && unreadCourses.length === 0,
+    subjects,
+    unread: { subjects: unreadSubjects, courses: unreadCourses },
+    noSections: [...noSections],
+    listed,
+    courses,
+  };
+}
+const save = () => { mkdirSync('public', { recursive: true }); writeFileSync(WORK, JSON.stringify(body())); };
+
+// ---------------------------------------------------------------------------
+// Crawl
+// ---------------------------------------------------------------------------
+
+let n = 0;
+let carried = 0;
+for (const [si, subj] of runSubjects.entries()) {
+  const tag = `${String(si + 1).padStart(3)}/${runSubjects.length} ${subj.padEnd(5)}`;
+  if (listed[subj] && pending(subj).length === 0) { carried += 1; continue; }
+
+  if (!listed[subj]) {
+    const list = await get(`${BASE}/${year}/${term}/${subj}`);
+    await sleep(DELAY);
+    if (!list) { console.log(`${tag} subject page could not be read; left unread for a rerun`); save(); continue; }
+    listed[subj] = [...new Set([...list.matchAll(new RegExp(`href="/schedule/${year}/${term}/${subj}/(\\d{3})"`, 'g'))].map((m) => m[1]))];
+    if (listed[subj].length === 0) console.log(`  !! ${subj}: the subject page lists no courses`);
+  }
+  const nums = listed[subj];
+
+  let added = 0, withRoom = 0, unread = 0;
   for (const num of nums) {
     const code = `${subj} ${num}`;
-    if (done.has(code)) continue;
+    if (done.has(code) || noSections.has(code)) continue;
     const html = await get(`${BASE}/${year}/${term}/${subj}/${num}`);
     await sleep(DELAY);
-    if (!html) continue;
+    if (!html) { unread += 1; continue; }
     const sections = parseCourse(html);
-    if (!sections.length) continue;
+    if (!sections.length) { noSections.add(code); continue; }
     const row = { code, subject: subj, number: num, sections };
-    courses.push(row); done.set(code, row);
+    courses.push(row); done.add(code);
     added++; if (sections.some((s) => s.building)) withRoom++;
   }
-  if (nums.length && !added && !nums.some((x) => done.has(`${subj} ${x}`))) {
+  if (nums.length && nums.every((x) => noSections.has(`${subj} ${x}`))) {
     console.log(`  !! ${subj}: ${nums.length} courses listed, zero sections parsed. Parser is wrong, not the data.`);
   }
   n += added;
-  console.log(`${String(si + 1).padStart(3)}/${subjects.length} ${subj.padEnd(5)} ${String(nums.length).padStart(3)} courses  +${String(added).padStart(3)} new  ${String(withRoom).padStart(3)} with a room`);
-
-  mkdirSync('public', { recursive: true });
-  writeFileSync(OUT, JSON.stringify({
-    school: 'illinois', source: `${BASE}/${year}/${term}`, year, term,
-    fetchedAt: new Date().toISOString(), courses,
-  }));
+  console.log(`${tag} ${String(nums.length).padStart(3)} courses  +${String(added).padStart(3)} new  ${String(withRoom).padStart(3)} with a room${unread ? `  ${unread} unread` : ''}`);
+  save();
 }
 
+const final = body();
+writeFileSync(WORK, JSON.stringify(final));
+const runUnread = runSubjects.filter((s) => !listed[s]).length + runSubjects.flatMap(pending).length;
+if (runUnread === 0) {
+  renameSync(WORK, OUT);
+  console.log(`\nwrote ${OUT}${final.complete ? ' (complete)' : ` (${subjects.filter((s) => !listed[s]).length} of ${subjects.length} subjects not read yet)`}`);
+} else {
+  console.log(`\n${runUnread} pages could not be read. Progress is in ${WORK}; rerun the same command to finish. ${OUT} was not touched.`);
+}
 const secs = courses.flatMap((c) => c.sections);
-console.log(`\n${courses.length} courses, ${secs.length} sections, ${secs.filter((s) => s.building).length} with a building, ${new Set(secs.map((s) => s.building).filter(Boolean)).size} distinct buildings`);
+console.log(`${courses.length} courses, ${secs.length} sections, ${secs.filter((s) => s.building).length} with a building, ${new Set(secs.map((s) => s.building).filter(Boolean)).size} distinct buildings`);
+console.log(`${Object.keys(listed).length} of ${subjects.length} subject lists read, ${Object.values(listed).reduce((a, l) => a + l.length, 0)} course listings, ${noSections.size} listed courses with no section rows${carried ? `, ${carried} subjects carried from the earlier run` : ''}, ${n} courses added this run`);
