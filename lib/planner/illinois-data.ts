@@ -15,6 +15,7 @@ import type {
 } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
 import { registrationFits } from './meeting-fit.ts';
+import { READ_AS_RELEASED } from './held-degrees.ts';
 
 /**
  * Real Illinois data, adapted into the planner's shapes.
@@ -2682,6 +2683,13 @@ const PARTIAL_FULFILMENT = /\b(?:any other|one more|another|one additional|other
  * them once rather than booking six more hours of science on top of the physics
  * the student is already taking.
  */
+/** True while adaptIllinoisPrograms reads a degree in READ_AS_RELEASED. */
+let readingAsReleased = false;
+/** A program with its tables' comment rows left unread, as the release read it. */
+function asReleasedProgram(raw: RawIllinoisProgram): RawIllinoisProgram {
+  return { ...raw, areas: raw.areas?.map((area) => ({ ...area, groups: area.groups.map((group) => { const { comments: _unread, ...rest } = group; return rest; }) })) };
+}
+
 export function genEdRulesFromText(text: string): GenEdCategoryRule[] {
   const source = (text ?? '').replace(/\s+/g, ' ').trim();
   if (!source) return [];
@@ -2707,13 +2715,23 @@ export function genEdRulesFromText(text: string): GenEdCategoryRule[] {
    * heading and read ACE 100 and ECON 103 as its own science.
    */
   const earliest = new Map<string, { at: number; length: number }>();
-  for (const { phrase, key } of GENED_HEADINGS) {
+  const found: Array<{ at: number; length: number; key: string }> = [];
+  if (readingAsReleased) {
+    // As the release found them (READ_AS_RELEASED): the first spelling tried, longest first.
+    for (const { phrase, key } of GENED_HEADINGS) {
+      if (found.some((f) => f.key === key)) continue;
+      const at = lower.indexOf(phrase);
+      if (at < 0) continue;
+      if (found.some((f) => at >= f.at && at < f.at + f.length)) continue;
+      found.push({ at, length: phrase.length, key });
+    }
+  }
+  for (const { phrase, key } of readingAsReleased ? [] : GENED_HEADINGS) {
     const at = lower.indexOf(phrase);
     if (at < 0) continue;
     const known = earliest.get(key);
     if (!known || at < known.at || (at === known.at && phrase.length > known.length)) earliest.set(key, { at, length: phrase.length });
   }
-  const found: Array<{ at: number; length: number; key: string }> = [];
   for (const [key, { at, length }] of [...earliest].sort((a, b) => b[1].length - a[1].length)) {
     // A heading that falls inside a longer heading already claimed is part of
     // that one, not a category of its own.
@@ -2768,7 +2786,7 @@ export function genEdRulesFromText(text: string): GenEdCategoryRule[] {
      * hours alone, ACE 100 and ECON 103 (7) closed the six-hour category and
      * the two courses were never booked.
      */
-    const twoOther = fulfils && /\btwo other cours\w*/i.test(body);
+    const twoOther = !readingAsReleased && fulfils && /\btwo other cours\w*/i.test(body);
     if (twoOther) courses = fulfilledByOptions(body).length + 2;
     rules.push({
       label,
@@ -3680,6 +3698,7 @@ const CHOOSE_ONE_TRACK = /\bchoose one of (two|three|four|five|six|\d) tracks\b/
  * as it counts, each a single table whose label names a track.
  */
 function tracksNotTaken(areas: RawProgramArea[], rules: AreaRules[], byCode: CatalogRowLookup): number[] {
+  if (readingAsReleased) return [];
   const isTrack = (area: RawProgramArea) => area.groups?.length === 1 && /\btrack\b/i.test(area.groups[0].label ?? '');
   for (const [first, area] of areas.entries()) {
     const m = CHOOSE_ONE_TRACK.exec(area.label ?? '');
@@ -4471,6 +4490,7 @@ function acrossLists(
   read: AreaGroupRead[],
   byCode: CatalogRowLookup,
 ): { block: AreaRuleBlock; consumed: number[] } | null {
+  if (readingAsReleased) return null;
   for (const [k, head] of read.entries()) {
     if (head.isTotal || head.rows.length > 0 || head.ownHours === null) continue;
     if (!ACROSS_LISTS.test(`${head.label} ${head.group.note ?? ''}`)) continue;
@@ -4627,9 +4647,12 @@ export function adaptIllinoisPrograms(
     return rows;
   };
 
+  try {
   for (const crawled of file.programs ?? []) {
     if (!crawled?.id) continue;
-    const raw = withCampusGenEd(crawled);
+    // A degree held at the release's reading (READ_AS_RELEASED) is read as it was.
+    readingAsReleased = READ_AS_RELEASED.has(crawled.id);
+    const raw = withCampusGenEd(readingAsReleased ? asReleasedProgram(crawled) : crawled);
 
     const programBlocks: RequirementBlock[] = [];
     const areas: RequirementArea[] = [];
@@ -4773,6 +4796,9 @@ export function adaptIllinoisPrograms(
       requirements,
       dataStatus: enumeratedRows > 0 ? 'catalog' : 'placeholder',
     });
+  }
+  } finally {
+    readingAsReleased = false;
   }
 
   return {

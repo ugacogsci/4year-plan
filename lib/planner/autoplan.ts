@@ -9,6 +9,8 @@ import { interestProfile, labPartners, type CareerTrack, type InterestProfile, t
 import type { Priorities } from './priorities';
 import { interestWordsFrom, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
 import { DEFAULT_PRIORITIES } from './priorities';
+import { PLANNED_AS_RELEASED } from './held-degrees';
+import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInput } from './autoplan-release';
 
 /**
  * The deterministic half of the planner: build a four-year plan, and check one.
@@ -6050,6 +6052,8 @@ function ranksAbove(a: number[], b: number[]): boolean {
 }
 
 export function generatePlan(given: AutoplanInput): GeneratedPlan {
+  // A degree held at the release (held-degrees.ts PLANNED_AS_RELEASED) is planned by the release's engine.
+  if (given.programId && PLANNED_AS_RELEASED.has(given.programId)) return generateReleasedPlan(given as unknown as ReleasedInput) as unknown as GeneratedPlan;
   const context = withTitleStanding(given.context);
   const requirements = resolveBundles(given.requirements, given.prior, context);
   const college = collegeCreditRule(given.programCollege, requirements);
