@@ -134,9 +134,22 @@ export interface RawProgramCourse {
   or?: string[];
 }
 
+/**
+ * A comment row of a requirement table, as programs.mjs keeps it: its text,
+ * its own hours cell, and `at`, the index in `courses` of the row after it.
+ */
+export interface RawProgramComment {
+  text: string;
+  hours: number | null;
+  hoursText?: string | null;
+  at: number;
+}
+
 export interface RawProgramGroup {
   label: string;
   choose: number | null;
+  /** The table's comment rows in order (optionListsIn); absent in a crawl made before they were kept. */
+  comments?: RawProgramComment[];
   /**
    * Where `choose` came from. 'prose' is a sentence the scraper read a
    * parenthesised digit out of, 'heading' is a "Select one of the following"
@@ -3169,6 +3182,84 @@ function soleCount(text: string): number | null {
   return chooseCount(text);
 }
 
+/** A comment row that opens a list to choose from: "Calculus Option - Select one of the following:", "Choose 6 hours from:". */
+const OPTION_HEAD = /\b(?:select|choose|pick)\b|\boption\b|\bone of the following\b|\bfrom the following\b|\bselected from\b|\bcomplete (?:at least )?(?:\d+|one|two|three)\b|\bfrom this list\b/i;
+/** Hours a comment row states: "Choose 6 hours from:", "3-4 hours selected from:", "Select an additional 6 hours". */
+const COMMENT_HOURS = /\b(\d{1,2})(?:\s*-\s*\d{1,2})?\s*(?:credit\s*)?(?:hours?|credits?)\b/i;
+/** The count a comment row opens with, where it says more than one number: "Select three of the following (excluding courses taken for the Advanced Law Option)". */
+const COMMENT_COUNT = /\b(?:select|choose|pick|complete|take)\s+(?:at least\s+|a minimum of\s+)?(one|two|three|four|five|six|\d)\b(?!\s*(?:credit|hours?|credits?)\b)/i;
+const COMMENT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+
+/**
+ * The option lists inside one table of required rows, from its comment rows.
+ *
+ * The ACE Department Foundation is one table: ACE 123, ACE 100, ECON 103,
+ * ACE 161, then "Calculus Option - Select one of the following:" (4 hours)
+ * over MATH 220, MATH 221 and MATH 234, then more required rows, then
+ * "Communication Option" over CMN 101, ALEC 115 and CMN 111 & 112, and
+ * "ACE International Course or Study Abroad Experience Option - Select one
+ * of the following:" over five ACE courses. The crawler used to keep only
+ * the comments' words, in the note, and every row read as required: all
+ * three calculus courses, all five international ones. A comment row that
+ * opens a choice (OPTION_HEAD), or has hours of its own, claims the rows
+ * after it that carry no hours of their own, up to the next comment; the
+ * rows with hours are the required ones. Its number is the count it states,
+ * one for an "Option", or else the hours it states or its hours cell.
+ *
+ * Only where the table has required rows of its own. Left as it reads now:
+ * "Select one group of courses" (choicesFrom reads those), a list whose
+ * number cannot be read, and a table that is all lists.
+ */
+export function optionListsIn(
+  group: RawProgramGroup,
+  rows: RawProgramCourse[],
+  byCode?: CatalogRowLookup,
+): { core: RawProgramCourse[]; lists: Array<{ text: string; rows: RawProgramCourse[]; n: number | null; hours: number | null }> } | null {
+  const comments = group.comments ?? [];
+  const all = group.courses ?? [];
+  if (comments.length === 0 || rows.length === 0) return null;
+  const kept = new Set(rows);
+  const inList = new Set<RawProgramCourse>();
+  const lists: Array<{ text: string; rows: RawProgramCourse[]; n: number | null; hours: number | null }> = [];
+  for (const [i, comment] of comments.entries()) {
+    // "Select one group of courses" (choicesFrom reads it), and alternatives the table writes as "OR" rows between courses.
+    if (/\bone group\b/i.test(comment.text) || /^or$/i.test(comment.text.trim())) return null;
+    if (!OPTION_HEAD.test(comment.text) && comment.hours === null) continue;
+    // A lead-in stacked on the next comment ("Core Requirement:" over "Group I ...") hands it the rows.
+    if (comments[i + 1]?.at === comment.at) continue;
+    const until = comments[i + 1]?.at ?? all.length;
+    const run: RawProgramCourse[] = [];
+    for (let j = comment.at; j < until && j < all.length; j += 1) {
+      const row = all[j];
+      if (row.credits !== null && row.credits !== undefined) break;
+      if (kept.has(row)) run.push(row);
+    }
+    if (run.length === 0) continue;
+    // Its number: the count it states; else the hours it states ("Choose 3 hours from the following");
+    // else one, for an "Option" or "one of"; else its hours cell.
+    const word = COMMENT_COUNT.exec(comment.text)?.[1]?.toLowerCase();
+    const stated = COMMENT_HOURS.exec(comment.text);
+    const counted = soleCount(comment.text) ?? (word ? (COMMENT_WORDS[word] ?? Number(word)) : null);
+    const n = counted ?? (!stated && /\boption\b|\bone of\b/i.test(comment.text) ? 1 : null);
+    const hours = n === null ? (stated ? Number(stated[1]) : comment.hours) : comment.hours;
+    if (n === null && hours === null) return null;
+    // Hours its rows cannot reach are hours some other part of the page names ("Disciplinary and period courses: 12" over one course).
+    if (n === null && hours !== null && byCode) {
+      const reach = run.reduce((sum, row) => sum + Math.max(...[row.code, ...(row.or ?? [])].map((c) => { const hit = byCode.get(c); return hit ? (hit.creditsMax ?? hit.credits) : 0; })), 0);
+      if (reach < hours) return null;
+    }
+    if (n !== null && n > run.length) return null;
+    for (const row of run) inList.add(row);
+    lists.push({ text: comment.text.replace(/[\s:]+$/, ''), rows: run, n, hours });
+  }
+  if (lists.length === 0) return null;
+  const core = rows.filter((row) => !inList.has(row));
+  // Every row left over must be one the page gives hours of its own, as required rows have; a row
+  // with none that no list claimed is part of a structure this does not read (CS 340 after an "OR").
+  if (core.length === 0 || core.some((row) => row.credits === null || row.credits === undefined)) return null;
+  return { core, lists };
+}
+
 /**
  * Rows the page joins with "OR" and nothing else: one of them, not all.
  *
@@ -3783,6 +3874,36 @@ export function requirementRulesForArea(
         pools += 1;
         continue;
       }
+    }
+
+    /*
+     * A table of required rows with option lists between them (optionListsIn):
+     * the required rows keep the group's own block and id, and each list is a
+     * block of its own.
+     */
+    const options = r.rows.length > 0 ? optionListsIn(r.group, r.rows, byCode) : null;
+    if (options) {
+      if (options.core.length > 0) {
+        blocks.push({ groupIndex: r.index, label: r.label, hours: null, note: r.group.note ?? '', rule: { kind: 'all', choices: choicesFrom(options.core, byCode, r.label) }, rows: options.core.length });
+      }
+      options.lists.forEach((list, k) => {
+        const choices = choicesFrom(list.rows, byCode, list.text);
+        const label = [r.label || area.label || '', list.text].filter(Boolean).join(': ');
+        let optionRule: RequirementRule;
+        if (list.n !== null) {
+          optionRule = { kind: 'choose', n: list.n, choices };
+        } else {
+          pools += 1;
+          optionRule = { kind: 'pool', hours: list.hours, n: null, choices, lists: [{ label: list.text, codes: choices.flatMap((c) => c.codes) }], constraints: [], from: 'group', label: list.text };
+        }
+        blocks.push({ groupIndex: r.index, idSuffix: `opt${k + 1}`, label, hours: list.hours, note: list.text, rule: optionRule, rows: list.rows.length });
+      });
+      const level = levelBlockFor(r, true);
+      if (level) {
+        blocks.push(level);
+        pools += 1;
+      }
+      continue;
     }
 
     let rule: RequirementRule;

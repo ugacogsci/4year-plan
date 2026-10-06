@@ -2205,7 +2205,25 @@ interface PlanSlot {
   note?: string;
   /** Required rows only: the page's own substitutes, by the row's first code. */
   standIns?: Map<string, string[]>;
+  /**
+   * Choose and pool slots: the rest of a pair the page prints as one choice,
+   * by its first code ("CMN 111 & CMN 112", one six-hour choice among CMN 101
+   * and ALEC 115). resolveBundles settles pairs in take-all rows only, so a
+   * pick of CMN 111 booked CMN 111 alone.
+   */
+  together?: Map<string, string[]>;
   url: string;
+}
+
+/** The pairs among a rule's choices (PlanSlot.together). */
+function pairsOf(choices: PlanCourseChoice[]): Map<string, string[]> | undefined {
+  const out = new Map<string, string[]>();
+  for (const choice of choices) {
+    if (choice.bundles?.length !== 1 || choice.bundles[0].length < 2) continue;
+    const first = normaliseCode(choice.codes[0]);
+    out.set(first, choice.bundles[0].map(normaliseCode).filter((c) => c !== first));
+  }
+  return out.size > 0 ? out : undefined;
 }
 
 /**
@@ -2264,6 +2282,7 @@ function slotsFor(requirement: PlanRequirement, ctx: PlanningContext, who: Audie
       options: rule.choices.map((choice) => choice.codes.map(normaliseCode)),
       picks: rule.n,
       hoursTarget: null,
+      together: pairsOf(rule.choices),
     }];
   }
 
@@ -2280,6 +2299,7 @@ function slotsFor(requirement: PlanRequirement, ctx: PlanningContext, who: Audie
       options: rule.choices.map((choice) => choice.codes.map(normaliseCode)),
       picks: rule.n,
       hoursTarget: rule.hours,
+      together: pairsOf(rule.choices),
       lists: rule.lists,
       constraints: rule.constraints,
       note: requirement.note,
@@ -7146,6 +7166,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       }
       for (const code of picked) {
         if (!chosen.has(code)) chosen.set(code, { requirementId: slot.requirementId, label: slot.label });
+        // The rest of a pair the page prints as one choice (PlanSlot.together): CMN 112 with CMN 111.
+        for (const partner of slot.together?.get(code) ?? []) {
+          if (!chosen.has(partner) && !earned.has(partner)) chosen.set(partner, { requirementId: slot.requirementId, label: slot.label });
+        }
       }
       if (requirement.rule.kind === 'gened') genEdDone.add(requirement.id);
       const parent = nestedParent.get(requirement.id);
