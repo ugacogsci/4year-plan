@@ -37,9 +37,10 @@
  *   more real requirements   -> C losses allowed; a B loss only when the
  *                               arithmetic forces it: credits past the total
  *                               grew by no more than the required credits
- *                               newly placed, and a track row went off only
- *                               when the board has no room under 18 for it
- *                               (a row only later is never forced), and never
+ *                               newly placed, and a track row went off or
+ *                               later only when the board has no room under
+ *                               18 for it and the plan names it as needing a
+ *                               summer or an extra term (degreeFirst), and never
  *                               residency, a term over 18 or a three-hardest
  *                               term; otherwise 'engine work'
  *   same real requirements   -> no B loss (else engine work); a C loss only
@@ -483,13 +484,7 @@ export function verdicts(before, after, reading, S, { splitIds = true } = {}) {
         const have = codesOf(a);
         const newly = [...codesOf(b)].filter((c) => !have.has(c) && named.get(a.id)?.has(c)).reduce((s, c) => s + (S.credits.get(c) ?? 3), 0);
         if ('beyond>1' in w) forced = forced && b.beyond - a.beyond <= newly;
-        if ('track' in w) {
-          const lost = w.track.filter(([, , now]) => now === 99).map(([row]) => row);
-          const need = lost.reduce((s, row) => s + Math.max(...row.split('/').map((c) => S.credits.get(c) ?? 3)), 0);
-          const free = b.terms.filter((t) => !isSummer(t)).reduce((s, t) => s + Math.max(0, 18 - t.cr), 0);
-          const lateOnly = w.track.every(([, , now]) => now !== 99);
-          forced = forced && !lateOnly && need > free;
-        }
+        if ('track' in w) forced = forced && degreeFirst(b, w.track, S);
         if ('residency' in w || 'over18' in w || 'stack3' in w) forced = false;
         v = forced ? 'accept: more requirements, forced deadline/hours cost' : 'fix engine first: more requirements but an avoidable deadline/hours cost';
         for (const m of tierB) {
@@ -516,6 +511,67 @@ export function verdicts(before, after, reading, S, { splitIds = true } = {}) {
   const levels = { accepted: 0, blocked: 0, engine: 0 };
   for (const [v, n] of Object.entries(counts)) levels[levelOf(v)] += n;
   return { changed, strictBlocked, counts, levels, reasons, boards, shape: Object.fromEntries(Object.keys(ta).map((m) => [m, [ta[m], tb[m]]])) };
+}
+
+/**
+ * "The degree beats pre-med/PT when both cannot fit, and the plan then says
+ * which track courses need a summer or an extra term" (the owner's decision
+ * of 2026-10-06), on a board that meets more real requirements: its track
+ * rows late or off the board (`rows`, gateWorse's track entries: row, where
+ * it was, where it is, 99 for off) are a cost the arithmetic forces only when
+ *
+ *   - no row off the board has a seat under 18 anywhere: no fall or spring
+ *     has as many hours to spare as any of its courses, with the lab or
+ *     lecture that goes beside it, after the prerequisites it names (room is
+ *     a term's, not hours summed over terms: a 4-hour CHEM 104 does not fit
+ *     two terms with 2 hours each; a row that fits a term after its date
+ *     belongs there, late, not off the board);
+ *   - each row later than its date had no such seat up to its date;
+ *   - and the board says so: every such row's course is named in the plan's
+ *     own "The degree's own courses come first" sentence, which tells the
+ *     student it needs a summer session or an extra term.
+ *
+ * The research's rule summed the hours to spare over every term and never
+ * counted a row only later as forced.
+ */
+export function degreeFirst(b, rows, S) {
+  const at = atOf(b);
+  const held = new Set((b.held ?? []).map(norm));
+  const regular = b.terms.map((t, i) => ({ i, free: Math.max(0, 18 - t.cr) })).filter((t) => !isSummer(b.terms[t.i]));
+  const lectureOf = (code) => S.labs.get(code) ?? null;
+  const labOf = (code) => [...S.labs].find(([, lec]) => lec === code)?.[0] ?? null;
+  /*
+   * Whether one course of a row has a seat under 18 by `last` (a term
+   * index): a fall or spring with its hours to spare, after every
+   * prerequisite group it names is met on the board (or held), and with its
+   * lab or lecture, which go in one term: a 1-hour IB 151 has no seat on
+   * its own, and CHEM 332 none without the CHEM 232 it names.
+   */
+  const seat = (code, last) => {
+    const lecture = lectureOf(code);
+    const lab = labOf(code);
+    const partner = lecture ?? lab;
+    const partnerAt = partner !== null && at.has(partner) ? at.get(partner) : null;
+    const hours = (S.credits.get(code) ?? 3) + (partner !== null && partnerAt === null && !held.has(partner) ? S.credits.get(partner) ?? 3 : 0);
+    let after = -1;
+    for (const g of S.pre.get(code)?.groups ?? []) {
+      if (g.priorLearning || g.concurrent) continue;
+      const names = g.any.map(norm);
+      if (names.some((c) => held.has(c))) continue;
+      const placed = names.filter((c) => at.has(c)).map((c) => at.get(c));
+      if (placed.length === 0) return false;
+      after = Math.max(after, Math.min(...placed));
+    }
+    return regular.some((t) => t.i > after && t.i <= last && (partnerAt === null || t.i === partnerAt) && t.free >= hours);
+  };
+  const end = b.terms.length - 1;
+  const lost = rows.filter(([, , now]) => now === 99).map(([row]) => row);
+  const late = rows.filter(([, , now]) => now !== 99).map(([row]) => row);
+  if (lost.some((row) => row.split('/').some((c) => seat(norm(c), end)))) return false;
+  const due = b.terms.findIndex((t) => t.label === b.trackDue);
+  if (late.some((row) => row.split('/').some((c) => seat(norm(c), due < 0 ? end : due)))) return false;
+  const said = (b.notes ?? []).flatMap((n) => [...n.matchAll(/The degree's own courses come first, so [^.]*\./g)].map((m) => m[0])).join(' ');
+  return [...lost, ...late].every((row) => row.split('/').some((c) => said.includes(c)));
 }
 
 /** The verdict as text lines. */

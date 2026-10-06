@@ -55,6 +55,13 @@ fewer real requirements is always blocked. Each changed board is accepted,
 blocked or sent to engine work. On the research's sweeps of the parked split
 (c47de54b -> cdc06dd9) it gives 629 accepted, 5 blocked and 196 engine work.
 
+Pre-med/PT rows late or off the board on a board that meets more real
+requirements are a forced cost only by the owner's "the degree beats
+pre-med/PT" rule (gate.mjs degreeFirst): no course of the row has a seat
+under 18 in any fall or spring (by its date, for a row only later), with its
+lab or lecture beside it and after the prerequisites it names, and the plan's
+own track note names the course as needing a summer or an extra term.
+
 `takeall.mjs <blocks.jsonl>` lists the take-all blocks that hold two courses
 the catalog will not credit together, the mark of an option list read as
 "take every course" (64 at illinois-2 715d894). `blocks.mjs` prints the count
