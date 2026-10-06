@@ -941,10 +941,23 @@ export function exclusionsIn(description: string, selfCode: string, known: Set<s
   // Built fresh per call. A shared global regex carries lastIndex between
   // calls and would skip the clause on every other course.
   const EXCLUSION = /Credit is not given (?:toward graduation )?for(?: both)?:?\s*([^.]+)\./gi;
+  /*
+   * A course the clause joins to this one with "+" or "&" is its partner in
+   * the unit the sentence excludes, not a course it excludes: "Credit is not
+   * given for both CMN 111 + CMN 112, and other courses that fulfill the
+   * Composition I requirement" is about the two-semester sequence, and read
+   * code by code it said CMN 111 and CMN 112 do not both count, on every
+   * board that books the sequence the page prints as "CMN 111 & CMN 112".
+   * Only CMN 111 and CMN 112 in the catalog are written this way.
+   */
+  const self = selfCode.replace(/\s+/g, '\\s*');
+  const PARTNER = new RegExp(`${self}\\s*[+&]\\s*([A-Z]{2,5}\\s*\\d{3})|([A-Z]{2,5}\\s*\\d{3})\\s*[+&]\\s*${self}`, 'gi');
   const out: string[] = [];
   const seen = new Set<string>();
   for (const m of description.matchAll(EXCLUSION)) {
+    const partners = new Set([...(m[1] ?? '').matchAll(PARTNER)].map((p) => normCode(p[1] ?? p[2] ?? '')));
     for (const code of codesIn(m[1] ?? '', known, selfCode)) {
+      if (partners.has(code)) continue;
       if (seen.has(code)) continue;
       seen.add(code);
       out.push(code);
