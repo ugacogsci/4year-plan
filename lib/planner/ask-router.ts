@@ -1467,7 +1467,8 @@ function answerOffered(code: string, raw: string, ctx: AskContext): Routed {
  * named that was crawled (or a season alone, read as its newest crawl) is
  * answered from that term's schedule; a term not published yet gets what
  * each published schedule says, and the plain fact that the one asked about
- * does not exist yet.
+ * does not exist yet. A term before every crawled one gets the same facts
+ * and says it was never read here, not that it is unpublished.
  */
 function answerOfferedAcross(code: string, raw: string, ctx: AskContext, all: AskSchedule[]): Routed {
   const { season, year } = namedTermIn(raw);
@@ -1487,6 +1488,22 @@ function answerOfferedAcross(code: string, raw: string, ctx: AskContext, all: As
   });
   const newest = all[all.length - 1].term;
   const url = scheduleTermUrl(newest);
+  // A term before every schedule read here was published; it was never read.
+  // Saying it is not published yet would be false.
+  const oldest = all[0].term;
+  const past = year
+    ? season
+      ? termRank({ year: Number(year), term: season }) < termRank(oldest)
+      : Number(year) < oldest.year
+    : false;
+  if (past) {
+    return local(
+      'section',
+      `The class schedules read here are ${termsInWords(all.map((s) => s.term))}, and ${wanted} came before them, so I cannot tell you whether ${code} ran then. Illinois publishes no offering pattern in the course catalog, so nothing here can work it out either. ${known.join(' ')} Check the schedule page for the term you want.`,
+      url ? [sourceOf(1, `${newest.label} Schedule`, url)] : [],
+      false,
+    );
+  }
   return local(
     'section',
     `The class schedules published so far are ${termsInWords(all.map((s) => s.term))}, so I cannot tell you yet whether ${code} runs in ${wanted}. Illinois publishes no offering pattern in the course catalog, so nothing here can work it out either. ${known.join(' ')} Check the schedule page once the term you want is published.`,

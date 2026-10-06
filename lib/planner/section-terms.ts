@@ -60,6 +60,18 @@ function seasonOfId(id: string): string {
   return id.split('-')[0]?.toLowerCase() ?? '';
 }
 
+/**
+ * True when a term asked about ("fall-2025") comes before the crawled term
+ * shown for it. That term's schedule was published; it was simply never read
+ * here, so "not published yet" would be a false thing to say about Illinois.
+ */
+export function askedBeforeShown(pick: SectionTermPick): boolean {
+  if (!pick.asked) return false;
+  const year = Number(pick.asked.id.split('-')[1]);
+  if (!Number.isFinite(year)) return false;
+  return termRank({ year, term: seasonOfId(pick.asked.id) }) < termRank(pick.term);
+}
+
 export function pickSectionTerm(
   terms: readonly SectionTermInfo[] | null | undefined,
   asked: PlanTermRef | null,
@@ -84,6 +96,9 @@ export function pickSectionTerm(
 export function sectionTermCaveat(pick: SectionTermPick | null): string | null {
   if (!pick || !pick.asked) return null;
   const season = seasonOfId(pick.asked.id);
+  if (pick.how === 'same-season' && askedBeforeShown(pick)) {
+    return `No ${pick.asked.label} class schedule has been read here, so these are ${pick.term.label}'s sections, a later ${season} schedule. Times, rooms and instructors change from term to term.`;
+  }
   if (pick.how === 'same-season') {
     return `${pick.asked.label}'s class schedule is not published yet, so these are ${pick.term.label}'s sections, the latest ${season} schedule. Times, rooms and instructors can change.`;
   }
