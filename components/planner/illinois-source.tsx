@@ -27,11 +27,14 @@ import { useEffect, useRef, useState } from 'react';
 import {
   coverageLine,
   loadIllinoisCore,
+  loadIllinoisMeta,
   loadIllinoisProgram,
+  sectionTermsOf,
   toGradeRow,
   type IllinoisCore,
   type IllinoisProgramSummary,
 } from '@/lib/planner/illinois-load';
+import { askScheduleFrom, type AskSchedule } from '@/lib/planner/ask-router';
 import {
   adaptIllinoisPrograms,
   attachRequirementIds,
@@ -108,8 +111,11 @@ export function useIllinoisCore(enabled: boolean): CoreState {
 // The second load, for the ask router only
 // ---------------------------------------------------------------------------
 
-let fullPromise: Promise<{ data: IllinoisData; sections: RawSectionFile | null } | null> | null =
-  null;
+let fullPromise: Promise<{
+  data: IllinoisData;
+  sections: RawSectionFile | null;
+  schedules: AskSchedule[];
+} | null> | null = null;
 
 async function readJson<T>(url: string): Promise<T | null> {
   try {
@@ -122,30 +128,47 @@ async function readJson<T>(url: string): Promise<T | null> {
   }
 }
 
+/** A crawl file name meta.json may point the router at, and nothing else. */
+const SAFE_SECTION_FILE = /^illinois-sections(?:-(?:fa|sp|su|wi)\d{4})?\.json$/;
+
 /**
  * The whole adapter over the raw crawl files, once per session.
  *
  * The raw section file is handed back alongside because the router needs the
  * individual rows (CRN, room, instructor) and IllinoisData keeps only a summary.
+ * `schedules` holds every crawled term the same way, Fall 2026 and the terms
+ * meta.json lists after it (Spring 2027), so a section answer can read the
+ * term a course sits in. The other terms' files are read here, on the first
+ * question, and never on load.
  */
 export function loadFullIllinois(): Promise<{
   data: IllinoisData;
   sections: RawSectionFile | null;
+  schedules: AskSchedule[];
 } | null> {
   if (fullPromise) return fullPromise;
   fullPromise = (async () => {
-    const [catalog, programs, grades, sections] = await Promise.all([
+    const [catalog, programs, grades, sections, meta] = await Promise.all([
       readJson<RawCatalogFile>('/illinois-catalog.json'),
       readJson<RawProgramFile>('/illinois-programs.json'),
       readJson<RawGradeFile>('/illinois-grades.json'),
       readJson<RawSectionFile>('/illinois-sections.json'),
+      loadIllinoisMeta(),
     ]);
     if (!catalog) {
       // Do not memoise a failure that a retry might fix.
       fullPromise = null;
       return null;
     }
-    return { data: buildIllinoisData({ catalog, programs, grades, sections }), sections };
+    const data = buildIllinoisData({ catalog, programs, grades, sections });
+    const others = sectionTermsOf(meta).filter(
+      (t) => t.id !== data.sectionTerm?.id && typeof t.raw === 'string' && SAFE_SECTION_FILE.test(t.raw),
+    );
+    const otherFiles = await Promise.all(others.map((t) => readJson<RawSectionFile>(`/${t.raw}`)));
+    const schedules = [sections, ...otherFiles]
+      .filter((file): file is RawSectionFile => file !== null)
+      .map((file) => askScheduleFrom(file));
+    return { data, sections, schedules };
   })();
   return fullPromise;
 }

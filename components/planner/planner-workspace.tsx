@@ -4007,6 +4007,9 @@ export function PlannerWorkspace({
       schoolId: 'illinois',
       data: full.data,
       sectionRows: sectionRowsFrom(full.sections),
+      // Every crawled term, so "where does my first class meet" reads the
+      // Spring 2027 column's own rooms, and a fall course reads fall times.
+      schedules: full.schedules,
       planned,
       completedCodes,
       selectedCode: selectedCourse ? normCode(selectedCourse.code) : null,
@@ -4025,7 +4028,7 @@ export function PlannerWorkspace({
           <h1>Reading the {school?.short} catalog</h1>
           <p>
             {isIllinois
-              ? 'Courses, requirements, prerequisites, grade history and Fall 2026 sections.'
+              ? 'Courses, requirements, prerequisites, grade history and class times.'
               : 'Courses, degree requirements, prerequisites, offering patterns and exam credit.'}
           </p>
         </div>

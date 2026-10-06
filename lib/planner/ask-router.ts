@@ -11,6 +11,8 @@ import {
   missingPrerequisiteGroups,
   partOfTermLine,
   sectionIsRestricted,
+  sectionTermOf,
+  summariseSections,
   termCreditRange,
   type CourseFacts,
   type IllinoisData,
@@ -19,7 +21,9 @@ import {
   type RawSection,
   type RawSectionFile,
   type SectionSummary,
+  type SectionTermInfo,
 } from './illinois-data';
+import { pickSectionTerm, sectionTermCaveat, termRank, termsInWords, type PlanTermRef } from './section-terms';
 
 /**
  * Which side of the product answers a question.
@@ -97,6 +101,16 @@ export interface AskContext {
    * CRN". Build it with sectionRowsFrom().
    */
   sectionRows: Map<string, RawSection[]>;
+  /**
+   * Every crawled term of class times, each with its own summaries and rows
+   * (askScheduleFrom). When there is more than one, a section answer reads the
+   * term that matters (section-terms.ts): the column the course sits in when
+   * that term was crawled, the latest crawl of the same season for a later
+   * column, a term the question names, or the newest crawl for a course not
+   * on the board. Absent, the router reads `data` and sectionRows as the only
+   * term, exactly as before.
+   */
+  schedules?: AskSchedule[];
   /** Chronological, earliest term first. */
   planned: PlannedCourse[];
   /** Prior credit plus anything marked complete. */
@@ -112,6 +126,15 @@ export interface AskContext {
    * IllinoisData.requirementBlocks holds it, on every block for that program.
    */
   programUrl: string | null;
+}
+
+/** One crawled term of class times, as the router reads it. */
+export interface AskSchedule {
+  term: SectionTermInfo;
+  sections: Map<string, SectionSummary>;
+  rows: Map<string, RawSection[]>;
+  /** Subjects the crawl read: its own list when it kept one, else the subjects it has rows for. */
+  subjects: Set<string>;
 }
 
 export interface Source {
@@ -377,23 +400,94 @@ export function sectionRowsFrom(file: RawSectionFile | null | undefined): Map<st
  * an uncrawled subject reads as "not offered", which is a fabricated fact about
  * the university and exactly the failure the house rules name.
  */
-function crawledSubjects(ctx: AskContext): Set<string> {
+function subjectsOfRows(rows: Map<string, RawSection[]>): Set<string> {
   const out = new Set<string>();
-  for (const code of ctx.sectionRows.keys()) out.add(splitCode(code)[0]);
+  for (const code of rows.keys()) out.add(splitCode(code)[0]);
   return out;
 }
 
-/** The page the section facts were actually read from. */
-function scheduleUrlFor(ctx: AskContext, code: string): string | null {
+/**
+ * One crawled term for the router, from its crawl file: the same summaries
+ * buildIllinoisData makes for the first term, the rows, and the subjects read.
+ */
+export function askScheduleFrom(file: RawSectionFile & { listed?: Record<string, unknown> }): AskSchedule {
+  const term = sectionTermOf(file);
+  const sections = new Map<string, SectionSummary>();
+  for (const course of file.courses ?? []) {
+    if (!course?.code) continue;
+    sections.set(normCode(course.code), summariseSections(course, term));
+  }
+  const rows = sectionRowsFrom(file);
+  const subjects = file.listed ? new Set(Object.keys(file.listed)) : subjectsOfRows(rows);
+  return { term, sections, rows, subjects };
+}
+
+/** Every crawled term the router can read, oldest first. */
+function schedulesOf(ctx: AskContext): AskSchedule[] {
+  if (ctx.schedules && ctx.schedules.length > 0) return [...ctx.schedules].sort((a, b) => termRank(a.term) - termRank(b.term));
   const term = ctx.data.sectionTerm;
+  if (!term) return [];
+  return [{ term, sections: ctx.data.sections, rows: ctx.sectionRows, subjects: subjectsOfRows(ctx.sectionRows) }];
+}
+
+/** The season and year a question names, either of them possibly absent. */
+function namedTermIn(raw: string): { season: string | null; year: string | null } {
+  const seasonMatch = SEASON_WORD.exec(raw);
+  const season = seasonMatch ? seasonMatch[1].toLowerCase().replace('autumn', 'fall') : null;
+  const year = YEAR_WORD.exec(raw)?.[1] ?? null;
+  return { season, year };
+}
+
+interface ScheduleChoice {
+  sched: AskSchedule;
+  /** What to say when the sections are not the asked term's own; null when they are. */
+  caveat: string | null;
+  /** True when no term was asked about and the course is not on the board: the newest crawl. */
+  unasked: boolean;
+}
+
+/**
+ * Which crawled term answers for a course: a column the caller names, a term
+ * the question names, the column the course sits in, else the newest crawl.
+ * With one crawled term there is nothing to choose and nothing extra is said,
+ * which keeps every answer the router gave before a second term existed.
+ */
+function scheduleFor(ctx: AskContext, code: string | null, raw = '', column: PlanTermRef | null = null): ScheduleChoice | null {
+  const all = schedulesOf(ctx);
+  if (all.length === 0) return null;
+  if (all.length === 1) return { sched: all[0], caveat: null, unasked: false };
+  const placed = code ? ctx.planned.find((p) => normCode(p.code) === code) : undefined;
+  const placedRef = placed ? { id: placed.termId, label: placed.termLabel } : null;
+  let asked: PlanTermRef | null = column;
+  if (!asked && raw) {
+    const { season, year } = namedTermIn(raw);
+    if (season && year) {
+      asked = { id: `${season}-${year}`, label: `${seasonTitle(season)} ${year}` };
+    } else if (season) {
+      // "When does it meet in the fall": the course's own fall column when it
+      // has one, else the newest fall schedule.
+      if (placedRef && placedRef.id.startsWith(`${season}-`)) asked = placedRef;
+      else {
+        const crawled = [...all].reverse().find((s) => String(s.term.term).toLowerCase() === season);
+        if (crawled) asked = { id: crawled.term.id, label: crawled.term.label };
+      }
+    }
+  }
+  asked ??= placedRef;
+  const pick = pickSectionTerm(all.map((s) => s.term), asked);
+  const sched = (pick && all.find((s) => s.term.id === pick.term.id)) ?? all[all.length - 1];
+  return { sched, caveat: sectionTermCaveat(pick), unasked: pick?.how === 'newest' };
+}
+
+/** The page the section facts were actually read from. */
+function scheduleUrlFor(term: SectionTermInfo | null | undefined, code: string): string | null {
   if (!term) return null;
   const [subject, number] = splitCode(code);
   if (!subject || !number) return null;
   return `https://courses.illinois.edu/schedule/${term.year}/${String(term.term).toLowerCase()}/${subject}/${number}`;
 }
 
-function scheduleTermUrl(ctx: AskContext): string | null {
-  const term = ctx.data.sectionTerm;
+function scheduleTermUrl(term: SectionTermInfo | null | undefined): string | null {
   if (!term) return null;
   return `https://courses.illinois.edu/schedule/${term.year}/${String(term.term).toLowerCase()}`;
 }
@@ -704,7 +798,8 @@ function codesInText(raw: string, ctx: AskContext): { known: string[]; unknown: 
       ctx.data.byCode.has(code) ||
       ctx.data.facts.has(code) ||
       ctx.data.grades.has(code) ||
-      ctx.sectionRows.has(code);
+      ctx.sectionRows.has(code) ||
+      (ctx.schedules ?? []).some((s) => s.rows.has(code));
     (real ? known : unknown).push(code);
   }
   return { known, unknown };
@@ -1052,25 +1147,44 @@ function digestByType(rows: RawSection[]): string[] {
     });
 }
 
-function answerSection(code: string, raw: string, ctx: AskContext): Routed {
-  const term = ctx.data.sectionTerm;
-  const rows = ctx.sectionRows.get(code) ?? [];
-  const summary: SectionSummary | undefined = ctx.data.sections.get(code);
-  const [subject] = splitCode(code);
-
-  if (!term) {
+function answerSection(code: string, raw: string, ctx: AskContext, forced?: AskSchedule): Routed {
+  const chosen: ScheduleChoice | null = forced ? { sched: forced, caveat: null, unasked: false } : scheduleFor(ctx, code, raw);
+  if (!chosen) {
     return local('section', 'No class schedule is loaded, so I cannot say where or when anything meets.', [], false);
   }
+  const { sched, caveat } = chosen;
+  const term = sched.term;
+  const rows = sched.rows.get(code) ?? [];
+  const summary: SectionSummary | undefined = sched.sections.get(code);
+  const [subject] = splitCode(code);
+  const all = schedulesOf(ctx);
+  /** What the other crawled terms say about this course, one sentence each. */
+  const elsewhere = all
+    .filter((s) => s !== sched)
+    .map((s) => {
+      const n = s.rows.get(code)?.length ?? 0;
+      if (n > 0) return `The ${s.term.label} schedule lists ${n} ${plural(n, 'section')} of it.`;
+      return s.subjects.has(subject) ? `The ${s.term.label} schedule does not list it either.` : null;
+    })
+    .filter((line): line is string => line !== null);
 
   if (rows.length === 0) {
-    const url = scheduleTermUrl(ctx);
+    const url = scheduleTermUrl(term);
     const sources = url ? [sourceOf(1, `${term.label} Schedule`, url)] : [];
-    if (!crawledSubjects(ctx).has(subject)) {
+    if (!sched.subjects.has(subject)) {
       // Silence here is the crawl's, not the university's. Reporting it as "not
       // offered" would be a fabricated fact about Illinois.
       return local(
         'section',
         `The ${term.label} schedule for ${subject} has not been read yet, so I have no sections for ${code}. Check the schedule page.`,
+        sources,
+        false,
+      );
+    }
+    if (all.length > 1) {
+      return local(
+        'section',
+        [`The ${term.label} schedule does not list ${code}.`, caveat, ...elsewhere].filter(Boolean).join(' '),
         sources,
         false,
       );
@@ -1176,10 +1290,19 @@ function answerSection(code: string, raw: string, ctx: AskContext): Routed {
     lines.push(focus === 'part' ? DEADLINE_DISCLAIMER : `${partOfTermLine(summary)} ${DEADLINE_DISCLAIMER}`);
   }
 
+  // Sections that are not the asked term's own say so, and a course not on
+  // the board names what the other published schedules hold, so a student
+  // weighing spring against fall sees both.
+  if (caveat) lines.push(caveat);
+  if (chosen.unasked) {
+    const others = elsewhere.filter((line) => !line.endsWith('either.'));
+    if (others.length > 0) lines.push(`${others.join(' ')} Name that term to see them.`);
+  }
+
   const read = readOn(term.fetchedAt);
   lines.push(`Read from the ${term.label} schedule${read ? ` on ${read}` : ''}.`);
 
-  const url = scheduleUrlFor(ctx, code);
+  const url = scheduleUrlFor(term, code);
   const sources = url ? [sourceOf(1, `${term.label} Schedule, ${code}`, url)] : [];
   return local('section', lines.join('\n\n'), sources);
 }
@@ -1193,8 +1316,9 @@ function answerSection(code: string, raw: string, ctx: AskContext): Routed {
  * on.
  */
 function answerConflicts(ctx: AskContext, term: ResolvedTerm | null): Routed {
-  const url = scheduleTermUrl(ctx);
-  const label = ctx.data.sectionTerm?.label ?? 'the published term';
+  const schedule = scheduleFor(ctx, null, '', term ? { id: term.termId, label: term.label } : null)?.sched.term ?? null;
+  const url = scheduleTermUrl(schedule);
+  const label = schedule?.label ?? 'the published term';
   const where = term ? term.label : 'your board';
   const sources = url ? [sourceOf(1, `${label} Schedule`, url)] : [];
   return local(
@@ -1232,8 +1356,11 @@ function answerFirstClass(ctx: AskContext, term: ResolvedTerm | null, raw: strin
   // better one than anything this function would write.
   if (courses.length === 1) return answerSection(normCode(courses[0].code), raw, ctx);
 
-  const schedule = ctx.data.sectionTerm;
-  if (!schedule) {
+  // The column's own term when it was crawled: the first term of a board
+  // started today is Spring 2027, and its rooms are Spring 2027's.
+  const chosen = scheduleFor(ctx, null, '', { id: column.termId, label: column.label });
+  const schedule = chosen?.sched.term ?? null;
+  if (!chosen || !schedule) {
     return local(
       'section',
       `${column.label} is the first term on your board, with ${courses.length} courses. No class schedule is loaded, so I cannot say where any of them meets.`,
@@ -1247,11 +1374,11 @@ function answerFirstClass(ctx: AskContext, term: ResolvedTerm | null, raw: strin
     `${column.label} is the first term on your board, with ${courses.length} courses. The board holds courses, not sections, so nothing here knows which one starts earliest in the day. Where each one meets:`,
   );
 
-  const crawled = crawledSubjects(ctx);
+  const crawled = chosen.sched.subjects;
   const shown = courses.slice(0, 6);
   for (const course of shown) {
     const code = normCode(course.code);
-    const summary = ctx.data.sections.get(code);
+    const summary = chosen.sched.sections.get(code);
     if (summary) {
       lines.push(`${code}: ${buildingSentence(summary)}`);
       continue;
@@ -1272,10 +1399,12 @@ function answerFirstClass(ctx: AskContext, term: ResolvedTerm | null, raw: strin
   lines.push(
     column.label === schedule.label
       ? `Read from the ${schedule.label} schedule${read ? ` on ${read}` : ''}.`
-      : `Those rooms are the ${schedule.label} schedule's${read ? `, read on ${read}` : ''}. It is the only term I have, and rooms move.`,
+      : schedulesOf(ctx).length > 1
+        ? `Those rooms are the ${schedule.label} schedule's${read ? `, read on ${read}` : ''}. ${chosen.caveat ?? 'Rooms move from term to term.'}`
+        : `Those rooms are the ${schedule.label} schedule's${read ? `, read on ${read}` : ''}. It is the only term I have, and rooms move.`,
   );
 
-  const url = scheduleTermUrl(ctx);
+  const url = scheduleTermUrl(schedule);
   return local('section', lines.join('\n\n'), url ? [sourceOf(1, `${schedule.label} Schedule`, url)] : []);
 }
 
@@ -1293,7 +1422,9 @@ const CATALOG_URL = 'https://catalog.illinois.edu/courses-of-instruction/';
  * one.
  */
 function answerOffered(code: string, raw: string, ctx: AskContext): Routed {
-  const term = ctx.data.sectionTerm;
+  const all = schedulesOf(ctx);
+  if (all.length > 1) return answerOfferedAcross(code, raw, ctx, all);
+  const term = all[0]?.term ?? null;
   if (!term) {
     return local(
       'section',
@@ -1315,18 +1446,51 @@ function answerOffered(code: string, raw: string, ctx: AskContext): Routed {
     : asked
       ? `a ${seasonTitle(asked)} term`
       : `${askedYear}`;
-  const rows = ctx.sectionRows.get(code) ?? [];
+  const rows = all[0].rows.get(code) ?? [];
   const known = rows.length > 0
     ? `In ${term.label} it has ${rows.length} ${plural(rows.length, 'section')}.`
-    : crawledSubjects(ctx).has(splitCode(code)[0])
+    : all[0].subjects.has(splitCode(code)[0])
       ? `The ${term.label} schedule does not list it.`
       : `The ${term.label} schedule for ${splitCode(code)[0]} has not been read here yet.`;
 
-  const url = scheduleTermUrl(ctx);
+  const url = scheduleTermUrl(term);
   return local(
     'section',
     `${term.label} is the only class schedule I have, so I cannot tell you whether ${code} runs in ${wanted}. Illinois publishes no offering pattern in the course catalog, so nothing here can work it out either. ${known} Check the schedule page for the term you want.`,
     url ? [sourceOf(1, `${term.label} Schedule`, url)] : [],
+    false,
+  );
+}
+
+/**
+ * The same question with more than one crawled term. A term the student
+ * named that was crawled (or a season alone, read as its newest crawl) is
+ * answered from that term's schedule; a term not published yet gets what
+ * each published schedule says, and the plain fact that the one asked about
+ * does not exist yet.
+ */
+function answerOfferedAcross(code: string, raw: string, ctx: AskContext, all: AskSchedule[]): Routed {
+  const { season, year } = namedTermIn(raw);
+  const match = all.filter(
+    (s) => (!season || String(s.term.term).toLowerCase() === season) && (!year || String(s.term.year) === year),
+  );
+  if (match.length > 0) return answerSection(code, raw, ctx, match[match.length - 1]);
+
+  const wanted = season && year ? `${seasonTitle(season)} ${year}` : season ? `a ${seasonTitle(season)} term` : `${year}`;
+  const subject = splitCode(code)[0];
+  const known = all.map((s) => {
+    const n = s.rows.get(code)?.length ?? 0;
+    if (n > 0) return `In ${s.term.label} it has ${n} ${plural(n, 'section')}.`;
+    return s.subjects.has(subject)
+      ? `The ${s.term.label} schedule does not list it.`
+      : `The ${s.term.label} schedule for ${subject} has not been read here yet.`;
+  });
+  const newest = all[all.length - 1].term;
+  const url = scheduleTermUrl(newest);
+  return local(
+    'section',
+    `The class schedules published so far are ${termsInWords(all.map((s) => s.term))}, so I cannot tell you yet whether ${code} runs in ${wanted}. Illinois publishes no offering pattern in the course catalog, so nothing here can work it out either. ${known.join(' ')} Check the schedule page once the term you want is published.`,
+    url ? [sourceOf(1, `${newest.label} Schedule`, url)] : [],
     false,
   );
 }
@@ -1409,10 +1573,13 @@ function answerRoster(ctx: AskContext, term: ResolvedTerm | null, raw: string): 
       .join('\n'),
   );
 
-  const schedule = ctx.data.sectionTerm;
+  const chosen = scheduleFor(ctx, null, '', { id: term.termId, label: term.label });
+  const schedule = chosen?.sched.term ?? null;
   if (schedule) {
     lines.push(
-      `Ask about any of them by code and I will give you its ${schedule.label} sections, rooms and meeting times.`,
+      chosen?.caveat
+        ? `Ask about any of them by code and I will give you its sections, rooms and meeting times from the ${schedule.label} schedule, since ${term.label}'s is not published yet.`
+        : `Ask about any of them by code and I will give you its ${schedule.label} sections, rooms and meeting times.`,
     );
   }
 
@@ -1801,13 +1968,14 @@ function answerPrereq(code: string, ctx: AskContext): Routed {
       lines.push(
         `${code} has prerequisites and the catalog does not print them. Its page reads: "${spec.note}" Each topic sets its own, so look up the section you want in the class schedule.`,
       );
-      const scheduleUrl = scheduleUrlFor(ctx, code);
+      const noteTerm = scheduleFor(ctx, code)?.sched.term ?? null;
+      const scheduleUrl = scheduleUrlFor(noteTerm, code);
       const sources = scheduleUrl
         ? [
             ...catalogSource,
             sourceOf(
               catalogSource.length + 1,
-              `${ctx.data.sectionTerm?.label ?? 'Class'} Schedule, ${code}`,
+              `${noteTerm?.label ?? 'Class'} Schedule, ${code}`,
               scheduleUrl,
             ),
           ]
@@ -2192,11 +2360,12 @@ function answerCourse(code: string, raw: string, ctx: AskContext): Routed {
     lines.push('The catalog lists no prerequisite.');
   }
 
-  const summary = ctx.data.sections.get(code);
-  const term = ctx.data.sectionTerm;
+  const chosen = scheduleFor(ctx, code);
+  const summary = chosen?.sched.sections.get(code);
+  const term = chosen?.sched.term ?? null;
   if (summary && term) {
-    lines.push(`${summary.total} ${plural(summary.total, 'section')} in ${term.label}. ${buildingSentence(summary)}`);
-    const url = scheduleUrlFor(ctx, code);
+    lines.push(`${summary.total} ${plural(summary.total, 'section')} in ${term.label}. ${buildingSentence(summary)}${chosen?.caveat ? ` ${chosen.caveat}` : ''}`);
+    const url = scheduleUrlFor(term, code);
     if (url) sources.push(sourceOf(sources.length + 1, `${term.label} Schedule, ${code}`, url));
   }
 
