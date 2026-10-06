@@ -384,7 +384,16 @@ for (const [si, subj] of runSubjects.entries()) {
 const final = body();
 writeFileSync(WORK, JSON.stringify(final));
 const runUnread = runSubjects.filter((s) => !listed[s]).length + runSubjects.flatMap(pending).length;
-if (runUnread === 0) {
+/**
+ * A finished crawl on disk is replaced only by another finished crawl. A
+ * --fresh trial on a few subjects (--fresh --subjects CS) reads everything it
+ * was asked for and is still a partial term, so it stays in the .partial file;
+ * renaming it over the finished file left a term of one or two subjects.
+ */
+const keepFinished = sameTerm(out) && out.complete && !final.complete;
+if (runUnread === 0 && keepFinished) {
+  console.log(`\nthis run read every page it was asked for, but ${OUT} is a complete crawl (fetched ${out.fetchedAt}) and this one covers ${Object.keys(listed).length} of ${subjects.length} subjects, so ${OUT} was kept. Progress is in ${WORK}; run without --subjects to finish the new crawl.`);
+} else if (runUnread === 0) {
   renameSync(WORK, OUT);
   console.log(`\nwrote ${OUT}${final.complete ? ' (complete)' : ` (${subjects.filter((s) => !listed[s]).length} of ${subjects.length} subjects not read yet)`}`);
 } else {
