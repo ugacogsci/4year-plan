@@ -1,6 +1,6 @@
 {
   "school": "illinois",
-  "fetchedAt": "2026-09-23T05:50:36.178Z",
+  "fetchedAt": "2026-10-06T06:51:06.325Z",
   "sources": {
     "catalog": {
       "source": "catalog.illinois.edu/courses-of-instruction",
@@ -45,12 +45,14 @@
     "catalogCourses": 9440,
     "undergraduateCourses": 6110,
     "withParsedPrereq": 2384,
-    "withLowConfidencePrereq": 56,
+    "withLowConfidencePrereq": 65,
     "withPrereqTextOnly": 1361,
     "withPrereqNoteOnly": 51,
     "withStandingRequirement": 419,
-    "withGrades": 2293,
-    "withoutGrades": 3817,
+    "withGrades": 2805,
+    "withoutGrades": 3305,
+    "withGradesFromTwin": 503,
+    "withGradesFromOldNumber": 9,
     "orphanGradeRows": 104,
     "withSections": 3034,
     "sectionTerm": "Fall 2026",
@@ -59,25 +61,26 @@
     "variableCredit": 1829,
     "unknownCredit": 0,
     "droppedProgramRows": 0,
-    "droppedTotalRows": 333,
-    "poolGroups": 423,
+    "droppedTotalRows": 341,
+    "poolGroups": 466,
     "implausibleProgramTotals": 0,
-    "programsWithGenEd": 269,
-    "genEdCategories": 2380,
-    "genEdCategoriesFromCampus": 591
+    "programsWithGenEd": 306,
+    "genEdCategories": 2723,
+    "genEdCategoriesFromCampus": 665
   },
   "counts": {
     "indexed": 6110,
     "positioned": 6110,
     "withPrereqSpec": 3796,
-    "withGrades": 2293,
+    "withGrades": 2805,
+    "gradeRows": 2302,
     "withSections": 3034,
     "programs": 308,
     "programsWithCourses": 294,
     "programCourseRows": 13276,
     "programRowsWithCredits": 8966,
     "programRowsWithTitle": 13270,
-    "orphanGradeRows": 675,
+    "orphanGradeRows": 666,
     "subjectShards": 194,
     "programFiles": 308
   },
@@ -279,24 +282,24 @@
   ],
   "artifacts": {
     "index.json": {
-      "raw": 1205854,
-      "gzip": 202176
+      "raw": 1205791,
+      "gzip": 202196
     },
     "prereqs.json": {
-      "raw": 1226195,
-      "gzip": 100676
+      "raw": 1226269,
+      "gzip": 100769
     },
     "grades.json": {
-      "raw": 281487,
-      "gzip": 34063
+      "raw": 282596,
+      "gzip": 34199
     },
     "sections.json": {
-      "raw": 1542152,
-      "gzip": 118985
+      "raw": 1789091,
+      "gzip": 148786
     },
     "programs.json": {
-      "raw": 104989,
-      "gzip": 10291
+      "raw": 105433,
+      "gzip": 10294
     }
   },
   "notes": [

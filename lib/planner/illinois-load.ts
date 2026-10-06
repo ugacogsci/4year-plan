@@ -98,7 +98,10 @@ export interface IllinoisMeta {
     indexed: number;
     positioned: number;
     withPrereqSpec: number;
+    /** Indexed courses that show grade history, their own row or a borrowed one (see gradeFrom). */
     withGrades: number;
+    /** Rows in grades.json. Absent from builds before the two were told apart. */
+    gradeRows?: number;
     withSections: number;
     programs: number;
     programsWithCourses: number;
@@ -133,7 +136,11 @@ export interface IllinoisIndexRow {
   /** Absent means 'In person'. Set only when every section of the course is online. */
   online?: true;
   difficulty?: number;
-  /** The cross-listed code the registrar filed this course's grades under. */
+  /**
+   * The code the registrar filed this course's grades under: a cross-listed
+   * twin (CS 468 under ADV 492), or this course's old number (ES 470 under
+   * NPRE 470). RENUMBERED_GRADE_HISTORY in illinois-data.ts says which.
+   */
   gradeFrom?: string;
   /** The other codes this same class is filed under. */
   twins?: string[];
@@ -146,9 +153,10 @@ export interface IllinoisIndexCourse extends IllinoisCourse {
   /** Registrar difficulty, 0 to 100. Absent means no grade history for this course. */
   difficulty?: number;
   /**
-   * The cross-listed code the registrar actually filed these grades under, when
-   * it is not this course's own. CS 468's history is on file as ADV 492; it is
-   * the same class under two codes. Present on 503 rows.
+   * The code the registrar actually filed these grades under, when it is not
+   * this course's own. CS 468's history is on file as ADV 492, the same class
+   * under two codes (503 rows); ES 470's is on file as NPRE 470, its number
+   * until this year (9 rows, RENUMBERED_GRADE_HISTORY in illinois-data.ts).
    */
   gradeFrom?: string;
   /** The other codes this same class is filed under, when there are any. */
@@ -594,8 +602,9 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
        * filed it under.
        *
        * 503 courses carry their grade history under a cross-listed twin, and
-       * index.json records that in gradeFrom. Keying this map by the row's own
-       * code alone meant grades.get("CS 468") was undefined while the card two
+       * 9 under their old number, and index.json records that in gradeFrom.
+       * Keying this map by the row's own code alone meant grades.get("CS 468")
+       * was undefined while the card two
        * inches away showed ADV 492's real 3.78 average. The plan then counted
        * CS 468 as "no grade data" when weighing a term, so the product denied
        * history it was displaying and printed two different numbers for the

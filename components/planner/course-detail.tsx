@@ -18,6 +18,7 @@ import {
   difficultyLabel,
   partOfTermLine,
   prettyDateRange,
+  RENUMBERED_GRADE_HISTORY,
   sectionIsRestricted,
   THIN_SAMPLE,
   visibleInstructors,
@@ -197,6 +198,18 @@ export function CourseDetail({
         .map((code) => ({ code: normCode(code), row: core?.grades?.get(normCode(code)) ?? null }))
         .find((t) => t.row !== null) ?? null;
   const gradeRow = summary ?? twin?.row ?? null;
+  /**
+   * Whose row the numbers are, when they are not this course's own.
+   *
+   * The loader files a borrowed row under the course's own code (see
+   * loadIllinoisCore), so `summary` is already ADV 492's row on CS 468's card
+   * and the twin lookup above never ran: the numbers showed with nothing
+   * saying whose they were. The row's own code is the honest name to print.
+   * ES 470 reads NPRE 470's row the same way, its number until this year,
+   * and says so in those words rather than calling it a cross-listing.
+   */
+  const filedUnder = gradeRow && normCode(gradeRow.code) !== code ? normCode(gradeRow.code) : null;
+  const filedUnderOldNumber = filedUnder !== null && RENUMBERED_GRADE_HISTORY[code] === filedUnder;
 
   /**
    * A course whose history is under a code this page cannot name.
@@ -346,10 +359,11 @@ export function CourseDetail({
               {grade.aPct !== null && `, ${grade.aPct}% A grades`}
               {grade.withdrawPct !== null && `, ${grade.withdrawPct}% withdrew`}.
             </p>
-            {twin && (
+            {filedUnder && (
               <p className="quiet">
-                Illinois filed those grades under {twin.code}. It is this same class under its
-                other code.
+                {filedUnderOldNumber
+                  ? `Illinois filed those grades under ${filedUnder}, this course's number before it was renumbered.`
+                  : `Illinois filed those grades under ${filedUnder}. It is this same class under its other code.`}
               </p>
             )}
             <p className="quiet">

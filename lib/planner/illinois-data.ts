@@ -483,8 +483,18 @@ export interface CoverageReport {
   withPrereqNoteOnly: number;
   /** Courses whose catalog sentence names a class standing the student must have. */
   withStandingRequirement: number;
+  /**
+   * Courses that show grade history: their own row, a cross-listed twin's, or
+   * the row filed under their old number. This was the own-row count alone
+   * (2,293 of 6,110) while 503 more showed a twin's history on the board, so
+   * the coverage line undercounted what a student could actually see.
+   */
   withGrades: number;
   withoutGrades: number;
+  /** Of withGrades, the courses whose numbers are a cross-listed twin's row. */
+  withGradesFromTwin: number;
+  /** Of withGrades, the courses whose numbers are filed under their old number. */
+  withGradesFromOldNumber: number;
   orphanGradeRows: number;
   withSections: number;
   sectionTerm: string | null;
@@ -722,6 +732,12 @@ export interface IllinoisData {
   facts: Map<string, CourseFacts>;
   equivalents: Map<string, string[]>;
   grades: Map<string, GradeRow>;
+  /**
+   * Courses with no grade row of their own that read another code's row, and
+   * whose: see borrowedGradeSource. `grades` itself stays keyed by the code the
+   * registrar filed each row under, so a caller always knows which it holds.
+   */
+  borrowedGrades: Map<string, BorrowedGradeSource>;
   gradeProvenance: { source: string; terms: string; count: number } | null;
   bands: DifficultyBands;
   sections: Map<string, SectionSummary>;
@@ -1702,6 +1718,91 @@ export function computeDifficultyBands(rows: GradeRow[]): DifficultyBands {
   if (d.length === 0) return { typical: 0, harder: 0, hardest: 0 };
   const q = (p: number) => d[Math.min(d.length - 1, Math.floor(d.length * p))];
   return { typical: q(0.25), harder: q(0.75), hardest: q(0.9) };
+}
+
+/**
+ * Courses whose recent grade history DAIR still files under an older code.
+ *
+ * ES 470 was NPRE 470, SOCW 296 was SOCW 300, ASRM 402 was STAT 409, and so on:
+ * the Spring 2024 to Summer 2026 grade file has their grades under the old
+ * code and none under the new one, so each course showed no grade history at
+ * all. Each pair below was read by hand: the old code is gone from the
+ * catalog, the title is the same course, and the registrar's own language
+ * table (offerings.json `renumbered`) agrees where it covers the pair. Keyed
+ * by today's code.
+ *
+ * Two pairs a title match proposed are deliberately NOT here, because they are
+ * different courses that happen to share words: KIN 100 "Yoga" (a kinesiology
+ * activity class) is not DANC 301 Yoga Fundamentals, and SBC 506 "Measurement
+ * and Evaluation" (a graduate course) is not HK 466 Measure & Eval in
+ * Kinesiology. A wrong pair gives a course another course's history, so this
+ * list grows only by hand. Two true pairs are held back too: see
+ * RENUMBERED_NOT_REPRESENTATIVE.
+ */
+export const RENUMBERED_GRADE_HISTORY: Readonly<Record<string, string>> = {
+  'SPAN 212': 'SPAN 202',
+  'ITAL 204': 'ITAL 104',
+  'LA 214': 'LA 314',
+  'DTX 251': 'DTX 451',
+  'ETMA 431': 'ETMA 339',
+  'ES 470': 'NPRE 470',
+  'ES 475': 'NPRE 475',
+  'SOCW 296': 'SOCW 300',
+  'ASRM 402': 'STAT 409',
+};
+
+/**
+ * True renumberings whose old rows do not describe the course, held back.
+ *
+ * SPAN 201 was SPAN 130 and SPAN 205 was SPAN 142, and both old codes have
+ * rows: 87 grades in 4 sections and 22 in 1. But Illinois publishes only
+ * sections of 21 or more, and every SPAN 130 and SPAN 142 section it has ever
+ * published, 2016 to now, was an ONLINE section. The course students take is
+ * the other 26 sections of SPAN 201 a term (10 of SPAN 205), all 20 or fewer,
+ * none ever published. Read anyway, SPAN 130's online rows put Intermediate
+ * Spanish in the hardest tenth of Illinois courses (difficulty 57), and the
+ * planner moved Spanish around that: on a Fall 2026 start it pushed SPAN 201
+ * out of the first term on 12 plans, to the last term on three, and split a
+ * Chemical Engineering student's language sequence. These two wait for DAIR's
+ * whole-course totals (the request drafted for the owner). Kept here, not
+ * deleted, so the check can hold them out and a reader can find why.
+ */
+export const RENUMBERED_NOT_REPRESENTATIVE: Readonly<Record<string, string>> = {
+  'SPAN 201': 'SPAN 130',
+  'SPAN 205': 'SPAN 142',
+};
+
+/** Where a course with no grade row of its own reads its numbers from. */
+export interface BorrowedGradeSource {
+  /** The code the registrar filed the numbers under. */
+  code: string;
+  /** 'twin': the same class under a cross-listed code. 'renumbered': this course under its old number. */
+  via: 'twin' | 'renumbered';
+}
+
+/**
+ * The one answer to "whose grade row does this course show", for the build,
+ * the coverage count and the ask router alike, so no two surfaces can disagree
+ * about it again (see the CS 468 note in build-index.mjs).
+ *
+ * A course's own row always wins. Then a cross-listed twin's, because that is
+ * the same class and the same students this term. Then the row filed under
+ * its old number, and only when that old code is no longer a catalog course:
+ * a number Illinois has handed to a different course must never lend that
+ * course's history.
+ */
+export function borrowedGradeSource(
+  code: string,
+  grades: Map<string, GradeRow>,
+  equivalents: Map<string, string[]>,
+  catalogCodes: Set<string>,
+): BorrowedGradeSource | null {
+  if (grades.has(code)) return null;
+  const twin = (equivalents.get(code) ?? []).find((t) => t !== code && grades.get(t));
+  if (twin) return { code: twin, via: 'twin' };
+  const old = RENUMBERED_GRADE_HISTORY[code];
+  if (old && grades.has(old) && !catalogCodes.has(old)) return { code: old, via: 'renumbered' };
+  return null;
 }
 
 /** A row's n below this is too small to compare against a full course history. */
@@ -4482,7 +4583,17 @@ export function buildIllinoisData(input: {
   let variableCredit = 0;
   let unknownCredit = 0;
   let withGrades = 0;
+  let withGradesFromTwin = 0;
+  let withGradesFromOldNumber = 0;
   let withSections = 0;
+  // Every course, not only the ones with catalog facts, because the build
+  // and the ask router read this map for any code a board can hold.
+  const borrowedGrades = new Map<string, BorrowedGradeSource>();
+  for (const course of courses) {
+    const code = normCode(course.code);
+    const borrowed = borrowedGradeSource(code, grades, equivalents, catalogCodes);
+    if (borrowed) borrowedGrades.set(code, borrowed);
+  }
 
   for (const course of courses) {
     const fact = facts.get(normCode(course.code));
@@ -4500,8 +4611,12 @@ export function buildIllinoisData(input: {
     }
     if (!fact.creditRange.known) unknownCredit += 1;
     else if (fact.creditRange.variable) variableCredit += 1;
-    if (grades.has(normCode(course.code))) withGrades += 1;
-    if (sections.has(normCode(course.code))) withSections += 1;
+    const code = normCode(course.code);
+    const borrowed = borrowedGrades.get(code);
+    if (borrowed?.via === 'twin') withGradesFromTwin += 1;
+    if (borrowed?.via === 'renumbered') withGradesFromOldNumber += 1;
+    if (grades.has(code) || borrowed) withGrades += 1;
+    if (sections.has(code)) withSections += 1;
   }
 
   const coverage: CoverageReport = {
@@ -4514,6 +4629,8 @@ export function buildIllinoisData(input: {
     withStandingRequirement,
     withGrades,
     withoutGrades: courses.length - withGrades,
+    withGradesFromTwin,
+    withGradesFromOldNumber,
     orphanGradeRows,
     withSections,
     sectionTerm: sectionTerm?.label ?? null,
@@ -4537,6 +4654,7 @@ export function buildIllinoisData(input: {
     facts,
     equivalents,
     grades,
+    borrowedGrades,
     gradeProvenance,
     bands,
     sections,

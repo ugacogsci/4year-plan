@@ -1628,7 +1628,7 @@ function answerHardestTerm(ctx: AskContext, easiest: boolean): Routed {
   // know anyway, and calling it the hardest of one term would be silly.
   if (terms.length === 1) return answerLoad(ctx, termOf(terms[0], 'only'));
 
-  const allBorrowed: Array<{ code: string; from: string }> = [];
+  const allBorrowed: Array<{ code: string; from: string; renumbered: boolean }> = [];
   const weighed = terms.map((row) => {
     const codes = coursesInTerm(ctx, row.termId).map((c) => normCode(c.code));
     const creditsByCode = new Map<string, number>();
@@ -2029,7 +2029,7 @@ function shortDescription(text: string, limit = 260): string | null {
 function twinGradeRow(
   code: string,
   ctx: AskContext,
-): { code: string; row: GradeRow; difficulty: number } | null {
+): { code: string; row: GradeRow; difficulty: number; renumbered: boolean } | null {
   const facts = ctx.data.facts.get(code);
   const twins = [...(facts?.equivalents ?? []), ...(ctx.data.equivalents.get(code) ?? [])];
   for (const raw of twins) {
@@ -2037,9 +2037,25 @@ function twinGradeRow(
     if (twin === code) continue;
     const row = ctx.data.grades.get(twin);
     const label = difficultyLabel(row, ctx.data.bands);
-    if (row && label.kind === 'band') return { code: twin, row, difficulty: label.difficulty };
+    if (row && label.kind === 'band') return { code: twin, row, difficulty: label.difficulty, renumbered: false };
+  }
+  // The same course under the number it had until recently: ES 470's
+  // grades are all filed as NPRE 470. The build reads the same map, so the
+  // card, the board and this answer name the same row.
+  const old = ctx.data.borrowedGrades?.get(code);
+  if (old?.via === 'renumbered') {
+    const row = ctx.data.grades.get(old.code);
+    const label = difficultyLabel(row, ctx.data.bands);
+    if (row && label.kind === 'band') return { code: old.code, row, difficulty: label.difficulty, renumbered: true };
   }
   return null;
+}
+
+/** Whose row a borrowed number is, in the words the answer uses for it. */
+function borrowedWhose(from: string, renumbered: boolean): string {
+  return renumbered
+    ? `The registrar filed those under ${from}, this course's number before it was renumbered.`
+    : `The registrar filed those under ${from}, which is this same class under its other code.`;
 }
 
 /**
@@ -2064,9 +2080,9 @@ function twinGradeRow(
 function gradesForCodes(
   codes: string[],
   ctx: AskContext,
-): { grades: Map<string, GradeRow>; borrowed: Array<{ code: string; from: string }> } {
+): { grades: Map<string, GradeRow>; borrowed: Array<{ code: string; from: string; renumbered: boolean }> } {
   const grades = new Map<string, GradeRow>();
-  const borrowed: Array<{ code: string; from: string }> = [];
+  const borrowed: Array<{ code: string; from: string; renumbered: boolean }> = [];
   for (const code of codes) {
     if (grades.has(code)) continue;
     const own = ctx.data.grades.get(code);
@@ -2077,22 +2093,41 @@ function gradesForCodes(
     const twin = twinGradeRow(code, ctx);
     if (!twin) continue;
     grades.set(code, { ...twin.row, code });
-    borrowed.push({ code, from: twin.code });
+    borrowed.push({ code, from: twin.code, renumbered: twin.renumbered });
   }
   return { grades, borrowed };
 }
 
-/** The sentence that has to ship with any number read off a twin's row. */
-function borrowedLine(borrowed: Array<{ code: string; from: string }>): string | null {
-  if (borrowed.length === 0) return null;
-  const pairs = borrowed.slice(0, 4).map((b) => `${b.code} under ${b.from}`);
-  const rest = borrowed.length - pairs.length;
-  const one = borrowed.length === 1;
-  return `Illinois files a class taught under two codes under one of them, so ${
-    one ? 'one of these has' : `${borrowed.length} of these have`
-  } no grade row of ${one ? 'its' : 'their'} own: ${joinWithMore(pairs, rest)}. ${
-    one ? 'That row is' : 'Those rows are'
-  } the same class and ${one ? 'is' : 'are'} what is counted here.`;
+/** The sentence that has to ship with any number read off a twin's row, or off an old number's. */
+function borrowedLine(all: Array<{ code: string; from: string; renumbered: boolean }>): string | null {
+  const lines: string[] = [];
+  const twins = all.filter((b) => !b.renumbered);
+  if (twins.length > 0) {
+    const pairs = twins.slice(0, 4).map((b) => `${b.code} under ${b.from}`);
+    const rest = twins.length - pairs.length;
+    const one = twins.length === 1;
+    lines.push(
+      `Illinois files a class taught under two codes under one of them, so ${
+        one ? 'one of these has' : `${twins.length} of these have`
+      } no grade row of ${one ? 'its' : 'their'} own: ${joinWithMore(pairs, rest)}. ${
+        one ? 'That row is' : 'Those rows are'
+      } the same class and ${one ? 'is' : 'are'} what is counted here.`,
+    );
+  }
+  const renumbered = all.filter((b) => b.renumbered);
+  if (renumbered.length > 0) {
+    const pairs = renumbered.slice(0, 4).map((b) => `${b.code} under ${b.from}`);
+    const rest = renumbered.length - pairs.length;
+    const one = renumbered.length === 1;
+    lines.push(
+      `${one ? 'One of these was' : `${renumbered.length} of these were`} renumbered, and Illinois still files ${
+        one ? 'its' : 'their'
+      } recent grades under the old number: ${joinWithMore(pairs, rest)}. ${
+        one ? 'That row is' : 'Those rows are'
+      } what is counted here.`,
+    );
+  }
+  return lines.length > 0 ? lines.join(' ') : null;
 }
 
 /**
@@ -2178,7 +2213,7 @@ function answerCourse(code: string, raw: string, ctx: AskContext): Routed {
     // Printing the numbers silently hides that; printing nothing would tell a
     // student no grades exist when they do.
     lines.push(
-      `Grade history: ${gradeDetail(borrowed.row) || `difficulty ${borrowed.difficulty} out of 100`}. The registrar filed those under ${borrowed.code}, which is this same class under its other code. ${gradeHistoryLine(ctx)}`,
+      `Grade history: ${gradeDetail(borrowed.row) || `difficulty ${borrowed.difficulty} out of 100`}. ${borrowedWhose(borrowed.code, borrowed.renumbered)} ${gradeHistoryLine(ctx)}`,
     );
     sources.push(sourceOf(sources.length + 1, DAIR.title, DAIR.url));
   } else {

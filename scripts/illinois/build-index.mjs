@@ -235,6 +235,8 @@ mkdirSync(OUT, { recursive: true });
  */
 const indexRows = [];
 let positioned = 0;
+/** Old codes whose rows a renumbered course reads; they ship in grades.json though no index row has their code. */
+const renumberSources = new Set();
 for (const course of data.courses) {
   const code = normCode(course.code);
   const fact = data.facts.get(code);
@@ -245,10 +247,19 @@ for (const course of data.courses) {
   // identical ADV 492 showed a 3.78 average from 114 grades. 501 undergraduate
   // courses were in that position. The twin's row is used and the code it came
   // from is recorded, so the surface can say whose numbers these are.
+  //
+  // A renumbered course is the same thing across time rather than across
+  // departments: ES 470 was NPRE 470 and every one of its recent grades is
+  // filed as NPRE 470. The pairs read by hand and listed in
+  // RENUMBERED_GRADE_HISTORY borrow the old number's row the same way, after
+  // the twin lookup and only when the old code has left the catalog.
+  // data.borrowedGrades holds both answers, so the ask router reads the same.
   const twins = (data.equivalents.get(code) ?? []).filter((t) => t !== code);
   const ownGrade = data.grades.get(code);
-  const twinCode = ownGrade ? null : twins.find((t) => data.grades.get(t));
+  const borrowed = ownGrade ? null : data.borrowedGrades.get(code) ?? null;
+  const twinCode = borrowed?.code ?? null;
   const grade = ownGrade ?? (twinCode ? data.grades.get(twinCode) : undefined);
+  if (borrowed?.via === 'renumbered') renumberSources.add(borrowed.code);
 
   const row = {
     id: course.id,
@@ -355,7 +366,10 @@ write('prereqs.json', prereqs);
 const slimGrades = [];
 let orphanGrades = 0;
 for (const [code, row] of data.grades) {
-  if (!indexCodes.has(code)) {
+  // A retired code is shipped only when a current course reads it: NPRE 470's
+  // row is how the loader, the sweep and every check find ES 470's numbers
+  // through gradeFrom, exactly as they find CS 468's under ADV 492.
+  if (!indexCodes.has(code) && !renumberSources.has(code)) {
     orphanGrades += 1;
     continue;
   }
@@ -750,7 +764,11 @@ const meta = {
     indexed: indexRows.length,
     positioned,
     withPrereqSpec: Object.keys(prereqs).length,
-    withGrades: slimGrades.length,
+    // Courses a student sees grade history for, own row or borrowed, which is
+    // what the header's coverage line means. It printed the grade file's row
+    // count instead (2,293) and undercounted the 503 twins it was showing.
+    withGrades: indexRows.filter((r) => typeof r.difficulty === 'number').length,
+    gradeRows: slimGrades.length,
     withSections: sectionCount,
     programs: programList.length,
     programsWithCourses: programList.filter((p) => p.dataStatus === 'catalog').length,
@@ -831,7 +849,10 @@ console.log(
   `  ${padL(coverage.withPrereqNoteOnly, 6)} say in prose that they have prerequisites and list none, ${prereqNoteOnly} of those shipped in prereqs.json`,
 );
 console.log(`  ${padL(coverage.withStandingRequirement, 6)} require a class standing before a student can register`);
-console.log(`  ${padL(coverage.withGrades, 6)} have grade history, ${coverage.withoutGrades} do not`);
+console.log(
+  `  ${padL(coverage.withGrades, 6)} have grade history, ${coverage.withoutGrades} do not ` +
+    `(${coverage.withGradesFromTwin} through a cross-listed twin, ${coverage.withGradesFromOldNumber} under an old number)`,
+);
 console.log(
   `  ${padL(sectionCount, 6)} have section data for ${coverage.sectionTerm ?? 'no term'}` +
     (raw.sections.json
