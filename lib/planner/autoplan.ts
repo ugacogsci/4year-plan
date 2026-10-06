@@ -819,6 +819,35 @@ export interface AutoplanInput {
    */
   datedMoves?: boolean;
   /**
+   * True to build the board again for a goal's rows: fewer hours on the
+   * degree's own lists, so the rows have the room (a prerequisite the closure
+   * booked that a pool lists counts for that pool and frees a pick of the
+   * pool's own; a pool weighs the courses a candidate drags in before whether
+   * its sentence could be read; a choice among rows takes the row that drags
+   * fewer courses in first), and a row past its date moved by the trade that
+   * brings no term to the cap and gives way with the planner's own picks
+   * first. Set by generatePlan for more boards where the board it keeps has a
+   * track row past its date or off the board; those stand only where the gate
+   * finds them no worse.
+   *
+   * 'lean' does all that and holds the rows to the hours the board kept
+   * spends: the rows it has by their date are booked first (goalRowsKept),
+   * the recommended rows do not spend the hours a waiting exemption will,
+   * and a light term is topped up with a row the goal requires before one the
+   * guide only recommends. Each stands where it is no worse, the one that
+   * ranks first kept: with more hours a board can carry more of the rows, and
+   * with fewer it may be the only one no further past the total than the
+   * board kept.
+   */
+  goalRows?: boolean | 'lean';
+  /**
+   * With goalRows 'lean': the track rows (`track id:codes`) the board kept has
+   * by their date. They are booked first, in the room and in the elective
+   * fill, so the board built for the rows it lacks does not trade them away.
+   * Set by generatePlan.
+   */
+  goalRowsKept?: string[];
+  /**
    * The college the student is trying to get into, when they are not in it
    * yet: its published route becomes requirements placed first, because the
    * application has a deadline the degree page knows nothing about.
@@ -5917,7 +5946,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
    * inferred pairings (AutoplanInput), and `asRead`, the requirements as
    * a930f09 read them (asReadBefore).
    */
-  type Build = { pace: boolean | 'ceiling'; sooner: boolean; plain?: boolean; pairs?: boolean; asRead?: boolean; before?: boolean; seminars?: boolean; swap?: boolean; trim?: boolean; tracks?: TrackPicks; dated?: boolean };
+  type Build = { pace: boolean | 'ceiling'; sooner: boolean; plain?: boolean; pairs?: boolean; asRead?: boolean; before?: boolean; seminars?: boolean; swap?: boolean; trim?: boolean; tracks?: TrackPicks; dated?: boolean; goalRows?: boolean | 'lean' };
   /*
    * A row the page joins with "OR" alone is one pick (joinedByOr in
    * illinois-data): the LAS orientation row, LAS 101 or LAS 100 or LAS 102.
@@ -5936,6 +5965,8 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
   /** How each board was built, for the gate's trail. */
   const builtAs = new WeakMap<GeneratedPlan, string>();
   const buildOf = new WeakMap<GeneratedPlan, Build>();
+  /** The rows the board kept has by their date, for the boards built for a goal's rows (AutoplanInput.goalRowsKept). */
+  let goalRowsKept: string[] = [];
   const once = (horizon: Horizon, build: Build) => {
     const g = onceInner(horizon, build);
     buildOf.set(g, build);
@@ -5962,6 +5993,8 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     trimPast: build.trim === true,
     trackPicks: build.tracks,
     datedMoves: build.dated === true,
+    goalRows: build.goalRows,
+    goalRowsKept: build.goalRows === 'lean' ? goalRowsKept : undefined,
     electiveRanking,
     qualityMemo,
   });
@@ -6084,6 +6117,65 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
       for (const g of built.untried) current.weigh(g);
     }
     let best = current.best();
+    /*
+     * A goal's row still past its date or off the board kept: the board kept
+     * (when the improved engine built it) and the improved engine's boards,
+     * built again spending fewer hours on the degree's own lists
+     * (AutoplanInput.goalRows), stand where they are no worse than the floor,
+     * the release's board and the board kept, on anything the gate measures,
+     * and rank above it. Once Studio Art's First Year Curriculum was read as
+     * the seventeen hours it is, a pre-med freshman's chemistry no longer
+     * fitted the room, while the 200-level ARTS list held nine hours twice:
+     * its own three picks, and six courses the closure booked for the
+     * 300-level picks that the same list names. Each recipe is built twice,
+     * as is and lean (AutoplanInput.goalRows 'lean'): with more hours a board
+     * can carry more of the rows, and with fewer it may be the only one no
+     * further past the total than the board kept.
+     */
+    if ([...measureOf(best).rowLate.values()].some((late) => late > 0)) {
+      const kept = best;
+      const recipe = buildOf.get(kept);
+      goalRowsKept = [...measureOf(kept).rowLate].filter(([, late]) => late === 0).map(([key]) => key);
+      const tries: Build[] = [
+        ...(recipe && recipe.plain !== true ? [{ ...recipe, goalRows: true }] : []),
+        { pace: true, sooner: true, before: true, goalRows: true },
+        { pace: false, sooner: false, before: true, goalRows: true },
+        ...(recipe && recipe.plain !== true ? [{ ...recipe, goalRows: 'lean' as const }] : []),
+        { pace: true, sooner: true, before: true, goalRows: 'lean' },
+        { pace: false, sooner: false, before: true, goalRows: 'lean' },
+      ];
+      const weighed = new Set<string>();
+      let bestRank = gateRank(measureOf(kept));
+      for (let k = 0; k < tries.length; k += 1) {
+        const t = tries[k];
+        const key = JSON.stringify(t);
+        if (weighed.has(key)) continue;
+        weighed.add(key);
+        const g = once(horizon, t);
+        if (seen.has(shapeOf(g))) continue;
+        seen.add(shapeOf(g));
+        /*
+         * A goal's required row on time where the other board has it past its
+         * date or off it outweighs one more term holding two hardest-band
+         * courses (gateWorse's `stack2`), as it outweighs a sequence a term
+         * apart (trialStands): the rows are the sciences, and the sciences
+         * are the hardest band. A third in one term still counts.
+         */
+        const lateRows = (m: GateMeasure) => [...m.rowLate.values()].filter((late) => late > 0).length;
+        const worse = [...new Set([plain, released, kept].flatMap((b) => gateWorse(measureOf(g), measureOf(b)).filter((w) => !(w === 'stack2' && lateRows(measureOf(g)) < lateRows(measureOf(b))))))];
+        trail.tried.push({ board: g, worse, how: builtAs.get(g) });
+        // Short of the residency rule alone: the same board with its picks
+        // traded in place for courses at the 300 level (upperSwap), as the
+        // board kept is below.
+        if (worse.length === 1 && worse[0] === 'residency' && t.swap !== true) tries.push({ ...t, swap: true });
+        if (worse.length > 0) continue;
+        const rank = gateRank(measureOf(g));
+        if (ranksAbove(rank, bestRank)) {
+          best = g;
+          bestRank = rank;
+        }
+      }
+    }
     /*
      * A first-term seminar still after year one on the board kept: that
      * board rebuilt with the seminar traded into year one once every other
@@ -6830,7 +6922,17 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        */
       const light = lightFirst(prefs.priorities) ? [lightStep(qualityAtPlacement(code))] : [];
       // A pick the track's row cannot stand beside goes behind the others (shutsTrackRow): ALEC 115 or CMN 101, not CMN 111, for a pre-med's Oral Communication.
-      const key = [inCatalog, listAudience(code), gatedPick(code), shutsTrackRow(code, together?.get(code)), ...(pickServe ? [servesTrack(code)] : []), unverifiable, clash, aside, wanted, own, extra, ...light, variable, ...byPriority, chain];
+      /*
+       * On a board built for a goal's rows (AutoplanInput.goalRows) the courses a
+       * candidate drags in come before whether its sentence could be read: a
+       * Studio Art freshman's 300- and 400-level list took ARTS 443, whose
+       * "ARTS 243 or consent of instructor" parses, over ARTS 320, whose "For
+       * Art and Design Majors" does not, and ARTS 243 came with it.
+       */
+      const track = [shutsTrackRow(code, together?.get(code)), ...(pickServe ? [servesTrack(code)] : [])];
+      const key = input.goalRows
+        ? [inCatalog, listAudience(code), gatedPick(code), ...track, clash, aside, wanted, own, extra, unverifiable, ...light, variable, ...byPriority, chain]
+        : [inCatalog, listAudience(code), gatedPick(code), ...track, unverifiable, clash, aside, wanted, own, extra, ...light, variable, ...byPriority, chain];
       const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
       if (traced && normaliseCode(traced) === code) console.error(`  [PLAN_DEBUG] ${code} list-pick key [inCatalog, audience, gated, shutsTrack, ${pickServe ? 'servesTrack, ' : ''}unverifiable, clash, aside, wanted, own, extra, ${light.length ? 'light, ' : ''}variable, unknown, -score, -known, chain] = ${JSON.stringify(key)}`);
       return key;
@@ -7436,11 +7538,25 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // education CI 4xx courses need admission); a choice among rows takes
         // one behind an application last.
         const choosing = want < slot.options.length;
+        /**
+         * Among the rows of a choice, the one that drags fewer courses in
+         * behind it goes first, as a pool's candidates do (poolOrderFor), after
+         * the catalog check and before chain depth. Computer Science +
+         * Education's "Choose 1 from" MATH 225, MATH 227 or MATH 257 took MATH
+         * 227 on its shallower chain, and booked STAT 107 for it and BIOE 210
+         * for CS 421, where MATH 225's own prerequisite, calculus, was already
+         * in the plan and it meets CS 421 as well. Only on the boards built for
+         * a goal's rows (AutoplanInput.goalRows).
+         */
+        const have = choosing && !plainEngine && input.goalRows ? new Set([...satisfiedForPrereq, ...chosen.keys()]) : null;
+        const costMemo = new Map<string, number>();
+        const extraOf = rememberedBy((code: string): number => (have ? prerequisiteCost(code, have, ctx.prereqs, equivalents, byCode, costMemo, new Set()) : 0));
         const scored = slot.options
           .map((option) => pickFromOption(option))
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) =>
             (choosing ? gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || servesTrack(a.code) - servesTrack(b.code) : 0) ||
+            (have ? (rank(a.code)[0] ?? 0) - (rank(b.code)[0] ?? 0) || extraOf(a.code) - extraOf(b.code) : 0) ||
             (choosing ? compareRank(rankChoose(a.code), rankChoose(b.code), a.code, b.code) : compareRank(rank(a.code), rank(b.code), a.code, b.code)));
 
         /**
@@ -7805,6 +7921,59 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   };
   closeOver(chosen.keys(), false);
 
+  /**
+   * A prerequisite the closure booked that a pool of the degree lists counts
+   * for that pool, and a pick of the pool's own that it leaves spare goes
+   * back to the list's alternatives. The pools fill in page order, before
+   * the closure: Studio Art's 24 hours of 300- and 400-level ARTS took ARTS
+   * 352, 355, 364, 365, 443 and 444, the closure booked ARTS 251, 245, 265,
+   * 264, 243 and 244 for them, all six on the page's 9-hour 200-level list,
+   * and that list had already booked ARTS 205, 220 and 250 of its own: nine
+   * hours booked twice, and a pre-med freshman's chemistry did not fit the
+   * room left. A pick goes only where nothing else in the plan names it, no
+   * other requirement or general education category counts it, and it
+   * brought no prerequisite of its own; the pool keeps its hours and its
+   * count. Only on the boards built for a goal's rows (AutoplanInput.goalRows).
+   */
+  if (!plainEngine && input.goalRows) {
+    const creditedToPool = new Set<string>();
+    const countedElsewhere = (code: string, requirementId: string): boolean =>
+      input.requirements.some((r) => r.id !== requirementId && (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool') && r.rule.choices.some((choice) => choice.codes.some((c) => normaliseCode(c) === code))) ||
+      [...genEdSpent.values()].some((spent) => spent.has(code));
+    const namedInPlan = (code: string): boolean => {
+      const names = new Set(expandEquivalents(code, equivalents));
+      return [...chosen.keys()].some((other) => other !== code && (ctx.prereqs?.get(other)?.groups ?? []).some((group) => group.any.some((raw) => names.has(normaliseCode(raw)))));
+    };
+    for (const { slot, fill } of poolFills) {
+      if (slot.hoursTarget === null && slot.picks === null) continue;
+      if ((slot.constraints ?? []).length > 0 || fill.nested.length > 0 || nestedParent.has(slot.requirementId) || [...nestedParent.values()].includes(slot.requirementId)) continue;
+      const listed = new Set(slot.options.flat().map(normaliseCode));
+      const extras = [...new Set(addedPrerequisites.map((a) => a.code))].filter(
+        (code) => listed.has(code) && !creditedToPool.has(code) && (chosen.get(code)?.requirementId ?? null) === null && !fill.picked.includes(code) && !fill.free.includes(code),
+      );
+      if (extras.length === 0) continue;
+      const counted = () => [...fill.free, ...fill.picked, ...extras];
+      const met = (codes: string[]) =>
+        (slot.hoursTarget === null || codes.reduce((sum, c) => sum + creditsOf(c), 0) >= slot.hoursTarget) && (slot.picks === null || codes.length >= slot.picks);
+      const released: string[] = [];
+      for (const code of fill.picked.slice().reverse()) {
+        if (extras.includes(code) || slot.together?.has(code) || [...(slot.together?.values() ?? [])].some((partners) => partners.includes(code))) continue;
+        if (!met(counted().filter((c) => c !== code))) continue;
+        if (countedElsewhere(code, slot.requirementId) || namedInPlan(code) || addedPrerequisites.some((a) => a.requiredBy === code)) continue;
+        fill.picked = fill.picked.filter((c) => c !== code);
+        chosen.delete(code);
+        released.push(code);
+      }
+      if (released.length === 0) continue;
+      const used = extras.filter((code) => !fill.picked.includes(code));
+      fill.picked = [...fill.picked, ...used];
+      for (const code of used) creditedToPool.add(code);
+      fill.alternatives = [...released.reverse(), ...fill.alternatives.filter((c) => !released.includes(c))];
+      const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
+      if (traced && [...released, ...used].includes(normaliseCode(traced))) console.error(`  [PLAN_DEBUG] pool "${(slot.label ?? '').slice(0, 50)}": ${used.join(', ')} (booked as prerequisites) count here, ${released.join(', ')} released`);
+    }
+  }
+
   // --- the career track the student named ----------------------------------
   /**
    * The rows of a track the student named, booked like the degree's own
@@ -7907,9 +8076,37 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       return options.sort((a, b) => a.low - b.low || a.adds - b.adds || a.order - b.order)[0]?.c ?? null;
     };
     const rows = tracks.flatMap((track) => track.courses.filter((row) => row.need !== 'suggested').map((row) => ({ track, row })));
+    /**
+     * The hours an exemption group still waiting will book (exemptionsWaiting,
+     * settled after the track rows): the cheapest course it names, once, where
+     * nothing in the plan meets it and no calculus the plan books exempts it.
+     * CHEM 102 reads "Credit in or exemption from MATH 112", and a pre-med
+     * Studio Art freshman's MATH 112 was booked after the recommended rows
+     * had spent its three hours on CHEM 332: a board three hours past the one
+     * kept, which the gate turned away with every chemistry row on time.
+     */
+    const waitingHours = (): number => {
+      const counted = new Set<string>();
+      let hours = 0;
+      for (const { code, group } of exemptionsWaiting) {
+        if (!chosen.has(code)) continue;
+        const alternatives = group.any.flatMap((raw) => expandEquivalents(normaliseCode(raw), equivalents));
+        if (alternatives.some((alt) => satisfiedForPrereq.has(alt) || chosen.has(alt) || counted.has(alt))) continue;
+        if (exemptedBy(group, ctx.prereqs, conflicts, equivalents, [satisfiedForPrereq, chosen], placementReading) !== null) continue;
+        const cheapest = alternatives.filter((alt) => byCode.has(alt)).sort((a, b) => creditsOf(a) - creditsOf(b) || a.localeCompare(b))[0];
+        if (cheapest === undefined) continue;
+        counted.add(cheapest);
+        hours += creditsOf(cheapest);
+      }
+      return hours;
+    };
     const book = (list: typeof rows, required: boolean) => {
       // Hours a semester abroad earns count toward the total like any other.
       let room = (input.degreeTotal ?? 0) - priorCreditTotal - awayCreditTotal - [...chosen.keys()].reduce((sum, c) => sum + creditsOf(c), 0);
+      // On a lean board built for a goal's rows (AutoplanInput.goalRows
+      // 'lean'), the recommended rows do not spend the hours a waiting
+      // exemption will (waitingHours).
+      if (!required && !plainEngine && input.goalRows === 'lean') room -= waitingHours();
       const added: string[] = [];
       /**
        * A dated row the room could not take keeps first claim on it: a row
@@ -7969,8 +8166,20 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       }
       closeOver(added, true);
     };
-    book(rows.filter((x) => x.row.need === 'required'), true);
-    book([...rows.filter((x) => x.row.need === 'recommended' && x.row.due), ...rows.filter((x) => x.row.need === 'recommended' && !x.row.due)], false);
+    /*
+     * On a lean board built for a goal's rows (AutoplanInput.goalRows
+     * 'lean'), the rows the board kept has by their date (goalRowsKept) go
+     * first, in the room and in the elective fill (trackWanted, below): a
+     * pre-med Printmaking freshman's board
+     * built for her chemistry had room for one more four-credit dated row,
+     * took CHEM 332 by the guide's order, and lost the PSYC 100 the board
+     * kept had before the MCAT.
+     */
+    const keptRows = new Set(!plainEngine && input.goalRows === 'lean' ? input.goalRowsKept ?? [] : []);
+    const keptFirst = (x: { track: CareerTrack; row: TrackCourse }): number => (keptRows.has(`${x.track.id}:${x.row.codes.join('/')}`) ? 0 : 1);
+    const inOrder = <T extends { track: CareerTrack; row: TrackCourse }>(list: T[]): T[] => (keptRows.size > 0 ? list.slice().sort((a, b) => keptFirst(a) - keptFirst(b)) : list);
+    book(inOrder(rows.filter((x) => x.row.need === 'required')), true);
+    book(inOrder([...rows.filter((x) => x.row.need === 'recommended' && x.row.due), ...rows.filter((x) => x.row.need === 'recommended' && !x.row.due)]), false);
 
     /**
      * A list pick that stands in for a course the track now books gives way to
@@ -9891,7 +10100,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       if (booked) electives.push({ code, why: `For ${booked.track.name}: ${booked.row.why}`, reasons: scoring.quality(code).reasons, track: booked.track.name });
     }
     const trackWanted = new Map<string, { track: string; why: string }>();
-    for (const left of trackLeft) {
+    // The rows the board kept has by their date first (AutoplanInput.goalRowsKept, as the room books them).
+    const keptRowKeys = new Set(!plainEngine && input.goalRows === 'lean' ? input.goalRowsKept ?? [] : []);
+    const wantedOrder = keptRowKeys.size > 0
+      ? trackLeft.slice().sort((a, b) => Number(!keptRowKeys.has(`${a.track.id}:${a.row.codes.join('/')}`)) - Number(!keptRowKeys.has(`${b.track.id}:${b.row.codes.join('/')}`)))
+      : trackLeft;
+    for (const left of wantedOrder) {
       if (!plannedAll.has(left.code) && !trackWanted.has(left.code)) trackWanted.set(left.code, { track: left.track.name, why: left.row.why });
     }
     /*
@@ -10315,7 +10529,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         for (const code of here) for (const equiv of expandEquivalents(code, equivalents)) sameTerm.add(equiv);
         const hardHere = here.filter(isHard).length;
         const tooBig = (hours: number) => running + hours > credits.max;
-        const fitsHere = (code: string): boolean => {
+        // `row`: a row the goal requires (goalRow below), held to every check a track course is.
+        const fitsHere = (code: string, row = false): boolean => {
           if (plannedAll.has(code)) return false;
           // MERGE-UGA: same conflict as the fill's fitsHere above: keep both Illinois checks and UGA's plannedVariants
           // line. Either side alone compiles but drops a guard.
@@ -10323,7 +10538,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (preparesForHeld(code, ctx.prereqs, (c) => plannedAll.has(c) || earned.has(c), !plainEngine)) return false;
           const course = byCode.get(code);
           if (!course) return false;
-          if (!trackWanted.has(code) && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects)) return false;
+          if (!trackWanted.has(code) && !row && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects)) return false;
           if (tooBig(creditsOf(code))) return false;
           if (outOfSeason(course, term.season, published.has(code))) return false;
           // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
@@ -10331,11 +10546,41 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
           if (isHard(code) && hardHere >= hardLimitAt(term.index)) return false;
           if (apartFromLecture(code, here)) return false;
-          if (!trackWanted.has(code) && askedEarlier(code, term.index)) return false;
+          if (!trackWanted.has(code) && !row && askedEarlier(code, term.index)) return false;
           if (conflictWith(code, conflicts, [earned, chosen, plannedAll]) !== null) return false;
           if (expandEquivalents(code, equivalents).some((twin) => twin !== code && (plannedAll.has(twin) || earned.has(twin)))) return false;
           return electivePrereqsMet(match(ctx.prereqs?.get(code), earlierSet, sameTerm, equivalents));
         };
+        /*
+         * On a lean board built for a goal's rows (AutoplanInput.goalRows
+         * 'lean'), a row the goal requires that the room did not cover (trackBeyondRoom)
+         * tops a light term up before a row the guide only recommends: the
+         * completion pass below seats it past the total anyway. A pre-med
+         * Sculpture freshman's Fall 2028 was topped up with CHEM 332, which
+         * the guide recommends, and the completion pass then added MCB 450,
+         * which it requires, beside it: four hours past the board kept. A
+         * lecture whose lab waits too, and a lab, are left to that pass, which
+         * seats the two together.
+         */
+        const goalRow = !plainEngine && input.goalRows === 'lean'
+          ? [...trackBeyondRoom.keys()].find((code) => {
+            const lab = lectureLab.get(code);
+            return !labOf.has(code) && !(lab !== undefined && trackBeyondRoom.has(lab) && !plannedAll.has(lab)) && fitsHere(code, true);
+          })
+          : undefined;
+        if (goalRow !== undefined) {
+          const booked = trackBeyondRoom.get(goalRow) as { track: CareerTrack; row: TrackCourse };
+          here.push(goalRow);
+          plannedAll.add(goalRow);
+          chosen.set(goalRow, { requirementId: null, label: `For ${booked.track.name}` });
+          if (!trackRowOf.has(goalRow)) trackRowOf.set(goalRow, booked);
+          const overBefore = overTotal();
+          total += creditsOf(goalRow);
+          trackPast += overTotal() - overBefore;
+          electives.push({ code: goalRow, why: `For ${booked.track.name}: ${booked.row.why}`, reasons: [], track: booked.track.name });
+          topped = true;
+          continue;
+        }
         /*
          * The improved engine first gives the light term a course a heavier
          * term can spare, and books an elective only when none can: a pre-med
@@ -12470,6 +12715,20 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const lab = lectureLab.get(code);
       const unit = lab !== undefined && termOf(lab) === from ? [code, lab] : [code];
       let done = false;
+      /*
+       * On a board built for a goal's rows (AutoplanInput.goalRows) every move
+       * that holds is weighed before one is made: the one that brings no term
+       * to the cap, then the one whose courses out give way most readily (a
+       * gen-ed pick before a course of the degree), then fewer courses out,
+       * then the later term. Taken first, the latest term that would do put a
+       * pre-med Animal Sciences freshman's SOC 100 into Fall 2028 at 18,
+       * beside CHEM 332, where Spring 2028 took it at 17 for ANSC 205, a
+       * gen-ed pick; and a Theatre Studies freshman's CHEM 332 sent two THEA
+       * courses to Fall 2029, where Spring 2028's LAST 210 would have gone.
+       */
+      const weighAll = Boolean(input.goalRows);
+      let bestMove: { score: number[]; to: number; nextTo: string[]; nextFrom: string[]; out: string[] } | null = null;
+      const atCapCount = (indexes: number[], lists: string[][]) => indexes.filter((index, k) => sizeOf(lists[k]) >= creditCapOf(terms[index])).length;
       for (let to = Math.min(due, from - 1); to >= 0 && !done; to -= 1) {
         if (isSummer(terms[to]) || unit.some((c) => outOfSeason(byCode.get(c), terms[to].season, published.has(c)))) continue;
         const into = placed.get(terms[to].id) ?? [];
@@ -12515,7 +12774,15 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             yearOneMajor() >= major &&
             (!math || yearOneMath()) &&
             unit.every((c) => levelFits(c, hoursBefore(to), standingHours));
-          if (holds) {
+          if (holds && weighAll) {
+            const score = [
+              atCapCount([to, from], [nextTo, nextFrom]) - atCapCount([to, from], [into, fromCodes]),
+              Math.max(-1, ...out.map((c) => giveTier(c) as number)),
+              out.length,
+              -to,
+            ];
+            if (!bestMove || compareRank(score, bestMove.score, '', '') < 0) bestMove = { score, to, nextTo, nextFrom, out };
+          } else if (holds) {
             if (debugCode && unit.includes(normaliseCode(debugCode))) console.error(`  [PLAN_DEBUG] past its date: ${unit.join(' and ')} from ${terms[from].label} to ${terms[to].label}${out.length ? `, ${out.join(' and ')} to ${terms[from].label}` : ''}`);
             done = true;
             break;
@@ -12523,6 +12790,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           placed.set(terms[to].id, into);
           placed.set(terms[from].id, fromCodes);
         }
+      }
+      if (bestMove) {
+        placed.set(terms[bestMove.to].id, bestMove.nextTo);
+        placed.set(terms[from].id, bestMove.nextFrom);
+        if (debugCode && unit.includes(normaliseCode(debugCode))) console.error(`  [PLAN_DEBUG] past its date: ${unit.join(' and ')} from ${terms[from].label} to ${terms[bestMove.to].label}${bestMove.out.length ? `, ${bestMove.out.join(' and ')} to ${terms[from].label}` : ''}`);
       }
     }
   };
