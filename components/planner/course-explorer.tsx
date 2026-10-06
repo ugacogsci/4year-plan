@@ -530,6 +530,12 @@ export function CourseExplorer({
               core={core}
               schoolId={schoolId}
               completed={completedCodes.has(selected.code.toUpperCase())}
+              // The column the course sits in decides which term's class
+              // times the card shows: a spring-column course shows Spring 2027.
+              planTerm={(() => {
+                const at = terms.find((t) => t.courseIds.includes(selected.id));
+                return at ? { id: at.id, label: at.label } : null;
+              })()}
             />
             <div className="inspector-add">
               <NativeSelect

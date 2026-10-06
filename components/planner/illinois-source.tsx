@@ -47,6 +47,7 @@ import {
   type PrereqSpec,
   type RawSectionFile,
   type RequirementBlock,
+  type SectionSummary,
 } from '@/lib/planner/illinois-data';
 import type {
   AwayKind,
@@ -1226,5 +1227,38 @@ export function useCourseDetail(code: string | null, enabled = true): DetailStat
    */
   if (!enabled) return { code, loading: false, detail: null };
   if (state.code !== code) return { code, loading: code !== null, detail: null };
+  return state;
+}
+
+export interface SectionTermState {
+  termId: string | null;
+  loading: boolean;
+  /** The term's section summaries by course code; null while loading, or when the term did not load. */
+  sections: Map<string, SectionSummary> | null;
+}
+
+/**
+ * One crawled term's section summaries, fetched the first time a card asks
+ * about a course in that term and never again (loadIllinoisSectionTerm caches
+ * it). The first term is already in the core and costs nothing.
+ */
+export function useSectionTerm(termId: string | null, enabled = true): SectionTermState {
+  const [state, setState] = useState<SectionTermState>({ termId: null, loading: false, sections: null });
+  const wanted = useRef<string | null>(null);
+
+  useEffect(() => {
+    wanted.current = termId;
+    if (!termId || !enabled) return;
+    void import('@/lib/planner/illinois-load').then(({ loadIllinoisSectionTerm }) =>
+      loadIllinoisSectionTerm(termId).then((sections) => {
+        if (wanted.current !== termId) return;
+        setState({ termId, loading: false, sections });
+      }),
+    );
+  }, [termId, enabled]);
+
+  // Derived the way useCourseDetail derives it, for the same two reasons.
+  if (!enabled || !termId) return { termId, loading: false, sections: null };
+  if (state.termId !== termId) return { termId, loading: true, sections: null };
   return state;
 }
