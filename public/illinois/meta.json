@@ -1,6 +1,6 @@
 {
   "school": "illinois",
-  "fetchedAt": "2026-10-06T06:51:06.325Z",
+  "fetchedAt": "2026-10-06T09:30:23.203Z",
   "sources": {
     "catalog": {
       "source": "catalog.illinois.edu/courses-of-instruction",
@@ -35,6 +35,30 @@
     "term": "fall",
     "fetchedAt": "2026-09-20T12:33:30.079Z"
   },
+  "sectionTerms": [
+    {
+      "id": "fall-2026",
+      "label": "Fall 2026",
+      "year": 2026,
+      "term": "fall",
+      "fetchedAt": "2026-09-20T12:33:30.079Z",
+      "source": "https://courses.illinois.edu/schedule/2026/fall",
+      "courses": 3034,
+      "file": "sections.json",
+      "raw": "illinois-sections.json"
+    },
+    {
+      "id": "spring-2027",
+      "label": "Spring 2027",
+      "year": 2027,
+      "term": "spring",
+      "fetchedAt": "2026-10-06T07:11:39.289Z",
+      "source": "https://courses.illinois.edu/schedule/2027/spring",
+      "courses": 3016,
+      "file": "sections/spring-2027.json",
+      "raw": "illinois-sections-sp2027.json"
+    }
+  ],
   "bands": {
     "typical": 10,
     "harder": 28,

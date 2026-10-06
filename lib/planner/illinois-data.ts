@@ -4474,6 +4474,31 @@ const TERM_LABELS: Record<string, string> = {
   winter: 'Winter',
 };
 
+/** A crawled schedule term: "spring-2027", "Spring 2027". The id is the plan's own term id for that season and year. */
+export interface SectionTermInfo {
+  id: string;
+  label: string;
+  year: number;
+  term: string;
+  fetchedAt: string;
+}
+
+/**
+ * The id and label of one section crawl, built the way buildIllinoisData
+ * builds them for the term it summarises, so every crawled term is named
+ * alike: the build's extra terms, the browser's loaders and the ask router.
+ */
+export function sectionTermOf(file: { year: number; term: string; fetchedAt: string }): SectionTermInfo {
+  const term = (file.term ?? '').toLowerCase();
+  return {
+    id: `${term}-${file.year}`,
+    label: `${TERM_LABELS[term] ?? file.term} ${file.year}`,
+    year: file.year,
+    term: file.term,
+    fetchedAt: file.fetchedAt,
+  };
+}
+
 export function buildIllinoisData(input: {
   catalog?: RawCatalogFile | null;
   programs?: RawProgramFile | null;
@@ -4527,14 +4552,7 @@ export function buildIllinoisData(input: {
   const sections = new Map<string, SectionSummary>();
   let sectionTerm: IllinoisData['sectionTerm'] = null;
   if (input.sections) {
-    const term = (input.sections.term ?? '').toLowerCase();
-    sectionTerm = {
-      id: `${term}-${input.sections.year}`,
-      label: `${TERM_LABELS[term] ?? input.sections.term} ${input.sections.year}`,
-      year: input.sections.year,
-      term: input.sections.term,
-      fetchedAt: input.sections.fetchedAt,
-    };
+    sectionTerm = sectionTermOf(input.sections);
     for (const course of input.sections.courses ?? []) {
       if (!course?.code) continue;
       sections.set(normCode(course.code), summariseSections(course, sectionTerm));

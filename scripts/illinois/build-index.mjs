@@ -37,7 +37,7 @@
  */
 
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from 'node:zlib';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -59,7 +59,7 @@ export async function resolve(spec, ctx, next) {
   return next(spec, ctx);
 }`),
 );
-const { buildIllinoisData, gradeFootnote } = await import('../../lib/planner/illinois-data.ts');
+const { buildIllinoisData, gradeFootnote, sectionTermOf, summariseSections } = await import('../../lib/planner/illinois-data.ts');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PUBLIC = join(ROOT, 'public');
@@ -166,6 +166,34 @@ for (const [key, name] of Object.entries(RAW)) {
   if (!raw[key].json) notes.push(`${name} is ${raw[key].error}.`);
 }
 
+/**
+ * Every other crawled term of class times, one raw file per term.
+ *
+ * schedule.mjs writes each term to public/illinois-sections-<term>.json
+ * (illinois-sections-sp2027.json). Fall 2026 was crawled before terms had
+ * files of their own and is RAW.sections above; it stays the term the plan's
+ * scoring reads and the only one in the first load. The others are built into
+ * a summary file per term (sections/<term id>.json) and into each subject
+ * shard's sectionsByTerm, and the browser fetches them only when a card, ALMA
+ * or the advisor packet asks about a course in that term. A file the crawler
+ * has not finished is not read: half a term would tell a student a course
+ * does not run.
+ */
+const EXTRA_SECTION_FILE = /^illinois-sections-(fa|sp|su|wi)(\d{4})\.json$/;
+const extraTerms = [];
+for (const name of readdirSync(PUBLIC).filter((n) => EXTRA_SECTION_FILE.test(n)).sort()) {
+  const r = readRaw(name);
+  if (!r.json) {
+    notes.push(`${name} is ${r.error}.`);
+    continue;
+  }
+  if (r.json.complete === false || !Array.isArray(r.json.courses)) {
+    notes.push(`${name} is not a finished crawl, so its term was left out.`);
+    continue;
+  }
+  extraTerms.push({ name, file: r.json, info: sectionTermOf(r.json) });
+}
+
 console.log('BEFORE, the raw crawls in public/');
 console.log(`  ${pad('file', 24)} ${padL('raw', 10)} ${padL('gzip', 10)}`);
 let rawTotal = 0;
@@ -205,6 +233,7 @@ for (const row of raw.map.json?.courses ?? []) {
 // from a re-crawl cannot keep serving yesterday's file.
 rmSync(join(OUT, 'course'), { recursive: true, force: true });
 rmSync(join(OUT, 'program'), { recursive: true, force: true });
+rmSync(join(OUT, 'sections'), { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
 // ---------------------------------------------------------------------------
@@ -414,6 +443,42 @@ if (data.sectionTerm) {
   });
 }
 
+/**
+ * The other crawled terms, the same shape as sections.json, one file each.
+ * Summarised by the same summariseSections the first term goes through, so a
+ * Spring 2027 card and a Fall 2026 card say "usually in" on the same rule.
+ * A term that repeats the first one is skipped rather than shipped twice.
+ */
+const sectionTermRows = [];
+if (data.sectionTerm) {
+  sectionTermRows.push({
+    ...data.sectionTerm,
+    source: raw.sections.json?.source ?? null,
+    courses: sectionCount,
+    file: 'sections.json',
+    raw: RAW.sections,
+  });
+}
+for (const extra of extraTerms) {
+  if (data.sectionTerm && extra.info.id === data.sectionTerm.id) {
+    notes.push(`${extra.name} repeats ${data.sectionTerm.label}, which ${RAW.sections} already holds, so it was left out.`);
+    continue;
+  }
+  const rows = [];
+  for (const course of extra.file.courses) {
+    if (!course?.code || !indexCodes.has(normCode(course.code))) continue;
+    const { termId: _t, termLabel: _l, ...rest } = summariseSections(course, extra.info);
+    rows.push(rest);
+  }
+  const file = `sections/${extra.info.id}.json`;
+  write(file, { termId: extra.info.id, termLabel: extra.info.label, capturedAt: extra.info.fetchedAt, courses: rows }, { group: 'on demand' });
+  extra.withSections = rows.length;
+  sectionTermRows.push({ ...extra.info, source: extra.file.source ?? null, courses: rows.length, file, raw: extra.name });
+}
+const shippedExtraTerms = extraTerms.filter((t) => t.withSections !== undefined);
+const termRank = (t) => t.year * 4 + ({ winter: 0, spring: 1, summer: 2, fall: 3 }[String(t.term).toLowerCase()] ?? 0);
+sectionTermRows.sort((a, b) => termRank(a) - termRank(b));
+
 // ---------------------------------------------------------------------------
 // programs.json, the picker list, with no course rows in it
 // ---------------------------------------------------------------------------
@@ -462,6 +527,17 @@ for (const course of raw.sections.json?.courses ?? []) {
   sectionsBySubject.get(course.subject).push(course);
 }
 
+/** subject -> term id -> raw rows, for the terms past the first. */
+const extraSectionsBySubject = new Map();
+for (const extra of shippedExtraTerms) {
+  for (const course of extra.file.courses) {
+    if (!course?.subject) continue;
+    if (!extraSectionsBySubject.has(course.subject)) extraSectionsBySubject.set(course.subject, {});
+    const byTerm = extraSectionsBySubject.get(course.subject);
+    (byTerm[extra.info.id] ??= []).push(course);
+  }
+}
+
 const instructorsBySubject = new Map();
 for (const [code, row] of data.grades) {
   if ((row.instructors ?? []).length === 0) continue;
@@ -496,6 +572,17 @@ for (const [subject, courses] of [...catalogBySubject].sort(([a], [b]) => a.loca
         courses,
         sections: sectionsBySubject.get(subject) ?? [],
         instructors: instructorsBySubject.get(subject) ?? [],
+        // The other crawled terms' rows, keyed by term id, after the three
+        // fields above so the first term's bytes are exactly what they were.
+        // Every shipped term gets a list, empty when the subject has no
+        // course that term: crawled and empty is not the same as not crawled.
+        ...(shippedExtraTerms.length > 0
+          ? {
+              sectionsByTerm: Object.fromEntries(
+                shippedExtraTerms.map((t) => [t.info.id, extraSectionsBySubject.get(subject)?.[t.info.id] ?? []]),
+              ),
+            }
+          : {}),
       },
       { group: 'on demand' },
     ),
@@ -757,6 +844,14 @@ const meta = {
       : null,
   },
   term: data.sectionTerm,
+  /**
+   * Every crawled term of class times, oldest first. `term` above stays the
+   * one the plan's scoring and checks read (and the one in the first load);
+   * the others are fetched on demand from `file` for the cards, ALMA and the
+   * advisor packet. `raw` is the crawl file ALMA's question router reads rows
+   * from.
+   */
+  sectionTerms: sectionTermRows,
   bands: data.bands,
   gradeFootnote: gradeFootnote(data.gradeProvenance),
   coverage,
@@ -809,6 +904,11 @@ console.log(
 console.log(
   `  ${pad(`program/*.json (${programRows.length})`, 24)} ${padL(size(sum(programRows, 'raw')), 10)} ${padL(size(sum(programRows, 'gzip')), 10)} ${padL(size(sum(programRows, 'brotli')), 10)}  never all fetched`,
 );
+for (const row of written.filter((r) => r.path.startsWith('sections/'))) {
+  console.log(
+    `  ${pad(row.path, 24)} ${padL(size(row.raw), 10)} ${padL(size(row.gzip), 10)} ${padL(size(row.brotli), 10)}  fetched only when a course in that term is asked about`,
+  );
+}
 console.log('');
 
 const fpGzip = sum(firstPaint, 'gzip');
@@ -859,6 +959,11 @@ console.log(
       ? `, from a crawl file holding ${coursesInSectionFile} courses when this ran`
       : ' (no section file)'),
 );
+for (const extra of shippedExtraTerms) {
+  console.log(
+    `  ${padL(extra.withSections, 6)} have section data for ${extra.info.label} (loaded on demand), from ${extra.name} holding ${extra.file.courses.length} courses`,
+  );
+}
 console.log(`  ${padL(coverage.programs, 6)} programs, ${coverage.programsWithCourses} with readable course rows`);
 console.log(
   `  ${padL(coverage.programsWithGenEd, 6)} carry a campus general education table, ${coverage.genEdCategories} categories in all, ` +
