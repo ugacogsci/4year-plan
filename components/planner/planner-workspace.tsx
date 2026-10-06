@@ -4106,9 +4106,24 @@ export function PlannerWorkspace({
    * card dropdown's own runners-up (alternativesFor), the list ALMA's
    * explain_choice reads, so paper and screen offer the same course.
    */
-  const openPacket = () => {
+  const openPacket = async () => {
     const board = planRef.current ?? plan;
     if (!board) return;
+    // Every published class schedule, so the packet can say which terms are
+    // not estimates and which of their courses the schedule does not list.
+    // The terms past the first load here, once, if nothing has loaded them yet.
+    const scheduleTerms = isIllinois ? sectionTermsOf(core?.meta) : [];
+    const schedules = scheduleTerms.length > 0 ? await loadIllinoisSectionTerms().catch(() => null) : null;
+    const packetSchedules = scheduleTerms.map((t) => {
+      const map = schedules?.get(t.id) ?? null;
+      return {
+        id: t.id,
+        label: t.label,
+        year: t.year,
+        term: t.term,
+        listed: map ? new Set([...map].filter(([, row]) => row.total > 0).map(([code]) => code)) : null,
+      };
+    });
     const record = answers?.transcript ?? null;
     const known = (code: string) => byCode.has(normCode(code));
     const priced = exams.map((e) => {
@@ -4163,6 +4178,7 @@ export function PlannerWorkspace({
         caveats,
         alternatives: alternativesFor,
         madeOn: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+        ...(packetSchedules.length > 0 ? { schedules: packetSchedules } : {}),
       }),
     );
   };
@@ -4245,7 +4261,7 @@ export function PlannerWorkspace({
                 {saveState === 'failed' ? <AlertTriangle /> : <CheckCircle2 />}
                 {saveState === 'failed' ? 'Not saved on this device' : saveState === 'saved' ? 'Saved on this device' : 'Saves on this device as you go'}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={openPacket} disabled={!plan}>
+              <DropdownMenuItem onClick={() => void openPacket()} disabled={!plan}>
                 <Printer /> Print for my advisor
               </DropdownMenuItem>
               <DropdownMenuItem onClick={exportPlan}>Download as JSON</DropdownMenuItem>

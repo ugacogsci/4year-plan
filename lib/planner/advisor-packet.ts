@@ -26,6 +26,7 @@ import {
   type PlanningContext,
 } from './autoplan';
 import { restrictedToOthers, type PlanMark } from './repick';
+import { termRank, termsInWords } from './section-terms';
 import { transcriptOpenLines, type TranscriptRecord } from './transcript';
 import type { Course, IssueSeverity, PlanState, SemesterSeason } from './types';
 
@@ -250,6 +251,13 @@ export interface PacketInput {
    */
   alternatives: (courseId: string, termId: string) => Array<{ course: Course; why: string }>;
   madeOn: string;
+  /**
+   * Every published class schedule the planner read ("fall-2026",
+   * "spring-2027"), with the courses it lists; listed is null when that
+   * term's schedule did not load. Absent, the planning context's one
+   * snapshot term is the only schedule.
+   */
+  schedules?: Array<{ id: string; label: string; year: number; term: string; listed: Set<string> | null }>;
 }
 
 const TERM_MAX = 18;
@@ -662,9 +670,29 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
       return m ? `${{ sp: 'Spring', su: 'Summer', fa: 'Fall', wi: 'Winter' }[m[1]]} ${m[2]}` : t;
     };
     const snapshot = ctx.snapshotTerm ?? null;
+    /**
+     * The terms whose class schedule is out. A course in one of them is not
+     * an estimate, so its offering record is not read; one its term's
+     * schedule does not list is said instead. The first crawled term's
+     * misses are the validator's own flags already, listed with the flags.
+     */
+    const published = (input.schedules && input.schedules.length > 0
+      ? input.schedules
+      : snapshot
+        ? [{ id: snapshot.id, label: snapshot.label, year: Number(snapshot.id.split('-')[1]) || 0, term: snapshot.season.toLowerCase(), listed: null }]
+        : []
+    ).slice().sort((a, b) => termRank(a) - termRank(b));
+    const notListed: string[] = [];
     const thin: string[] = [];
     for (const { c, t } of placed) {
-      if (snapshot && snapshot.id === t.id) continue;
+      const schedule = published.find((p) => p.id === t.id);
+      if (schedule) {
+        const code = normaliseCode(c.code);
+        if (schedule.id !== snapshot?.id && schedule.listed && !schedule.listed.has(code)) {
+          notListed.push(`${c.code} in ${t.label}: not on the ${t.label} class schedule`);
+        }
+        continue;
+      }
       const code = normaliseCode(c.code);
       const seasonTerms = window.filter((w) => w.startsWith(SEASON_PREFIX[t.season]));
       if (seasonTerms.length === 0) continue;
@@ -673,10 +701,15 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
         thin.push(`${c.code} in ${t.label}: ran in ${ran} of the last ${seasonTerms.length} ${t.season.toLowerCase()} ${plural(seasonTerms.length, 'term')}`);
       }
     }
+    const latest = published[published.length - 1] ?? null;
+    const scheduleWords = latest
+      ? `${published.length === 1 ? `A class schedule is published only for ${latest.label}` : `Class schedules are published for ${termsInWords(published)}`}, so every term after ${latest.label} is an estimate`
+      : 'No class schedule is published for any term on the board, so every term is an estimate';
+    const items = [...notListed, ...thin];
     assumptions.push({
       kind: 'offering',
-      heading: `When courses run. No schedule is published past ${snapshot?.label ?? 'the current term'}${snapshot ? ', the term the section times on the board come from' : ''}, so every later term is an estimate: each course sits in a season it ran in between ${word(window[window.length - 1])} and ${word(window[0])}.${thin.length > 0 ? ' Where that record is thin:' : ' Every one ran in its planned season at least half the time.'}`,
-      items: thin,
+      heading: `When courses run. ${scheduleWords}: each course sits in a season it ran in between ${word(window[window.length - 1])} and ${word(window[0])}.${items.length > 0 ? ' Check these:' : ' Every one ran in its planned season at least half the time.'}`,
+      items,
     });
   }
   if (ctx) {
