@@ -3221,9 +3221,32 @@ export function optionListsIn(
   const kept = new Set(rows);
   const inList = new Set<RawProgramCourse>();
   const lists: Array<{ text: string; rows: RawProgramCourse[]; n: number | null; hours: number | null }> = [];
+  /** Where the rows of the last list end: an "or" there goes on with that list. */
+  let lastUntil = -1;
+  let orJoined = false;
   for (const [i, comment] of comments.entries()) {
-    // "Select one group of courses" (choicesFrom reads it), and alternatives the table writes as "OR" rows between courses.
-    if (/\bone group\b/i.test(comment.text) || /^or$/i.test(comment.text.trim())) return null;
+    // "Select one group of courses" (choicesFrom reads it).
+    if (/\bone group\b/i.test(comment.text)) return null;
+    if (/^or$/i.test(comment.text.trim())) {
+      // An "or" right after a list's rows, over one row that runs to a row with hours of its own
+      // or to the table's end, is one more of the list's alternatives: Geophysics's "Select one
+      // of the following: PHYS 325 Classical Mechanics I or TAM 210 & TAM 212". Anywhere else it
+      // joins rows this does not read: "CS 233 OR CS 340" and two 400-level courses (CS 403 rows).
+      // Read only where the whole table adds up below (tableAddsUp).
+      const last = lists[lists.length - 1];
+      if (!last || lastUntil !== comment.at) return null;
+      const next = comments[i + 1]?.at ?? all.length;
+      let end = comment.at;
+      while (end < next && end < all.length && (all[end].credits === null || all[end].credits === undefined)) end += 1;
+      if (end !== comment.at + 1 || (end < all.length && end === next)) return null;
+      const row = all[comment.at];
+      if (!kept.has(row)) return null;
+      last.rows.push(row);
+      inList.add(row);
+      lastUntil = end;
+      orJoined = true;
+      continue;
+    }
     if (!OPTION_HEAD.test(comment.text) && comment.hours === null) continue;
     // A lead-in stacked on the next comment ("Core Requirement:" over "Group I ...") hands it the rows.
     if (comments[i + 1]?.at === comment.at) continue;
@@ -3251,13 +3274,55 @@ export function optionListsIn(
     if (n !== null && n > run.length) return null;
     for (const row of run) inList.add(row);
     lists.push({ text: comment.text.replace(/[\s:]+$/, ''), rows: run, n, hours });
+    lastUntil = until;
   }
   if (lists.length === 0) return null;
   const core = rows.filter((row) => !inList.has(row));
+  if (core.length === 0) return null;
+  const uncredited = (row: RawProgramCourse) => row.credits === null || row.credits === undefined;
   // Every row left over must be one the page gives hours of its own, as required rows have; a row
   // with none that no list claimed is part of a structure this does not read (CS 340 after an "OR").
-  if (core.length === 0 || core.some((row) => row.credits === null || row.credits === undefined)) return null;
+  // Where an "or" went on with a list, none has, and the table's own hours are the catalog's for
+  // those rows and the least of each list: Geophysics's "Physics 15-17" is PHYS 211, 212, 213 and
+  // 214, twelve, and PHYS 325's three. Read that way only there: relaxed for every table, it
+  // re-read 20 more degrees (ETMA, NRES, Slavic, Anthropology and others) at once.
+  if (orJoined ? !(core.every(uncredited) && byCode && tableAddsUp(group, core, lists, byCode)) : core.some(uncredited)) return null;
   return { core, lists };
+}
+
+/** The catalog hours of one row: a pair its title names (bundleOf) added up, else the least of its alternatives. */
+function rowCatalogCredits(row: RawProgramCourse, byCode: CatalogRowLookup): number | null {
+  const bundle = bundleOf(row, byCode);
+  if (bundle) return bundle.reduce((sum, code) => sum + (byCode.get(code)?.credits ?? 0), 0);
+  const hits = [row.code, ...(row.or ?? [])].map((c) => byCode.get(normCode(c))).filter((hit) => hit !== undefined);
+  return hits.length > 0 ? Math.min(...hits.map((hit) => hit.credits)) : null;
+}
+
+/** Whether a table's published hours are its required rows' catalog hours and the least each option list asks (optionListsIn). */
+function tableAddsUp(
+  group: RawProgramGroup,
+  core: RawProgramCourse[],
+  lists: Array<{ rows: RawProgramCourse[]; n: number | null; hours: number | null }>,
+  byCode: CatalogRowLookup,
+): boolean {
+  if (group.hours === null || group.hours === undefined) return false;
+  let sum = 0;
+  for (const row of core) {
+    const credits = rowCatalogCredits(row, byCode);
+    if (credits === null) return false;
+    sum += credits;
+  }
+  for (const list of lists) {
+    if (list.n === null) {
+      if (list.hours === null) return false;
+      sum += list.hours;
+      continue;
+    }
+    const each = list.rows.map((row) => rowCatalogCredits(row, byCode));
+    if (each.some((credits) => credits === null)) return false;
+    sum += (each as number[]).sort((a, b) => a - b).slice(0, list.n).reduce((a, b) => a + b, 0);
+  }
+  return sum === group.hours;
 }
 
 /**
