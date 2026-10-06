@@ -5944,6 +5944,39 @@ function gateWorse(a: GateMeasure, b: GateMeasure): string[] {
 }
 
 /**
+ * What gateWorse measures that is the shape of a term or of year one rather
+ * than what the student must take, when, and in what order: terms at the
+ * cap, two hardest-band courses in a term, one subject crowding the last two
+ * terms, a sequence run a term apart, year one's load, its college math and
+ * its courses of the major.
+ */
+const SHAPE_ONLY = new Set(['atCap', 'stack2', 'crowded', 'sequence', 'math', 'yearOneHeavy', 'yearOneLight', 'yearOneMajor']);
+
+/**
+ * Whether a board worse than `against` only in its shape (SHAPE_ONLY) still
+ * stands, because it places courses a requirement names that every one of
+ * them leaves off, and leaves off none they place.
+ *
+ * Read as the page prints it, Art Education's First Year Curriculum is six
+ * required courses and a drawing course, not one of nine. On a pre-med
+ * freshman's board the plain engine, the floor, then had no fall left for
+ * ARTE 303 and ARTE 304, which run in fall only and are taken together, and
+ * left them off with ARTE 400 and the student-teaching ARTE 401 behind them.
+ * The improved engine's paced board placed all four, by Fall 2029, with the
+ * track's CHEM 332 and SOC 100 before the application, and the gate turned it
+ * away for a second term at 18 credits and a sequence run a term apart: the
+ * student got a board on which she cannot finish the degree. A course the
+ * page requires outranks every measure here (gateRank), and no measure of
+ * what she takes, when, or in what order (errors, requirements, terms, hours
+ * past the total, order, labs, a term over its cap, three hardest-band
+ * courses, track dates, residency, warnings, seminars) may be lost for it.
+ */
+function requiredFirst(a: GateMeasure, against: GateMeasure[], worse: string[]): boolean {
+  if (!worse.every((w) => SHAPE_ONLY.has(w))) return false;
+  return against.every((b) => a.requiredOff.size < b.requiredOff.size && [...a.requiredOff].every((code) => b.requiredOff.has(code)) && a.offCount <= b.offCount);
+}
+
+/**
  * A board's standing, most severe first, for choosing among boards none of
  * which is worse than the plain one (gateWorse): a required course left off
  * outweighs a requirement unmet, which outweighs a validator error, and so
@@ -6318,6 +6351,31 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
       const traded = pass(best, [plain, released, best]);
       traded.weigh(once(horizon, { ...recipe, swap: true }));
       best = traded.best();
+    }
+    /*
+     * Last, a board the gate turned away only for its shape, which places
+     * courses a requirement names that the floor, the release's board and the
+     * board kept all leave off (requiredFirst), stands in the kept board's
+     * place: weighed against the board kept, it is worse on nothing but its
+     * shape, so nothing the student must take, when or in what order is lost
+     * for it. Best by gateRank where there are several.
+     */
+    const keptSoFar = best;
+    let firstRank = gateRank(measureOf(keptSoFar));
+    for (const entry of trail.tried) {
+      const g = entry.board;
+      if (g === keptSoFar || g === plain) continue;
+      const worse = [...new Set([plain, released, keptSoFar].flatMap((b) => gateWorse(measureOf(g), measureOf(b))))];
+      if (!requiredFirst(measureOf(g), [plain, released, keptSoFar].map(measureOf), worse)) continue;
+      const rank = gateRank(measureOf(g));
+      if (ranksAbove(rank, firstRank)) {
+        best = g;
+        firstRank = rank;
+      }
+    }
+    if (best !== keptSoFar) {
+      const entry = trail.tried.find((t) => t.board === best);
+      if (entry) entry.how = `${entry.how ?? ''} required-first`.trim();
     }
     /*
      * A board more than one credit past its degree total that carries the

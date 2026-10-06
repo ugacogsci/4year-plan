@@ -3346,6 +3346,38 @@ function oneSetOf(group: RawProgramGroup, choices: CourseChoice[]): boolean {
 }
 
 /**
+ * The count of a table that is one list under one count of courses, or null.
+ *
+ * The Urban Studies & Planning Policy & Planning concentration is one table:
+ * "Select 3 courses from:" (9 hours) over nineteen UP courses, none with
+ * hours of its own. optionListsIn reads no table that is all list, and
+ * with no hours cell the group did not read as a list either, so all
+ * nineteen were required: 65 hours of a 9-hour concentration, and a pre-med
+ * freshman's board, 136 hours of a 120-hour degree, had no seat left for a
+ * Non-Western Cultures course. Only the table's single comment, over its
+ * first row, that counts courses ("Select 3 courses from") and fewer than
+ * the rows it covers; only rows with no hours of their own, as a list's are;
+ * and only where the group would otherwise be read as every row.
+ *
+ * The same misreading, left as it reads for now, is Journalism's "Select
+ * four of the following:" (Skills) and "Select three of the following:"
+ * (Context), Teaching French's "Choose two of the following:" and Chemistry
+ * BSLAS's "Select one of the following:" over its chemistry and physics sets:
+ * read as choices, a pre-med Journalism freshman's plain board put CHEM 332
+ * after the application, and a pre-med Chemistry freshman's took CHEM 202,
+ * the accelerated set, over the track's CHEM 102 to 105.
+ */
+function wholeTableCount(group: RawProgramGroup, rows: RawProgramCourse[], choices: CourseChoice[]): number | null {
+  const comments = group.comments ?? [];
+  if (comments.length !== 1 || comments[0].at !== 0) return null;
+  if (rows.length !== (group.courses ?? []).length || rows.some((row) => row.credits !== null && row.credits !== undefined)) return null;
+  const m = /\b(?:select|choose|take|complete)\s+(one|two|three|four|five|six|\d{1,2})\s+courses\s+from\b/i.exec(comments[0].text);
+  if (!m) return null;
+  const n = COMMENT_WORDS[m[1].toLowerCase()] ?? Number(m[1]);
+  return Number.isInteger(n) && n > 0 && n < choices.length ? n : null;
+}
+
+/**
  * Rows the page joins with "OR" and nothing else: one of them, not all.
  *
  * The LAS orientation row prints "LAS 101 OR LAS 100 OR LAS 102", and the
@@ -3596,7 +3628,7 @@ export function requirementRulesForProgram(
   const spent = published.reduce((sum, h) => sum + h, 0);
   const lists = unstatedLists(areas, byCode, total);
 
-  return areas.map((area, index) => {
+  const rules = areas.map((area, index) => {
     // Hours the rest of the degree has already claimed. Null when the page
     // publishes no total, or when its own subtotals already add to more than
     // it, which happens and must not turn into a negative budget.
@@ -3609,6 +3641,61 @@ export function requirementRulesForProgram(
     }
     return rules;
   });
+  // One track of the several the page offers (tracksNotTaken); the others read as nothing.
+  for (const index of tracksNotTaken(areas, rules, byCode)) {
+    rules[index] = { ...rules[index], blocks: [], pools: 0, areaHours: null };
+  }
+  return rules;
+}
+
+/** "Students choose one of three tracks: Ancient Greek, Latin, or Ancient Greek & Latin". */
+const CHOOSE_ONE_TRACK = /\bchoose one of (two|three|four|five|six|\d) tracks\b/i;
+
+/**
+ * The areas of the tracks a plan does not follow, where the page offers a
+ * choice of one.
+ *
+ * Classics: Classical Languages prints "Students choose one of three tracks:
+ * Ancient Greek, Latin, or Ancient Greek & Latin" as the heading of the first
+ * track's table, and the other two tables follow under no heading of their
+ * own. Read area by area, all three were required, 148 hours of a 48-hour
+ * concentration: Greek and Latin both to 202, both prose compositions and both
+ * upper-division lists, with LAT 202 booked ahead of LAT 101 and the board
+ * still short of the Greek list. The page names no default (it is the
+ * student's choice), so the plan follows one, chosen in this order: a track
+ * whose every sized list its own courses can fill at their catalog hours (the
+ * Ancient Greek Track's "11 hours of Upper-Division GRK courses" is GRK 401,
+ * 491, 492 and 493, nine hours at their lowest), then the fewest hours, then
+ * the page's order. Only a heading that says so, over exactly as many tables
+ * as it counts, each a single table whose label names a track.
+ */
+function tracksNotTaken(areas: RawProgramArea[], rules: AreaRules[], byCode: CatalogRowLookup): number[] {
+  const isTrack = (area: RawProgramArea) => area.groups?.length === 1 && /\btrack\b/i.test(area.groups[0].label ?? '');
+  for (const [first, area] of areas.entries()) {
+    const m = CHOOSE_ONE_TRACK.exec(area.label ?? '');
+    if (!m) continue;
+    const count = COMMENT_WORDS[m[1].toLowerCase()] ?? Number(m[1]);
+    if (!isTrack(area)) return [];
+    const run = [first];
+    for (let k = first + 1; k < areas.length && run.length < count; k += 1) {
+      if ((areas[k].label ?? '').trim() || !isTrack(areas[k])) break;
+      run.push(k);
+    }
+    if (run.length !== count) return [];
+    const minimum = (code: string) => byCode.get(normCode(code))?.credits ?? 0;
+    const fillable = (index: number) =>
+      rules[index].blocks.every((b) => {
+        const rule = b.rule;
+        if (rule.kind === 'choose') return rule.choices.length >= rule.n;
+        if (rule.kind !== 'pool') return true;
+        if (rule.n !== null && rule.choices.length < rule.n) return false;
+        return rule.hours === null || rule.choices.reduce((sum, c) => sum + minimum(c.codes[0]), 0) >= rule.hours;
+      });
+    const hours = (index: number) => areas[index].groups?.[0]?.hours ?? Number.MAX_SAFE_INTEGER;
+    const keep = [...run].sort((a, b) => Number(fillable(b)) - Number(fillable(a)) || hours(a) - hours(b) || a - b)[0];
+    return run.filter((index) => index !== keep);
+  }
+  return [];
 }
 
 /** The pool unstatedLists builds, and the groups it took from their own areas. */
@@ -3930,6 +4017,12 @@ export function requirementRulesForArea(
     blocks.push(merged.block);
     pools += 1;
   }
+  const across = acrossLists(area, read.filter((r) => !consumed.has(r.index)), byCode);
+  if (across) {
+    for (const index of across.consumed) consumed.add(index);
+    blocks.push(across.block);
+    pools += 1;
+  }
 
   for (const r of read) {
     if (consumed.has(r.index) || r.isTotal) continue;
@@ -4013,7 +4106,9 @@ export function requirementRulesForArea(
       } else if (r.ownChoose !== null) {
         rule = { kind: 'choose', n: r.ownChoose, choices };
       } else {
-        rule = { kind: 'all', choices };
+        // A table that is one list under one count (wholeTableCount), else every row.
+        const n = wholeTableCount(r.group, r.rows, choices);
+        rule = n !== null ? { kind: 'choose', n, choices } : { kind: 'all', choices };
       }
     } else if (r.ownHours !== null) {
       // A group with hours and no course rows is a real and common shape, not a
@@ -4340,6 +4435,75 @@ function mergeAreaPool(
     },
     consumed,
   };
+}
+
+/** "within one or more of the specializations", "choosing courses within or across specializations". */
+const ACROSS_LISTS = /\bwithin one or more of the\b|\bwithin or across\b/i;
+
+/**
+ * A sized sentence over the lists printed under it, taken within or across
+ * them: one pool of that size over all of their courses.
+ *
+ * Sustainability in Food & Environmental Systems prints "Specializations 30"
+ * and "Students are encouraged to complete a minimum of 30 hours of
+ * coursework within one or more of the specializations. Students are not
+ * required to select a specialization ... choosing courses within or across
+ * specializations", then four tables, Policy and Law (18), Climate Change and
+ * Society (24), Food Production Systems (53) and Resources and Influence (38).
+ * Each table's hours are only its own rows added up, so each read as every
+ * row required: 133 hours of specializations under a 30-hour heading, and
+ * every freshman's board ran to 140 hours of a 120-hour degree and left
+ * LEAD 260 of the Major Core off. The pool takes the sentence's block id;
+ * the lists stay named on it.
+ */
+function acrossLists(
+  area: RawProgramArea,
+  read: AreaGroupRead[],
+  byCode: CatalogRowLookup,
+): { block: AreaRuleBlock; consumed: number[] } | null {
+  for (const [k, head] of read.entries()) {
+    if (head.isTotal || head.rows.length > 0 || head.ownHours === null) continue;
+    if (!ACROSS_LISTS.test(`${head.label} ${head.group.note ?? ''}`)) continue;
+    const lists: AreaGroupRead[] = [];
+    for (const next of read.slice(k + 1)) {
+      if (next.isTotal || next.rows.length === 0) break;
+      lists.push(next);
+    }
+    const hours = head.ownHours;
+    if (lists.length < 2 || lists.reduce((sum, r) => sum + r.credits, 0) <= hours) return null;
+    const seen = new Set<string>();
+    const rows: RawProgramCourse[] = [];
+    for (const list of lists) {
+      for (const row of list.rows) {
+        const key = normCode(row.code);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push(row);
+      }
+    }
+    const label = head.label || area.label || '';
+    return {
+      block: {
+        groupIndex: head.index,
+        label,
+        hours,
+        note: head.group.note || head.label,
+        rows: rows.length,
+        rule: {
+          kind: 'pool',
+          hours,
+          n: null,
+          choices: choicesFrom(rows, byCode),
+          lists: lists.map((r) => ({ label: r.label || label, codes: r.rows.flatMap((row) => [row.code, ...(row.or ?? [])].map(normCode)) })),
+          constraints: [],
+          from: 'area',
+          label,
+        },
+      },
+      consumed: [head.index, ...lists.map((r) => r.index)],
+    };
+  }
+  return null;
 }
 
 /** Credit hours of a group's rows, from the catalog rather than the degree page. */
