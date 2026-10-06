@@ -786,6 +786,18 @@ export interface AutoplanInput {
    */
   upperSwap?: boolean;
   /**
+   * True to take off, once the board is final, the planner's own courses
+   * that keep it past its degree total and that nothing on it needs
+   * (trimPastTotal in generatePlanInner): a general education pick whose
+   * categories the rest of the board already meets, a pick from a pool past
+   * the pool's hours with the rest of a pair it took counted, and a
+   * prerequisite booked for a course no longer waiting on it. Set by
+   * generatePlan for one more board where the board it keeps is more than
+   * one credit past the total and one of these is there; that board stands
+   * only where the gate finds it no worse.
+   */
+  trimPast?: boolean;
+  /**
    * The college the student is trying to get into, when they are not in it
    * yet: its published route becomes requirements placed first, because the
    * application has a deadline the degree page knows nothing about.
@@ -5197,6 +5209,8 @@ export function withTitleStanding(ctx: PlanningContext): PlanningContext {
  * builds the plan again without each one and decides whether it stands.
  */
 const trialsTaken = new WeakMap<GeneratedPlan, { pace: 'far' | 'ceiling' | null; sooner: boolean; ceiling: boolean }>();
+/** Boards with a course trimPastTotal would take off (AutoplanInput.trimPast). */
+const trimMatters = new WeakSet<GeneratedPlan>();
 /** The boards the gate in generatePlan measured, and the plain board they were held to. */
 type GateTrail = { plain: GeneratedPlan; tried: Array<{ board: GeneratedPlan; worse: string[]; how?: string }> };
 const gateTrails = new WeakMap<GeneratedPlan, GateTrail>();
@@ -5852,7 +5866,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
    * inferred pairings (AutoplanInput), and `asRead`, the requirements as
    * a930f09 read them (asReadBefore).
    */
-  type Build = { pace: boolean | 'ceiling'; sooner: boolean; plain?: boolean; pairs?: boolean; asRead?: boolean; before?: boolean; seminars?: boolean; swap?: boolean };
+  type Build = { pace: boolean | 'ceiling'; sooner: boolean; plain?: boolean; pairs?: boolean; asRead?: boolean; before?: boolean; seminars?: boolean; swap?: boolean; trim?: boolean };
   /*
    * A row the page joins with "OR" alone is one pick (joinedByOr in
    * illinois-data): the LAS orientation row, LAS 101 or LAS 100 or LAS 102.
@@ -5894,6 +5908,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     fillerRules: build.before === true ? false : undefined,
     pairings: build.pairs !== false,
     upperSwap: build.swap === true,
+    trimPast: build.trim === true,
     electiveRanking,
     qualityMemo,
   });
@@ -6079,6 +6094,24 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
       const traded = pass(best, [plain, released, best]);
       traded.weigh(once(horizon, { ...recipe, swap: true }));
       best = traded.best();
+    }
+    /*
+     * A board more than one credit past its degree total that carries the
+     * planner's own courses nothing on it needs (trimMatters): built again
+     * with them taken off once it is final (AutoplanInput.trimPast), nothing
+     * else moving, and kept only where it is no worse than the floor, the
+     * release and the board it would replace on anything the gate measures.
+     * Once the option lists were read as choices, a pre-PT Learning and
+     * Education Studies freshman's board held STAT 212 and PSYC 235 for
+     * Quantitative Reasoning beside the track's MATH 220, three hours past
+     * the 120, and an Actuarial Science freshman's 58 hours took STAT 400 &
+     * STAT 410 as three of them and booked a course more.
+     */
+    const pastRecipe = buildOf.get(best);
+    if (measureOf(best).beyond > 1 && pastRecipe && !pastRecipe.trim && trimMatters.has(best)) {
+      const trimmed = pass(best, [plain, released, best]);
+      trimmed.weigh(once(horizon, { ...pastRecipe, trim: true }));
+      best = trimmed.best();
     }
     best.gate = best === plain ? { kept: 'plain', worse: trail.tried[0]?.worse ?? [] } : { kept: 'improved', worse: [] };
     gateTrails.set(best, trail);
@@ -9548,6 +9581,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   let landThreeHour: (() => number) | null = null;
   /** The residency trades, once the board is final (AutoplanInput.upperSwap). */
   let upperSwap: (() => void) | null = null;
+  /** The courses past the total that nothing needs, taken off once the board is final (AutoplanInput.trimPast); the hours, or what it would take with `apply` false. */
+  let trimPastTotal: ((apply: boolean) => number) | null = null;
   const degreeTotalPublished = input.degreeTotal ?? null;
   if (degreeTotalPublished !== null && remainingDegree !== null && terms.length > 0) {
     // The terms in play: the ones this student needs, or one more where a
@@ -10008,7 +10043,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * hardest-band limit there, and the term it leaves stays at least as
      * heavy as the light term becomes, and in year one at fifteen.
      */
-    const sparedInto = (term: (typeof terms)[number], here: string[], running: number): boolean => {
+    /*
+     * `accept`, where given, is asked once a course has moved, and the move
+     * is undone and the next course tried where it says no: the trim after
+     * the fill (trimPastTotal) holds the board's order (orderShape), and a
+     * pre-PT Food Science freshman's FSHN 418 moved into her last spring, two
+     * terms after the FSHN 416 it follows.
+     */
+    const sparedInto = (term: (typeof terms)[number], here: string[], running: number, accept?: () => boolean): boolean => {
       const need = credits.min - running;
       const onBoard = [...placed.values()].flat();
       const waitedOn = new Set<string>();
@@ -10057,7 +10099,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const fromCodes = placed.get(from.id) ?? [];
         placed.set(from.id, fromCodes.filter((c) => c !== code));
         here.push(code);
-        if (prereqFaults() > faultsBefore) {
+        if (prereqFaults() > faultsBefore || (accept !== undefined && !accept())) {
           here.pop();
           placed.set(from.id, fromCodes);
           continue;
@@ -10490,6 +10532,454 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * board reaches the rule. The board's size and its terms' hours stay as
      * they were.
      */
+    /**
+     * The planner's own courses that keep a finished board past its degree
+     * total and that nothing on it needs, taken off (AutoplanInput.trimPast),
+     * latest term first, while the board stays at or above the total:
+     *
+     * - a general education pick whose categories the rest of the board
+     *   already meets, one course to each Cultural Studies category: a
+     *   pre-PT freshman's Quantitative Reasoning took STAT 212 and PSYC 235
+     *   before the fill booked the track's MATH 220, a third;
+     * - the last pick of a pool whose hours the rest already reach once the
+     *   rest of a pair it took as one choice is counted (PlanSlot.together):
+     *   "STAT 400 & STAT 410" is six of Actuarial Science's 58 hours, not
+     *   three;
+     * - a prerequisite booked for a course that has left, or whose groups
+     *   the board now meets another way;
+     * - a course the top-up booked to reach a term's minimum, where the moves
+     *   after it left the term at the minimum without it.
+     *
+     * Never a course another on the board names as a prerequisite, a lab or
+     * its lecture, half of a pair, a track's course, a course at the 300
+     * level or above where the board is short of the upper-level hours
+     * residency asks for, the board's first college math, or a course in
+     * year one; and the term it leaves keeps the student's minimum. Nothing
+     * else moves.
+     */
+    trimPastTotal = (apply: boolean): number => {
+      const onBoard = () => [...placed.values()].flat();
+      const pastBy = () => priorCreditTotal + awayCreditTotal + planCreditRange(onBoard(), ctx).min - degreeTotalPublished;
+      if (pastBy() <= 1) return 0;
+      const termOfCode = (code: string) => terms.findIndex((t) => (placed.get(t.id) ?? []).includes(code));
+      const reqOf = (code: string): PlanRequirement | null => {
+        const id = chosen.get(code)?.requirementId ?? null;
+        return id === null ? null : (input.requirements.find((r) => r.id === id) ?? null);
+      };
+      // A lab and its lecture, and the courses of a pair the page prints as one row, by each other.
+      const partnersOf = new Map<string, Set<string>>();
+      const join = (a: string, b: string) => {
+        if (a === b) return;
+        partnersOf.set(a, (partnersOf.get(a) ?? new Set<string>()).add(b));
+        partnersOf.set(b, (partnersOf.get(b) ?? new Set<string>()).add(a));
+      };
+      for (const [lab, lecture] of [...labOf, ...fillLabs]) join(lab, lecture);
+      for (const requirement of input.requirements) {
+        const rule = requirement.rule;
+        if (rule.kind !== 'all' && rule.kind !== 'choose' && rule.kind !== 'pool') continue;
+        for (const choice of rule.choices) for (const bundle of choice.bundles ?? []) for (const a of bundle) for (const b of bundle) join(normaliseCode(a), normaliseCode(b));
+      }
+      const paired = (code: string, board: string[]) => [...(partnersOf.get(code) ?? [])].some((p) => board.includes(p));
+      const tracked = (code: string) => trackRowOf.has(code) || trackBooked.has(code) || trackPrereqs.has(code) || trackWanted.has(code);
+      const waitedOn = (code: string, board: string[]) => {
+        const names = new Set(expandEquivalents(code, equivalents));
+        return board.some((other) => other !== code && (ctx.prereqs?.get(other)?.groups ?? []).some((g) => !g.priorLearning && g.any.some((a) => names.has(normaliseCode(a)))));
+      };
+      const mathOf = degreeMath(ctx, input.requirements, [...onBoard(), ...earned]);
+      const firstMath = (board: string[]) => (([...earned].some(mathOf)) ? -1 : Math.min(Infinity, ...board.filter(mathOf).map(termOfCode)));
+      const upperOn = (board: string[]) => planCreditRange(board.filter((c) => courseLevel(c) >= 300), ctx).min;
+      const upperNeed = input.residency ? Math.max(0, input.residency.upperLevel - input.residency.heldUpper) : 0;
+      /**
+       * Every prerequisite group on the board left unmet where its course
+       * sits, the uncertain ones included, by course and group: what a course
+       * taken off or traded must not add one to (`within`). Named, not
+       * counted: on a Food Science board MCB 250's own unmet line went with
+       * it and FSHN 471's "MCB 250 or MCB 300" came unmet, one for one. A
+       * course another names may go where the group it is named in is met
+       * another way (MATH 225 meets CS 421's linear algebra once MATH 227 and
+       * the BIOE 210 booked for CS 421 are gone).
+       */
+      const faultsAll = (): Set<string> => {
+        const faults = new Set<string>();
+        const earlier = new Set<string>(satisfiedForPrereq);
+        for (const t of terms) {
+          const codes = placed.get(t.id) ?? [];
+          const same = new Set<string>();
+          for (const c of codes) for (const e of expandEquivalents(c, equivalents)) same.add(e);
+          for (const c of codes) {
+            const read = match(ctx.prereqs?.get(c), earlier, same, equivalents);
+            for (const g of [...read.missing, ...read.uncertain.filter((u) => !u.priorLearning)]) faults.add(`${c}<${g.any.map(normaliseCode).join('/')}`);
+          }
+          for (const c of codes) for (const e of expandEquivalents(c, equivalents)) earlier.add(e);
+        }
+        return faults;
+      };
+      const within = (now: Set<string>, was: Set<string>) => [...now].every((k) => was.has(k));
+      const shapeNow = () => orderShape(terms.map((t) => ({ codes: placed.get(t.id) ?? [], regular: !isSummer(t) })), ctx, satisfiedForPrereq);
+      /*
+       * The board and what it has chosen, kept in order: the matcher reads
+       * `chosen` for the calculus that exempts a line (exemptedBy), so a
+       * course on trial is out of both, and a trial undone leaves both as
+       * they were.
+       */
+      const snapshot = () => ({ placed: new Map([...placed].map(([id, codes]) => [id, [...codes]] as [string, string[]])), chosen: [...chosen] });
+      const restore = (from: ReturnType<typeof snapshot>) => {
+        placed.clear();
+        for (const [id, codes] of from.placed) placed.set(id, [...codes]);
+        chosen.clear();
+        for (const [code, why] of from.chosen) chosen.set(code, why);
+      };
+      /** The general education categories the board meets: each met category, and how many Cultural Studies ones it can fill at once. */
+      const genEdStanding = (board: Set<string>): { met: Set<string>; cultural: number; reasoningOne: boolean } => {
+        const met = new Set<string>();
+        const slots: string[][] = [];
+        let reasoningOne = false;
+        for (const requirement of input.requirements) {
+          const rule = requirement.rule;
+          if (rule.kind !== 'gened') continue;
+          const tags = new Set(rule.genEd);
+          const named = new Set((rule.fulfilledBy ?? []).flat().map(normaliseCode));
+          const counts = [...board].filter((c) => named.has(c) || (byCode.get(c)?.tags ?? []).some((t) => tags.has(t)));
+          const credit = genEdCreditFor.get(requirement.id) ?? [];
+          if (tags.has('Quantitative Reasoning I')) reasoningOne = reasoningOne || counts.some((c) => (byCode.get(c)?.tags ?? []).includes('Quantitative Reasoning I'));
+          if (rule.exclusiveGroup === 'cultural-studies') {
+            for (let k = credit.length; k < (rule.courses ?? 1); k += 1) slots.push(counts);
+            continue;
+          }
+          const hours = counts.reduce((sum, c) => sum + creditsOf(c), 0) + credit.reduce((sum, c) => sum + c.credits, 0);
+          if ((rule.hours === null || hours >= rule.hours) && (rule.courses === null || counts.length + credit.length >= rule.courses)) met.add(requirement.id);
+        }
+        // One course to each Cultural Studies category (augmenting paths).
+        const owner = new Map<string, number>();
+        const take = (i: number, seen: Set<string>): boolean => {
+          for (const c of slots[i]) {
+            if (seen.has(c)) continue;
+            seen.add(c);
+            const was = owner.get(c);
+            if (was === undefined || take(was, seen)) {
+              owner.set(c, i);
+              return true;
+            }
+          }
+          return false;
+        };
+        let cultural = 0;
+        for (let i = 0; i < slots.length; i += 1) if (take(i, new Set())) cultural += 1;
+        return { met, cultural, reasoningOne };
+      };
+      /** A pool's hours and count on the board, the rest of a pair it took counted. */
+      const poolHeld = (slot: PlanSlot, fill: PoolFill, board: Set<string>) => {
+        const held = new Set([...fill.free, ...fill.nested.filter((c) => board.has(c) || earned.has(c)), ...fill.picked.filter((c) => board.has(c))]);
+        const partners = [...held].flatMap((c) => (slot.together?.get(c) ?? []).filter((p) => !held.has(p) && (board.has(p) || earned.has(p))));
+        return { hours: [...held, ...new Set(partners)].reduce((sum, c) => sum + creditsOf(c), 0), count: held.size };
+      };
+      /** A track row the guide only recommends and gives no date: what the gate and the review do not hold the board to. */
+      const rowOfTrack = (code: string): TrackCourse | undefined => trackBooked.get(code)?.row ?? trackRowOf.get(code)?.row ?? trackBeyondRoom.get(code)?.row ?? trackLeft.find((x) => x.code === code)?.row;
+      const softTrack = (code: string): boolean => {
+        const row = rowOfTrack(code);
+        return row !== undefined && row.need !== 'required' && dueOf(row) === undefined && !trackPrereqs.has(code) && (chosen.get(code)?.requirementId ?? null) === null;
+      };
+      const genEdKept = (board: string[], boardSet: Set<string>): boolean => {
+        const before = genEdStanding(new Set(board));
+        const after = genEdStanding(boardSet);
+        return [...before.met].every((id) => after.met.has(id)) && after.cultural >= before.cultural && (after.reasoningOne || !before.reasoningOne);
+      };
+      /*
+       * Whether the page's own take-all, choose or pool requirements are met
+       * by these courses, choice by choice as the page prints them (a
+       * substitute the page allows counts, and a pool counts both halves of
+       * a pair), whatever the board booked each course for. A course that
+       * meets one the board would not meet without it is never "nothing on
+       * it needs": a Spring 2027 Environmental Chemistry freshman's CEE 330,
+       * the page's "CHEM 360 or CEE 330", was on her board as an elective
+       * while the planner waited for CHEM 360, and a pre-PT Environmental
+       * Sustainability freshman's GEOL 100, one of "Select 1 course", was a
+       * general education pick; the trim took both off and left the page's
+       * requirement unmet.
+       */
+      const pageMet = (rule: PlanRule, have: Set<string>): boolean | null => {
+        if (rule.kind !== 'all' && rule.kind !== 'choose' && rule.kind !== 'pool') return null;
+        const named = (choice: PlanCourseChoice) => [...choice.codes, ...(choice.substitutes ?? [])].map(normaliseCode).filter((c) => have.has(c));
+        const sat = rule.choices.filter((choice) => named(choice).length > 0);
+        if (rule.kind === 'all') return sat.length === rule.choices.length;
+        if (rule.kind === 'choose') return sat.length >= (rule.n || 1);
+        const hoursOf = (choice: PlanCourseChoice): number => {
+          for (const bundle of choice.bundles ?? []) if (bundle.length > 1 && bundle.every((c) => have.has(normaliseCode(c)))) return bundle.reduce((sum, c) => sum + creditsOf(normaliseCode(c)), 0);
+          return Math.max(...named(choice).map(creditsOf));
+        };
+        const hours = sat.reduce((sum, choice) => sum + hoursOf(choice), 0);
+        return (rule.hours === null || hours >= rule.hours - 0.01) && (rule.n === null || sat.length >= rule.n);
+      };
+      const pageNeeds = (code: string, board: string[]): boolean => {
+        const withIt = new Set([...board, ...earned]);
+        const without = new Set(withIt);
+        without.delete(code);
+        return input.requirements.some((requirement) => pageMet(requirement.rule, withIt) === true && pageMet(requirement.rule, without) === false);
+      };
+      /** Every page requirement the first board meets, the second meets too. */
+      const pageKept = (before: string[], after: string[]): boolean => {
+        const had = new Set([...before, ...earned]);
+        const has = new Set([...after, ...earned]);
+        return input.requirements.every((requirement) => pageMet(requirement.rule, had) !== true || pageMet(requirement.rule, has) === true);
+      };
+      const removable = (code: string, board: string[], soft: boolean): boolean => {
+        const req = reqOf(code);
+        const boardSet = new Set(board.filter((c) => c !== code));
+        if (!genEdKept(board, boardSet)) return false;
+        if (pageNeeds(code, board)) return false;
+        if (soft) {
+          // Second: a track row the guide recommends with no date, and a free elective the fill booked.
+          if (softTrack(code)) return true;
+          const elective = electives.find((e) => e.code === code);
+          // Not one spent toward hours the page asks for at a level (spendLevel).
+          return req === null && elective !== undefined && !elective.track && !elective.why.includes('-level hours the degree page asks for');
+        }
+        if (req === null) {
+          // A prerequisite booked for courses that no longer wait on it, or a
+          // course the top-up booked only to reach a term's minimum.
+          return (addedPrerequisites.some((a) => a.code === code) && !genEdPick.has(code)) || padding.has(code);
+        }
+        if (req.rule.kind === 'gened') return true;
+        if (req.rule.kind === 'pool') {
+          const entry = poolFills.find(({ slot, fill }) => slot.requirementId === req.id && fill.picked.includes(code));
+          if (!entry) return false;
+          const { slot, fill } = entry;
+          // Only the pool's last pick on the board, the one its fill would not
+          // have made had it counted the rest of a pair it took: the pool's
+          // own order says which it wanted least.
+          const last = fill.picked.filter((c) => board.includes(c)).pop();
+          if (last !== code || !fill.picked.some((c) => board.includes(c) && (slot.together?.get(c) ?? []).some((p) => board.includes(p)))) return false;
+          const without = poolHeld(slot, fill, boardSet);
+          if ((slot.hoursTarget !== null && without.hours < slot.hoursTarget) || (slot.picks !== null && without.count < slot.picks)) return false;
+          // The pool's constraints still met without it.
+          return (slot.constraints ?? []).every((c) => constraintStatus(c, new Set([...fill.free, ...fill.picked.filter((p) => boardSet.has(p))])).met || !constraintStatus(c, new Set([...fill.free, ...fill.picked.filter((p) => p === code || boardSet.has(p))])).met);
+        }
+        return false;
+      };
+      /**
+       * A pick from a "choose" list that the plan's own prerequisites came
+       * onto the board with, traded for another course on the same list
+       * that asks for nothing the board does not already hold before it, in
+       * the pick's own term, and the prerequisites the plan added that
+       * nothing needs any longer taken off with it, where that takes hours
+       * off and leaves the board at its total or above. A pre-PT Computer
+       * Science Education freshman's linear algebra pick, MATH 227, brought
+       * STAT 107 with it, and BIOE 210 for CS 421, which asks for MATH 225,
+       * MATH 257 or BIOE 210; MATH 225 asks only for the MATH 220 the board
+       * holds. Nothing the gate measures may be the worse for it: no
+       * prerequisite unmet, no order lost (orderShape), no general education
+       * category left short, no upper-level hours lost where residency is
+       * short, and the first college math no later.
+       */
+      const tradedPicks: Array<{ out: string; into: string; shed: string[] }> = [];
+      const swapListPick = (): number => {
+        const board0 = onBoard();
+        const hours0 = planCreditRange(board0, ctx).min;
+        const first0 = firstMath(board0);
+        const upper0 = upperOn(board0);
+        const faults0 = faultsAll();
+        const shape0 = shapeNow();
+        const added = () => addedPrerequisites.filter((a) => termOfCode(a.code) >= 0 && !tracked(a.code) && !genEdPick.has(a.code) && !pinned.has(a.code));
+        if (added().length === 0) return 0;
+        for (const { fill } of chooseFills) {
+          for (const old of fill.picked) {
+            const at = termOfCode(old);
+            if (at < 0) continue;
+            const term = terms[at];
+            if (tracked(old) || pinned.has(old) || sequenceFirst.has(old) || paired(old, board0) || labOf.has(old) || lectureLab.has(old)) continue;
+            const rest = (placed.get(term.id) ?? []).filter((c) => c !== old);
+            const earlierSet = new Set<string>(satisfiedForPrereq);
+            let hoursSoFar = priorCreditTotal + awayBefore[term.index];
+            for (const other of terms) {
+              if (other.index >= term.index) break;
+              for (const c of placed.get(other.id) ?? []) for (const e of expandEquivalents(c, equivalents)) earlierSet.add(e);
+              hoursSoFar += planCreditRange(placed.get(other.id) ?? [], ctx).min;
+            }
+            const sameTerm = new Set<string>();
+            for (const c of rest) for (const e of expandEquivalents(c, equivalents)) sameTerm.add(e);
+            const hardThere = rest.filter(isHard).length;
+            for (const into of fill.alternatives) {
+              const course = byCode.get(into);
+              if (!course || gatedPick(into) !== 0 || board0.includes(into) || plannedAll.has(into) || earned.has(into) || exempt.has(into)) continue;
+              if (expandEquivalents(into, equivalents).some((twin) => twin !== into && (board0.includes(twin) || earned.has(twin)))) continue;
+              if (conflictWith(into, conflicts, [earned, new Set(board0.filter((c) => c !== old))]) !== null) continue;
+              if (outOfSeason(course, term.season, published.has(into)) || unscheduledNow(into, term.id)) continue;
+              if (!standingMet(into, hoursSoFar) || !levelFits(into, hoursSoFar, standingHours)) continue;
+              if (isHard(into) && !isHard(old) && hardThere >= hardLimitAt(term.index)) continue;
+              const load = planCreditRange([...rest, into], ctx).min;
+              if (load > creditCapOf(term) || (!isSummer(term) && load < credits.min)) continue;
+              if (!electivePrereqsMet(match(ctx.prereqs?.get(into), earlierSet, sameTerm, equivalents))) continue;
+              const was = snapshot();
+              placed.set(term.id, (placed.get(term.id) ?? []).map((c) => (c === old ? into : c)));
+              const why = chosen.get(old) ?? { requirementId: null, label: 'Elective' };
+              chosen.delete(old);
+              chosen.set(into, why);
+              if (!within(faultsAll(), faults0)) {
+                restore(was);
+                continue;
+              }
+              // The prerequisites the plan added that nothing needs now, latest first.
+              const shed: string[] = [];
+              let more = true;
+              while (more) {
+                more = false;
+                for (const a of added().sort((x, y) => termOfCode(y.code) - termOfCode(x.code))) {
+                  const i = termOfCode(a.code);
+                  const t = terms[i];
+                  const cr = creditsOf(a.code);
+                  if (pastBy() - cr < 0) continue;
+                  const here = placed.get(t.id) ?? [];
+                  if (!isSummer(t) && planCreditRange(here, ctx).min - cr < credits.min) continue;
+                  const whyShed = [...chosen];
+                  placed.set(t.id, here.filter((c) => c !== a.code));
+                  chosen.delete(a.code);
+                  if (within(faultsAll(), faults0)) {
+                    shed.push(a.code);
+                    more = true;
+                    break;
+                  }
+                  placed.set(t.id, here);
+                  chosen.clear();
+                  for (const [code, w] of whyShed) chosen.set(code, w);
+                }
+              }
+              const board1 = onBoard();
+              const saved = hours0 - planCreditRange(board1, ctx).min;
+              const kept =
+                saved > 0 &&
+                pastBy() >= 0 &&
+                orderHolds(shapeNow(), shape0) &&
+                genEdKept(board0, new Set(board1)) &&
+                firstMath(board1) <= first0 &&
+                upperOn(board1) >= Math.min(upper0, upperNeed) &&
+                pageKept(board0, board1);
+              if (!kept || !apply) {
+                restore(was);
+                if (!kept) continue;
+                return saved;
+              }
+              plannedAll.delete(old);
+              plannedAll.add(into);
+              const oldSubject = byCode.get(old)?.cluster ?? '';
+              perSubject.set(oldSubject, Math.max(0, (perSubject.get(oldSubject) ?? 0) - 1));
+              perSubject.set(course.cluster, (perSubject.get(course.cluster) ?? 0) + 1);
+              fill.picked = fill.picked.map((c) => (c === old ? into : c));
+              fill.alternatives = [old, ...fill.alternatives.filter((c) => c !== into)];
+              for (const code of shed) {
+                plannedAll.delete(code);
+                chosen.delete(code);
+                const k = addedPrerequisites.findIndex((a) => a.code === code);
+                if (k >= 0) addedPrerequisites.splice(k, 1);
+                if (debugCode && normaliseCode(debugCode) === code) console.error(`  [PLAN_DEBUG] past the total: ${code} off the board with ${old}`);
+              }
+              if (debugCode && normaliseCode(debugCode) === old) console.error(`  [PLAN_DEBUG] past the total: ${old} traded for ${into} in ${term.label}`);
+              total -= saved;
+              tradedPicks.push({ out: old, into, shed });
+              return saved;
+            }
+          }
+        }
+        return 0;
+      };
+      let taken = 0;
+      const gone: string[] = [];
+      let progress = true;
+      while (progress && pastBy() > 1) {
+        progress = false;
+        const board = onBoard();
+        const first = firstMath(board);
+        const order = [...terms].reverse();
+        // The planner's own leftovers first, then a list pick traded for one
+        // that brings nothing with it, then what the guide only recommends
+        // and the fill's electives.
+        for (const tier of ['own', 'trade', 'soft'] as const) {
+        if (tier === 'trade') {
+          const saved = swapListPick();
+          if (saved > 0 && !apply) return saved;
+          if (saved > 0) {
+            taken += saved;
+            progress = true;
+            break;
+          }
+          continue;
+        }
+        const soft = tier === 'soft';
+        for (const term of order) {
+          if (yearOne.includes(term.index)) continue;
+          const here = placed.get(term.id) ?? [];
+          for (const code of [...here].reverse()) {
+            const cr = creditsOf(code);
+            if (cr <= 0 || pastBy() - cr < 0) continue;
+            const light = !isSummer(term) && planCreditRange(here, ctx).min - cr < credits.min;
+            if ((soft ? !softTrack(code) && tracked(code) : tracked(code)) || paired(code, board) || pinned.has(code) || sequenceFirst.has(code)) continue;
+            if (firstTermCourse(byCode.get(code), ctx, arrival)) continue;
+            // A prerequisite the plan added may go where what names it is met another way (faultsAll, below).
+            if (waitedOn(code, board) && !addedPrerequisites.some((a) => a.code === code)) continue;
+            if (courseLevel(code) >= 300 && upperOn(board) - cr < upperNeed) continue;
+            if (mathOf(code) || (soft && byCode.get(code) !== undefined && isMathOrStatistics(byCode.get(code) as Course))) {
+              if (soft || (termOfCode(code) <= first && firstMath(board.filter((c) => c !== code)) > first)) continue;
+            }
+            if (!removable(code, board, soft)) continue;
+            /*
+             * A term the course leaves under the minimum takes one a heavier
+             * term can spare (sparedInto, as the top-up does), or the course
+             * stays: a pre-med Agricultural Communications freshman's MCB 250,
+             * which the guide recommends with no date, held Spring 2030 at 12.
+             * Either way no prerequisite on the board goes unmet and the
+             * board's order holds (faultsAll, orderShape).
+             */
+            const faultsBefore = faultsAll();
+            const shapeBefore = shapeNow();
+            const holds = () => within(faultsAll(), faultsBefore) && orderHolds(shapeNow(), shapeBefore);
+            const before = snapshot();
+            placed.set(term.id, here.filter((c) => c !== code));
+            chosen.delete(code);
+            let fine = true;
+            if (light) {
+              const left = placed.get(term.id) ?? [];
+              fine = sparedInto(term, left, planCreditRange(left, ctx).min, holds) && planCreditRange(placed.get(term.id) ?? [], ctx).min >= credits.min;
+            }
+            fine = fine && holds();
+            if (!fine || !apply) {
+              restore(before);
+              if (!fine) continue;
+            }
+            if (!apply) return cr;
+            plannedAll.delete(code);
+            chosen.delete(code);
+            const at = electives.findIndex((e) => e.code === code);
+            if (at >= 0) electives.splice(at, 1);
+            if (padding.has(code)) {
+              paddedPast = Math.max(0, paddedPast - (padding.get(code) ?? 0));
+              padding.delete(code);
+            }
+            const added = addedPrerequisites.findIndex((a) => a.code === code);
+            if (added >= 0) addedPrerequisites.splice(added, 1);
+            total -= cr;
+            taken += cr;
+            gone.push(code);
+            if (debugCode && normaliseCode(debugCode) === code) console.error(`  [PLAN_DEBUG] past the total: ${code} off ${term.label}`);
+            progress = true;
+            break;
+          }
+          if (progress) break;
+        }
+        if (progress) break;
+        }
+      }
+      for (const { out, into, shed } of tradedPicks) {
+        notes.push(`${into} stands in for ${out}, from the same list: the plan was past the ${degreeTotalPublished} credits this degree takes, and ${into} asks for nothing the plan does not already hold${shed.length > 0 ? `, so ${shed.join(' and ')}, booked as prerequisites, ${shed.length === 1 ? 'is' : 'are'} off the board` : ''}.`);
+      }
+      if (gone.length > 0 || tradedPicks.length > 0) {
+        if (gone.length > 0) notes.push(`${gone.join(', ')} ${gone.length === 1 ? 'is' : 'are'} off the board: the plan was past the ${degreeTotalPublished} credits this degree takes, and nothing on it needs ${gone.length === 1 ? 'it' : 'them'}.`);
+        const was = beyondNote ? notes.indexOf(beyondNote) : -1;
+        const now = describeBeyondTotal({ degreeTotal: degreeTotalPublished, total, booked: bookedTotal, prior: priorCreditTotal, padded: paddedPast, track: trackPast, minimum: credits.min });
+        if (now && was >= 0) notes[was] = now;
+        else if (now) notes.push(now);
+        else if (was >= 0) notes.splice(was, 1);
+      }
+      return taken;
+    };
     upperSwap = (): void => {
       if (upperWanted <= 0) return;
       let short = upperWanted - planCreditRange([...placed.values()].flat().filter((c) => courseLevel(c) >= 300), ctx).min;
@@ -12364,6 +12854,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   // moving anything else (landThreeHour, in the fill).
   const landedPast = landThreeHour && input.fillerRules !== false ? landThreeHour() : 0;
   if (upperSwap && input.upperSwap === true) upperSwap();
+  const trimmable = trimPastTotal !== null && trimPastTotal(input.trimPast === true) > 0;
 
   /*
    * Where the board leans on a course standing in for one the catalog will
@@ -12699,6 +13190,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     partsOfTerm,
   };
   if (pacedPlacement !== null || soonerPlacement) trialsTaken.set(generated, { pace: pacedPlacement, sooner: soonerPlacement, ceiling: ceilingAlternative });
+  if (trimmable && input.trimPast !== true) trimMatters.add(generated);
   if (prePairs !== null) prePairsOf.set(generated, prePairs);
   if (landedPast !== 0) landedPastOf.set(generated, landedPast);
   // An inferred lab pair counts where either half was booked: held as a
