@@ -170,7 +170,8 @@ import { creditUse, editFlags, enteringAsFirstYear, flagsCaused, isEditFlag, mom
 import { buildAdvisorPacket, cardRole, type AdvisorPacket, type CardRole } from '@/lib/planner/advisor-packet';
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
-import { loadIllinoisCourseDetail, loadIllinoisSyllabi } from '@/lib/planner/illinois-load';
+import { loadIllinoisCourseDetail, loadIllinoisSectionTerms, loadIllinoisSyllabi, sectionTermsOf } from '@/lib/planner/illinois-load';
+import { pickSectionTerm, sectionTermCaveat } from '@/lib/planner/section-terms';
 import type { AdvisorExecutor } from '@/lib/planner/advisor';
 import { ClubPicks } from './club-picks';
 import { clubStudentOf, type ClubStudent, type IllinoisClubsFile } from '@/lib/planner/clubs';
@@ -2495,6 +2496,32 @@ export function PlannerWorkspace({
     };
     const courseOf = (raw: string) => L.byCode.get(normalizeCourseCode(raw)) ?? null;
     const holding = (courseId: string) => board.terms.find((t) => t.courseIds.includes(courseId)) ?? null;
+    /**
+     * Class times by the term that matters for each course (section-terms.ts):
+     * the column it sits in when that term's schedule is published, the
+     * latest schedule of the same season for a later column, and the newest
+     * schedule for a course not on the board (or the term the tool was asked
+     * about). The terms past the first load on the first ALMA call and are
+     * cached after it. A term that did not load falls back to the first one,
+     * labelled as such, rather than reading as a course with no sections.
+     * What it shows only: the planner's choices still weigh Fall 2026.
+     */
+    const scheduleTerms = sectionTermsOf(L.core?.meta);
+    const schedules = scheduleTerms.length > 1 ? await loadIllinoisSectionTerms().catch(() => null) : null;
+    const scheduleOf = (c: Course, asked?: { id: string; label: string } | null) => {
+      const at = holding(c.id);
+      const pick = pickSectionTerm(scheduleTerms, at ? { id: at.id, label: at.label } : (asked ?? null));
+      const coreId = L.core?.meta?.term?.id ?? null;
+      const picked = !pick || pick.term.id === coreId ? (L.core?.sections ?? null) : (schedules?.get(pick.term.id) ?? null);
+      const usable = picked !== null;
+      const map = usable ? picked : (L.core?.sections ?? null);
+      return {
+        termId: usable && pick ? pick.term.id : coreId,
+        label: usable && pick ? pick.term.label : (L.core?.meta?.term?.label ?? null),
+        note: usable ? sectionTermCaveat(pick) : null,
+        summary: map?.get(normCode(c.code)) ?? null,
+      };
+    };
     /** How the course reads against the student's priorities, in their words. */
     const fitOf = (c: Course) => {
       if (!L.quality) return null;
@@ -2506,6 +2533,7 @@ export function PlannerWorkspace({
       // Academy came back from a search for "investment banking" looking like
       // any other one-credit elective.
       const gate = prereqNeedsAdmission(ctx.prereqs?.get(normCode(c.code))?.text);
+      const sched = scheduleOf(c);
       return {
         code: c.code,
         title: c.title,
@@ -2518,8 +2546,8 @@ export function PlannerWorkspace({
         teaching: describeExcellent(
           L.core?.excellent?.get(normCode(c.code)) ?? null,
           L.core?.excellentTerms,
-          L.core?.sections?.get(normCode(c.code))?.instructors ?? null,
-          L.core?.meta?.term?.label ?? null,
+          sched.summary?.instructors ?? null,
+          sched.label,
         ),
         recent_terms_it_ran: offeredLine(ctx, normCode(c.code)),
         fit: fitOf(c),
@@ -2732,6 +2760,8 @@ export function PlannerWorkspace({
         const key = normCode(c.code);
         const grade = L.core?.grades?.get(key);
         const prereq = L.core?.prereqs?.get(key);
+        const sched = scheduleOf(c);
+        const rows = (sched.termId ? detail?.sectionsByTerm?.[sched.termId]?.sections : detail?.sections?.sections) ?? [];
         // The window the scorer weighs, read the way quality.ts reads it, so
         // ALMA's answer for this course is the card's answer.
         const p = L.priorities;
@@ -2750,8 +2780,12 @@ export function PlannerWorkspace({
           grade_history: grade
             ? { gpa: grade.gpa, a_percent: grade.aPct, drop_percent: grade.withdrawPct, difficulty_0_to_100: grade.difficulty, students: grade.n }
             : null,
-          sections_in_crawled_term: L.core?.sections?.get(key)?.total ?? 0,
-          ...sectionTimes(detail?.sections?.sections ?? [], L.core?.sections?.get(key)?.meet, L.core?.meta?.term?.label ?? null, wanted),
+          // The term that matters for this course: its column's term when that
+          // schedule is published, else the one sections_note names.
+          sections_in_crawled_term: sched.summary?.total ?? 0,
+          sections_term: sched.label,
+          ...(sched.note ? { sections_note: sched.note } : {}),
+          ...sectionTimes(rows, sched.summary?.meet, sched.label, wanted),
           does_not_count_with: L.core?.exclusions?.get(key) ?? [],
         };
       }
@@ -2759,12 +2793,15 @@ export function PlannerWorkspace({
         const c = courseOf(str('code'));
         if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
         const [syllabi, detail] = await Promise.all([loadIllinoisSyllabi(c.code), loadIllinoisCourseDetail(c.code)]);
-        // Who teaches it in the crawled term, so a syllabus from another term or
-        // instructor can be told apart from the one the student will get.
-        const lectures = (detail?.sections?.sections ?? []).filter((s) => !s.type || /lecture/i.test(s.type));
-        const teaching = [...new Set((lectures.length ? lectures : detail?.sections?.sections ?? []).flatMap((s) => s.instructors ?? []))];
-        const thisTerm = detail?.sections
-          ? { term: L.core?.meta?.term?.label ?? null, instructors: teaching.slice(0, 12), sections: lectures.slice(0, 12).map((s) => ({ section: s.section, instructors: s.instructors })) }
+        // Who teaches it in the term that matters (its column's, or the newest
+        // schedule), so a syllabus from another term or instructor can be told
+        // apart from the one the student will get.
+        const sched = scheduleOf(c);
+        const termRows = sched.termId ? (detail?.sectionsByTerm?.[sched.termId] ?? null) : (detail?.sections ?? null);
+        const lectures = (termRows?.sections ?? []).filter((s) => !s.type || /lecture/i.test(s.type));
+        const teaching = [...new Set((lectures.length ? lectures : termRows?.sections ?? []).flatMap((s) => s.instructors ?? []))];
+        const thisTerm = termRows
+          ? { term: sched.label, ...(sched.note ? { note: sched.note } : {}), instructors: teaching.slice(0, 12), sections: lectures.slice(0, 12).map((s) => ({ section: s.section, instructors: s.instructors })) }
           : null;
         if (syllabi.length === 0) {
           return { ok: true, code: c.code, found: 0, this_term: thisTerm, note: `No public syllabus for ${c.code} was found. Most Illinois syllabi are posted inside Canvas, behind a login; the course's Canvas page or its instructor has the current one.` };
@@ -2906,14 +2943,17 @@ export function PlannerWorkspace({
           const grade = L.core?.grades?.get(key);
           const detail = await loadIllinoisCourseDetail(c.code);
           const verdict = term && !holding(c.id) ? check(withCourseIn(board, c.id, term.id), c, term.id) : null;
+          const sched = scheduleOf(c, term ? { id: term.id, label: term.label } : null);
           rows.push({
             ...describe(c),
             role_on_board: holding(c.id) ? roleOf(c) : null,
             description: (detail?.course?.description ?? '').slice(0, 400) || null,
             prerequisite_sentence: prereq?.text || detail?.course?.prereqText || null,
             grade_history: grade ? { gpa: grade.gpa, a_percent: grade.aPct, drop_percent: grade.withdrawPct, students: grade.n } : null,
-            sections_in_crawled_term: L.core?.sections?.get(key)?.total ?? 0,
-            earliest_section: L.core?.sections?.get(key)?.earliest ?? null,
+            sections_in_crawled_term: sched.summary?.total ?? 0,
+            sections_term: sched.label,
+            ...(sched.note ? { sections_note: sched.note } : {}),
+            earliest_section: sched.summary?.earliest ?? null,
             ...(term ? { in_term: term.label, eligible: verdict ? verdict.blocking.length === 0 : holding(c.id) ? 'already on the board' : null, blocked_by: verdict?.blocking ?? [], warnings: verdict?.warnings ?? [] } : {}),
           });
         }
