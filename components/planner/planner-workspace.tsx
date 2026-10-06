@@ -171,7 +171,7 @@ import { buildAdvisorPacket, cardRole, type AdvisorPacket, type CardRole } from 
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail, loadIllinoisSectionTerms, loadIllinoisSyllabi, sectionTermsOf } from '@/lib/planner/illinois-load';
-import { pickSectionTerm, sectionTermCaveat } from '@/lib/planner/section-terms';
+import { pickSectionTerm, sectionTermCaveat, termsInWords } from '@/lib/planner/section-terms';
 import type { AdvisorExecutor } from '@/lib/planner/advisor';
 import { ClubPicks } from './club-picks';
 import { clubStudentOf, type ClubStudent, type IllinoisClubsFile } from '@/lib/planner/clubs';
@@ -2419,7 +2419,7 @@ export function PlannerWorkspace({
     lines.push(`Already taken, counted but not on the board: ${taken.length > 0 ? taken.join(', ') : 'none'}.`);
     lines.push(describeCredit(L.answers?.transcript ?? null, L.priorForOptions, L.report?.residency ?? null));
     lines.push(
-      `Credit load: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'an even share of what is left'}, never above 18.${describeShape(planShapeRef.current)} Section times on cards come from ${L.core?.meta?.term?.label ?? 'one crawled term'}.`,
+      `Credit load: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'an even share of what is left'}, never above 18.${describeShape(planShapeRef.current)} ${scheduleSentence(sectionTermsOf(L.core?.meta), L.core?.meta?.term?.label ?? null)}`,
     );
     lines.push(describeGoals(L.answers?.studying ?? '', L.careerText));
     // The rail's clubs, once the file has loaded, so ALMA and the rail name the same ones.
@@ -4647,6 +4647,17 @@ function withCourseCodes(message: string): string {
  * student never sees would be a worse failure than one worded for a developer,
  * and the fix for that case is another line here.
  */
+/**
+ * The board description's line about class times, for ALMA: which schedules
+ * are published, which term a card's times come from, and which term the
+ * planner's own choices still weigh.
+ */
+function scheduleSentence(terms: Array<{ label: string; year: number; term: string }>, scoringLabel: string | null): string {
+  if (terms.length === 0) return 'No class schedule is loaded, so cards show no section times.';
+  if (terms.length === 1) return `Section times on cards come from ${terms[0].label}.`;
+  return `Class schedules are published for ${termsInWords(terms)}. A card's section times come from its own term's schedule when that is published, else the latest schedule of the same season (the card says which); the planner's own choices still weigh ${scoringLabel ?? 'the first crawled term'}'s sections.`;
+}
+
 function studentWording(note: string): string {
   const rows = note.match(/^(\d+) of (\d+) program course rows have no credits\.$/);
   if (rows) {
