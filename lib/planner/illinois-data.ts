@@ -15,7 +15,8 @@ import type {
 } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
 import { registrationFits } from './meeting-fit.ts';
-import { READ_AS_RELEASED } from './held-degrees.ts';
+import { HAND_READINGS_HELD, HEADER_LISTS_HELD, READ_AS_RELEASED } from './held-degrees.ts';
+import { handReading } from './hand-readings.ts';
 
 /**
  * Real Illinois data, adapted into the planner's shapes.
@@ -2685,6 +2686,12 @@ const PARTIAL_FULFILMENT = /\b(?:any other|one more|another|one additional|other
  */
 /** True while adaptIllinoisPrograms reads a degree in READ_AS_RELEASED. */
 let readingAsReleased = false;
+/**
+ * True while adaptIllinoisPrograms reads a degree with Family 4's readings
+ * (header then lists, one field of several): not held at the release's
+ * reading and not in HEADER_LISTS_HELD.
+ */
+let readingHeaderLists = true;
 /** A program with its tables' comment rows left unread, as the release read it. */
 function asReleasedProgram(raw: RawIllinoisProgram): RawIllinoisProgram {
   return { ...raw, areas: raw.areas?.map((area) => ({ ...area, groups: area.groups.map((group) => { const { comments: _unread, ...rest } = group; return rest; }) })) };
@@ -3661,7 +3668,8 @@ export function requirementRulesForProgram(
     // publishes no total, or when its own subtotals already add to more than
     // it, which happens and must not turn into a negative budget.
     const headroom = total === null ? null : total - (spent - published[index]);
-    const rules = requirementRulesForArea(area, byCode, headroom !== null && headroom > 0 ? headroom : null, lists?.consumed.get(index));
+    const carried = index > 0 && readingHeaderLists ? carriedHeader(areas[index - 1], area) : null;
+    const rules = requirementRulesForArea(area, byCode, headroom !== null && headroom > 0 ? headroom : null, lists?.consumed.get(index), carried);
     if (lists && lists.host.area === index) {
       rules.blocks.push(lists.block);
       rules.blocks.sort((a, b) => a.groupIndex - b.groupIndex);
@@ -3923,7 +3931,11 @@ export function requirementRulesForArea(
    * which belong to the "Correlate Areas" row of another area's table.
    */
   taken: ReadonlySet<number> = new Set(),
+  /** A sized sentence at the foot of the area before, over this area's lists (carriedHeader). */
+  carried: HeaderRow | null = null,
 ): AreaRules {
+  // Examples printed for a requirement the page states elsewhere (SAMPLE_AREA).
+  if (readingHeaderLists && SAMPLE_AREA.test(area.label ?? '')) return { blocks: [], droppedRows: 0, droppedTotalRows: 0, pools: 0, areaHours: null };
   const groups = area.groups ?? [];
   let droppedRows = 0;
   let droppedTotalRows = 0;
@@ -3966,6 +3978,10 @@ export function requirementRulesForArea(
     };
   }).filter((r) => !taken.has(r.index));
 
+  // A count the area's own heading states for its one table (areaHeadingCount).
+  const headingCount = readingHeaderLists ? areaHeadingCount(area, read) : null;
+  if (headingCount) headingCount.read.ownChoose = headingCount.n;
+
   // The area's own budget: its published total, or the subtotal row it prints
   // at the bottom of its own table.
   const subtotal = read.find((r) => r.isTotal && !r.isDegreeTotal && r.ownHours !== null);
@@ -3998,14 +4014,30 @@ export function requirementRulesForArea(
     }
   }
 
-  /** Lists with no number anywhere of their own. These draw on the area's. */
-  const caplessPools = read.filter(
-    (r) => r.isList && r.ownChoose === null && r.ownHours === null,
-  );
-
   const consumed = new Set<number>();
   const blocks: AreaRuleBlock[] = [];
   let pools = 0;
+
+  // One of several fields, tracks or options (fieldChoice): the plan follows one, the rest read as nothing.
+  const fields = readingHeaderLists ? fieldChoice(area, read, byCode) : null;
+  if (fields) {
+    for (const index of fields.consumed) consumed.add(index);
+    blocks.push(...fields.blocks);
+    pools += fields.blocks.length;
+  }
+  // A sized row over the lists printed under it (headedLists): one pool, or nothing where the lists carry it.
+  for (const headed of readingHeaderLists ? headedLists(area, read.filter((r) => !consumed.has(r.index)), byCode, carried) : []) {
+    for (const index of headed.consumed) consumed.add(index);
+    if (headed.block) {
+      blocks.push(headed.block);
+      pools += 1;
+    }
+  }
+
+  /** Lists with no number anywhere of their own. These draw on the area's. */
+  const caplessPools = read.filter(
+    (r) => r.isList && r.ownChoose === null && r.ownHours === null && !consumed.has(r.index),
+  );
 
   // Every course the area names anywhere, so an "additional" rule does not
   // hand back the courses printed above it.
@@ -4039,8 +4071,10 @@ export function requirementRulesForArea(
     };
   };
 
-  const merged =
+  const mergedRaw =
     caplessPools.length > 0 ? mergeAreaPool(area, read, caplessPools, byCode, areaBudget) : null;
+  // Never a second reading of a group the rules above already read.
+  const merged = mergedRaw && !mergedRaw.consumed.some((index) => consumed.has(index)) ? mergedRaw : null;
   if (merged) {
     for (const index of merged.consumed) consumed.add(index);
     blocks.push(merged.block);
@@ -4083,6 +4117,37 @@ export function requirementRulesForArea(
       }
     }
 
+    // One of the lists the table's own comment rows head, taken whole (oneListOf).
+    const sets = r.rows.length > 0 && readingHeaderLists ? oneListOf(r.group, r.rows) : null;
+    if (sets) {
+      const credit = (code: string) => byCode.get(code)?.credits ?? 0;
+      blocks.push({
+        groupIndex: r.index,
+        label: r.label,
+        hours: r.group.hours ?? null,
+        note: r.group.note ?? '',
+        rule: {
+          kind: 'all',
+          choices: [{
+            codes: sets.map((set) => set[0]),
+            title: sets.map((set) => set.join(' & ')).join(' or '),
+            credits: sets[0].reduce((sum, code) => sum + credit(code), 0),
+            creditsMax: null,
+            substitutes: [],
+            bundles: sets,
+          }],
+        },
+        rows: r.rows.length,
+      });
+      continue;
+    }
+    // "Choose 6 hours from:" over its rows and "Additional 200-level ARTS courses": one pool (hoursFromRowsOrLevel).
+    const either = r.rows.length > 0 && readingHeaderLists ? hoursFromRowsOrLevel(r, levelBlockFor(r, true)) : null;
+    if (either) {
+      blocks.push(either(choicesFrom(r.rows, byCode, r.label)));
+      pools += 1;
+      continue;
+    }
     /*
      * A table of required rows with option lists between them (optionListsIn):
      * the required rows keep the group's own block and id, and each list is a
@@ -4466,6 +4531,551 @@ function mergeAreaPool(
   };
 }
 
+/**
+ * "Sample Online Course Options": tables of examples for a requirement the
+ * page states elsewhere, not a requirement of their own.
+ *
+ * Fine & Applied Arts BA states its major as 9 hours of upper-level and 12
+ * hours of any-level courses in the college, each row saying "see sample
+ * course options below", and then prints four tables under "Sample Online
+ * Course Options (not an exhaustive list, students should work with their
+ * advisor ...)". Read as tables, all four were required: 40 courses, with
+ * MUS 459 (0 to 12 hours, advisor approval), ARTS 399 and ARTD 399 (Art and
+ * Design juniors only) and FAA 493 (Minoritarian Aesthetics minors only), and
+ * the board reported the art table unmet because ARTS 399 could not be
+ * placed. Only an area whose own heading begins "Sample"; of the 308 crawled
+ * pages that is this one.
+ */
+const SAMPLE_AREA = /^\s*sample\b/i;
+
+/**
+ * A count an area's heading states for its one table, where the table states none.
+ *
+ * Speech & Hearing Science prints "Chemistry/Physics Requirement (Select
+ * one)", "Animal/Human Biology Requirement (Select one)" and "Statistics
+ * Requirement (Select one)" as headings, each over one table with no label,
+ * hours, count or comment of its own. Read table by table all three were
+ * required: eight chemistry and physics courses, twelve biology courses and
+ * four statistics courses, 83 hours for three courses. Only an area of one
+ * table whose rows say nothing of their own number, and only a count smaller
+ * than its rows; a heading that offers a choice of tracks or fields
+ * (offersOneField) is read by fieldChoice, or by the Classics tracks fix.
+ */
+function areaHeadingCount(area: RawProgramArea, read: AreaGroupRead[]): { read: AreaGroupRead; n: number } | null {
+  const label = area.label ?? '';
+  if (!label || offersOneField(label)) return null;
+  if (read.length !== 1 || (area.groups ?? []).length !== 1) return null;
+  const r = read[0];
+  if (r.rows.length < 2 || r.ownChoose !== null || r.ownHours !== null || (r.group.comments ?? []).length > 0) return null;
+  const n = soleCount(label);
+  return n !== null && n < r.rows.length ? { read: r, n } : null;
+}
+
+/**
+ * A heading that offers a choice of ONE of the lists printed after it.
+ *
+ * "Students must select one Secondary Field Option from the list below"
+ * (Systems Engineering & Design), "Students are required to complete one
+ * track" (Engineering Physics), "Students must choose a track for core
+ * requirements" (Media & Cinema Studies), "Primary Fields (Students choose
+ * one of five (5) Primary Fields)" (Environmental Engineering), "Secondary
+ * field electives selected from departmentally approved courses for
+ * Secondary Field Options" (Engineering Mechanics), "Track options include
+ * courses selected from departmentally approved lists" (Industrial
+ * Engineering). The noun it names is kept: where the lists' own labels carry
+ * it ("Cinema Studies Track"), it marks where the lists end.
+ */
+const ONE_FIELD =
+  /\b(?:select|choose|complete|pick)\s+(?:one|a|1)\s+(?:of\s+(?:the\s+)?(?:\w+\s+)?(?:\(\d+\)\s+)?)?(?:[\w&-]+\s+){0,3}?(fields?|tracks?|specializations?)\b|\b(secondary field) options?\b|\b(track) options\b/i;
+/** "Students are not required to select a specialization" (Sustainability in Food & Environmental Systems) offers no choice. */
+const NOT_REQUIRED_TO = /\bnot (?:required|necessary|obligated) to (?:select|choose|complete|pick)\b/i;
+/** A heading that offers a choice of one field, track or specialization, and does not say the student need not make one. */
+const offersOneField = (text: string): boolean => ONE_FIELD.test(text) && !NOT_REQUIRED_TO.test(text);
+/** "one of five (5) Primary Fields", "one of the four specializations": how many lists the choice is between. */
+const ONE_OF_COUNT = /\bone of (?:the )?(two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i;
+/**
+ * The comment row that opens a field's required rows: Engineering Mechanics'
+ * "Required Courses", Industrial Engineering's "Track Core - complete the
+ * following 2 courses:", Engineering Physics' "Take the following three
+ * courses from the Physics Electives List:".
+ */
+const CORE_HEAD =
+  /^\s*(?:required courses?\s*:?\s*$|track core(?: requirement)?\s*-\s*complete the following\b|take the following\b)/i;
+/** A field's slot heading inside one table ("Theory", "History"), and the "Choose 1:" that opens its alternatives. */
+const SLOT_CHOOSE_ONE = /^\s*(?:choose|select)\s+(?:1|one)\s*:?\s*$/i;
+
+/**
+ * One field's table read whole, where its shape is one this can read:
+ *
+ *   no comment rows: a list sized by the field's own hours or the heading's;
+ *   two comment rows, the first opening its required rows (CORE_HEAD) and
+ *   the second the rest: a pool of the field's size with every required row
+ *   in it, and the second row's own count ("complete 2 courses from this
+ *   list") on the rest;
+ *   slot tables (Media & Cinema Studies' tracks): short headings, Theory,
+ *   History, Methods, Production, each over one course or over "Choose 1:"
+ *   and its alternatives, one course a slot.
+ *
+ * 'plain' is a table with hours of its own and no comment rows, which the
+ * ordinary reading already reads whole. Null for any other shape.
+ */
+function readField(
+  r: AreaGroupRead,
+  headerHours: number | null,
+  byCode: CatalogRowLookup,
+): 'plain' | { rule: RequirementRule; fillable: boolean } | null {
+  if (r.ownChoose !== null) return null;
+  const size = r.ownHours ?? headerHours;
+  if (size === null) return null;
+  const all = r.group.courses ?? [];
+  if (r.rows.length !== all.length) return null;
+  const comments = r.group.comments ?? [];
+  const codesOf = (rows: RawProgramCourse[]) => rows.flatMap((row) => [row.code, ...(row.or ?? [])].map(normCode));
+  if (comments.length === 0) {
+    if (r.ownHours !== null) return r.credits >= r.ownHours ? 'plain' : null;
+    const lists = [{ label: r.label, codes: codesOf(r.rows) }];
+    return {
+      fillable: r.credits >= size,
+      rule: { kind: 'pool', hours: size, n: null, choices: choicesFrom(r.rows, byCode), lists, constraints: [], from: 'group', label: r.label },
+    };
+  }
+  if (comments.length === 2 && comments[0].at === 0 && CORE_HEAD.test(comments[0].text) && comments[1].at > 0 && comments[1].at < all.length) {
+    const core = all.slice(0, comments[1].at);
+    const rest = all.slice(comments[1].at);
+    const lists: PoolList[] = [
+      { label: `${r.label}: ${comments[0].text.replace(/[\s:]+$/, '')}`, codes: codesOf(core) },
+      { label: `${r.label}: ${comments[1].text.replace(/[\s:]+$/, '')}`, codes: codesOf(rest) },
+    ];
+    const constraints: PoolConstraint[] = [{ text: lists[0].label, n: core.length, lists: [lists[0]], single: false }];
+    const word = COMMENT_COUNT.exec(comments[1].text)?.[1]?.toLowerCase();
+    const restCount = word ? (WORD_NUMBERS[word] ?? Number(word)) : null;
+    if (restCount !== null && restCount > 0 && restCount <= rest.length) constraints.push({ text: lists[1].label, n: restCount, lists: [lists[1]], single: false });
+    return {
+      fillable: r.credits >= size && sumRowCredits(core, byCode) <= size,
+      rule: { kind: 'pool', hours: size, n: null, choices: choicesFrom(all, byCode), lists, constraints, from: 'group', label: r.label },
+    };
+  }
+  if (r.ownHours === null) {
+    // Slot tables. A lead-in stacked on the first heading is dropped; "Choose 1:" never opens a slot of its own.
+    const heads = comments.filter((c, i) => comments[i + 1]?.at !== c.at || SLOT_CHOOSE_ONE.test(comments[i + 1].text));
+    if (heads.some((c) => c.hours != null)) return null;
+    const slots: Array<{ name: string; at: number }> = [];
+    for (const c of heads) {
+      if (SLOT_CHOOSE_ONE.test(c.text)) continue;
+      if (c.text.trim().split(/\s+/).length > 3 || OPTION_HEAD.test(c.text)) return null;
+      slots.push({ name: c.text.trim(), at: c.at });
+    }
+    if (slots.length < 2 || slots[0].at !== 0) return null;
+    const choices: CourseChoice[] = [];
+    for (const [i, slot] of slots.entries()) {
+      const rows = all.slice(slot.at, slots[i + 1]?.at ?? all.length);
+      if (rows.length === 0) return null;
+      const opens = heads.some((c) => SLOT_CHOOSE_ONE.test(c.text) && c.at === slot.at);
+      if (rows.length > 1 && !opens) return null;
+      const codes = [...new Set(codesOf(rows))];
+      const first = byCode.get(codes[0]);
+      choices.push({ codes, title: `${slot.name}: ${codes.join(' or ')}`, credits: first?.credits ?? null, creditsMax: first?.creditsMax ?? null, substitutes: [] });
+    }
+    return { fillable: true, rule: { kind: 'all', choices } };
+  }
+  return null;
+}
+
+/**
+ * One of several fields, tracks or options printed as tables after a
+ * heading that offers a choice of one: the plan follows one, and the others
+ * read as nothing.
+ *
+ * Systems Engineering & Design prints "Students must select one Secondary
+ * Field Option from the list below" (12 hours) and then seventeen tables,
+ * one per option; Environmental Engineering prints five Primary Field tables
+ * of 29 to 32 hours each under "Students choose one of five (5) Primary
+ * Fields"; Engineering Physics, Engineering Mechanics, Industrial
+ * Engineering and Media & Cinema Studies print the same shape. Read table by
+ * table every option was required at once (all seventeen secondary fields,
+ * all five primary fields, all five physics tracks), on top of the heading's
+ * own hours read as elective hours, and the boards ran out of room. The page
+ * names no default (the Classics "choose one of three tracks" fix reads its tracks the same way), so the plan
+ * follows one, chosen in this order: one this reads whole (readField) and
+ * whose courses can fill it, then the fewest hours, then the page's order.
+ * The heading's own row reads as nothing: its hours are the chosen option's
+ * size, not more hours on top. Only a heading that says so (offersOneField),
+ * over at least two tables, exactly as many as it counts where it counts
+ * them, and, where the tables' labels carry the noun the heading names
+ * ("Track"), only the tables that do.
+ */
+function fieldChoice(
+  area: RawProgramArea,
+  read: AreaGroupRead[],
+  byCode: CatalogRowLookup,
+): { consumed: number[]; blocks: AreaRuleBlock[] } | null {
+  const textOf = (r: AreaGroupRead) => [r.label, r.group.note ?? ''].filter(Boolean).join(' ');
+  const offers: Array<{ header: AreaGroupRead | null; text: string; run: AreaGroupRead[] }> = [];
+  for (const [k, r] of read.entries()) {
+    if (r.isTotal || r.rows.length > 0 || !offersOneField(textOf(r))) continue;
+    const run: AreaGroupRead[] = [];
+    for (const next of read.slice(k + 1)) {
+      if (next.isTotal || next.rows.length === 0) break;
+      run.push(next);
+    }
+    offers.push({ header: r, text: textOf(r), run });
+  }
+  // The area's own heading offers the choice, over an area of nothing but the options.
+  if (offersOneField(area.label ?? '') && read.every((r) => r.isTotal || r.rows.length > 0)) {
+    offers.push({ header: null, text: area.label ?? '', run: read.filter((r) => !r.isTotal) });
+  }
+  for (const offer of offers) {
+    const m = ONE_FIELD.exec(offer.text);
+    if (!m) continue;
+    const noun = (m[1] ?? m[2] ?? m[3] ?? '').toLowerCase().replace(/s$/, '').split(' ').pop() ?? '';
+    let fields = offer.run;
+    if (noun && fields.some((r) => r.label.toLowerCase().includes(noun))) {
+      const end = fields.findIndex((r) => !r.label.toLowerCase().includes(noun));
+      fields = end === -1 ? fields : fields.slice(0, end);
+    } else if (offer.header === null) {
+      continue;
+    }
+    const stated = ONE_OF_COUNT.exec(offer.text);
+    if (stated && (WORD_NUMBERS[stated[1].toLowerCase()] ?? Number(stated[1])) !== fields.length) continue;
+    if (fields.length < 2) continue;
+
+    const headerHours = offer.header?.ownHours ?? null;
+    const plans = fields.map((r) => {
+      const whole = readField(r, headerHours, byCode);
+      const hours = r.ownHours ?? headerHours ?? Number.MAX_SAFE_INTEGER;
+      const ok = whole === 'plain' || (whole !== null && whole.fillable);
+      return { r, ok, hours, whole };
+    });
+    const keep = [...plans].sort((a, b) => Number(b.ok) - Number(a.ok) || a.hours - b.hours || a.r.index - b.r.index)[0];
+    const consumed = [...(offer.header ? [offer.header.index] : []), ...fields.filter((r) => r !== keep.r).map((r) => r.index)];
+    const blocks: AreaRuleBlock[] = [];
+    if (keep.ok && keep.whole !== null && keep.whole !== 'plain') {
+      consumed.push(keep.r.index);
+      blocks.push({
+        groupIndex: keep.r.index,
+        label: keep.r.label,
+        hours: keep.r.ownHours ?? headerHours,
+        note: offer.text,
+        rows: keep.r.rows.length,
+        rule: keep.whole.rule,
+      });
+    }
+    return { consumed, blocks };
+  }
+  return null;
+}
+
+/** A sized sentence over the lists printed after it. */
+interface HeaderRow {
+  hours: number;
+  /** Every word the header prints, for the pointer test and the block's note. */
+  text: string;
+  /** The words a count is read from, and whose closing colon opens a list. */
+  sizing: string;
+}
+
+/** "from the lists below", "from the following", "of the following six areas", "from Lists A and B", "approved list". */
+const POINTS_AT_LISTS =
+  /\b(?:from|of|in)\s+(?:each\s+of\s+)?(?:the\s+)?(?:following|lists?\s+below)\b|\bfrom\s+lists?\s+[A-Z]\b|\bapproved\s+lists?\b/i;
+/** "A minimum of six 300- and 400-level courses (from the lists below), totaling at least 18 credit hours". */
+const MIN_COURSES_TOTALING =
+  /\ba minimum of\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:[\w-]+\s+){0,4}?courses\b[^.]*?\btotaling at least\s+(\d+)\s+(?:credit\s+)?hours\b/i;
+/** "At least one course must be taken from each of the following five areas". */
+const EACH_LIST = /\bat least one course\b[^.]*\bfrom each of the following\b/i;
+/** A list's own label that opens with its count: "At least two courses from the following areas." */
+const AT_LEAST_LEAD = /^\s*at least\s+(one|two|three|four|five|six|\d)\s+(?:courses?\b|of\b)/i;
+/** "At least three of these six advanced courses must be listed or cross-listed as an ESE or ENSU course." */
+const SUBJECT_MIN = /\b[Aa]t least\s+(one|two|three|four|five|six|\d)\s+of these\b[^.]*?\blisted(?: or cross-listed)? as an?\s+([A-Z]{2,4})(?:\s+or\s+([A-Z]{2,4}))?\s+course/;
+/** A list that names the header's own size: "Remaining courses to total 15 hours minimum may be selected from ...". */
+const RESTATES_HOURS = /\btotal(?:ing)?\s+(?:of\s+)?(\d{1,2})\s+(?:credit\s+)?hours\b/i;
+
+/** The comment rows at the foot of a table, when one of them carries hours: the last such one sizes them. */
+function trailingHeader(group: RawProgramGroup): HeaderRow | null {
+  const all = group.courses ?? [];
+  if (all.length === 0) return null;
+  const tail = (group.comments ?? []).filter((c) => c.at >= all.length);
+  const sized = tail.filter((c) => c.hours !== null && c.hours > 0);
+  if (sized.length === 0) return null;
+  const last = sized[sized.length - 1];
+  return { hours: last.hours as number, text: tail.map((c) => c.text).join(' '), sizing: last.text };
+}
+
+/**
+ * The sized sentence at the foot of the area before, where this area is its
+ * list and has no heading of its own.
+ *
+ * Speech & Hearing Science ends its Professional Core table with "Plus 12
+ * hours of SHS electives from the list below." (12) and prints the list as
+ * the next table, under no heading.
+ */
+function carriedHeader(previous: RawProgramArea, area: RawProgramArea): HeaderRow | null {
+  if ((area.label ?? '').trim()) return null;
+  const groups = previous.groups ?? [];
+  const last = groups[groups.length - 1];
+  const header = last ? trailingHeader(last) : null;
+  // Only one sized sentence, which itself points below: Political Science's
+  // concentration tables end with five sized sentences, two of them about the
+  // list printed next and three not, and none of them is the list's size.
+  const sized = (last?.comments ?? []).filter((c) => c.at >= (last?.courses ?? []).length && c.hours !== null && c.hours > 0);
+  return header && sized.length === 1 && POINTS_AT_LISTS.test(header.sizing) ? header : null;
+}
+
+/** The courseless row's own sentence, with its hours: its cell, its one sized comment, or the hours it states. */
+function courselessHeader(r: AreaGroupRead): HeaderRow | null {
+  const sizedComments = (r.group.comments ?? []).filter((c) => c.hours !== null && c.hours > 0);
+  const stated = COMMENT_HOURS.exec(r.label);
+  const hours = r.ownHours ?? (sizedComments.length === 1 ? sizedComments[0].hours : null) ?? (stated ? Number(stated[1]) : null);
+  if (hours === null || hours <= 0) return null;
+  return { hours, text: [r.label, r.group.note ?? ''].filter(Boolean).join(' '), sizing: r.label };
+}
+
+/** The count a header states for its pool: one verb-led count in its own words, or "a minimum of six ... courses ... totaling at least 18 hours". */
+function headerCount(header: HeaderRow, countText: string): number | null {
+  if (!statesSeveralCounts(countText)) {
+    const word = COMMENT_COUNT.exec(countText)?.[1]?.toLowerCase();
+    if (word) return WORD_NUMBERS[word] ?? Number(word);
+  }
+  const m = MIN_COURSES_TOTALING.exec(header.text);
+  if (m && Number(m[2]) === header.hours) return WORD_NUMBERS[m[1].toLowerCase()] ?? Number(m[1]);
+  return null;
+}
+
+/**
+ * A sized row over the lists printed after it, read as one pool of its size
+ * over all of their courses.
+ *
+ * Neural Engineering prints "Must choose 12 hours from the following:" (12)
+ * and then five tables, Bioengineering, ECE, ME, Psychology and Physics,
+ * with no number of their own. The row read as 12 elective hours with no
+ * courses, the ECE, ME, Psychology and Physics tables as every course
+ * required, and the Bioengineering table as a pool of no size: ME 483 put
+ * TAM 211, TAM 251 and CS 124 on the board as its prerequisites. The same
+ * shape is Environmental Sustainability's "A minimum of six 300- and
+ * 400-level courses (from the lists below), totaling at least 18 credit
+ * hours" over six tables, the ETMA concentrations' "Select 18 hours from the
+ * lists below" over "At least two of:" and "At least one of:" tables,
+ * Aerospace's 12 technical-elective hours over the AE and non-AE lists,
+ * Communication's 30 hours (a comment at the foot of the table before) over
+ * six area tables, Integrative Biology's 15 Advanced Area hours, and
+ * Psychology's "Psychological Science Breadth, Group 1 (choose one):" (3)
+ * over two tables.
+ *
+ * The header is a row with no courses and hours of its own (its cell, its
+ * one sized comment, or "7 credit minimum"), or the sized comment rows at
+ * the foot of the table before (trailingHeader), or of the area before
+ * (carriedHeader). It must point at the lists: "from the lists below",
+ * "from the following", "of the following six areas", "from Lists A and B",
+ * "approved list"; or close on a colon after a count of its own ("(choose
+ * one):"); or be named by one of its lists ("to total 15 hours minimum").
+ * The lists are the tables after it with course rows and no hours of their
+ * own, up to the next table without courses or with hours; they must carry
+ * more credit than the header, which is the measurement that says they are
+ * a list to pick from and not courses to take. A list's own count ("At least
+ * two of:", "Select one of the following:") becomes a constraint on the
+ * pool rather than a requirement beside it, as does "at least one course
+ * from each of the following" and "at least three of these ... listed or
+ * cross-listed as an ESE or ENSU course" (the ESE and ENSU codes printed).
+ * A heading that offers a choice of one field or track is fieldChoice's.
+ *
+ * Where the tables after the header each carry hours that add to exactly the
+ * header's ("General Music Technique Courses: 8 credit minimum ... from
+ * Lists A and B" over "Choose 3 credits" and "Choose 5 credits"), the header
+ * is their total and reads as nothing: read as 8 more hours it counted them
+ * twice, and read as a sentence with no number it was a requirement no
+ * course could ever meet.
+ */
+function headedLists(
+  area: RawProgramArea,
+  read: AreaGroupRead[],
+  byCode: CatalogRowLookup,
+  carried: HeaderRow | null,
+): Array<{ consumed: number[]; block: AreaRuleBlock | null }> {
+  const out: Array<{ consumed: number[]; block: AreaRuleBlock | null }> = [];
+  const used = new Set<number>();
+  const heads: Array<{ at: number; header: HeaderRow; own: AreaGroupRead | null; countText: string }> = [];
+  if (carried) heads.push({ at: -1, header: carried, own: null, countText: carried.sizing });
+  for (const [k, r] of read.entries()) {
+    if (r.isTotal) continue;
+    if (r.rows.length === 0) {
+      const header = courselessHeader(r);
+      if (header) heads.push({ at: k, header, own: r, countText: header.text });
+    } else {
+      const header = trailingHeader(r.group);
+      if (header) heads.push({ at: k, header, own: null, countText: header.sizing });
+    }
+  }
+  for (const head of heads) {
+    const { header } = head;
+    if ((head.own && used.has(head.own.index)) || offersOneField(header.text)) continue;
+    const lists: AreaGroupRead[] = [];
+    for (let k = head.at + 1; k < read.length; k += 1) {
+      const r = read[k];
+      if (r.isTotal || r.rows.length === 0 || r.ownHours !== null || used.has(r.index)) break;
+      lists.push(r);
+    }
+    const count = headerCount(header, head.countText);
+    const pointed =
+      POINTS_AT_LISTS.test(header.text) ||
+      (/:\s*$/.test(header.sizing) && count !== null) ||
+      lists.some((r) => Number(RESTATES_HOURS.exec(`${r.label} ${r.group.note ?? ''}`)?.[1]) === header.hours);
+    if (!pointed) continue;
+
+    if (lists.length === 0) {
+      // Tables that carry their own hours, adding to exactly the header's: the header is their total.
+      if (!head.own) continue;
+      const sized: AreaGroupRead[] = [];
+      for (let k = head.at + 1; k < read.length; k += 1) {
+        const r = read[k];
+        if (r.isTotal || r.rows.length === 0 || r.ownHours === null || used.has(r.index)) break;
+        sized.push(r);
+      }
+      if (sized.length >= 2 && sized.reduce((sum, r) => sum + (r.ownHours ?? 0), 0) === header.hours) {
+        used.add(head.own.index);
+        out.push({ consumed: [head.own.index], block: null });
+      }
+      continue;
+    }
+    if (lists.reduce((sum, r) => sum + r.credits, 0) <= header.hours) continue;
+
+    const seen = new Set<string>();
+    const rows: RawProgramCourse[] = [];
+    for (const list of lists) {
+      for (const row of list.rows) {
+        const key = normCode(row.code);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push(row);
+      }
+    }
+    const listOf = (r: AreaGroupRead): PoolList => ({
+      label: r.label || area.label || '',
+      codes: r.rows.flatMap((row) => [row.code, ...(row.or ?? [])].map(normCode)),
+    });
+    const each = EACH_LIST.test(header.text);
+    const constraints: PoolConstraint[] = [];
+    for (const r of lists) {
+      const lead = AT_LEAST_LEAD.exec(r.label)?.[1]?.toLowerCase();
+      const n = r.ownChoose ?? (lead ? (WORD_NUMBERS[lead] ?? Number(lead)) : null) ?? (each ? 1 : null);
+      if (n !== null && n > 0) constraints.push({ text: r.label || header.sizing, n, lists: [listOf(r)], single: false });
+    }
+    const subject = SUBJECT_MIN.exec(header.text);
+    if (subject) {
+      const n = WORD_NUMBERS[subject[1].toLowerCase()] ?? Number(subject[1]);
+      const subjects = [subject[2], subject[3]].filter(Boolean);
+      const codes = [...seen].filter((code) => subjects.includes(code.split(' ')[0]));
+      if (codes.length >= n) constraints.push({ text: subject[0], n, lists: [{ label: subjects.join(' or '), codes }], single: false });
+    }
+    const label = head.own ? head.own.label || area.label || '' : header.sizing.split(':')[0].trim() || area.label || '';
+    const consumed = [...(head.own ? [head.own.index] : []), ...lists.map((r) => r.index)];
+    for (const index of consumed) used.add(index);
+    out.push({
+      consumed,
+      block: {
+        groupIndex: head.own ? head.own.index : lists[0].index,
+        label,
+        hours: header.hours,
+        note: header.text,
+        rows: rows.length,
+        rule: {
+          kind: 'pool',
+          hours: header.hours,
+          n: count !== null && count < rows.length ? count : null,
+          choices: choicesFrom(rows, byCode),
+          lists: lists.map(listOf),
+          constraints,
+          from: 'area',
+          label,
+        },
+      },
+    });
+  }
+  return out;
+}
+
+/** "choose one of the four specializations below", "Choose one option below". */
+const ONE_OF_LISTS = /\b(?:select|choose|pick|complete)\s+one\s+(?:of\s+the\s+(?:\w+\s+)?)?(?:options?|specializations?|tracks?|fields?)\b/i;
+
+/**
+ * One table whose comment rows head the lists it offers a choice of one of:
+ * the sets, each taken whole.
+ *
+ * Business & Data Science prints "Business Administration Specialization
+ * (choose one of the four specializations below)" (12) over one table, four
+ * comment rows ("Information Systems Specialization:", ...) each over four
+ * BADM courses. Read as twelve hours from all sixteen, the sweep board took
+ * BADM 351, 352, 353, 313 and 382, which completes no specialization.
+ * Anthropology's "Senior Capstone Project" is the same shape: "Choose one
+ * option below" over Honors Thesis (ANTH 494 and 495), Senior Capstone
+ * Seminar (ANTH 498), Internship and Study Abroad (ANTH 390 each), read as
+ * three hours from any of them. The sets are a choice the engine already
+ * knows (CourseChoice.bundles, as "Select one group of courses" is): it takes
+ * one whole, the one a student holds courses of, else the first that is not
+ * an honors or accelerated set. Only where the table says it offers one,
+ * every row sits under a comment row of no hours of its own (a lead-in
+ * stacked on the first is dropped), no row is an "or", and the table has as
+ * many sets as it counts where it counts them.
+ */
+function oneListOf(group: RawProgramGroup, rows: RawProgramCourse[]): string[][] | null {
+  const text = `${group.label ?? ''} ${group.note ?? ''}`;
+  if (!ONE_OF_LISTS.test(text)) return null;
+  const all = group.courses ?? [];
+  if (rows.length !== all.length || all.some((row) => (row.or ?? []).length > 0)) return null;
+  const raw = group.comments ?? [];
+  if (raw.some((c) => c.hours !== null && c.hours !== undefined)) return null;
+  const heads = raw.filter((c, i) => raw[i + 1]?.at !== c.at);
+  if (heads.length < 2 || heads[0].at !== 0) return null;
+  const sets: string[][] = [];
+  for (const [i, c] of heads.entries()) {
+    const until = heads[i + 1]?.at ?? all.length;
+    if (until <= c.at || c.at >= all.length) return null;
+    sets.push(all.slice(c.at, until).map((row) => normCode(row.code)));
+  }
+  const stated = ONE_OF_COUNT.exec(text);
+  if (stated && (WORD_NUMBERS[stated[1].toLowerCase()] ?? Number(stated[1])) !== sets.length) return null;
+  return sets;
+}
+
+/**
+ * "Choose 6 hours from:" over two courses and a comment row naming a level
+ * pool ("Additional 200-level ARTS courses"): one six-hour pool over both.
+ *
+ * Studio Art's Fashion concentration. Read apart, THEA 242 and GWS 275 were
+ * both required (their six hours fit the heading's six) and the comment row
+ * became a six-hour pool of 200-level ARTS beside them: twelve hours for a
+ * six-hour requirement. Only a table with no hours cell whose heading states
+ * hours and ends "from:", and only with the "additional" level pool its own
+ * words name.
+ */
+function hoursFromRowsOrLevel(
+  r: AreaGroupRead,
+  level: AreaRuleBlock | null,
+): ((choices: CourseChoice[]) => AreaRuleBlock) | null {
+  if (!level || level.rule.kind !== 'pool' || r.ownHours === null || r.isList) return null;
+  if (r.group.hours != null || !HEADING_HOURS.test(r.label) || !/\bfrom\s*:?\s*$/i.test(r.label)) return null;
+  const extra = level.rule;
+  const hours = r.ownHours;
+  return (choices) => {
+    const codes = new Set(choices.flatMap((c) => c.codes));
+    return {
+      groupIndex: r.index,
+      label: r.label,
+      hours,
+      note: r.group.note ?? '',
+      rows: r.rows.length,
+      rule: {
+        kind: 'pool',
+        hours,
+        n: null,
+        choices: [...choices, ...extra.choices.filter((c) => !c.codes.some((code) => codes.has(code)))],
+        lists: [{ label: r.label, codes: [...codes] }, ...extra.lists],
+        constraints: [],
+        from: 'group',
+        label: r.label,
+      },
+    };
+  };
+}
+
 /** "within one or more of the specializations", "choosing courses within or across specializations". */
 const ACROSS_LISTS = /\bwithin one or more of the\b|\bwithin or across\b/i;
 
@@ -4652,6 +5262,7 @@ export function adaptIllinoisPrograms(
     if (!crawled?.id) continue;
     // A degree held at the release's reading (READ_AS_RELEASED) is read as it was.
     readingAsReleased = READ_AS_RELEASED.has(crawled.id);
+    readingHeaderLists = !readingAsReleased && !HEADER_LISTS_HELD.has(crawled.id);
     const raw = withCampusGenEd(readingAsReleased ? asReleasedProgram(crawled) : crawled);
 
     const programBlocks: RequirementBlock[] = [];
@@ -4661,7 +5272,9 @@ export function adaptIllinoisPrograms(
 
     // One call for the whole degree, because an area's last cap is what the
     // rest of the degree leaves it, and that cannot be seen one area at a time.
-    const byArea = requirementRulesForProgram(raw, byCode);
+    const byRule = requirementRulesForProgram(raw, byCode);
+    // A page read by hand (hand-readings.ts, Family 4b), where its reading is not held.
+    const byArea = (readingHeaderLists && !HAND_READINGS_HELD.has(raw.id) ? handReading(raw.id, byRule, byCode) : null) ?? byRule;
 
     raw.areas?.forEach((area, ai) => {
       const areaId = `${raw.id}::${ai}`;
@@ -4799,6 +5412,7 @@ export function adaptIllinoisPrograms(
   }
   } finally {
     readingAsReleased = false;
+    readingHeaderLists = true;
   }
 
   return {
