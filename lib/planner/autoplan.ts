@@ -14848,7 +14848,13 @@ export function validatePlan(
         termId: term.id,
       });
     }
-    if ((options?.strictComposition || !compositionBegun) && plan.terms.indexOf(term) >= compositionDue) {
+    /**
+     * Only the term right after year one holds a sequence's second half: a
+     * CMN 112 dragged further out (a junior or senior term) is late again,
+     * even after a year-one CMN 111.
+     */
+    const secondHalfSlot = !options?.strictComposition && compositionBegun && plan.terms.indexOf(term) === compositionDue;
+    if (!secondHalfSlot && plan.terms.indexOf(term) >= compositionDue) {
       for (const courseId of term.courseIds) {
         const course = byId.get(courseId);
         if (!course?.tags.includes('Composition I')) continue;
