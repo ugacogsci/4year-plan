@@ -58,6 +58,17 @@ fewer real requirements is always blocked. Each changed board is accepted,
 blocked or sent to engine work. On the research's sweeps of the parked split
 (c47de54b -> cdc06dd9) it gives 629 accepted, 5 blocked and 196 engine work.
 
+`gate.mjs ... --mode data` is the owner's lighter rule for a data update
+(2026-10-08): new or corrected offering terms, or grade data. A refresh like
+that reshuffles electives on hundreds of boards, so a changed board is
+blocked only when, against its old board, it (1) meets fewer real
+requirements, (2) has a new validator error or a course placed before its
+prerequisite, (3) places a lab apart from its lecture, or (4) finishes after
+the student's target term, later than the old board did. Everything else
+(electives, term shape, two hardest in a term, credits past the total,
+pre-med/PT rows late or off) is printed as "reported, not gating". A change
+to how degree pages are read keeps the full three-level rule (no `--mode`).
+
 Pre-med/PT rows late or off the board on a board that meets more real
 requirements are a forced cost only by the owner's "the degree beats
 pre-med/PT" rule (gate.mjs degreeFirst): no course of the row has a seat

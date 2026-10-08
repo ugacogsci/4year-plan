@@ -3,7 +3,7 @@
  * board by board?
  *
  *   node gate.mjs <before.jsonl> <after.jsonl> [--reading <blocks.jsonl>]
- *                 [--checkout <dir>] [--list] [--json <out.json>]
+ *                 [--checkout <dir>] [--mode data] [--list] [--json <out.json>]
  *
  * Both files come from sweep.mjs (or the research's sweep6, which records the
  * same fields). The reading defaults to <after>.blocks.jsonl, which sweep.mjs
@@ -54,6 +54,23 @@
  * than its own description, Composition I (RHET 105, "the CMN 111-112
  * sequence is another"), is read with the sequence (ROW_SEQUENCES). A requirement split into option lists
  * (::3::0 -> ::3::0::opt1) is the same requirement.
+ *
+ * `--mode data` is the owner's lighter rule for a data update (2026-10-08):
+ * new or corrected offering terms, grade data. Such an update reshuffles
+ * electives on hundreds of boards, so only four things block it, each on a
+ * board that the old board did not have it on:
+ *
+ *   1. the board meets FEWER real requirements (the same count as above);
+ *   2. a new validator error, or a course placed before its prerequisite
+ *      (an order fault);
+ *   3. a lab placed apart from its lecture;
+ *   4. the board finishes after the student's target term, later than the
+ *      old board finished.
+ *
+ * Everything else (electives, term shape, two hardest in a term, credits
+ * past the total, pre-med/PT rows late or off, residency, a term over 18) is
+ * reported, never gating. Degree-page reading changes keep the three-level
+ * rule; use the default mode for them.
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -433,6 +450,11 @@ export const VERDICTS = {
   blocked: ['blocked: fewer real requirements', 'blocked: errors/order/labs/late finish'],
   engine: ['fix engine first: more requirements but an avoidable deadline/hours cost', 'fix engine first: same requirements, deadline/hours worse', 'fix engine first: same requirements, shape worse in the sweep total'],
 };
+/** The data-update verdicts (`--mode data`): blocked only by the owner's four conditions. */
+export const DATA_VERDICTS = {
+  accept: ['accept: data update', 'accept: data update, reported changes'],
+  blocked: ['blocked: fewer real requirements', 'blocked: new error', 'blocked: course before its prerequisite', 'blocked: lab apart from its lecture', 'blocked: finishes after the target term'],
+};
 export const levelOf = (v) => (v.startsWith('accept') ? 'accepted' : v.startsWith('blocked') ? 'blocked' : 'engine');
 
 /**
@@ -440,7 +462,7 @@ export const levelOf = (v) => (v.startsWith('accept') ? 'accepted' : v.startsWit
  * `reading` is readingOf(blocks) of the new reading. Boards whose courses
  * per term are the same are not judged.
  */
-export function verdicts(before, after, reading, S, { splitIds = true } = {}) {
+export function verdicts(before, after, reading, S, { splitIds = true, mode = 'full' } = {}) {
   const M = makeMeasures(S);
   const pairs = [];
   for (const [k, x0] of before) {
@@ -469,6 +491,24 @@ export function verdicts(before, after, reading, S, { splitIds = true } = {}) {
     const ua = unmetOn(reading, a, S.credits);
     const ub = unmetOn(reading, b, S.credits);
     if ('terms' in w && !pastTarget(b)) delete w.terms;
+    if (mode === 'data') {
+      // The owner's lighter rule for data updates: four conditions block, the
+      // rest is reported. A finish after the target blocks only when it is
+      // later than the old board's finish (the data moved it there).
+      const later = pastTarget(b) && (ordinal(b.finish) ?? 0) > (ordinal(a.finish) ?? 0);
+      const blocks = [];
+      if (ub > ua) blocks.push('blocked: fewer real requirements');
+      if (w.errors) blocks.push('blocked: new error');
+      if (w.order) blocks.push('blocked: course before its prerequisite');
+      if (w.labApart) blocks.push('blocked: lab apart from its lecture');
+      if (later) blocks.push('blocked: finishes after the target term');
+      const reported = Object.keys(w).filter((m) => !['errors', 'order', 'labApart', 'terms'].includes(m));
+      for (const m of reported) bump(reasons, `reported:${m}`);
+      const v = blocks[0] ?? (reported.length ? 'accept: data update, reported changes' : 'accept: data update');
+      bump(counts, v);
+      boards.push({ key: keyOf(b), id: b.id, goal: b.goal, lang: b.lang, verdict: v, level: levelOf(v), unmetBefore: ua, unmetAfter: ub, worse: w, why: blocks.slice(1), reported });
+      continue;
+    }
     const keys = Object.keys(w);
     const tierA = keys.filter((m) => A_SET.has(m) || m === 'terms');
     const tierB = keys.filter((m) => B_SET.has(m));
@@ -510,7 +550,7 @@ export function verdicts(before, after, reading, S, { splitIds = true } = {}) {
   }
   const levels = { accepted: 0, blocked: 0, engine: 0 };
   for (const [v, n] of Object.entries(counts)) levels[levelOf(v)] += n;
-  return { changed, strictBlocked, counts, levels, reasons, boards, shape: Object.fromEntries(Object.keys(ta).map((m) => [m, [ta[m], tb[m]]])) };
+  return { mode, changed, strictBlocked, counts, levels, reasons, boards, shape: Object.fromEntries(Object.keys(ta).map((m) => [m, [ta[m], tb[m]]])) };
 }
 
 /**
@@ -578,10 +618,13 @@ export function degreeFirst(b, rows, S) {
 export function report(v, { list = false } = {}) {
   const lines = [];
   lines.push(`  boards changed: ${v.changed}; the strict "no board worse" rule blocks ${v.strictBlocked}`);
-  lines.push(`  three-level: ${v.levels.accepted} accepted, ${v.levels.blocked} blocked, ${v.levels.engine} engine work first`);
-  for (const group of ['accept', 'blocked', 'engine']) for (const name of VERDICTS[group]) if (v.counts[name]) lines.push(`    ${String(v.counts[name]).padStart(5)}  ${name}`);
+  const data = v.mode === 'data';
+  if (data) lines.push(`  data update (owner rule of 2026-10-08): ${v.levels.accepted} accepted, ${v.levels.blocked} blocked`);
+  else lines.push(`  three-level: ${v.levels.accepted} accepted, ${v.levels.blocked} blocked, ${v.levels.engine} engine work first`);
+  const names = data ? DATA_VERDICTS : VERDICTS;
+  for (const group of Object.keys(names)) for (const name of names[group]) if (v.counts[name]) lines.push(`    ${String(v.counts[name]).padStart(5)}  ${name}`);
   const reasons = Object.entries(v.reasons).sort((a, b) => b[1] - a[1]);
-  if (reasons.length) lines.push(`  why engine work (or a forced cost): ${reasons.map(([m, n]) => `${m} ${n}`).join(', ')}`);
+  if (reasons.length) lines.push(data ? `  reported, not gating (boards): ${reasons.map(([m, n]) => `${m.replace(/^reported:/, '')} ${n}`).join(', ')}` : `  why engine work (or a forced cost): ${reasons.map(([m, n]) => `${m} ${n}`).join(', ')}`);
   if (list) {
     for (const b of v.boards.filter((b) => b.level !== 'accepted').sort((a, b) => a.level.localeCompare(b.level) || a.key.localeCompare(b.key))) {
       lines.push(`    [${b.level}] ${b.id} [${b.goal || 'no goal'}, lang ${b.lang}] unmet ${b.unmetBefore} -> ${b.unmetAfter}: ${Object.entries(b.worse).map(([m, d]) => `${m} ${JSON.stringify(d).slice(0, 160)}`).join('; ')}`);
@@ -598,9 +641,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const at = args.indexOf(name);
     return at >= 0 ? args[at + 1] : null;
   };
-  const files = args.filter((a, i) => !a.startsWith('--') && !['--reading', '--checkout', '--json'].includes(args[i - 1]));
-  if (files.length !== 2) {
-    console.error('usage: node gate.mjs <before.jsonl> <after.jsonl> [--reading <blocks.jsonl>] [--checkout <dir>] [--list] [--json <out.json>]');
+  const files = args.filter((a, i) => !a.startsWith('--') && !['--reading', '--checkout', '--json', '--mode'].includes(args[i - 1]));
+  const mode = opt('--mode') ?? 'full';
+  if (files.length !== 2 || !['full', 'data'].includes(mode)) {
+    console.error('usage: node gate.mjs <before.jsonl> <after.jsonl> [--reading <blocks.jsonl>] [--checkout <dir>] [--mode data] [--list] [--json <out.json>]');
     process.exit(2);
   }
   const readingPath = opt('--reading') ?? files[1].replace(/\.jsonl$/, '') + '.blocks.jsonl';
@@ -611,7 +655,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const S = loadStatics(resolve(opt('--checkout') ?? fileURLToPath(new URL('../../..', import.meta.url))));
   const before = new Map(readJsonl(files[0]).map((r) => [keyOf(r), r]));
   const after = new Map(readJsonl(files[1]).map((r) => [keyOf(r), r]));
-  const v = verdicts(before, after, readingOf(readJsonl(readingPath)), S, { splitIds: !args.includes('--raw-ids') });
+  const v = verdicts(before, after, readingOf(readJsonl(readingPath)), S, { splitIds: !args.includes('--raw-ids'), mode });
   console.log(`before: ${files[0]}\nafter:  ${files[1]}\nreading: ${readingPath}`);
   for (const l of report(v, { list: args.includes('--list') })) console.log(l);
   if (opt('--json')) writeFileSync(opt('--json'), JSON.stringify(v, null, 1));
