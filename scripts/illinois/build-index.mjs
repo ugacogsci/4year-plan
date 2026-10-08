@@ -367,6 +367,20 @@ const indexCodes = new Set(indexRows.map((r) => normCode(r.code)));
  */
 const prereqs = {};
 let prereqNoteOnly = 0;
+/**
+ * A clause the catalog writes for graduate students alone is not an
+ * undergraduate's prerequisite. ANTH 461 reads "For undergraduates: ANTH 220
+ * ... For graduate students: enrollment in ANTH 430 during the same term
+ * advised", and GGIS 427 "Undergraduates: GGIS 379 ... Graduate students:
+ * GGIS 403". Read as two groups, an undergraduate had to finish ANTH 430
+ * first: once ANTH 430 ran in a spring, an Archaeology board put it in the
+ * last spring and ANTH 461, a required course, had no term left after it.
+ */
+const GRADUATE_ONLY = /^\s*(for )?graduate students?( only)?\s*:/i;
+const forUndergraduates = (spec) =>
+  (spec.groups ?? []).some((g) => GRADUATE_ONLY.test(g.source ?? ''))
+    ? { ...spec, groups: spec.groups.filter((g) => !GRADUATE_ONLY.test(g.source ?? '')) }
+    : spec;
 for (const [code, fact] of data.facts) {
   if (!indexCodes.has(code)) continue;
   if (!fact.prereq) continue;
@@ -382,7 +396,7 @@ for (const [code, fact] of data.facts) {
    */
   if (!fact.prereq.parsed && fact.prereq.text.length === 0 && !fact.prereq.note) continue;
   if (!fact.prereq.parsed && fact.prereq.note) prereqNoteOnly += 1;
-  prereqs[code] = fact.prereq;
+  prereqs[code] = forUndergraduates(fact.prereq);
 }
 write('prereqs.json', prereqs);
 
