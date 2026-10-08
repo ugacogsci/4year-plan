@@ -5631,7 +5631,7 @@ function trialStands(paced: GeneratedPlan, plain: GeneratedPlan, input: Autoplan
     }
     const firstCodes = firstYear.flatMap((t) => t.codes.map(normaliseCode));
     const isMath = degreeMath(ctx, input.requirements, [...at.keys(), ...held]);
-    const validated = validatePlan(g.plan, ctx, { minimumTermCredits: credits.min, maxTermCredits: credits.max, programName: input.programName, programCollege: input.programCollege, priorCredits: g.credits.prior, away: g.away, language });
+    const validated = validatePlan(g.plan, ctx, { minimumTermCredits: credits.min, maxTermCredits: credits.max, programName: input.programName, programCollege: input.programCollege, priorCredits: g.credits.prior, away: g.away, language, strictComposition: true });
     return {
       errors: new Set(validated.filter((i) => i.severity === 'error').map((i) => i.id)),
       notPlaced: new Set(g.notPlaced.map((n) => normaliseCode(n.code))),
@@ -5779,7 +5779,7 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
   const arrival: Arrival = { transfer: input.arrival?.transfer ?? false, international: input.arrival?.international ?? false };
   const firstYear = input.firstYear ?? (!arrival.transfer && !((input.residency?.heldHours ?? 0) > 0));
   // Read for this student, as the workspace reads the board it shows (firstYear, arrival).
-  const validated = validatePlan(g.plan, ctx, { minimumTermCredits: credits.min, maxTermCredits: credits.max, programName: input.programName, programCollege: input.programCollege, priorCredits: g.credits.prior, away: g.away, language, firstYear, arrival });
+  const validated = validatePlan(g.plan, ctx, { minimumTermCredits: credits.min, maxTermCredits: credits.max, programName: input.programName, programCollege: input.programCollege, priorCredits: g.credits.prior, away: g.away, language, firstYear, arrival, strictComposition: true });
   const at = new Map<string, number>();
   for (const t of g.terms) for (const code of t.codes) at.set(normaliseCode(code), t.index);
   const used = g.terms.filter((t) => t.codes.length > 0);
@@ -14535,6 +14535,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
 // MERGE-UGA: Illinois added programName, programCollege, away, language, firstYear and arrival; UGA's copy
 // lacks them and programs-compare.ts passes programName. Keep Illinois's interface.
 export interface ValidateOptions {
+  /**
+   * Flag every Composition I course from the third fall or spring on, even
+   * the second half of a sequence begun in year one. generatePlan's own gate
+   * measures boards this way, so the boards it picks are the ones it picked
+   * before the shown warning learned the sequence; the student is shown the
+   * warning without it.
+   */
+  strictComposition?: boolean;
   /** The degree and its college, so a registration restriction naming them reads as open. */
   programName?: string;
   programCollege?: string;
@@ -14767,6 +14775,19 @@ export function validatePlan(
    */
   const regularTerms = plan.terms.filter((t) => t.season !== 'Summer' && !isAway(t));
   const compositionDue = regularTerms.length >= 3 ? plan.terms.indexOf(regularTerms[2]) : Number.POSITIVE_INFINITY;
+  /**
+   * Composition I begun in year one, counted from the plan's own first term:
+   * a Composition I course on the board before compositionDue. The second
+   * half of a two-term sequence begun there is not a late Composition I. A
+   * Spring 2027 starter can take the fall-only CMN 111 no sooner than Fall
+   * 2027, her second term, so CMN 112 lands in her third, and 73 such boards
+   * were told "Composition I after the first year" for a sequence begun on
+   * time. Sweep tools read it the same way (scripts/dev/sweep/gate.mjs
+   * comp1InYearOne).
+   */
+  const compositionBegun = plan.terms.some(
+    (t, i) => i < compositionDue && !isAway(t) && t.courseIds.some((id) => byId.get(id)?.tags.includes('Composition I')),
+  );
   /** Who the first-term seminars are read for (ValidateOptions.firstYear and arrival). */
   const arrivalHere: Arrival = { transfer: options?.arrival?.transfer ?? false, international: options?.arrival?.international ?? false };
   const firstYearHere = options?.firstYear ?? !arrivalHere.transfer;
@@ -14827,7 +14848,7 @@ export function validatePlan(
         termId: term.id,
       });
     }
-    if (plan.terms.indexOf(term) >= compositionDue) {
+    if ((options?.strictComposition || !compositionBegun) && plan.terms.indexOf(term) >= compositionDue) {
       for (const courseId of term.courseIds) {
         const course = byId.get(courseId);
         if (!course?.tags.includes('Composition I')) continue;

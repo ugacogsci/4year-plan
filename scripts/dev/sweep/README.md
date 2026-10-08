@@ -40,7 +40,10 @@ What the scoreboard counts, so a number can be trusted:
   first term, never the school's academic year. A validator warning
   "Composition I after the first year" on a board whose Composition I began
   in year one (CMN 112 after CMN 111 on a spring start) is not counted as a
-  year-one loss; the scoreboard still shows how many plans carry it.
+  year-one loss; the scoreboard still shows how many plans carry it. Since
+  fix-batch-a the planner no longer shows that warning when Composition I
+  began in year one (validatePlan); generatePlan's own gate still measures
+  it the strict way (strictComposition), so the boards it picks do not move.
 - An extra term is worse only when the board now finishes after the
   student's target term.
 - Two sweeps with different start terms are refused (`--mixed-starts`).
