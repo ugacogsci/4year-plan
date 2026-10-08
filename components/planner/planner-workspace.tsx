@@ -55,6 +55,8 @@ import {
   loadFullIllinois,
   loadProgram,
   plannableProgram,
+  openProgram,
+  suspendedNotice,
   readHorizon,
   firstOpenTerm,
   calendarTerm,
@@ -594,8 +596,9 @@ export function PlannerWorkspace({
 
   const programOptions = useMemo(() => {
     if (isIllinois) {
+      // A degree closed to new students stays in the menu only for the plan already on it.
       return (core?.programs ?? [])
-        .filter(plannableProgram)
+        .filter((p) => openProgram(p) || (p.id === programId && plannableProgram(p)))
         .map((p) => ({ id: p.id, name: p.name }))
         .sort((a, b) => a.name.localeCompare(b.name));
     }
@@ -605,7 +608,7 @@ export function PlannerWorkspace({
     // Keep both: filter with isUgaUndergraduateDegree here and in the guess; offer the rest through UGA's picker.
     if (isUga) return (uga?.programs ?? []).map((program) => ({ id: program.id, name: program.name }));
     return samplePrograms.map((p) => ({ id: p.id, name: `${p.name}, ${p.degree}` }));
-  }, [isIllinois, isUga, core, uga]);
+  }, [isIllinois, isUga, core, uga, programId]);
 
   // ---- restore -------------------------------------------------------------
 
@@ -655,7 +658,7 @@ export function PlannerWorkspace({
     // would replace it with whatever the About-you words point at.
     if (programId || restored.current?.programId) return;
     const guess = isIllinois && core
-      ? guessProgram(answers?.studying ?? '', (core.programs ?? []).filter(plannableProgram))
+      ? guessProgram(answers?.studying ?? '', (core.programs ?? []).filter(openProgram))
       : isUga && uga
         ? guessUgaProgram(answers?.studying ?? '', uga.programs)
         : null;
@@ -4393,6 +4396,7 @@ export function PlannerWorkspace({
         <div className="board-bar">
           <div className="board-bar-facts">
             <strong>{activeProgramName ?? 'Your plan'}</strong>
+            {isIllinois && suspendedNotice(programId) && <span role="note">{suspendedNotice(programId)}</span>}
             <span>{totalCredits}</span>
             {plan && plan.terms.length > 0 && (
               <span>through {plan.terms[plan.terms.length - 1].label}</span>

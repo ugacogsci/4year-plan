@@ -184,6 +184,32 @@ export function plannableProgram(p: IllinoisProgramSummary): boolean {
   return UNDERGRAD.test(p.degree) && p.dataStatus === 'catalog' && p.courseCount > 0;
 }
 
+/**
+ * Degrees closed to new students, with what the plan says about them. The
+ * catalog's Earth, Society & Environmental Sustainability page says
+ * admissions are suspended effective Spring 2027 and the degree is replaced
+ * by Environmental Sustainability, BSLAS, so a new plan cannot pick or be
+ * guessed into it (PLAN.md decision h). A plan saved for it still opens, and
+ * its board says why the degree is not in the menu for anyone else.
+ */
+const ESES_NOTICE =
+  'Admissions to this degree are suspended effective Spring 2027; Illinois replaced it with Environmental Sustainability, BSLAS. Your saved plan still opens, but new plans cannot pick it.';
+export const SUSPENDED_PROGRAMS: Readonly<Record<string, string>> = {
+  'las/earth-society-environmental-sustainability-bslas': ESES_NOTICE,
+  'las/earth-society-environmental-sustainability-bslas/science-of-the-earth-system': ESES_NOTICE,
+  'las/earth-society-environmental-sustainability-bslas/society-the-environment': ESES_NOTICE,
+};
+
+/** The notice for a degree closed to new students, or null when it is open. */
+export function suspendedNotice(id: string | null | undefined): string | null {
+  return id ? (SUSPENDED_PROGRAMS[id] ?? null) : null;
+}
+
+/** A degree a new plan can pick or be guessed into: plannable and still admitting students. */
+export function openProgram(p: IllinoisProgramSummary): boolean {
+  return plannableProgram(p) && suspendedNotice(p.id) === null;
+}
+
 export interface LoadedProgram {
   summary: IllinoisProgramSummary;
   program: ProgramRequirements;
