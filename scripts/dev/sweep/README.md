@@ -63,7 +63,10 @@ blocked or sent to engine work. On the research's sweeps of the parked split
 that reshuffles electives on hundreds of boards, so a changed board is
 blocked only when, against its old board, it (1) meets fewer real
 requirements, (2) has a new validator error or a course placed before its
-prerequisite, (3) places a lab apart from its lecture, or (4) finishes after
+prerequisite (an order fault, or a prerequisite placement could meet while the
+board itself puts that prerequisite course in the same or a later term: LAT
+102 in Fall 2027 and LAT 101 in Spring 2030; gate.mjs prereqLater), (3)
+places a lab apart from its lecture, or (4) finishes after
 the student's target term, later than the old board did. Everything else
 (electives, term shape, two hardest in a term, credits past the total,
 pre-med/PT rows late or off) is printed as "reported, not gating". A change

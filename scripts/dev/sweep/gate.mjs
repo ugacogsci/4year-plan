@@ -62,7 +62,10 @@
  *
  *   1. the board meets FEWER real requirements (the same count as above);
  *   2. a new validator error, or a course placed before its prerequisite
- *      (an order fault);
+ *      (an order fault, or a prerequisite the validator lets placement meet
+ *      while the board itself puts that prerequisite course in the same or
+ *      a later term: LAT 102 in Fall 2027 and LAT 101 in Spring 2030; see
+ *      prereqLater);
  *   3. a lab placed apart from its lecture;
  *   4. the board finishes after the student's target term, later than the
  *      old board finished.
@@ -200,6 +203,26 @@ const atOf = (r) => {
   r.terms.forEach((t, i) => t.codes.forEach((c) => w.set(c, i)));
   return w;
 };
+/**
+ * A prerequisite the validator lets prior learning (a placement score, high
+ * school years) meet is only a warning (ap-priorlearning-<course>-<prereq>),
+ * never an order fault. When the board itself puts that prerequisite course
+ * in the same or a later term, the board says the student has not placed
+ * out, so the course sits before its prerequisite: LAT 102 in Fall 2027 and
+ * LAT 101 in Spring 2030. Each pair as "PREREQ>COURSE".
+ */
+export function prereqLater(r) {
+  const w = atOf(r);
+  const out = new Set();
+  for (const k of r.warnKeys ?? []) {
+    const m = /^ap-priorlearning-([a-z]+)-(\w+)-(.+)$/.exec(k);
+    if (!m) continue;
+    const code = `${m[1].toUpperCase()} ${m[2].toUpperCase()}`;
+    const pre = norm(m[3]);
+    if (w.has(code) && w.has(pre) && w.get(pre) >= w.get(code)) out.add(`${pre}>${code}`);
+  }
+  return out;
+}
 /**
  * The last term of year one, counted from the plan's own first term: its
  * second fall or spring (a summer between them is year one too). Never the
@@ -499,10 +522,12 @@ export function verdicts(before, after, reading, S, { splitIds = true, mode = 'f
       const blocks = [];
       if (ub > ua) blocks.push('blocked: fewer real requirements');
       if (w.errors) blocks.push('blocked: new error');
-      if (w.order) blocks.push('blocked: course before its prerequisite');
+      const pl = minus(prereqLater(b), prereqLater(a));
+      if (pl.length) w.prereqLater = pl.sort();
+      if (w.order || w.prereqLater) blocks.push('blocked: course before its prerequisite');
       if (w.labApart) blocks.push('blocked: lab apart from its lecture');
       if (later) blocks.push('blocked: finishes after the target term');
-      const reported = Object.keys(w).filter((m) => !['errors', 'order', 'labApart', 'terms'].includes(m));
+      const reported = Object.keys(w).filter((m) => !['errors', 'order', 'prereqLater', 'labApart', 'terms'].includes(m));
       for (const m of reported) bump(reasons, `reported:${m}`);
       const v = blocks[0] ?? (reported.length ? 'accept: data update, reported changes' : 'accept: data update');
       bump(counts, v);
