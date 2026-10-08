@@ -15,7 +15,8 @@ import type {
 } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
 import { registrationFits } from './meeting-fit.ts';
-import { HEADER_LISTS_HELD, READ_AS_RELEASED } from './held-degrees.ts';
+import { HAND_READINGS_HELD, HEADER_LISTS_HELD, READ_AS_RELEASED } from './held-degrees.ts';
+import { handReading } from './hand-readings.ts';
 
 /**
  * Real Illinois data, adapted into the planner's shapes.
@@ -5271,7 +5272,9 @@ export function adaptIllinoisPrograms(
 
     // One call for the whole degree, because an area's last cap is what the
     // rest of the degree leaves it, and that cannot be seen one area at a time.
-    const byArea = requirementRulesForProgram(raw, byCode);
+    const byRule = requirementRulesForProgram(raw, byCode);
+    // A page read by hand (hand-readings.ts, Family 4b), where its reading is not held.
+    const byArea = (readingHeaderLists && !HAND_READINGS_HELD.has(raw.id) ? handReading(raw.id, byRule, byCode) : null) ?? byRule;
 
     raw.areas?.forEach((area, ai) => {
       const areaId = `${raw.id}::${ai}`;

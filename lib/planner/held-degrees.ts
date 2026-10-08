@@ -135,3 +135,17 @@ export const HEADER_LISTS_HELD = new Set<string>([
   'las/psychology-bslas/social-psychology', // Fall 2026 start, pre-med, 4 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
   'media/media-cinema-studies-bs', // Fall 2026 start, pre-PT, 2 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
 ]);
+
+/**
+ * Held from Family 4b alone (2026-10-08): degrees whose hand-written reading
+ * (hand-readings.ts), checked against the live catalog page, is kept off
+ * until their boards pass the three-level gate on it, at both starts and
+ * with the extra students. Each id says the first board that did not pass.
+ * Civic Leadership's reading waits on READ_AS_RELEASED above instead.
+ */
+export const HAND_READINGS_HELD = new Set<string>([
+  'engineering/civil-engineering-bs', // Fall 2026 start, pre-PT, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
+  'engineering/materials-science-engineering-bs', // extra students, a pre-vet freshman: engine work (more requirements met, but credits past the total it did not need and a pre-vet course off with room for it); every board also leaves MSE 404, MSE 494 and MSE 495 off, MSE 206 landing in Spring 2029 and the design chain running out of terms
+  'las/political-science-balas/international-relations', // Fall 2026 start, pre-PT, 4 language semesters: engine work (same requirements met, the first math course later, worse across the sweep)
+  'las/political-science-balas/law-power', // Fall 2026 start, pre-PT, 2 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
+]);
