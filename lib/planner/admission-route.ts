@@ -164,7 +164,7 @@ export function readEntry(words: string, record: TranscriptRecord | null | undef
    * semester there: counting the plan's first term as semester 1 put EU's
    * application windows a term late.
    */
-  if (semester === null && began && !/high school senior/i.test(words)) {
+  if (semester === null && began) {
     const passed = start.year * 2 + (start.season === 'Spring' ? 0 : 1) - (began.year * 2 + (began.season === 'Spring' ? 0 : 1));
     if (passed > 0) {
       semester = passed + 1;
