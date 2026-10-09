@@ -690,8 +690,14 @@ const FIRST_YEAR_PLAINLY = /\b(?:currently (?:an? )?|current |now (?:an? )?)(?:f
 const FIRST_YEAR_NOW = /(?:\b(?:freshman|(?:first|1st)[- ]year\s+student|(?:first|second)[- ]semester)|(?:^|[.!?;,(]\s*|\b(?:a|an|i['’]?m|i am|in my|currently|now)\s+)(?:first|1st)[- ]year)\b(?!\s+(?:seminar|comp\w*|class\w*|course\w*|dorm\w*|orientation|roommate\w*|admit\w*))/i;
 /** Just through the first year, in a summer: "rising sophomore", "just finished my freshman year". */
 const FIRST_YEAR_DONE = /\b(?:rising sophomore|(?:just\s+)?(?:finished|completed|done with)\s+(?:my\s+)?(?:freshman|first)[- ]year)\b/i;
-/** A graduation now under way, with no date: "Senior, in my last semester.", "This is my final term." */
-const LAST_TERM_NOW = /\b(?:(?:in|on)\s+my\s+(?:last|final)\s+(?:semester|term)(?:\s+(?:now|here|at illinois|at uiuc))?\s*(?:[.!;]|$)|(?:this is|it['’]s)\s+my\s+(?:last|final)\s+(?:semester|term)\b)/i;
+/**
+ * A graduation now under way, with no date: "Senior, in my last semester.",
+ * "I'm in my final term", "This is my final term." Only as who they are, at
+ * the start of a clause or after "I'm": "a light load in my last semester" and
+ * "internship in my final term" are plans, and reading them made a freshman's
+ * board one term.
+ */
+const LAST_TERM_NOW = /(?:(?:^|[.!?;,(]\s*|\b(?:i['’]?m|i am|currently|now)\s+)(?:in|on)\s+my\s+(?:last|final)\s+(?:semester|term)(?:\s+(?:now|here|at illinois|at uiuc))?\s*(?:[.!;]|$)|\b(?:this is|it['’]s)\s+my\s+(?:last|final)\s+(?:semester|term)\b)/i;
 /**
  * A spring or January named as when the student starts: "starting in the
  * spring", "admitted for spring", "spring admit", "January start", "incoming
@@ -704,8 +710,12 @@ const TRANSFER_WORD = /\btransfer/i;
 /**
  * A named school that is not Illinois, right after "at" or "from": "finishing
  * at Parkland in May 2027", "done at Harper College". Its dates are its own.
+ * This school's own colleges and departments are not another school:
+ * "graduating from the College of Engineering in May 2029" and "from Univ of
+ * Illinois" keep their date (College of DuPage and College of Lake County are
+ * other schools).
  */
-const OTHER_PLACE = /\b(?:at|from)\s+(?!(?:the\s+)?(?:Illinois|UIUC|U of I|UofI|UI|U-?I|University of Illinois|Urbana|Champaign|Gies|Grainger|ACES|LAS|Siebel)\b)(?:the\s+)?[A-Z][A-Za-z.&'’-]+/;
+const OTHER_PLACE = /\b(?:at|from)\s+(?!(?:the\s+)?(?:Illinois|UIUC|U of I|UofI|UI|U-?I|Univ(?:ersity|\.)?\s+of\s+Illinois|Urbana|Champaign|Gies|Grainger|ACES|LAS|Siebel|College\s+of(?!\s+(?:DuPage|Lake\s+County)\b)|School\s+of|Dep(?:artmen)?t\.?\s+of|Division\s+of)\b)(?:the\s+)?[A-Z][A-Za-z.&'’-]+/;
 
 const WORD_NUMBER: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 
