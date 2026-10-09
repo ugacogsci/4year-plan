@@ -20,7 +20,9 @@
  * wrong: "CS 210 or CS 211" is a choice of one, and reading it as two required
  * courses inflates the degree and makes the plan unsatisfiable.
  *
- * Output: public/illinois-programs.json
+ * Output: public/illinois-programs.json, and after a full crawl the minors,
+ * public/illinois/minors/crawl.json (scripts/illinois/minors.mjs; --minors
+ * reads only those, --no-minors skips them).
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 
@@ -314,6 +316,16 @@ const flag = (name) => { const i = process.argv.indexOf(name); return i > 0 ? pr
 const OUT_FILE = flag('--out') ?? 'public/illinois-programs.json';
 const ONLY = flag('--only')?.split(',') ?? null;
 
+// --minors: the minor pages instead of the degree pages, into public/illinois/minors/
+// (scripts/illinois/minors.mjs). --minors-out <dir> writes elsewhere; --save-html
+// <dir> keeps each page and --from-html <dir> reads them back without a request.
+const minorsWith = (out) => import('./minors.mjs').then(({ crawlMinors }) =>
+  crawlMinors({ get, sleep, parseTables, text, BASE, DELAY, out, saveHtml: flag('--save-html'), fromHtml: flag('--from-html') }));
+if (process.argv.includes('--minors')) {
+  await minorsWith(flag('--minors-out') ?? 'public/illinois/minors');
+  process.exit(0);
+}
+
 const index = await get(`${BASE}/undergraduate/`);
 if (!index) { console.error('index unreachable'); process.exit(1); }
 
@@ -362,3 +374,11 @@ writeFileSync(OUT_FILE, JSON.stringify({
   school: 'illinois', source: `${BASE}/undergraduate/`, fetchedAt: new Date().toISOString(), programs: out,
 }));
 console.log(`\n${out.length} programs, ${out.filter((p) => p.courseCount).length} with course lists`);
+
+// The minors are refreshed with every full degree crawl, so they cannot fall a
+// catalog year behind the degrees. A crawl written elsewhere with --out puts its
+// minors beside it, never over the shipped ones. --no-minors skips them.
+if (!ONLY && !process.argv.includes('--no-minors')) {
+  console.log('\nMinors');
+  await minorsWith(flag('--minors-out') ?? (flag('--out') ? OUT_FILE.replace(/\.json$/, '') + '-minors' : 'public/illinois/minors'));
+}
