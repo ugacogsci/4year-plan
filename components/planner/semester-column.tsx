@@ -37,6 +37,11 @@ interface SemesterColumnProps {
   /** Low end of the term's credit range, already summed by the caller. */
   credits: string;
   heavy: boolean;
+  /**
+   * Whether the term's courses fit in one week of published class times
+   * (weekly-fit.ts). Null for a term whose schedule is not published.
+   */
+  weekly?: { status: 'fits' | 'clash' | 'unknown'; line: string | null } | null;
 }
 
 export function SemesterColumn({
@@ -57,6 +62,7 @@ export function SemesterColumn({
   electiveOf,
   credits,
   heavy,
+  weekly,
 }: SemesterColumnProps) {
   const [dropActive, setDropActive] = useState(false);
 
@@ -121,6 +127,16 @@ export function SemesterColumn({
           {heavy && <CircleAlert aria-label="Heavy term" />}
         </p>
       </header>
+      {weekly?.line && (
+        <p
+          className="semester-weekly"
+          data-status={weekly.status}
+          title={`From ${term.label}'s published class times: one section of each course, with its discussion or lab, and no two classes at the same hour. Full or restricted sections are not known.`}
+        >
+          {weekly.status === 'clash' && <CircleAlert aria-hidden="true" />}
+          {weekly.line}
+        </p>
+      )}
 
       <div className="semester-courses">
         {term.courseIds.map((courseId) => {

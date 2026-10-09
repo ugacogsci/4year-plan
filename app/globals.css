@@ -1159,6 +1159,31 @@ p.requirement-unnamed {
   height: 12px;
 }
 
+/* The weekly clash check: one quiet line under the heading, amber when no
+   choice of sections keeps the term's classes apart. */
+.semester-weekly {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 0;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: var(--fs-micro);
+  line-height: 1.35;
+  color: var(--ink-dim);
+}
+
+.semester-weekly[data-status='clash'] {
+  color: var(--warning);
+}
+
+.semester-weekly svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 1px;
+}
+
 .semester-courses {
   flex: 1 1 auto;
   min-height: 120px;

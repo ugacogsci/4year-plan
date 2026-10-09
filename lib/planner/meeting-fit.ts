@@ -71,7 +71,7 @@ function signatureFits(
  * the word only says that part runs online: "Discussion/Recitation, Online"
  * is a discussion.
  */
-function meetingKinds(type: string): string[] {
+export function meetingKinds(type: string): string[] {
   const kinds: string[] = [];
   for (const raw of type.split(',')) {
     const part = raw.replace(/\bonline\b/i, '').trim().toLowerCase();
@@ -144,6 +144,20 @@ export function registrationFits(
   const free = new Set<string>();
   for (const d of window.freeDays ?? []) for (const day of d.toUpperCase().match(MEETING_DAY) ?? []) free.add(day);
   const typeFits = (type: string) => (meet[type] ?? []).some((sig) => signatureFits(sig, notBefore, notAfter, free));
+  const [inPersonPath, onlinePath] = registrationPaths(meet);
+  return inPersonPath.every(typeFits) || onlinePath.every(typeFits);
+}
+
+/**
+ * The two ways of taking a course that registrationFits weighs, as the
+ * section types a student registers one section of on each: the in-person
+ * path first, then the online path. They are the same list when a course has
+ * no online type, or nothing but online types. weekly-fit.ts starts from
+ * the same paths, so the weekly clash check and the time-window check begin
+ * from one reading of what a registration is.
+ */
+export function registrationPaths(meet: Record<string, string[]>): [string[], string[]] {
+  const types = Object.keys(meet);
   const online = types.filter((type) => /online/i.test(type));
   const inPerson = types.filter((type) => !/online/i.test(type));
   const kindsIn = (list: string[]) => new Set(list.flatMap(meetingKinds));
@@ -151,7 +165,7 @@ export function registrationFits(
   const onlineKinds = kindsIn(online);
   const inPersonPath = [...inPerson, ...online.filter((type) => !meetingKinds(type).every((k) => inPersonKinds.has(k)))];
   const onlinePath = [...online, ...inPerson.filter((type) => !meetingKinds(type).every((k) => onlineKinds.has(k)))];
-  return inPersonPath.every(typeFits) || onlinePath.every(typeFits);
+  return [inPersonPath, onlinePath];
 }
 
 /** 540 -> "9 a.m.", 810 -> "1:30 p.m.". */

@@ -81,7 +81,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     // Keep Illinois's CR/NC clause with UGA's 'any available workload evidence' wording.
     name: 'term_summary',
     description:
-      'One term of the board: its courses with why each is there (required, from a list, elective slot, or added by the student) and whether each could be taken credit/no credit (crnc_eligible, crnc_why), its credit hours, how heavy it reads against Illinois grade history, and any review issues on it.',
+      'One term of the board: its courses with why each is there (required, from a list, elective slot, or added by the student) and whether each could be taken credit/no credit (crnc_eligible, crnc_why), its credit hours, how heavy it reads against Illinois grade history, whether its courses fit in one week of published class times (weekly_schedule: checked for terms whose schedule Illinois has published, Fall 2026 and Spring 2027; a clash names the courses no choice of sections keeps apart), and any review issues on it.',
     input_schema: {
       type: 'object',
       properties: { term: { type: 'string', description: 'A term label like "Spring 2028".' } },
@@ -198,7 +198,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'review_board',
     description:
-      "The planner's own read of the whole board: each term's credits and how heavy it reads against Illinois grade history, terms that stack several hardest-band courses, courses that have not run in any recent term, courses placed in a season they have not run in, requirements still open, the review flags, the first year's pace, hours that count toward nothing, and a summer where one would buy time (a suggestion only). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
+      "The planner's own read of the whole board: each term's credits and how heavy it reads against Illinois grade history, terms that stack several hardest-band courses, courses that have not run in any recent term, courses placed in a season they have not run in, each published term's weekly class-time check (weekly_schedule), requirements still open, the review flags, the first year's pace, hours that count toward nothing, and a summer where one would buy time (a suggestion only). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
