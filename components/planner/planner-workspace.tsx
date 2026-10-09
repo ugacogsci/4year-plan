@@ -174,6 +174,7 @@ import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail, loadIllinoisSectionTerms, loadIllinoisSyllabi, sectionTermsOf } from '@/lib/planner/illinois-load';
 import { pickSectionTerm, sectionTermCaveat, termsInWords } from '@/lib/planner/section-terms';
+import { weeklyFit, type WeeklyFit, type WeeklySchedule } from '@/lib/planner/weekly-fit';
 import type { AdvisorExecutor } from '@/lib/planner/advisor';
 import { ClubPicks } from './club-picks';
 import { clubStudentOf, type ClubStudent, type IllinoisClubsFile } from '@/lib/planner/clubs';
@@ -1330,6 +1331,46 @@ export function PlannerWorkspace({
     ];
   }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits, admissionChoice]);
 
+  /**
+   * Illinois's published class schedules by term id (Fall 2026, Spring 2027),
+   * for the weekly clash check. The first is in the core already; the rest
+   * load here once. Until they do, only the first term is checked.
+   */
+  const [weeklySchedules, setWeeklySchedules] = useState<Map<string, WeeklySchedule> | null>(null);
+  useEffect(() => {
+    if (!isIllinois || !core) return;
+    let active = true;
+    void loadIllinoisSectionTerms()
+      .then((maps) => {
+        if (active) setWeeklySchedules(maps);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isIllinois, core]);
+
+  /**
+   * For each board term whose class schedule is published, whether its
+   * courses can be registered together without two classes at the same hour
+   * (weekly-fit.ts). Shown on the column, in the review and to ALMA; it never
+   * moves a course. Later terms have no published times and are not checked.
+   */
+  const weeklyFits = useMemo(() => {
+    const out = new Map<string, WeeklyFit>();
+    if (!plan || !isIllinois) return out;
+    const first = core?.meta?.term?.id && core.sections ? new Map<string, WeeklySchedule>([[core.meta.term.id, core.sections]]) : null;
+    const maps = weeklySchedules ?? first;
+    if (!maps) return out;
+    for (const term of plan.terms) {
+      const schedule = maps.get(term.id);
+      if (!schedule || term.courseIds.length === 0) continue;
+      const codes = term.courseIds.map((id) => courseIndex.get(id)?.code).filter((c): c is string => Boolean(c));
+      out.set(term.id, weeklyFit(codes, schedule));
+    }
+    return out;
+  }, [plan, isIllinois, weeklySchedules, core, courseIndex]);
+
   // MERGE-UGA: UGA moved `issues` below `areas` (its degreeCompletionIssue reads areas, pools, credits) and
   // adds planWideIssues/planWideSeverity for the plan tabs; Illinois passes more validatePlan options here.
   // Keeping both declares `issues` twice. Keep one, after `areas`: Illinois's validatePlan options plus
@@ -1350,11 +1391,26 @@ export function PlannerWorkspace({
           (issue) => !isUga || !issue.id.startsWith('ap-weighed-'),
         )
       : [];
+    // A term whose published class times leave no clash-free choice of
+    // sections. Reported only: the plan is not changed for it.
+    const clashes: PlanIssue[] = plan.terms.flatMap((term) => {
+      const fit = weeklyFits.get(term.id);
+      if (fit?.status !== 'clash' || !fit.line) return [];
+      return [
+        {
+          id: `weekly-clash-${term.id}`,
+          severity: 'warning' as const,
+          title: 'Class times clash',
+          message: `${term.label}: ${fit.line}. In Illinois's published ${term.label} class schedule no choice of their sections keeps them apart, and registration will not take two classes that meet at once. Move one to another term or swap it for another course.`,
+          termId: term.id,
+        },
+      ];
+    });
     const rows = context
-      ? [...unmet, ...validation]
+      ? [...unmet, ...validation, ...clashes]
       : getPlanIssues(plan, catalog, { minimumTermCredits });
     return rows.map((issue) => ({ ...issue, message: withCourseCodes(issue.message) }));
-  }, [plan, context, isUga, unmet, minimumTermCredits, catalog, loaded, priorCreditHours, report, answers]);
+  }, [plan, context, isUga, unmet, minimumTermCredits, catalog, loaded, priorCreditHours, report, answers, weeklyFits]);
 
   /** The degree on screen, from whichever source this school has. */
   const activeProgramName =
@@ -2525,6 +2581,29 @@ export function PlannerWorkspace({
         summary: map?.get(normCode(c.code)) ?? null,
       };
     };
+    /**
+     * Whether a board term's courses fit in one week, from that term's own
+     * published class times (weekly-fit.ts, the check the column shows). A
+     * term with no published schedule says so instead of guessing from
+     * another term's times.
+     */
+    const weeklyOf = (t: PlanTerm) => {
+      const coreId = L.core?.meta?.term?.id ?? null;
+      const schedule = t.id === coreId ? (L.core?.sections ?? null) : (schedules?.get(t.id) ?? null);
+      if (!schedule) {
+        return { checked: false, line: null, why: `Illinois's ${t.label} class times are not published here, so whether these courses fit in one week is not checked.` };
+      }
+      const codes = t.courseIds.map((id) => L.courseIndex.get(id)?.code).filter((c): c is string => Boolean(c));
+      const fit = weeklyFit(codes, schedule);
+      return {
+        checked: fit.status !== 'unknown',
+        fits: fit.status === 'fits' ? true : fit.status === 'clash' ? false : null,
+        line: fit.line,
+        ...(fit.clash.length > 0 ? { clashing: fit.clash } : {}),
+        ...(fit.unknown.length > 0 ? { no_published_times: fit.unknown } : {}),
+        how: `From ${t.label}'s published sections: one section of every part each course registers (lecture with its discussion, lab or quiz), with no two meetings at the same hour. It does not know which sections are full or restricted.`,
+      };
+    };
     /** How the course reads against the student's priorities, in their words. */
     const fitOf = (c: Course) => {
       if (!L.quality) return null;
@@ -2617,6 +2696,7 @@ export function PlannerWorkspace({
         hardest_band_courses: hard.map((x) => x.code),
         not_run_recently: ctx.offeringTerms?.length ? dormant : 'not known: no offering history is loaded',
         season_mismatch: wrongSeason,
+        weekly_schedule: weeklyOf(t).line ?? 'not checked: no published class times for these courses',
         review: L.issues.filter((i) => i.termId === t.id && i.severity !== 'info').map((i) => `${i.severity}: ${i.message}`),
       };
     };
@@ -2835,6 +2915,7 @@ export function PlannerWorkspace({
           term: term.label,
           credits,
           courses: courses.map((c) => ({ ...describe(c), role: roleOf(c), ...crncOf(c) })),
+          weekly_schedule: weeklyOf(term),
           review: L.issues.filter((i) => i.termId === term.id).map((i) => ({ severity: i.severity, title: i.title, message: i.message })),
           load,
         };
@@ -4508,6 +4589,7 @@ export function PlannerWorkspace({
                 selectedCourseId={selectedCourseId}
                 credits={credits.label}
                 heavy={credits.heavy}
+                weekly={weeklyFits.get(term.id) ?? null}
                 onSelectCourse={selectPlanned}
                 onMoveCourse={moveCourse}
                 onRemoveCourse={removeCourse}
