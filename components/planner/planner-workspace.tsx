@@ -153,6 +153,7 @@ import {
 import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from '@/lib/planner/types';
 import { clearAnswers, schoolById, summarize, type ExamCreditEntry, type OnboardingAnswers } from '@/lib/planner/onboarding';
 import {
+  lineIsForeign,
   normalizeCourseCode,
   normalizeTerm,
   transcriptGenEdCredits,
@@ -166,6 +167,7 @@ import {
   type TranscriptRecord,
 } from '@/lib/planner/transcript';
 import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
+import { assumedHours as assumedHoursOf, recordCoverage, uncoveredTerms } from '@/lib/planner/start-term';
 import { distinctHeld, heldTowardDegree, type GenEdCredit, type Horizon, type PlanRequirement, type PriorCredit } from '@/lib/planner/autoplan';
 import { boardChecker, genEdCandidates, genEdWhy, notRegistrable, planMarks, repickBoard, repickSignature, type RepickChange } from '@/lib/planner/repick';
 import { creditUse, editFlags, enteringAsFirstYear, flagsCaused, isEditFlag, momentumReview, priorCreditUse, summerSuggestions, withSummer } from '@/lib/planner/review';
@@ -829,12 +831,49 @@ export function PlannerWorkspace({
       answers?.language ?? null,
     ), answers, exams, examCredit.entries, catalogCredits);
     const horizon = horizonFor(answers, new Date(), planShape);
+    // Terms the student has been here with nothing on a record for them yet
+    // count as about 15 credits each (horizonFor says which), so the terms
+    // left are not loaded to 18 to fit the whole degree.
+    const priorHere = horizon.assumedHours > 0 ? { ...prior, unmatchedCredits: prior.unmatchedCredits + horizon.assumedHours } : prior;
 
     const publishedTotal = loaded.summary.totalCredits || loaded.program.totalCredits || null;
+    /**
+     * An unstated finish counted from when the student began can leave too
+     * few terms for one who is behind ("Senior, started fall 2023" with 72
+     * hours got one term). The credit fit only ever shortens a plan, so it is
+     * lengthened here, to the terms nearest 15 a term (never over 18) and
+     * never past eight from the plan's start, and only when 18 a term could
+     * not hold what is left.
+     */
+    if (isIllinois && !horizon.stated && horizon.began) {
+      const held = priorHere.courseCodes.reduce((sum, code) => sum + (byCode.get(normCode(code))?.credits ?? 0), 0) + priorHere.unmatchedCredits;
+      const left = (publishedTotal || 120) - held;
+      const awayAt = new Set((horizon.away ?? []).map((a) => termOrd(a.season, a.year)));
+      const campusUntil = (lastOrd: number) => {
+        let n = 0;
+        for (let k = 0; k < 40; k++) {
+          const t = stepRegular({ season: horizon.startSeason, year: horizon.startYear }, k);
+          if (termOrd(t.season, t.year) > lastOrd) break;
+          if (!awayAt.has(termOrd(t.season, t.year))) n += 1;
+        }
+        return n;
+      };
+      const campusNow = campusUntil(termOrd(horizon.gradSeason, horizon.gradYear));
+      const want = Math.min(8, Math.max(Math.ceil(left / 18), Math.round(left / 15)));
+      if (left > campusNow * 18 && want > campusNow) {
+        for (let k = 0, campus = 0; k < 40 && campus < want; k++) {
+          const t = stepRegular({ season: horizon.startSeason, year: horizon.startYear }, k);
+          if (awayAt.has(termOrd(t.season, t.year))) continue;
+          campus += 1;
+          horizon.gradSeason = t.season;
+          horizon.gradYear = t.year;
+        }
+      }
+    }
     const planInput: AutoplanInput = {
       requirements: loaded.blocks,
       context,
-      prior,
+      prior: priorHere,
       horizon,
       preferences: { creditsPerTerm: { min: minimumTermCredits, target: targetTermCredits, max: 18 }, priorities },
       programId: loaded.summary.id,
@@ -896,6 +935,9 @@ export function PlannerWorkspace({
     // What compare_programs rebuilds with a second program's courses beside these.
     lastBuild.current = { input: builtFrom, plan: generated };
 
+    // A graduation already under way leaves a one-term board shown only in
+    // case plans change; a shortfall against it is a finish nobody gave.
+    if (horizon.gradPassed) generated.notes = generated.notes.filter((n) => !n.startsWith('Finishing by '));
     if (horizon.startNote) generated.notes.unshift(horizon.startNote);
     if (!publishedTotal && isIllinois) {
       generated.notes.push(`The catalog page for ${loaded.program.name} states no total, so this plan aims at 120 hours, the minimum most Illinois bachelor's degrees state (las.illinois.edu/academics/requirements/minimum). Ask your advisor for this degree's own total.`);
@@ -1043,7 +1085,9 @@ export function PlannerWorkspace({
       const open = firstOpenTerm(new Date());
       const firstYear = Number(first?.label.match(/\b(20\d\d)\b/)?.[1] ?? NaN);
       if (first && Number.isFinite(firstYear) && termOrd(first.season, firstYear) < termOrd(open.season, open.year)) {
-        setPlanNotes([`This plan was saved when ${first.label} was still open. Adding ${first.label} classes has closed; press Rebuild to plan from ${open.season} ${open.year}, or keep this board if those are the classes you are taking.`, ...saved.board.notes]);
+        // Autosave writes the notes back, so an earlier copy of this note is replaced, not stacked.
+        const restoreNote = `This plan was saved when ${first.label} was still open. Adding ${first.label} classes has closed; press Rebuild to plan from ${open.season} ${open.year}, or keep this board if those are the classes you are taking.`;
+        setPlanNotes([restoreNote, ...saved.board.notes.filter((n) => !n.startsWith('This plan was saved when '))]);
       }
       return;
     }
@@ -1174,6 +1218,18 @@ export function PlannerWorkspace({
     const once = distinctHeld([...completedCodes].filter((code) => !forfeited.has(code)), context).codes;
     return planCreditRange(once, context).min + priorHoursOf(answers, exams, examCredit.entries, catalogCredits);
   }, [context, report, completedCodes, answers, exams, examCredit, catalogCredits]);
+  /**
+   * Terms the student has been here with nothing on the record for them, as
+   * the build counts them (about 15 credits each, see horizonFor). The rail's
+   * total and ALMA count them too, so a plan built to reach 120 with them
+   * never reads as short.
+   */
+  const assumedCredit = useMemo(() => {
+    if (!isIllinois || !loaded) return { hours: 0, terms: '' };
+    const h = horizonFor(answers, new Date(), planShape);
+    const names = h.assumedTerms.map((t) => `${t.season} ${t.year}`);
+    return { hours: h.assumedHours, terms: names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? '') };
+  }, [isIllinois, loaded, answers, planShape]);
 
   /** Every course code on the board, in term order. */
   const boardCodes = useMemo(() => {
@@ -1268,7 +1324,8 @@ export function PlannerWorkspace({
         const recorded =
           (context ? planCreditRange(distinctHeld([...completedCodes], context).codes, context).min : 0) +
           priorHoursOf(answers, exams, examCredit.entries, catalogCredits);
-        if (recorded >= said - 6) return [];
+        // Terms assumed until the student adds them (assumedCredit) count toward what they said.
+        if (recorded + assumedCredit.hours >= said - 6) return [];
         return [
           {
             id: 'stated-hours',
@@ -1354,7 +1411,7 @@ export function PlannerWorkspace({
       ? [...unmet, ...validation]
       : getPlanIssues(plan, catalog, { minimumTermCredits });
     return rows.map((issue) => ({ ...issue, message: withCourseCodes(issue.message) }));
-  }, [plan, context, isUga, unmet, minimumTermCredits, catalog, loaded, priorCreditHours, report, answers]);
+  }, [plan, context, isUga, unmet, minimumTermCredits, catalog, loaded, priorCreditHours, report, answers, assumedCredit]);
 
   /** The degree on screen, from whichever source this school has. */
   const activeProgramName =
@@ -1406,19 +1463,20 @@ export function PlannerWorkspace({
     // A semester abroad has no column but earns its hours, and the plan
     // reached its total counting them.
     const away = (report?.away ?? []).reduce((sum, a) => sum + a.credits, 0);
+    const assumed = assumedCredit.hours;
     return {
       planned,
       prior,
       ...(away > 0 ? { away } : {}),
       total: {
-        min: planned.min + prior + away,
-        max: planned.max + prior + away,
+        min: planned.min + prior + away + assumed,
+        max: planned.max + prior + away + assumed,
         variable: planned.variable,
         unknown: planned.unknown,
       },
       ...shell,
     };
-  }, [plan, context, boardCodes, activeProgramTotal, priorCreditHours, report]);
+  }, [plan, context, boardCodes, activeProgramTotal, priorCreditHours, report, assumedCredit]);
 
   /** The short form, for the board bar and the rail's big number. */
   const totalCredits = useMemo(() => {
@@ -1437,9 +1495,16 @@ export function PlannerWorkspace({
    * noise.
    */
   const creditNote =
-    context && (credits.prior > 0 || (credits.away ?? 0) > 0)
-      ? describeCreditProgress(credits, activeProgramTotal)
-      : null;
+    context && assumedCredit.hours > 0
+      ? `${describeCreditTotal(credits.total)}${activeProgramTotal === null ? '' : ` of the ${activeProgramTotal} this degree takes`}. ${[
+          credits.prior > 0 ? `${credits.prior} of those you already have` : null,
+          `about ${assumedCredit.hours} are counted for ${assumedCredit.terms} until you add those classes`,
+          (credits.away ?? 0) > 0 ? `${credits.away} are expected from your time abroad` : null,
+          `${describeCreditTotal(credits.planned)} are in the plan`,
+        ].filter(Boolean).join(', ')}.`
+      : context && (credits.prior > 0 || (credits.away ?? 0) > 0)
+        ? describeCreditProgress(credits, activeProgramTotal)
+        : null;
 
   const areas: AreaRow[] = useMemo(() => {
     if (!loaded || !plan) return [];
@@ -1945,6 +2010,7 @@ export function PlannerWorkspace({
     report,
     examTable: examCredit.entries,
     priorCreditHours,
+    assumedCredit,
     planNotes,
     boardEdited,
     careerInterests,
@@ -1979,6 +2045,7 @@ export function PlannerWorkspace({
       report,
       examTable: examCredit.entries,
       priorCreditHours,
+      assumedCredit,
       planNotes,
       boardEdited,
       careerInterests,
@@ -3116,7 +3183,7 @@ export function PlannerWorkspace({
           programCollege: L.loaded.program.college,
           programName: L.loaded.program.name,
           degreeTotal: degreeTotalNow(),
-          priorCredits: L.priorCreditHours,
+          priorCredits: L.priorCreditHours + L.assumedCredit.hours,
           awayCredits: (L.report?.away ?? []).reduce((n, a) => n + a.credits, 0),
           heldCodes: heldNow(),
           marks: L.electiveOf,
@@ -3138,6 +3205,7 @@ export function PlannerWorkspace({
           degree: L.loaded.program.name,
           total_planned: L.totalCredits,
           published_total: L.activeProgramTotal,
+          ...(L.assumedCredit.hours > 0 ? { assumed_credits: `${L.assumedCredit.hours} of total_planned are assumed for ${L.assumedCredit.terms}, terms the student has been here with no classes on their record yet. Ask them to upload their record or tell you those classes; do not call those hours missing.` } : {}),
           priorities: describePriorities(L.priorities),
           terms,
           heaviest_term_by_grade_history: heaviest,
@@ -3462,6 +3530,22 @@ export function PlannerWorkspace({
         }
         if (input.spread_hard !== undefined) nextShape.spreadHard = input.spread_hard === true;
         /**
+         * A finish before the plan's first term (after a term in progress) has
+         * passed or is under way. One this call sets is refused; one saved
+         * earlier is dropped, so it never blocks a change to the load, the
+         * summers or the terms away.
+         */
+        if (nextShape.finish) {
+          const from = horizonFor(L.answers, new Date(), { ...nextShape, finish: null, summers: [] });
+          const finish = `${nextShape.finish.season} ${nextShape.finish.year}`;
+          const first = `${from.startSeason} ${from.startYear}`;
+          if (termOrd(nextShape.finish.season, nextShape.finish.year) < termOrd(from.startSeason, from.startYear)) {
+            if (input.finish !== undefined && input.finish !== null && input.finish !== 'default') {
+              problems.push(`${finish} has passed, is under way, or is already on the student's record; the first term this plan can book is ${first}. If the student finishes in ${finish}, there is nothing left to plan before it: tell them so rather than setting it.`);
+            } else nextShape.finish = null;
+          }
+        }
+        /**
          * Terms outside the plan are refused, not saved. "Away Spring 2035"
          * and "summers 2032" came back ok, the board rebuilt identical to the
          * default, and ALMA told the student it was done. The range is the
@@ -3497,7 +3581,9 @@ export function PlannerWorkspace({
         const start = horizonFor(L.answers, new Date(), { ...nextShape, summers: [] });
         const planYearBefore = (summer: number) => {
           let fallsAndSprings = 0;
-          for (let at = termOrd(start.startSeason, start.startYear); at < termOrd('Summer', summer); at += 1) if (at % 3 !== 1) fallsAndSprings += 1;
+          // Years of college, counted from the term the student began when that was before this plan.
+          const from = start.began ?? { season: start.startSeason, year: start.startYear };
+          for (let at = termOrd(from.season, from.year); at < termOrd('Summer', summer); at += 1) if (at % 3 !== 1) fallsAndSprings += 1;
           return Math.ceil(fallsAndSprings / 2);
         };
         const internship = L.careerText.trim()
@@ -4792,39 +4878,67 @@ function termOrd(season: SemesterSeason, year: number): number {
  * function, so set_plan_shape checks a term against the range the build will
  * use rather than a copy of it.
  */
+type StartHorizon = Horizon & {
+  startNote: string | null;
+  began: { season: SemesterSeason; year: number } | null;
+  beganFrom: 'words' | 'record' | 'standing' | null;
+  /** Falls and springs since `began` that nothing on the record holds, each assumed to have earned about 15 credits. */
+  assumedTerms: Array<{ season: SemesterSeason; year: number }>;
+  /** The hours assumed for them, less classes on the record with no term. */
+  assumedHours: number;
+  /** A graduation here that is under way, past, or already on the record: the board is one term in case plans change. */
+  gradPassed: { season: SemesterSeason; year: number } | null;
+};
+
 function horizonFor(
   answers: OnboardingAnswers | null | undefined,
   today: Date,
   shape: PlanShape,
-): Horizon & { startNote: string | null; began: { season: SemesterSeason; year: number } | null } {
+): StartHorizon {
   // MERGE-UGA: UGA's onboarding adds graduationSeason/graduationYear answers and its buildPlan reads
   // readHorizon(timelineForPlanning(answers)). This reads answers.timeline only, so a graduation term picked
   // in UGA's onboarding is ignored after the merge. Use timelineForPlanning(answers) here.
   // The plan starts at the first term a student can still add classes to on
   // today's date, not the crawled term: in October that is Spring. "This
-  // fall" in the student's words is the fall of the day they wrote them.
+  // fall" and "incoming" in the student's words are read as of the day they
+  // wrote them.
   const open = firstOpenTerm(today);
-  const written = answers?.timelineAt ? new Date(answers.timelineAt) : today;
-  const { began, beganFrom, datedStart, incoming, ...read } = readHorizon(
-    answers?.timeline ?? '',
-    open,
-    calendarTerm(Number.isNaN(written.getTime()) ? today : written),
-    { firstTermOnRecord: firstIllinoisTerm(answers?.transcript) },
-  );
+  const stamped = answers?.timelineAt ? new Date(answers.timelineAt) : null;
+  const written = stamped && !Number.isNaN(stamped.getTime()) ? stamped : today;
+  const now = calendarTerm(today);
   /**
    * A record with courses in progress in the plan's first term means the
    * student is taking that term now: those courses are counted as done, so
    * planning another full load in the same term books the term twice. The
-   * plan starts the term after the last one in progress.
+   * plan starts the term after the last one in progress. A term in progress
+   * now or later also means they are enrolled, not incoming.
    */
   const busy = latestInProgressTerm(answers?.transcript);
+  const { began, beganFrom, datedStart, incoming, gradPassed: passedInWords, pastAway, ...read } = readHorizon(
+    answers?.timeline ?? '',
+    open,
+    calendarTerm(written),
+    {
+      firstTermOnRecord: firstIllinoisTerm(answers?.transcript),
+      enrolled: Boolean(busy && termOrd(busy.season, busy.year) >= termOrd(now.season, now.year)),
+      openWhenWritten: firstOpenTerm(written),
+    },
+  );
   const startOrd = termOrd(read.startSeason, read.startYear);
-  const horizon: Horizon & { startNote: string | null; began: { season: SemesterSeason; year: number } | null } = { ...read, startNote: null, began };
-  // What the student asked ALMA for wins over what the About-you words said.
-  if (shape.finish) {
+  const horizon: StartHorizon = { ...read, startNote: null, began, beganFrom, assumedTerms: [], assumedHours: 0, gradPassed: passedInWords };
+  // What the student asked ALMA for wins over what the About-you words said,
+  // unless that term is before the plan's first (set_plan_shape refuses one
+  // now; a board saved earlier may still carry it).
+  const busyNext = busy && termOrd(busy.season, busy.year) >= startOrd
+    ? (busy.season === 'Fall' ? { season: 'Spring' as const, year: busy.year + 1 } : { season: 'Fall' as const, year: busy.year })
+    : null;
+  const firstOrd = busyNext ? termOrd(busyNext.season, busyNext.year) : startOrd;
+  const finishPassed = Boolean(shape.finish && termOrd(shape.finish.season, shape.finish.year) < firstOrd);
+  if (shape.finish && !finishPassed) {
     horizon.gradSeason = shape.finish.season;
     horizon.gradYear = shape.finish.year;
     horizon.stated = true;
+    horizon.gradPassed = null;
   }
   // A term ALMA was told about replaces what About you said of the same term
   // ("it's a co-op, not abroad" changes what the term earns), and a plain
@@ -4839,34 +4953,63 @@ function horizonFor(
     }),
   ];
   horizon.summers = [...new Set([...(horizon.summers ?? []), ...shape.summers])];
-  const busyMoved = Boolean(busy && termOrd(busy.season, busy.year) >= startOrd);
-  if (busy && busyMoved) {
-    const next = busy.season === 'Fall' ? { season: 'Spring' as const, year: busy.year + 1 } : { season: 'Fall' as const, year: busy.year };
+  if (busyNext) {
+    const next = busyNext;
     horizon.startSeason = next.season;
     horizon.startYear = next.year;
     const nextOrd = termOrd(next.season, next.year);
     const gradOrd = termOrd(horizon.gradSeason, horizon.gradYear);
-    // A stated last term equal to the new first one stands (a senior's last semester).
-    if (gradOrd < nextOrd || (gradOrd === nextOrd && !horizon.stated)) {
+    if (gradOrd < nextOrd && horizon.stated) {
+      // A finish they gave whose term is already on the record ("Senior,
+      // graduating May 2027" with Spring 2027 registered): nothing is left to
+      // plan, not a fresh four years.
+      horizon.gradPassed ??= { season: horizon.gradSeason, year: horizon.gradYear };
+      horizon.gradSeason = next.season;
+      horizon.gradYear = next.year;
+    } else if (gradOrd < nextOrd || (gradOrd === nextOrd && !horizon.stated)) {
+      // A stated last term equal to the new first one stands (a senior's last semester).
       const from = began ?? next;
-      let end = stepRegular(from, 7);
+      let end = stepRegular(from, 7 + pastAway.length);
       if (termOrd(end.season, end.year) < nextOrd) end = stepRegular(next, 7);
       horizon.gradSeason = end.season;
       horizon.gradYear = end.year;
       horizon.stated = false;
     }
   }
-  // What the student is told about the first term, from the term the board starts in.
-  const now = calendarTerm(today);
   const label = (t: { season: SemesterSeason; year: number }) => `${t.season} ${t.year}`;
   const start = { season: horizon.startSeason, year: horizon.startYear };
+  // Terms since they began that nothing on the record holds: about 15 credits
+  // each, so the terms left are not loaded to 18. Not for a record's own
+  // start (a term missing from a full record is a term off), and not for the
+  // terms away they named.
+  if (began && beganFrom !== 'record' && !horizon.gradPassed) {
+    const coverage = recordCoverage(answers?.transcript);
+    horizon.assumedTerms = uncoveredTerms(began, start, coverage.terms, pastAway);
+    horizon.assumedHours = assumedHoursOf(horizon.assumedTerms, coverage.unplacedHours);
+  }
+  const assumedNames = horizon.assumedTerms.length === 1 ? label(horizon.assumedTerms[0]) : `${horizon.assumedTerms.slice(0, -1).map(label).join(', ')} and ${label(horizon.assumedTerms[horizon.assumedTerms.length - 1] ?? start)}`;
+  const assumed = horizon.assumedHours <= 0 ? ''
+    : horizon.assumedHours < horizon.assumedTerms.length * 15
+      ? ` Until you do, this plan counts about ${horizon.assumedHours} more credits for ${assumedNames}, beyond the classes you have added.`
+      : ` Until you do, this plan counts ${assumedNames} as about ${horizon.assumedHours} credits${horizon.assumedTerms.length > 1 ? ' in all' : ''}, the usual full load.`;
+  // What the student is told about the first term, from the term the board starts in.
   const nowUnderWay = now.season !== 'Summer' && termOrd(now.season, now.year) < termOrd(start.season, start.year);
-  if (busyMoved || beganFrom === 'record') {
+  if (horizon.gradPassed) {
+    const p = horizon.gradPassed;
+    const when = busy && termOrd(p.season, p.year) <= termOrd(busy.season, busy.year) && termOrd(p.season, p.year) > termOrd(now.season, now.year)
+      ? 'and those classes are already on your record'
+      : termOrd(p.season, p.year) >= termOrd(now.season, now.year) ? 'which is under way' : 'which has passed';
+    horizon.startNote = `You said you finish in ${label(p)}, ${when}, so there is nothing left to plan before it. This board shows ${label(start)} only in case your plans change; tell ALMA a later finish if you need one.`;
+  } else if (finishPassed && shape.finish) {
+    horizon.startNote = `The finish set earlier, ${label(shape.finish)}, has passed, so this plan uses the finish from About you instead.`;
+  } else if (beganFrom === 'record') {
     horizon.startNote = null;
+  } else if (busyNext) {
+    horizon.startNote = assumed ? `Your record does not show your classes from ${assumedNames} yet. Add them (upload your transcript or tell ALMA) so they count.${assumed}` : null;
   } else if (began) {
     horizon.startNote = nowUnderWay && termOrd(now.season, now.year) >= termOrd(began.season, began.year)
-      ? `${label(now)} is under way and adding classes has closed, so this plan starts in ${label(start)}${sameTerm(now, began) ? '' : ` and counts your finish from ${label(began)}, when you started`}. Add the classes you are taking now (upload your schedule or tell ALMA) so they count.`
-      : `You started in ${label(began)}, so this plan starts in ${label(start)}, the next term you can sign up for, and counts your finish from ${label(began)}. Add the classes you have taken (upload a transcript or tell ALMA) so they count.`;
+      ? `${label(now)} is under way and adding classes has closed, so this plan starts in ${label(start)}${sameTerm(now, began) ? '' : ` and counts your finish from ${label(began)}, when you started`}. Add the classes you are taking now (upload your schedule or tell ALMA) so they count.${assumed}`
+      : `You started in ${label(began)}, so this plan starts in ${label(start)}, the next term you can sign up for, and counts your finish from ${label(began)}. Add the classes you have taken (upload a transcript or tell ALMA) so they count.${assumed}`;
   } else if (incoming) {
     horizon.startNote = `Students who have not started college yet begin in the fall, so this plan starts in ${label(start)}. If you start in ${label(open)} instead, say so in About you.`;
   } else if (!datedStart && nowUnderWay && sameTerm(start, open)) {
@@ -4886,7 +5029,9 @@ function firstIllinoisTerm(record: TranscriptRecord | null | undefined): { seaso
   if (!record || record.home === false || record.kind === 'transfer_report') return null;
   let best: { season: SemesterSeason; year: number } | null = null;
   for (const c of record.courses ?? []) {
-    if (!c.use) continue;
+    // Taught at Illinois: not a transfer block, dual credit or exam line, nor a line the student typed.
+    if (!c.use || (c.status !== 'completed' && c.status !== 'in_progress')) continue;
+    if (lineIsForeign(record, c) || c.matchedBy === 'student') continue;
     const m = (normalizeTerm(c.term) ?? '').match(/^(Fall|Spring|Summer) (\d{4})$/);
     if (!m) continue;
     const t = { season: m[1] as SemesterSeason, year: Number(m[2]) };
