@@ -542,6 +542,30 @@ and a reading thinner than its page is flagged, not trusted: Accountancy's
 21-hour major reads as one course of eight, because the crawl folded its
 "Select one of the following:" into the whole list (`__programs-compare.check.mjs`).
 
+### Minors (beta reading, no screens yet)
+
+The catalog has 130 undergraduate minors, all on one A to Z page that the
+degree crawl never followed. `node scripts/illinois/programs.mjs --minors`
+reads them into `public/illinois/minors/crawl.json` (its own file, never
+`illinois-programs.json`), and every full degree crawl runs it too, so the
+minors are refreshed whenever the degrees are. It keeps each minor's link,
+name, the total hours its page states (12 to 30; read on 121 of the 130) and
+its requirement tables, with footnote markers, email addresses and phone
+numbers taken out; no page paragraph is stored.
+
+`lib/planner/illinois-minors.ts` reads a minor for the engine with the degree
+reader, minus the campus gen-ed table (which made every minor ask for a third
+semester of a language), with the minor's own total, ids starting `minor:`,
+and two shapes only minor code reaches: a required course printed as a table
+heading (Data Science's core) and "N hours of SUBJ" (Horticulture, Asian
+American Studies, Music electives). `__minors.check.mjs` plans each minor alone
+and keeps the scoreboard: on the crawl of 9 October 2026, 44 of 130 minors read
+within one hour of their stated total (40 with the degree reader alone), and 35
+pass every test a beta needs (`MINOR_BETA`). Most of the rest are sentences in
+a table ("two 300- or 400-level Political Science courses"), choose-one-track
+pages and one table per kind of major (minors-research DESIGN.md shapes b, d
+and e). Nothing in the app offers a minor yet.
+
 ### Year one and the gate
 
 The year-one, date and pairing work for career-track boards (seminars into
