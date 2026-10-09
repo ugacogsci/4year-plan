@@ -35,7 +35,6 @@ export const READ_AS_RELEASED = new Set<string>([
   'aces/agricultural-consumer-economics-bs/financial-planning', // Fall 2026 start, pre-med, 4 language semesters: engine work (credits past the total it did not need, a pre-med/PT course late or off with room for it); on the release reading too
   'aces/agricultural-leadership-education-communications-bs/organizational-community-leadership', // Fall 2026 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it)
   'aces/dietetics-nutrition-bs', // Fall 2026 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it)
-  'aces/engineering-technology-management-agricultural-systems-bs/digital-precision-agriculture', // Fall 2026 start, pre-med, 2 language semesters: engine work (credits past the total it did not need); on the release reading too
   'aces/financial-planning-bs', // Fall 2026 start, pre-med, 4 language semesters: engine work (a pre-med/PT course late or off with room for it)
   'aces/food-science-bs', // Fall 2026 start, pre-med, 4 language semesters: engine work (credits past the total it did not need, three hardest courses in one term)
   'aces/nutrition-health-bs', // Fall 2026 start, pre-PT, 4 language semesters: engine work (credits past the total it did not need)
@@ -75,7 +74,6 @@ export const PLANNED_AS_RELEASED = new Set<string>([
   'aces/agricultural-consumer-economics-bs/farm-management', // Fall 2026 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it); on the release reading too
   'aces/agricultural-consumer-economics-bs/finance-agribusiness', // Fall 2026 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it); on the release reading too
   'aces/agricultural-consumer-economics-bs/financial-planning', // Fall 2026 start, pre-med, 4 language semesters: engine work (credits past the total it did not need, a pre-med/PT course late or off with room for it); on the release reading too
-  'aces/engineering-technology-management-agricultural-systems-bs/digital-precision-agriculture', // Fall 2026 start, pre-med, 2 language semesters: engine work (credits past the total it did not need); on the release reading too
   'education/secondary-education-bs/mathematics', // Spring 2027 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it); on the release reading too
   'education/special-education-bs', // Fall 2026 start, pre-med, 4 language semesters: engine work (a pre-med/PT course late or off with room for it); extra students, a pre-pharmacy student: engine work (a pre-med/PT course late or off with room for it)
   'engineering/computer-engineering-bs', // Fall 2026 start, pre-med, 2 language semesters: blocked (a course before its prerequisite, a pre-med/PT course late or off with room for it); on the release reading too
