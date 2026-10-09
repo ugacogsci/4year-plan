@@ -17,6 +17,7 @@ import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
 import { registrationFits } from './meeting-fit.ts';
 import { HAND_READINGS_HELD, HEADER_LISTS_HELD, READ_AS_RELEASED } from './held-degrees.ts';
 import { handReading } from './hand-readings.ts';
+import { repeatAskFor, repeatRuleOf, type RepeatAsk, type RepeatRule } from './repeats.ts';
 
 /**
  * Real Illinois data, adapted into the planner's shapes.
@@ -733,6 +734,12 @@ export interface CourseChoice {
   // MERGE-UGA: Illinois-only field (UGA's CourseChoice lacks it); illinois-progress.ts reads it, so keep it.
   // It is optional, so the CourseChoice rows uga-source.tsx builds still type-check.
   bundles?: string[][];
+  /**
+   * A row asking for more hours of a repeatable course than one sitting gives
+   * (THEA 359 x 8 hours at 2 a sitting): how many sittings the plan books.
+   * Absent on every other row.
+   */
+  repeat?: RepeatAsk;
 }
 
 export interface RequirementBlock {
@@ -1648,6 +1655,12 @@ export function adaptIllinoisCourse(
     // Catalog-published gen-ed strings, 15 distinct values over 935 courses.
     // Not labels this project invented.
     tags: raw.genEd ?? [],
+    // "May be repeated in separate terms to a maximum of 12 hours", read once
+    // here so the index, the adapter and the engine share one reading.
+    ...((() => {
+      const repeat = repeatRuleOf(raw.description, range.max ?? range.credits);
+      return repeat ? { repeat } : {};
+    })()),
   };
 }
 
@@ -3458,7 +3471,7 @@ function hoursInHeading(label: string): number | null {
 
 /** The narrowest view of the catalog the rule builder needs. */
 export interface CatalogRowLookup {
-  get(code: string): { title: string; credits: number; creditsMax?: number | null } | undefined;
+  get(code: string): { title: string; credits: number; creditsMax?: number | null; repeat?: RepeatRule } | undefined;
   /**
    * Every catalog row, for a rule that names a subject and a level rather
    * than courses: "Four additional 400-level Finance courses" is a list the
@@ -3630,6 +3643,14 @@ function plainChoicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup): C
         bundles: [bundle],
       };
     }
+    // "THEA 359 Professional Stage Management 8" for a 2-hour course the
+    // catalog lets a student repeat: the row is four sittings, not one
+    // (repeats.ts). A row with alternatives ("DANC 116 or DANC 216, two
+    // sections") counts only when every alternative may be repeated; the
+    // sittings are read off the first.
+    const repeat = codes.every((code) => byCode.get(code)?.repeat)
+      ? repeatAskFor(row.credits, catalogCourse ? (catalogCourse.creditsMax ?? catalogCourse.credits) : null, catalogCourse?.repeat)
+      : null;
     return {
       codes,
       // The program file's title field is never a course title: it is either
@@ -3639,6 +3660,7 @@ function plainChoicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup): C
       credits: catalogCourse?.credits ?? row.credits,
       creditsMax: catalogCourse?.creditsMax ?? null,
       substitutes,
+      ...(repeat ? { repeat } : {}),
     };
   });
 }

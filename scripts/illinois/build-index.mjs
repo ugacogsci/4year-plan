@@ -318,6 +318,10 @@ for (const course of data.courses) {
   // a held LLS 200 as the AAS 200 a degree page asks for without waiting for
   // the full catalog, which the first plan never sees.
   if (twins.length > 0) row.twins = twins;
+  // The catalog's repeat rule (lib/planner/repeats.ts), so a degree row that
+  // asks for THEA 359 x 8 hours can book it four times without the full
+  // catalog's descriptions, which the first plan never loads.
+  if (course.repeat) row.repeat = course.repeat;
   if (pos) {
     row.mapPosition = pos;
     positioned += 1;
