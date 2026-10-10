@@ -529,6 +529,20 @@ export function buildContext(
               : 'Fall') as SemesterSeason,
         }
       : null,
+    // Every crawled term's sections, so a spring column's courses are scored
+    // on the spring schedule and a fall column's on the fall one.
+    termSections: core.sectionTerms && core.sectionTerms.length > 1
+      ? core.sectionTerms.map(({ entry, sections }) => {
+          const t = String(entry.term).toLowerCase();
+          return {
+            id: entry.id,
+            label: entry.label,
+            season: (t === 'spring' ? 'Spring' : t === 'summer' ? 'Summer' : 'Fall') as SemesterSeason,
+            year: entry.year,
+            sections,
+          };
+        })
+      : undefined,
     gradeFootnote: core.meta?.gradeFootnote ?? null,
     /**
      * illinois-data owns the canonical prerequisite rule, so it is injected

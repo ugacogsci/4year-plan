@@ -318,6 +318,14 @@ export interface IllinoisCore {
   prereqs: Map<string, PrereqSpec> | null;
   grades: Map<string, IllinoisGradeSummary> | null;
   sections: Map<string, SectionSummary> | null;
+  /**
+   * Every crawled term whose sections loaded, oldest first, the first term
+   * (`sections`) among them: Fall 2026 and Spring 2027. The plan scores a
+   * spring column's courses on the spring schedule (PlanningContext
+   * termSections), so the other terms load with the core rather than when a
+   * card first asks. Null when only the first term was crawled or loaded.
+   */
+  sectionTerms: Array<{ entry: IllinoisSectionTermEntry; sections: Map<string, SectionSummary> }> | null;
   programs: IllinoisProgramSummary[] | null;
   /**
    * "Credit is not given for both MATH 221 and either MATH 220 or MATH 234."
@@ -581,7 +589,8 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
   if (corePromise) return corePromise;
   const started = (async (): Promise<IllinoisCore> => {
     const meta = await loadIllinoisMeta();
-    const [index, prereqs, grades, sections, programs, exclusions, excellent, offerings, languages, admission] = await Promise.all([
+    const laterTerms = sectionTermsOf(meta).filter((t) => t.id !== meta?.term?.id && t.file);
+    const [index, prereqs, grades, sections, programs, exclusions, excellent, offerings, languages, admission, laterSections] = await Promise.all([
       indexResult(),
       artifact<Record<string, PrereqSpec>>('prereqs.json'),
       artifact<IllinoisGradeSummary[]>('grades.json'),
@@ -594,6 +603,8 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
       artifact<IllinoisOfferingsFile>('offerings.json'),
       artifact<LanguageTable>('languages.json'),
       artifact<AdmissionTable>('admission.json'),
+      // The other crawled terms, through the same cache a card's question uses (loadIllinoisSectionTerm).
+      Promise.all(laterTerms.map((t) => memo(sectionTermCache, t.id, () => artifact<IllinoisSectionsFile>(t.file as string)))),
     ]);
 
     const results = [index, prereqs, grades, sections, programs, exclusions];
@@ -609,6 +620,20 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
     if (!sections.ok) missing.push('sections.json');
     if (!programs.ok) missing.push('programs.json');
     if (!exclusions.ok) missing.push('exclusions.json');
+    /**
+     * The term is stamped back onto every row here rather than stored once
+     * per course. A whole SectionSummary is what buildingLine, partOfTermLine
+     * and sectionSnapshot take, and handing out a near-miss would make every
+     * call site patch it.
+     */
+    const firstSections = sections.ok
+      ? new Map(
+          sections.value.courses.map((row) => [
+            normCode(row.code),
+            { ...row, termId: sections.value.termId, termLabel: sections.value.termLabel },
+          ]),
+        )
+      : null;
 
     return {
       meta,
@@ -655,21 +680,19 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
             return byCode;
           })()
         : null,
-      /**
-       * The term is stamped back onto every row here rather than stored once
-       * per course. A whole SectionSummary is what buildingLine, partOfTermLine
-       * and sectionSnapshot take, and handing out a near-miss would make every
-       * call site patch it.
-       */
-      sections: sections.ok
-        ? new Map(
-            sections.value.courses.map((row) => [
-              normCode(row.code),
-              { ...row, termId: sections.value.termId, termLabel: sections.value.termLabel },
-            ]),
-          )
-        : null,
+      sections: firstSections,
       programs: programs.ok ? programs.value : null,
+      sectionTerms: (() => {
+        if (!firstSections || !meta?.term) return null;
+        const first = sectionTermsOf(meta).find((t) => t.id === meta.term?.id) ?? { ...meta.term, file: 'sections.json' };
+        const out: Array<{ entry: IllinoisSectionTermEntry; sections: Map<string, SectionSummary> }> = [];
+        laterTerms.forEach((entry, i) => {
+          const r = laterSections[i];
+          if (r.ok) out.push({ entry, sections: summariesOf(r.value) });
+        });
+        if (out.length === 0) return null;
+        return [{ entry: first, sections: firstSections }, ...out];
+      })(),
       missing,
     };
   })();

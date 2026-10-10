@@ -42,6 +42,8 @@
  *   SWEEP_LANGS=2                     only these language starts
  *   SWEEP_START='Spring 2027'         the first term (default Fall 2026); a Spring start finishes Fall three years on
  *   SWEEP_BLOCKS=0                    skip the reading file (below)
+ *   SWEEP_NO_EARLY=1                  the student asked for no classes before 9 (Priorities.noEarly)
+ *   SWEEP_ONE_TERM=1                  hand the engine the first crawled term's sections only, as before termSections
  *
  * The reading: beside <out.jsonl> the sweep writes <out>.blocks.jsonl, every
  * requirement block of every swept degree as this checkout reads its page
@@ -188,11 +190,25 @@ for (const c of rows) {
   creditRanges.set(norm(c.code), { credits: c.credits, min: c.credits, max, variable: max > c.credits, known: true });
 }
 const season = (meta.term?.term ?? 'fall').toLowerCase();
+const seasonWord = (t) => (t === 'spring' ? 'Spring' : t === 'summer' ? 'Summer' : 'Fall');
+const firstSections = new Map(sectionFile.courses.map((r) => [norm(r.code), { ...r, termId: sectionFile.termId, termLabel: sectionFile.termLabel }]));
+/**
+ * Every crawled term's sections (meta.sectionTerms: Fall 2026 and Spring
+ * 2027), as the workspace hands them to the engine (PlanningContext
+ * termSections). A checkout whose engine does not read them builds the
+ * same boards with or without them.
+ */
+const termSections = (meta.sectionTerms ?? []).map((t) => {
+  const file = t.file === 'sections.json' ? sectionFile : pub(`illinois/${t.file}`);
+  const sections = t.file === 'sections.json' ? firstSections : new Map(file.courses.map((r) => [norm(r.code), { ...r, termId: file.termId, termLabel: file.termLabel }]));
+  return { id: t.id, label: t.label, season: seasonWord(String(t.term).toLowerCase()), year: t.year, sections };
+});
 const context = {
   courses: rows,
   prereqs: new Map(Object.entries(pub('illinois/prereqs.json'))),
   grades,
-  sections: new Map(sectionFile.courses.map((r) => [norm(r.code), { ...r, termId: sectionFile.termId, termLabel: sectionFile.termLabel }])),
+  sections: firstSections,
+  ...(termSections.length > 1 && process.env.SWEEP_ONE_TERM !== '1' ? { termSections } : {}),
   equivalents,
   exclusions: new Map(Object.entries(pub('illinois/exclusions.json'))),
   excellent: new Map(Object.entries(excellentFile.courses)),
@@ -245,7 +261,7 @@ function build({ program, prior = FRESHMAN, horizon = FOUR_YEARS, target = null,
     context,
     prior,
     horizon,
-    preferences: { creditsPerTerm: { min: 12, target, max: 18 }, priorities: PRIORITY_PRESETS.balanced },
+    preferences: { creditsPerTerm: { min: 12, target, max: 18 }, priorities: process.env.SWEEP_NO_EARLY === '1' ? { ...PRIORITY_PRESETS.balanced, noEarly: true } : PRIORITY_PRESETS.balanced },
     programId: L.summary.id,
     degreeTotal,
     interests: words,
