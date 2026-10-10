@@ -9,6 +9,7 @@ import { interestProfile, labPartners, type CareerTrack, type InterestProfile, t
 import type { Priorities } from './priorities';
 import { interestWordsFrom, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
 import { DEFAULT_PRIORITIES } from './priorities';
+import { weeklyFit, type WeeklySchedule } from './weekly-fit';
 import { PLANNED_AS_RELEASED } from './held-degrees';
 import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInput } from './autoplan-release';
 
@@ -425,6 +426,13 @@ export interface PlanningContext {
   languages?: LanguageTable;
   /** The one term the section crawl covers. A room in fall 2026 says nothing about spring 2029. */
   snapshotTerm?: { id: string; label: string; season: SemesterSeason } | null;
+  /**
+   * Every crawled term's sections, the first term (`sections`) among them:
+   * Fall 2026 and Spring 2027, as the workspace loads them with the core
+   * (illinois-load.ts IllinoisCore.sectionTerms). Absent, the engine reads
+   * `sections` alone, as it did before Spring 2027 was crawled.
+   */
+  termSections?: Array<{ id: string; label: string; season: SemesterSeason; year: number; sections: Map<string, PlanSectionSummary> }>;
   /** The provenance line the grade panel prints, carried through so the report can repeat it. */
   gradeFootnote?: string | null;
   prereqCheck?: PrereqMatcher;
@@ -742,6 +750,11 @@ export interface AutoplanInput {
    * gate saw no difference and a930f09 had placed it.
    */
   plainEngine?: boolean;
+  /**
+   * False to leave two courses whose only sections meet at the same hour as
+   * the fill and the moves left them (clashSwap). On by default.
+   */
+  weeklyFit?: boolean;
   /**
    * Bring a first-term seminar still after year one into year one once every
    * other move is made (tradeSeminars), and with plainEngine, also as the
@@ -3449,6 +3462,18 @@ function behindApplicationIn(prereqs: Map<string, PlanPrereq> | undefined, code:
   const found = read();
   memo.set(code, found);
   return found;
+}
+
+/**
+ * The class schedule of exactly this term, when Illinois has published it
+ * and it was crawled (Fall 2026, Spring 2027): what the weekly clash check
+ * reads. Null for every other term; a fall four years out has no timetable.
+ */
+export function weeklyScheduleFor(ctx: Pick<PlanningContext, 'sections' | 'termSections' | 'snapshotTerm'>, termId: string): WeeklySchedule | null {
+  const exact = ctx.termSections?.find((t) => t.id === termId);
+  if (exact) return exact.sections;
+  if (ctx.snapshotTerm?.id === termId && ctx.sections) return ctx.sections;
+  return null;
 }
 
 /** Closed to this program in every crawled section it has. */
@@ -10553,6 +10578,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   let landThreeHour: (() => number) | null = null;
   /** The residency trades, once the board is final (AutoplanInput.upperSwap). */
   let upperSwap: (() => void) | null = null;
+  /** The class-time trades, once the board is final (clashSwap in the fill). */
+  let clashSwap: (() => void) | null = null;
   /** The courses past the total that nothing needs, taken off once the board is final (AutoplanInput.trimPast); the hours, or what it would take with `apply` false. */
   let trimPastTotal: ((apply: boolean) => number) | null = null;
   const degreeTotalPublished = input.degreeTotal ?? null;
@@ -12087,77 +12114,84 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       }
       return taken;
     };
+    /*
+     * What the trades after the fill read of the board (the residency trades,
+     * upperSwap, and the class-time trades, clashSwap): which requirement
+     * chose a course, whether its categories hold without it, the other
+     * courses its list allows, whether something leans on it, whether it
+     * stays put, and whether another course could stand in its place.
+     */
+    const reqOf = (code: string): PlanRequirement | null => {
+      const id = chosen.get(code)?.requirementId ?? null;
+      return id === null ? null : (input.requirements.find((r) => r.id === id) ?? null);
+    };
+    const metWithout = (r: PlanRequirement, gone: string): boolean => {
+      if (r.rule.kind !== 'gened') return true;
+      const tags = new Set(r.rule.genEd);
+      const have = [...new Set([...plannedAll, ...earned])].filter((c) => c !== gone && byCode.get(c)?.tags.some((t) => tags.has(t)));
+      const hours = have.reduce((sum, c) => sum + creditsOf(c), 0);
+      return (r.rule.hours === null || hours >= r.rule.hours) && (r.rule.courses === null || have.length >= r.rule.courses);
+    };
+    /*
+     * A pick from a list trades only for another course on the same list,
+     * each a row of one course: a choice of one or more rows, or a pool the
+     * page puts no condition on. The list keeps its count and its hours.
+     */
+    const listOptions = (code: string, req: PlanRequirement): string[] | null => {
+      const rule = req.rule;
+      if (rule.kind !== 'choose' && !(rule.kind === 'pool' && rule.constraints.length === 0)) return null;
+      const single = rule.choices.filter((choice) => choice.codes.length === 1 && !(choice.bundles ?? []).some((b) => b.length > 1)).map((choice) => normaliseCode(choice.codes[0]));
+      if (!single.includes(code)) return null;
+      if (rule.kind === 'pool' && !poolFills.some(({ slot, fill }) => slot.requirementId === req.id && fill.picked.includes(code) && fill.nested.length === 0)) return null;
+      return single.filter((c) => c !== code);
+    };
+    /** Something on the board lists it as a prerequisite. */
+    const leanedOn = (code: string): boolean => {
+      const names = new Set(expandEquivalents(code, equivalents));
+      return [...placed.values()].flat().some((other) => other !== code && (ctx.prereqs?.get(other)?.groups ?? []).some((g) => g.any.some((a) => names.has(normaliseCode(a)))));
+    };
+    /** A course that stays put: the placer's and the track's own, labs, dated and sequence courses, seminars, math. */
+    const fixed = (code: string): boolean =>
+      pinned.has(code) || labOf.has(code) || lectureLab.has(code) || sequenceFirst.has(code) || dated.has(code) ||
+      trackWanted.has(code) || forTrack(code) || trackRowOf.has(code) || addedPrerequisites.some((a) => a.code === code) ||
+      firstTermCourse(byCode.get(code), ctx, arrival) || isMathOrStatistics(byCode.get(code) ?? { code, title: '' }) || isHard(code);
+    const late = (term: (typeof terms)[number]): boolean => !isSummer(term) && !yearOne.includes(term.index);
+    /**
+     * Whether `code` could stand in `term` in place of `out`, `into` standing
+     * in the term before it where given (the trade below): what the fill asks
+     * of an elective there, read on the board as it would be.
+     */
+    const fitsAt = (code: string, term: (typeof terms)[number], out: string, swapped: { at: number; out: string; into: string } | null): boolean => {
+      const course = byCode.get(code);
+      if (!course) return false;
+      const earlierSet = new Set<string>(satisfiedForPrereq);
+      let hoursSoFar = priorCreditTotal + awayBefore[term.index];
+      for (const other of terms) {
+        if (other.index >= term.index) break;
+        const codes = (placed.get(other.id) ?? []).map((c) => (swapped && other.index === swapped.at && c === swapped.out ? swapped.into : c));
+        for (const c of codes) for (const equiv of expandEquivalents(c, equivalents)) earlierSet.add(equiv);
+        hoursSoFar += planCreditRange(codes, ctx).min;
+      }
+      const rest = (placed.get(term.id) ?? []).filter((c) => c !== out);
+      const sameTerm = new Set<string>();
+      for (const c of rest) for (const equiv of expandEquivalents(c, equivalents)) sameTerm.add(equiv);
+      // No term past three of one subject, or past its own most if that was more.
+      const bySubject = new Map<string, number>();
+      for (const c of [...rest, out]) {
+        const s = byCode.get(c)?.cluster ?? c.split(' ')[0];
+        bySubject.set(s, (bySubject.get(s) ?? 0) + 1);
+      }
+      const most = Math.max(3, ...bySubject.values());
+      const outSubject = byCode.get(out)?.cluster ?? out.split(' ')[0];
+      if ((bySubject.get(course.cluster) ?? 0) - (course.cluster === outSubject ? 1 : 0) + 1 > most) return false;
+      if (outOfSeason(course, term.season, published.has(code)) || unscheduledNow(code, term.id)) return false;
+      if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
+      return electivePrereqsMet(match(ctx.prereqs?.get(code), earlierSet, sameTerm, equivalents));
+    };
     upperSwap = (): void => {
       if (upperWanted <= 0) return;
       let short = upperWanted - planCreditRange([...placed.values()].flat().filter((c) => courseLevel(c) >= 300), ctx).min;
       if (short <= 0) return;
-      const reqOf = (code: string): PlanRequirement | null => {
-        const id = chosen.get(code)?.requirementId ?? null;
-        return id === null ? null : (input.requirements.find((r) => r.id === id) ?? null);
-      };
-      const metWithout = (r: PlanRequirement, gone: string): boolean => {
-        if (r.rule.kind !== 'gened') return true;
-        const tags = new Set(r.rule.genEd);
-        const have = [...new Set([...plannedAll, ...earned])].filter((c) => c !== gone && byCode.get(c)?.tags.some((t) => tags.has(t)));
-        const hours = have.reduce((sum, c) => sum + creditsOf(c), 0);
-        return (r.rule.hours === null || hours >= r.rule.hours) && (r.rule.courses === null || have.length >= r.rule.courses);
-      };
-      /*
-       * A pick from a list trades only for another course on the same list,
-       * each a row of one course: a choice of one or more rows, or a pool the
-       * page puts no condition on. The list keeps its count and its hours.
-       */
-      const listOptions = (code: string, req: PlanRequirement): string[] | null => {
-        const rule = req.rule;
-        if (rule.kind !== 'choose' && !(rule.kind === 'pool' && rule.constraints.length === 0)) return null;
-        const single = rule.choices.filter((choice) => choice.codes.length === 1 && !(choice.bundles ?? []).some((b) => b.length > 1)).map((choice) => normaliseCode(choice.codes[0]));
-        if (!single.includes(code)) return null;
-        if (rule.kind === 'pool' && !poolFills.some(({ slot, fill }) => slot.requirementId === req.id && fill.picked.includes(code) && fill.nested.length === 0)) return null;
-        return single.filter((c) => c !== code);
-      };
-      /** Something on the board lists it as a prerequisite. */
-      const leanedOn = (code: string): boolean => {
-        const names = new Set(expandEquivalents(code, equivalents));
-        return [...placed.values()].flat().some((other) => other !== code && (ctx.prereqs?.get(other)?.groups ?? []).some((g) => g.any.some((a) => names.has(normaliseCode(a)))));
-      };
-      /** A course that stays put: the placer's and the track's own, labs, dated and sequence courses, seminars, math. */
-      const fixed = (code: string): boolean =>
-        pinned.has(code) || labOf.has(code) || lectureLab.has(code) || sequenceFirst.has(code) || dated.has(code) ||
-        trackWanted.has(code) || forTrack(code) || trackRowOf.has(code) || addedPrerequisites.some((a) => a.code === code) ||
-        firstTermCourse(byCode.get(code), ctx, arrival) || isMathOrStatistics(byCode.get(code) ?? { code, title: '' }) || isHard(code);
-      const late = (term: (typeof terms)[number]): boolean => !isSummer(term) && !yearOne.includes(term.index);
-      /**
-       * Whether `code` could stand in `term` in place of `out`, `into` standing
-       * in the term before it where given (the trade below): what the fill asks
-       * of an elective there, read on the board as it would be.
-       */
-      const fitsAt = (code: string, term: (typeof terms)[number], out: string, swapped: { at: number; out: string; into: string } | null): boolean => {
-        const course = byCode.get(code);
-        if (!course) return false;
-        const earlierSet = new Set<string>(satisfiedForPrereq);
-        let hoursSoFar = priorCreditTotal + awayBefore[term.index];
-        for (const other of terms) {
-          if (other.index >= term.index) break;
-          const codes = (placed.get(other.id) ?? []).map((c) => (swapped && other.index === swapped.at && c === swapped.out ? swapped.into : c));
-          for (const c of codes) for (const equiv of expandEquivalents(c, equivalents)) earlierSet.add(equiv);
-          hoursSoFar += planCreditRange(codes, ctx).min;
-        }
-        const rest = (placed.get(term.id) ?? []).filter((c) => c !== out);
-        const sameTerm = new Set<string>();
-        for (const c of rest) for (const equiv of expandEquivalents(c, equivalents)) sameTerm.add(equiv);
-        // No term past three of one subject, or past its own most if that was more.
-        const bySubject = new Map<string, number>();
-        for (const c of [...rest, out]) {
-          const s = byCode.get(c)?.cluster ?? c.split(' ')[0];
-          bySubject.set(s, (bySubject.get(s) ?? 0) + 1);
-        }
-        const most = Math.max(3, ...bySubject.values());
-        const outSubject = byCode.get(out)?.cluster ?? out.split(' ')[0];
-        if ((bySubject.get(course.cluster) ?? 0) - (course.cluster === outSubject ? 1 : 0) + 1 > most) return false;
-        if (outOfSeason(course, term.season, published.has(code)) || unscheduledNow(code, term.id)) return false;
-        if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
-        return electivePrereqsMet(match(ctx.prereqs?.get(code), earlierSet, sameTerm, equivalents));
-      };
       const olds: Array<{ code: string; term: (typeof terms)[number] }> = [];
       for (const term of [...terms].reverse()) {
         if (!late(term)) continue;
@@ -12250,6 +12284,122 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const entry = electives.findIndex((e) => e.code === old);
         if (entry >= 0) electives[entry] = { code: pick, why: `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))} At the 300 level or above, toward the ${upperWanted} hours there that Illinois's residency rule asks for.`, reasons: scoring.quality(pick).reasons };
         short -= hours;
+      }
+    };
+    /**
+     * Class times, once the board is final. In a term whose class schedule
+     * Illinois has published (Fall 2026 and Spring 2027, weeklyScheduleFor),
+     * a board can hold two courses that cannot be registered together:
+     * PORT 150 and REL 260 each have one Spring 2027 section, both Monday
+     * and Wednesday at 2:00, and 60 Fall-start boards booked both as
+     * general education picks. Where no choice of sections fits the term
+     * (weekly-fit.ts), a course in the clash that the planner chose (a free
+     * elective, a general education pick, a pick from a list of one-course
+     * rows) gives way to another the same choice allows that has sections
+     * that term and fits beside the rest: for a category pick one carrying
+     * its category and every other the board would fall short of without
+     * it, for a list pick another course on the same list. Same credits,
+     * same term, the same side of the 300 level, never a hardest-band
+     * course, nothing on the board waiting on the course it replaces or
+     * naming the one that comes in, and what the fill asks of an elective
+     * there (fitsAt). A required course, a track's course, a lab or its
+     * lecture, a sequence, a seminar or a math course never moves for it,
+     * and a course whose times are not published is no clash. A course in
+     * the major's own subjects gives way only to another in them: CS 266
+     * traded for HDFS 221 left an Applied Mathematics freshman two major
+     * courses in year one, under the three of the early-momentum measure.
+     */
+    clashSwap = (): void => {
+      const dormant = dormantCheck(ctx);
+      const rare = rareCheck(ctx);
+      const closed = closedToMajorCheck(ctx, input.programName, input.programCollege);
+      /** A course a row of the student's track names, booked for that or not: the row would lose it. */
+      const onTrackRow = (code: string): boolean => tracks.some((track) => track.courses.some((row) => row.codes.some((c) => normaliseCode(c) === code)));
+      /** Named in a prerequisite group of a course on the board: bringing it in could put it after that course. */
+      const namedOnBoard = (code: string): boolean => {
+        const names = new Set(expandEquivalents(code, equivalents));
+        return [...placed.values()].flat().some((other) => (ctx.prereqs?.get(other)?.groups ?? []).some((g) => g.any.some((a) => names.has(normaliseCode(a)))));
+      };
+      const ofMajor = (code: string): boolean => majors.subjects.has(code.split(' ')[0]) || majors.primary === code.split(' ')[0];
+      for (const term of terms) {
+        const schedule = weeklyScheduleFor(ctx, term.id);
+        if (!schedule) continue;
+        for (let round = 0; round < 3; round += 1) {
+          const here = placed.get(term.id) ?? [];
+          const fit = weeklyFit(here, schedule);
+          if (fit.status !== 'clash') break;
+          let swapped = false;
+          for (const old of fit.clash) {
+            if (!here.includes(old) || !chosen.has(old) || fixed(old) || leanedOn(old) || onTrackRow(old)) continue;
+            const req = reqOf(old);
+            const options = req && req.rule.kind !== 'gened' ? listOptions(old, req) : null;
+            if (req !== null && req.rule.kind !== 'gened' && options === null) continue;
+            const oldTags = new Set(byCode.get(old)?.tags ?? []);
+            const needs: string[][] = req && req.rule.kind === 'gened' ? [req.rule.genEd] : [];
+            let blocked = false;
+            for (const r of genEdRequirements) {
+              if (r === req || r.rule.kind !== 'gened' || !r.rule.genEd.some((t) => oldTags.has(t)) || metWithout(r, old)) continue;
+              if (req && req.rule.kind === 'gened' && req.rule.exclusiveGroup && r.rule.exclusiveGroup === req.rule.exclusiveGroup) blocked = true;
+              needs.push(r.rule.genEd);
+            }
+            if (blocked) continue;
+            const oldSubject = byCode.get(old)?.cluster ?? '';
+            const taken = new Map(perSubject);
+            taken.set(oldSubject, Math.max(0, (taken.get(oldSubject) ?? 0) - 1));
+            const hours = creditsOf(old);
+            const upper = courseLevel(old) >= 300;
+            const rest = here.filter((c) => c !== old);
+            const majorOld = ofMajor(old);
+            const eligible = (code: string): boolean => {
+              if (creditsOf(code) !== hours || (courseLevel(code) >= 300) !== upper || isHard(code)) return false;
+              if (majorOld && !ofMajor(code)) return false;
+              if (plannedAll.has(code) || earned.has(code) || exempt.has(code) || trackWanted.has(code) || onTrackRow(code)) return false;
+              if (labOf.has(code) || lectureLab.has(code) || fillLabs.has(code)) return false;
+              const course = byCode.get(code);
+              if (!course || !needs.every((tags) => course.tags.some((t) => tags.includes(t)))) return false;
+              if (isMathOrStatistics(course) || dormant(code) || rare(code) || closed(code) || gatedPick(code) === 1 || firstTermCourse(course, ctx, arrival)) return false;
+              if (input.notTowardDegree?.(code)) return false;
+              if (preparesForHeld(code, ctx.prereqs, (c) => plannedAll.has(c) || earned.has(c), !plainEngine)) return false;
+              if (options === null && !subjectRoomLeft(course.cluster, taken, majors.primary, majors.subjects)) return false;
+              if (conflictWith(code, conflicts, [earned, chosen, plannedAll]) !== null) return false;
+              if (expandEquivalents(code, equivalents).some((twin) => twin !== code && (plannedAll.has(twin) || earned.has(twin)))) return false;
+              // Sections that term, at hours the schedule gives: a course with none is no answer to a clash.
+              if (!((schedule.get(code) as { total?: number } | undefined)?.total ?? 0)) return false;
+              if (namedOnBoard(code) || !fitsAt(code, term, old, null)) return false;
+              const after = weeklyFit([...rest, code], schedule);
+              return after.status !== 'clash' && !after.unknown.includes(code);
+            };
+            const pick = options !== null
+              ? options.filter((c) => byCode.has(c) && eligible(c)).sort((a, b) => compareRank(rank(a), rank(b), a, b))[0]
+              : firstFit(eligible, (h) => h !== hours);
+            if (!pick) continue;
+            for (const { slot, fill } of poolFills) {
+              if (slot.requirementId !== req?.id) continue;
+              fill.picked = fill.picked.map((c) => (c === old ? pick : c));
+              fill.alternatives = [old, ...fill.alternatives.filter((c) => c !== pick)];
+            }
+            placed.set(term.id, here.map((c) => (c === old ? pick : c)));
+            plannedAll.delete(old);
+            plannedAll.add(pick);
+            const why = chosen.get(old) ?? { requirementId: null, label: 'Elective' };
+            chosen.delete(old);
+            chosen.set(pick, why);
+            perSubject.set(oldSubject, Math.max(0, (perSubject.get(oldSubject) ?? 0) - 1));
+            const subject = byCode.get(pick)?.cluster ?? '';
+            perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
+            const other = fit.clash.filter((c) => c !== old);
+            const said = `In place of ${old}, whose ${term.label} sections all meet at the same time as ${other.length === 1 ? other[0] : `${other.slice(0, -1).join(', ')} and ${other[other.length - 1]}`}.`;
+            const entry = electives.findIndex((e) => e.code === old);
+            if (entry >= 0) {
+              const q = scoring.quality(pick);
+              electives[entry] = { code: pick, why: `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, q)} ${said}`, reasons: q.reasons };
+            }
+            notes.push(`Class times: ${pick} takes ${old}'s place in ${term.label}. ${said}`);
+            swapped = true;
+            break;
+          }
+          if (!swapped) break;
+        }
       }
     };
     // A term that was light before the fill is not light now.
@@ -14577,6 +14727,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const landedPast = landThreeHour && input.fillerRules !== false ? landThreeHour() : 0;
   if (upperSwap && input.upperSwap === true) upperSwap();
   const trimmable = trimPastTotal !== null && trimPastTotal(input.trimPast === true) > 0;
+  // Last, on the final board: two courses whose only sections meet at once (clashSwap, in the fill).
+  if (clashSwap && input.weeklyFit !== false) clashSwap();
 
   /*
    * Where the board leans on a course standing in for one the catalog will
