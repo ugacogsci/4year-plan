@@ -6013,6 +6013,39 @@ function gateWorse(a: GateMeasure, b: GateMeasure): string[] {
 }
 
 /**
+ * Whether board `a` is worse than `b` (gateWorse) by no more than one small
+ * cost, for a board rebuilt by the last repair that puts fewer courses
+ * before their prerequisites (generatePlan):
+ *
+ * - a placement note for a lower course the board no longer books (an
+ *   ap-priorlearning warning, the note the higher course always carries when
+ *   the lower one is off the board) is no cost where `a` carries no more of
+ *   the warnings gateWorse watches than `b`: FR 204 > FR 203 for FR 215 >
+ *   FR 204;
+ * - beyond that, one of these, by one step: one more placement note; one
+ *   more term with two hardest-band courses; one more year-one term under 15
+ *   credits; one more of the last two terms crowded by one subject (four or
+ *   more courses), its most in a term at most one past `b`'s.
+ *
+ * Anything else gateWorse finds, or a second cost, and it is not small.
+ */
+function smallCostOnly(a: GateMeasure, b: GateMeasure): boolean {
+  const light = (m: GateMeasure) => m.yearOne.filter((cr) => cr < 15).length;
+  const costs: string[] = [];
+  for (const w of gateWorse(a, b)) {
+    if (w === 'warnings') {
+      if (![...a.warnings].every((key) => b.warnings.has(key) || key.startsWith('ap-priorlearning-'))) return false;
+      if (a.warnings.size > b.warnings.size + 1) return false;
+      if (a.warnings.size > b.warnings.size) costs.push(w);
+    } else if (w === 'stack2' && a.doubled <= b.doubled + 1) costs.push(w);
+    else if (w === 'yearOneLight' && light(a) <= light(b) + 1) costs.push(w);
+    else if (w === 'crowded' && a.crowded <= b.crowded + 1 && a.crowdMax <= Math.max(3, b.crowdMax) + 1) costs.push(w);
+    else return false;
+  }
+  return costs.length <= 1;
+}
+
+/**
  * What gateWorse measures that is the shape of a term or of year one rather
  * than what the student must take, when, and in what order: terms at the
  * cap, two hardest-band courses in a term, one subject crowding the last two
@@ -6605,10 +6638,8 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
      * standing only where the gate finds it no worse than the floor, the
      * release and the board kept.
      */
-    const faultsOf = (g: GeneratedPlan) => {
-      const m = measureOf(g);
-      return m.apart.size + [...m.order].filter((k) => !k.startsWith('ap-prereq-check-')).length + priorLearningLater(g, context);
-    };
+    const orderFaultsOf = (g: GeneratedPlan) => [...measureOf(g).order].filter((k) => !k.startsWith('ap-prereq-check-')).length + priorLearningLater(g, context);
+    const faultsOf = (g: GeneratedPlan) => measureOf(g).apart.size + orderFaultsOf(g);
     const fixRecipe = buildOf.get(best);
     if (fixRecipe && !fixRecipe.repair && faultsOf(best) > 0) {
       const fixed = pass(best, [plain, released, best]);
@@ -6616,7 +6647,18 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
       // Fewer of these faults and no worse on anything the gate measures: it stands, rank aside (a lower
       // course taken off the board leaves the placement warning its higher course always carried).
       fixed.weigh(rebuilt, faultsOf(rebuilt) < faultsOf(best));
+      const kept = best;
       best = fixed.best();
+      /*
+       * A course before its prerequisite is a mistake a student acts on;
+       * a term's shape is not. Where the rebuilt board did not stand, has
+       * fewer courses before their prerequisites (a prior-learning line's
+       * course booked later included) and no new one, it stands for one
+       * small cost (smallCostOnly) against each of the floor, the release
+       * and the board kept: a French freshman's FR 203 a year after FR 204,
+       * or a Classics freshman's LAT 101 a term after LAT 102.
+       */
+      if (best === kept && orderFaultsOf(rebuilt) < orderFaultsOf(kept) && [plain, released, kept].every((b) => smallCostOnly(measureOf(rebuilt), measureOf(b)))) best = rebuilt;
     }
     best.gate = best === plain ? { kept: 'plain', worse: trail.tried[0]?.worse ?? [] } : { kept: 'improved', worse: [] };
     gateTrails.set(best, trail);
@@ -13586,6 +13628,47 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       return out;
     };
     const nearest = (from: number, ok: (i: number) => boolean) => terms.map((t) => t.index).filter((i) => i !== from && ok(i)).sort((a, b) => Math.abs(a - from) - Math.abs(b - from) || a - b);
+    /**
+     * Where neither the course nor its prerequisite can move alone, the
+     * sequence moves up one place: the prerequisite takes the course's term,
+     * the course the term of the course that stands on it, and so on, the
+     * last the prerequisite's old term. A Classics freshman's LAT 101 sat in
+     * Fall 2030 after LAT 102 in Spring 2028 and LAT 201 in Fall 2028: LAT 101
+     * to Spring 2028, LAT 102 to Fall 2028, LAT 201 to Fall 2030. At most
+     * three courses follow the prerequisite, all of its credits, none a lab
+     * or lecture, so no term's hours change; seasons, dates and the rest hold
+     * as for any move (mayGo, holds).
+     */
+    const rotate = (fault: { code: string; at: number; pre: string; preAt: number }): string | null => {
+      const standsOn = (dep: string, on: string) => (ctx.prereqs?.get(dep)?.groups ?? []).some((g) => g.any.some((raw) => expandEquivalents(normaliseCode(raw), equivalents).includes(on)));
+      const chain = [fault.code];
+      while (chain.length < 3) {
+        const last = chain[chain.length - 1];
+        const lastAt = termOf(last);
+        const next = terms
+          .filter((t) => t.index > lastAt && t.index < fault.preAt)
+          .flatMap((t) => (placed.get(t.id) ?? []).filter((c) => !chain.includes(c) && c !== fault.pre && standsOn(c, last)))
+          .sort((a, b) => termOf(a) - termOf(b) || a.localeCompare(b))[0];
+        if (next === undefined) break;
+        chain.push(next);
+      }
+      const movers = [fault.pre, ...chain];
+      const from = movers.map(termOf);
+      const to = [...chain.map(termOf), fault.preAt];
+      if (new Set(from).size !== movers.length) return null;
+      if (movers.some((c) => creditsOf(c) !== creditsOf(fault.pre) || tier(c) === null || tier(c) === 4 || unitOf(c, termOf(c)).length > 1)) return null;
+      if (movers.some((c, k) => !mayGo(c, from[k], to[k]))) return null;
+      const before = state();
+      const shape = boardShape();
+      const saved = new Map(from.map((i) => [terms[i].id, placed.get(terms[i].id) ?? []]));
+      movers.forEach((c, k) => placed.set(terms[from[k]].id, (placed.get(terms[from[k]].id) ?? []).filter((x) => x !== c)));
+      movers.forEach((c, k) => placed.set(terms[to[k]].id, [...(placed.get(terms[to[k]].id) ?? []), c]));
+      if (from.every((i) => hardFits(i, saved.get(terms[i].id) ?? [], placed.get(terms[i].id) ?? [])) && holds(before, shape)) {
+        return movers.map((c, k) => `${c} to ${terms[to[k]].label}`).join(', ');
+      }
+      for (const [id, codes] of saved) placed.set(id, codes);
+      return null;
+    };
     for (let round = 0; round < 3; round += 1) {
       let moved = false;
       for (const [lab, lecture] of pairs) {
@@ -13609,6 +13692,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             if (done) break;
           }
         }
+        if (!done) done = rotate(fault);
         said([fault.code, fault.pre], `${fault.code} after ${fault.pre}`, done);
         if (done) moved = true;
       }

@@ -717,12 +717,21 @@ if (raw.offerings.json) {
    * table says SPAN 201 was SPAN 130 until this year. Its history is SPAN
    * 130's, and without it every third and fourth semester of Spanish, French,
    * German, Italian, Scandinavian and Yiddish read as never offered.
+   *
+   * The two histories are joined, not swapped. The old number was borrowed
+   * only while the new one had no history of its own, so the day Fall 2026
+   * recorded SPAN 201 under its new number (the 45 subjects the first read
+   * lost), SPAN 201, 203 and 205 and SCAN 203 dropped to that one fall term:
+   * "ran once", fall only, and no longer plannable in a spring.
    */
   const renumbered = {};
   for (const lang of raw.languages.json?.languages ?? []) {
     for (const [now, before] of Object.entries(lang.renumbered ?? {})) {
       const old = (file.courses?.[before] ?? []).filter((t) => termIds.includes(t));
-      if (!courses[now] && old.length) { courses[now] = old; renumbered[now] = before; }
+      if (old.length === 0) continue;
+      const own = courses[now] ?? [];
+      courses[now] = termIds.filter((t) => own.includes(t) || old.includes(t));
+      renumbered[now] = before;
     }
   }
   write('offerings.json', { source: file.source, fetchedAt: file.fetchedAt, terms: termIds, courses, renumbered });
