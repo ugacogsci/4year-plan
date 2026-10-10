@@ -12,6 +12,7 @@ import { subjectMatches } from '@/lib/planner/illinois-subjects';
 import type { IllinoisCore } from '@/lib/planner/illinois-load';
 import type { SchoolId } from '@/lib/planner/onboarding';
 import type { Course, MapPosition, PlanTerm } from '@/lib/planner/types';
+import { mayBookAgain } from '@/lib/planner/repeats';
 
 // MERGE-UGA: UGA rewrote this map (a canvas over the whole catalog) and made highlightedCourseIds, theme, onHeightChange
 // and onRemoveCourse required. Illinois only added chooser.whys, so the file merges cleanly, but Illinois's
@@ -277,6 +278,8 @@ export function CourseExplorer({
   const showList = chooser ? listRows.length > 0 : Boolean(normalizedQuery) && results.length > 0;
   const add = (courseId: string) => (chooser ? chooser.onPick(courseId) : onAddCourse(courseId, targetTermId));
   const addLabel = chooser ? `into ${chooser.termLabel}` : `to ${targetLabel}`;
+  /** May this course go on the board once more, in the term the student is adding to (repeats.ts)? Never from the elective chooser. */
+  const addsAgain = (course: Course) => !chooser && targetTermId !== 'completed' && mayBookAgain(course, { completedCourseIds: [], terms }, course.id, targetTermId);
 
   return (
     <aside className="course-finder" aria-labelledby="finder-title">
@@ -492,8 +495,9 @@ export function CourseExplorer({
           </p>
           <ul>
             {listRows.map((course) => {
-              const inPlan = plannedCourseIds.has(course.id);
-              const taken = completedCodes.has(course.code.toUpperCase());
+              // A course the catalog lets a student repeat can go on again (THEA 359 for Stage Management's 8 hours).
+              const inPlan = plannedCourseIds.has(course.id) && !addsAgain(course);
+              const taken = completedCodes.has(course.code.toUpperCase()) && !addsAgain(course);
               return (
                 <li key={course.id} className={cn(course.id === selectedCourseId && 'is-selected')}>
                   <button type="button" className="finder-result" onClick={() => onSelectCourse(course.id)}>
@@ -552,12 +556,16 @@ export function CourseExplorer({
               </NativeSelect>
               <Button
                 className="inspector-add-button"
-                disabled={plannedCourseIds.has(selected.id)}
+                disabled={plannedCourseIds.has(selected.id) && !addsAgain(selected)}
                 onClick={() => add(selected.id)}
               >
-                {plannedCourseIds.has(selected.id) ? (
+                {plannedCourseIds.has(selected.id) && !addsAgain(selected) ? (
                   <>
                     <Check /> In the plan
+                  </>
+                ) : plannedCourseIds.has(selected.id) ? (
+                  <>
+                    <Plus /> Add again {addLabel}
                   </>
                 ) : (
                   <>

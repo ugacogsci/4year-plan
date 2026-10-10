@@ -139,12 +139,20 @@ export function SemesterColumn({
       )}
 
       <div className="semester-courses">
-        {term.courseIds.map((courseId) => {
+        {term.courseIds.map((courseId, at) => {
           const course = courseIndex.get(courseId);
           if (!course) return null;
+          // A course taken more than once (THEA 359 four times for Stage
+          // Management) sits in several terms, or twice in one where the
+          // catalog allows it, so the key and the card's id carry which
+          // sitting this is.
+          const inTerm = term.courseIds.slice(0, at).filter((id) => id === courseId).length;
+          const sitting = course.repeat ? sittingOf(allTerms, term, courseId, inTerm) : null;
           return (
             <CourseCard
-              key={courseId}
+              key={`${courseId}#${inTerm}`}
+              instance={inTerm}
+              sitting={sitting}
               course={course}
               term={term}
               allTerms={allTerms}
@@ -174,4 +182,19 @@ export function SemesterColumn({
       </div>
     </section>
   );
+}
+
+/**
+ * Which sitting of a repeated course this card is, counting every term of the
+ * board in order ("2nd of 4"), or null when the board holds it once.
+ */
+function sittingOf(allTerms: PlanTerm[], term: PlanTerm, courseId: string, inTerm: number): { n: number; of: number } | null {
+  let n = 0;
+  let of = 0;
+  for (const t of allTerms) {
+    const here = t.courseIds.filter((id) => id === courseId).length;
+    if (t.id === term.id) n = of + inTerm + 1;
+    of += here;
+  }
+  return of > 1 && n > 0 ? { n, of } : null;
 }

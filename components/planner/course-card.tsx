@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils';
 import { clusterColor } from './cluster-color';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 import type { PlanMark } from '@/lib/planner/repick';
+import { ordinalWord } from '@/lib/planner/repeats';
 
 /**
  * A course that is in the plan because a pool needed filling, a slot needed a
@@ -75,6 +76,10 @@ interface CourseCardProps {
   onMove: (courseId: string, fromTermId: string, toTermId: string) => void;
   onRemove: (courseId: string, termId: string) => void;
   onFindAlternatives: (courseId: string, termId: string) => void;
+  /** Which copy of this course in this term (0 for the first): a course the catalog allows twice in one term sits there twice. */
+  instance?: number;
+  /** For a course taken more than once: which sitting this card is, of how many on the board. */
+  sitting?: { n: number; of: number } | null;
 }
 
 /** "3 cr", or "1 to 4 cr" for the 1,829 Illinois courses with a range. */
@@ -97,6 +102,8 @@ export function CourseCard({
   onMove,
   onRemove,
   onFindAlternatives,
+  instance = 0,
+  sitting = null,
 }: CourseCardProps) {
   // MERGE-UGA: UGA replaced these lines with card-resize state (cardRef, resizeStart, cardHeight, resizeTo)
   // used by its <article ref/style> and resize handle; Illinois added alternatives + swappable for the chevron.
@@ -110,7 +117,7 @@ export function CourseCard({
 
   return (
     <article
-      id={`planned-${term.id}-${course.id}`}
+      id={instance > 0 ? `planned-${term.id}-${course.id}-${instance + 1}` : `planned-${term.id}-${course.id}`}
       className={cn('course-card group', selected && 'course-card-selected')}
     >
       <button
@@ -150,6 +157,14 @@ export function CourseCard({
             the code when the column is too narrow for both. */}
         <span className="course-card-code-row">
           <span className="course-card-code">{course.code}</span>
+          {sitting && (
+            <span
+              className="course-sitting"
+              title={`${course.code} is taken more than once: this is sitting ${sitting.n} of the ${sitting.of} on this plan.${course.repeat?.topicsVary ? ' Pick a different topic each time; it counts again only if the topic changes.' : ''}`}
+            >
+              {ordinalWord(sitting.n)} of {sitting.of}
+            </span>
+          )}
           {course.pathwayRole === 'required' && !electiveOf && (
             <span className="course-required" title="Required by this degree">
               <LockKeyhole /> required

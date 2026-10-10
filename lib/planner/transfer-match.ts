@@ -25,6 +25,8 @@ export interface CatalogLite {
   level: number;
   cluster: string;
   tags?: string[];
+  /** Present when the catalog lets a student repeat the course for credit (repeats.ts). */
+  repeat?: { max: number | null };
 }
 
 export interface EquivalentProposal {

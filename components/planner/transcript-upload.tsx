@@ -72,7 +72,7 @@ export function TranscriptUpload({
     if (catalog) return catalog;
     if (school?.id !== 'illinois') return [];
     const index = (await loadIllinoisIndex()) ?? [];
-    const lite = index.map((c) => ({ code: normalizeCourseCode(c.code), title: c.title, credits: c.credits, level: c.level, cluster: c.cluster, tags: c.tags }));
+    const lite = index.map((c) => ({ code: normalizeCourseCode(c.code), title: c.title, credits: c.credits, level: c.level, cluster: c.cluster, tags: c.tags, ...(c.repeat ? { repeat: c.repeat } : {}) }));
     setCatalog(lite);
     return lite;
   }

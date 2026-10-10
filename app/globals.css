@@ -1296,6 +1296,7 @@ p.requirement-unnamed {
 
 .course-required,
 .course-elective,
+.course-sitting,
 .course-check {
   display: inline-flex;
   align-items: center;

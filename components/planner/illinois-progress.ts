@@ -84,6 +84,9 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
     have.push(code);
   }
   const haveSet = new Set(have);
+  /** Sittings of each course on the board and on the record: a course taken more than once counts each time (repeats.ts). */
+  const sittingsOf = new Map<string, number>();
+  for (const code of [...prior, ...board]) sittingsOf.set(code, (sittingsOf.get(code) ?? 0) + 1);
   const creditsOf = (code: string): number | null => byCode.get(code)?.credits ?? null;
 
   /**
@@ -332,11 +335,14 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
         listed += 1;
         const hit = choiceHit(choice);
         const worth = choiceCredits(choice, hit);
-        needed += worth;
+        // A row asking for the course more than once (THEA 359 x 8 hours,
+        // four sittings) is worth every sitting, and each one on the board counts.
+        const times = choice.repeat?.sittings ?? 1;
+        needed += worth * times;
         if (hit !== null) {
           spend(spentMajor, hit);
           counted.push(hit);
-          earned += worth;
+          earned += worth * Math.min(times, sittingsOf.get(hit) ?? 1);
         }
       }
       sized.push({
