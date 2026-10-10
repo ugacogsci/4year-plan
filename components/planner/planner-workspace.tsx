@@ -182,6 +182,13 @@ import { ClubPicks } from './club-picks';
 import { clubStudentOf, type ClubStudent, type IllinoisClubsFile } from '@/lib/planner/clubs';
 import { loadIllinoisClubs } from '@/lib/planner/clubs-load';
 import { runFindClubs } from '@/lib/planner/clubs-tool';
+import { mayBookAgain } from '@/lib/planner/repeats';
+
+/** A term's courses less one sitting of a course: a course the catalog allows twice in one term (THEA 119) loses only the one the student moved or removed. */
+function withoutOne(ids: string[], id: string): string[] {
+  const at = ids.indexOf(id);
+  return at < 0 ? ids : [...ids.slice(0, at), ...ids.slice(at + 1)];
+}
 
 // MERGE-UGA: UGA keeps STORAGE_KEY and adds UNDECIDED_PROGRAM and openPlanThrough() here; Illinois deleted
 // STORAGE_KEY (boards now save through saved-board.ts v4). Keep UNDECIDED_PROGRAM and openPlanThrough
@@ -1834,7 +1841,9 @@ export function PlannerWorkspace({
     if (!plan) return;
     const course = courseIndex.get(courseId);
     if (!course) return;
-    if (plannedCourseIds.has(courseId) || plan.completedCourseIds.includes(courseId)) {
+    // A course the catalog lets a student repeat may go on again (THEA 359 for Stage Management's 8 hours).
+    const again = termId !== 'completed' && mayBookAgain(course, plan, courseId, termId);
+    if ((plannedCourseIds.has(courseId) || plan.completedCourseIds.includes(courseId)) && !again) {
       setStatus(`${course.code} is already in the plan.`);
       return;
     }
@@ -1958,7 +1967,7 @@ export function PlannerWorkspace({
       ...plan,
       terms: plan.terms.map((term) =>
         term.id === termId
-          ? { ...term, courseIds: term.courseIds.filter((id) => id !== courseId) }
+          ? { ...term, courseIds: withoutOne(term.courseIds, courseId) }
           : term,
       ),
     });
@@ -1975,7 +1984,7 @@ export function PlannerWorkspace({
       ...plan,
       terms: plan.terms.map((term) => {
         if (term.id === fromTermId) {
-          return { ...term, courseIds: term.courseIds.filter((id) => id !== courseId) };
+          return { ...term, courseIds: withoutOne(term.courseIds, courseId) };
         }
         if (term.id === toTermId) {
           return { ...term, courseIds: [...term.courseIds, courseId] };
@@ -2991,9 +3000,11 @@ export function PlannerWorkspace({
         const c = courseOf(str('code'));
         if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
         const already = holding(c.id);
-        if (already) return { ok: false, reason: `${c.code} is already on the board in ${already.label}.` };
-        if (board.completedCourseIds.includes(c.id)) return { ok: false, reason: `${c.code} is marked as already taken.` };
         const wanted = str('term') ? termOf(str('term')) : null;
+        // A course the catalog lets a student repeat may go on again, in a term the catalog allows (repeats.ts).
+        const again = wanted !== null && mayBookAgain(c, board, c.id, wanted.id);
+        if (already && !again) return { ok: false, reason: `${c.code} is already on the board in ${already.label}.` };
+        if (board.completedCourseIds.includes(c.id) && !again) return { ok: false, reason: `${c.code} is marked as already taken.` };
         if (str('term') && !wanted) return { ok: false, reason: `No term called "${str('term')}" is on the board. The terms are ${termList}.` };
         const refusals: string[] = [];
         for (const t of wanted ? [wanted] : board.terms) {

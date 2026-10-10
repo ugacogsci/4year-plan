@@ -1,6 +1,7 @@
 import type { GradeRow } from './scheduler';
 import type { ExcellentSummary } from './quality';
 import type { SemesterSeason } from './types';
+import type { RepeatRule } from './repeats';
 import type { AdmissionTable, LanguageTable } from './autoplan';
 import type {
   CoverageReport,
@@ -151,6 +152,8 @@ export interface IllinoisIndexRow {
   /** The other codes this same class is filed under. */
   twins?: string[];
   mapPosition?: { x: number; y: number };
+  /** The catalog's repeat rule (repeats.ts); absent when the course may not be repeated. */
+  repeat?: RepeatRule;
 }
 
 export interface IllinoisIndexCourse extends IllinoisCourse {
@@ -524,6 +527,7 @@ export function hydrateIndexRow(row: IllinoisIndexRow): IllinoisIndexCourse {
     ...(row.gradeFrom ? { gradeFrom: row.gradeFrom } : {}),
     ...(row.twins && row.twins.length > 0 ? { twins: row.twins } : {}),
     ...(row.mapPosition ? { mapPosition: row.mapPosition } : {}),
+    ...(row.repeat ? { repeat: row.repeat } : {}),
     detailLoaded: false,
   };
 }

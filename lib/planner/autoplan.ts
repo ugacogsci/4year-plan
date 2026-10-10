@@ -10,6 +10,7 @@ import type { Priorities } from './priorities';
 import { interestWordsFrom, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
 import { DEFAULT_PRIORITIES } from './priorities';
 import { PLANNED_AS_RELEASED } from './held-degrees';
+import type { RepeatAsk } from './repeats';
 import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInput } from './autoplan-release';
 
 /**
@@ -72,6 +73,8 @@ export interface PlanCourseChoice {
    * (6)" is ECON 102 and ECON 103, which the placer keeps in one year.
    */
   set?: string[];
+  /** A row asking for the course more than once (repeats.ts): THEA 359 x 8 hours is four 2-hour sittings. */
+  repeat?: RepeatAsk;
 }
 
 /** One named list inside a pool, so a constraint can point at it. */
@@ -15118,6 +15121,9 @@ export function validatePlan(
   }
 
   const seenCodes = new Map<string, string>();
+  /** How many sittings of each course the board holds so far, and the term of the last, for repeatable courses. */
+  const sittingsOf = new Map<string, number>();
+  const lastTermOf = new Map<string, string>();
   // Where each course on the board sits, so a prerequisite read with low
   // confidence can still be caught standing after the course that names it.
   const termOf = new Map<string, number>();
@@ -15379,7 +15385,17 @@ export function validatePlan(
       const code = normaliseCode(course.code);
 
       const previous = seenCodes.get(code);
-      if (previous) {
+      // A course the catalog lets a student repeat may sit in several terms
+      // (THEA 359 for Stage Management's 8 hours), and in one term only where
+      // the catalog says so; past the catalog's cap it is a duplicate again.
+      const sittings = (sittingsOf.get(code) ?? 0) + 1;
+      sittingsOf.set(code, sittings);
+      const hereAlready = lastTermOf.get(code) === term.id;
+      lastTermOf.set(code, term.id);
+      const repeatOk = course.repeat !== undefined
+        && (!hereAlready || course.repeat.sameTerm === true)
+        && (course.repeat.max === null || sittings * course.credits <= course.repeat.max + 0.01);
+      if (previous && !repeatOk) {
         issues.push({
           id: `ap-duplicate-${term.id}-${courseId}`,
           severity: 'warning',

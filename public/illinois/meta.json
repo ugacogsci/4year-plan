@@ -1,6 +1,6 @@
 {
   "school": "illinois",
-  "fetchedAt": "2026-10-06T09:30:23.203Z",
+  "fetchedAt": "2026-10-09T06:24:26.366Z",
   "sources": {
     "catalog": {
       "source": "catalog.illinois.edu/courses-of-instruction",
@@ -306,8 +306,8 @@
   ],
   "artifacts": {
     "index.json": {
-      "raw": 1205791,
-      "gzip": 202196
+      "raw": 1238020,
+      "gzip": 205765
     },
     "prereqs.json": {
       "raw": 1225923,
