@@ -1,4 +1,13 @@
 'use client';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { cn } from '@/lib/utils';
+import {
+  PRIORITY_LABELS,
+  PRIORITY_PRESETS,
+  presetOf,
+  type Priorities,
+  type PriorityPreset,
+} from '@/lib/planner/priorities';
 
 /**
  * The rail: who you are and how far along you are.
@@ -19,11 +28,35 @@ import { EmphasisPicker } from './emphasis-picker';
 import type { UgaSelectionRequirement } from './uga-source';
 import type { ProgramLevel } from '@/lib/planner/onboarding';
 
+const PRESET_ROWS: Array<[Exclude<PriorityPreset, 'custom'>, string]> = [
+  ['balanced', 'Balanced'],
+  ['lightest', 'Lightest'],
+  ['relevant', 'My interests'],
+  ['teaching', 'Best-rated teaching'],
+];
+const KNOBS = Object.keys(PRIORITY_LABELS) as Array<keyof typeof PRIORITY_LABELS>;
+const LEVELS: Array<[0 | 1 | 2, string]> = [
+  [0, 'skip'],
+  [1, 'counts'],
+  [2, 'most'],
+];
+
 export interface AreaRow {
   area: RequirementArea;
   earned: number;
   percent: number;
   satisfied: boolean;
+  /**
+   * Present on rows built per requirement rather than per page area: the size
+   * the catalog published for the row, in the unit it published it in. A
+   * category sized in courses stays in courses; nothing here converts.
+   */
+  needed?: number | null;
+  unit?: 'hr' | 'course' | 'semester';
+  /** What the count is made of, for the row's tooltip. */
+  note?: string;
+  /** The codes counted, so a caller can add the rail up. */
+  codes?: string[];
 }
 
 interface RailProps {
@@ -68,6 +101,11 @@ interface RailProps {
   onTargetChange: (value: number | null) => void;
   careerInterests: string;
   onCareerChange: (value: string) => void;
+  /** What makes a course a good pick for this student. Read by every choice the planner makes. */
+  priorities: Priorities;
+  onPrioritiesChange: (value: Priorities) => void;
+  /** Swap the planner's own picks for the best under the priorities, leaving required and student-added courses alone. */
+  onRepick: () => void;
   /** Plain sentences from the build and the scheduler about what is not known. */
   caveats: string[];
   /**
@@ -148,6 +186,9 @@ export function StudentProfilePanel({
   onTargetChange,
   careerInterests,
   onCareerChange,
+  priorities,
+  onPrioritiesChange,
+  onRepick,
   caveats,
   pools,
   transcript,
@@ -235,7 +276,7 @@ export function StudentProfilePanel({
                 <span className="requirement-index" aria-hidden="true">{index + 1}.</span>
                 <div>
                   <span title={heading ?? undefined}>{heading}</span>
-                  <span>{row.area.hours ? `${row.earned}/${row.area.hours} cr` : `${row.earned} cr`}</span>
+                  <span>{figureOf(row)}</span>
                 </div>
                 {row.area.hours > 0 && <Bar percent={row.percent} />}
               </div>
@@ -247,7 +288,7 @@ export function StudentProfilePanel({
                   <span className="requirement-unnamed" title="The catalog page prints this block with no heading.">
                     No heading published
                   </span>
-                  <span>{row.area.hours ? `${row.earned}/${row.area.hours} cr` : `${row.earned} cr`}</span>
+                  <span>{figureOf(row)}</span>
                 </div>
                 {row.area.hours > 0 && <Bar percent={row.percent} />}
               </div>
@@ -366,6 +407,83 @@ export function StudentProfilePanel({
         <p className="rail-field rail-helper">
           Used to rank elective suggestions after you press Rebuild.
         </p>
+
+        <div className="rail-priorities">
+          <span className="rail-priorities-head">What makes a class a good pick</span>
+          <fieldset className="rail-presets">
+            <legend className="sr-only">Priority presets</legend>
+            {PRESET_ROWS.map(([name, label]) => (
+              <button
+                key={name}
+                type="button"
+                className={cn('rail-preset', presetOf(priorities) === name && 'is-on')}
+                aria-pressed={presetOf(priorities) === name}
+                onClick={() =>
+                  onPrioritiesChange({
+                    ...PRIORITY_PRESETS[name],
+                    noEarly: priorities.noEarly,
+                    format: priorities.format,
+                  })
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </fieldset>
+          {KNOBS.map((knob) => (
+            <div key={knob} className="rail-knob">
+              <span>{PRIORITY_LABELS[knob]}</span>
+              <fieldset className="rail-knob-seg">
+                <legend className="sr-only">{PRIORITY_LABELS[knob]}</legend>
+                {LEVELS.map(([level, word]) => (
+                  <label key={level} className={cn(priorities[knob] === level && 'is-on')}>
+                    <input
+                      type="radio"
+                      name={`priority-${knob}`}
+                      value={level}
+                      className="sr-only"
+                      checked={priorities[knob] === level}
+                      onChange={() => onPrioritiesChange({ ...priorities, [knob]: level })}
+                    />
+                    {word}
+                  </label>
+                ))}
+              </fieldset>
+            </div>
+          ))}
+          <label className="rail-check">
+            <input
+              type="checkbox"
+              checked={priorities.noEarly}
+              onChange={(event) => onPrioritiesChange({ ...priorities, noEarly: event.target.checked })}
+            />
+            <span>Nothing before 9 a.m.</span>
+          </label>
+          <div className="rail-field">
+            <span>Format</span>
+            <NativeSelect
+              aria-label="Class format"
+              value={priorities.format}
+              onChange={(event) =>
+                onPrioritiesChange({ ...priorities, format: event.target.value as Priorities['format'] })
+              }
+            >
+              <NativeSelectOption value="any">Either</NativeSelectOption>
+              <NativeSelectOption value="in-person">In person</NativeSelectOption>
+              <NativeSelectOption value="online">Online</NativeSelectOption>
+            </NativeSelect>
+          </div>
+          <button type="button" className="rail-action" onClick={onRepick}>
+            Re-pick the planner&apos;s choices
+          </button>
+          <p className="rail-field rail-helper">
+            Required courses and your own additions stay in place.
+            {schoolShort === 'Illinois'
+              ? ' Workload and teaching estimates use Illinois grade history and Teachers Ranked as Excellent lists.'
+              : ' UGA workload and teaching ratings are not available in this catalog snapshot.'}
+            {' '}Missing ratings do not lower a course&apos;s rank.
+          </p>
+        </div>
       </details>
 
       <Popover>
@@ -416,6 +534,31 @@ export function StudentProfilePanel({
 function headingOf(area: RequirementArea): string | null {
   const label = String(area.label ?? '').trim();
   return label.length > 0 ? label : null;
+}
+
+/** The size a row is measured against: its own published number, else the page area's hours. */
+function targetOf(row: AreaRow): number {
+  if (row.needed !== undefined) return row.needed ?? 0;
+  return row.area.hours;
+}
+
+/**
+ * "4/4", "1/1 course", "2/3 semesters", or "12 hr" when the page gave no size.
+ *
+ * The unit is written out only where it is not hours, because hours are what
+ * every other number on this rail is in and "6/6 hr" nine times down a column
+ * is noise. A count of courses or semesters has to say so, or "1/1" under
+ * "Cultural Studies" reads as one hour.
+ */
+function figureOf(row: AreaRow): string {
+  const unit = row.unit ?? 'hr';
+  const target = targetOf(row);
+  if (!target) {
+    if (unit === 'hr') return `${row.earned} hr`;
+    return `${row.earned} ${unit}${row.earned === 1 ? '' : 's'}`;
+  }
+  if (unit === 'hr') return `${row.earned}/${target}`;
+  return `${row.earned}/${target} ${unit}${target === 1 ? '' : 's'}`;
 }
 
 /** "121" or "118 to 126" against the degree total, for the bar only. */

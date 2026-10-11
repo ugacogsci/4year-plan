@@ -69,15 +69,19 @@ export async function POST(req: Request) {
           // category rather than handed to the student as a dead end.
           betas: ['server-side-fallback-2026-07-01'],
           fallbacks: 'default',
-          // Adaptive thinking is on by default on this model. Medium effort:
-          // the tools carry the correctness, and a reply that takes a minute
-          // is not a conversation.
-          output_config: { effort: 'medium' },
+          // Adaptive thinking is on by default on this model. High effort,
+          // because the student asks this bot to weigh a schedule: which of
+          // two courses, whether a move breaks a chain, what a term costs
+          // them. The tools carry the facts; the reasoning over them is the
+          // job. Streaming keeps the wait honest.
+          output_config: { effort: 'high' },
           system: [
             { type: 'text', text: advisorSystem(bot, schoolName, schoolShort), cache_control: { type: 'ephemeral' } },
             { type: 'text', text: `The board right now:\n\n${board}` },
           ],
-          tools: ADVISOR_TOOLS,
+          tools: /illinois/i.test(schoolName)
+            ? ADVISOR_TOOLS
+            : ADVISOR_TOOLS.filter((tool) => new Set(["search_courses","course_details","term_summary","add_course","remove_course","replace_course","move_course","planner_answer","university_answer"]).has(tool.name)),
           messages,
         });
         for await (const event of run) {

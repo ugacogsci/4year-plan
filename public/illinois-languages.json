@@ -1,0 +1,905 @@
+{
+ "school": "illinois",
+ "source": "https://registrar.illinois.edu/courses-approved-for-language-requirements/",
+ "fetchedAt": "2026-09-23T02:56:35.907Z",
+ "languages": [
+  {
+   "name": "American Sign Language",
+   "levels": [
+    [
+     [
+      "SHS 121"
+     ]
+    ],
+    [
+     [
+      "SHS 221"
+     ]
+    ],
+    [
+     [
+      "SHS 321"
+     ]
+    ],
+    [
+     [
+      "SHS 222",
+      "SHS 321"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": "See the registrar's footnote for this row."
+  },
+  {
+   "name": "Arabic",
+   "levels": [
+    [
+     [
+      "ARAB 201"
+     ]
+    ],
+    [
+     [
+      "ARAB 202"
+     ]
+    ],
+    [
+     [
+      "ARAB 403"
+     ]
+    ],
+    [
+     [
+      "ARAB 404"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Bosnian-Croatian-Serbian",
+   "levels": [
+    [
+     [
+      "BCS 101"
+     ]
+    ],
+    [
+     [
+      "BCS 102"
+     ]
+    ],
+    [
+     [
+      "BCS 201"
+     ]
+    ],
+    [
+     [
+      "BCS 202"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Chinese (Mandarin)",
+   "levels": [
+    [
+     [
+      "CHIN 201"
+     ]
+    ],
+    [
+     [
+      "CHIN 202"
+     ]
+    ],
+    [
+     [
+      "CHIN 203"
+     ]
+    ],
+    [
+     [
+      "CHIN 204"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Chinese (students with background in spoken Mandarin)",
+   "levels": [
+    [
+     [
+      "CHIN 241"
+     ]
+    ],
+    [
+     [
+      "CHIN 241"
+     ]
+    ],
+    [
+     [
+      "CHIN 242"
+     ]
+    ],
+    [
+     [
+      "CHIN 242"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Czech",
+   "levels": [
+    [
+     [
+      "CZCH 101"
+     ]
+    ],
+    [
+     [
+      "CZCH 102"
+     ]
+    ],
+    [
+     [
+      "CZCH 201"
+     ]
+    ],
+    [
+     [
+      "CZCH 202"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "French",
+   "levels": [
+    [
+     [
+      "FR 101"
+     ]
+    ],
+    [
+     [
+      "FR 102"
+     ]
+    ],
+    [
+     [
+      "FR 203"
+     ],
+     [
+      "FR 133"
+     ]
+    ],
+    [
+     [
+      "FR 204"
+     ],
+     [
+      "FR 134"
+     ]
+    ]
+   ],
+   "renumbered": {
+    "FR 203": "FR 103",
+    "FR 204": "FR 104"
+   },
+   "note": null
+  },
+  {
+   "name": "German",
+   "levels": [
+    [
+     [
+      "GER 101"
+     ]
+    ],
+    [
+     [
+      "GER 102"
+     ]
+    ],
+    [
+     [
+      "GER 203"
+     ]
+    ],
+    [
+     [
+      "GER 204"
+     ]
+    ]
+   ],
+   "renumbered": {
+    "GER 203": "GER 103",
+    "GER 204": "GER 104"
+   },
+   "note": null
+  },
+  {
+   "name": "Greek (Classical and Koine)",
+   "levels": [
+    [
+     [
+      "GRK 101"
+     ]
+    ],
+    [
+     [
+      "GRK 102"
+     ]
+    ],
+    [
+     [
+      "GRK 201"
+     ]
+    ],
+    [
+     [
+      "GRK 202"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Greek (Modern)",
+   "levels": [
+    [
+     [
+      "GRKM 201"
+     ]
+    ],
+    [
+     [
+      "GRKM 202"
+     ]
+    ],
+    [
+     [
+      "GRKM 403"
+     ]
+    ],
+    [
+     [
+      "GRKM 404"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Hebrew (Modern)",
+   "levels": [
+    [
+     [
+      "HEBR 201"
+     ]
+    ],
+    [
+     [
+      "HEBR 202"
+     ]
+    ],
+    [
+     [
+      "HEBR 403"
+     ]
+    ],
+    [
+     [
+      "HEBR 404"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Hindi/Urdu",
+   "levels": [
+    [
+     [
+      "HNDI 201"
+     ]
+    ],
+    [
+     [
+      "HNDI 202"
+     ]
+    ],
+    [
+     [
+      "HNDI 403"
+     ]
+    ],
+    [
+     [
+      "HNDI 404"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Italian",
+   "levels": [
+    [
+     [
+      "ITAL 101"
+     ]
+    ],
+    [
+     [
+      "ITAL 102"
+     ]
+    ],
+    [
+     [
+      "ITAL 203"
+     ]
+    ],
+    [
+     [
+      "ITAL 204"
+     ]
+    ]
+   ],
+   "renumbered": {
+    "ITAL 203": "ITAL 103",
+    "ITAL 204": "ITAL 104"
+   },
+   "note": null
+  },
+  {
+   "name": "Japanese",
+   "levels": [
+    [
+     [
+      "JAPN 201"
+     ]
+    ],
+    [
+     [
+      "JAPN 202"
+     ]
+    ],
+    [
+     [
+      "JAPN 203"
+     ]
+    ],
+    [
+     [
+      "JAPN 204"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Korean",
+   "levels": [
+    [
+     [
+      "KOR 201"
+     ]
+    ],
+    [
+     [
+      "KOR 202"
+     ]
+    ],
+    [
+     [
+      "KOR 203"
+     ]
+    ],
+    [
+     [
+      "KOR 204"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Korean (students with background in spoken Korean)",
+   "levels": [
+    [
+     [
+      "KOR 221"
+     ]
+    ],
+    [
+     [
+      "KOR 222"
+     ]
+    ],
+    [
+     [
+      "KOR 241"
+     ]
+    ],
+    [
+     [
+      "KOR 242"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Latin",
+   "levels": [
+    [
+     [
+      "LAT 101"
+     ]
+    ],
+    [
+     [
+      "LAT 102"
+     ]
+    ],
+    [
+     [
+      "LAT 201"
+     ]
+    ],
+    [
+     [
+      "LAT 202"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Latin American Language Tutorials",
+   "levels": [
+    [
+     [
+      "LAST 445"
+     ]
+    ],
+    [
+     [
+      "LAST 445"
+     ]
+    ],
+    [
+     [
+      "LAST 445"
+     ]
+    ],
+    [
+     [
+      "LAST 445"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": "See the registrar's footnote for this row."
+  },
+  {
+   "name": "Persian",
+   "levels": [
+    [
+     [
+      "PERS 201"
+     ]
+    ],
+    [
+     [
+      "PERS 202"
+     ]
+    ],
+    [
+     [
+      "PERS 403"
+     ]
+    ],
+    [
+     [
+      "PERS 404"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Polish",
+   "levels": [
+    [
+     [
+      "POL 101"
+     ]
+    ],
+    [
+     [
+      "POL 102"
+     ]
+    ],
+    [
+     [
+      "POL 201"
+     ]
+    ],
+    [
+     [
+      "POL 202"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Portuguese",
+   "levels": [
+    [
+     [
+      "PORT 400"
+     ]
+    ],
+    [
+     [
+      "PORT 400"
+     ]
+    ],
+    [
+     [
+      "PORT 401"
+     ]
+    ],
+    [
+     [
+      "PORT 402"
+     ],
+     [
+      "PORT 403"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Quechua",
+   "levels": [
+    [
+     [
+      "QUEC 410"
+     ]
+    ],
+    [
+     [
+      "QUEC 411"
+     ]
+    ],
+    [
+     [
+      "QUEC 420"
+     ]
+    ],
+    [
+     [
+      "QUEC 421"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Russian",
+   "levels": [
+    [
+     [
+      "RUSS 101"
+     ]
+    ],
+    [
+     [
+      "RUSS 102"
+     ]
+    ],
+    [
+     [
+      "RUSS 201"
+     ]
+    ],
+    [
+     [
+      "RUSS 202"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Sanskrit",
+   "levels": [
+    [
+     [
+      "SNSK 201"
+     ]
+    ],
+    [
+     [
+      "SNSK 202"
+     ]
+    ],
+    [
+     [
+      "SNSK 403"
+     ]
+    ],
+    [
+     [
+      "SNSK 404"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Scandinavian",
+   "levels": [
+    [
+     [
+      "SCAN 101"
+     ]
+    ],
+    [
+     [
+      "SCAN 102"
+     ]
+    ],
+    [
+     [
+      "SCAN 203"
+     ]
+    ],
+    [
+     [
+      "SCAN 204"
+     ]
+    ]
+   ],
+   "renumbered": {
+    "SCAN 203": "SCAN 103",
+    "SCAN 204": "SCAN 104"
+   },
+   "note": null
+  },
+  {
+   "name": "Spanish",
+   "levels": [
+    [
+     [
+      "SPAN 122"
+     ],
+     [
+      "SPAN 101"
+     ]
+    ],
+    [
+     [
+      "SPAN 122"
+     ],
+     [
+      "SPAN 102"
+     ]
+    ],
+    [
+     [
+      "SPAN 201"
+     ]
+    ],
+    [
+     [
+      "SPAN 203"
+     ],
+     [
+      "SPAN 205"
+     ]
+    ]
+   ],
+   "renumbered": {
+    "SPAN 201": "SPAN 130",
+    "SPAN 203": "SPAN 141",
+    "SPAN 205": "SPAN 142"
+   },
+   "note": null
+  },
+  {
+   "name": "Swahili",
+   "levels": [
+    [
+     [
+      "SWAH 201"
+     ]
+    ],
+    [
+     [
+      "SWAH 202"
+     ]
+    ],
+    [
+     [
+      "SWAH 403"
+     ]
+    ],
+    [
+     [
+      "SWAH 404"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Turkish",
+   "levels": [
+    [
+     [
+      "TURK 201"
+     ]
+    ],
+    [
+     [
+      "TURK 202"
+     ]
+    ],
+    [
+     [
+      "TURK 403"
+     ]
+    ],
+    [
+     [
+      "TURK 404"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Ukrainian",
+   "levels": [
+    [
+     [
+      "URK 101"
+     ]
+    ],
+    [
+     [
+      "URK 102"
+     ]
+    ],
+    [
+     [
+      "URK 201"
+     ]
+    ],
+    [
+     [
+      "URK 202"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Wolof",
+   "levels": [
+    [
+     [
+      "WLOF 201"
+     ]
+    ],
+    [
+     [
+      "WLOF 202"
+     ]
+    ],
+    [
+     [
+      "WLOF 403"
+     ]
+    ],
+    [
+     [
+      "WLOF 404"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  },
+  {
+   "name": "Yiddish",
+   "levels": [
+    [
+     [
+      "YDSH 101"
+     ]
+    ],
+    [
+     [
+      "YDSH 102"
+     ]
+    ],
+    [
+     [
+      "YDSH 203"
+     ]
+    ],
+    []
+   ],
+   "renumbered": {
+    "YDSH 203": "YDSH 103"
+   },
+   "note": null
+  },
+  {
+   "name": "Zulu",
+   "levels": [
+    [
+     [
+      "ZULU 201"
+     ]
+    ],
+    [
+     [
+      "ZULU 202"
+     ]
+    ],
+    [
+     [
+      "ZULU 403"
+     ]
+    ],
+    [
+     [
+      "ZULU 404"
+     ]
+    ]
+   ],
+   "renumbered": {},
+   "note": null
+  }
+ ],
+ "footnotes": []
+}

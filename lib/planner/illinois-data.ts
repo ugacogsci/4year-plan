@@ -14,6 +14,7 @@ import type {
   RequirementRow,
 } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
+import { registrationFits } from './meeting-fit.ts';
 
 /**
  * Real Illinois data, adapted into the planner's shapes.
@@ -274,7 +275,7 @@ export interface PrereqGroup {
   /** "credit or concurrent registration in ...", so the same term is allowed. */
   concurrent: boolean;
   confidence: 'high' | 'low';
-  shape: 'single' | 'or' | 'one-of' | 'bare-comma' | 'paren-sequence';
+  shape: 'single' | 'or' | 'one-of' | 'bare-comma' | 'paren-sequence' | 'or-of-and';
   /** The clause this group came from, verbatim, so an error can quote it. */
   source: string;
   /**
@@ -432,6 +433,40 @@ export interface SectionSummary {
   /** Sections whose location or day cell held several meetings concatenated. */
   multiMeeting: number;
   onlineOnly: boolean;
+  /**
+   * Every distinct weekly timetable a student could be handed, by section type.
+   *
+   * Keyed by the type as the crawl names it ("Lecture", "Discussion/Recitation",
+   * "Lecture-Discussion", and combined types such as "Discussion/Recitation,
+   * Laboratory" kept whole, because that is one section with two meetings, not
+   * two things to register for). The one change to the name is that dates the
+   * scraper glued on are taken off; see sectionTypeKey. Each value is the
+   * distinct list of section signatures, sorted as plain strings so a rebuild
+   * writes the same bytes, which puts "MW@1020-1095" before "MW@840-915": read
+   * the numbers, not the order. See sectionSignature for the format. CHEM
+   * 101's 42 discussion-and-lab rows are one type whose entries read like
+   * "F@480-530;M@1080-1190": an 8 a.m. Friday discussion and a 6 p.m. Monday lab.
+   *
+   * earliest and latest cannot answer "no classes before 9". RHET 105 has three
+   * 8 a.m. sections out of 94, so its earliest is 8:00AM, and a planner reading
+   * that would drop a course 91 of whose sections start at 9 or later. This
+   * keeps every option so the question can be asked of the options.
+   *
+   * Empty when the course has no sections, or when the crawl gave no way to
+   * read a section's meetings; both mean unknown, and registrationFits returns
+   * null for them.
+   */
+  meet: Record<string, string[]>;
+  /**
+   * True when "no classes before 9" can be honoured: one way of taking the
+   * course, in person or online, has in every section type on it a section
+   * whose meetings all start at 9:00 or later, or are arranged. False when
+   * neither does, and also false when meet is empty, because a course we
+   * cannot read is not a course we can promise anything about. Exactly
+   * registrationFits(meet, { notBefore: 540 }) === true, the rule the scorer
+   * and ALMA's course details use too.
+   */
+  lateOption: boolean;
 }
 
 export interface CoverageReport {
@@ -549,14 +584,28 @@ export type RequirementRule =
        */
       from: 'group' | 'area';
       label: string;
+      /**
+       * Rows the page joins with "OR" and nothing else (joinedByOr), which
+       * a930f09 read as courses to take, every one of them. generatePlan
+       * builds a930f09's reading beside this one, for its gate.
+       */
+      joinedByOr?: boolean;
     }
   | {
       kind: 'hours';
+      source?: 'catalog' | 'explicit-elective' | 'parser-gap';
       hours: number;
       genEd: string[] | null;
       label: string;
-      /** Why there is an hours-only block, so the UI does not call missing parser data an elective. */
-      source?: 'catalog' | 'explicit-elective' | 'parser-gap';
+      /**
+       * The lowest course level the page's own words allow, or null when they
+       * state none. "Advanced Electives ... the 400-level coursework offered
+       * for letter grade in ANY area" is six hours that a 100-level course
+       * cannot fill, and without this the plan filled them with one.
+       */
+      minLevel?: number | null;
+      /** Codes the page rules out: "Exceptions to the list are: ASTR 100, PHYS 101 and PHYS 102, and CHEM 101." */
+      exclude?: string[];
     }
   /**
    * One campus general education category, as the degree page states it.
@@ -594,7 +643,30 @@ export type RequirementRule =
       text: string;
       label: string;
     }
-  | { kind: 'unparsed'; text: string };
+  | { kind: 'unparsed'; text: string }
+  /**
+   * "Completion of the third semester or equivalent of a language other than
+   * English is required." Which language, and how many semesters are left,
+   * depend on the student, so the adapter records the level and the engine
+   * turns it into courses once it knows them.
+   */
+  | { kind: 'language'; semesters: 3 | 4; text: string };
+
+/**
+ * Split the language requirement out of a general education note.
+ *
+ * Returns the sentence about the language requirement, with the level it
+ * asks for, and the note with that sentence removed. Null language when the
+ * note has none.
+ */
+export function splitLanguageRequirement(text: string): { language: { semesters: 3 | 4; text: string } | null; rest: string } {
+  const m = text.match(/(?:Language Requirement\s*\([^)]*\)|[^.;()]*language other than English[^.;)]*[.)]?)/i);
+  if (!m || !/language other than english/i.test(m[0])) return { language: null, rest: text };
+  const sentence = m[0].trim();
+  const semesters: 3 | 4 = /fourth[- ]semester|fourth semester|4th semester/i.test(sentence) ? 4 : 3;
+  const rest = text.replace(m[0], ' ').replace(/\s+/g, ' ').replace(/\(\s*\)/g, '').trim();
+  return { language: { semesters, text: sentence }, rest };
+}
 
 export interface CourseChoice {
   codes: string[];
@@ -608,6 +680,20 @@ export interface CourseChoice {
    * who holds one has met the row, and the bar counts it.
    */
   substitutes: string[];
+  /**
+   * Several courses taken together, and the page's choice between such sets.
+   *
+   * The catalog prints "CHEM 102 & CHEM 103 & CHEM 104 & CHEM 105" as one
+   * row, and Molecular & Cellular Biology offers it or the accelerated
+   * CHEM 202 set under "Select one group of courses", then PHYS 101 & 102 or
+   * PHYS 211 & 212 & 213 & 214 the same way. The crawl keeps the first code of
+   * each row and runs the titles together, so the degree read as CHEM 102 and
+   * CHEM 202 and PHYS 101 and PHYS 211, both halves of two choices, with the
+   * labs and second semesters gone. Each inner array is one set, in the
+   * page's order. `codes` still holds the first course of each set, so a
+   * reader that knows nothing of sets sees the alternatives.
+   */
+  bundles?: string[][];
 }
 
 export interface RequirementBlock {
@@ -1312,6 +1398,29 @@ export function parsePrerequisites(
     }
   }
 
+  /**
+   * One pair of courses OR another: "Completion of CHEM 104 with a B- or
+   * higher, or completion of CHEM 204, or completion of CHEM 222 and CHEM
+   * 223"; "FSHN 220; or FSHN 120 and FSHN 414"; "CHEM 102 and CHEM 104, OR
+   * CHEM 202 and CHEM 204". Groups of alternatives cannot say "this pair or
+   * that one", and read as groups they demanded every course named: CHEM 223
+   * of a student holding CHEM 104, CHEM 204 of one taking general chemistry.
+   * The courses named are right, so the groups stay, at low confidence: the
+   * plan orders around the ones it books and warns, and never demands the
+   * rest. "GWS 100 or GWS 250 and GWS 350 or GWS 370" has no pair on either
+   * side of an "or" and keeps its reading.
+   */
+  const PAIR = String.raw`[A-Z]{2,4}\s?\d{3}\s+and\s+(?:completion of\s+)?[A-Z]{2,4}\s?\d{3}`;
+  const orOfAnd =
+    new RegExp(`${PAIR}[^;.]*?\\bor\\b\\s+(?:completion of\\s+|credit in\\s+)?${PAIR}`, 'i').test(text) ||
+    new RegExp(`[;,]\\s*or\\s+(?:completion of\\s+|credit in\\s+)?${PAIR}`, 'i').test(text);
+  if (orOfAnd && groups.length > 1) {
+    for (const g of groups) {
+      g.confidence = 'low';
+      g.shape = 'or-of-and';
+    }
+  }
+
   // Identical groups with the same concurrency flag are a repeat of the same
   // requirement, not two of them. ACCY 201's pair survives this because one is
   // concurrent and the other is not, which is exactly the distinction that
@@ -1340,6 +1449,33 @@ export function parsePrerequisites(
 }
 
 /**
+ * normCode, remembered: the planner's placer and moves ask the matcher below
+ * about the same few thousand codes hundreds of thousands of times a rebuild.
+ * Cleared past fifty thousand, so text that is not a code cannot grow it
+ * without end.
+ */
+const foldedCodes = new Map<string, string>();
+function normCodeOf(code: string): string {
+  const known = foldedCodes.get(code);
+  if (known !== undefined) return known;
+  const out = normCode(code);
+  if (foldedCodes.size >= 50000) foldedCodes.clear();
+  foldedCodes.set(code, out);
+  return out;
+}
+
+/**
+ * `codes` with every code folded by normCode, or `codes` itself when none
+ * needs folding, which is what the planner passes (autoplan.ts normaliseCode
+ * folds the same way): copying the set on every ask was a twentieth of a
+ * pre-med Chemistry freshman's rebuild. The matcher only reads it.
+ */
+function folded(codes: Set<string>): Set<string> {
+  for (const code of codes) if (normCodeOf(code) !== code) return new Set([...codes].map(normCodeOf));
+  return codes;
+}
+
+/**
  * Which prerequisite groups a plan does not satisfy.
  *
  * This is a maximum bipartite matching, not a per-group `.some()`. ACCY 201
@@ -1363,15 +1499,15 @@ export function missingPrerequisiteGroups(
 ): { missing: PrereqGroup[]; uncertain: PrereqGroup[]; priorLearning: PrereqGroup[] } {
   if (!spec || spec.groups.length === 0) return { missing: [], uncertain: [], priorLearning: [] };
 
-  const earlierN = new Set([...earlier].map(normCode));
-  const sameTermN = new Set([...sameTerm].map(normCode));
+  const earlierN = folded(earlier);
+  const sameTermN = folded(sameTerm);
 
   // Candidate courses per group, expanded through cross-listings so LLS 200
   // satisfies a requirement the catalog wrote as AAS 200.
   const candidates: string[][] = spec.groups.map((group) => {
     const pool = new Set<string>();
     for (const code of group.any) {
-      const c = normCode(code);
+      const c = normCodeOf(code);
       for (const alias of [c, ...(equivalents.get(c) ?? [])]) {
         if (earlierN.has(alias)) pool.add(alias);
         else if (group.concurrent && sameTermN.has(alias)) pool.add(alias);
@@ -1718,6 +1854,120 @@ function dominantValue(values: Array<string | null>, total: number): string | nu
   return bestCount / total >= SUPERMAJORITY ? best : null;
 }
 
+/**
+ * One meeting of one section, as the crawl's meetings[] array holds it.
+ *
+ * RawSection does not declare meetings[] because the section cells it does
+ * declare came first, and those cells hold at most one meeting: CHEM 101 ADA
+ * meets Friday at 8 in Noyes and Monday at 6 in the Chemistry Annex, and the
+ * top-level days/start/end name only the Friday. Every one of the 12,832 Fall
+ * 2026 rows carries meetings[], so this narrow type reads it without claiming
+ * an older crawl had it too.
+ */
+interface RawMeeting {
+  days: string | null;
+  start: string | null;
+  end: string | null;
+}
+
+/** 9:00 a.m. in minutes since midnight, the line "no classes before 9" draws. */
+export const LATE_START_MINUTES = 540;
+
+/** The day letters the crawl uses. R is Thursday, S Saturday, U Sunday. */
+const MEETING_DAY = /[MTWRFSU]/g;
+
+/**
+ * A date the scraper glued onto a type name, "Lecture-Discussion08/29/26" or
+ * "Online08/24/26-12/09/26". Global, so only ever used with replace().
+ */
+const DATED_TYPE_SUFFIX = /\d{2}\/\d{2}\/\d{2}(?:-\d{2}\/\d{2}\/\d{2})?/g;
+
+/**
+ * The type a section is registered under, with scraper dates taken off.
+ *
+ * Combined types stay combined: "Discussion/Recitation, Laboratory" is one
+ * CHEM 101 row a student signs up for once. What does not stay is a date the
+ * scraper fused onto each part. 27 rows read like "Lecture-Discussion09/19/26,
+ * Lecture-Discussion09/19/26-11/27/26", and kept verbatim each would become a
+ * type of its own, so registrationFits would demand a fitting section of a
+ * "type" that has exactly one member. That row is a Lecture-Discussion.
+ */
+function sectionTypeKey(type: string | null): string {
+  const parts: string[] = [];
+  for (const raw of (type ?? '').replace(DATED_TYPE_SUFFIX, '').split(',')) {
+    const part = raw.trim();
+    if (part && !parts.includes(part)) parts.push(part);
+  }
+  return parts.join(', ') || 'Unlisted';
+}
+
+/**
+ * The meetings of one section, or null when there is no trustworthy way to
+ * know them.
+ *
+ * meetings[] is the source. An empty one (2,609 rows, mostly Independent
+ * Study, Online and Internship) means the section has no time, and the
+ * top-level cell is empty on every such row too, so it is read as that single
+ * untimed cell. A crawl from before meetings[] existed falls back to the
+ * top-level cell as well, but only when that cell is one clean meeting: "TR R"
+ * is two meetings run together and splitting it would be a guess.
+ */
+function meetingsOf(section: RawSection): RawMeeting[] | null {
+  const listed = (section as RawSection & { meetings?: RawMeeting[] }).meetings;
+  if (Array.isArray(listed) && listed.length > 0) return listed;
+  const days = (section.days ?? '').trim();
+  if (days && days !== 'n.a.' && !/^[MTWRFSU]+$/.test(days)) return null;
+  return [{ days: section.days, start: section.start, end: section.end }];
+}
+
+/**
+ * One section's weekly timetable as a short string, the unit meet is built of.
+ *
+ * Each timed meeting is "DAYS@start-end" in minutes since midnight, meetings
+ * joined by ";" in start order: CHEM 101 BDB is "F@660-710;M@960-1070", eleven
+ * on Friday and four on Monday. A meeting with no clock time is "ARR". That
+ * covers the 2,609 rows with no meeting at all and also the ones that list
+ * days without a time: 59 Practice rows say "MTWRF" with no hour, and CHIN
+ * 201's online half says "TR" with no hour. Neither is a room the student must
+ * be in at a given time, so neither is a meeting a time window can exclude.
+ * A section with nothing but untimed meetings is just "ARR".
+ *
+ * Days are kept only as the crawl's letters. The one row with a time and no
+ * days (ME 297, 1:00PM) comes out as "@780-830": its hour still counts against
+ * "no classes before 9", and it blocks no free day because it names none.
+ */
+function sectionSignature(section: RawSection): string | null {
+  const meetings = meetingsOf(section);
+  if (!meetings) return null;
+  const timed: Array<{ days: string; start: number; end: number }> = [];
+  let arranged = false;
+  for (const m of meetings) {
+    const start = minutesOfDay(m.start);
+    const end = minutesOfDay(m.end);
+    if (start === null || end === null) {
+      arranged = true;
+      continue;
+    }
+    timed.push({ days: ((m.days ?? '').match(MEETING_DAY) ?? []).join(''), start, end });
+  }
+  if (timed.length === 0) return 'ARR';
+  timed.sort((a, b) => a.start - b.start || a.end - b.end || a.days.localeCompare(b.days));
+  const tokens: string[] = [];
+  for (const t of timed) {
+    const token = `${t.days}@${t.start}-${t.end}`;
+    if (!tokens.includes(token)) tokens.push(token);
+  }
+  if (arranged) tokens.push('ARR');
+  return tokens.join(';');
+}
+
+/**
+ * Whether a registration fits a time window lives in meeting-fit.ts, so the
+ * planner's scorer, ALMA's course details and lateOption below read one rule.
+ */
+export { registrationFits };
+export type { MeetingWindow } from './meeting-fit.ts';
+
 export function summariseSections(
   course: RawSectionCourse,
   term: { id: string; label: string },
@@ -1729,6 +1979,8 @@ export function summariseSections(
   const instructorCounts = new Map<string, number>();
   const restrictions: string[] = [];
   const restrictionSeen = new Set<string>();
+  const signaturesByType = new Map<string, Set<string>>();
+  let meetingsUnreadable = false;
 
   let located = 0;
   let multiMeeting = 0;
@@ -1782,6 +2034,16 @@ export function summariseSections(
 
     if (/^Online/i.test(s.type ?? '')) onlineSections += 1;
 
+    const signature = sectionSignature(s);
+    if (signature === null) {
+      meetingsUnreadable = true;
+    } else {
+      const typeKey = sectionTypeKey(s.type);
+      const seen = signaturesByType.get(typeKey);
+      if (seen) seen.add(signature);
+      else signaturesByType.set(typeKey, new Set([signature]));
+    }
+
     const startMin = minutesOfDay(s.start);
     if (startMin !== null && (earliestMin === null || startMin < earliestMin)) {
       earliestMin = startMin;
@@ -1819,6 +2081,22 @@ export function summariseSections(
     }))
     .sort((a, b) => b.count - a.count || a.pattern.localeCompare(b.pattern));
 
+  /**
+   * One unreadable section empties the whole map rather than leaving a gap.
+   * Dropping one option of several only hides a way to fit, but dropping the
+   * only section of a type deletes that type's demand outright: were HK 340's
+   * one lecture (TR 8:00) unreadable, meet would hold nothing but its labs and
+   * lateOption would promise a morning-free schedule the course cannot give.
+   * Sorted keys and sorted values so a rebuild over the same crawl writes the
+   * same bytes.
+   */
+  const meet: Record<string, string[]> = {};
+  if (!meetingsUnreadable) {
+    for (const type of [...signaturesByType.keys()].sort()) {
+      meet[type] = [...(signaturesByType.get(type) ?? [])].sort();
+    }
+  }
+
   return {
     code: course.code,
     termId: term.id,
@@ -1839,6 +2117,8 @@ export function summariseSections(
     restrictions,
     multiMeeting,
     onlineOnly: sections.length > 0 && onlineSections === sections.length,
+    meet,
+    lateOption: registrationFits(meet, { notBefore: LATE_START_MINUTES }) === true,
   };
 }
 
@@ -2010,6 +2290,91 @@ export function genEdForLabel(label: string): string[] | null {
 }
 
 /**
+ * The category a block's comment names when its label does not.
+ *
+ * Computer Science prints "One Science elective course" and says underneath
+ * that it must come "from the Natural Science & Technology (NST) list";
+ * Landscape Architecture prints "Physical Science" over "Any Natural Science &
+ * Technology: Physical Sciences general education course". The label maps to
+ * nothing and the comment says exactly which courses count. Read for the
+ * three categories the catalog tags courses with and never for Cultural
+ * Studies, which is also the name of a major's own area on two pages. A
+ * comment naming two categories is left alone: it is describing a table, not
+ * this row.
+ */
+export function genEdInNote(note: string): string[] | null {
+  const text = note.replace(/\s+/g, ' ');
+  const hits: string[][] = [];
+  const nst = text.match(/natural sciences? (?:&|and) technology(?::\s*(physical|life) sciences?)?/i);
+  if (nst) {
+    hits.push(
+      nst[1]
+        ? [nst[1].toLowerCase() === 'physical' ? 'Nat Sci & Tech - Phys Sciences' : 'Nat Sci & Tech - Life Sciences']
+        : GENED_MAP['natural sciences & technology'],
+    );
+  }
+  if (/humanities (?:&|and) the arts/i.test(text)) hits.push(GENED_MAP['humanities & the arts']);
+  if (/social (?:&|and) behavioral sciences?/i.test(text)) hits.push(GENED_MAP['social & behavioral sciences']);
+  if (/quantitative reasoning/i.test(text)) hits.push(GENED_MAP['quantitative reasoning']);
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/**
+ * The lowest level the page's words allow for a block that names no courses.
+ *
+ * The label first: "Additional 300-/400- upper division courses" is a floor of
+ * 300, "6 courses at the 200-400 level" one of 200. A label that only says
+ * "Advanced" is read with its comment, which is where Computer Science says
+ * "the 400-level coursework offered for letter grade in ANY area"; "advanced"
+ * with nothing more specific is 300, the level Illinois numbers its
+ * upper-division courses from. A comment is read the way levelRuleIn reads
+ * one: an aside in parentheses is stripped, and a sentence that caps what
+ * counts ("will not receive credit for any other 100-level ASTR course") is
+ * not a sentence about what is required.
+ */
+export function levelFloorIn(label: string, note: string): number | null {
+  const fromLabel = lowestLevelIn(label);
+  if (fromLabel !== null) return fromLabel;
+  const fromNote = lowestLevelIn(note);
+  if (/\badvanced\b|\bupper[- ]division\b/i.test(label)) return fromNote ?? 300;
+  return fromNote;
+}
+
+function lowestLevelIn(text: string): number | null {
+  const clean = (text ?? '')
+    .replace(/\s+/g, ' ')
+    .replace(/\(([^()]{13,})\)/g, ' ')
+    .trim();
+  if (!clean) return null;
+  for (const raw of clean.split(/(?<=\.)\s+/)) {
+    if (CAP_SENTENCE.test(raw)) continue;
+    const sentence = raw.replace(/\([^()]{13,}$/, ' ');
+    if (sentence.search(LEVEL_SENTENCE) < 0) continue;
+    const range = sentence.match(/\b([1-4])00\s*-?\s*(?:to|through|-)\s*-?\s*([1-4])00\b/i);
+    if (range) return Number(range[1]) * 100;
+    const levels = [...sentence.matchAll(/\b([1-4])00\b/g)].map((m) => Number(m[1]) * 100);
+    if (levels.length > 0) return Math.min(...levels);
+  }
+  return null;
+}
+
+/**
+ * Codes a comment rules out of a block: "Exceptions to the list are: ASTR
+ * 100, PHYS 101 and PHYS 102, and CHEM 101." Read from the exception phrase
+ * to the end of its sentence, so a code the comment names for another reason
+ * two sentences on is not an exception.
+ */
+export function exceptionsIn(note: string): string[] {
+  const text = (note ?? '').replace(/\s+/g, ' ');
+  const at = text.search(/\b(?:exceptions? (?:to (?:the|this) list )?(?:are|is|:)|except(?:ing)?|excluding|other than|not including)\b/i);
+  if (at < 0) return [];
+  const sentence = text.slice(at).split(/(?<=\.)\s+/)[0];
+  const out = new Set<string>();
+  for (const m of sentence.matchAll(/\b([A-Z]{2,4})\s?(\d{3})\b/g)) out.add(`${m[1]} ${m[2]}`);
+  return [...out];
+}
+
+/**
  * One spelling for a category that Illinois writes several ways.
  *
  * The same requirement is printed as "Humanities & the Arts" on one degree page
@@ -2107,14 +2472,17 @@ export interface GenEdCategoryRule {
 /**
  * Spellings the ampersand rule below does not reach, counted off the corpus.
  *
- * 17 pages write "U.S. Minority", one writes "U.S. Minorities", and three write
- * "Social & Behavior Sciences". Each of those is a real degree whose gen-ed
- * table would otherwise be read one category short.
+ * 17 pages write "U.S. Minority", one writes "U.S. Minorities", ten (Applied
+ * Health Sciences) write "US Minority Culture", and three write "Social &
+ * Behavior Sciences". Each of those is a real degree whose gen-ed table would
+ * otherwise be read one category short: a Kinesiology plan had no US Minority
+ * Cultures course in it at all.
  */
 const GENED_ALIASES: Record<string, string[]> = {
   'cultural studies: us minority cultures': [
     'cultural studies: u.s. minority cultures',
     'cultural studies: u.s. minorities cultures',
+    'cultural studies: us minority culture',
   ],
   'social & behavioral sciences': ['social & behavior sciences'],
 };
@@ -2381,6 +2749,57 @@ const TOTAL_ROW = /^(?:minimum\s+)?total\b/i;
 const DEGREE_TOTAL_ROW = /\b(?:to graduate|curriculum|for graduation|for (?:the )?degree|degree hours)\b/i;
 
 /**
+ * A total row this large is the degree's, whatever its label says.
+ *
+ * 114 degree pages end a table with a plain "Total Hours" row that is the whole
+ * degree: Animal Sciences prints "Total Hours 126" in a table of its own, and
+ * the three Community Health concentrations print "Total Hours 128" as the last
+ * row of their summary table. Read as that area's subtotal, it left every other
+ * area of the degree with no room at all, so the one test that turns an
+ * oversized table into a list to choose from never ran on those degrees: the
+ * Companion Animal and Equine Science core, 65 ANSC courses and 153 hours under
+ * "Choose one group ... Select two ... Select two", was booked whole, and the
+ * plan ran 17 and 18 credits a term to 142 with 30 courses still unplaced. The
+ * ask bar's degree progress also told the student a part of the page "carries
+ * no heading" and stood at 0 of 126 hours.
+ *
+ * 100 is the floor programs.mjs already uses for a graduation total. No area of
+ * any crawled degree comes near it: the largest area total is 83 hours
+ * (Neuroscience's major requirements), the largest subtotal row is in the 60s,
+ * every degree is at least 120, and every "Total Hours" row of 100 or more
+ * equals the total its degree publishes.
+ */
+const DEGREE_SIZED_TOTAL = 100;
+
+function isDegreeTotalRow(label: string, hours: number | null | undefined): boolean {
+  return DEGREE_TOTAL_ROW.test(label) || (hours !== null && hours !== undefined && hours >= DEGREE_SIZED_TOTAL);
+}
+
+/**
+ * The degree's total, from the crawl's own reading or, failing that, from the
+ * total row of the degree's own table.
+ *
+ * programs.mjs looks for a sentence ("Total Hours of Curriculum to Graduate",
+ * "Minimum hours required for graduation: 126 hours", "Total hours for all
+ * requirements", "120 hours required for graduation"). The Community Health
+ * pages say it only in their table, as "Total Hours 128", so all three
+ * concentrations arrived with no total: the plan aimed at a guessed 120 and had
+ * nothing to measure a list of 76 correlate courses against. Six degrees read
+ * their total this way; the other three are the two Early Childhood tracks
+ * (120) and Ecosystem Stewardship (126).
+ */
+export function degreeTotalOf(program: { areas?: RawProgramArea[]; totalCredits?: number | null }): number | null {
+  if (program.totalCredits !== null && program.totalCredits !== undefined) return program.totalCredits;
+  for (const area of program.areas ?? []) {
+    for (const group of area.groups ?? []) {
+      if ((group.courses?.length ?? 0) > 0 || !TOTAL_ROW.test((group.label ?? '').trim())) continue;
+      if (group.hours !== null && group.hours !== undefined && group.hours >= DEGREE_SIZED_TOTAL) return group.hours;
+    }
+  }
+  return null;
+}
+
+/**
  * A rule that names a count and a level rather than courses.
  *
  * "Four additional full-semester, 3 hour 400 level-Finance courses except FIN
@@ -2399,6 +2818,8 @@ const NUMBER_WORDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
 };
 const LEVEL_SENTENCE = /\b[1-4]00\s*-?\s*(?:or|to|and|\/|,)?\s*(?:[1-4]00\s*-?\s*)?level\b/i;
+/** A sentence about what may not count, which is not a sentence about what is required. */
+const CAP_SENTENCE = /\b(?:maximum of|no more than|not more than|at most|up to a maximum|may not exceed|not receive credit|cannot count|will not count)\b/i;
 
 export interface LevelRule {
   n: number | null;
@@ -2424,7 +2845,7 @@ export function levelRuleIn(text: string, fallbackHours: number | null = null): 
   for (const raw of clean.split(/(?<=\.)\s+/)) {
     // A cap is not a requirement: "maximum of 4 credit hours of ASTR 100-level
     // can count" limits what counts, and "will not receive credit" denies it.
-    if (/\b(?:maximum of|no more than|not more than|at most|up to a maximum|may not exceed|not receive credit|cannot count|will not count)\b/i.test(raw)) continue;
+    if (CAP_SENTENCE.test(raw)) continue;
     const sentence = raw.replace(/\([^()]{13,}$/, ' ');
     const levelAt = sentence.search(LEVEL_SENTENCE);
     if (levelAt < 0) continue;
@@ -2610,6 +3031,50 @@ function soleCount(text: string): number | null {
   return chooseCount(text);
 }
 
+/**
+ * Rows the page joins with "OR" and nothing else: one of them, not all.
+ *
+ * The LAS orientation row prints "LAS 101 OR LAS 100 OR LAS 102", and the
+ * crawler keeps the three courses as rows and the two ORs (with a "Total
+ * Hours" cell that had no row of its own) as the note. Where the page prints
+ * a one-hour subtotal under it, as Psychology's does, the rows read as a
+ * one-hour list; where it does not, as on Mathematics, Astronomy, Geography
+ * and the Earth, Society and Environment pages, they read as three required
+ * courses, and a Mathematics freshman was booked LAS 101 beside LAS 100 (for
+ * international students) and LAS 102 (for first-term transfers). Read as
+ * one pick from a list, the pool's own rule takes the one written for this
+ * student. Only an OR between each pair of rows and nothing else, on a group
+ * the crawler could not type: "Select one group of courses: ... or ..." on
+ * the Geology page is groups of several courses and keeps its own reading.
+ */
+function joinedByOr(group: RawProgramGroup, rows: RawProgramCourse[]): boolean {
+  if (rows.length < 2 || (group.kind ?? 'unknown') !== 'unknown') return false;
+  const words = (group.note ?? '').replace(/\btotal hours\b/gi, ' ').trim().split(/\s+/).filter(Boolean);
+  return words.length === rows.length - 1 && words.every((w) => /^or$/i.test(w));
+}
+
+/**
+ * Credit hours a list's own heading asks for, when its table has no hours cell.
+ *
+ * "List A: Choose 3 credits from the list below:" is the only statement of
+ * size the Music Education concentrations print for their lists, and the
+ * crawler reads hours from the hours column or from a parenthesised digit, so
+ * the group arrived with no hours. Read as nothing, the Technology
+ * concentration's Lists A, B and C (35 courses, where the page asks for 8
+ * hours) were all required, and with its 28-course electives list read the
+ * same way the plan left 17 courses unplaced. Once the degree's room was
+ * measured, List C was a list the plan could only report as unsized. Only the
+ * heading is read, never the note, for the reason given at the note-count test
+ * in requirementRulesForArea.
+ */
+const HEADING_HOURS =
+  /\b(?:choose|select|complete|take)\s+(?:a\s+minimum\s+of\s+|at\s+least\s+)?(\d{1,2})\s*(?:credit\s*hours?|credits?|hours?)\b/i;
+
+function hoursInHeading(label: string): number | null {
+  const m = HEADING_HOURS.exec(label);
+  return m ? positive(Number(m[1])) : null;
+}
+
 /** The narrowest view of the catalog the rule builder needs. */
 export interface CatalogRowLookup {
   get(code: string): { title: string; credits: number; creditsMax?: number | null } | undefined;
@@ -2659,7 +3124,103 @@ const SUBSTITUTE_WORDING =
   /substitut|may be taken (?:instead|in place)|in place of|in lieu of|instead of|accepted (?:in place|for|as)/i;
 
 /** One catalog row, with its "or" siblings folded into a single slot. */
-function choicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup): CourseChoice[] {
+/** Catalog titles by subject, lower-cased, built once per lookup. */
+const titleIndexCache = new WeakMap<object, Map<string, Map<string, string>>>();
+
+function titleIndex(byCode: CatalogRowLookup): Map<string, Map<string, string>> | null {
+  if (!byCode.values) return null;
+  const cached = titleIndexCache.get(byCode);
+  if (cached) return cached;
+  const index = new Map<string, Map<string, string>>();
+  for (const course of byCode.values()) {
+    const code = normCode(course.code);
+    const subject = code.split(' ')[0];
+    const titles = index.get(subject) ?? new Map<string, string>();
+    titles.set(course.title.trim().toLowerCase(), code);
+    index.set(subject, titles);
+  }
+  titleIndexCache.set(byCode, index);
+  return index;
+}
+
+/**
+ * The courses of a row the crawl collapsed to its first code.
+ *
+ * Such a row has no hours of its own and a title that is several catalog
+ * titles joined by "and": "General Chemistry I and General Chemistry Lab I and
+ * General Chemistry II and General Chemistry Lab II". It is rebuilt only when
+ * every piece is, word for word, the title of a course in the row's subject and
+ * the first is the row's own code; a title that merely contains "and" ("Plant
+ * Diversity and Evolution") matches one course and is left alone.
+ *
+ * A row that prints its hours is rebuilt too when those hours are exactly the
+ * pieces' catalog hours added up. The Gies business core prints "ECON 102
+ * Microeconomic Principles and Macroeconomic Principles (6)", and reading only
+ * ECON 102 left ECON 103, ACCY 202 and BADM 211 off every business plan: a
+ * Finance student's re-pick then swapped ECON 103, which looked like a free
+ * gen-ed pick, for an education course. 134 rows in 92 degrees read this way,
+ * most of them chemistry and anatomy labs; every one adds up.
+ */
+function bundleOf(row: RawProgramCourse, byCode: CatalogRowLookup): string[] | null {
+  const title = (row.title ?? '').trim();
+  if (!/ and /.test(title)) return null;
+  const code = normCode(row.code);
+  const titles = titleIndex(byCode)?.get(code.split(' ')[0]);
+  if (!titles) return null;
+  const parts = title.split(' and ');
+  const out: string[] = [];
+  let i = 0;
+  while (i < parts.length) {
+    let found: { next: number; code: string } | null = null;
+    for (let j = parts.length; j > i; j -= 1) {
+      const hit = titles.get(parts.slice(i, j).join(' and ').trim().toLowerCase());
+      if (hit) {
+        found = { next: j, code: hit };
+        break;
+      }
+    }
+    if (!found) return null;
+    out.push(found.code);
+    i = found.next;
+  }
+  if (out.length < 2 || out[0] !== code) return null;
+  // The LAS first-year seminars are one course chosen by who the student is
+  // (LAS 100 for international students, LAS 101, LAS 102 for transfers), so
+  // "LAS 100 ... and LAS 101 ... (3)" is a choice, not a pair to take.
+  if (out.some((c) => /^LAS 10\d$/.test(c))) return null;
+  if (row.credits !== null && row.credits !== undefined) {
+    const sum = out.reduce((n, c) => n + (byCode.get(c)?.credits ?? 0), 0);
+    if (sum !== row.credits) return null;
+  }
+  return out;
+}
+
+function choicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup, note = ''): CourseChoice[] {
+  const plain = plainChoicesFrom(rows, byCode);
+  /**
+   * "Select one group of courses": the sets the page offers side by side are
+   * one choice. A run of consecutive sets in one subject is merged; a set on
+   * its own stays a row of several courses.
+   */
+  const either = /\bone group\b/i.test(note);
+  const out: CourseChoice[] = [];
+  for (const choice of plain) {
+    const last = out[out.length - 1];
+    const subject = (c: CourseChoice) => normCode(c.codes[0]).split(' ')[0];
+    if (either && choice.bundles && last?.bundles && subject(last) === subject(choice)) {
+      out[out.length - 1] = {
+        ...last,
+        codes: [...last.codes, ...choice.codes],
+        bundles: [...last.bundles, ...choice.bundles],
+      };
+      continue;
+    }
+    out.push(choice);
+  }
+  return out;
+}
+
+function plainChoicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup): CourseChoice[] {
   /**
    * One catalog row is one CourseChoice, with its orclass siblings folded in.
    * MATH 257 with orclass MATH 415 and orclass MATH 416 is a single linear
@@ -2677,6 +3238,17 @@ function choicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup): Course
           (code) => !codes.includes(code) && byCode.get(code) !== undefined,
         )
       : [];
+    const bundle = bundleOf(row, byCode);
+    if (bundle) {
+      return {
+        codes: [bundle[0]],
+        title: bundle.map((code) => byCode.get(code)?.title ?? code).join(', '),
+        credits: bundle.reduce((sum, code) => sum + (byCode.get(code)?.credits ?? 0), 0),
+        creditsMax: null,
+        substitutes: [],
+        bundles: [bundle],
+      };
+    }
     return {
       codes,
       // The program file's title field is never a course title: it is either
@@ -2706,16 +3278,165 @@ export function requirementRulesForProgram(
 ): AreaRules[] {
   const areas = program.areas ?? [];
   const published = areas.map(publishedAreaHours);
-  const total = program.totalCredits ?? null;
+  const total = degreeTotalOf(program);
   const spent = published.reduce((sum, h) => sum + h, 0);
+  const lists = unstatedLists(areas, byCode, total);
 
   return areas.map((area, index) => {
     // Hours the rest of the degree has already claimed. Null when the page
     // publishes no total, or when its own subtotals already add to more than
     // it, which happens and must not turn into a negative budget.
     const headroom = total === null ? null : total - (spent - published[index]);
-    return requirementRulesForArea(area, byCode, headroom !== null && headroom > 0 ? headroom : null);
+    const rules = requirementRulesForArea(area, byCode, headroom !== null && headroom > 0 ? headroom : null, lists?.consumed.get(index));
+    if (lists && lists.host.area === index) {
+      rules.blocks.push(lists.block);
+      rules.blocks.sort((a, b) => a.groupIndex - b.groupIndex);
+      rules.pools += 1;
+    }
+    return rules;
   });
+}
+
+/** The pool unstatedLists builds, and the groups it took from their own areas. */
+interface UnstatedLists {
+  /** Where the pool is reported: the row that points at the lists, or else the first list. */
+  host: { area: number; group: number };
+  /** The groups the pool took over, by area index. */
+  consumed: Map<number, Set<number>>;
+  block: AreaRuleBlock;
+}
+
+/** "(see Correlates List Tab)", "see the list below": a row whose courses are printed somewhere else. */
+const POINTS_AT_LIST = /\bsee\b[^.;]{0,60}?\b(?:lists?|tab)\b/i;
+
+/** "Concentration Requirements" and "Concentration Requirements:" are one heading. */
+const headingKey = (text: string | null | undefined): string =>
+  (text ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/**
+ * Tables the page prints without saying what to take from them, merged into
+ * the one requirement that points at them.
+ *
+ * The Community Health pages print their summary table ("Correlate Areas (see
+ * Correlates List Tab) 18", "Electives 9", "Concentration Requirements 18",
+ * "Total Hours 128") and then the Correlates List tab: seven more tables, 152
+ * courses in 41 subjects from ACCY 200 to UP 260, each with no label, no hours,
+ * no count and no note. Nothing on the page says to take them all, but a table
+ * that says nothing is read as "take every row", and a Rehabilitation Studies
+ * student's plan asked for 467 hours of correlates, ran 17 and 18 credits a
+ * term to 142 and still left 124 of them unplaced.
+ *
+ * The test is a measurement, not a reading of the headings: tables that state
+ * nothing and together carry more hours than the whole degree cannot all be
+ * required. Kinesiology's unlabelled "Major Requirements" table (29 hours) and
+ * the Studio Art capstone pair (7) are the same kind of table and fit, so they
+ * stay required. A table under a heading the degree names as a requirement of
+ * its own is that requirement's courses and stays required too: Health
+ * Education's "Concentration Requirements" table holds FSHN 120 under the
+ * summary's 18-hour "Concentration Requirements" row, and is not a correlate.
+ * Of the 308 crawled pages only the three Community Health concentrations meet
+ * the test today.
+ *
+ * The lists become one pool, sized by the row that points at them ("see
+ * Correlates List Tab", 18 hours), and that row's block id is the one the pool
+ * takes, so a plan saved against "Correlate Areas" still finds it. With no such
+ * row the pool has no size, and it is reported that way rather than guessed.
+ */
+function unstatedLists(
+  areas: RawProgramArea[],
+  byCode: CatalogRowLookup,
+  total: number | null,
+): UnstatedLists | null {
+  if (total === null) return null;
+
+  // Every heading the degree prints as a row of its own, with no courses.
+  const statedHeadings = new Set<string>();
+  for (const area of areas) {
+    for (const group of area.groups ?? []) {
+      if ((group.courses?.length ?? 0) === 0 && headingKey(group.label)) statedHeadings.add(headingKey(group.label));
+    }
+  }
+
+  const silent: Array<{ area: number; group: number; rows: RawProgramCourse[]; credits: number; heading: string }> = [];
+  const pointers: Array<{ area: number; group: number; hours: number; label: string; note: string }> = [];
+  let lastSilentArea = -2;
+  let heading = '';
+  areas.forEach((area, ai) => {
+    const areaLabel = (area.label ?? '').trim();
+    // An unlabelled table right after a list carries on under that list's
+    // heading: "Other College of AHS Courses:" heads the RST table and the SHS
+    // table printed straight after it.
+    heading = areaLabel || (lastSilentArea === ai - 1 ? heading : '');
+    const areaStates =
+      publishedAreaHours(area) > 0 || (area.chooseCourses ?? null) !== null || statedHeadings.has(headingKey(areaLabel));
+    for (const [gi, group] of (area.groups ?? []).entries()) {
+      const label = (group.label ?? '').trim();
+      const note = (group.note ?? '').trim();
+      const { rows } = normaliseProgramRows(group);
+      if (rows.length === 0) {
+        const hours = group.hours ?? null;
+        if (hours !== null && !TOTAL_ROW.test(label) && POINTS_AT_LIST.test(`${label} ${note}`)) {
+          pointers.push({ area: ai, group: gi, hours, label, note });
+        }
+        continue;
+      }
+      if (areaStates || label || note || group.hours != null || group.choose != null) continue;
+      silent.push({ area: ai, group: gi, rows, credits: Math.max(group.summedCredits ?? 0, sumRowCredits(rows, byCode)), heading });
+      lastSilentArea = ai;
+    }
+  });
+
+  const credits = silent.reduce((sum, t) => sum + t.credits, 0);
+  if (silent.length === 0 || credits <= total) return null;
+
+  const pointer = pointers.length === 1 ? pointers[0] : null;
+  const host = pointer ? { area: pointer.area, group: pointer.group } : { area: silent[0].area, group: silent[0].group };
+  const consumed = new Map<number, Set<number>>();
+  for (const t of [...silent, host]) {
+    const set = consumed.get(t.area) ?? new Set<number>();
+    set.add(t.group);
+    consumed.set(t.area, set);
+  }
+
+  // One slot per course, as in mergeAreaPool: ACE 255 is printed in two of
+  // the Community Health tables and is still one course.
+  const seen = new Set<string>();
+  const rows: RawProgramCourse[] = [];
+  for (const t of silent) {
+    for (const row of t.rows) {
+      const key = normCode(row.code);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(row);
+    }
+  }
+  const label = pointer?.label || silent[0].heading;
+  const lists: PoolList[] = silent.map((t) => ({
+    label: t.heading || label,
+    codes: t.rows.flatMap((row) => [row.code, ...(row.or ?? [])].map(normCode)),
+  }));
+
+  return {
+    host,
+    consumed,
+    block: {
+      groupIndex: host.group,
+      label,
+      hours: pointer?.hours ?? null,
+      note: pointer?.note ?? '',
+      rows: rows.length,
+      rule: {
+        kind: 'pool',
+        hours: pointer?.hours ?? null,
+        n: null,
+        choices: choicesFrom(rows, byCode),
+        lists,
+        constraints: [],
+        from: 'area',
+        label,
+      },
+    },
+  };
 }
 
 /**
@@ -2723,13 +3444,15 @@ export function requirementRulesForProgram(
  *
  * A "Total Hours of Curriculum to Graduate" row is the whole degree, not this
  * area, and counting it here would leave every other area with no room at all.
+ * So is a plain "Total Hours 126" row, which is how 114 pages print the same
+ * thing.
  */
 function publishedAreaHours(area: RawProgramArea): number {
   if (area.hours !== null && area.hours !== undefined) return area.hours;
   for (const group of area.groups ?? []) {
     const label = (group.label ?? '').trim();
     if ((group.courses?.length ?? 0) > 0) continue;
-    if (!TOTAL_ROW.test(label) || DEGREE_TOTAL_ROW.test(label)) continue;
+    if (!TOTAL_ROW.test(label) || isDegreeTotalRow(label, group.hours)) continue;
     if (group.hours !== null && group.hours !== undefined) return group.hours;
   }
   return 0;
@@ -2764,6 +3487,12 @@ export function requirementRulesForArea(
   byCode: CatalogRowLookup,
   /** Credit hours the rest of the degree leaves for this area, when known. */
   headroom: number | null = null,
+  /**
+   * Groups a requirement read at the degree level has already taken, so they
+   * are not read a second time here: the Community Health correlate tables,
+   * which belong to the "Correlate Areas" row of another area's table.
+   */
+  taken: ReadonlySet<number> = new Set(),
 ): AreaRules {
   const groups = area.groups ?? [];
   let droppedRows = 0;
@@ -2781,7 +3510,9 @@ export function requirementRulesForArea(
     const label = group.label || '';
     const { rows, dropped } = normaliseProgramRows(group);
     droppedRows += dropped;
-    const total = rows.length === 0 && TOTAL_ROW.test(label.trim());
+    // Kinesiology prints its "Total Hours" row with the words in the note and
+    // no label, and read that way it became a requirement with no name.
+    const total = rows.length === 0 && (TOTAL_ROW.test(label.trim()) || (!label.trim() && TOTAL_ROW.test((group.note ?? '').trim())));
     if (total) droppedTotalRows += 1;
     return {
       index,
@@ -2789,9 +3520,13 @@ export function requirementRulesForArea(
       label,
       rows,
       isTotal: total,
-      isDegreeTotal: total && DEGREE_TOTAL_ROW.test(label),
+      isDegreeTotal: total && isDegreeTotalRow(label, group.hours),
       ownChoose: positive(soleCount(label) ?? group.choose ?? null),
-      ownHours: group.hours ?? null,
+      // Only for a group with rows: a courseless "Select 18 credit hours from
+      // List 1 and List 2" is the area's own sentence, which mergeAreaPool
+      // already reads, and sizing it here would move the Chemical Engineering
+      // pool to another block id and orphan every plan saved against it.
+      ownHours: group.hours ?? (rows.length > 0 ? hoursInHeading(label) : null),
       // The degree page leaves most of its credit cells empty, so the catalog
       // is asked as well and the larger of the two answers is used. Reading a
       // 71-course list as zero credits would make it look like it fits
@@ -2799,7 +3534,7 @@ export function requirementRulesForArea(
       credits: Math.max(group.summedCredits ?? 0, sumRowCredits(rows, byCode)),
       isList: false,
     };
-  });
+  }).filter((r) => !taken.has(r.index));
 
   // The area's own budget: its published total, or the subtotal row it prints
   // at the bottom of its own table.
@@ -2810,6 +3545,11 @@ export function requirementRulesForArea(
     if (r.rows.length === 0) continue;
     const cap = r.ownHours ?? areaBudget ?? headroom;
     r.isList = r.group.kind === 'menu' || (cap !== null && r.credits > cap + 0.5);
+    if (!r.isList && r.ownChoose === null && r.ownHours === null && joinedByOr(r.group, r.rows)) {
+      r.isList = true;
+      r.ownChoose = 1;
+      r.orJoined = true;
+    }
     /**
      * A count in the note is read only for a list that has no hours of its own.
      *
@@ -2909,7 +3649,7 @@ export function requirementRulesForArea(
 
     let rule: RequirementRule;
     if (r.rows.length > 0) {
-      const choices = choicesFrom(r.rows, byCode);
+      const choices = choicesFrom(r.rows, byCode, [r.label, r.group.note ?? ''].join(' '));
       if (r.isList || (r.ownChoose !== null && r.ownHours !== null)) {
         pools += 1;
         rule = {
@@ -2921,6 +3661,7 @@ export function requirementRulesForArea(
           constraints: [],
           from: 'group',
           label: r.label || area.label,
+          ...(r.orJoined ? { joinedByOr: true } : {}),
         };
       } else if (r.ownChoose !== null) {
         rule = { kind: 'choose', n: r.ownChoose, choices };
@@ -2931,7 +3672,15 @@ export function requirementRulesForArea(
       // A group with hours and no course rows is a real and common shape, not a
       // parse failure. The gen-ed tables are entirely rows like "Humanities &
       // the Arts (6 hours)" with no courses named.
-      rule = { kind: 'hours', hours: r.ownHours, genEd: genEdForLabel(r.label), label: r.label };
+      const note = r.group.note ?? '';
+      rule = {
+        kind: 'hours',
+        hours: r.ownHours,
+        genEd: genEdForLabel(r.label) ?? genEdInNote(note),
+        label: r.label,
+        minLevel: levelFloorIn(r.label, note),
+        exclude: exceptionsIn(note),
+      };
     } else if (genEd.length > 0) {
       /**
        * The campus general education table, one block per category.
@@ -2960,9 +3709,29 @@ export function requirementRulesForArea(
             hours: category.hours,
             courses: category.courses,
             fulfilledBy: category.fulfilledBy,
+            // Only the Cultural Studies categories exclude each other ("no single
+            // course can fulfill multiple Cultural Studies categories",
+            // gened.illinois.edu/requirements/). Every other category is its own
+            // ledger: PHYS 211 counts for Natural Sciences and Quantitative
+            // Reasoning II at once, and Grainger's advising page says Advanced
+            // Composition courses can count for social sciences and humanities
+            // too. One shared ledger made the plan book a second course for a
+            // category the first already met.
+            //
+            // A category a degree restates in its own requirement ("Life &
+            // Physical Science Requirement: a Life Science and a Physical
+            // Science course"), rather than in the campus table, is the same
+            // requirement said twice, and the campus table says so ("Natural
+            // Sciences & Technology (6 hours) fulfilled by Life Science &
+            // Physical Science Requirement"). It keeps a ledger of its own so
+            // the same courses count for both: sharing one made Elementary
+            // Education book PLPA 200 and CHEM 108 on top of held chemistry
+            // and biology.
             exclusiveGroup: category.genEd.every((g) => g.startsWith('Cultural Studies'))
               ? 'cultural-studies'
-              : 'core',
+              : genEd.length < 3
+                ? `category:${category.label}#${r.index}`
+                : `category:${category.label}`,
             sizeFromCampus: category.sizeFromCampus,
             text: category.text,
             label: category.label,
@@ -2979,7 +3748,20 @@ export function requirementRulesForArea(
        * student did in high school, and this planner has no way to check it.
        * Dropping it silently would be the plan pretending it is not there.
        */
-      const leftover = genEdLeftover(genEdSource, genEd);
+      const leftoverAll = genEdLeftover(genEdSource, genEd);
+      const split = leftoverAll ? splitLanguageRequirement(leftoverAll) : { language: null, rest: '' };
+      if (split.language) {
+        blocks.push({
+          groupIndex: r.index,
+          idSuffix: 'ge-language',
+          label: 'Language other than English',
+          hours: null,
+          note: split.language.text,
+          rule: { kind: 'language', semesters: split.language.semesters, text: split.language.text },
+          rows: 0,
+        });
+      }
+      const leftover = split.rest;
       if (leftover) {
         blocks.push({
           groupIndex: r.index,
@@ -3006,7 +3788,22 @@ export function requirementRulesForArea(
       // Nothing to quote, no courses, no hours. There is no requirement here to
       // report, and a row that says nothing buries the ones that do.
       if (!text) continue;
-      rule = { kind: 'unparsed', text };
+      const split = splitLanguageRequirement(text);
+      if (split.language) {
+        blocks.push({
+          groupIndex: r.index,
+          idSuffix: 'language',
+          label: 'Language other than English',
+          hours: null,
+          note: split.language.text,
+          rule: { kind: 'language', semesters: split.language.semesters, text: split.language.text },
+          rows: 0,
+        });
+        if (!split.rest) continue;
+        rule = { kind: 'unparsed', text: split.rest };
+      } else {
+        rule = { kind: 'unparsed', text };
+      }
     }
 
     blocks.push({
@@ -3051,6 +3848,8 @@ interface AreaGroupRead {
   credits: number;
   /** True when the rows carry more credit than any cap this area can produce. */
   isList: boolean;
+  /** Read as one pick because the page joins the rows with "OR" alone (joinedByOr). */
+  orJoined?: boolean;
 }
 
 /**
@@ -3203,6 +4002,59 @@ function sumRowCredits(rows: RawProgramCourse[], byCode: CatalogRowLookup): numb
   return sum;
 }
 
+/**
+ * The campus General Education table, for a degree page that does not print it.
+ *
+ * Thirty-nine degree pages have no table: Computer and Electrical
+ * Engineering, English, History, every Political Science track, Geology,
+ * Information Sciences among them. Their students take the same campus
+ * requirements as everyone else, and a plan read off the page alone booked no
+ * Composition I, no Humanities, no Cultural Studies and no language, which is
+ * twenty-odd hours short of a degree while the rail said everything was met.
+ *
+ * The words are the table as 227 other pages print it, in the same order, so
+ * the one parser reads both. The language clause is the college's own: LAS
+ * BALAS and BSLAS pages say the fourth semester, or the third in two
+ * languages; every other college, and the LAS BS pages, say the third. Read
+ * from the crawled pages on 24 September 2026. No "fulfilled by" is added:
+ * that is a degree's own statement, and these pages make none.
+ */
+export const CAMPUS_GENED_AREA_LABEL = 'General Education Requirements (campus)';
+
+function campusGenEdNote(raw: RawIllinoisProgram): string {
+  const las4 = raw.college === 'las' && /\b(BALAS|BSLAS)\b/.test(`${raw.degree} ${raw.name}`);
+  const language = las4
+    ? 'Completion of the fourth semester or equivalent of a language other than English, or completion of the third semester in two different languages other than English is required'
+    : 'Completion of the third semester or equivalent of a language other than English is required';
+  return 'Composition I Advanced Composition Humanities & the Arts (6 hours) Natural Sciences & Technology (6 hours) '
+    + 'Social & Behavioral Sciences (6 hours) Cultural Studies: Non-Western Cultures (1 course) '
+    + 'Cultural Studies: US Minority Cultures (1 course) Cultural Studies: Western/Comparative Cultures (1 course) '
+    + 'Quantitative Reasoning (2 courses, at least one course must be Quantitative Reasoning I) '
+    + `Language Requirement (${language})`;
+}
+
+/**
+ * The program with the campus table appended when its page has none.
+ *
+ * Appended after the page's own areas, so every block id the page already
+ * produced is unchanged and a saved plan still points where it did.
+ */
+export function withCampusGenEd(raw: RawIllinoisProgram): RawIllinoisProgram {
+  const areas = raw.areas ?? [];
+  const hasTable = areas.some((area) =>
+    area.groups.some((group) => (group.courses?.length ?? 0) === 0 && genEdRulesFromText([group.label, group.note ?? ''].filter(Boolean).join(' ')).length > 0),
+  );
+  if (hasTable) return raw;
+  const area: RawProgramArea = {
+    label: CAMPUS_GENED_AREA_LABEL,
+    hours: null,
+    hoursFrom: null,
+    chooseCourses: null,
+    groups: [{ label: '', choose: null, courses: [], note: campusGenEdNote(raw), summedCredits: 0, kind: 'unknown' }],
+  };
+  return { ...raw, areas: [...areas, area] };
+}
+
 export function adaptIllinoisPrograms(
   file: RawProgramFile,
   byCode: Map<string, IllinoisCourse>,
@@ -3254,8 +4106,9 @@ export function adaptIllinoisPrograms(
     return rows;
   };
 
-  for (const raw of file.programs ?? []) {
-    if (!raw?.id) continue;
+  for (const crawled of file.programs ?? []) {
+    if (!crawled?.id) continue;
+    const raw = withCampusGenEd(crawled);
 
     const programBlocks: RequirementBlock[] = [];
     const areas: RequirementArea[] = [];
@@ -3271,10 +4124,7 @@ export function adaptIllinoisPrograms(
       const schedulerGroups: RequirementGroup[] = [];
 
       const rules = byArea[ai] ?? { blocks: [], droppedRows: 0, droppedTotalRows: 0, pools: 0, areaHours: null };
-      const areaLabel =
-        area.label?.trim() ||
-        rules.blocks.find((block) => block.label?.trim())?.label?.trim() ||
-        'Degree requirements';
+      const areaLabel = area.label?.trim() || '';
       dropped += rules.droppedRows;
       droppedTotalRows += rules.droppedTotalRows;
       poolGroups += rules.pools;
@@ -3368,7 +4218,7 @@ export function adaptIllinoisPrograms(
       });
     });
 
-    let totalCredits = raw.totalCredits;
+    let totalCredits = degreeTotalOf(raw);
     if (totalCredits !== null && totalCredits < MIN_PLAUSIBLE_DEGREE_CREDITS) {
       implausibleTotals += 1;
       totalCredits = null;

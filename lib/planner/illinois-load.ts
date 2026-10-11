@@ -1,4 +1,7 @@
 import type { GradeRow } from './scheduler';
+import type { ExcellentSummary } from './quality';
+import type { SemesterSeason } from './types';
+import type { AdmissionTable, LanguageTable } from './autoplan';
 import type {
   CoverageReport,
   DifficultyBands,
@@ -225,6 +228,48 @@ export interface IllinoisCourseDetail {
  * different sentence from "this course has no prerequisites", and the section
  * crawl not having finished must never read as a course with no sections.
  */
+export interface IllinoisOfferingsFile {
+  source: string;
+  fetchedAt: string;
+  /** Term ids the crawl read, newest first: "fa2026", "sp2026". */
+  terms: string[];
+  courses: Record<string, string[]>;
+  /** New number -> old number, where the history is the old number's. */
+  renumbered?: Record<string, string>;
+}
+
+const SEASON_OF: Record<string, SemesterSeason> = { fa: 'Fall', sp: 'Spring', su: 'Summer' };
+
+/**
+ * Replace the permissive "fall and spring" on every row with what the Course
+ * Explorer showed. A course seen in no crawled term gets an empty list and
+ * offeringKnown true, which the engine reads as dormant. Shared with the
+ * check harnesses so a plan audited offline sees the same seasons the
+ * browser does.
+ */
+export function applyOfferings(rows: Array<{ code: string; offeredIn: SemesterSeason[]; offeringKnown?: boolean }>, file: IllinoisOfferingsFile): void {
+  if (!file.terms || file.terms.length === 0) return;
+  for (const row of rows) {
+    const ran = file.courses[row.code] ?? [];
+    const seasons = new Set<SemesterSeason>();
+    for (const t of ran) {
+      const season = SEASON_OF[t.slice(0, 2)];
+      if (season) seasons.add(season);
+    }
+    row.offeredIn = [...seasons];
+    row.offeringKnown = true;
+  }
+}
+
+export interface IllinoisExcellentFile {
+  source: string;
+  sourceNote: string;
+  fetchedAt: string;
+  /** Newest first, "sp2025". */
+  terms: string[];
+  courses: Record<string, ExcellentSummary>;
+}
+
 export interface IllinoisCore {
   meta: IllinoisMeta | null;
   index: IllinoisIndexCourse[];
@@ -242,6 +287,27 @@ export interface IllinoisCore {
    * It is small enough to load with the core and be right from the first plan.
    */
   exclusions: Map<string, string[]> | null;
+  /**
+   * Teachers Ranked as Excellent, per course, with the terms the list covers.
+   * Null when the build had no list, which the scorer reads as "teaching
+   * ratings not known" rather than as a course nobody rated.
+   */
+  excellent: Map<string, ExcellentSummary> | null;
+  excellentTerms: string[] | null;
+  /**
+   * Which recent terms each course has run in, "fa2026" newest first, and
+   * the terms the crawl covered. Null when the build had none, in which case
+   * every course keeps the permissive "fall and spring" and nothing is
+   * called dormant.
+   */
+  offerings: Map<string, string[]> | null;
+  offeringTerms: string[] | null;
+  /** New course number -> the old number whose history it carries. */
+  offeringAliases: Map<string, string> | null;
+  /** The registrar's language table; null when the build had none. */
+  languages: LanguageTable | null;
+  /** What each college publishes about transferring in from another college on campus. */
+  admission: AdmissionTable | null;
   /**
    * Cross-listing classes by code: LLS 200 -> [AAS 200]. Built from the index
    * rows, so a requirement written as one code is met by the other from the
@@ -332,6 +398,7 @@ function memo<T>(
 export function resetIllinoisCache(): void {
   cache.clear();
   shardCache.clear();
+  syllabusCache.clear();
   programCache.clear();
   metaPromise = null;
   indexPromise = null;
@@ -472,19 +539,26 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
   if (corePromise) return corePromise;
   const started = (async (): Promise<IllinoisCore> => {
     const meta = await loadIllinoisMeta();
-    const [index, prereqs, grades, sections, programs, exclusions] = await Promise.all([
+    const [index, prereqs, grades, sections, programs, exclusions, excellent, offerings, languages, admission] = await Promise.all([
       indexResult(),
       artifact<Record<string, PrereqSpec>>('prereqs.json'),
       artifact<IllinoisGradeSummary[]>('grades.json'),
       artifact<IllinoisSectionsFile>('sections.json'),
       artifact<IllinoisProgramSummary[]>('programs.json'),
       artifact<Record<string, string[]>>('exclusions.json'),
+      // Optional: a build without the list answers 404 here, and that is a
+      // settled fact about the build, not a reason to retry the core.
+      artifact<IllinoisExcellentFile>('excellent.json'),
+      artifact<IllinoisOfferingsFile>('offerings.json'),
+      artifact<LanguageTable>('languages.json'),
+      artifact<AdmissionTable>('admission.json'),
     ]);
 
     const results = [index, prereqs, grades, sections, programs, exclusions];
     if (!meta || results.some(transient)) corePromise = null;
 
     const rows = index.ok ? index.value : [];
+    if (offerings.ok) applyOfferings(rows, offerings.value);
     const missing: string[] = [];
     if (!meta) missing.push('meta.json');
     if (!index.ok) missing.push('index.json');
@@ -501,6 +575,13 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
       byCode: new Map(rows.map((c) => [normCode(c.code), c])),
       prereqs: prereqs.ok ? new Map(Object.entries(prereqs.value)) : null,
       exclusions: exclusions.ok ? new Map(Object.entries(exclusions.value)) : null,
+      excellent: excellent.ok ? new Map(Object.entries(excellent.value.courses)) : null,
+      excellentTerms: excellent.ok ? excellent.value.terms : null,
+      offerings: offerings.ok ? new Map(Object.entries(offerings.value.courses)) : null,
+      offeringTerms: offerings.ok ? offerings.value.terms : null,
+      offeringAliases: offerings.ok && offerings.value.renumbered ? new Map(Object.entries(offerings.value.renumbered)) : null,
+      languages: languages.ok ? languages.value : null,
+      admission: admission.ok ? admission.value : null,
       equivalents: (() => {
         const map = new Map<string, string[]>();
         for (const course of rows) {
@@ -606,6 +687,62 @@ export async function loadIllinoisCourseDetail(code: string): Promise<IllinoisCo
     sections: shard.sections.find((s) => normCode(s.code) === wanted) ?? null,
     instructors: shard.instructors.find((g) => normCode(g.code) === wanted)?.instructors ?? null,
   };
+}
+
+/**
+ * What a course's own published syllabi say, as scripts/illinois/syllabi
+ * extracted it: the grade breakdown, exams, materials and course policies,
+ * each syllabus with its term, instructors and a link to the instructor's
+ * document. Facts only; the documents stay with their authors.
+ */
+export interface IllinoisSyllabus {
+  term: string | null;
+  termLabel: string | null;
+  section: string | null;
+  instructors: string[];
+  kind: 'syllabus' | 'course-policy' | 'master-outline';
+  source: string;
+  url: string;
+  grading: {
+    basis: 'percent' | 'points' | 'letter-only' | 'pass-fail' | 'unknown';
+    components: Array<{ item: string; weight: number | null; unit: 'percent' | 'points' | 'unknown'; note: string | null }>;
+    pointsTotal: number | null;
+    scale: string | null;
+    curve: string | null;
+    drop: string | null;
+    extraCredit: string | null;
+  };
+  exams: Array<{ name: string; when: string | null; note: string | null }>;
+  finalExam: string | null;
+  materials: Array<{ item: string; required: boolean | null }>;
+  attendance: string | null;
+  lateWork: string | null;
+  makeups: string | null;
+  other: string[];
+  confidence: 'high' | 'medium' | 'low';
+  /** Set when the syllabus was published under a cross-listed twin of this course. */
+  viaCrossList?: string;
+}
+
+interface IllinoisSyllabusShard {
+  subject: string;
+  builtAt: string;
+  courses: Record<string, IllinoisSyllabus[]>;
+}
+
+const syllabusCache = new Map<string, Promise<Fetched<IllinoisSyllabusShard>>>();
+
+/**
+ * A course's syllabi, newest term first. An empty list means none was found
+ * in the public sources the scraper reads (most syllabi live in Canvas,
+ * behind a login), not that the course has none.
+ */
+export async function loadIllinoisSyllabi(code: string): Promise<IllinoisSyllabus[]> {
+  const wanted = normCode(code);
+  const subject = wanted.split(' ')[0] ?? '';
+  if (!SAFE_SUBJECT.test(subject)) return [];
+  const r = await memo(syllabusCache, subject, () => artifact<IllinoisSyllabusShard>(`syllabi/${subject}.json`));
+  return r.ok ? (r.value.courses[wanted] ?? []) : [];
 }
 
 const programCache = new Map<string, Promise<Fetched<RawIllinoisProgram>>>();

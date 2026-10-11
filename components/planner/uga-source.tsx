@@ -967,6 +967,7 @@ export function loadUgaData(): Promise<UgaData | null> {
       )
       .sort((a, b) => a.name.localeCompare(b.name));
     const context: PlanningContext = {
+      schoolId: 'uga',
       courses,
       prereqs,
       equivalents,

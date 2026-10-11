@@ -28,21 +28,26 @@ import { cn } from '@/lib/utils';
 import { clusterColor } from './cluster-color';
 import { IssueBadge } from './issue-badge';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
+import type { PlanMark } from '@/lib/planner/repick';
 
 /**
- * A course that is in the plan because a pool needed filling.
+ * A course that is in the plan because a pool needed filling, a slot needed a
+ * course, or the student's career track asks for it.
  *
  * Shown on the card because "required" and "one of a hundred and two" are very
  * different facts about a course sitting in a semester, and the old card had
  * one badge for the first and nothing at all for the second. `detail` is the
  * pool's own line, counted off the board, so hovering says what the catalog
- * asked for and how much of it the plan holds.
+ * asked for and how much of it the plan holds. The kinds are described on
+ * PlanMark (lib/planner/repick.ts), which builds these marks for the board,
+ * ALMA and the re-pick alike; a 'track' card carries the track's name.
  */
-export interface ElectiveOf {
-  label: string;
-  detail: string;
-  /** A pool pick reads "from a list"; a filler the plan chose reads "elective". */
-  kind?: 'pool' | 'elective';
+export type ElectiveOf = PlanMark;
+
+/** Another course that could sit where a card sits, and why it is offered. */
+export interface Alternative {
+  course: Course;
+  why: string;
 }
 
 interface CourseCardProps {
@@ -57,6 +62,12 @@ interface CourseCardProps {
   electiveOf?: ElectiveOf;
   /** Opens the chooser for an elective slot. The card body does this in place of selecting. */
   onChoose?: (courseId: string, termId: string) => void;
+  /**
+   * What else could fill this slot or list, best first. Called when the
+   * dropdown opens rather than on render, because it ranks the catalog.
+   */
+  alternativesFor?: (courseId: string, termId: string) => Alternative[];
+  onSwap?: (courseId: string, termId: string, replacementId: string) => void;
   onSelect: (courseId: string, termId: string) => void;
   onMove: (courseId: string, fromTermId: string, toTermId: string) => void;
   onRemove: (courseId: string, termId: string) => void;
@@ -89,6 +100,8 @@ export function CourseCard({
   onShowCourse,
   electiveOf,
   onChoose,
+  alternativesFor,
+  onSwap,
   onSelect,
   onMove,
   onRemove,
@@ -97,6 +110,7 @@ export function CourseCard({
 }: CourseCardProps) {
   const cardRef = useRef<HTMLElement | null>(null);
   const resizeStart = useRef<{ pointerId: number; y: number; height: number } | null>(null);
+  const [alternatives, setAlternatives] = useState<Alternative[]>([]);
   const [cardHeight, setCardHeight] = useState<number | null>(null);
 
   function resizeTo(height: number) {
@@ -176,11 +190,17 @@ export function CourseCard({
           )}
           {electiveOf && (
             <span
-              className={cn('course-elective', electiveOf.kind === 'elective' && 'is-slot')}
+              className={cn('course-elective', electiveOf.kind === 'elective' && 'is-slot', electiveOf.kind === 'language' && 'is-language')}
               title={
                 electiveOf.kind === 'elective'
                   ? `${electiveOf.detail} Tap the card to choose a different course for this slot.`
-                  : `${electiveOf.label}. ${electiveOf.detail}`
+                  : electiveOf.kind === 'language'
+                    ? `${electiveOf.detail} Open Options to switch languages.`
+                    : electiveOf.kind === 'track'
+                      ? `${electiveOf.detail} Booked for your goal; it stays unless you drop that goal.`
+                      : electiveOf.kind === 'gened' || electiveOf.kind === 'prerequisite'
+                        ? electiveOf.detail
+                        : `${electiveOf.label}. ${electiveOf.detail}`
               }
             >
               <ListChecks />
@@ -197,7 +217,9 @@ export function CourseCard({
       >
         <Check aria-hidden="true" /> Already taken
       </button>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={(open) => {
+        if (open) setAlternatives(alternativesFor?.(course.id, term.id) ?? []);
+      }}>
         <DropdownMenuTrigger
           aria-label={`Options for ${course.code}`}
           render={<Button variant="ghost" size="icon-sm" title={`Options for ${course.code}`} />}
@@ -220,6 +242,22 @@ export function CourseCard({
           >
             <Shuffle /> Replace course
           </DropdownMenuItem>
+          {alternatives.length > 0 && onSwap && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger><Shuffle /> Suggested replacements</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="course-alternatives-menu">
+                {alternatives.map((alternative) => (
+                  <DropdownMenuItem key={alternative.course.id}
+                    onClick={() => onSwap(course.id, term.id, alternative.course.id)}>
+                    <span>
+                      <strong>{alternative.course.code}</strong> {alternative.course.title}
+                      <small>{alternative.why}</small>
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <MoveRight /> Move to

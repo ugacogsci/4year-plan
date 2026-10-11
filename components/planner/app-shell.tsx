@@ -45,7 +45,7 @@ export function AppShell() {
       <TooltipProvider>
         <Onboarding
           initial={saved}
-          onResume={saved?.programIds.length ? () => setAnswers(saved) : undefined}
+          onResume={saved ? () => setAnswers(saved) : undefined}
           onDone={(next) => {
             // A board saved under the previous answers would otherwise win over
             // the plan these answers are about to build.

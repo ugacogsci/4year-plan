@@ -102,6 +102,11 @@ function parseCsv(text) {
 function scoresIn(cell) {
   const raw = cell.trim();
   if (!raw) return [];
+  // "3 to 5" (AP Precalculus) is a range of whole scores, three of them.
+  const range = raw.match(/^(\d{1,2})\s*(?:to|-)\s*(\d{1,2})$/i);
+  if (range && Number(range[2]) >= Number(range[1])) {
+    return Array.from({ length: Number(range[2]) - Number(range[1]) + 1 }, (_, i) => Number(range[1]) + i);
+  }
   const parts = raw.split(/\s*(?:,|\bor\b|\bOR\b)\s*/).map((p) => p.trim()).filter(Boolean);
   if (parts.length > 0 && parts.every((p) => /^\d{1,2}$/.test(p))) {
     return [...new Set(parts.map(Number))];
@@ -170,7 +175,9 @@ function coursesIn(cell) {
   const out = [];
   for (const segment of raw.split(';')) {
     let subject = null;
-    for (const piece of segment.split(/\s*(?:,|\band\b)\s*/)) {
+    // "CHIN 203 AND 204": the registrar writes the conjunction in capitals too,
+    // and reading it only in lower case left IB Chinese B with no courses.
+    for (const piece of segment.split(/\s*(?:,|\band\b)\s*/i)) {
       const part = piece.replace(/\s+/g, ' ').trim();
       if (!part) continue;
       const full = part.match(FULL_CODE);

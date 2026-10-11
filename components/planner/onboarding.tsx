@@ -31,7 +31,7 @@ import {
   type ProgramLevel,
   type SchoolId,
 } from '@/lib/planner/onboarding';
-import { transcriptCodes } from '@/lib/planner/transcript';
+import { transcriptCodes, transcriptHours } from '@/lib/planner/transcript';
 import {
   findUgaCollege,
   normalizeUgaCollegeId,
@@ -58,8 +58,10 @@ function priorSummary(a: OnboardingAnswers): string {
   const parts: string[] = [];
   const fromTranscript = transcriptCodes(a.transcript).length;
   if (fromTranscript > 0) {
-    parts.push(`${fromTranscript} course${fromTranscript === 1 ? '' : 's'} from your transcript`);
+    parts.push(`${fromTranscript} course${fromTranscript === 1 ? '' : 's'} from your record`);
   }
+  const hours = transcriptHours(a.transcript);
+  if (hours > 0) parts.push(`${hours} hours as electives`);
   if (a.exams.length > 0) parts.push(`${a.exams.length} exam${a.exams.length === 1 ? '' : 's'} added`);
   if (a.alreadyTakenCourseCodes.length > 0) {
     parts.push(
@@ -874,9 +876,12 @@ export function Onboarding({
               school={school}
               exams={answers.exams}
               transferText={answers.transferText}
+              languageYears={answers.languageYears ?? null}
+              language={answers.language ?? ''}
               onChange={(next) => setAnswers((a) => ({ ...a, ...next }))}
               transcript={answers.transcript ?? null}
               onTranscriptChange={(transcript) => setAnswers((a) => ({ ...a, transcript }))}
+              grainger={answers.programIds.some((id) => id.startsWith('engineering/'))}
               alreadyTakenCourseCodes={answers.alreadyTakenCourseCodes}
               onAlreadyTakenChange={(alreadyTakenCourseCodes) =>
                 setAnswers((a) => ({ ...a, alreadyTakenCourseCodes }))

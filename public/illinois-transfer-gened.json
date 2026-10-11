@@ -1,0 +1,978 @@
+{
+ "source": "https://www.parkland.edu/Portals/3/Transfer/Documents/2024-2025%20Parkland%20to%20UIUC%20GE%20course%20equivalencies.pdf",
+ "title": "Parkland College Course Equivalencies for General Education Requirements at the University of Illinois Urbana-Champaign",
+ "editedBy": "Office of Undergraduate Admissions, University of Illinois Urbana-Champaign, and Advising Services, Parkland College",
+ "effective": "08/01/2024 to 07/31/2025",
+ "schools": [
+  {
+   "name": "Parkland College",
+   "match": [
+    "parkland"
+   ],
+   "courses": {
+    "AGB 102": {
+     "title": "Intro to Agricultural Economics",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "AGB 103": {
+     "title": ", BIO-100, BIO-120, & BIO-123 DO satisfy Parkland\u2019s General Education-Physical & Life Sciences requirements for the",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "ANT 101": {
+     "title": "Intro to Anthropology",
+     "tags": [
+      "Cultural Studies - Western",
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "ANT 103": {
+     "title": "Intro to Cultural Anthropology",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "ANT 105": {
+     "title": "Intro to Physical Anthropology",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "ANT 200": {
+     "title": "Introduction to Archaeology",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "ART 161": {
+     "title": "Art History I",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "ART 162": {
+     "title": "Art History II",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "ART 163": {
+     "title": "History of Modern Art",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "ART 164": {
+     "title": "History of Photography",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "ART 165": {
+     "title": "Art Appreciation",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "ART 166": {
+     "title": "Introduction to Non-Western Art",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "AST 101": {
+     "title": "The Solar System",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences",
+      "Quantitative Reasoning II"
+     ]
+    },
+    "AST 102": {
+     "title": "Stars, Galaxies, and the Universe",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences",
+      "Quantitative Reasoning II"
+     ]
+    },
+    "BIO 100": {
+     "title": "Introduction to Biology",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "BIO 101": {
+     "title": "General Biology",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "BIO 104": {
+     "title": "Environmental Biology",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "BIO 105": {
+     "title": "Human Biology",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "BIO 106": {
+     "title": "Heredity and Society",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "BIO 107": {
+     "title": "Introduction to Evolution",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "BIO 109": {
+     "title": "Introduction to Plant Biology",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "BIO 120": {
+     "title": "Fundamentals of Nutrition",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "BIO 123": {
+     "title": "Microbiology",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "BIO 141": {
+     "title": "Principles of Biology I",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "BIO 142": {
+     "title": "Principles of Biology II",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "CHE 100": {
+     "title": "Introduction to Chemistry",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences"
+     ]
+    },
+    "CHE 104": {
+     "title": "Chemistry of Everyday Life",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences"
+     ]
+    },
+    "CHE 106": {
+     "title": "Chemistry for the Health Professions",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences"
+     ]
+    },
+    "CHE 141": {
+     "title": "General Chemistry I",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences"
+     ]
+    },
+    "CHE 142": {
+     "title": "General Chemistry II",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences"
+     ]
+    },
+    "CIS 122": {
+     "title": "Intro to Computer Programming",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "COM 120": {
+     "title": "Interpersonal Communication",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "COM 121": {
+     "title": "Intro to Advertising",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "COM 201": {
+     "title": "Mass Media & Society",
+     "tags": [
+      "Advanced Composition"
+     ]
+    },
+    "CSC 105": {
+     "title": "Application of Comp in Bus & Comm",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "CSC 123": {
+     "title": "Computer Science II (C/C++)",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "CSC 125": {
+     "title": "Computer Science II (C/C++)",
+     "tags": [
+      "Quantitative Reasoning II"
+     ]
+    },
+    "CSC 127": {
+     "title": "Intro to Computing with Eng Apps",
+     "tags": [
+      "Quantitative Reasoning II"
+     ]
+    },
+    "CSC 140": {
+     "title": "Computer Science I (Java)",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "CSC 175": {
+     "title": "Javascript Development",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "CSC 220": {
+     "title": "Data Structures",
+     "tags": [
+      "Quantitative Reasoning II"
+     ]
+    },
+    "ECO 101": {
+     "title": "Principles of Macroeconomics",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "ECO 102": {
+     "title": "Principles of Microeconomics",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "EDU 104": {
+     "title": "Introduction to Special Education",
+     "tags": [
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "ENG 220": {
+     "title": "Professional Writing",
+     "tags": [
+      "Advanced Composition"
+     ]
+    },
+    "ESC 101": {
+     "title": "Introduction to Weather",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences"
+     ]
+    },
+    "ESC 102": {
+     "title": "Introduction to Physical Geology",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences"
+     ]
+    },
+    "FRE 104": {
+     "title": "Intermediate French II",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "GEO 101": {
+     "title": "Physical Geography",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences"
+     ]
+    },
+    "GEO 140": {
+     "title": "World Geography",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "GEO 143": {
+     "title": "Geography of Underdeveloped Areas",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "GEO 200": {
+     "title": "Intro To Economic Geography",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "HIS 101": {
+     "title": "History of Western Civilization I",
+     "tags": [
+      "Cultural Studies - Western",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 102": {
+     "title": "History of Western Civilization II",
+     "tags": [
+      "Cultural Studies - Western",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 104": {
+     "title": "History of the U.S. to 1877",
+     "tags": [
+      "Cultural Studies - US Minority",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 105": {
+     "title": "History of the U.S. 1877 to present",
+     "tags": [
+      "Cultural Studies - US Minority",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 108": {
+     "title": "World History I",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 109": {
+     "title": "World History II",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 120": {
+     "title": "African American History to 1865",
+     "tags": [
+      "Cultural Studies - US Minority",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 121": {
+     "title": "African American History from 1865 to Literature",
+     "tags": [
+      "Cultural Studies - US Minority",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 123": {
+     "title": "History Of The Middle East",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 128": {
+     "title": "History of Asia and Pacific Region",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 129": {
+     "title": "History Of Africa",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 140": {
+     "title": "History of Latin America",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 166": {
+     "title": "British History I",
+     "tags": [
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 167": {
+     "title": "British History Ii",
+     "tags": [
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HIS 203": {
+     "title": "History Of Women In America",
+     "tags": [
+      "Cultural Studies - US Minority",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HUM 101": {
+     "title": "Western Culture: Antiquity to Renaissance",
+     "tags": [
+      "Cultural Studies - Western",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "HUM 102": {
+     "title": "Western Culture: Renaissance to Present",
+     "tags": [
+      "Cultural Studies - Western",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "HUM 103": {
+     "title": "Cultural Values of the Eastern World",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "HUM 104": {
+     "title": "Islamic Culture and Civilization",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "HUM 105": {
+     "title": "Culture & Civilization of Sub-Saharan Africa",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "HUM 106": {
+     "title": "Latin American Cultures and Civilizations",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "HUM 107": {
+     "title": "Introduction to Mexican Culture",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "HUM 109": {
+     "title": "India And Its Neighbors",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "HUM 121": {
+     "title": "Women in Arts, Cultures, and Societies",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "HUM 122": {
+     "title": "Native American Culture/N Amer",
+     "tags": [
+      "Cultural Studies - US Minority",
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "HUM 125": {
+     "title": "Culture And Society Of Spain",
+     "tags": [
+      "Cultural Studies - Western"
+     ]
+    },
+    "KIN 288": {
+     "title": "Exercise Physiology",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "LAS 188": {
+     "title": "Diverse U.S. Cultural Expression",
+     "tags": [
+      "Cultural Studies - US Minority",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "LIT 120": {
+     "title": "Introduction To Literature",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "LIT 121": {
+     "title": "Intro to Poetry",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "LIT 125": {
+     "title": "Intro to Shakespeare",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "LIT 126": {
+     "title": "Introduction To Drama",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "LIT 127": {
+     "title": "Intro to Fiction",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "LIT 141": {
+     "title": "Intro to African American Literature",
+     "tags": [
+      "Cultural Studies - US Minority",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "LIT 146": {
+     "title": "Intro to Non-Western Literature",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "LIT 147": {
+     "title": "Intro to African Literature",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "MAT 105": {
+     "title": "Mathematics for Elementary Teachers I",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "MAT 106": {
+     "title": "Mathematics for Elementary Teachers I",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "MAT 107": {
+     "title": "General Education Mathematics",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "MAT 108": {
+     "title": "Intro to Applied Statistics",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "MAT 128": {
+     "title": "Calculus and Analytic Geometry I",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "MAT 129": {
+     "title": "Calculus and Analytic Geometry II",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "MAT 141": {
+     "title": "Finite Mathematics",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "MAT 143": {
+     "title": "Calculus Bus and Soc Science",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "MAT 160": {
+     "title": "Statistics",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "MAT 200": {
+     "title": "Intro to Discrete Mathematics",
+     "tags": [
+      "Quantitative Reasoning I"
+     ]
+    },
+    "MAT 228": {
+     "title": "Calculus and Analytic Geom III",
+     "tags": [
+      "Quantitative Reasoning II"
+     ]
+    },
+    "MAT 229": {
+     "title": "Differential Equations",
+     "tags": [
+      "Quantitative Reasoning II"
+     ]
+    },
+    "MUS 121": {
+     "title": "Music Appreciation",
+     "tags": [
+      "Cultural Studies - Western",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "MUS 123": {
+     "title": "Intro to American Music",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "MUS 124": {
+     "title": "Intro to Non-Western Music",
+     "tags": [
+      "Cultural Studies - Non-West",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "MUS 244": {
+     "title": "Music Lit: 18th Century to Present",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "PHI 100": {
+     "title": "Intro to Logic & Critical Thinking",
+     "tags": [
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "PHI 103": {
+     "title": "Intro to Philosophy",
+     "tags": [
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "PHI 105": {
+     "title": "Intro to Ethics",
+     "tags": [
+      "Humanities - Hist & Phil"
+     ]
+    },
+    "PHY 120": {
+     "title": "How Things Work",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences"
+     ]
+    },
+    "PHY 121": {
+     "title": "General Physics I",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences",
+      "Quantitative Reasoning II"
+     ]
+    },
+    "PHY 122": {
+     "title": "General Physics II",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences",
+      "Quantitative Reasoning II"
+     ]
+    },
+    "PHY 141": {
+     "title": "Mechanics",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences",
+      "Quantitative Reasoning II"
+     ]
+    },
+    "PHY 142": {
+     "title": "Electricity & Magnetism",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences",
+      "Quantitative Reasoning II"
+     ]
+    },
+    "POS 120": {
+     "title": "Introduction to Political Science",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "POS 122": {
+     "title": "American National Government",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "POS 124": {
+     "title": "State and Local Government",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "POS 202": {
+     "title": "International Relations",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "PSY 101": {
+     "title": "Introduction to Psychology",
+     "tags": [
+      "Social & Beh Sci - Beh Sci"
+     ]
+    },
+    "PSY 205": {
+     "title": "Intro to Social Psychology",
+     "tags": [
+      "Social & Beh Sci - Beh Sci"
+     ]
+    },
+    "PSY 207": {
+     "title": "Intro to Child Psychology",
+     "tags": [
+      "Social & Beh Sci - Beh Sci"
+     ]
+    },
+    "PSY 208": {
+     "title": "Adolescent Psychology",
+     "tags": [
+      "Social & Beh Sci - Beh Sci"
+     ]
+    },
+    "PSY 209": {
+     "title": "Human Growth and Development",
+     "tags": [
+      "Social & Beh Sci - Beh Sci"
+     ]
+    },
+    "PSY 220": {
+     "title": "Educational Psychology",
+     "tags": [
+      "Social & Beh Sci - Beh Sci"
+     ]
+    },
+    "PSY 223": {
+     "title": "Intro to Adult Dev and Aging",
+     "tags": [
+      "Social & Beh Sci - Beh Sci"
+     ]
+    },
+    "PSY 225": {
+     "title": "Death and Dying",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "SCI 108": {
+     "title": "Essentials of Forensic Science",
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ]
+    },
+    "SCI 208": {
+     "title": "Forensic Science II: Death Analysis",
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences"
+     ]
+    },
+    "SOC 101": {
+     "title": "Introduction to Sociology",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "SOC 102": {
+     "title": "Social Problems",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "SOC 200": {
+     "title": "Sociology of Marriage & Family",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "SOC 202": {
+     "title": "Sociology of Deviant Behavior",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "SOC 203": {
+     "title": "Diversity and Society",
+     "tags": [
+      "Cultural Studies - US Minority",
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "SOC 220": {
+     "title": "do NOT satisfy Parkland\u2019s General",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "SOC 240": {
+     "title": "Gender and Society",
+     "tags": [
+      "Social & Beh Sci - Soc Sci"
+     ]
+    },
+    "SPA 104": {
+     "title": "Intermediate Spanish II",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "THE 100": {
+     "title": "Theatre Appreciation",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "THE 101": {
+     "title": "History of Theatre",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "THE 103": {
+     "title": "Performance of Literature",
+     "tags": [
+      "Advanced Composition",
+      "Cultural Studies - Western",
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "THE 120": {
+     "title": "do NOT satisfy Parkland\u2019s General Education Core Curriculum-Humanities/Fine Arts requirements",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "THE 124": {
+     "title": "Film Appreciation",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    },
+    "THE 125": {
+     "title": "Film History",
+     "tags": [
+      "Humanities - Lit & Arts"
+     ]
+    }
+   },
+   "paired": [
+    {
+     "courses": [
+      "ENG 101",
+      "ENG 102"
+     ],
+     "tags": [
+      "Composition I"
+     ],
+     "why": "Composition I (4-6 hours): ENG 101 English Composition I, paired with ENG 102 Composition II."
+    },
+    {
+     "courses": [
+      "BIO 106",
+      "BIO 186"
+     ],
+     "tags": [
+      "Nat Sci & Tech - Life Sciences"
+     ],
+     "why": "BIO 186 Heredity and Society Lab, paired with BIO 106 Heredity and Society.",
+     "lab": "BIO 186"
+    },
+    {
+     "courses": [
+      "PHY 120",
+      "PHY 129"
+     ],
+     "tags": [
+      "Nat Sci & Tech - Phys Sciences"
+     ],
+     "why": "PHY 129 How Things Work Laboratory, paired with PHY 120 How Things Work.",
+     "lab": "PHY 129"
+    }
+   ],
+   "language": {
+    "ASL 111": {
+     "title": "American Sign Language I",
+     "semester": 1,
+     "language": "American Sign Language"
+    },
+    "FRE 101": {
+     "title": "Beginning French I",
+     "semester": 1,
+     "language": "French"
+    },
+    "FRE 102": {
+     "title": "Beginning French II",
+     "semester": 2,
+     "language": "French"
+    },
+    "FRE 103": {
+     "title": "Intermediate French I",
+     "semester": 3,
+     "language": "French"
+    },
+    "FRE 104": {
+     "title": "Intermediate French II",
+     "semester": 4,
+     "language": "French"
+    },
+    "SPA 101": {
+     "title": "Beginning Spanish I",
+     "semester": 1,
+     "language": "Spanish"
+    },
+    "SPA 102": {
+     "title": "Beginning Spanish II",
+     "semester": 2,
+     "language": "Spanish"
+    },
+    "SPA 103": {
+     "title": "Intermediate Spanish I",
+     "semester": 3,
+     "language": "Spanish"
+    },
+    "SPA 104": {
+     "title": "Intermediate Spanish II",
+     "semester": 4,
+     "language": "Spanish"
+    }
+   }
+  }
+ ]
+}

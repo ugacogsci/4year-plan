@@ -41,7 +41,25 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildIllinoisData, gradeFootnote } from '../../lib/planner/illinois-data.ts';
+import { register } from 'node:module';
+
+/**
+ * The adapters import each other without file extensions, the way the bundler
+ * likes. Node's type stripping does not add them, so this hook does, exactly as
+ * the check harnesses do. It has to be registered before the dynamic import
+ * below, which is why that import is not a static one.
+ */
+register(
+  'data:text/javascript,' +
+    encodeURIComponent(`
+export async function resolve(spec, ctx, next) {
+  if (spec.startsWith('.') && !/\\.[cm]?[jt]s$|\\.json$/.test(spec)) {
+    try { return await next(spec + '.ts', ctx); } catch {}
+  }
+  return next(spec, ctx);
+}`),
+);
+const { buildIllinoisData, gradeFootnote } = await import('../../lib/planner/illinois-data.ts');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PUBLIC = join(ROOT, 'public');
@@ -53,6 +71,10 @@ const RAW = {
   grades: 'illinois-grades.json',
   sections: 'illinois-sections.json',
   map: 'illinois-map.json',
+  excellent: 'illinois-excellent.json',
+  offerings: 'illinois-offerings.json',
+  languages: 'illinois-languages.json',
+  admission: 'illinois-admission.json',
 };
 
 const normCode = (s) => s.replace(/\s+/g, ' ').trim().toUpperCase();
@@ -548,6 +570,129 @@ for (const [code, fact] of data.facts) {
   if (all.length) exclusionRows[code] = all;
 }
 write('exclusions.json', exclusionRows);
+
+/**
+ * offerings.json: which recent terms each course has actually run in, from
+ * the Course Explorer's per-term subject pages. Only the terms the crawl
+ * really read are listed, so a course absent from every one of them has not
+ * run in that window, and the loader can say so.
+ */
+if (raw.offerings.json) {
+  const file = raw.offerings.json;
+  const termIds = (file.terms ?? []).filter((t) => !t.missing && (t.courses ?? 0) > 0).map((t) => t.id);
+  const courses = {};
+  for (const row of indexRows) {
+    const ran = (file.courses?.[row.code] ?? []).filter((t) => termIds.includes(t));
+    if (ran.length) courses[row.code] = ran;
+  }
+  /**
+   * A renumbered course ran under its old number: the registrar's language
+   * table says SPAN 201 was SPAN 130 until this year. Its history is SPAN
+   * 130's, and without it every third and fourth semester of Spanish, French,
+   * German, Italian, Scandinavian and Yiddish read as never offered.
+   */
+  const renumbered = {};
+  for (const lang of raw.languages.json?.languages ?? []) {
+    for (const [now, before] of Object.entries(lang.renumbered ?? {})) {
+      const old = (file.courses?.[before] ?? []).filter((t) => termIds.includes(t));
+      if (!courses[now] && old.length) { courses[now] = old; renumbered[now] = before; }
+    }
+  }
+  write('offerings.json', { source: file.source, fetchedAt: file.fetchedAt, terms: termIds, courses, renumbered });
+  if (Object.keys(renumbered).length) console.log(`    ${Object.keys(renumbered).length} renumbered language courses carry their old number's history (${Object.entries(renumbered).map(([a, b]) => `${a} was ${b}`).join(', ')})`);
+  console.log(`    ${Object.keys(courses).length} courses ran in at least one of ${termIds.length} recent terms (${termIds.join(', ')})`);
+} else {
+  notes.push('No offering history was available to this build, so every course is assumed to run every fall and spring.');
+}
+
+/**
+ * languages.json: the registrar's table of which course is each language's
+ * first, second, third and fourth semester, kept to codes this catalog has.
+ * The scheduler reads it to plan the language requirement; without it the
+ * requirement is quoted and left open.
+ */
+if (raw.languages.json) {
+  const known = new Set(indexRows.map((r) => r.code));
+  const languages = raw.languages.json.languages
+    .map((l) => ({
+      name: l.name,
+      levels: l.levels.map((level) => level.filter((option) => option.every((code) => known.has(code)))),
+      note: l.note,
+    }))
+    .filter((l) => l.levels.every((level) => level.length > 0));
+  write('languages.json', { source: raw.languages.json.source, fetchedAt: raw.languages.json.fetchedAt, languages, footnotes: raw.languages.json.footnotes ?? [] });
+  console.log(`    ${languages.length} languages with all four semesters in this catalog`);
+} else {
+  notes.push('No language table was available to this build, so the language requirement is quoted rather than planned.');
+}
+
+/**
+ * admission.json: what each college publishes about getting in from another
+ * college on campus, hand-read from the college's own page and dated. Copied
+ * through unchanged; the source URL travels with every entry.
+ */
+if (raw.admission.json) {
+  write('admission.json', raw.admission.json);
+  console.log(`    admission routes for ${Object.keys(raw.admission.json.colleges ?? {}).length} colleges`);
+}
+
+/**
+ * Teachers Ranked as Excellent, folded per course.
+ *
+ * The raw file is one row per (term, instructor, course number) as CITL
+ * printed it. What a card needs is the other way round: for this course, which
+ * terms did any of its instructors make the list, and who were they, spelled
+ * the way the section crawl spells names ("Alt, M") so the two can be matched.
+ * Only undergraduate courses in the index are kept; graduate rows are in the
+ * raw file for anyone who wants them. Absent raw file, absent artifact, and
+ * the browser treats that as "not known", never as "nobody was ranked".
+ */
+if (raw.excellent.json) {
+  const perCourse = new Map();
+  const termOrder = [];
+  const seenTerm = new Set();
+  const termRank = (t) => {
+    const m = t.match(/^(sp|su|fa|wi)(\d{4})$/);
+    if (!m) return 0;
+    return Number(m[2]) * 4 + { wi: 0, sp: 1, su: 2, fa: 3 }[m[1]];
+  };
+  for (const row of raw.excellent.json.rows ?? []) {
+    if (!seenTerm.has(row.term)) { seenTerm.add(row.term); termOrder.push(row.term); }
+    for (const code of row.codes ?? []) {
+      const key = normCode(code);
+      if (!indexRows.some((r) => normCode(r.code) === key)) continue;
+      let entry = perCourse.get(key);
+      if (!entry) { entry = { terms: new Set(), instructors: new Map() }; perCourse.set(key, entry); }
+      entry.terms.add(row.term);
+      const name = `${row.lname}, ${row.fname}`;
+      let who = entry.instructors.get(name);
+      if (!who) { who = { name, terms: new Set(), outstanding: false, ta: row.role === 'TA' }; entry.instructors.set(name, who); }
+      who.terms.add(row.term);
+      if (row.ranking === 'Outstanding') who.outstanding = true;
+      if (row.role !== 'TA') who.ta = false;
+    }
+  }
+  const newestFirst = (a, b) => termRank(b) - termRank(a);
+  const courses = {};
+  for (const [code, entry] of perCourse) {
+    courses[code] = {
+      terms: [...entry.terms].sort(newestFirst),
+      instructors: [...entry.instructors.values()]
+        .map((w) => ({ name: w.name, terms: [...w.terms].sort(newestFirst), outstanding: w.outstanding, ta: w.ta }))
+        .sort((a, b) => termRank(b.terms[0]) - termRank(a.terms[0]) || a.name.localeCompare(b.name)),
+    };
+  }
+  write('excellent.json', {
+    source: raw.excellent.json.source,
+    sourceNote: raw.excellent.json.sourceNote,
+    fetchedAt: raw.excellent.json.fetchedAt,
+    terms: termOrder.sort(newestFirst),
+    courses,
+  });
+  console.log(`  ${padL(Object.keys(courses).length, 6)} undergraduate courses with a Teachers Ranked as Excellent entry, over ${termOrder.length} terms`);
+} else {
+  notes.push('No Teachers Ranked as Excellent list was available to this build, so teaching ratings are not known for any course.');
+}
 
 const artifacts = {};
 for (const row of topLevel) artifacts[row.path] = { raw: row.raw, gzip: row.gzip };
