@@ -2,7 +2,7 @@
 
 ## This branch: the Illinois planner
 
-What is here now is a working planner for the University of Illinois Urbana-Champaign, built on this skeleton: the real catalog (6,110 undergraduate courses), 308 degree pages, Fall 2026 sections and DAIR grade history, with the generator, the checks and the assistant below. The school roster in `lib/planner/onboarding.ts` still lists UGA and the others; only Illinois is switched on, because only Illinois has a catalog behind it.
+What is here now is a working planner for the University of Illinois Urbana-Champaign, built on this skeleton: the real catalog (6,110 undergraduate courses), 308 degree pages, Fall 2026 sections and DAIR grade history, with the generator, the checks and the assistant below. The school roster in `lib/planner/onboarding.ts` lists Illinois and UGA, and onboarding offers both; the work and checks on this branch are for Illinois.
 
 - Onboarding runs on every launch: three questions, AP and IB scores priced against the registrar's table, and a transcript (PDF, image or text) read once by Claude into a checklist the student confirms. Nothing about a student is stored.
 - Plans reach the degree's published total with balanced terms. The graduation date outranks the hours a student asks for. Elective slots fill what the degree page does not name; tapping one lists everything eligible in that term.

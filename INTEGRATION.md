@@ -48,13 +48,14 @@ user agent. This one sends `FourYearPlanBot/1.0 (student planning project; respe
 host tested serves it normally, and a project that wants a university as a
 customer should not be the project that lied to their bot detection.
 
-## 2. The ask bar
+## 2. University questions
 
-`components/planner/ask-bar.tsx`, `app/api/ask/route.ts`
+`app/api/ask/route.ts`, `lib/planner/university-lookup.ts`, `lib/planner/ask-router.ts`
 
-The bar across the bottom of the whiteboard sketch. Not a chat window: the
-student is mid-decision on the board above it, so the answer opens in place
-and the plan stays put.
+ALMA's university_answer tool posts here. Anything the planner can answer from
+its own files (a course, the board, grade history) is answered in the browser
+first by `lib/planner/ask-router.ts`, so what reaches this route is a question
+about the university itself: a deadline, a policy, an office, a price.
 
 The API route has a deliberately narrow contract, `{ text, sources[] }`. It
 answers through the planner's own lookup (`lib/planner/university-lookup.ts`):
