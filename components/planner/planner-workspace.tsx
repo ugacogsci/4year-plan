@@ -3867,7 +3867,16 @@ export function PlannerWorkspace({
         if (!ask) return { handled: false, note: 'The planner data is not loaded.' };
         const routed = routeQuestion(str('question'), ask);
         if (routed.kind === 'local') {
-          return { handled: true, text: routed.answer.text, sources: routed.answer.sources, grounded: routed.answer.grounded };
+          const also = routed.alsoLocal;
+          if (!also) return { handled: true, text: routed.answer.text, sources: routed.answer.sources, grounded: routed.answer.grounded };
+          // Two local halves ("how hard is CS 225 and what are its prerequisites"): both answers, sources numbered on.
+          const offset = routed.answer.sources.length;
+          return {
+            handled: true,
+            text: `${routed.answer.text}\n\n${also.text}`,
+            sources: [...routed.answer.sources, ...also.sources.map((s) => ({ ...s, n: s.n + offset }))],
+            grounded: routed.answer.grounded && also.grounded,
+          };
         }
         return { handled: false, note: 'Not a question the board can answer. Try university_answer.' };
       }

@@ -28,29 +28,23 @@ import { pickSectionTerm, sectionTermCaveat, termRank, termsInWords, type PlanTe
 /**
  * Which side of the product answers a question.
  *
- * TRU is good at Illinois's published pages and bad at the student's own board:
- * it holds no section, building, meeting-time or part-of-term data at all, its
- * catalog chunks lose retrieval to faculty bio pages, and three planner-shaped
- * phrasings ("is my schedule too hard") trip its personal-record guard. The
- * planner is the opposite. So questions are ROUTED rather than forwarded with a
- * context block attached, and each one goes to whichever side holds the data.
+ * The planner's university lookup (lib/planner/university-lookup.ts, behind
+ * /api/ask) is good at the university's official pages and blind to the
+ * student's own board: it reads deadlines, policies and offices fresh from the
+ * school's site, and it holds no section, building, meeting-time, prerequisite,
+ * grade or degree-progress data at all. The local side is the opposite. So
+ * questions are ROUTED rather than forwarded with a context block attached, and
+ * each one goes to whichever side holds the data.
  *
- * Six measured reasons against prepending the board to the question string, all
- * from TRU's own request handler:
+ * Reasons against prepending the board to the question string:
  *
- *   1. the question is silently cut at 1,000 characters, so the block survives
- *      and the student's actual sentence is what gets truncated
- *   2. anything over 120 characters is treated as a hard question and gets an
- *      adaptive-thinking call, on every question including "when is tuition due"
- *   3. the extractive fallback refuses questions over 20 words, so the moment
- *      the daily model cap is hit every planner question declines instead of
- *      degrading to a sourced extract
- *   4. the answer cache key is the question text, so two students with different
- *      boards never share an entry and every ask is a fresh model call
- *   5. the guards run on the whole string and are tuned for student prose, not
- *      for a generated list
- *   6. the question text is logged, so a prepended board would put real student
- *      schedules in TRU's operational log
+ *   1. the lookup cuts the question at 1,000 characters, so a block would
+ *      survive and the student's actual sentence is what gets truncated
+ *   2. every forwarded question is a paid model call with web search, and the
+ *      lookup's day cache is keyed by the question text, so two students with
+ *      different boards would never share an entry
+ *   3. a board is about one student, and nothing about a student needs to
+ *      leave this device to answer a question about a registrar deadline
  *
  * The last one is the one that settles it. Nothing about a student leaves this
  * device. Only a short self-contained sentence is ever forwarded.
@@ -164,22 +158,24 @@ export type LocalShape =
   | 'requirements'
   /** What is in a column: the plainest question a board can be asked. */
   | 'roster'
+  /** Grade history for one course, from the registrar's grade file. */
+  | 'grade'
   /** Two candidates and no way to choose. The bar renders the ask-back. */
   | 'clarify';
 
 export type UpstreamShape = 'grade' | 'general';
 
 /**
- * A compound question can need both sides. "How hard is CS 225 and what are its
- * prerequisites?" fills all eight of TRU's retrieval slots with grade chunks and
- * answers only the first half, so the prerequisite half is answered here and
- * only the grade half is forwarded.
+ * A compound question can need both sides, or two local answers. "When is the
+ * add deadline and what does CS 225 need first?" answers the prerequisite half
+ * here and forwards only the deadline half; "How hard is CS 225 and what are
+ * its prerequisites?" is two local answers, the second in `alsoLocal`.
  *
- * The extra field is optional on purpose: a bar that only reads `kind` still
- * answers the half it handles and never shows anything wrong.
+ * The extra fields are optional on purpose: a caller that only reads `kind`
+ * and `answer` still answers the half it handles and never shows anything wrong.
  */
 export type Routed =
-  | { kind: 'local'; shape: LocalShape; answer: LocalAnswer; alsoUpstream?: string }
+  | { kind: 'local'; shape: LocalShape; answer: LocalAnswer; alsoUpstream?: string; alsoLocal?: LocalAnswer }
   | { kind: 'upstream'; shape: UpstreamShape; question: string; alsoLocal?: LocalAnswer };
 
 // ---------------------------------------------------------------------------
@@ -516,13 +512,13 @@ function gradeHistoryLine(ctx: AskContext): string {
 
 /**
  * Where and when a section meets, who is assigned to it, and which part of term
- * it runs in. TRU's Illinois corpus has none of this: its courses.illinois.edu
- * pages are subject indexes carrying a code and a title and nothing else, so
- * forwarding one of these guarantees a decline.
+ * it runs in. Only this side has it: the crawled class schedule. A web search
+ * of the university's pages finds subject indexes, not section rows, so
+ * forwarding one of these would come back empty.
  *
  * "who teaches" is here and "who taught" is not. The schedule names the
- * instructor assigned to the crawled term, which is a fact only this side has.
- * Past grading by instructor is history, which is TRU's.
+ * instructor assigned to the crawled term. Past grading by instructor is
+ * history, which the grade route below answers from the grade file.
  */
 const SECTION_SHAPE =
   /\b(building|buildings|room|classroom|where is|where does|where do|where are|what time|when does|when do|when is|meeting time|meets|meet)\b|\b(what|which|how many|list)\b[^?]{0,40}\b(sections?|crn|part of term|parts of term|days)\b|\bwho (teaches|is teaching)\b|\b(conflict|conflicts|overlap|overlaps|clash|clashes|back.?to.?back)\b|\bcan i get (from|to)\b|\bwalk\b[^?]{0,20}\bbetween\b|\bin person or online\b|\bonline or in person\b|\bhow many seats?\b|\bwaitlist\b|\b(is|are) (it|this|that) (open|closed|full|online)\b/i;
@@ -531,16 +527,16 @@ const SECTION_SHAPE =
  * Words that are a section question only once a course is on the table.
  *
  * "Online" on its own is a question about how Illinois runs online courses,
- * which is TRU's. "Is CS 128 online" is a question about a row in the Fall 2026
+ * which is the university's. "Is CS 128 online" is a question about a row in the Fall 2026
  * schedule, which is this side's, and the difference is entirely the code.
  */
 const SECTION_SHAPE_WITH_COURSE =
   /\bonline\b|\bin person\b|\bwhat days?\b|\bhow many sections?\b|\bcrn\b|\blecture\b|\bdiscussion\b|\blab\b|\bopen or closed\b/i;
 
 /**
- * How heavy a term is. TRU cannot see a board at all, and its hardest-courses
- * answerer would reply with the eight lowest-GPA courses at the whole
- * university, which is a confident answer to a question nobody asked.
+ * How heavy a term is. The university lookup cannot see a board at all, and a
+ * search for "hardest courses" would answer about the whole university, which
+ * is a confident answer to a question nobody asked.
  *
  * The last alternative reads a superlative against a plain noun, because "what
  * is the easiest class in fall 2027" carried no possessive and so matched none
@@ -639,9 +635,8 @@ const FIRST_CLASS_SHAPE = /\b(first|earliest)\s+(class|course)\b/i;
 
 /**
  * Ordering. prereqCodes here are parsed from the registrar's own sentence and
- * prereqText is that sentence verbatim, while TRU's catalog chunk is titled
- * "Course Catalog (part N)" with no course-code boost and loses retrieval to
- * faculty biography pages on the same question.
+ * prereqText is that sentence verbatim, which is more exact than anything a
+ * search of the catalog's pages would return for one course.
  */
 const PREREQ_SHAPE =
   /\bprereq\w*\b|\bpre.?requisite\w*\b|\bwhat do i need (before|first|to take)\b|\b(need|take|do) .{0,24}\bbefore\b|\bam i ready for\b|\bcan i take\b|\bunlocks?\b|\bopens? up\b|\bcomes? first\b|\bdo i need .{0,30}\bfirst\b|\bwhat (?:does|do|would) [^?]{0,30}\b(?:need|require)\s*(?:first|before (?:it|this|that)|to take|in order|\?|$)/i;
@@ -702,18 +697,17 @@ const PROGRESS_WORD =
   /\b(left|remaining|still|on track|behind|so far|already|done|covered|missing|short)\b/i;
 
 /**
- * A course overview. TRU cannot answer this at Illinois: its catalog chunks are
- * titled "Course Catalog (part N)" with no course-code boost, and I measured
- * "Tell me about CS 225" returning two faculty biography pages above anything
- * about the course.
+ * A course overview. The planner holds the catalog row itself, so this is
+ * answered here rather than by searching the university's pages for it.
  */
 const COURSE_SHAPE =
   /\btell me about\b|\bwhat is\b|\bwhat'?s\b|\bwhat are\b|\bwhat does .{0,20}\bcover\b|\bhow many credits?\b|\bhow many hours?\b|\bwhat level\b|\bcross.?listed\b|\bsame as\b|\bdescription\b|\bwhat.{0,12}\babout\b|\bcount as\b|\bcounts? for\b|\bgen ?ed\b/i;
 
 /**
- * Grade history for one named course. TRU owns this one outright: it has the
- * DAIR chunk, it slices exactly that course's block into the excerpt, and its
- * prompt carries the plus/minus and withdrawal rules that govern the prose.
+ * Grade history for one named course. The planner holds the registrar's grade
+ * file (public/illinois-grades.json, from DAIR's published distribution), so
+ * these are answered here, from the course's own row, with the DAIR page as
+ * the source. Official web pages do not carry per-course grade history.
  */
 const GRADE_SHAPE =
   /\bhow hard\b|\bgrade distribution\b|\baverage gpa\b|\b(which|what|who|best|good)\b[^?]{0,30}\b(instructors?|professors?|prof|teacher)\b|\bwho taught\b|\beasy a'?s?\b|\bgpa booster\b|\bwithdrawal rate\b|\bhow many (people|students) (fail|drop|withdraw)\b|\bfail rate\b|\bcurved?\b|\bgrades? easier\b/i;
@@ -733,8 +727,8 @@ const COURSE_DIFFICULTY_SHAPE = /\b(hard|tough|brutal|difficult|easy|rough|heavy
 /**
  * Whether the question is about this student rather than about the university.
  *
- * "What are the general education requirements at Illinois" is TRU's: it is a
- * question about a published page. "What gen eds do I still need" is this
+ * "What are the general education requirements at Illinois" is the
+ * university's: it is a question about a published page. "What gen eds do I still need" is this
  * side's: it is a measurement of the board. Same nouns, different question, and
  * the pronoun is the only thing that separates them.
  */
@@ -810,7 +804,7 @@ function codesInText(raw: string, ctx: AskContext): { known: string[]; unknown: 
  *
  * Resolution order is deliberate. An explicit code always wins, because a
  * student who typed one meant it. A pronoun falls back to the open card, which
- * is the thing TRU structurally cannot know. A title match is last and only when
+ * only this side can see. A title match is last and only when
  * it is unambiguous. Two candidates is never a guess; the caller asks back.
  */
 export function resolveCourse(raw: string, ctx: AskContext): ResolvedCourse | null {
@@ -2101,7 +2095,7 @@ function answerPrereq(code: string, ctx: AskContext): Routed {
  * Whether the board's own order is legal, end to end.
  *
  * This is the question a student actually means by "does my plan work", and it
- * is the one TRU cannot touch: it needs every course on the board, in order,
+ * is one only this side can answer: it needs every course on the board, in order,
  * checked against the catalog's own prerequisite sentences.
  */
 function answerOrder(ctx: AskContext): Routed {
@@ -2316,12 +2310,7 @@ function borrowedLine(all: Array<{ code: string; from: string; renumbered: boole
 }
 
 /**
- * What a course is, from the catalog.
- *
- * Measured on TRU's real Illinois corpus: "Tell me about CS 225 at Illinois"
- * returns two faculty biography pages and a "Courses (part 1)" chunk, because
- * the catalog is chunked with generic titles and no course-code boost. The
- * planner holds the row itself.
+ * What a course is, from the catalog. The planner holds the row itself.
  */
 function answerCourse(code: string, raw: string, ctx: AskContext): Routed {
   const facts: CourseFacts | undefined = ctx.data.facts.get(code);
@@ -2408,6 +2397,68 @@ function answerCourse(code: string, raw: string, ctx: AskContext): Routed {
   }
 
   return local('course', lines.join('\n\n'), sources);
+}
+
+/** A course code with nothing around it but a question mark: "CS 225", "cs225?". */
+const BARE_CODE = /^\s*[A-Za-z]{2,4}\s?\d{3}\s*\??\s*$/;
+
+/** Words that ask about who taught or graded the course, rather than the course as a whole. */
+const INSTRUCTOR_WORD = /\b(instructors?|professors?|prof|profs|teachers?|who taught|who grades|grades? easier|easiest grader|which section)\b/i;
+
+/**
+ * Grade history for one course, from the registrar's grade file.
+ *
+ * The same row and the same twin rule as the course card (answerCourse), so
+ * the card, the term weight and this answer never disagree. History, never a
+ * prediction: the sentence that says so ships with every number. A course with
+ * no row says so plainly and makes no difficulty claim.
+ */
+function answerGrade(code: string, raw: string, ctx: AskContext): Routed {
+  const dair = sourceOf(1, DAIR.title, DAIR.url);
+  const title = ctx.data.byCode.get(code)?.title;
+  const own = ctx.data.grades.get(code);
+  const label = difficultyLabel(own, ctx.data.bands);
+  const twin = own ? null : twinGradeRow(code, ctx);
+  const row = own && label.kind === 'band' ? own : twin?.row;
+  const name = title ? `${code}, ${title}` : code;
+
+  if (!row) {
+    return local(
+      'grade',
+      `No grade history is published for ${code} in the registrar's grade distribution, so I cannot say how it has been graded. A new, renumbered or rarely taught course often has none.`,
+      [dair],
+      false,
+    );
+  }
+
+  const lines: string[] = [];
+  const bits: string[] = [];
+  if (row.gpa !== null) bits.push(`an average GPA of ${row.gpa.toFixed(2)}`);
+  if (row.aPct !== null) bits.push(`${row.aPct}% A grades`);
+  if (row.dfPct !== null) bits.push(`${row.dfPct}% D or F`);
+  if (row.withdrawPct !== null) bits.push(`${row.withdrawPct}% withdrew`);
+  const sample = `${row.n.toLocaleString('en-US')} ${plural(row.n, 'grade')} across ${row.sections} ${plural(row.sections, 'section')}`;
+  lines.push(`${name}: ${bits.length > 0 ? joinList(bits) : 'no averages published'} (${sample}).`);
+  if (row.n < THIN_SAMPLE) lines.push(`That is a small sample, so read it loosely.`);
+  if (twin) lines.push(borrowedWhose(twin.code, twin.renumbered));
+
+  const graders = [...row.instructors].filter((i) => i.sections > 0);
+  if (graders.length > 0 && INSTRUCTOR_WORD.test(raw)) {
+    const easierFirst = /\b(easier|easiest|best|good|should i take|which)\b/i.test(raw);
+    const ranked = graders.sort((a, b) =>
+      easierFirst ? b.gpa - a.gpa || b.sections - a.sections : b.sections - a.sections || a.name.localeCompare(b.name),
+    );
+    const shown = ranked.slice(0, 5).map(
+      (i) => `${i.name}: ${i.gpa.toFixed(2)} average GPA, ${i.aPct}% A, ${i.sections} ${plural(i.sections, 'section')}`,
+    );
+    lines.push(
+      `${easierFirst ? 'By instructor, highest average GPA first' : 'By instructor, most sections first'}:\n${shown.map((l) => `- ${l}`).join('\n')}${ranked.length > shown.length ? `\n(${ranked.length - shown.length} more on record.)` : ''}`,
+    );
+    lines.push('Who teaches it next term is in the class schedule; ask where or when it meets.');
+  }
+
+  lines.push(gradeHistoryLine(ctx));
+  return local('grade', lines.join('\n\n'), [dair]);
 }
 
 // ---------------------------------------------------------------------------
@@ -2619,19 +2670,19 @@ function answerRequirements(ctx: AskContext): Routed {
 // The upstream branch
 // ---------------------------------------------------------------------------
 
-/** TRU cuts the question at 1,000 characters with no warning. Stay well under. */
+/** The lookup cuts the question at 1,000 characters. Stay well under. */
 const UPSTREAM_MAX = 900;
 
 /**
- * Turn the student's sentence into something TRU can retrieve on.
+ * Turn the student's sentence into a self-contained question for the lookup.
  *
- * Four rules, each enforcing something measured in TRU's own handler:
- *   a. never a bare code. Its clarify card refuses any question with no
- *      three-letter run, which rejects "CS 225", "ME 200", "IB 150", "AE 202",
- *      "PS 101", "NE 201", "SE 101" and "CW 104".
+ * Four rules:
+ *   a. never a bare code. "CS 225" alone is not a question a search can
+ *      answer, so it becomes "What should I know about CS 225?".
  *   b. every pronoun already carries the resolved code, done in resolveCourse.
- *   c. no "at Illinois" suffix. The tenant is fixed by the route path and the
- *      token only adds noise to BM25.
+ *      The lookup cannot see the open card, so "it" would mean nothing there.
+ *   c. no "at Illinois" suffix. The school is fixed by the request and the
+ *      search is already restricted to its domains.
  *   d. under 900 characters, because the 1,000 cut is silent and the half that
  *      gets cut is the student's actual question.
  */
@@ -2652,11 +2703,11 @@ export function rewriteForUpstream(raw: string, resolved: ResolvedCourse | null)
 }
 
 /**
- * Split a compound question when each half wants a different side.
+ * Split a compound question when each half wants a different answer.
  *
- * Measured: "How hard is CS 225 and what are its prerequisites?" fills all
- * eight of TRU's retrieval slots with grade chunks and answers only the first
- * half. Splitting is the only way the second half gets an answer at all.
+ * "How hard is CS 225 and what are its prerequisites?" is two questions with
+ * two different sources. Answered whole, only the first half gets an answer;
+ * split, each half goes to the side that holds it.
  */
 export function splitCompound(raw: string): string[] {
   const parts = raw.split(/,?\s+and\s+(?=what|when|where|who|which|how|is|are|do|does|can|am)/i);
@@ -2741,12 +2792,12 @@ function answerTermMiss(
 /**
  * One question in, one side of the product out.
  *
- * Order matters and is not alphabetical. Sections come first because they are
- * the one thing TRU structurally cannot answer. A named course with a grade
- * question goes upstream before the load detector can claim it, so "is CS 225
- * hard" reaches the DAIR chunk instead of being answered as a term. Load,
- * prerequisite and requirement follow. Anything left is a genuine university
- * question and is forwarded verbatim.
+ * Order matters and is not alphabetical. Sections come first because only this
+ * side holds them. A named course with a grade question is answered from its
+ * grade row before the load detector can claim it, so "is CS 225 hard" gets the
+ * course's history instead of being answered as a term. Load, prerequisite and
+ * requirement follow. Anything left is a genuine university question and is
+ * forwarded to the lookup as a short self-contained sentence.
  */
 export function routeQuestion(rawInput: string, ctx: AskContext): Routed {
   const raw = (rawInput ?? '').replace(/\s+/g, ' ').trim();
@@ -2762,12 +2813,25 @@ export function routeQuestion(rawInput: string, ctx: AskContext): Routed {
     const first = routeOne(halves[0], half);
     const second = routeOne(halves[1], half);
     // Only a genuinely mixed compound is worth splitting. Two upstream halves
-    // are one question TRU handles better whole, and two local halves would
-    // show the student two cards for one sentence.
+    // are one question the lookup handles better whole, and two local halves
+    // of the same kind would show the student two cards for one sentence.
     if (first.kind === 'local' && second.kind === 'upstream' && first.shape !== 'clarify') {
       return { ...first, alsoUpstream: second.question };
     }
     if (first.kind === 'upstream' && second.kind === 'local' && second.shape !== 'clarify') {
+      return { ...first, alsoLocal: second.answer };
+    }
+    // A grade half beside another local half: both are answered here, the
+    // second in alsoLocal, so "how hard is CS 225 and what are its
+    // prerequisites" gets both halves and neither is lost.
+    if (
+      first.kind === 'local' &&
+      second.kind === 'local' &&
+      first.shape !== 'clarify' &&
+      second.shape !== 'clarify' &&
+      first.shape !== second.shape &&
+      (first.shape === 'grade' || second.shape === 'grade')
+    ) {
       return { ...first, alsoLocal: second.answer };
     }
   }
@@ -2787,7 +2851,7 @@ function routeOne(raw: string, ctx: AskContext): Routed {
   const termNamed = TERM_REFERENCE.test(raw);
 
   // 1. Sections. The planner holds building, room, days, times, CRN, instructor
-  //    and part of term for the crawled term. TRU holds none of it.
+  //    and part of term for the crawled term. The lookup holds none of it.
   const sectionShaped =
     SECTION_SHAPE.test(raw) || (course !== null && SECTION_SHAPE_WITH_COURSE.test(raw));
   if (sectionShaped) {
@@ -2830,8 +2894,9 @@ function routeOne(raw: string, ctx: AskContext): Routed {
   }
 
   // 4. Grade history for one named course, before the load detector can take
-  //    it. "Is CS 225 hard" is TRU's; "is my spring hard" is ours, and the only
-  //    difference is whether the question is about a course or about a column.
+  //    it. "Is CS 225 hard" is the course's grade row; "is my spring hard" is
+  //    the column's weight, and the only difference is whether the question is
+  //    about a course or about a column.
   //
   //    The second test is the plain difficulty wording. "Is CS 225 too hard"
   //    names a course and no column, and the load detector used to claim it and
@@ -2839,16 +2904,16 @@ function routeOne(raw: string, ctx: AskContext): Routed {
   const courseDifficulty =
     course && !termNamed && !selfScoped && COURSE_DIFFICULTY_SHAPE.test(raw);
   if ((GRADE_SHAPE.test(raw) || courseDifficulty) && course && !BOARD_SCOPE.test(raw)) {
-    return { kind: 'upstream', shape: 'grade', question: rewriteForUpstream(raw, course) };
+    return answerGrade(course.code, raw, ctx);
   }
 
   // 5. How heavy a term is. Needs a board reference or a term the student named
   //    out loud, otherwise it is a question about the university's hardest
-  //    courses, which TRU answers deterministically.
+  //    courses, which is not a question about this board.
   //
   //    `termNamed` is here because a load question about a term the board does
   //    not run still belongs on this side. "How heavy is fall 2031" went
-  //    upstream to an engine that cannot see a board at all, when the honest
+  //    upstream to a lookup that cannot see a board at all, when the honest
   //    answer, that the board does not run that term, is right here.
   //
   //    `termSuperlative` is the third way in. "Which term is hardest" carries
@@ -2901,8 +2966,9 @@ function routeOne(raw: string, ctx: AskContext): Routed {
     if (REQUIREMENT_SHAPE.test(raw) && (selfScoped || PROGRESS_WORD.test(raw))) return answerRequirements(ctx);
     // "How do I drop a class before the deadline" reads as an ordering question
     // and names no course, so the ask-back offered a course picker to somebody
-    // asking about the registrar. Dropping, adding and deadlines are TRU's, and
-    // Illinois runs four parts of term with four sets of them.
+    // asking about the registrar. Dropping, adding and deadlines are the
+    // registrar's pages', and Illinois runs four parts of term with four sets
+    // of them.
     if (REGISTRAR_ACTION.test(raw)) {
       return { kind: 'upstream', shape: 'general', question: rewriteForUpstream(raw, null) };
     }
@@ -2917,7 +2983,7 @@ function routeOne(raw: string, ctx: AskContext): Routed {
 
   // 9. A grade question that named a course but also carried a board word.
   if (GRADE_SHAPE.test(raw) && course) {
-    return { kind: 'upstream', shape: 'grade', question: rewriteForUpstream(raw, course) };
+    return answerGrade(course.code, raw, ctx);
   }
 
   // 10. What a course is. Last of the local shapes because its wording is the
@@ -2926,8 +2992,22 @@ function routeOne(raw: string, ctx: AskContext): Routed {
     return answerCourse(course.code, raw, ctx);
   }
 
-  // 11. Everything else is a genuine university question, which is what TRU is
-  //    good at. It goes as a short self-contained sentence and nothing else.
+  // 10a. A named course's difficulty that no local shape above claimed: "is
+  //    CS 225 hard for me" carries a pronoun, so step 4 left it for the board
+  //    detectors, and none of them read it. It is still the course's grade
+  //    history, and the answer says history is not a prediction about you.
+  if (course && !course.unknown && !termNamed && COURSE_DIFFICULTY_SHAPE.test(raw)) {
+    return answerGrade(course.code, raw, ctx);
+  }
+
+  // 10b. A course code and nothing else. Nothing in it is a question for the
+  //    university's pages; the catalog row is the answer.
+  if (course && !course.unknown && BARE_CODE.test(raw)) {
+    return answerCourse(course.code, raw, ctx);
+  }
+
+  // 11. Everything else is a genuine university question, which is what the
+  //    lookup is for. It goes as a short self-contained sentence and nothing else.
   return {
     kind: 'upstream',
     shape: GRADE_SHAPE.test(raw) ? 'grade' : 'general',
@@ -2950,8 +3030,8 @@ function routeOne(raw: string, ctx: AskContext): Routed {
  * A chip that does not reach a grounded local answer on this student's own
  * board is dropped rather than shown, which is why this cannot drift again.
  *
- * Local only, and deliberately. Whether TRU can be reached is not knowable from
- * here, so a chip that needs it is a promise this side cannot keep. The ask bar
+ * Local only, and deliberately. Whether the lookup can be reached is not
+ * knowable from here, so a chip that needs it is a promise this side cannot keep. The ask bar
  * offers the university's own openers when there is no board to build these
  * from, which is the case where upstream is the only answerer anyway.
  */
