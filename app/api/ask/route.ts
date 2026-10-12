@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { LIMITS, parseJson, readBodyCapped, sharedGuard, visitorKey } from '@/lib/planner/spend-guard';
 
 /**
  * The answer endpoint.
@@ -16,6 +17,11 @@ import { NextResponse } from 'next/server';
  * The contract is deliberately narrow, and it is the contract that matters more
  * than the implementation: { text, sources[] }. An answer without the page it
  * came from does not ship.
+ *
+ * The tenant pays for its own model calls and keeps its own caps, so this
+ * route adds only a 16 KB body cap and a per-visitor rate limit
+ * (lib/planner/spend-guard.ts), which keep one visitor from hammering TRU
+ * through the planner.
  */
 
 export const dynamic = 'force-dynamic';
@@ -40,7 +46,11 @@ const PREFIX: Record<string, string> = {
 };
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as {
+  const raw = await readBodyCapped(req, LIMITS.ask.maxBodyBytes);
+  if (raw === null) {
+    return NextResponse.json({ error: 'That question is too long. Ask it in a few sentences.' }, { status: 413 });
+  }
+  const body = (parseJson(raw) ?? {}) as {
     question?: unknown;
     school?: unknown;
     prior?: unknown;
@@ -89,6 +99,19 @@ export async function POST(req: Request) {
    */
   const forwarded =
     req.headers.get('x-forwarded-for') ?? req.headers.get('cf-connecting-ip') ?? '';
+
+  const admitted = sharedGuard().admit('ask', visitorKey(req.headers), {
+    model: '',
+    estimateUsd: 0,
+    capUsd: null,
+    names: { who: 'The answer service' },
+  });
+  if (!admitted.ok) {
+    return NextResponse.json(
+      { error: admitted.error, text: '', sources: [], contacts: [], grounded: false, locked: false },
+      { status: admitted.status, headers: { 'retry-after': String(admitted.retryAfter) } },
+    );
+  }
 
   try {
     const res = await fetch(`${UPSTREAM.replace(/\/$/, '')}${prefix}/api/ask`, {
