@@ -1,8 +1,8 @@
 /**
  * Illinois sections: when a course actually meets, in which building, with whom.
  *
- * This is the piece no other tenant has. UGA's class schedule is behind CAS,
- * A&M's is behind Howdy, and Illinois's own JSON API at /cisapp/ is disallowed
+ * This is the piece no other school here has. UGA's class schedule is behind
+ * CAS, and Illinois's own JSON API at /cisapp/ is disallowed
  * by robots.txt. But the Course Explorer's HTML at /schedule/{y}/{term}/{SUBJ}/
  * {NUM} is server-rendered and is NOT in the disallow list, and it carries
  * every field the API does:

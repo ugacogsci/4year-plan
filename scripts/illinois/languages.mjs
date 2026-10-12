@@ -16,7 +16,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 const URL = 'https://registrar.illinois.edu/courses-approved-for-language-requirements/';
-const UA = 'TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)';
+const UA = 'FourYearPlanBot/1.0 (student planning project; respects robots.txt)';
 
 const res = await fetch(URL, { headers: { 'user-agent': UA } });
 if (!res.ok) { console.error(`HTTP ${res.status}`); process.exit(1); }

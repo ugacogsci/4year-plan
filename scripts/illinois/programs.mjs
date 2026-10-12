@@ -26,7 +26,7 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 
-const UA = 'TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)';
+const UA = 'FourYearPlanBot/1.0 (student planning project; respects robots.txt)';
 const BASE = 'https://catalog.illinois.edu';
 const DELAY = 1100;
 

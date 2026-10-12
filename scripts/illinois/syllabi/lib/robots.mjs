@@ -2,7 +2,7 @@
  * robots.txt, parsed the way RFC 9309 says and decided the strict way.
  *
  * The parse: groups start at one or more User-agent lines; the group for us is
- * every group naming "trubot" (case-insensitive), or failing that every "*"
+ * every group naming "fouryearplanbot" (case-insensitive), or failing that every "*"
  * group, merged. Rules match the URL path plus query; "*" matches any run of
  * characters and a trailing "$" anchors the end. The longest matching rule
  * wins and, at equal length, Allow beats Disallow. An empty "Disallow:" allows
@@ -76,22 +76,22 @@ export function parseRobots(text) {
   return { groups, sitemaps };
 }
 
-/** The merged rule group that applies to a product token, e.g. "trubot". */
-export function groupFor(parsed, token = 'trubot') {
+/** The merged rule group that applies to a product token, e.g. "fouryearplanbot". */
+export function groupFor(parsed, token = 'fouryearplanbot') {
   // Equality on the product token, not substring: a group for "bot" is not a
-  // group for "trubot", and reading it as one would apply someone else's rules.
+  // group for "fouryearplanbot", and reading it as one would apply someone else's rules.
   const mine = parsed.groups.filter((g) => g.agents.some((a) => a.replace(/\/.*$/, '').trim() === token));
   const chosen = mine.length ? mine : parsed.groups.filter((g) => g.agents.includes('*'));
   const rules = chosen.flatMap((g) => g.rules);
   const delays = chosen.map((g) => g.crawlDelay).filter((d) => d != null);
-  return { rules, crawlDelay: delays.length ? Math.max(...delays) : null, matched: mine.length ? 'trubot' : chosen.length ? '*' : 'none' };
+  return { rules, crawlDelay: delays.length ? Math.max(...delays) : null, matched: mine.length ? 'fouryearplanbot' : chosen.length ? '*' : 'none' };
 }
 
 /**
  * Decide one URL against a parsed file. Returns { allowed, rule }.
  * /robots.txt itself is always allowed, as the RFC says.
  */
-export function decide(parsed, url, token = 'trubot') {
+export function decide(parsed, url, token = 'fouryearplanbot') {
   const u = new URL(url);
   const path = normalize(`${u.pathname}${u.search}`);
   if (u.pathname === '/robots.txt') return { allowed: true, rule: 'robots.txt itself' };

@@ -38,13 +38,13 @@ export function ensureDirs() {
  * The house agent, unchanged, for every host but one. The Internet Archive's
  * bot page asks automated clients to name the tool, its version and, when an
  * AI agent is driving, the model, so web.archive.org gets " syllabi/1.0" and,
- * when TRUBOT_AGENT is set (for example "claude-opus-5-5"), that too.
+ * when PLANBOT_AGENT is set (for example "claude-opus-5-5"), that too.
  * Never spoofed: a 403 to this agent means the host does not want us.
  */
-export const UA = 'TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)';
+export const UA = 'FourYearPlanBot/1.0 (student planning project; respects robots.txt)';
 export function userAgentFor(host) {
   if (host === 'web.archive.org') {
-    const agent = process.env.TRUBOT_AGENT ? ` (${process.env.TRUBOT_AGENT})` : '';
+    const agent = process.env.PLANBOT_AGENT ? ` (${process.env.PLANBOT_AGENT})` : '';
     return `${UA} syllabi/1.0${agent}`;
   }
   return UA;

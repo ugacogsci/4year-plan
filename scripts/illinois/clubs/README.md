@@ -220,7 +220,7 @@ names:
 These are hard rules, not preferences.
 
 **Politeness:**
-- Only the house agent, `TruBot/1.0 (+https://trumizzou.com; student project;
+- Only the house agent, `FourYearPlanBot/1.0 (student planning project;
   respects robots.txt)`, imported from `scripts/illinois/syllabi/lib/paths.mjs`.
 - robots.txt is read first for every host, with the syllabus fetcher's
   `parseRobots` and `decide`. Any path it disallows is refused.

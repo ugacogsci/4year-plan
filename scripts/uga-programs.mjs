@@ -30,7 +30,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 const OUT = join(ROOT, "public", "uga-programs.json");
-const UA = "TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)";
+const UA = "FourYearPlanBot/1.0 (student planning project; respects robots.txt)";
 const BASE = "https://bulletin.uga.edu";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

@@ -34,7 +34,7 @@ import { fileURLToPath } from 'node:url';
 import { ILLINOIS_SUBJECT_NAMES } from '../../lib/planner/illinois-subjects.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const UA = 'TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)';
+const UA = 'FourYearPlanBot/1.0 (student planning project; respects robots.txt)';
 const PAGE = 'https://citl.illinois.edu/teachers-ranked-excellent';
 const argv = process.argv.slice(2);
 const argOf = (flag, fallback) => {

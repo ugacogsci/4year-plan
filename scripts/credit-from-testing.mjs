@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(HERE, "..", "public");
 const OUT = join(OUT_DIR, "uga-exam-credit.json");
-const UA = "TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)";
+const UA = "FourYearPlanBot/1.0 (student planning project; respects robots.txt)";
 
 const SOURCES = [
   { kind: "AP", url: "https://reg.uga.edu/student-records/credit-from-testing/uga-ap-credit-equivalences/" },

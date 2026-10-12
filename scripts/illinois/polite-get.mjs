@@ -19,7 +19,7 @@
  * it is never set for a real crawl.
  */
 
-export const UA = 'TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)';
+export const UA = 'FourYearPlanBot/1.0 (student planning project; respects robots.txt)';
 
 /** Back-off after a busy or failed reply, in ms: 15 s, 30 s, 1 min, 2 min, 4 min. */
 export const WAITS = [15_000, 30_000, 60_000, 120_000, 240_000];
