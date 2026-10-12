@@ -121,10 +121,74 @@ function psArea0(t: Tools, hours: ReturnType<typeof psHours>, keep: string[]): A
   return [...kept, hours.lower, ...(hours.any ? [hours.any] : [])];
 }
 
+// ---- ETMA: the Department Foundation every concentration shares ------------
+
+/** The Department Foundation's four option lists, in the page's order, and the rows taken by every student. */
+const ETMA_COMMUNICATION = ['CMN 101', 'ALEC 115', 'CMN 111'];
+const ETMA_ADVANCED_COMMUNICATION = ['AGCM 220', 'BADM 340', 'BTW 250', 'BTW 261', 'ECE 316', 'ESE 360', 'ETMA 311', 'NRES 419', 'PLPA 200'];
+const ETMA_STATISTICS = ['ACE 262', 'CPSC 241', 'ECON 202', 'STAT 107'];
+const ETMA_SCIENCE_II = ['CHEM 104', 'PHYS 102'];
+const ETMA_REQUIRED = ['MATH 234', 'CHEM 102', 'PHYS 101', 'ECON 102'];
+const ETMA_FOUNDATION = [...ETMA_COMMUNICATION, ...ETMA_ADVANCED_COMMUNICATION, ...ETMA_STATISTICS, ...ETMA_REQUIRED, ...ETMA_SCIENCE_II];
+
+/**
+ * Engineering Technology & Management for Agricultural Systems: the
+ * Department Foundation is one table on every ETMA page. MATH 234, CHEM 102
+ * & 103, PHYS 101 and ECON 102 (or ACE 100) are taken by every student; the
+ * rest are four lists of one each: a communication option (CMN 101, ALEC 115,
+ * or CMN 111 & 112), an advanced communication option (nine courses), a
+ * statistics option (four), and CHEM 104 & 105 or PHYS 102. The general
+ * reading took all 22 rows (optionListsIn reads the lists, then stops at the
+ * "OR" between CHEM 104 and PHYS 102 with required rows around it), 11 to 15
+ * credits past the degree total on the sweep's boards. Area 1's Major Core
+ * and Business Electives stay as the general reading has them.
+ */
+function etmaFoundation(t: Tools): AreaRuleBlock[] {
+  const first = t.block(1, 0) as AreaRuleBlock;
+  const choices = 'choices' in first.rule ? first.rule.choices : [];
+  const of = (codes: string[]): CourseChoice[] => codes.map((code) => choices.find((c) => norm(c.codes[0]) === code)).filter((c): c is CourseChoice => c !== undefined);
+  const option = (k: number, text: string, hours: number, codes: string[]): AreaRuleBlock => ({
+    groupIndex: 0,
+    idSuffix: `opt${k}`,
+    label: `Department Foundation: ${text}`,
+    hours,
+    note: text,
+    rule: { kind: 'choose', n: 1, choices: of(codes), list: true },
+    rows: codes.length,
+  });
+  const core: AreaRuleBlock = { ...first, note: 'Every student takes these; the communication, advanced communication and statistics options and the second science course are one course each, below.', rule: { kind: 'all', choices: of(ETMA_REQUIRED) }, rows: ETMA_REQUIRED.length };
+  const rest = [t.block(1, 1), t.block(1, 2)].filter((b): b is AreaRuleBlock => b !== undefined);
+  return [
+    core,
+    option(1, 'Communication Option', 3, ETMA_COMMUNICATION),
+    option(2, 'Advanced ETMA Communication Option - Select one of the following', 3, ETMA_ADVANCED_COMMUNICATION),
+    option(3, 'Statistics Option - Select one of the following', 3, ETMA_STATISTICS),
+    option(4, 'Select one of the following', 4, ETMA_SCIENCE_II),
+    ...rest,
+  ];
+}
+
+const etmaReading = (concentration: string): HandReading => ({
+  source: `https://catalog.illinois.edu/undergraduate/aces/engineering-technology-management-agricultural-systems-bs/${concentration ? `${concentration}/` : ''}`,
+  checked: '2026-10-11',
+  expect: { '1::0': ETMA_FOUNDATION, '1::1': ['CS 105', 'ETMA 100', 'ETMA 430', 'ETMA 439'] },
+  areas: { 1: etmaFoundation },
+});
+
 /** The page's "All Other Areas" topical lecture list (the crawl also carries ABE 482, which the live page no longer prints). */
 const MSE_OTHER_AREAS = ['MSE 403', 'MSE 421', 'MSE 422', 'MSE 440', 'MSE 443', 'MSE 453', 'MSE 455', 'MSE 456', 'MSE 457', 'MSE 458', 'MSE 460', 'MSE 461', 'MSE 464', 'MSE 466', 'MSE 480', 'MSE 481', 'MSE 485', 'MSE 487', 'MSE 488', 'MSE 489', 'MSE 498', 'ABE 483', 'CEE 401', 'CEE 460', 'CHBE 458', 'ECE 441', 'ECE 443', 'ECE 444', 'ECE 481', 'ECE 487', 'ECE 488', 'ECE 495', 'ES 470', 'IE 431', 'ME 431', 'ME 472', 'ME 487', 'SE 412', 'TAM 451', 'TAM 456'];
 
 export const HAND_READINGS: Record<string, HandReading> = {
+  /*
+   * Only Agricultural Production & Processing for now: the three-level gate
+   * (2026-10-11, subset sweeps of the five ETMA degrees at both starts)
+   * accepted all six of its boards at both starts. The same reading on the
+   * plain degree and Construction Management, Digital & Precision Agriculture
+   * and Energy & Environment asked for engine work first (pre-med and pre-PT
+   * boards picking PHYS 102 over the track's CHEM 104 & 105, and course pairs
+   * split across terms), so those four keep the general reading until then.
+   */
+  'aces/engineering-technology-management-agricultural-systems-bs/agricultural-production-processing': etmaReading('agricultural-production-processing'),
   /*
    * Citizen Politics: PS 100; one of PS 101, PS 240, PS 241; 6 hours of
    * 100- and 200-level PS; 15 hours at 300 and 400 level, 9 from the list; 6
