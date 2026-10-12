@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
 import { ADVISOR_MODEL, ADVISOR_TOOLS, advisorSystem, type AdvisorMessage } from '@/lib/planner/advisor';
 import { dailyCapUsd, LIMITS, parseJson, readBodyCapped, sharedGuard, tokensForChars, visitorKey, worstCaseUsd } from '@/lib/planner/spend-guard';
+import { termDatesBlock } from '@/lib/planner/term-dates';
 
 /**
  * One step of the advisor's loop.
@@ -93,6 +94,9 @@ export async function POST(req: Request) {
             // says it is the University of Illinois assistant. Keep both: take UGA's 3-argument signature, keep Illinois's rules
             // for 'illinois' only, and send schoolName/schoolShort from advisor.tsx.
             { type: 'text', text: advisorSystem(bot), cache_control: { type: 'ephemeral' } },
+            // MERGE-UGA: Illinois-only. termDatesBlock holds Illinois registrar dates; send it only when the school is
+            // 'illinois' once the route reads a schoolId. After the cached prompt, so a new day never breaks the cache.
+            { type: 'text', text: termDatesBlock(new Date()) },
             { type: 'text', text: `The board right now:\n\n${board}` },
           ],
           // MERGE-UGA: UGA left this line alone, but Illinois's ADVISOR_TOOLS now has 23 tools, several Illinois-only

@@ -480,12 +480,10 @@ const ILLINOIS_RULES = [
   // las.illinois.edu/academics/courses/repeating (read 2026-09-24): a course passed with D- or better may be repeated
   // but earns no more credit, and without grade replacement both grades count in the GPA.
   "- Grade replacement (Student Code 3-309): only when the first grade was C-, D+, D, D- or F; at most 4 distinct courses and 10 hours in all, retaken at Illinois; filed on a form at the college office in the first half of the retake's term; never for a course with a reported academic integrity violation. The second grade then replaces the first in the GPA, and the hours count once. A C or better cannot be replaced: repeating a passed course earns no more hours, and both grades count in the GPA. The board shows a taken course as taken; a retake is the student's to add.",
-  // registrar.illinois.edu/ug-reg-dlines-fa26/ and registrar.illinois.edu/fall-2026-academic-calendar/ (read
-  // 2026-09-24), full-term (POT 1) column: add Sep 4; drop with no W, CR/NC request and grade replacement Oct 16;
-  // withdraw with a minimum 40% refund Oct 30; Spring 2027 time tickets Oct 26, priority registration Nov 2, open
-  // registration Nov 19.
-  '- Fall 2026 full-term courses: add by Sept 4; Oct 16 is the last day to drop with no W, to request CR/NC and to file a grade replacement at the college office; Oct 30 is the last day to withdraw with at least a 40% refund. Spring 2027 time tickets appear Oct 26, priority registration begins Nov 2 and open registration Nov 19. Half-term courses and later terms have their own dates: use university_answer.',
-  "- Today's date is the first line of the board description. Measure every deadline against it: a date before today has passed, so say it has passed (\"Oct 16, the last day to drop without a W, has passed\") and name who can still help.",
+  // The term's add, drop, withdrawal and registration dates are not here: they come from lib/planner/term-dates.ts,
+  // by term, for the day the student asks, in their own system block (app/api/advisor/route.ts).
+  '- Add, drop, CR/NC, withdrawal and registration dates come from the "Illinois term dates" block below, for the term in progress and the next one. State only those dates; for half-term courses and any other term use university_answer.',
+  "- Today's date is the first line of the board description. Measure every deadline against it: a date before today has passed, so say it has passed (\"the last day to drop without a W has passed\") and name who can still help.",
 ].join('\n');
 
 const WHO_DECIDES = [
