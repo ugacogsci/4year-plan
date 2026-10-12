@@ -48,14 +48,15 @@ import { CHAT_KEY } from '@/lib/planner/saved-board';
  * ALMA's "I added HIST 200 to Fall 2027" is not the last word on a board
  * that no longer has it.
  *
- * The bot has the school's name, ALMA at Illinois, the same one its TRU
- * tenant answers to, so a student meets one bot across both products.
+ * The bot has the school's name, ALMA at Illinois and ARCH at UGA. Questions
+ * about the university itself go through its university_answer tool to the
+ * planner's own lookup (/api/ask), which reads the school's official pages.
  */
 // MERGE-UGA: merges clean but breaks callers. UGA added required schoolId, schoolName and onOpen; Illinois
 // added optional turns (ALMA's undo). Illinois's <BotPanel> in planner-workspace.tsx then fails tsc (TS2739),
 // and UGA's call passes no turns, so undo is silently off for UGA. Pass all four from the workspace.
 export interface BotPanelProps {
-  /** ALMA, TRU, REV: the school's own bot name. */
+  /** ALMA, ARCH: the school's own bot name. */
   botName: string;
   schoolShort: string;
   /** The degree the board is for. A new degree is a new conversation. */

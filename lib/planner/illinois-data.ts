@@ -2345,7 +2345,7 @@ export function sectionSnapshot(
 
   // Only claim a meeting time when one pattern dominates. Illinois publishes no
   // seat counts and no waitlist, so seatsRemaining is never set and the
-  // 'almost-full' and 'waitlist' statuses are unreachable for this tenant.
+  // 'almost-full' and 'waitlist' statuses are unreachable for this school.
   const patterned = summary.dayPatterns.reduce((sum, p) => sum + p.count, 0);
   const top = summary.dayPatterns[0];
   const meeting =
