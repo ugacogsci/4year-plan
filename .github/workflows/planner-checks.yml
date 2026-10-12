@@ -1,0 +1,55 @@
+# The planner's check suite and the type check, on every push and pull request.
+#
+# The same two steps run locally before every commit (lib/planner/__*.check.mjs
+# one after another, then tsc). No step calls the Claude API or TRU: the checks
+# read only the committed files under lib/, components/, app/ and public/, and
+# no secret is configured here.
+#
+# MERGE-UGA: Illinois adds this file. If UGA's branch has its own
+# .github/workflows file, keep both: the job names differ (planner-checks here),
+# and both may run on the same push. If UGA moved the app into a subfolder, set
+# `defaults.run.working-directory` to that folder.
+name: planner-checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: planner-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # The checks load TypeScript with --experimental-strip-types, as they do locally on Node 23.
+          node-version: 23
+          cache: npm
+      - run: npm ci
+      - name: Type check
+        run: npx tsc --noEmit --incremental false
+      - name: Check suite
+        run: |
+          pass=0; fail=0
+          for f in lib/planner/__*.check.mjs; do
+            if out=$(node --experimental-strip-types --disable-warning=ExperimentalWarning "$f" 2>&1); then
+              pass=$((pass+1))
+            else
+              # __clubs-match has one 25 ms timing line that a busy runner can miss: give a failing file one rerun.
+              if out=$(node --experimental-strip-types --disable-warning=ExperimentalWarning "$f" 2>&1); then
+                pass=$((pass+1)); echo "passed on rerun: $f"
+              else
+                fail=$((fail+1)); echo "::error file=$f::check failed"; echo "$out" | tail -20
+              fi
+            fi
+          done
+          echo "checks pass=$pass fail=$fail"
+          [ "$fail" -eq 0 ]
