@@ -1,7 +1,7 @@
 # The planner's check suite and the type check, on every push and pull request.
 #
 # The same two steps run locally before every commit (lib/planner/__*.check.mjs
-# one after another, then tsc). No step calls the Claude API or TRU: the checks
+# one after another, then tsc). No step calls the Claude API or the web: the checks
 # read only the committed files under lib/, components/, app/ and public/, and
 # no secret is configured here.
 #

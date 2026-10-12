@@ -1742,9 +1742,9 @@ export function adaptIllinoisCatalog(
 /**
  * Bands read off the data rather than hardcoded.
  *
- * Illinois difficulty is not distributed like the other tenants: min 0, median
- * 16, max 80, and only a handful of courses reach 65. The 65 threshold that
- * works for Mizzou labels nothing at all here. Recomputing on every load means
+ * Illinois difficulty is not distributed like other schools' grade data: min
+ * 0, median 16, max 80, and only a handful of courses reach 65. A fixed 65
+ * threshold labels nothing at all here. Recomputing on every load means
  * a future import cannot silently break the labels.
  *
  * HOW THE NUMBERS ARE PRODUCED, because the copy beside them names them out

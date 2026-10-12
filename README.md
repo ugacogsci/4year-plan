@@ -6,12 +6,12 @@ What is here now is a working planner for the University of Illinois Urbana-Cham
 
 - Onboarding runs on every launch: three questions, AP and IB scores priced against the registrar's table, and a transcript (PDF, image or text) read once by Claude into a checklist the student confirms. Nothing about a student is stored.
 - Plans reach the degree's published total with balanced terms. The graduation date outranks the hours a student asks for. Elective slots fill what the degree page does not name; tapping one lists everything eligible in that term.
-- ALMA, the same name the TRU Illinois tenant uses, sits in a column beside the board. It answers anything about Illinois through TRU's published-page answerer, reads the board, and can add, remove, replace or move courses, always through the same prerequisite, standing and credit checks a drag goes through. Removing a required course needs the student's yes.
+- ALMA, named after the Alma Mater, sits in a column beside the board. It answers anything about Illinois through the planner's own lookup of the university's official pages (Claude with web search limited to illinois.edu, every answer linked to the pages it used), reads the board, and can add, remove, replace or move courses, always through the same prerequisite, standing and credit checks a drag goes through. Removing a required course needs the student's yes.
 
 Running it:
 
 ```
-cp .env.example .env.local   # set ANTHROPIC_API_KEY (transcript reading, ALMA) and TRU_UPSTREAM (university answers)
+cp .env.example .env.local   # set ANTHROPIC_API_KEY (transcript reading, ALMA, university answers)
 npm install                  # Node 22 or newer
 npm run dev -- -p 3010
 ```

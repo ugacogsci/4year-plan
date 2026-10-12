@@ -14,14 +14,17 @@
  *     description of the board to Anthropic's Claude API; nothing is stored or logged;
  *   - /api/transcript: the files a student picks go to the Claude API once to
  *     be read; nothing is stored, no course is logged;
- *   - /api/ask: a question for the university's pages, with the previous
- *     question and answer and the visitor's IP address, goes to the TRU answer
- *     service, which logs the last 2,000 questions PII-scrubbed (zou src/lib/ratelimit.ts logQuestion);
+ *   - /api/ask: a question about the university, with the previous question
+ *     and answer for a follow-up, goes to the Claude API, whose web search is
+ *     limited to that school's official domains (lib/planner/university-lookup.ts);
+ *     nothing is logged; the answer to a first question is held in server
+ *     memory for up to a day, keyed by the question text only, so a repeat is
+ *     not a second call;
  *   - lib/planner/spend-guard.ts: request counts per IP address, in server
  *     memory only, forgotten within a day.
  */
 
-/** "the University of Illinois", "Texas A&M University", "Virginia Tech". */
+/** "the University of Illinois", "the University of Georgia". */
 export function schoolPhrase(name: string | null | undefined): string {
   const n = (name ?? '').trim();
   if (!n) return 'any university';
@@ -60,7 +63,7 @@ export function privacySections(bot: string): PrivacySection[] {
       lines: [
         `When you message ${bot}, your conversation so far and a text description of your plan go through our server to Anthropic’s Claude API, which writes the reply. Our server does not store or log them.`,
         'When you upload a transcript or a screenshot, the files go through our server to the Claude API once so it can list the courses on them. Our server does not keep the files or log the courses; you review every line before anything counts.',
-        `Questions about the university itself (from ${bot} or the ask bar) go to TRU, our answer service for the university’s published pages, with your previous question and answer, and your IP address so it can limit how often one visitor asks. TRU keeps its most recent 2,000 questions and the start of each answer, with emails, phone numbers and ID numbers removed and no address attached, to find what it answers badly.`,
+        `Questions about the university itself that ${bot} looks up (deadlines, policies, offices) go through our server to Anthropic’s Claude API, which searches only the university’s own official website and answers with links to the pages it used. For a follow-up, your previous question and that answer go with it; nothing about your plan does. Our server does not log these questions. It remembers the answer to a question for up to a day, with nothing about who asked, so the same question asked again is answered without a second search.`,
         'Anthropic handles what it receives under its commercial terms and privacy policy (anthropic.com/legal). Do not type passwords, your UIN, or other ID numbers into the chat.',
       ],
     },

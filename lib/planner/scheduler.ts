@@ -8,7 +8,7 @@ import type { Course, PlanState } from './types';
  *
  *   requirements  bulletin.uga.edu/Program/Details      what the degree needs
  *   prerequisites bulletin.uga.edu/Course/Details       what order it goes in
- *   difficulty    each registrar, via TRU               how heavy a term is
+ *   difficulty    the registrar's grade distribution    how heavy a term is
  *   prior credit  reg.uga.edu credit-from-testing       where the student starts
  *
  * Everything here is deterministic. An LLM can explain a plan or read a
