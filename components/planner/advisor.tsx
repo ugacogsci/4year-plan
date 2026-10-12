@@ -131,7 +131,7 @@ function toolLabel(name: AdvisorToolName, input: Record<string, unknown>): strin
     case 'planner_answer':
       return 'Checking the board';
     case 'university_answer':
-      return `Reading Illinois pages`;
+      return 'Reading the university’s official pages';
     case 'find_clubs':
       return s('query') ? `Looking up clubs for “${s('query')}”` : s('goal') ? `Looking up clubs for ${s('goal')}` : 'Looking up clubs for your goals';
     default:
