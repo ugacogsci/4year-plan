@@ -90,16 +90,17 @@ export async function POST(req: Request) {
       { status: admitted.status, headers: { 'retry-after': String(admitted.retryAfter) } },
     );
   }
+  const ticket = admitted;
 
   try {
     const result = await lookupUniversity({ question, schoolId: lookup.id, prior, model });
-    admitted.settle(result.usage);
+    ticket.settle(result.usage);
     return NextResponse.json(result.answer);
   } catch (error) {
     // A 4xx from the API was refused before any tokens were made. Anything else
     // (an overload, a dropped connection) may have spent some: keep the worst case.
     const rejected = error instanceof Anthropic.APIError && typeof error.status === 'number' && error.status < 500;
-    admitted.settle(null, { keepReservation: !rejected });
+    ticket.settle(null, { keepReservation: !rejected });
     return NextResponse.json(
       {
         ...empty,
