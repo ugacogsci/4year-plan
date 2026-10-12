@@ -11,7 +11,7 @@ import { interestWordsFrom, scoreQuality, type ExcellentSummary, type QualityInp
 import { DEFAULT_PRIORITIES } from './priorities';
 import { weeklyFit, type WeeklySchedule } from './weekly-fit';
 import { PLANNED_AS_RELEASED } from './held-degrees';
-import type { RepeatAsk } from './repeats';
+import { repeatLine, type RepeatAsk } from './repeats';
 import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInput } from './autoplan-release';
 
 /**
@@ -6808,9 +6808,251 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     }
   }
   if (counted?.note) result.notes.push(counted.note);
+  // A row asking for a course more than once gets its further sittings where they fit (bookRepeats).
+  if (given.plainEngine !== true) bookRepeats(result, [...admission.added, ...expansion.requirements], measuredAt(fitted.horizon), expansion.language);
   result.residency = raw.residency ? residencyReport(raw.residency, result, raw.context) : null;
   if (result.residency?.shortfall) result.notes.push(result.residency.shortfall);
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Courses taken more than once (repeats.ts).
+// ---------------------------------------------------------------------------
+
+/** One course a degree row asks for more than once, already on the board or the record. */
+interface RepeatWant {
+  code: string;
+  ask: RepeatAsk;
+  /** The most hours the catalog allows in one term, where it sets one. */
+  termMax: number | null;
+  /** A pool row's requirement: its further sittings stop where the pool's hours are met. */
+  pool: PlanRequirement | null;
+}
+
+/**
+ * Book the further sittings of a course a degree row asks for more than once
+ * (PlanCourseChoice.repeat): Stage Management's THEA 359 x 8 hours is four
+ * 2-hour sittings, and the board used to book one, so the bar read 2 of 8.
+ *
+ * Done on the finished board, after every build and gate in generatePlan,
+ * because the engine everywhere assumes a course sits on the board once.
+ * Only the rows that ask for repeats get copies, and nothing upstream sees
+ * them.
+ *
+ * A sitting is booked only where it fits, one at a time, and each one is
+ * held to the board as generatePlan kept it by the gate's own measures
+ * (gateWorse): never a later finish, a term past the student's hours or
+ * newly at the cap, a heavier first year, a prerequisite or standing the
+ * term does not have, a course out of season, more hours past the degree
+ * total, fewer hours at the 300 level, a crowded last term or any other loss
+ * the gate counts. A sitting goes in the next fall or spring after the last
+ * one first (ensembles and practicums run term after term), then an earlier
+ * one, and in the same term only where the catalog allows it and within its
+ * hours a term. Its hours come out of a free elective where the board has
+ * one to give (never a course a requirement names, a pre-med/PT track, a
+ * language, a gen ed pick or another course's prerequisite), and the board's
+ * total never drops under the degree's. A pool row gets sittings only while
+ * the pool's hours are short. What does not fit stays off, and the notes say
+ * how many sittings the plan books and to add the rest where a term has room:
+ * a row partly filled, never a plan made worse.
+ */
+function bookRepeats(g: GeneratedPlan, requirements: PlanRequirement[], input: AutoplanInput, language: LanguagePlan | null): void {
+  const ctx = input.context;
+  const norm = normaliseCode;
+  const countOn = (code: string) => g.terms.reduce((n, t) => n + t.codes.filter((c) => norm(c) === code).length, 0);
+  // A sitting on the student's record counts too: a transcript with MUSC 105 once needs three more, not four.
+  const held = new Set(input.prior.courseCodes.map(norm));
+  const sat = (code: string) => countOn(code) + (held.has(code) ? 1 : 0);
+  const catalog = catalogByCode(ctx.courses);
+  const creditOf = (code: string) => planCreditRange([code], ctx).min;
+
+  const wants: RepeatWant[] = [];
+  const named = new Set<string>();
+  for (const r of requirements) {
+    if (r.rule.kind !== 'all' && r.rule.kind !== 'choose' && r.rule.kind !== 'pool') continue;
+    for (const choice of r.rule.choices) {
+      for (const c of [...choice.codes, ...(choice.substitutes ?? [])]) named.add(norm(c));
+      for (const set of choice.bundles ?? []) for (const c of set) named.add(norm(c));
+      if (!choice.repeat || choice.repeat.sittings < 2) continue;
+      // The alternative the board booked ("DANC 116 or DANC 216, two sections"), or the one held.
+      const code = choice.codes.map(norm).find((c) => countOn(c) > 0) ?? choice.codes.map(norm).find((c) => held.has(c));
+      if (!code || !catalog.get(code)?.repeat) continue;
+      if (r.rule.kind === 'pool' && r.rule.hours == null) continue;
+      const known = wants.find((w) => w.code === code);
+      if (known) {
+        if (known.ask.sittings < choice.repeat.sittings) known.ask = choice.repeat;
+        continue;
+      }
+      wants.push({ code, ask: choice.repeat, termMax: catalog.get(code)?.repeat?.termMax ?? null, pool: r.rule.kind === 'pool' ? r : null });
+    }
+  }
+  if (wants.length === 0) return;
+
+  const prefs = { ...DEFAULT_CREDITS, ...input.preferences?.creditsPerTerm };
+  const hardCut = input.preferences?.hardDifficulty === undefined ? (ctx.bands?.hardest ?? FALLBACK_HARD_DIFFICULTY) : input.preferences.hardDifficulty;
+  const isHard = (code: string) => {
+    const d = ctx.grades?.get(code)?.difficulty;
+    return hardCut !== null && d !== null && d !== undefined && d >= hardCut;
+  };
+  const lastUsed = g.terms.reduce((last, t, i) => (t.codes.length > 0 ? i : last), -1);
+  const awayLabels = new Set((g.away ?? []).map((a) => a.label));
+  const usable = (i: number) => i <= lastUsed && g.terms[i].season !== 'Summer' && !awayLabels.has(g.terms[i].label) && g.terms[i].codes.length > 0;
+
+  // The free electives a sitting may take the hours of.
+  const prereqOfOther = new Set<string>();
+  for (const term of g.terms) for (const c of term.codes) for (const group of ctx.prereqs?.get(norm(c))?.groups ?? []) for (const any of group.any) prereqOfOther.add(norm(any));
+  const kept = new Set<string>([
+    ...g.addedPrerequisites.flatMap((a) => [norm(a.code), norm(a.requiredBy)]),
+    ...(g.genEdPicks ?? []).map((p) => norm(p.code)),
+    ...(g.language?.codes ?? []).map(norm),
+    ...Object.entries(g.bookedFor ?? {}).filter(([, why]) => why !== null && why !== undefined).map(([c]) => norm(c)),
+  ]);
+  const wanted = new Set(wants.map((w) => w.code));
+  const free = new Set<string>();
+  for (const e of g.electives) {
+    const code = norm(e.code);
+    if (e.track || kept.has(code) || named.has(code) || prereqOfOther.has(code) || wanted.has(code) || countOn(code) !== 1) continue;
+    free.add(code);
+  }
+
+  const totalBefore = g.credits.total.min;
+  const degree = input.degreeTotal ?? null;
+  /** The board's total never drops under the degree's (or under what it was, if it was short). */
+  const floor = degree === null ? totalBefore : Math.min(totalBefore, degree);
+
+  const copyOf = (from: Pick<GeneratedPlan, 'terms' | 'plan' | 'electives' | 'bookedFor' | 'credits'>) => ({
+    terms: from.terms.map((t) => ({ ...t, codes: [...t.codes], load: { ...t.load, hard: [...t.load.hard] } })),
+    plan: { ...from.plan, terms: from.plan.terms.map((t) => ({ ...t, courseIds: [...t.courseIds] })) },
+    electives: [...from.electives],
+    bookedFor: from.bookedFor ? { ...from.bookedFor } : undefined,
+    credits: { ...from.credits },
+  });
+  const restore = (s: ReturnType<typeof copyOf>) => {
+    const fresh = copyOf(s);
+    g.terms = fresh.terms;
+    g.plan = fresh.plan;
+    g.electives = fresh.electives;
+    g.bookedFor = fresh.bookedFor;
+    g.credits = fresh.credits;
+  };
+  const relabel = (touched: Iterable<number>) => {
+    const grades = ctx.grades ?? new Map<string, GradeRow>();
+    for (const i of touched) {
+      const term = g.terms[i];
+      const codes = term.codes.map(norm);
+      const load = termLoad(codes, grades);
+      const hard = hardCut === null ? [] : codes.filter(isHard).sort();
+      const weighed = codes.filter((c) => grades.get(c)?.difficulty != null).length;
+      term.credits = planCreditRange(codes, ctx);
+      term.load = { ...term.load, avgDifficulty: load.avgDifficulty, verdict: load.verdict, bandVerdict: bandVerdictFor(hard.length, load.avgDifficulty, ctx.bands ?? FALLBACK_BANDS), hard, weighed, unweighed: codes.length - weighed };
+    }
+    const planned = planCreditRange(g.terms.flatMap((t) => t.codes), ctx);
+    const others = g.credits.prior + (g.credits.away ?? 0);
+    g.credits = {
+      ...g.credits,
+      planned,
+      total: { min: planned.min + others, max: planned.max + others, variable: planned.variable, unknown: planned.unknown },
+      unaccounted: g.credits.degreeTotal === null ? null : Math.max(0, g.credits.degreeTotal - (planned.min + others)),
+    };
+  };
+  /** One more sitting of `code` in term `i`, and `drop` (a free elective) off the board. */
+  const apply = (code: string, i: number, drop: string | null) => {
+    const touched = new Set<number>([i]);
+    g.terms[i].codes.push(code);
+    g.plan.terms.find((t) => t.id === g.terms[i].id)?.courseIds.push(courseIdFor(code));
+    if (drop !== null) {
+      const j = g.terms.findIndex((t) => t.codes.some((c) => norm(c) === drop));
+      if (j >= 0) {
+        g.terms[j].codes = g.terms[j].codes.filter((c) => norm(c) !== drop);
+        const pt = g.plan.terms.find((t) => t.id === g.terms[j].id);
+        if (pt) pt.courseIds = pt.courseIds.filter((id) => id !== courseIdFor(drop));
+        touched.add(j);
+      }
+      g.electives = g.electives.filter((e) => norm(e.code) !== drop);
+      if (g.bookedFor) delete g.bookedFor[drop];
+      free.delete(drop);
+    }
+    relabel(touched);
+  };
+
+  // The board as generatePlan kept it, by the gate's measures: every sitting is held to it.
+  const base = gateMeasure(g, input, language);
+  const inSeason = (code: string, i: number) => !outOfSeason(catalog.get(code), g.terms[i].season, ctx.offeringPublished?.has(code) ?? false);
+  /** The pool's hours on the board, each sitting of a repeat row counted up to the sittings it asks for. */
+  const poolShort = (r: PlanRequirement): boolean => {
+    if (r.rule.kind !== 'pool' || r.rule.hours == null) return false;
+    let hours = 0;
+    for (const choice of r.rule.choices) {
+      const codes = choice.codes.map(norm);
+      if (choice.repeat) hours += codes.reduce((s, c) => s + Math.min(sat(c), choice.repeat!.sittings) * creditOf(c), 0);
+      else hours += Math.max(0, ...codes.filter((c) => countOn(c) > 0 || held.has(c)).map(creditOf));
+    }
+    return hours < r.rule.hours - 0.01;
+  };
+  let tries = 0;
+  const TRY_LIMIT = 300;
+
+  for (const want of wants) {
+    const credits = creditOf(want.code);
+    if (!(credits > 0)) continue;
+    while (sat(want.code) < want.ask.sittings && tries < TRY_LIMIT) {
+      if (want.pool && !poolShort(want.pool)) break;
+      if (want.ask.cap !== null && (sat(want.code) + 1) * credits > want.ask.cap + 0.01) break;
+      const at = g.terms.map((t, i) => (t.codes.some((c) => norm(c) === want.code) ? i : -1)).filter((i) => i >= 0);
+      const first = at.length > 0 ? Math.min(...at) : -1;
+      const last = at.length > 0 ? Math.max(...at) : -1;
+      const holds = (i: number) => g.terms[i].codes.filter((c) => norm(c) === want.code).length;
+      const later = [...g.terms.keys()].filter((i) => i > last && usable(i));
+      const earlier = [...g.terms.keys()].filter((i) => i < first && usable(i)).reverse();
+      const between = [...g.terms.keys()].filter((i) => i > first && i < last && usable(i) && holds(i) === 0);
+      const separate = [...later, ...between, ...earlier].filter((i) => holds(i) === 0);
+      const same = want.ask.sameTerm ? at.filter((i) => usable(i) && (holds(i) + 1) * credits <= (want.termMax ?? Number.POSITIVE_INFINITY) + 0.01) : [];
+      let placed = false;
+      for (const i of [...separate, ...same]) {
+        if (!inSeason(want.code, i)) continue;
+        const termNow = g.terms[i].credits.min;
+        // The hours to give: none, a free elective in this term, or one in another term.
+        const here = [...free].filter((c) => g.terms[i].codes.some((x) => norm(x) === c));
+        const elsewhere = [...free].filter((c) => !here.includes(c));
+        const byFit = (a: string, b: string) => Math.abs(creditOf(a) - credits) - Math.abs(creditOf(b) - credits) || courseLevel(a) - courseLevel(b) || a.localeCompare(b);
+        const options: Array<string | null> = [null, ...here.sort(byFit).slice(0, 3), ...elsewhere.sort(byFit).slice(0, 3)];
+        for (const drop of options) {
+          const d = drop === null ? 0 : creditOf(drop);
+          const dropHere = drop !== null && here.includes(drop);
+          const termAfter = termNow + credits - (dropHere ? d : 0);
+          // Never past the student's hours, and never newly at the cap.
+          if (termAfter > prefs.max + 0.01 && termAfter > termNow) continue;
+          if (termAfter >= prefs.max - 0.01 && termNow < prefs.max - 0.01) continue;
+          const totalAfter = g.credits.total.min + credits - d;
+          if (totalAfter < floor - 0.01) continue;
+          if (degree !== null && Math.max(0, totalAfter - degree) > base.beyond + 1 + 0.01) continue;
+          tries += 1;
+          const before = copyOf(g);
+          const freeBefore = new Set(free);
+          apply(want.code, i, drop);
+          const worse = gateWorse(gateMeasure(g, input, language), base);
+          if (worse.length === 0) {
+            placed = true;
+            break;
+          }
+          restore(before);
+          free.clear();
+          for (const c of freeBefore) free.add(c);
+          if (tries >= TRY_LIMIT) break;
+        }
+        if (placed || tries >= TRY_LIMIT) break;
+      }
+      if (!placed) break;
+    }
+  }
+
+  for (const want of wants) {
+    const have = sat(want.code);
+    const line = repeatLine(want.code, want.ask);
+    if (have >= want.ask.sittings) g.notes.push(line);
+    else if (want.pool && !poolShort(want.pool)) continue;
+    else g.notes.push(`${line.replace('so the plan books it', 'which is')} This plan books ${have} of them; add the rest where a term has room.`);
+  }
 }
 
 function generatePlanInner(input: AutoplanInput): GeneratedPlan {
