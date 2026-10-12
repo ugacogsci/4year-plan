@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 // MERGE-UGA: conflict here and at the saved-board import below. UGA added `import Image from 'next/image'`
 // and `import type { SchoolId } from '@/lib/planner/onboarding'`; Illinois added Undo2 here and CHAT_KEY below.
 // Either side alone fails tsc (Image and SchoolId, or CHAT_KEY, not found). Keep all four imports.
@@ -16,6 +16,7 @@ import {
   type AdvisorToolName,
 } from '@/lib/planner/advisor';
 import type { Source } from '@/lib/planner/ask-router';
+import { chatSpans } from '@/lib/planner/chat-markdown';
 import { CHAT_KEY } from '@/lib/planner/saved-board';
 
 /**
@@ -329,6 +330,31 @@ function OrionMark() {
   );
 }
 
+/**
+ * A reply with its bold, italics, code and links drawn rather than printed as
+ * "**" marks (lib/planner/chat-markdown.ts). Links open in a new tab.
+ */
+function RichText({ text }: { text: string }) {
+  return (
+    <>
+      {chatSpans(text).map((s, i) => {
+        let node: ReactNode = s.text;
+        if (s.code) node = <code className="bot-code">{node}</code>;
+        if (s.em) node = <em>{node}</em>;
+        if (s.strong) node = <strong>{node}</strong>;
+        if (s.href) {
+          node = (
+            <a href={s.href} target="_blank" rel="noreferrer">
+              {node}
+            </a>
+          );
+        }
+        return <span key={i}>{node}</span>;
+      })}
+    </>
+  );
+}
+
 /** Orion's typing indicator: three dots, bouncing in turn. */
 function Typing() {
   return (
@@ -555,7 +581,9 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
                 <OrionMark />
               </span>
               <div style={{ display: 'grid', gap: 6, justifyItems: 'start', minWidth: 0 }}>
-                <div className="bot-msg assistant">{line.text}</div>
+                <div className="bot-msg assistant">
+                  <RichText text={line.text} />
+                </div>
                 {line.last && line.turn === undoableTurn && latest && turns && (
                   <button
                     type="button"
@@ -601,7 +629,9 @@ export function BotPanel({ botName, schoolShort, programId, board, execute, open
             <span className="bot-avatar" aria-hidden="true">
               <OrionMark />
             </span>
-            <div className="bot-msg assistant">{streaming}</div>
+            <div className="bot-msg assistant">
+              <RichText text={streaming} />
+            </div>
           </div>
         )}
         {busy && !streaming && !activity && (

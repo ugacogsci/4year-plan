@@ -2565,3 +2565,59 @@ p.requirement-unnamed {
   .packet-own { min-height: 4em; border-bottom-color: #777; }
   .packet-foot { margin-top: 10pt; padding-top: 4pt; border-top-color: #777; font-size: 7.5pt; color: #444; }
 }
+
+/* ALMA's replies: the few marks a chat reply uses (lib/planner/chat-markdown.ts). */
+.bot-msg.assistant strong { font-weight: 650; color: #fff; }
+.bot-msg.assistant a { color: #a5b4fc; text-decoration: underline; text-underline-offset: 2px; }
+.bot-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; padding: 0 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); }
+
+/* The unofficial label (components/planner/site-notice.tsx): always on screen. The pill never hides; the sentence
+   beside it gives way first on a narrow header, and the full sentence is the pill's title and the privacy dialog's. */
+.unofficial { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
+.unofficial-pill {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.12);
+  color: #fcd34d;
+  font-size: var(--fs-micro);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.unofficial-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-micro); color: #8a9ab0; }
+.unofficial-link {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #a5b4fc;
+  font-size: var(--fs-micro);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+@media (max-width: 1100px) {
+  .unofficial-text { display: none; }
+}
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  font-size: var(--fs-micro);
+  color: #8a9ab0;
+}
+.site-footer .unofficial-pill { cursor: default; }
+.privacy-dialog { max-height: 85vh; overflow-y: auto; }
+.privacy-body { display: grid; gap: 14px; font-size: 0.9rem; line-height: 1.5; }
+.privacy-body h3 { margin: 0 0 4px; font-size: 0.95rem; font-weight: 650; }
+.privacy-body p { margin: 0 0 6px; }
+@media print {
+  .unofficial-link { display: none; }
+}

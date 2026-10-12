@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { PriorCredit } from './prior-credit';
+import { SiteFooter } from './site-notice';
 import {
   EMPTY_ANSWERS,
   questionsFor,
@@ -213,6 +214,7 @@ export function Onboarding({
             </p>
           </section>
         )}
+        <SiteFooter schoolName={school?.name ?? null} bot={school?.bot ?? 'the assistant'} />
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
 import { ADVISOR_MODEL, ADVISOR_TOOLS, advisorSystem, type AdvisorMessage } from '@/lib/planner/advisor';
+import { dailyCapUsd, LIMITS, parseJson, readBodyCapped, sharedGuard, tokensForChars, visitorKey, worstCaseUsd } from '@/lib/planner/spend-guard';
+import { termDatesBlock } from '@/lib/planner/term-dates';
 
 /**
  * One step of the advisor's loop.
@@ -14,12 +16,19 @@ import { ADVISOR_MODEL, ADVISOR_TOOLS, advisorSystem, type AdvisorMessage } from
  *
  * Streamed rather than returned whole because a step can take a while, and a
  * panel that sits blank for fifteen seconds reads as broken.
+ *
+ * Every step passes the spend guard first (lib/planner/spend-guard.ts): a
+ * size cap on the body, a per-visitor rate limit, and the day's spend cap
+ * (PLANNER_DAILY_SPEND_USD). A refusal is a sentence the panel prints.
  */
 export const dynamic = 'force-dynamic';
 export const maxDuration = 180;
 
 const MAX_MESSAGES = 120;
 const MAX_BOARD_CHARS = 24_000;
+const MAX_TOKENS = 4096;
+/** The system prompt and the tool list, in characters, for the worst-case estimate. */
+const FIXED_CHARS = advisorSystem('ALMA').length + JSON.stringify(ADVISOR_TOOLS).length;
 
 export async function POST(req: Request) {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -28,7 +37,14 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  const body = (await req.json().catch(() => ({}))) as { messages?: unknown; board?: unknown; bot?: unknown };
+  const raw = await readBodyCapped(req, LIMITS.advisor.maxBodyBytes);
+  if (raw === null) {
+    return NextResponse.json(
+      { error: 'This conversation has grown too long to send in one go. Press New chat to start a fresh one; your plan stays as it is.' },
+      { status: 413 },
+    );
+  }
+  const body = (parseJson(raw) ?? {}) as { messages?: unknown; board?: unknown; bot?: unknown };
   const messages = Array.isArray(body.messages) ? (body.messages as AdvisorMessage[]) : [];
   const board = typeof body.board === 'string' ? body.board.slice(0, MAX_BOARD_CHARS) : '';
   // The bot's name is the school's, and a name is all it may be.
@@ -42,6 +58,17 @@ export async function POST(req: Request) {
     }
   }
 
+  const admitted = sharedGuard().admit('advisor', visitorKey(req.headers), {
+    model: ADVISOR_MODEL,
+    estimateUsd: worstCaseUsd(ADVISOR_MODEL, tokensForChars(raw.length + FIXED_CHARS), MAX_TOKENS),
+    capUsd: dailyCapUsd(),
+    names: { who: bot === 'the assistant' ? 'The assistant' : bot },
+  });
+  if (!admitted.ok) {
+    return NextResponse.json({ error: admitted.error }, { status: admitted.status, headers: { 'retry-after': String(admitted.retryAfter) } });
+  }
+  const ticket = admitted;
+
   const client = new Anthropic();
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -50,7 +77,7 @@ export async function POST(req: Request) {
       try {
         const run = client.beta.messages.stream({
           model: ADVISOR_MODEL,
-          max_tokens: 4096,
+          max_tokens: MAX_TOKENS,
           // A refusal is re-run on Anthropic's recommended fallback for its
           // category rather than handed to the student as a dead end.
           betas: ['server-side-fallback-2026-07-01'],
@@ -67,6 +94,9 @@ export async function POST(req: Request) {
             // says it is the University of Illinois assistant. Keep both: take UGA's 3-argument signature, keep Illinois's rules
             // for 'illinois' only, and send schoolName/schoolShort from advisor.tsx.
             { type: 'text', text: advisorSystem(bot), cache_control: { type: 'ephemeral' } },
+            // MERGE-UGA: Illinois-only. termDatesBlock holds Illinois registrar dates; send it only when the school is
+            // 'illinois' once the route reads a schoolId. After the cached prompt, so a new day never breaks the cache.
+            { type: 'text', text: termDatesBlock(new Date()) },
             { type: 'text', text: `The board right now:\n\n${board}` },
           ],
           // MERGE-UGA: UGA left this line alone, but Illinois's ADVISOR_TOOLS now has 23 tools, several Illinois-only
@@ -81,6 +111,7 @@ export async function POST(req: Request) {
           }
         }
         const message = await run.finalMessage();
+        ticket.settle(message.usage);
         send({
           type: 'final',
           message: {
@@ -90,6 +121,10 @@ export async function POST(req: Request) {
           },
         });
       } catch (error) {
+        // A 4xx from the API (a bad key, its own rate limit) was refused before any tokens were made. Anything else
+        // (an overload or a dropped connection mid-stream, thinking included) may have spent some: keep the worst case.
+        const rejected = error instanceof Anthropic.APIError && typeof error.status === 'number' && error.status < 500;
+        ticket.settle(null, { keepReservation: !rejected });
         const text =
           error instanceof Anthropic.AuthenticationError
             ? 'The advisor cannot sign in to its model. Check ANTHROPIC_API_KEY.'
@@ -102,6 +137,8 @@ export async function POST(req: Request) {
                   : 'The advisor failed.';
         send({ type: 'error', error: text });
       } finally {
+        // A no-op when the step already settled; otherwise the worst case stays counted.
+        ticket.settle(null, { keepReservation: true });
         controller.close();
       }
     },
