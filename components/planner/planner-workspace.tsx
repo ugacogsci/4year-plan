@@ -183,6 +183,8 @@ import { clubStudentOf, type ClubStudent, type IllinoisClubsFile } from '@/lib/p
 import { loadIllinoisClubs } from '@/lib/planner/clubs-load';
 import { runFindClubs } from '@/lib/planner/clubs-tool';
 import { mayBookAgain } from '@/lib/planner/repeats';
+import { UnofficialBadge } from './site-notice';
+import { unofficialNotice } from '@/lib/planner/notices';
 
 /** A term's courses less one sitting of a course: a course the catalog allows twice in one term (THEA 119) loses only the one the student moved or removed. */
 function withoutOne(ids: string[], id: string): string[] {
@@ -4090,7 +4092,8 @@ export function PlannerWorkspace({
 
   function exportPlan() {
     if (!plan) return;
-    const blob = new Blob([JSON.stringify({ school: school?.id, programId, plan }, null, 2)], {
+    // The file says what it is, for whoever opens it later. A reader (importPlan) ignores the field.
+    const blob = new Blob([JSON.stringify({ notice: unofficialNotice(school?.name), school: school?.id, programId, plan }, null, 2)], {
       type: 'application/json',
     });
     const a = document.createElement('a');
@@ -4135,7 +4138,7 @@ export function PlannerWorkspace({
       await navigator.clipboard.writeText(
         `${window.location.origin}${window.location.pathname}#plan=${encoded}`,
       );
-      setStatus('Link copied.');
+      setStatus('Link copied. It opens an unofficial plan: check it with your academic advisor.');
     } catch {
       setStatus('The clipboard is blocked. Use Download instead.');
     }
@@ -4387,6 +4390,8 @@ export function PlannerWorkspace({
             <small>from the Semantic Course Map</small>
           </span>
         </a>
+        {/* Always on screen: the planner is not the university's, and a plan is checked with an advisor. */}
+        <UnofficialBadge schoolName={school?.name ?? null} bot={botName} />
         <p className="header-coverage">{isCatalogSchool ? coverage : 'Demo catalog'}</p>
         <div className="header-actions">
           {narrow && (

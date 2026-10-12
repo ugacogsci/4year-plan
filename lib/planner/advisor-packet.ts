@@ -25,6 +25,7 @@ import {
   type LanguagePlan,
   type PlanningContext,
 } from './autoplan';
+import { schoolPhrase } from './notices';
 import { restrictedToOthers, type PlanMark } from './repick';
 import { termRank, termsInWords } from './section-terms';
 import { transcriptOpenLines, type TranscriptRecord } from './transcript';
@@ -887,6 +888,6 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
     notes,
     plannerNotes,
     questions,
-    unofficial: `This plan is unofficial. Check it against your ${input.school.audit}: your college and your advisor decide what counts.`,
+    unofficial: `This plan is unofficial, from a planner not affiliated with or endorsed by ${schoolPhrase(input.school.name)}. Check it against your ${input.school.audit}: your college and your advisor decide what counts.`,
   };
 }
