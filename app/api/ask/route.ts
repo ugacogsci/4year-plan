@@ -1,49 +1,43 @@
+import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
-import { LIMITS, parseJson, readBodyCapped, sharedGuard, visitorKey } from '@/lib/planner/spend-guard';
+import { dailyCapUsd, LIMITS, parseJson, readBodyCapped, sharedGuard, tokensForChars, visitorKey, worstCaseUsd, WEB_SEARCH_USD } from '@/lib/planner/spend-guard';
+import {
+  cachedAnswer,
+  LOOKUP_SCHOOLS,
+  lookupModel,
+  lookupSystem,
+  lookupUniversity,
+  MAX_SEARCHES,
+  MAX_TOKENS,
+  noLookupAnswer,
+  WORST_INPUT_TOKENS,
+} from '@/lib/planner/university-lookup';
 
 /**
- * The answer endpoint.
+ * The answer endpoint for questions about the university itself.
  *
- * This is the seam where the TRU engine plugs into the planner. It proxies a
- * deployed TRU tenant, picking the path that matches the school the student
- * chose in onboarding. Mizzou is the root tenant; the rest are prefixed. When a
- * school has no tenant yet it says so rather than answering from a different
- * university's pages.
+ * ALMA's university_answer tool posts here. Anything the planner can answer
+ * from the files already in the browser was answered there first
+ * (lib/planner/ask-router.ts decides that), so what arrives is a genuine
+ * university question: a deadline, a policy, an office, a price.
  *
- * Anything the planner can answer from the files already in the browser has
- * been answered before the request gets here. lib/planner/ask-router.ts decides
- * that, and only what it could not answer is forwarded.
+ * It is answered by the planner's own lookup (lib/planner/university-lookup.ts):
+ * one Claude API call whose web search is restricted to the school's official
+ * domains. The contract is deliberately narrow, and it is the contract that
+ * matters more than the implementation: { text, sources[] }. An answer without
+ * the official page it came from does not ship. A school with no lookup says
+ * so rather than answering from a different university's pages.
  *
- * The contract is deliberately narrow, and it is the contract that matters more
- * than the implementation: { text, sources[] }. An answer without the page it
- * came from does not ship.
- *
- * The tenant pays for its own model calls and keeps its own caps, so this
- * route adds only a 16 KB body cap and a per-visitor rate limit
- * (lib/planner/spend-guard.ts), which keep one visitor from hammering TRU
- * through the planner.
+ * The call spends money on the planner's Anthropic key, so it passes the same
+ * spend guard as ALMA (lib/planner/spend-guard.ts): a 16 KB body cap, a
+ * per-visitor rate limit, and the day's dollar cap (PLANNER_DAILY_SPEND_USD),
+ * reserved at its worst case before the call and settled to what it cost.
  */
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 180;
 
-const UPSTREAM = process.env.TRU_UPSTREAM ?? '';
-
-/** Students read these. "illinois" is an id, not a name. */
-const SCHOOL_NAME: Record<string, string> = {
-  mizzou: 'Mizzou', tamu: 'Texas A&M', vt: 'Virginia Tech',
-  illinois: 'Illinois', uga: 'UGA',
-};
-
-// Mizzou is served at the root of the TRU deployment; every other school sits
-// under its own prefix.
-const PREFIX: Record<string, string> = {
-  mizzou: '',
-  tamu: '/tamu',
-  vt: '/vt',
-  illinois: '/illinois',
-  uga: '/uga',
-};
+const empty = { text: '', sources: [], contacts: [], grounded: false, locked: false };
 
 export async function POST(req: Request) {
   const raw = await readBodyCapped(req, LIMITS.ask.maxBodyBytes);
@@ -55,13 +49,8 @@ export async function POST(req: Request) {
     school?: unknown;
     prior?: unknown;
   };
-  const question = typeof body.question === 'string' ? body.question.trim() : '';
-  /**
-   * The previous exchange, in the shape the tenant reads: its own last answer
-   * and the question that produced it. It used to be forwarded as a bare
-   * string, which the tenant checks for `.q` and `.a` and silently drops, so
-   * every follow-up arrived with no memory of the answer it followed.
-   */
+  const question = typeof body.question === 'string' ? body.question.trim().slice(0, 1000) : '';
+  /** The previous exchange, for a follow-up: the question and the answer it got. */
   const p = body.prior as { q?: unknown; a?: unknown } | null | undefined;
   const prior =
     p && typeof p === 'object' && typeof p.q === 'string' && typeof p.a === 'string'
@@ -73,102 +62,51 @@ export async function POST(req: Request) {
   }
 
   const school = typeof body.school === 'string' ? body.school : '';
-  const prefix = PREFIX[school];
+  const lookup = LOOKUP_SCHOOLS[school];
 
-  if (!UPSTREAM || prefix === undefined) {
-    return NextResponse.json({
-      text:
-        // This reaches a student in the answer bubble, so it says what they can
-        // do, not what an operator can. The old copy named an environment
-        // variable and printed the raw school id.
-        'I can answer questions about your own schedule right here, but I cannot reach ' +
-        (SCHOOL_NAME[school] ?? 'your university') +
-        "'s published pages from this build. Try asking about a course on your board, " +
-        'what it needs first, where it meets, or how heavy a term looks.',
-      sources: [],
-      contacts: [],
-      grounded: false,
-      locked: false,
-    });
+  // This reaches a student, so it says what they can do, not what an operator can.
+  if (!lookup || !process.env.ANTHROPIC_API_KEY) {
+    return NextResponse.json(noLookupAnswer(school));
   }
 
-  /**
-   * The caller's address is forwarded so the tenant's rate limiter buckets by
-   * student rather than by API key. Without it every planner user in the world
-   * shares one bucket and the first busy minute locks everybody out.
-   */
-  const forwarded =
-    req.headers.get('x-forwarded-for') ?? req.headers.get('cf-connecting-ip') ?? '';
+  // A repeat of a question already answered today costs nothing and is not counted.
+  if (!prior) {
+    const hit = cachedAnswer(lookup.id, question);
+    if (hit) return NextResponse.json(hit);
+  }
 
+  const model = lookupModel();
   const admitted = sharedGuard().admit('ask', visitorKey(req.headers), {
-    model: '',
-    estimateUsd: 0,
-    capUsd: null,
-    names: { who: 'The answer service' },
+    model,
+    estimateUsd:
+      worstCaseUsd(model, WORST_INPUT_TOKENS + tokensForChars(raw.length + lookupSystem(lookup).length), MAX_TOKENS) +
+      MAX_SEARCHES * WEB_SEARCH_USD,
+    capUsd: dailyCapUsd(),
+    names: { who: 'The university lookup' },
   });
   if (!admitted.ok) {
     return NextResponse.json(
-      { error: admitted.error, text: '', sources: [], contacts: [], grounded: false, locked: false },
+      { ...empty, error: admitted.error },
       { status: admitted.status, headers: { 'retry-after': String(admitted.retryAfter) } },
     );
   }
 
   try {
-    const res = await fetch(`${UPSTREAM.replace(/\/$/, '')}${prefix}/api/ask`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(forwarded ? { 'x-forwarded-for': forwarded } : {}),
-      },
-      body: JSON.stringify({ question, ...(prior ? { prior } : {}) }),
-      signal: AbortSignal.timeout(175_000),
-    });
-
-    const data = (await res.json().catch(() => ({}))) as {
-      text?: string;
-      error?: string;
-      sources?: unknown;
-      contacts?: unknown;
-      grounded?: boolean;
-      locked?: boolean;
-    };
-
-    /**
-     * A 400, 413 or 429 from the tenant carries its reason in `error` and no
-     * text. Dropping that field rendered an empty answer bubble, which tells a
-     * student nothing about why their question did not work.
-     */
-    if (!res.ok) {
-      return NextResponse.json(
-        {
-          error: data.error ?? `The answer service returned ${res.status}.`,
-          text: data.text ?? '',
-          sources: [],
-          contacts: [],
-          grounded: false,
-          locked: false,
-        },
-        { status: res.status },
-      );
-    }
-
-    return NextResponse.json({
-      text: data.text ?? '',
-      sources: Array.isArray(data.sources) ? data.sources : [],
-      // Forwarded rather than dropped: a tenant that answers with an office and
-      // a phone number is answering with the part a student actually needs.
-      contacts: Array.isArray(data.contacts) ? data.contacts : [],
-      grounded: data.grounded ?? false,
-      locked: data.locked ?? false,
-    });
-  } catch {
+    const result = await lookupUniversity({ question, schoolId: lookup.id, prior, model });
+    admitted.settle(result.usage);
+    return NextResponse.json(result.answer);
+  } catch (error) {
+    // A 4xx from the API was refused before any tokens were made. Anything else
+    // (an overload, a dropped connection) may have spent some: keep the worst case.
+    const rejected = error instanceof Anthropic.APIError && typeof error.status === 'number' && error.status < 500;
+    admitted.settle(null, { keepReservation: !rejected });
     return NextResponse.json(
       {
-        text: 'The answer service did not respond. The planner above still works.',
-        sources: [],
-        contacts: [],
-        grounded: false,
-        locked: false,
+        ...empty,
+        text:
+          error instanceof Anthropic.RateLimitError
+            ? 'The university lookup is busy right now. Try again in a minute; the planner above still works.'
+            : 'The university lookup did not respond. The planner above still works.',
       },
       { status: 200 },
     );

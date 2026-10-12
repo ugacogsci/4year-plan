@@ -1,8 +1,9 @@
 /**
  * Spending protection for the routes that call the Claude API.
  *
- * ALMA (/api/advisor) and the transcript reader (/api/transcript) spend money
- * on the planner's Anthropic key every time they run, and before this file
+ * ALMA (/api/advisor), the transcript reader (/api/transcript) and the
+ * university lookup (/api/ask) spend money on the planner's Anthropic key
+ * every time they run, and before this file
  * nothing stopped one visitor, or a script, from running up the bill. Three
  * guards, checked before a model call is made:
  *
@@ -51,8 +52,15 @@ export interface ModelPrice {
  */
 export const MODEL_PRICES: Record<string, ModelPrice> = {
   'claude-opus-5': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
-  'claude-opus-5-5': { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.4 },
+  'claude-opus-5-5': { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 },
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
 };
+
+/**
+ * The web search server tool is billed per search on top of tokens:
+ * $10 per 1,000 searches, whatever the model.
+ */
+export const WEB_SEARCH_USD = 0.01;
 
 const DEAREST: ModelPrice = { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 };
 
@@ -66,6 +74,8 @@ export interface UsageLike {
   output_tokens?: number | null;
   cache_creation_input_tokens?: number | null;
   cache_read_input_tokens?: number | null;
+  /** Server tools the call ran (the university lookup's web searches). */
+  server_tool_use?: { web_search_requests?: number | null } | null;
 }
 
 const n = (v: number | null | undefined) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
@@ -79,7 +89,8 @@ export function costUsd(model: string, usage: UsageLike | null | undefined): num
       n(usage.output_tokens) * p.output +
       n(usage.cache_creation_input_tokens) * p.cacheWrite +
       n(usage.cache_read_input_tokens) * p.cacheRead) /
-    1_000_000
+      1_000_000 +
+    n(usage.server_tool_use?.web_search_requests) * WEB_SEARCH_USD
   );
 }
 
@@ -135,8 +146,8 @@ export const LIMITS = {
   advisor: { perWindow: 40, windowMs: 10 * 60_000, perDay: 250, maxBodyBytes: 1_000_000 },
   // The reader takes up to 30 MB of files as base64 (route.ts checks each file).
   transcript: { perWindow: 6, windowMs: 10 * 60_000, perDay: 20, maxBodyBytes: 32_000_000 },
-  // The ask bar's proxy to the TRU tenant. TRU's key and caps are its own;
-  // this keeps one visitor from hammering it through the planner.
+  // The university lookup: one model call with web search per question, on
+  // the planner's key and under the same daily dollar cap as ALMA.
   ask: { perWindow: 30, windowMs: 10 * 60_000, perDay: 300, maxBodyBytes: 16_000 },
 } satisfies Record<string, RouteLimits>;
 
