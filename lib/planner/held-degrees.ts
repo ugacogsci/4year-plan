@@ -120,7 +120,6 @@ export const HEADER_LISTS_HELD = new Set<string>([
   'las/earth-society-environmental-sustainability-bslas/society-the-environment', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
   'las/environmental-sustainability-bslas', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, the first math course later, worse across the sweep)
   'las/environmental-sustainability-bslas/science-of-the-earth-system', // Fall 2026 start, pre-med, 4 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
-  'las/integrative-biology-bslas', // Fall 2026 start, pre-med, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, the first math course later, worse across the sweep)
   'las/psychology-bslas/behavioral-neuroscience', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
   'las/psychology-bslas/clinical-community-psychology', // Fall 2026 start, pre-PT, 2 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
   'las/psychology-bslas/cognitive-neuroscience', // Fall 2026 start, pre-PT, 2 language semesters: engine work (same requirements met, the first math course later, a momentum flag, worse across the sweep)
