@@ -42,9 +42,10 @@ import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
  *       plan fills with whatever fits.
  *
  * Everything else is the degree reader's (requirementRulesForProgram), called
- * on the minor's tables as they are, and (b), a subject-and-level comment row
- * ("Select two 300- or 400-level Psychology courses", 6 hours), read since
- * 2026-10-13 (subjectLevelIn). minors-research/DESIGN.md has the shapes not
+ * on the minor's tables as they are, and two shapes read since 2026-10-13:
+ * (b), a subject-and-level comment row ("Select two 300- or 400-level
+ * Psychology courses", 6 hours; subjectLevelIn), and (f), a table read as one
+ * list split at its own "Select one of the following:" rows (splitOneList). minors-research/DESIGN.md has the shapes not
  * read yet: (d) choose one track and (e) one table per kind of major.
  */
 
@@ -133,6 +134,7 @@ export const MINOR_BETA: readonly string[] = [
   'aces/minors/leadership-studies',
   'aces/minors/natural-resource-conservation',
   'aces/minors/nutrition',
+  'aces/minors/wildlife-fisheries-conservation',
   'ahs/minors/aging-health',
   'ahs/minors/disability-studies',
   'ahs/minors/health-administration',
@@ -538,6 +540,51 @@ export function adaptIllinoisMinor(raw: RawIllinoisMinor, byCode: CatalogRowLook
     });
   }
 
+  const oneList = (list: RequirementBlock[]) =>
+    total !== null &&
+    list.some((b) => {
+      if (b.rule.kind !== 'pool' || (b.rule.hours ?? 0) < total - 1) return false;
+      const [ai, gi] = b.id.slice(id.length + 2).split('::').map(Number);
+      return (areas[ai]?.groups[gi]?.comments?.length ?? 0) > 0;
+    });
+  let readAsOneList = oneList(blocks);
+  // (f) the one list split at the table's own comment rows.
+  if (shapes && readAsOneList) {
+    const split: RequirementBlock[] = [];
+    const notes: string[] = [];
+    let ok = true;
+    for (const block of blocks) {
+      const [ai, gi] = block.id.slice(id.length + 2).split('::').map(Number);
+      const group = areas[ai]?.groups[gi];
+      const merged = block.rule.kind === 'pool' && total !== null && (block.rule.hours ?? 0) >= total - 1 && (group?.comments?.length ?? 0) > 0;
+      if (!merged || !group) { split.push(block); continue; }
+      const parts = splitOneList(group, byCode);
+      if (!parts) { ok = false; break; }
+      parts.forEach((part, pi) => {
+        const choices: CourseChoice[] = part.rows.map((r) => ({
+          codes: [normCode(r.code), ...(r.or ?? []).map(normCode)],
+          title: r.title,
+          credits: r.credits ?? byCode.get(normCode(r.code))?.credits ?? null,
+          creditsMax: byCode.get(normCode(r.code))?.creditsMax ?? null,
+          substitutes: [],
+        }));
+        split.push({
+          ...block,
+          id: `${block.id}::f${pi}`,
+          label: part.label,
+          hours: part.hours,
+          rule: part.kind === 'all' ? { kind: 'all', choices } : { kind: 'choose', n: part.n, choices },
+        });
+      });
+      notes.push(`(f) ${parts.map((p) => (p.kind === 'all' ? `all ${p.rows.length}` : `${p.n} of ${p.rows.length}`)).join(', ')}`);
+    }
+    if (ok && !oneList(split)) {
+      blocks.splice(0, blocks.length, ...split);
+      readings.push(...notes);
+      readAsOneList = false;
+    }
+  }
+
   return {
     id,
     catalogId: raw.id,
@@ -548,14 +595,44 @@ export function adaptIllinoisMinor(raw: RawIllinoisMinor, byCode: CatalogRowLook
     blocks,
     readings,
     teacherEducation: TEACHER_EDUCATION.test(`${raw.id} ${raw.name}`),
-    readAsOneList:
-      total !== null &&
-      blocks.some((b) => {
-        if (b.rule.kind !== 'pool' || (b.rule.hours ?? 0) < total - 1) return false;
-        const [ai, gi] = b.id.slice(id.length + 2).split('::').map(Number);
-        return (areas[ai]?.groups[gi]?.comments?.length ?? 0) > 0;
-      }),
+    readAsOneList,
   };
+}
+
+const COUNT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+
+/**
+ * (f) A table the degree reader merged into one list, split at its own
+ * comment rows: "Select one of the following:", "Select two of the
+ * following:", "Pick one:", "Choose two:". The rows before the first such
+ * comment are required; each comment then takes the rows up to the next one
+ * as a choice of that many (or of the comment's hours, when it states hours
+ * and no count). Read only for a minor whose whole table read as one list
+ * (readAsOneList), so no reading that is right today can move, and only when
+ * every comment with rows under it reads as a choice: one that does not
+ * ("Select 3 hours from any CPSC, HORT, or PLPA course") leaves the table as
+ * it was. Exported for the check.
+ */
+export function splitOneList(group: RawProgramGroup, byCode: CatalogRowLookup): Array<{ kind: 'all' | 'choose'; n: number; rows: RawProgramCourse[]; label: string; hours: number | null }> | null {
+  const rows = group.courses ?? [];
+  const comments = [...(group.comments ?? [])].filter((c) => c.at < rows.length).sort((a, b) => a.at - b.at);
+  if (rows.length < 2 || comments.length === 0) return null;
+  const parts: Array<{ kind: 'all' | 'choose'; n: number; rows: RawProgramCourse[]; label: string; hours: number | null }> = [];
+  if (comments[0].at > 0) parts.push({ kind: 'all', n: comments[0].at, rows: rows.slice(0, comments[0].at), label: 'Required', hours: null });
+  for (let i = 0; i < comments.length; i++) {
+    const c = comments[i];
+    const end = i + 1 < comments.length ? comments[i + 1].at : rows.length;
+    const under = rows.slice(c.at, end);
+    if (under.length === 0) continue;
+    const m = c.text.match(/^\s*(?:select|pick|choose|take)\s+(?:at least\s+)?(one|two|three|four|five|six|\d)\b(?:\s+(?:course|courses))?(?:\s+(?:of|from))?(?:\s+the following)?\s*(?:courses)?\s*:?\s*$/i);
+    if (!m) return null;
+    const n = COUNT_WORDS[m[1].toLowerCase()] ?? Number(m[1]);
+    if (!(n >= 1) || n > under.length) return null;
+    parts.push({ kind: n === under.length ? 'all' : 'choose', n, rows: under, label: c.text.replace(/\s*:\s*$/, ''), hours: c.hours ?? null });
+  }
+  // Every row known to the catalog, or the split would plan courses that do not exist.
+  if (!parts.every((p) => p.rows.every((r) => byCode.get(normCode(r.code)) !== undefined))) return null;
+  return parts.length > 1 ? parts : null;
 }
 
 /** Every minor in the crawl, read. */
