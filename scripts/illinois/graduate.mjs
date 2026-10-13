@@ -232,7 +232,7 @@ export function readRules(rows) {
       rules.min500Hours = Number(m[1]);
     }
     if ((m = both.match(/minimum (?:program |cumulative |overall )?C?GPA(?: is|:)?\s*(\d\.\d{1,2})/i))) rules.minGpa = Number(m[1]);
-    if ((m = both.match(/^(?:minimum )?total (?:credit )?hours (?:for the degree|required)|^minimum total hours to graduate|^minimum hours required for (?:certificate|minor|degree)?\s*completion/i))) {
+    if ((m = both.match(/^(?:minimum )?total (?:credit )?hours (?:for the degree|required|for the [^|]{3,80}?,\s*[A-Z][A-Za-z-]{1,8}\b)|^minimum total hours to graduate|^minimum hours required for (?:certificate|minor|degree)?\s*completion/i))) {
       const r = hoursRange(value || both.replace(/^[^\d]*/, ''));
       if (r) rules.totalCredits = r.min;
     }
@@ -329,6 +329,20 @@ export function splitBuckets(area) {
   return { area: { ...area, groups }, total, rules };
 }
 
+/** Each course row's hours cell, by code, as a range. */
+function rowRanges(tableHtml, text) {
+  const out = new Map();
+  for (const r of tableHtml.matchAll(/<tr([^>]*)>([\s\S]*?)<\/tr>/g)) {
+    if (/orclass|areaheader|listsum/.test(r[1])) continue;
+    const code = r[2].match(/[?&]P=([A-Z]{2,4})(?:%20|\+|\s)(\d{3})\b/i);
+    const cell = r[2].match(/class="[^"]*hourscol[^>]*>([\s\S]*?)<\/td>/)?.[1];
+    if (!code || cell === undefined) continue;
+    const range = hoursRange(text(cell));
+    if (range) out.set(`${code[1].toUpperCase()} ${code[2]}`, range);
+  }
+  return out;
+}
+
 /** Rows of an sc_sctable as [first cell, second cell] text. */
 function tableRows(tableHtml, text) {
   const rows = [];
@@ -400,6 +414,14 @@ export function readGraduatePage(html, { parseTables, text }) {
       const area = areas[0] ?? { label: heading || null, labelKnown: Boolean(heading), hours: null, hoursFrom: null, chooseCourses: null, groups: [] };
       const { area: split, total, rules: inTable } = splitBuckets(area);
       ruleRows = ruleRows.concat(inTable);
+      // A course row's hours cell can be a range ("ANTH 599 Thesis Research
+      // 0-32"); the parser keeps the low end, and the top is kept here as
+      // creditsMax so the reader can size the row to what the total leaves.
+      const ranges = rowRanges(t[0], text);
+      for (const g of split.groups) for (const c of g.courses ?? []) {
+        const r = ranges.get(c.code);
+        if (r && r.max > r.min) c.creditsMax = r.max;
+      }
       parts.push({ heading, area: { ...split, label: scrub(split.label) }, total });
     } else if (/other/i.test(t[1]) || /^other requirements/i.test(heading)) {
       ruleRows = ruleRows.concat(tableRows(t[0], text));

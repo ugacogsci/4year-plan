@@ -576,9 +576,15 @@ export function adaptIllinoisGraduateOption(raw: RawGraduateProgram, optionIndex
   });
 
   // Ranges are sized to what the total leaves: "Elective courses 0-8" is the
-  // rest of a 32-hour degree, electives first, then the other ranges in order.
+  // rest of a 32-hour degree, electives first, then the other ranges in order,
+  // then a required course row printed with a range ("ANTH 599 0-32").
   const fixed = readingHours(blocks, byCode).total + bucketSum;
   let slack = total !== null ? total - fixed : 0;
+  const rangedRows = new Map<string, number>();
+  for (const area of areas) for (const group of area.groups) for (const row of group.courses ?? []) {
+    const max = (row as { creditsMax?: number | null }).creditsMax;
+    if (typeof max === 'number' && max > (row.credits ?? 0)) rangedRows.set(normCode(row.code), max);
+  }
   const sized = buckets.map((b) => ({ ...b, size: b.hours }));
   const order = [...sized].sort((a, b) => Number(ELECTIVE.test(b.group.label ?? '')) - Number(ELECTIVE.test(a.group.label ?? '')));
   for (const b of order) {
@@ -588,6 +594,22 @@ export function adaptIllinoisGraduateOption(raw: RawGraduateProgram, optionIndex
     const add = Math.min(room, slack);
     b.size += add;
     slack -= add;
+  }
+  // Then the ranged course rows of required ('all') blocks.
+  if (slack > 0 && rangedRows.size > 0) {
+    for (const block of blocks) {
+      if (slack <= 0) break;
+      if (block.rule.kind !== 'all') continue;
+      const choices = block.rule.choices.map((c) => {
+        const max = rangedRows.get(normCode(c.codes[0]));
+        const now = c.credits ?? 0;
+        if (slack <= 0 || max === undefined || max <= now) return c;
+        const add = Math.min(max - now, slack);
+        slack -= add;
+        return { ...c, credits: now + add };
+      });
+      block.rule = { ...block.rule, choices };
+    }
   }
   const kinds: string[] = [];
   for (const b of sized) {
