@@ -406,9 +406,24 @@ function likelyCause(r, scan) {
   const label = top[1] === 0 ? 'none' : top[0] === 'reading' ? 'misread page' : top[0] === 'engine' ? 'engine' : 'sequence only';
   return { label, points: pts, why: why[top[0]].slice(0, 4), other: Object.entries(why).filter(([k]) => k !== top[0]).flatMap(([, v]) => v).slice(0, 3) };
 }
+/**
+ * The score this program would have if its misread lists were read right, as
+ * an estimate: courses missing because a list was counted short count as
+ * placed on time, and extras from a take-all list the official plan never
+ * follows (or list picks made to fill a short-counted list's hours) go away.
+ * Nothing else changes, so it says how much of the gap is the reading.
+ */
+function readingFixedScore(r) {
+  const flagged = new Set(r.takeAll.map((t) => t.req));
+  const short = r.shortLists.length > 0;
+  const gained = r.missing.filter((m) => m.cause === 'reading-short').length;
+  const left = r.unexplained.filter((x) => !((x.kind === 'required' && flagged.has(x.req)) || (short && x.kind === 'option'))).length;
+  const denom = r.officialNamed + left;
+  return denom ? Math.round((100 * (r.onTime + gained + 0.5 * r.offTime.length)) / denom) : null;
+}
 const scanById = new Map();
 for (const f of misreads) scanById.set(f.id, [...(scanById.get(f.id) ?? []), f]);
-for (const r of results) if (r.status === 'compared') r.cause = likelyCause(r, scanById.get(r.id) ?? []);
+for (const r of results) if (r.status === 'compared') { r.cause = likelyCause(r, scanById.get(r.id) ?? []); r.scoreIfReadRight = readingFixedScore(r); }
 
 // ---------- summary ----------
 const cmp = results.filter((r) => r.status === 'compared' && r.officialNamed > 0);
@@ -443,6 +458,10 @@ const summary = {
   misreadsFound: misreads.length,
   takeAllLists: sum(cmp, (r) => r.takeAll.length),
   shortLists: sum(cmp, (r) => r.shortLists.length),
+  ifReadRight: (() => {
+    const xs = cmp.map((r) => r.scoreIfReadRight).sort((a, b) => a - b);
+    return { meanScore: +(xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length)).toFixed(1), medianScore: xs[Math.floor(xs.length / 2)] ?? null, under50: xs.filter((x) => x < 50).length, perfect: xs.filter((x) => x === 100).length };
+  })(),
   overTotal: cmp.filter((r) => r.planCredits != null && r.degreeTotal != null && r.planCredits > r.degreeTotal + 6).length,
 };
 {
@@ -510,6 +529,7 @@ if (MD_OUT) {
   L.push('');
   L.push(`- **Without the ${summary.compared - summary.withoutPlaceholders.compared} programs we have no degree reading for** (placeholders): ${summary.withoutPlaceholders.pctContained}% of official courses contained, mean score ${summary.withoutPlaceholders.meanScore}.`);
   L.push(`- **Misread lists found:** ${summary.takeAllLists} lists our reading requires in full that the official plan never follows, ${summary.shortLists} lists our reading counts short, and ${summary.misreadsFound} more from the page-wording scan (details below). ${summary.overTotal} programs plan more than 6 credits past the degree total.`);
+  L.push(`- **If the misread lists were read right** (an estimate: the courses a short-counted list loses count as placed, and the extras from take-all lists go away; nothing else changes): mean ${summary.ifReadRight.meanScore}, median ${summary.ifReadRight.medianScore}, ${summary.ifReadRight.perfect} at 100, ${summary.ifReadRight.under50} under 50.`);
   L.push('');
   L.push('| College | Programs | Official courses in our plans | Mean score | Programs under 50 |');
   L.push('|---|---|---|---|---|');
@@ -543,10 +563,10 @@ if (MD_OUT) {
   const ph = cmp.filter((r) => r.placeholder);
   if (ph.length) L.push(`Not ranked: ${ph.length} programs the planner offers with no degree reading at all (placeholders), which miss nearly every official course for that reason: ${ph.map((r) => `\`${r.id}\` (score ${r.score}, ${r.matched}/${r.officialNamed})`).join(', ')}.`);
   L.push('');
-  L.push('| # | Program | Score | Official courses in our plan | >1 yr off | Extras | Likely cause | What differs |');
-  L.push('|---|---|---|---|---|---|---|---|');
+  L.push('| # | Program | Score | If read right | Official courses in our plan | >1 yr off | Extras | Likely cause | What differs |');
+  L.push('|---|---|---|---|---|---|---|---|---|');
   worst.forEach((r, i) => {
-    L.push(`| ${i + 1} | [${cell(r.name)}](${r.url}) \`${r.id}\` | ${r.score} | ${r.matched}/${r.officialNamed} | ${r.offTime.length} | ${r.unexplained.length} | **${r.cause.label}** | ${cell([...r.cause.why, ...r.cause.other.slice(0, r.cause.why.length ? 1 : 3)].join('; ').slice(0, 400))} |`);
+    L.push(`| ${i + 1} | [${cell(r.name)}](${r.url}) \`${r.id}\` | ${r.score} | ${r.scoreIfReadRight} | ${r.matched}/${r.officialNamed} | ${r.offTime.length} | ${r.unexplained.length} | **${r.cause.label}** | ${cell([...r.cause.why, ...r.cause.other.slice(0, r.cause.why.length ? 1 : 3)].join('; ').slice(0, 400))} |`);
   });
   L.push('');
   const tally = {};
