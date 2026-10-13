@@ -6391,7 +6391,11 @@ function ranksAbove(a: number[], b: number[]): boolean {
 
 export function generatePlan(given: AutoplanInput): GeneratedPlan {
   // A degree held at the release (held-degrees.ts PLANNED_AS_RELEASED) is planned by the release's engine.
-  if (given.programId && PLANNED_AS_RELEASED.has(given.programId)) return generateReleasedPlan(given as unknown as ReleasedInput) as unknown as GeneratedPlan;
+  if (given.programId && PLANNED_AS_RELEASED.has(given.programId)) {
+    const released = generateReleasedPlan(given as unknown as ReleasedInput) as unknown as GeneratedPlan;
+    if (given.plainEngine !== true) spreadExamTerm(released, given, released.language ?? null);
+    return released;
+  }
   const context = withTitleStanding(given.context);
   const requirements = resolveBundles(given.requirements, given.prior, context);
   const college = collegeCreditRule(given.programCollege, requirements);
@@ -7048,6 +7052,8 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
   if (counted?.note) result.notes.push(counted.note);
   // A row asking for a course more than once gets its further sittings where they fit (bookRepeats).
   if (given.plainEngine !== true) bookRepeats(result, [...admission.added, ...expansion.requirements], measuredAt(fitted.horizon), expansion.language);
+  // The admission test's spring, spread where the board allows it (spreadExamTerm).
+  if (given.plainEngine !== true) spreadExamTerm(result, measuredAt(fitted.horizon), expansion.language);
   result.residency = raw.residency ? residencyReport(raw.residency, result, raw.context) : null;
   if (result.residency?.shortfall) result.notes.push(result.residency.shortfall);
   return result;
@@ -7056,6 +7062,167 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
 // ---------------------------------------------------------------------------
 // Courses taken more than once (repeats.ts).
 // ---------------------------------------------------------------------------
+
+/**
+ * The admission test's spring, spread (CareerTrack.exam content).
+ *
+ * The Medicine guide puts MCAT preparation in the spring of year three, and
+ * every pre-med row is due by then, so the rows with slack all waited for
+ * that spring: an Integrative Biology pre-med had Organic II, biochemistry
+ * and PSYC 100 there together, learning in the test's own term what the test
+ * asks. Where that spring holds three or more of the courses the test leans
+ * on, one that can go earlier trades terms with a free elective or general
+ * education pick of the same hours in a fall or spring between year one and
+ * the test, and the trade stands only where the board is no worse on any of
+ * the gate's measures (gateWorse): same terms, same hours in every term, no
+ * prerequisite, season, hardest-band or crowding cost. Year one is never
+ * touched, so no momentum measure moves.
+ */
+function spreadExamTerm(g: GeneratedPlan, input: AutoplanInput, language: LanguagePlan | null): void {
+  const ctx = input.context;
+  const norm = normaliseCode;
+  const tracks = careerProfileOf(input).tracks.filter((t) => (t.exam?.content ?? []).length > 0);
+  if (tracks.length === 0 || input.degreeTotal == null) return;
+  const content = new Set(tracks.flatMap((t) => t.exam?.content ?? []).map(norm));
+  const horizon = buildHorizon(input.horizon);
+  const lastFall = Math.max(-1, ...horizon.filter((t) => t.season === 'Fall').map((t) => t.index));
+  const springs = horizon.filter((t) => t.season === 'Spring' && t.index < lastFall);
+  if (springs.length === 0) return;
+  const e = g.terms.findIndex((t) => t.index === springs[springs.length - 1].index);
+  if (e < 0) return;
+  const inExam = () => g.terms[e].codes.map(norm).filter((c) => content.has(c));
+  const before = inExam();
+  if (before.length < 3) return;
+
+  const catalog = catalogByCode(ctx.courses);
+  const range = (code: string) => planCreditRange([code], ctx);
+  const hardCut = input.preferences?.hardDifficulty === undefined ? (ctx.bands?.hardest ?? FALLBACK_HARD_DIFFICULTY) : input.preferences.hardDifficulty;
+  const isHard = (code: string) => {
+    const d = ctx.grades?.get(code)?.difficulty;
+    return hardCut !== null && d !== null && d !== undefined && d >= hardCut;
+  };
+  const inSeason = (code: string, i: number) => !outOfSeason(catalog.get(code), g.terms[i].season, ctx.offeringPublished?.has(code) ?? false);
+  // Year one as the review reads it: the first two falls and springs.
+  let regular = 0;
+  let yearOneEnd = g.terms.length - 1;
+  for (let i = 0; i < g.terms.length; i += 1) {
+    if (g.terms[i].season === 'Summer') continue;
+    regular += 1;
+    if (regular === 2) { yearOneEnd = i; break; }
+  }
+  const away = new Set((g.away ?? []).map((a) => a.label));
+  const trackCodes = new Set(careerProfileOf(input).tracks.flatMap((t) => t.courses.flatMap((r) => r.codes)).map(norm));
+  const kept = new Set<string>([
+    ...g.addedPrerequisites.flatMap((a) => [norm(a.code), norm(a.requiredBy)]),
+    ...(g.language?.codes ?? []).map(norm),
+  ]);
+  const prereqOfOther = new Set<string>();
+  for (const term of g.terms) for (const c of term.codes) for (const group of ctx.prereqs?.get(norm(c))?.groups ?? []) for (const any of group.any) prereqOfOther.add(norm(any));
+  const onBoard = new Set(g.terms.flatMap((t) => t.codes.map(norm)));
+  const partners = new Set<string>([
+    ...g.electives.filter((x) => !x.track).map((x) => norm(x.code)),
+    ...(g.genEdPicks ?? []).map((p) => norm(p.code)),
+  ]);
+  const free = (code: string): boolean => {
+    if (!partners.has(code) || trackCodes.has(code) || content.has(code) || kept.has(code) || prereqOfOther.has(code)) return false;
+    const course = catalog.get(code);
+    if (!course || ['MATH', 'STAT'].includes(code.split(' ')[0])) return false;
+    if (course.tags.some((t) => t.startsWith('Quantitative Reasoning') || t === 'Composition I')) return false;
+    // Nothing it waits on is on the board: moving it later must not stretch a sequence.
+    return !(ctx.prereqs?.get(code)?.groups ?? []).some((group) => group.any.some((a) => onBoard.has(norm(a))));
+  };
+  const held = new Set([...input.prior.courseCodes, ...input.prior.exemptCodes].map(norm));
+  const at = () => {
+    const m = new Map<string, number>();
+    g.terms.forEach((t, i) => t.codes.forEach((c) => m.set(norm(c), i)));
+    return m;
+  };
+  /** Every prerequisite group of `code` met by held credit or a course before term `p` (in it, when concurrent). */
+  const readyBy = (code: string, p: number): boolean => {
+    const where = at();
+    return (ctx.prereqs?.get(code)?.groups ?? []).every((group) =>
+      group.priorLearning || group.any.some((a) => held.has(norm(a)) || (where.has(norm(a)) && (where.get(norm(a)) as number) < p + (group.concurrent ? 1 : 0))));
+  };
+  const relabel = (i: number) => {
+    const grades = ctx.grades ?? new Map<string, GradeRow>();
+    const term = g.terms[i];
+    const codes = term.codes.map(norm);
+    const load = termLoad(codes, grades);
+    const hard = hardCut === null ? [] : codes.filter(isHard).sort();
+    const weighed = codes.filter((c) => grades.get(c)?.difficulty != null).length;
+    term.credits = planCreditRange(codes, ctx);
+    term.load = { ...term.load, avgDifficulty: load.avgDifficulty, verdict: load.verdict, bandVerdict: bandVerdictFor(hard.length, load.avgDifficulty, ctx.bands ?? FALLBACK_BANDS), hard, weighed, unweighed: codes.length - weighed };
+  };
+  const move = (code: string, from: number, to: number) => {
+    const raw = g.terms[from].codes.find((c) => norm(c) === code) ?? code;
+    g.terms[from].codes = g.terms[from].codes.filter((c) => norm(c) !== code);
+    g.terms[to].codes.push(raw);
+    const a = g.plan.terms.find((t) => t.id === g.terms[from].id);
+    const b = g.plan.terms.find((t) => t.id === g.terms[to].id);
+    if (a) a.courseIds = a.courseIds.filter((id) => id !== courseIdFor(raw));
+    if (b) b.courseIds.push(courseIdFor(raw));
+  };
+  const swap = (m: string, x: string, p: number) => {
+    move(m, e, p);
+    move(x, p, e);
+    relabel(e);
+    relabel(p);
+  };
+
+  const base = gateMeasure(g, input, language);
+  const moved: Array<{ code: string; label: string; partner: string | null }> = [];
+  let tries = 0;
+  for (let round = 0; round < 3 && inExam().length >= 3 && tries < 40; round += 1) {
+    let done = false;
+    // Courses with no prerequisite first: PSYC 100 and SOC 100 go anywhere.
+    const movable = inExam().sort((a, b) => (ctx.prereqs?.get(a)?.groups.length ?? 0) - (ctx.prereqs?.get(b)?.groups.length ?? 0) || a.localeCompare(b));
+    for (const m of movable) {
+      const want = range(m);
+      for (let p = e - 1; p > yearOneEnd && !done; p -= 1) {
+        const term = g.terms[p];
+        if (term.season === 'Summer' || away.has(term.label) || term.codes.length === 0) continue;
+        if (!inSeason(m, p) || !readyBy(m, p)) continue;
+        /*
+         * A partner of the same hours first, then one an hour apart, then
+         * none: the course alone, where the gate's measures (a term at the
+         * cap or under the minimum among them) let the hours move with it.
+         */
+        const gap = (x: string) => Math.abs(range(x).min - want.min) + Math.abs(range(x).max - want.max);
+        const options: Array<string | null> = [
+          ...term.codes.map(norm).filter((x) => free(x) && gap(x) <= 2 && inSeason(x, e) && isHard(x) === isHard(m)).sort((a, b) => gap(a) - gap(b) || a.localeCompare(b)),
+          null,
+        ];
+        for (const x of options) {
+          if (tries >= 40) break;
+          tries += 1;
+          if (x === null) {
+            move(m, e, p);
+            relabel(e);
+            relabel(p);
+          } else swap(m, x, p);
+          if (gateWorse(gateMeasure(g, input, language), base).length === 0) {
+            moved.push({ code: m, label: term.label, partner: x });
+            done = true;
+            break;
+          }
+          if (x === null) {
+            move(m, p, e);
+            relabel(e);
+            relabel(p);
+          } else swap(x, m, p);
+        }
+      }
+      if (done) break;
+    }
+    if (!done) break;
+  }
+  if (moved.length === 0) return;
+  const exam = tracks[0].exam?.name ?? 'admission test';
+  const after = inExam();
+  g.notes.push(
+    `${tracks[0].name}: ${moved.map((m) => `${m.code} moves to ${m.label}${m.partner ? ` (${m.partner} takes its place)` : ''}`).join(' and ')}, so ${g.terms[e].label}, the spring the plan leaves for ${exam} preparation, holds ${after.length === 0 ? 'none' : after.join(', ')} of the courses the ${exam} leans on instead of ${before.join(', ')}.`,
+  );
+}
 
 /** One course a degree row asks for more than once, already on the board or the record. */
 interface RepeatWant {
