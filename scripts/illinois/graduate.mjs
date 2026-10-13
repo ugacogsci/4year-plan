@@ -464,7 +464,10 @@ export function readGraduatePage(html, { parseTables, text }) {
       run.push(p);
       if (p.total) { options.push(run); run = []; }
     }
-    if (run.length && options.length) options[options.length - 1].push(...run);
+    // Tables after the last option's total are lists every option draws on
+    // (Molecular & Integrative Physiology's "Course Menu" tables), not part of
+    // the last option: each option gets them, marked as trailing lists.
+    if (run.length && options.length) for (const o of options) o.push(...run.map((p) => ({ ...p, area: { ...p.area, trailing: true } })));
   } else {
     options.push(parts);
   }

@@ -76,6 +76,8 @@ export interface RawGraduateGroup extends RawProgramGroup {
 export interface RawGraduateArea extends Omit<RawProgramArea, 'groups'> {
   groups: RawGraduateGroup[];
   labelKnown?: boolean;
+  /** A table printed after the last option's total, which every option draws on: a list, not requirements. */
+  trailing?: boolean;
 }
 
 export interface RawGraduateOption {
@@ -476,7 +478,8 @@ export function joinListsToHours(areas: RawGraduateArea[], byCode: CatalogRowLoo
   }
 
   for (const [ai, area] of out.entries()) {
-    if (!/\blists?\b/i.test(area.label ?? '') || area.hours != null || !area.groups.every((g) => g.hours == null && g.choose == null)) continue;
+    const listTab = /\blists?\b/i.test(area.label ?? '') || area.trailing === true;
+    if (!listTab || area.hours != null || !area.groups.every((g) => g.hours == null && g.choose == null)) continue;
     const courses = area.groups.flatMap((g) => g.courses ?? []);
     if (courses.length === 0) continue;
     const words = (area.label ?? '').toLowerCase();
@@ -484,9 +487,21 @@ export function joinListsToHours(areas: RawGraduateArea[], byCode: CatalogRowLoo
     for (const other of out.slice(0, ai)) {
       for (const g of other.groups) {
         const first = (g.label ?? '').toLowerCase().match(/[a-z]{4,}/)?.[0];
-        if ((g.courses?.length ?? 0) === 0 && (g.hours ?? 0) > 0 && first && words.includes(first)) { host = g; break; }
+        const sized = (g.courses?.length ?? 0) === 0 && (g.hours ?? 0) > 0;
+        // Matched by the row's first word in the list's heading, or a row that
+        // says its hours come from a menu or list ("Six credit hours taken from
+        // the department's Course Menu") for a trailing list.
+        if (sized && ((first && words.includes(first)) || (area.trailing && /\b(?:menu|list)\b/i.test(g.label ?? '')))) { host = g; break; }
       }
       if (host) break;
+    }
+    if (host && (host.courses?.length ?? 0) > 0) {
+      // A second list for the same row adds to its courses.
+      const extra = courses.filter((c) => !host!.courses.some((h) => h.code === c.code));
+      host.courses = [...host.courses, ...extra];
+      read.push(`(t) ${host.label}: ${area.label}`);
+      out[ai] = { ...area, groups: area.groups.map((g) => ({ ...g, courses: [], kind: 'unknown', joined: true } as RawGraduateGroup)) };
+      continue;
     }
     if (host) {
       Object.assign(host, { courses, kind: 'menu', bucket: false, summedCredits: courses.reduce((n, c) => n + rowHours(c, byCode), 0) });
