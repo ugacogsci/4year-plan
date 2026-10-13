@@ -42,6 +42,7 @@ import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
 import { IssueBadge } from './issue-badge';
 import { groupIssues, isTermIssue, reviewTitle } from './plan-health';
+import { attentionItems, attentionLine, earlyFinishNote } from '@/lib/planner/attention';
 
 import { toast, Toaster } from '@/components/ui/toast';
 import { AdvisorPacketDialog } from './advisor-packet';
@@ -843,6 +844,8 @@ export function PlannerWorkspace({
     careerTextRef.current = careerText;
   }, [planShape, careerText]);
   const [status_, setStatus] = useState('');
+  /** Set by buildPlan: the next render with the new board says what the build found. */
+  const announceBuild = useRef(false);
   /**
    * The status line is read by screen readers and nobody else. Anything a
    * student pressed a button for is told back on screen as well.
@@ -1418,6 +1421,18 @@ export function PlannerWorkspace({
     // A graduation already under way leaves a one-term board shown only in
     // case plans change; a shortfall against it is a finish nobody gave.
     if (horizon.gradPassed) generated.notes = generated.notes.filter((n) => !n.startsWith('Finishing by '));
+    /**
+     * A plan that ends before the finish the student named says how to use
+     * every term to it instead, where the numbers under Preferences do that
+     * (autoplan.ts earlyFinish). Illinois only: UGA's fill does not spread
+     * to a lighter number yet (13 a term gave five terms of 15, one of 12
+     * and a last term of 3), so its note gives the arithmetic alone.
+     */
+    const early = generated.earlyFinish;
+    if (isIllinois && early?.settings) {
+      const howTo = ` To plan it that way, set Preferences to about ${early.settings.target} and at least ${early.settings.minimum} credits a term, then press Rebuild.`;
+      generated.notes = generated.notes.map((n) => (n === early.note ? n + howTo : n));
+    }
     if (horizon.startNote) generated.notes.unshift(horizon.startNote);
     if (!publishedTotal && isIllinois) {
       generated.notes.push(`The catalog page for ${loaded.program.name} states no total, so this plan aims at 120 hours, the minimum most Illinois bachelor's degrees state (las.illinois.edu/academics/requirements/minimum). Ask your advisor for this degree's own total.`);
@@ -1469,17 +1484,10 @@ export function PlannerWorkspace({
      */
     if (keepUndoOnBuild.current) keepUndoOnBuild.current = false;
     else setUndoStack([]);
-    const needsAttention =
-      generated.notPlaced.length > 0 ||
-      generated.unsatisfied.some(
-        (row) =>
-          row.reason !== 'filled-by-electives' && row.reason !== 'not-parsed',
-      );
-    setStatus(
-      needsAttention
-        ? 'Draft built. Review the items that still need attention.'
-        : 'Plan built. Nothing needs attention.',
-    );
+    // What the build says is decided once the board's own issues are
+    // computed for it (the effect after `issues`): the all-clear follows
+    // every check the board shows, not only unplaced courses.
+    announceBuild.current = true;
   }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape]);
 
   /**
@@ -2218,6 +2226,20 @@ export function PlannerWorkspace({
     () => groupIssues(issues.filter((issue) => !issue.courseId && !isTermIssue(issue))),
     [issues],
   );
+  /**
+   * What needs attention on this board, in words on screen rather than only
+   * behind the dots, and the all-clear only when every check passes
+   * (attention.ts). A build announces it once its board's issues are in.
+   */
+  const attention = useMemo(() => attentionItems(issues), [issues]);
+  const attentionText = attentionLine(attention);
+  const earlyText = earlyFinishNote(planNotes);
+  useEffect(() => {
+    if (!announceBuild.current || !plan) return;
+    announceBuild.current = false;
+    const built = attention.length > 0 ? `Draft built. ${attentionText}` : 'Plan built. Nothing needs attention.';
+    setStatus(earlyText ? `${built} ${earlyText}` : built);
+  }, [attention, attentionText, earlyText, plan]);
   const planWideSeverity = planWideIssues[0]?.severity ?? null;
   const planWideSummary = planWideIssues.map((group) => `${group.title}: ${group.message}`).join('\n\n');
   const tabIssueSeverity = (candidate: PlanTab) =>
@@ -5734,6 +5756,11 @@ export function PlannerWorkspace({
             </div>
           )}
 
+          {plan && (attentionText || earlyText) && (
+            <span className="board-bar-note" role="note">
+              {[attentionText, earlyText].filter(Boolean).join(' ')}
+            </span>
+          )}
           {isIllinois && suspendedNotice(programId) && (
             <span className="board-bar-note" role="note">{suspendedNotice(programId)}</span>
           )}
