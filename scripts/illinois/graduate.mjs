@@ -280,12 +280,17 @@ export function typicalLengthIn(flat) {
 export function splitBuckets(area) {
   let total = area.hoursFrom === 'table' ? { min: area.hours, max: area.hours } : null;
   const groups = [];
+  const rules = [];
   for (let group of area.groups) {
     if ((group.courses?.length ?? 0) === 0 && TABLE_TOTAL.test((group.label ?? '').trim()) && (group.hours != null || totalInLabel(group.label))) {
       total = group.hours != null ? { min: group.hours, max: group.hours } : totalInLabel(group.label);
       // Comment rows under the total heading still belong to the table.
       if ((group.comments ?? []).length === 0) continue;
       group = { ...group, label: '', hours: null };
+    }
+    if ((group.courses?.length ?? 0) === 0 && (group.comments ?? []).length === 0 && RULE_ROW.test((group.label ?? '').trim())) {
+      rules.push([group.label, group.hours != null ? String(group.hours) : '']);
+      continue;
     }
     const comments = group.comments ?? [];
     if (comments.length === 0) { groups.push(group); continue; }
@@ -297,6 +302,7 @@ export function splitBuckets(area) {
       const rowsAfter = nextAt - c.at;
       const range = c.hoursText ? hoursRange(c.hoursText) : null;
       if (TABLE_TOTAL.test(c.text.trim()) && (range || totalInLabel(c.text))) { total = range ?? totalInLabel(c.text); last = null; return; }
+      if (RULE_ROW.test(c.text.trim()) && rowsAfter === 0) { rules.push([c.text, c.hoursText ?? '']); last = null; return; }
       if (rowsAfter === 0 && range && !ANY_TOTAL.test(c.text.trim())) {
         last = {
           label: c.text, choose: null, chooseFrom: null, hours: range.min, hoursMax: range.max, hoursText: c.hoursText,
@@ -320,7 +326,7 @@ export function splitBuckets(area) {
     if (hasOwn) groups.push({ ...group, comments: kept, note: kept.map((c) => c.text).join(' ') });
     groups.push(...buckets);
   }
-  return { area: { ...area, groups }, total };
+  return { area: { ...area, groups }, total, rules };
 }
 
 /** Rows of an sc_sctable as [first cell, second cell] text. */
@@ -342,6 +348,9 @@ function headingBefore(before, text) {
     .filter((t) => t.length >= 3 && t.length <= 120 && /[a-z]/i.test(t));
   return heads.length ? heads[heads.length - 1] : '';
 }
+
+/** A row of a requirements table that is a rule, not hours to take. */
+const RULE_ROW = /^(?:other requirements|minimum (?:program |cumulative )?c?gpa|minimum 500|minimum (?:credit )?hours (?:required )?(?:within|taken|at|from)|minimum credit hours taken|maximum\b|no more than|a minimum of \d+ (?:credit hours of coursework at the )?500|coursework must|no course|credit in\b)/i;
 
 /** Headings that sit above an option's table without naming it. */
 const NOT_AN_OPTION_NAME = /^(?:other requirements|for the degree|for additional|the requirements below|students need)/i;
@@ -386,18 +395,22 @@ export function readGraduatePage(html, { parseTables, text }) {
     if (t[1] === 'sc_courselist') {
       const areas = parseTables(before + t[0]);
       const area = areas[0] ?? { label: heading || null, labelKnown: Boolean(heading), hours: null, hoursFrom: null, chooseCourses: null, groups: [] };
-      const { area: split, total } = splitBuckets(area);
+      const { area: split, total, rules: inTable } = splitBuckets(area);
+      ruleRows = ruleRows.concat(inTable);
       parts.push({ heading, area: { ...split, label: scrub(split.label) }, total });
-    } else if (/other/i.test(t[1])) {
+    } else if (/other/i.test(t[1]) || /^other requirements/i.test(heading)) {
       ruleRows = ruleRows.concat(tableRows(t[0], text));
     } else {
-      // Requirements printed as rules rows (ECE MEng): each sized row is a bucket.
+      // Requirements printed as rules rows (ECE MEng): each sized row is a
+      // bucket, and a row that is a rule (a minimum GPA, a 500-level minimum,
+      // hours to take on campus) is a rule, wherever the page prints it.
       const rows = tableRows(t[0], text);
       let total = null;
       const groups = [];
       for (const [label, value] of rows) {
         const range = hoursRange(value);
         if (/^total\b/i.test(label) && range) { total = range; continue; }
+        if (RULE_ROW.test(label)) { ruleRows.push([label, value]); continue; }
         if (!range || range.max === 0) continue;
         groups.push({ label, choose: null, chooseFrom: null, hours: range.min, hoursMax: range.max, hoursText: value, courses: [], note: '', comments: [], summedCredits: 0, kind: 'unknown', bucket: true });
       }
@@ -482,7 +495,7 @@ export function factsFor(record) {
   const out = [];
   const r = record.rules;
   const say = (t) => out.push({ text: t, url: record.url });
-  if (record.options.length > 1) say(`The page offers ${record.options.length} ways to complete it (${record.options.map((o) => `${o.label ?? 'option'}: ${o.totalCredits ?? '?'} hours`).join('; ')}); a student follows one.`);
+  if (record.options.length > 1) say(`The page offers ${record.options.length} ways to complete it (${record.options.map((o) => `${o.totalCredits ?? '?'} hours`).join(', ')}); a student follows one.`);
   else if (record.options[0]?.totalCredits != null) say(`The page states a total of ${record.options[0].totalCredits}${record.options[0].totalMax ? ` to ${record.options[0].totalMax}` : ''} credit hours.`);
   if (r.min500Hours != null) say(`At least ${r.min500Text ?? r.min500Hours} of those hours must be in 500-level courses.`);
   if (r.minGpa != null) say(`The minimum program GPA is ${r.minGpa}.`);
