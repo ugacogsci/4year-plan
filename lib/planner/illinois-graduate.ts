@@ -666,6 +666,17 @@ export function adaptIllinoisGraduateOption(raw: RawGraduateProgram, optionIndex
     if (MILESTONE.test(words) && !/\b\d{1,2}\s*(?:credit\s+)?hours?\b/i.test(words)) blocks.splice(k, 1);
   }
   blocks.sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }));
+  // A course list the shared reader left unsized (no hours, no count) whose own
+  // label states its size: "Electives (minimum 12 credit hours)" on the Applied
+  // Veterinary Sciences MVS, "Select 12 hours from the following:" on a minor.
+  for (const block of blocks) {
+    const rule = block.rule;
+    if (rule.kind !== 'pool' || rule.hours !== null || rule.n !== null) continue;
+    const size = listHoursOf(`${block.label} ${block.note ?? ''}`);
+    if (size === null || (total !== null && size > total)) continue;
+    block.rule = { ...rule, hours: size };
+    block.hours = size;
+  }
 
   const hours = readingHours(blocks, byCode);
   /*
@@ -729,6 +740,23 @@ export function adaptIllinoisGraduateOption(raw: RawGraduateProgram, optionIndex
     why,
     droppedGenEd,
   };
+}
+
+/**
+ * The hours a course list's own label gives it: "(minimum 12 credit hours)",
+ * "choose 4 credits", "Select at least 7 hours from". Null for "Remaining
+ * hours to total 32" (that is the page's total, not the list's) and for a
+ * label that states only a maximum.
+ */
+export function listHoursOf(words: string): number | null {
+  const text = words.replace(/\s+/g, ' ');
+  if (/\bto total\b/i.test(text)) return null;
+  if (/\bmax(?:imum)?\b/i.test(text) && !/\bmin(?:imum)?\b/i.test(text)) return null;
+  const m =
+    text.match(/\b(?:minimum(?:\s+of)?|at\s+least|choose|select(?:\s+at\s+least)?)\s+(\d{1,2})\s*(?:credit\s+|graduate\s+|semester\s+)?(?:hours?|credits?)\b/i) ??
+    text.match(/\(\s*(?:minimum\s+)?(\d{1,2})\s*(?:credit\s+)?(?:hours?|credits?)(?:\s+minimum)?\s*\)/i);
+  const n = m ? Number(m[1]) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /**
