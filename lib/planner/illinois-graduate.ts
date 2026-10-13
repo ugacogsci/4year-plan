@@ -67,6 +67,10 @@ export interface RawGraduateGroup extends RawProgramGroup {
   bucket?: boolean;
   hoursMax?: number | null;
   hoursText?: string | null;
+  /** Set by joinListsToHours on a group whose rows another group took over (its place is kept, empty). */
+  joined?: boolean;
+  /** Set by joinListsToHours on a list tab nothing points at: a menu with no size. */
+  listOnly?: boolean;
 }
 
 export interface RawGraduateArea extends Omit<RawProgramArea, 'groups'> {
@@ -399,14 +403,16 @@ export function joinListsToHours(areas: RawGraduateArea[], byCode: CatalogRowLoo
   for (const area of areas) {
     for (const g of area.groups) {
       const comments = g.comments ?? [];
-      if (comments.length !== 1 || comments[0].at !== 0 || comments[0].hours == null || comments[0].hours <= 0) continue;
+      const head = comments.length === 1 ? comments[0] : null;
+      const size = head?.hours ?? null;
+      if (!head || head.at !== 0 || size === null || size <= 0) continue;
       if ((g.courses?.length ?? 0) < 2 || g.choose != null || g.hours != null) continue;
       const carried = g.courses.reduce((n, c) => n + rowHours(c, byCode), 0);
-      if (carried <= comments[0].hours + 0.5) continue;
-      const count = comments[0].text.match(/^\s*(?:choose |select |take |complete )?(one|two|three|four|five|six|\d)\b/i)?.[1];
+      if (carried <= size + 0.5) continue;
+      const count = head.text.match(/^\s*(?:choose |select |take |complete )?(one|two|three|four|five|six|\d)\b/i)?.[1];
       const n = count ? (WORD_NUMBERS[count.toLowerCase()] ?? Number(count)) : null;
-      Object.assign(g, { hours: comments[0].hours, choose: n, kind: n ? 'choose' : 'menu', label: g.label || comments[0].text, comments: [], note: '' });
-      read.push(`(c) ${comments[0].text}`);
+      Object.assign(g, { hours: size, choose: n, kind: n ? 'choose' : 'menu', label: g.label || head.text, comments: [], note: '' });
+      read.push(`(c) ${head.text}`);
     }
   }
   const out: RawGraduateArea[] = areas.map((area) => {
@@ -426,19 +432,20 @@ export function joinListsToHours(areas: RawGraduateArea[], byCode: CatalogRowLoo
       if (g.bucket && prev && (prev.courses?.length ?? 0) === 0 && (prev.hours ?? 0) > 0 && prev.hours === g.hours && EXPLAINS.test((g.label ?? '').trim())) {
         prev.note = [prev.note, g.label].filter(Boolean).join(' ');
         read.push(`(e) ${prev.label}: ${g.label}`);
-        return { ...g, courses: [], label: '', note: '', comments: [], kind: 'unknown' as const, hours: null, joined: true } as RawGraduateGroup;
+        const empty: RawGraduateGroup = { ...g, courses: [], label: '', note: '', comments: [], kind: 'unknown', hours: null, joined: true };
+        return empty;
       }
       return g;
     });
     for (let i = 0; i < src.length; i += 1) {
       const g = src[i];
-      const headed = (g.courses?.length ?? 0) === 0 && (g.hours ?? 0) > 0 && !(g as { joined?: boolean }).joined && !/^(?:minimum\s+)?total\b/i.test((g.label ?? '').trim());
+      const headed = (g.courses?.length ?? 0) === 0 && (g.hours ?? 0) > 0 && !g.joined && !/^(?:minimum\s+)?total\b/i.test((g.label ?? '').trim());
       if (headed) {
         let j = i + 1;
         const lists: RawGraduateGroup[] = [];
         const skipped: RawGraduateGroup[] = [];
-        while (j < src.length && ((src[j] as { joined?: boolean }).joined || silentList(src[j]))) {
-          if ((src[j] as { joined?: boolean }).joined) skipped.push(src[j]);
+        while (j < src.length && (src[j].joined || silentList(src[j]))) {
+          if (src[j].joined) skipped.push(src[j]);
           else lists.push(src[j]);
           j += 1;
         }
@@ -464,7 +471,7 @@ export function joinListsToHours(areas: RawGraduateArea[], byCode: CatalogRowLoo
     if (!area.groups.some((g) => (g.courses?.length ?? 0) === 0 && (g.hours ?? 0) > 0 && /\b(?:concentrations?|tracks?|specializations?)\b/i.test(g.label ?? ''))) continue;
     for (const g of area.groups) {
       const nameOnly = (g.courses?.length ?? 0) === 0 && g.hours == null && !(g.note ?? '').trim() && (g.comments ?? []).length === 0 && (g.label ?? '').trim().split(/\s+/).length <= 8 && !/\d/.test(g.label ?? '');
-      if (nameOnly && (g.label ?? '').trim()) { read.push(`(n) ${g.label}`); (g as { joined?: boolean }).joined = true; }
+      if (nameOnly && (g.label ?? '').trim()) { read.push(`(n) ${g.label}`); g.joined = true; }
     }
   }
 
@@ -510,7 +517,7 @@ export function adaptIllinoisGraduateOption(raw: RawGraduateProgram, optionIndex
     const kept: RawProgramGroup[] = [];
     const map: number[] = [];
     area.groups.forEach((group, gi) => {
-      if ((group as { joined?: boolean }).joined) return;
+      if (group.joined) return;
       const isBucket = group.bucket || ((group.courses?.length ?? 0) === 0 && (group.hours ?? 0) > 0 && !/^(?:minimum\s+)?total\b/i.test((group.label ?? '').trim()));
       if (isBucket) {
         const hours = group.hours ?? 0;
