@@ -1611,7 +1611,7 @@ export function PlannerWorkspace({
       const first = saved.board.plan.terms.find((t) => t.season !== 'Summer');
       const open = firstOpenTerm(new Date());
       const firstYear = Number(first?.label.match(/\b(20\d\d)\b/)?.[1] ?? NaN);
-      if (first && Number.isFinite(firstYear) && termOrd(first.season, firstYear) < termOrd(open.season, open.year)) {
+      if (isIllinois && first && Number.isFinite(firstYear) && termOrd(first.season, firstYear) < termOrd(open.season, open.year)) {
         // Autosave writes the notes back, so an earlier copy of this note is replaced, not stacked.
         const restoreNote = `This plan was saved when ${first.label} was still open. Adding ${first.label} classes has closed; press Rebuild to plan from ${open.season} ${open.year}, or keep this board if those are the classes you are taking.`;
         setPlanNotes([restoreNote, ...saved.board.notes.filter((n) => !n.startsWith('This plan was saved when '))]);
@@ -1619,7 +1619,7 @@ export function PlannerWorkspace({
       return;
     }
     if (!isCatalogSchool || (context && (loaded || isUndecided))) buildPlan();
-  }, [plan, isCatalogSchool, isUndecided, context, loaded, buildPlan]);
+  }, [plan, isCatalogSchool, isIllinois, isUndecided, context, loaded, buildPlan]);
 
   // ---- saved on this device -------------------------------------------------
 
@@ -6118,7 +6118,14 @@ function horizonFor(
   // today's date, not the crawled term: in October that is Spring. "This
   // fall" and "incoming" in the student's words are read as of the day they
   // wrote them.
-  const open = firstOpenTerm(today);
+  //
+  // UGA keeps the start Cameron's planner gives it: this year's fall, with
+  // four years counted from there. The first-open-term start, and the terms
+  // before it counted as about 15 credits each, are Illinois's: UGA's credit
+  // and requirement counts do not add those assumed credits, so a UGA plan
+  // that started in Spring read as 15 credits short of its degree.
+  const uga = answers?.schoolId === 'uga';
+  const open = uga ? { season: 'Fall' as const, year: today.getFullYear() } : firstOpenTerm(today);
   const stamped = answers?.timelineAt ? new Date(answers.timelineAt) : null;
   const written = stamped && !Number.isNaN(stamped.getTime()) ? stamped : today;
   const now = calendarTerm(today);
@@ -6130,16 +6137,23 @@ function horizonFor(
    * now or later also means they are enrolled, not incoming.
    */
   const busy = latestInProgressTerm(answers?.transcript);
-  const { began, beganFrom, datedStart, incoming, gradPassed: passedInWords, pastAway, ...read } = readHorizon(
+  const readNow = readHorizon(
     answers ? timelineForPlanning(answers) : '',
     open,
-    calendarTerm(written),
+    uga ? null : calendarTerm(written),
     {
       firstTermOnRecord: firstIllinoisTerm(answers?.transcript),
       enrolled: Boolean(busy && termOrd(busy.season, busy.year) >= termOrd(now.season, now.year)),
-      openWhenWritten: firstOpenTerm(written),
+      openWhenWritten: uga ? null : firstOpenTerm(written),
     },
   );
+  // At UGA a start the student only described (no record of it) is not
+  // counted from: those terms would need the assumed credits UGA does not add.
+  const ugaFromStart = uga && readNow.began && readNow.beganFrom !== 'record';
+  const ugaEnd = ugaFromStart && !readNow.stated ? stepRegular({ season: readNow.startSeason, year: readNow.startYear }, 7) : null;
+  const { began, beganFrom, datedStart, incoming, gradPassed: passedInWords, pastAway, ...read } = ugaFromStart
+    ? { ...readNow, began: null, beganFrom: null, pastAway: [], ...(ugaEnd ? { gradSeason: ugaEnd.season, gradYear: ugaEnd.year } : {}) }
+    : readNow;
   const startOrd = termOrd(read.startSeason, read.startYear);
   const horizon: StartHorizon = { ...read, startNote: null, began, beganFrom, assumedTerms: [], assumedHours: 0, gradPassed: passedInWords };
   // A graduation term picked in onboarding stands, when it is not before the plan's start.
