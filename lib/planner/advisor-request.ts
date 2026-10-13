@@ -27,6 +27,10 @@ import { termDatesBlock } from './term-dates';
  * full on every step. The model reads the same text as before; only its place
  * changed. Nothing is stored: the browser never sees the attached block, so
  * the next step attaches a fresh one to the new newest message.
+ *
+ * MERGE-UGA: this new order is ALMA's (Illinois) only. ARCH (UGA, Cameron's)
+ * is sent exactly the request it had before (board in the system prompt, the
+ * conversation as the browser sent it), until its owner chooses otherwise.
  */
 
 /** The tools a non-Illinois (UGA) student's assistant gets. */
@@ -147,9 +151,38 @@ export function messagesForStep(
 
 /** Everything one step sends; the route passes it to the SDK's stream(), which adds the streaming flag. */
 export function advisorRequest(input: AdvisorRequestInput): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
-  const illinois = isIllinois(input.schoolName);
+  if (!isIllinois(input.schoolName)) return legacyRequest(input);
   return {
-    model: input.model,
+    ...commonParams(input.model),
+    system: [{ type: 'text', text: advisorSystem(input.bot, input.schoolName, input.schoolShort), cache_control: { type: 'ephemeral' } }],
+    tools: ADVISOR_TOOLS,
+    messages: messagesForStep(input.messages, stepContextBlocks(input), input.model),
+  };
+}
+
+/**
+ * The request as the route built it before the cache change, kept for a
+ * non-Illinois (UGA) student: the instructions (marked), the board in the
+ * system prompt, and the conversation exactly as the browser sent it.
+ */
+export function legacyRequest(input: AdvisorRequestInput): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
+  return {
+    ...commonParams(input.model),
+    system: [
+      { type: 'text', text: advisorSystem(input.bot, input.schoolName, input.schoolShort), cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: `The board right now:\n\n${input.board}` },
+    ],
+    tools: ADVISOR_TOOLS.filter((tool) => UGA_TOOLS.has(tool.name)),
+    messages: input.messages,
+  };
+}
+
+/** What every step sends whichever the school: the model and how it should answer. */
+function commonParams(
+  model: string,
+): Pick<Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, 'model' | 'max_tokens' | 'betas' | 'fallbacks' | 'output_config'> {
+  return {
+    model,
     max_tokens: ADVISOR_MAX_TOKENS,
     // A refusal is re-run on Anthropic's recommended fallback for its
     // category rather than handed to the student as a dead end.
@@ -161,8 +194,5 @@ export function advisorRequest(input: AdvisorRequestInput): Anthropic.Beta.Messa
     // them. The tools carry the facts; the reasoning over them is the
     // job. Streaming keeps the wait honest.
     output_config: { effort: 'high' },
-    system: [{ type: 'text', text: advisorSystem(input.bot, input.schoolName, input.schoolShort), cache_control: { type: 'ephemeral' } }],
-    tools: illinois ? ADVISOR_TOOLS : ADVISOR_TOOLS.filter((tool) => UGA_TOOLS.has(tool.name)),
-    messages: messagesForStep(input.messages, stepContextBlocks(input), input.model),
   };
 }

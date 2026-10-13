@@ -21,9 +21,9 @@ import { dailyCapUsd, LIMITS, parseJson, readBodyCapped, sharedGuard, tokensForC
  * size cap on the body, a per-visitor rate limit, and the day's spend cap
  * (PLANNER_DAILY_SPEND_USD). A refusal is a sentence the panel prints.
  *
- * The request itself is built by lib/planner/advisor-request.ts, which puts
- * the board and the term dates after the conversation so each step reuses
- * the conversation at the cache price. PLANNER_ADVISOR_MODEL picks the model.
+ * The request itself is built by lib/planner/advisor-request.ts, which (for
+ * Illinois) puts the board and the term dates after the conversation so each
+ * step reuses it at the cache price. PLANNER_ADVISOR_MODEL picks the model.
  */
 export const dynamic = 'force-dynamic';
 export const maxDuration = 180;
