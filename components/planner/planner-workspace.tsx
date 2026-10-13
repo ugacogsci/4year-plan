@@ -637,7 +637,9 @@ const CLUB_VOCABULARY = { tracks: CAREER_TRACKS, topics: INTEREST_TOPICS };
  * and college, and whether they enter as a first-year, when honor societies
  * count half. Built the way __clubs.check.mjs builds its practice students.
  */
-function clubStudentFor(careerText: string, loaded: LoadedProgram | UgaLoadedProgram | null, answers: OnboardingAnswers | null | undefined): ClubStudent {
+function clubStudentFor(careerText: string, board: LoadedBundle | SourceProgram | null, answers: OnboardingAnswers | null | undefined): ClubStudent {
+  // A board of several programs reads its clubs from the first, the degree.
+  const loaded = board && 'sources' in board ? (board.sources[0] ?? null) : board;
   return clubStudentOf({
     careerText,
     hear: interestProfileOf,
