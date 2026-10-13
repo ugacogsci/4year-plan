@@ -916,6 +916,21 @@ export interface GraduateProgramOption {
   name: string;
   totalCredits?: number | null;
   additionalCredits?: number | null;
+  /** The reading was checked against the page's own total ('reads right'). */
+  checked: boolean;
+}
+
+/** The same words the Illinois minors picker uses for a program the planner has not checked. */
+export const GRADUATE_NOT_CHECKED_TAG = '(not checked yet)';
+
+/** A menu row's name as a student sees it: the reading's own, tagged when it is not checked yet. */
+export function graduateOptionName(row: Pick<IllinoisGraduateSummary, 'name' | 'status'>): string {
+  return row.status === 'reads right' ? row.name : `${row.name} ${GRADUATE_NOT_CHECKED_TAG}`;
+}
+
+/** The name with the picker's tag taken off. */
+export function graduateDisplayName(name: string): string {
+  return name.replace(` ${GRADUATE_NOT_CHECKED_TAG}`, '');
 }
 
 const DEGREE_KINDS: ReadonlySet<GraduateKind> = new Set(['masters', 'doctoral', 'other', 'professional']);
@@ -928,15 +943,18 @@ const DEGREE_KINDS: ReadonlySet<GraduateKind> = new Set(['masters', 'doctoral', 
  * but the graduate screen has no minors slot (UGA hides minors for graduate
  * plans), so they are data for later.
  *
- * `onlyReadRight` keeps the rows whose reading was checked against the page's
- * total, which is what a first release should offer.
+ * A row whose reading is not checked yet carries "(not checked yet)" in its
+ * name, as the Illinois minors do. `onlyReadRight` keeps only the rows whose
+ * reading was checked against the page's total.
  */
 export function graduateProgramOptions(
   rows: IllinoisGraduateSummary[],
   opts: { onlyReadRight?: boolean } = {},
 ): { graduateDegrees: GraduateProgramOption[]; graduateCertificates: GraduateProgramOption[]; graduateMinors: GraduateProgramOption[] } {
   const offered = rows.filter((r) => r.plannable && (!opts.onlyReadRight || r.status === 'reads right'));
-  const option = (r: IllinoisGraduateSummary): GraduateProgramOption => ({ id: r.id, name: r.name, totalCredits: r.totalCredits, additionalCredits: r.totalCredits });
+  const option = (r: IllinoisGraduateSummary): GraduateProgramOption => ({
+    id: r.id, name: graduateOptionName(r), totalCredits: r.totalCredits, additionalCredits: r.totalCredits, checked: r.status === 'reads right',
+  });
   const byName = (a: GraduateProgramOption, b: GraduateProgramOption) => a.name.localeCompare(b.name);
   return {
     graduateDegrees: offered.filter((r) => DEGREE_KINDS.has(r.kind)).map(option).sort(byName),
