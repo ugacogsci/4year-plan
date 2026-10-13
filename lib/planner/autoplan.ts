@@ -7219,8 +7219,12 @@ function spreadExamTerm(g: GeneratedPlan, input: AutoplanInput, language: Langua
   if (moved.length === 0) return;
   const exam = tracks[0].exam?.name ?? 'admission test';
   const after = inExam();
+  const spring = g.terms[e].label;
+  const list = (codes: string[]) => (codes.length <= 1 ? codes.join('') : `${codes.slice(0, -1).join(', ')} and ${codes[codes.length - 1]}`);
+  // e.g. "Pre-medicine (MD/DO): PSYC 100 moved earlier, to Fall 2028, and REL 260 took its place in Spring 2029.
+  // Spring 2029 is the spring the plan leaves for MCAT preparation; it now holds 2 of the courses the MCAT covers (SOC 100 and CHEM 332) instead of 3."
   g.notes.push(
-    `${tracks[0].name}: ${moved.map((m) => `${m.code} moves to ${m.label}${m.partner ? ` (${m.partner} takes its place)` : ''}`).join(' and ')}, so ${g.terms[e].label}, the spring the plan leaves for ${exam} preparation, holds ${after.length === 0 ? 'none' : after.join(', ')} of the courses the ${exam} leans on instead of ${before.join(', ')}.`,
+    `${tracks[0].name}: ${moved.map((m) => `${m.code} moved earlier, to ${m.label}${m.partner ? `, and ${m.partner} took its place in ${spring}` : ''}`).join('; ')}. ${spring} is the spring the plan leaves for ${exam} preparation; it now holds ${after.length === 0 ? 'none' : `${after.length}`} of the courses the ${exam} covers${after.length ? ` (${list(after)})` : ''} instead of ${before.length}.`,
   );
 }
 
