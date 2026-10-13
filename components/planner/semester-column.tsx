@@ -2,7 +2,7 @@
 import type { Alternative } from './course-card';
 
 import { useEffect, useRef, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { CircleAlert, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
