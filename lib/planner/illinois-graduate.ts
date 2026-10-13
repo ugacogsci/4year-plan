@@ -1221,8 +1221,13 @@ export interface GraduatePlanSettings {
  * check holds it to those literals.
  *
  * Illinois. courseLevel reads the first three digits, so Illinois numbers need
- * no scaling. Electives draw from 400 to 799 (400-level courses carry graduate
- * credit at Illinois, and LAW, VM and medicine use 6xx and 7xx), and only a
+ * no scaling. Electives the planner picks on its own draw from 500 to 799
+ * (LAW, VM and medicine use 6xx and 7xx). 400-level courses do carry graduate
+ * credit at Illinois, and a page that names one still books it, but most pages
+ * require a share of 500-level hours, and a browser run with 400 as the floor
+ * filled a CS PhD's open hours with "Senior Engineering Project I" and
+ * bibliography courses from other departments; a student can still swap a
+ * 400-level course in. Only a
  * 500-level-or-higher prerequisite is booked automatically: an undergraduate
  * prerequisite is preparation the bachelor's already gave, as at UGA. The
  * term load is NOT the Graduate College's rule: the catalog's program pages
@@ -1247,7 +1252,7 @@ export function graduatePlanSettings(school: 'uga' | 'illinois'): GraduatePlanSe
     minimumTermCredits: 12,
     targetTermCredits: null,
     standingHours,
-    electiveLevelRange: { min: 400, maxExclusive: 800 },
+    electiveLevelRange: { min: 500, maxExclusive: 800 },
     autoPrerequisiteLevelRange: { min: 500, maxExclusive: 800 },
     caveat: 'This graduate draft reads requirements from the Illinois Graduate Catalog. Your department and the Graduate College confirm your program of study, full-time load and any thesis or exam rules.',
     confirmed: false,
