@@ -487,15 +487,29 @@ export function readGraduatePage(html, { parseTables, text }) {
   return { shape: 'tables', options: read, rules, typicalLength };
 }
 
+/**
+ * Table cells are kept so the reader can read them, but not as paragraphs: a
+ * cell or a group's joined comment rows longer than CELL_MAX characters is cut
+ * at the last sentence or word that fits. The requirement words a reader needs
+ * ("12 hours of 500-level CS", "Select two of the following") come first.
+ */
+export const CELL_MAX = 240;
+export function clip(s) {
+  if (typeof s !== 'string' || s.length <= CELL_MAX) return s;
+  const head = s.slice(0, CELL_MAX);
+  const stop = Math.max(head.lastIndexOf('. '), head.lastIndexOf('; '));
+  return (stop > 80 ? head.slice(0, stop + 1) : head.replace(/\s+\S*$/, '')).trim() + ' …';
+}
+
 function withoutContactsArea(area) {
   return {
     ...area,
-    label: /@/.test(area.label ?? '') ? '' : scrub(area.label),
+    label: /@/.test(area.label ?? '') ? '' : clip(scrub(area.label)),
     groups: area.groups.map((g) => ({
       ...g,
-      label: scrub(g.label),
-      note: scrub(g.note),
-      ...(g.comments ? { comments: g.comments.map((c) => ({ ...c, text: scrub(c.text) })) } : {}),
+      label: clip(scrub(g.label)),
+      note: clip(scrub(g.note)),
+      ...(g.comments ? { comments: g.comments.map((c) => ({ ...c, text: clip(scrub(c.text)) })) } : {}),
       courses: g.courses.map((c) => ({ ...c, title: scrub(c.title) })),
     })),
   };
