@@ -53,7 +53,7 @@ export async function resolve(spec, ctx, next) {
 );
 
 const { adaptIllinoisCatalog, summariseSections, sectionTermOf, ILLINOIS_GRAD_LEVEL } = await import('../../lib/planner/illinois-data.ts');
-const { adaptIllinoisGraduateProgram, graduateSummaryOf } = await import('../../lib/planner/illinois-graduate.ts');
+const { adaptIllinoisGraduateProgram, graduateSummaryOf, menuPages } = await import('../../lib/planner/illinois-graduate.ts');
 
 const PUBLIC = join(ROOT, 'public');
 const OUT = join(PUBLIC, 'illinois', 'graduate');
@@ -165,10 +165,18 @@ for (const row of courseRows) byCode.set(normCode(row.code), row);
 
 rmSync(join(OUT, 'program'), { recursive: true, force: true });
 const summaries = [];
-for (const raw of crawl.programs) {
-  write(`program/${raw.id}.json`, raw);
-  if (raw.kind === 'concentration') continue;
+for (const raw of crawl.programs) write(`program/${raw.id}.json`, raw);
+for (const raw of menuPages(crawl)) {
   for (const reading of adaptIllinoisGraduateProgram(raw, byCode)) summaries.push(graduateSummaryOf(reading, raw));
+}
+// A degree that requires a concentration and has its concentrations in the
+// menu is picked through them: its own page names no courses (MSW, MPH).
+const viaConcentration = new Set(menuPages(crawl).filter((p) => p.concentrationOf).map((p) => p.concentrationOf));
+for (const row of summaries) {
+  if (row.concentrationRequired && viaConcentration.has(row.pageId)) {
+    row.plannable = false;
+    row.pickConcentration = true;
+  }
 }
 write('programs.json', { school: 'illinois', source: crawl.source, fetchedAt: crawl.fetchedAt, programs: summaries });
 
@@ -179,5 +187,5 @@ const missing = [...named].filter((c) => !byCode.has(c));
 
 const count = (pred) => summaries.filter(pred).length;
 console.log(`graduate courses: ${courseRows.length} (${courseRows.filter((r) => r.noise).length} thesis/independent-study rows), ${Object.keys(prereqs).length} with prerequisites, ${offeringsCount} with an offering history; sections: ${sectionCounts.join(', ') || 'none'}`);
-console.log(`graduate menu: ${summaries.length} rows from ${crawl.programs.filter((p) => p.kind !== 'concentration').length} pages; ${count((s) => s.status === 'reads right')} read right, ${count((s) => s.plannable)} plannable`);
+console.log(`graduate menu: ${summaries.length} rows from ${menuPages(crawl).length} pages (${menuPages(crawl).filter((p) => p.concentrationOf).length} of them concentration pages that print the whole degree); ${count((s) => s.status === 'reads right')} read right, ${count((s) => s.plannable)} plannable`);
 console.log(`course codes the programs name that no course list has: ${missing.length}${missing.length ? ` (${missing.slice(0, 12).join(', ')}${missing.length > 12 ? ', ...' : ''})` : ''}`);

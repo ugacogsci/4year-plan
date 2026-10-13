@@ -353,7 +353,7 @@ function headingBefore(before, text) {
 const RULE_ROW = /^(?:other requirements|minimum (?:program |cumulative )?c?gpa|minimum 500|minimum (?:credit )?hours (?:required )?(?:within|taken|at|from)|minimum credit hours taken|maximum\b|no more than|a minimum of \d+ (?:credit hours of coursework at the )?500|coursework must|no course|credit in\b)/i;
 
 /** Headings that sit above an option's table without naming it. */
-const NOT_AN_OPTION_NAME = /^(?:other requirements|for the degree|for additional|the requirements below|students need)/i;
+const NOT_AN_OPTION_NAME = /^(?:other requirements|for the\b|for additional|the requirements below|students need)/i;
 
 /**
  * A total stated in a sentence above the tables: "Minimum hours required for
@@ -449,7 +449,9 @@ export function readGraduatePage(html, { parseTables, text }) {
     const total = asOptions
       ? last?.total ?? null
       : rules.totalCredits != null ? { min: rules.totalCredits, max: rules.totalCredits } : last?.total ?? (sentence != null ? { min: sentence, max: sentence } : null);
-    const heading = run[0].heading ?? '';
+    // The table's own heading as the parser reads it (90 characters at most), so
+    // a paragraph above a table never becomes an option's name.
+    const heading = (run[0].area.label ?? '').trim() || ((run[0].heading ?? '').length <= 90 ? run[0].heading ?? '' : '');
     return {
       label: asOptions ? (heading && !NOT_AN_OPTION_NAME.test(heading) ? heading : `Option ${i + 1}`) : null,
       totalCredits: total?.min ?? null,

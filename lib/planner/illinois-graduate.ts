@@ -127,6 +127,8 @@ export interface RawGraduateProgram {
   concentrations: Array<{ id: string; name: string }>;
   /** For a concentration page: the degrees it was read for. */
   parents?: string[];
+  /** Set by menuPages on a concentration page offered as its degree: the degree's page id. */
+  concentrationOf?: string;
   courseCount: number;
   facts: GraduateFact[];
 }
@@ -336,8 +338,11 @@ export function readingHours(blocks: RequirementBlock[], byCode: CatalogRowLooku
     if (rule.kind !== 'all' && rule.kind !== 'choose' && rule.kind !== 'pool') continue;
     const each = rule.choices.map((c) => choiceHours(c, byCode)).sort((a, b) => a - b);
     const sum = each.reduce((n, h) => n + h, 0);
-    if (rule.kind === 'all') named += sum;
-    else if (rule.kind === 'choose') named += each.slice(0, rule.n).reduce((n, h) => n + h, 0);
+    // A row group's own hours cell is the page's size for it ("Medicine - Project
+    // Course: choose one, 12"), which a course's catalog low end can understate.
+    const stated = block.hours ?? 0;
+    if (rule.kind === 'all') named += Math.max(sum, stated);
+    else if (rule.kind === 'choose') named += Math.max(each.slice(0, rule.n).reduce((n, h) => n + h, 0), stated);
     else {
       const counted = rule.n !== null ? each.slice(0, rule.n).reduce((n, h) => n + h, 0) : 0;
       const size = Math.min(sum, Math.max(rule.hours ?? 0, counted));
@@ -525,8 +530,8 @@ export function adaptIllinoisGraduateOption(raw: RawGraduateProgram, optionIndex
       const own = pageCredits.get(normCode(c.codes[0]));
       if (own === undefined || own === c.credits) return c;
       // The page is the program's own statement of what the row is worth
-      // (thesis hours, a seminar taken several terms); a cell over 40 is a misread.
-      if (own > 40) return c;
+      // (thesis hours, a seminar taken several terms); a cell over the whole total is a misread.
+      if (own > (total ?? 96)) return c;
       return { ...c, credits: own };
     });
     return { ...rule, choices } as RequirementRule;
@@ -655,9 +660,37 @@ export function adaptIllinoisGraduateProgram(raw: RawGraduateProgram, byCode: Ca
   return raw.options.map((_, i) => adaptIllinoisGraduateOption(raw, i, byCode));
 }
 
-/** Every page in the crawl, read (concentration pages are data for their degrees, not menu rows). */
+/**
+ * The pages the menu offers: every degree, certificate, minor and professional
+ * page, and each concentration page that prints the whole degree.
+ *
+ * A degree that requires a concentration (MPH, MSW, Theatre MFA, the Music
+ * DMA, the Engineering MEng) prints its courses on the concentration pages,
+ * and almost every one of those pages is the whole degree again: its own
+ * table with the degree's own total ("Public Health: Health Behavior and
+ * Promotion, MPH", 48 hours). Those are offered as degrees of their own, with
+ * the degree's kind and code. A concentration that is an add-on (Medieval
+ * Studies, 24 hours inside a 32-hour MA) is not.
+ */
+export function menuPages(file: RawGraduateFile): RawGraduateProgram[] {
+  const byId = new Map((file.programs ?? []).map((p) => [p.id, p]));
+  const out: RawGraduateProgram[] = [];
+  for (const page of file.programs ?? []) {
+    if (!page?.id) continue;
+    if (page.kind !== 'concentration') { out.push(page); continue; }
+    const parent = (page.parents ?? []).map((id) => byId.get(id)).find(Boolean);
+    if (!parent || page.options.length === 0) continue;
+    const parentTotals = new Set(parent.options.map((o) => o.totalCredits));
+    const whole = page.options.every((o) => o.totalCredits !== null && (parentTotals.size === 0 || parentTotals.has(o.totalCredits) || parent.options.every((po) => po.totalCredits === null)));
+    if (!whole) continue;
+    out.push({ ...page, kind: parent.kind, degree: parent.degree, concentrationOf: parent.id } as RawGraduateProgram);
+  }
+  return out;
+}
+
+/** Every page the menu offers, read. */
 export function adaptIllinoisGraduatePrograms(file: RawGraduateFile, byCode: CatalogRowLookup): GraduateReading[] {
-  return (file.programs ?? []).filter((p) => p?.id && p.kind !== 'concentration').flatMap((p) => adaptIllinoisGraduateProgram(p, byCode));
+  return menuPages(file).flatMap((p) => adaptIllinoisGraduateProgram(p, byCode));
 }
 
 export function isIllinoisGraduateId(id: string | null | undefined): boolean {
@@ -710,8 +743,10 @@ export interface IllinoisGraduateSummary {
   thesis: 'both' | 'thesis' | 'non-thesis' | null;
   typicalLength: GraduateLength | null;
   concentrationRequired: boolean;
-  /** False when there is nothing a plan could place (no requirements read). */
+  /** False when there is nothing a plan could place (no requirements read), or when the degree is picked through its concentrations. */
   plannable: boolean;
+  /** Set by the build on a degree that requires a concentration whose pages are in the menu: pick one of those instead. */
+  pickConcentration?: boolean;
   facts: GraduateFact[];
 }
 
@@ -722,7 +757,7 @@ export function graduateSummaryOf(reading: GraduateReading, raw: RawGraduateProg
     name: reading.name,
     degree: reading.degree ?? '',
     college: reading.college,
-    concentration: null,
+    concentration: raw.concentrationOf ? raw.id.split('/').pop() ?? null : null,
     url: reading.url,
     totalCredits: reading.totalCredits,
     courseCount: codes.size,
