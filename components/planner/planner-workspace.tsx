@@ -63,8 +63,13 @@ import {
   readPriorCredit,
   readPrograms,
   useIllinoisCore,
+  loadIllinoisMinorFile,
+  loadMinor,
+  type LoadedMinor,
   type LoadedProgram,
 } from './illinois-source';
+import { illinoisMinorOptions, MINOR_ID_PREFIX, type RawMinorFile } from '@/lib/planner/illinois-minors';
+import { majorCodesOf, minorPlanNotes, planBesideDegree, rowLabel, uncheckedMinorNote, upperApartNote, upperLevelApart, MINOR_UPPER_APART_HOURS } from '@/lib/planner/illinois-minor-plan';
 import { comparePrograms, CS_MINOR, placementsOnBoard, resolveProgram, secondMajorsWithinReach, type ProgramSide } from '@/lib/planner/programs-compare';
 import {
   isUgaGraduateDegree,
@@ -506,6 +511,20 @@ interface LoadedBundle {
   urls: Array<{ name: string; url: string }>;
   electiveHours?: number;
   fillToDegreeTotal?: boolean;
+  /**
+   * Illinois minors on this board (beta), beside the degree and never merged
+   * into it: summary, program and blocks stay the degree's own, so every
+   * lookup by the degree's id, name or college works as it did (held
+   * degrees, admission routes, college rules, compare_programs, clubs). Only
+   * the plan build, the rail's rows, the notes, ALMA's description and the
+   * packet read these. Absent for UGA, whose minors combinePrograms stacks.
+   */
+  minors?: LoadedMinor[];
+}
+
+/** An Illinois degree bundle with the student's minors beside it: the degree's own fields untouched, the minors' pages added to the rail's links. */
+function withIllinoisMinors(bundle: LoadedBundle, minors: LoadedMinor[]): LoadedBundle {
+  return { ...bundle, urls: [...bundle.urls, ...minors.map((minor) => ({ name: minor.name, url: minor.url }))], minors };
 }
 
 /** Campus-wide requirements a double major completes once, not once per page. */
@@ -935,14 +954,28 @@ export function PlannerWorkspace({
     return samplePrograms.map((p) => ({ id: p.id, name: `${p.name}, ${p.degree}` }));
   }, [isIllinois, isUga, core, uga, programLevel, programIds]);
 
+  /** The Illinois minor pages, for the rail's list (onboarding reads its own copy). */
+  const [illinoisMinorFile, setIllinoisMinorFile] = useState<RawMinorFile | null>(null);
+  useEffect(() => {
+    if (!isIllinois) return;
+    let cancelled = false;
+    void loadIllinoisMinorFile().then((file) => {
+      if (!cancelled) setIllinoisMinorFile(file);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isIllinois]);
   const minorOptions = useMemo(
     () =>
-      isUga && !isGraduatePlan
+      isIllinois
+        ? illinoisMinorOptions(illinoisMinorFile).map((option) => ({ id: option.id, name: option.name }))
+        : isUga && !isGraduatePlan
         ? (uga?.programs ?? [])
             .filter((program) => program.degree === 'MINOR' && program.areaHours > 0)
             .map((program) => ({ id: program.id, name: program.name }))
         : [],
-    [isUga, isGraduatePlan, uga],
+    [isIllinois, illinoisMinorFile, isUga, isGraduatePlan, uga],
   );
   const certificateOptions = useMemo(
     () =>
@@ -1139,21 +1172,28 @@ export function PlannerWorkspace({
       course.pathwayRole = undefined;
     }
     let cancelled = false;
-    void Promise.all(summaries.map((summary) => loadProgram(core, summary))).then((results) => {
+    void Promise.all(summaries.map((summary) => loadProgram(core, summary))).then(async (results) => {
       if (cancelled) return;
       const sources = results.filter((result): result is LoadedProgram => Boolean(result));
+      const bundle =
+        summaries.length === programIds.length && sources.length === programIds.length
+          ? combinePrograms(sources)
+          : null;
+      // Minors (beta) sit beside the degree; a minor the crawl no longer has is dropped, never the board.
+      const minorFile = bundle && minorIds.length > 0 ? await loadIllinoisMinorFile() : null;
+      if (cancelled) return;
+      const minors = minorFile
+        ? minorIds.map((id) => loadMinor(core, minorFile, id)).filter((minor): minor is LoadedMinor => Boolean(minor))
+        : [];
       setFetched({
         key: programKey,
-        value:
-          summaries.length === programIds.length && sources.length === programIds.length
-            ? combinePrograms(sources)
-            : null,
+        value: bundle && minors.length > 0 ? withIllinoisMinors(bundle, minors) : bundle,
       });
     });
     return () => {
       cancelled = true;
     };
-  }, [isIllinois, isUga, isUndecided, core, uga, programIds, selectedProgramIds, programKey, emphasisKey, answers?.emphasisSelections, emphasesComplete]);
+  }, [isIllinois, isUga, isUndecided, core, uga, programIds, minorIds, selectedProgramIds, programKey, emphasisKey, answers?.emphasisSelections, emphasesComplete]);
 
   const loaded = fetched?.key === programKey ? fetched.value : null;
   const programBusy = Boolean(isCatalogSchool && programIds.length > 0 && !isUndecided) && fetched?.key !== programKey;
@@ -1414,6 +1454,66 @@ export function PlannerWorkspace({
 
     // What compare_programs rebuilds with a second program's courses beside these.
     lastBuild.current = { input: builtFrom, plan: generated };
+
+    /**
+     * Illinois minors (beta), degree first: the plan above is the degree's
+     * own, and planBesideDegree adds what fits of each checked minor without
+     * costing the degree a row the rail shows met, a term over 18 or a term
+     * past the finish. compare_programs keeps the degree's own plan above.
+     */
+    const minorsToPlan = isIllinois ? (loaded.minors ?? []).filter((minor) => minor.checked) : [];
+    if (minorsToPlan.length > 0) {
+      const heldCodes = priorHere.courseCodes.map(normCode);
+      const codesOf = (g: GeneratedPlan) => g.terms.flatMap((term) => term.codes.map(normCode));
+      const degreeRows = (g: GeneratedPlan) => illinoisProgress({
+        blocks: loaded.blocks,
+        boardCodes: codesOf(g),
+        priorCodes: heldCodes,
+        byCode,
+        pools: livePools({ base: g.pools.filter((pool) => !pool.requirementId.startsWith(MINOR_ID_PREFIX)), blocks: loaded.blocks, boardCodes: codesOf(g), priorCodes: heldCodes, context }),
+        language: g.language,
+        satisfiedByPriorCredit: g.satisfiedByPriorCredit,
+        languages: core?.languages ?? null,
+        equivalents: core?.equivalents ?? undefined,
+        degreeTotal: publishedTotal,
+        programName: loaded.program.name,
+      });
+      const before = degreeRows(generated);
+      const spreadNote = planShape.spreadHard ? (generated.notes[generated.notes.length - 1] ?? null) : null;
+      const outcome = planBesideDegree(generatePlan, builtFrom, generated, minorsToPlan, {
+        heldCodes,
+        creditsOf: (code) => byCode.get(normCode(code))?.credits ?? null,
+        degreeCheck: (g) => {
+          const now = degreeRows(g);
+          const lost = before.filter((row, index) => row.satisfied && !now[index]?.satisfied);
+          return lost.length > 0 ? `it would leave ${lost.map((row) => row.area.label).join('; ')} short` : null;
+        },
+      });
+      const chosen = outcome.generated;
+      const notes = chosen === generated ? [...generated.notes] : [...chosen.notes, ...(spreadNote ? [spreadNote] : [])];
+      // The minor's own rows are the rail's to show, with its name on them,
+      // and what did not fit is in the notes: its pools, unmet rows and
+      // unplaced courses would otherwise reach the review list as the degree's.
+      generated = {
+        ...chosen,
+        pools: chosen.pools.filter((pool) => !pool.requirementId.startsWith(MINOR_ID_PREFIX)),
+        unsatisfied: chosen.unsatisfied.filter((row) => !row.requirementId.startsWith(MINOR_ID_PREFIX)),
+        notPlaced: chosen.notPlaced.filter((row) => !(row.requirementId ?? '').startsWith(MINOR_ID_PREFIX)),
+        notes: [...notes, ...minorPlanNotes(outcome, minorsToPlan)],
+      };
+      const major = majorCodesOf(generated.bookedFor ?? {}, loaded.blocks);
+      for (const minor of minorsToPlan) {
+        const counted = illinoisProgress({
+          blocks: minor.blocks, boardCodes: codesOf(generated), priorCodes: heldCodes, byCode, pools: [],
+          language: null, satisfiedByPriorCredit: [], equivalents: core?.equivalents ?? undefined, degreeTotal: null, programName: minor.name,
+        }).flatMap((row) => row.codes ?? []);
+        const apart = upperLevelApart(counted, major, (code) => byCode.get(normCode(code))?.credits ?? null);
+        if (apart.hours < MINOR_UPPER_APART_HOURS) generated.notes.push(upperApartNote(minor.name, apart));
+      }
+    }
+    if (isIllinois) {
+      for (const minor of loaded.minors ?? []) if (!minor.checked) generated.notes.push(uncheckedMinorNote(minor));
+    }
 
     // A graduation already under way leaves a one-term board shown only in
     // case plans change; a shortfall against it is a finish nobody gave.
@@ -2081,7 +2181,7 @@ export function PlannerWorkspace({
         loaded.program.college,
         loaded.blocks as unknown as PlanRequirement[],
       );
-      return illinoisProgress({
+      const degreeRows = illinoisProgress({
         blocks: loaded.blocks,
         boardCodes,
         priorCodes: towardDegree.codes,
@@ -2096,6 +2196,40 @@ export function PlannerWorkspace({
         genEdCredits: genEdCreditsOf(answers, exams, examCredit.entries, catalogCredits),
         programName: loaded.program.name,
       });
+      const plannedMinors = (loaded.minors ?? []).filter((minor) => minor.checked);
+      if (plannedMinors.length === 0) return degreeRows;
+      /**
+       * A checked minor's rows follow the degree's, each with the minor's
+       * name, counted on a ledger of their own: a course may count for the
+       * degree and the minor at once (campus rule), so the degree's rows
+       * never decide what the minor's may count. Then the campus rule the
+       * plan cannot always arrange: 6 upper-level minor hours apart from the major.
+       */
+      const major = majorCodesOf(report?.bookedFor ?? {}, loaded.blocks);
+      return [
+        ...degreeRows,
+        ...plannedMinors.flatMap((minor): AreaRow[] => {
+          const rows = illinoisProgress({
+            blocks: minor.blocks, boardCodes, priorCodes: towardDegree.codes, byCode, pools: [],
+            language: null, satisfiedByPriorCredit: [], equivalents: core?.equivalents ?? undefined, degreeTotal: null, programName: minor.name,
+          });
+          const apart = upperLevelApart(rows.flatMap((row) => row.codes ?? []), major, (code) => byCode.get(normCode(code))?.credits ?? null);
+          const earned = Math.min(MINOR_UPPER_APART_HOURS, apart.hours);
+          return [
+            ...rows.map((row) => ({ ...row, area: { ...row.area, label: `${minor.name} · ${row.area.label}` } })),
+            {
+              area: { label: `${minor.name} · 300/400-level hours not also used for your major (campus rule)`, hours: MINOR_UPPER_APART_HOURS, groups: [] },
+              earned,
+              percent: Math.round((earned / MINOR_UPPER_APART_HOURS) * 100),
+              satisfied: apart.hours >= MINOR_UPPER_APART_HOURS,
+              needed: MINOR_UPPER_APART_HOURS,
+              unit: 'hr',
+              note: apart.codes.length > 0 ? `Counting ${apart.codes.join(', ')}.` : 'No upper-level minor course apart from the major yet.',
+              codes: apart.codes,
+            },
+          ];
+        }),
+      ];
     }
     const have = new Set<string>(completedCodes);
     for (const term of plan.terms) {
@@ -2918,6 +3052,7 @@ export function PlannerWorkspace({
     boardEdited,
     careerInterests,
     careerCleared,
+    areas,
   });
   useEffect(() => {
     live.current = {
@@ -2953,6 +3088,7 @@ export function PlannerWorkspace({
       boardEdited,
       careerInterests,
       careerCleared,
+      areas,
     };
   });
 
@@ -3389,6 +3525,12 @@ export function PlannerWorkspace({
   }
   function markOf(course: Course): string {
     const role = roleOf(course);
+    // A course booked for an Illinois minor's row says whose it is, whatever its card shows.
+    const bookedFor = isIllinois ? live.current.report?.bookedFor?.[normCode(course.code)] : null;
+    if (bookedFor && bookedFor.startsWith(MINOR_ID_PREFIX) && role !== 'prerequisite') {
+      const minor = live.current.loaded?.minors?.find((m) => bookedFor.startsWith(`${m.id}::`));
+      if (minor) return `minor: ${minor.name}`;
+    }
     if (role === 'from a list') return `from a list: ${live.current.electiveOf.get(course.id)?.label ?? ''}`;
     if (role === 'career track') return `career track: ${live.current.electiveOf.get(course.id)?.track ?? ''}`;
     return role;
@@ -3434,10 +3576,20 @@ export function PlannerWorkspace({
     if (isIllinois) {
       const college = collegeRulesFor(L.loaded.program.college);
       lines.push(`College: ${college.name}. Its office for loads, CR/NC, grade replacement, late drops and petitions: ${college.office}.`);
+      // Minors (beta): what each needs, and whether the planner checked it.
+      for (const minor of L.loaded.minors ?? []) {
+        if (minor.checked) {
+          const rows = L.areas.filter((row) => row.area.label.startsWith(`${minor.name} · `));
+          lines.push(`Minor on this board (beta): ${minor.name}, ${minor.totalCredits ?? 'no stated'} hours, page ${minor.url}. The planner read its page and checked this plan against it. What it asks for, in short: ${minor.inOwnWords} Its rows in the rail, after the degree's: ${rows.map((row) => `${row.area.label.slice(minor.name.length + 3)} ${row.earned}/${row.needed ?? '?'}${row.satisfied ? ' met' : ' not met'}`).join('; ') || 'none counted yet'}. Degree first: the plan gives a minor course no degree requirement's place and no term over 18 hours; rows that did not fit are named in the plan notes as needing a summer or an extra term. A course may count for the degree and the minor at once (campus rule); LAS lets a course count for at most two programs. Courses booked for it are marked [minor: ${minor.name}].`);
+        } else {
+          lines.push(`Minor picked but NOT checked by the planner: ${minor.name} (${minor.whyNotChecked ?? 'not on the checked list'}). None of its courses are on the board. What its page asks for, by the planner's rough reading: ${minor.inOwnWords} Page: ${minor.url}. Say plainly that the planner has not checked it, and send the student to the page and the department before planning around it.`);
+        }
+      }
     } else lines.push(`College: ${L.loaded.program.college}. Check current UGA policies with the college's advising office.`);
     lines.push(
       'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [career track: X] a course the student\'s career track X requires; keep it unless they drop the goal, and ask before removing or replacing it. [language] part of the language sequence for the language requirement; the language is the student\'s choice, the level is not. [gen ed pick] the planner chose it for a general education category; swap it for another course that carries the same categories. [prerequisite] the planner booked it because a later course needs it. [added] the student or you put it there.',
     );
+    if (isIllinois && L.loaded.minors?.some((minor) => minor.checked)) lines.push('[minor: X] the planner booked it for the minor X; ask before removing it, since the minor then falls short.');
     const taken = board.completedCourseIds
       .map((id) => L.courseIndex.get(id)?.code)
       .filter((code): code is string => Boolean(code));
@@ -5252,7 +5404,9 @@ export function PlannerWorkspace({
       : []),
     ...(minorIds.length + certificateIds.length > 0
       ? [
-          'Selected minors and certificates are planned from their published requirement pages and share courses where the catalog allows. Residency, grade, and application rules still need advisor confirmation.',
+          isIllinois
+            ? 'Minors are a beta: a minor the planner has checked is planned from its catalog page beside your degree, which always comes first; one it has not checked is named with its page and not planned. Campus rules: 16 to 21 hours, 6 of them at the 300 or 400 level apart from your major, courses taken for a grade, and the minor declared with the department that offers it.'
+            : 'Selected minors and certificates are planned from their published requirement pages and share courses where the catalog allows. Residency, grade, and application rules still need advisor confirmation.',
         ]
       : []),
     'Prerequisites are parsed from catalog sentences. Anything about placement or consent is not checked here.',
@@ -5307,7 +5461,9 @@ export function PlannerWorkspace({
           audit: isIllinois ? 'uAchieve degree audit' : isUga ? 'DegreeWorks audit' : 'degree audit',
         },
         program: {
-          name: activeProgramName ?? 'Your plan',
+          name: loaded?.minors?.length
+            ? `${activeProgramName ?? 'Your plan'}, with the ${loaded.minors.map((minor) => `${minor.name}${minor.checked ? '' : ' (not checked by the planner)'}`).join(' and the ')}`
+            : activeProgramName ?? 'Your plan',
           college: loaded?.program.college ?? null,
           url: loaded?.urls[0]?.url ?? null,
           total: degreeTotalNow() ?? activeProgramTotal,
@@ -5317,7 +5473,10 @@ export function PlannerWorkspace({
         courseById: (id) => courseIndex.get(id),
         context,
         marks: electiveOf,
-        blocks: loaded?.blocks ?? [],
+        // A minor's rows carry its name here, so a course booked for one says whose it is.
+        blocks: loaded?.minors?.length
+          ? [...loaded.blocks, ...loaded.minors.filter((minor) => minor.checked).flatMap((minor) => minor.blocks.map((block) => ({ ...block, label: `${minor.name}: ${rowLabel(block)}` })))]
+          : loaded?.blocks ?? [],
         bookedFor: report?.bookedFor ?? {},
         studentAdded: studentAdded.current,
         creditsLine: context ? describeCreditProgress(credits, activeProgramTotal) : totalCredits,

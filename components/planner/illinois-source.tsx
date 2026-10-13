@@ -60,6 +60,15 @@ import type {
   PriorCredit,
 } from '@/lib/planner/autoplan';
 import { pageAreaHoursOf, type ProgramSide } from '@/lib/planner/programs-compare';
+import {
+  adaptIllinoisMinor,
+  isTeacherEducationMinor,
+  minorInOwnWords,
+  minorIsChecked,
+  whyNotChecked,
+  MINOR_ID_PREFIX,
+  type RawMinorFile,
+} from '@/lib/planner/illinois-minors';
 import type { GradeRow, ProgramRequirements } from '@/lib/planner/scheduler';
 import type { SemesterSeason } from '@/lib/planner/types';
 
@@ -244,6 +253,75 @@ export async function loadProgram(
   // and what lets the finder show "required" on a card.
   attachRequirementIds(core.index, blocks, factsFor(core));
   return { summary, program, blocks, url: raw.url || summary.url };
+}
+
+// ---------------------------------------------------------------------------
+// Minors (beta, 2026-10-13)
+// ---------------------------------------------------------------------------
+
+let minorFilePromise: Promise<RawMinorFile | null> | null = null;
+
+/** The catalog's minor pages as crawled (public/illinois/minors/crawl.json), read once; a failed read is tried again next time. */
+export function loadIllinoisMinorFile(): Promise<RawMinorFile | null> {
+  minorFilePromise ??= readJson<RawMinorFile>('/illinois/minors/crawl.json').then((file) => {
+    if (!file || !Array.isArray(file.minors)) minorFilePromise = null;
+    return file && Array.isArray(file.minors) ? file : null;
+  });
+  return minorFilePromise;
+}
+
+export interface LoadedMinor {
+  /** "minor:las/minors/statistics". */
+  id: string;
+  catalogId: string;
+  name: string;
+  url: string;
+  totalCredits: number | null;
+  /** On the beta list: planned beside the degree. Otherwise only named, with its page. */
+  checked: boolean;
+  /** The minor's rows as read (ids start with "minor:"); planned only when checked. */
+  blocks: RequirementBlock[];
+  /** What it asks for, in the planner's words (minorInOwnWords). */
+  inOwnWords: string;
+  /** Why it is not checked yet, or null when it is. */
+  whyNotChecked: string | null;
+}
+
+/**
+ * One minor the student picked, read from the crawl the way the minor
+ * scoreboard reads it (adaptIllinoisMinor). A checked minor's courses are
+ * pointed at its rows on the map, without the "required by this degree" lock
+ * a degree's own courses wear: the lock says degree, and a minor is not one.
+ */
+export function loadMinor(core: IllinoisCore, file: RawMinorFile, id: string): LoadedMinor | null {
+  if (!id.startsWith(MINOR_ID_PREFIX)) return null;
+  const raw = file.minors.find((m) => `${MINOR_ID_PREFIX}${m.id}` === id);
+  if (!raw || isTeacherEducationMinor(raw)) return null;
+  const byCode: Map<string, IllinoisCourse> = new Map(core.byCode);
+  const reading = adaptIllinoisMinor(raw, byCode);
+  const checked = minorIsChecked(raw.id);
+  if (checked) {
+    for (const block of reading.blocks) {
+      if (block.rule.kind !== 'all' && block.rule.kind !== 'choose' && block.rule.kind !== 'pool') continue;
+      for (const choice of block.rule.choices) {
+        for (const code of choice.codes) {
+          const course = byCode.get(normCode(code));
+          if (course && !course.requirementIds.includes(block.areaId)) course.requirementIds.push(block.areaId);
+        }
+      }
+    }
+  }
+  return {
+    id: reading.id,
+    catalogId: reading.catalogId,
+    name: reading.name,
+    url: reading.url,
+    totalCredits: reading.totalCredits,
+    checked,
+    blocks: reading.blocks,
+    inOwnWords: minorInOwnWords(reading),
+    whyNotChecked: checked ? null : whyNotChecked(reading, byCode),
+  };
 }
 
 /**

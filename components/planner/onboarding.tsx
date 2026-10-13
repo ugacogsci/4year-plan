@@ -15,7 +15,8 @@ import {
   type UgaSelectionRequirement,
 } from './uga-source';
 import { SiteFooter } from './site-notice';
-import { openProgram } from './illinois-source';
+import { loadIllinoisMinorFile, openProgram } from './illinois-source';
+import { illinoisMinorOptions } from '@/lib/planner/illinois-minors';
 import type { IllinoisProgramSummary } from '@/lib/planner/illinois-load';
 import {
   EMPTY_ANSWERS,
@@ -401,6 +402,14 @@ export function Onboarding({
           requirements: [],
           ugaPrograms: [],
         });
+        // Every Illinois minor but the teacher-education ones (beta); those the
+        // planner has not checked say so in their name. Certificates stay empty:
+        // the catalog lists no undergraduate certificate.
+        void loadIllinoisMinorFile().then((file) => {
+          if (cancelled || !file) return;
+          const minors = illinoisMinorOptions(file).map(({ id, name, totalCredits, additionalCredits }) => ({ id, name, totalCredits, additionalCredits }));
+          setCatalog((current) => (current ? { ...current, minors } : current));
+        });
       })
       .catch(() => {
         if (!cancelled) {
@@ -626,6 +635,23 @@ export function Onboarding({
                   kindLabel={answers.programLevel === 'graduate' ? 'degree' : 'major'}
                 />
               </section>
+              {answers.schoolId === 'illinois' && (
+                <details className="onb-optional-programs" open={answers.minorIds.length > 0 || undefined}>
+                  <summary>Add a minor</summary>
+                  <ProgramPicker
+                    options={catalog?.minors ?? []}
+                    selectedIds={answers.minorIds}
+                    onChange={(minorIds) => setAnswers((current) => ({ ...current, minorIds }))}
+                    loading={catalog === null}
+                    kindLabel="minor"
+                    emptyMessage="The Illinois minor list did not load."
+                  />
+                  <p className="onb-q-hint">
+                    Beta. Your degree comes first; a minor goes in the room it leaves. Minors marked
+                    &ldquo;not checked yet&rdquo; are shown with their catalog page but not planned.
+                  </p>
+                </details>
+              )}
               {answers.schoolId === 'uga' && (
                 <>
                   {answers.programLevel === 'undergraduate' && (
