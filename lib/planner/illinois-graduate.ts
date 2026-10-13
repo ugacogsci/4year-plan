@@ -363,6 +363,8 @@ function readingName(raw: RawGraduateProgram, option: RawGraduateOption): string
   return `${base}: ${label.length > 70 ? `${label.slice(0, 67)}...` : label}`;
 }
 
+const WORD_NUMBERS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+
 /** A row that explains the bucket row above it rather than adding hours. */
 const EXPLAINS = /^(?:selected|students (?:must|may|will)|chosen|choose|select|taken|courses (?:must|may)|must be|with approval|in consultation)/i;
 
@@ -392,6 +394,21 @@ const silentList = (g: RawGraduateGroup) => (g.courses?.length ?? 0) > 0 && g.ho
  */
 export function joinListsToHours(areas: RawGraduateArea[], byCode: CatalogRowLookup): { areas: RawGraduateArea[]; read: string[] } {
   const read: string[] = [];
+  // (c) "Two courses chosen from the following: 8" heading every row of its
+  // group, which carry more than 8 hours: a list of that size, not rows to take.
+  for (const area of areas) {
+    for (const g of area.groups) {
+      const comments = g.comments ?? [];
+      if (comments.length !== 1 || comments[0].at !== 0 || comments[0].hours == null || comments[0].hours <= 0) continue;
+      if ((g.courses?.length ?? 0) < 2 || g.choose != null || g.hours != null) continue;
+      const carried = g.courses.reduce((n, c) => n + rowHours(c, byCode), 0);
+      if (carried <= comments[0].hours + 0.5) continue;
+      const count = comments[0].text.match(/^\s*(?:choose |select |take |complete )?(one|two|three|four|five|six|\d)\b/i)?.[1];
+      const n = count ? (WORD_NUMBERS[count.toLowerCase()] ?? Number(count)) : null;
+      Object.assign(g, { hours: comments[0].hours, choose: n, kind: n ? 'choose' : 'menu', label: g.label || comments[0].text, comments: [], note: '' });
+      read.push(`(c) ${comments[0].text}`);
+    }
+  }
   const out: RawGraduateArea[] = areas.map((area) => {
     const groups: RawGraduateGroup[] = [];
     // A bucket row explained by the next row with the same hours ("Technical
@@ -589,6 +606,17 @@ export function adaptIllinoisGraduateOption(raw: RawGraduateProgram, optionIndex
       note: b.group.note ?? '',
       url: raw.url,
     });
+  }
+  // Sentences about milestones and conditions, not courses or hours (exams, a
+  // thesis deposit, a language proficiency, what does not count): the shared
+  // reader quotes them, but they cannot change the hours a plan books. They
+  // stay on the page's facts and link, not in the plan.
+  const MILESTONE = /\b(?:exam|exams|deposit|defen[cs]e|proficiency|language requirements?|continuous enrollment|length of stay|presentation|may not be available|do not count|does not count|cannot be counted|not required|gpa|grade of)\b/i;
+  for (let k = blocks.length - 1; k >= 0; k -= 1) {
+    const rule = blocks[k].rule;
+    if (rule.kind !== 'unparsed') continue;
+    const words = `${blocks[k].label} ${rule.text}`;
+    if (MILESTONE.test(words) && !/\b\d{1,2}\s*(?:credit\s+)?hours?\b/i.test(words)) blocks.splice(k, 1);
   }
   blocks.sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }));
 

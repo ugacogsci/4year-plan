@@ -392,7 +392,10 @@ export function readGraduatePage(html, { parseTables, text }) {
   for (const t of tables) {
     const before = clean.slice(prevEnd, t.index);
     const heading = headingBefore(before, text);
-    if (t[1] === 'sc_courselist') {
+    if (t[1] === 'sc_courselist' && /^other requirements/i.test(heading)) {
+      // A rules table printed as a course list: its rows are rules.
+      ruleRows = ruleRows.concat(tableRows(t[0], text));
+    } else if (t[1] === 'sc_courselist') {
       const areas = parseTables(before + t[0]);
       const area = areas[0] ?? { label: heading || null, labelKnown: Boolean(heading), hours: null, hoursFrom: null, chooseCourses: null, groups: [] };
       const { area: split, total, rules: inTable } = splitBuckets(area);
