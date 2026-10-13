@@ -289,7 +289,9 @@ export function readBucket(label: string, note: string, hours: number, byCode: C
   const floor = twoLevels ? 400 : levelMin;
   const subjects = subjectsNamed(words);
   if (floor !== null && subjects.length > 0) {
-    const rows = all.filter((r) => subjects.includes(subjectOf(r.code)) && numberOf(r.code) >= floor && numberOf(r.code) < (floor >= 500 ? 600 : 600) && !r.noise);
+    // "500-level" is 500 to 599, "400- or 500-level" 400 to 599, "600-level" (law, veterinary medicine) 600 to 699.
+    const top = floor >= 500 ? floor + 100 : 600;
+    const rows = all.filter((r) => subjects.includes(subjectOf(r.code)) && numberOf(r.code) >= floor && numberOf(r.code) < top && !r.noise);
     const choices = choicesOf(rows);
     if (choices.length > 0) return { kind: 'subject-level', rule: pool(choices, `${subjects.join('/')} ${floor}-level courses`) };
   }
