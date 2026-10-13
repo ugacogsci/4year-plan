@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "vinext dev",
-    "build:illinois": "node --experimental-strip-types scripts/illinois/build-index.mjs",
+    "build:illinois": "node --experimental-strip-types scripts/illinois/build-index.mjs && node --experimental-strip-types scripts/illinois/graduate-build.mjs",
     "build": "npm run build:illinois && vinext build",
     "deploy": "npm run build && wrangler deploy",
     "data:uga:pacmap": "node scripts/apply-uga-pacmap.mjs",
