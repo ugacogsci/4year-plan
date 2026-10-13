@@ -457,3 +457,106 @@ export function adaptIllinoisMinor(raw: RawIllinoisMinor, byCode: CatalogRowLook
 export function adaptIllinoisMinors(file: RawMinorFile, byCode: CatalogRowLookup, options: MinorReadOptions = {}): MinorReading[] {
   return (file.minors ?? []).filter((m) => m?.id).map((m) => adaptIllinoisMinor(m, byCode, options));
 }
+
+// ---------------------------------------------------------------------------
+// What the planner offers (2026-10-13)
+// ---------------------------------------------------------------------------
+
+/** A teacher-education minor (licensure rules a plan cannot show), by its catalog id and name. Never offered. */
+export function isTeacherEducationMinor(raw: { id: string; name: string }): boolean {
+  return TEACHER_EDUCATION.test(`${raw.id} ${raw.name}`);
+}
+
+/** Whether the planner plans this minor beside a degree: it is on the beta list. */
+export function minorIsChecked(catalogId: string): boolean {
+  return MINOR_BETA.includes(catalogId);
+}
+
+/** What a picker shows for an unchecked minor, after its name. */
+export const NOT_CHECKED_TAG = '(not checked yet)';
+
+export interface IllinoisMinorOption {
+  /** "minor:las/minors/statistics". */
+  id: string;
+  name: string;
+  totalCredits: number | null;
+  /** Hours the minor adds at most, for onboarding's estimate: its stated total, or 18. */
+  additionalCredits: number;
+  /** Planned beside the degree (the beta list); otherwise shown with its page and not planned. */
+  checked: boolean;
+}
+
+/**
+ * Every Illinois minor a student can pick: all of the catalog's but the
+ * teacher-education ones. The ones the planner has checked are planned
+ * beside the degree; the rest are named as not checked yet, here and on the
+ * board, and nothing of theirs is planned.
+ */
+export function illinoisMinorOptions(file: RawMinorFile | null | undefined): IllinoisMinorOption[] {
+  return (file?.minors ?? [])
+    .filter((m) => m?.id && !isTeacherEducationMinor(m))
+    .map((m) => {
+      const checked = minorIsChecked(m.id);
+      const total = m.totalCredits !== null && m.totalCredits >= MINOR_TOTAL_MIN && m.totalCredits <= MINOR_TOTAL_MAX ? m.totalCredits : null;
+      return {
+        id: `${MINOR_ID_PREFIX}${m.id}`,
+        name: checked ? m.name : `${m.name} ${NOT_CHECKED_TAG}`,
+        totalCredits: total,
+        additionalCredits: total ?? 18,
+        checked,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The minor's name with the picker's tag taken off. */
+export function minorDisplayName(name: string): string {
+  return name.replace(` ${NOT_CHECKED_TAG}`, '');
+}
+
+const listCodes = (codes: string[], max = 6) =>
+  codes.length <= max ? codes.join(', ') : `${codes.slice(0, max).join(', ')} and ${codes.length - max} more`;
+
+/**
+ * What a minor asks for, in the planner's own words: the page's total, the
+ * courses it names and how the rows group them. Built from the reading, not
+ * the page's prose, and said as a summary to check against the page, never
+ * as the rule itself. Used for a minor the planner has not checked, where it
+ * is all the board says about it.
+ */
+export function minorInOwnWords(reading: MinorReading): string {
+  const parts: string[] = [];
+  parts.push(reading.totalCredits !== null ? `${reading.totalCredits} hours in all, by its page` : 'its page states no total');
+  const required: string[] = [];
+  let sentences = 0;
+  for (const block of reading.blocks) {
+    const rule = block.rule;
+    if (rule.kind === 'all') required.push(...rule.choices.map((c) => c.codes.join(' or ')));
+    else if (rule.kind === 'choose') parts.push(`${rule.n} of ${listCodes(rule.choices.map((c) => c.codes[0]))}`);
+    else if (rule.kind === 'pool') {
+      const size = rule.hours !== null ? `${rule.hours} hours` : rule.n !== null ? `${rule.n} courses` : 'some courses';
+      parts.push(`${size} from a list of ${rule.choices.length} (${listCodes(rule.choices.map((c) => c.codes[0]), 4)})`);
+    } else if (rule.kind === 'hours') parts.push(`${rule.hours} more hours described in words on the page`);
+    else sentences += 1;
+  }
+  if (required.length > 0) parts.splice(1, 0, `required: ${listCodes(required, 8)}`);
+  if (sentences > 0) parts.push(`${sentences} requirement${sentences === 1 ? '' : 's'} written as sentences`);
+  return `${parts.join('; ')}.`;
+}
+
+/**
+ * Why the planner has not checked a minor yet, in a short phrase, from the
+ * same tests the beta list is built with (__minors.check.mjs). A minor read
+ * right whose trial plan did not match the page gets the last phrase.
+ */
+export function whyNotChecked(reading: MinorReading, byCode: CatalogRowLookup): string {
+  if (isTeacherEducationMinor({ id: reading.catalogId, name: reading.name })) return 'it is a teacher-education minor with licensure rules a course plan cannot show';
+  const held = MINORS_HELD_FROM_BETA[reading.catalogId];
+  if (held) return held;
+  if (reading.totalCredits === null) return 'its page states no total to check a reading against';
+  if (reading.readAsOneList) return 'its page splits one table into separate choices, which the planner reads as one list';
+  const read = readingHours(reading.blocks, byCode);
+  if (read < reading.totalCredits - 1) return 'part of it is written in sentences the planner cannot read yet';
+  if (read > reading.totalCredits + 1) return 'it has tracks or one table per kind of major, which the planner reads as all required';
+  return "the planner's trial plan of it did not match its page";
+}
