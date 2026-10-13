@@ -15,6 +15,8 @@ import {
   type UgaSelectionRequirement,
 } from './uga-source';
 import { SiteFooter } from './site-notice';
+import { openProgram } from './illinois-source';
+import type { IllinoisProgramSummary } from '@/lib/planner/illinois-load';
 import {
   EMPTY_ANSWERS,
   UNDECIDED_PROGRAM_ID,
@@ -378,12 +380,11 @@ export function Onboarding({
           });
           return;
         }
+        // The same degrees the planner's own Illinois menu offers: every
+        // undergraduate degree it can plan (BALAS, BLS, BME and the rest too),
+        // less those closed to new students.
         const majors = (Array.isArray(raw) ? raw : [])
-          .filter((program: { degree?: string; dataStatus?: string; courseCount?: number }) =>
-            /^(AB|BA|BS|BFA|BLA|BMUS|BSLAS|BSW)$/i.test(program.degree ?? '') &&
-            program.dataStatus === 'catalog' &&
-            (program.courseCount ?? 0) > 0,
-          )
+          .filter((program: IllinoisProgramSummary) => openProgram(program))
           .map((program: { id: string; name: string; totalCredits?: number | null }) => ({
             id: program.id,
             name: program.name,
