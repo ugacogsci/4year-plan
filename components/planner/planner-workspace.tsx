@@ -1430,7 +1430,10 @@ export function PlannerWorkspace({
      */
     const early = generated.earlyFinish;
     if (isIllinois && early?.settings) {
-      const howTo = ` To plan it that way, set Preferences to about ${early.settings.target} and at least ${early.settings.minimum} credits a term, then press Rebuild.`;
+      const { target, minimum } = early.settings;
+      const howTo = minimum === minimumTermCredits
+        ? ` To plan it that way, put ${target} in Preferences under "Credits you want each term, about" and press Rebuild.`
+        : ` To plan it that way, put ${target} in Preferences under "Credits you want each term, about" and ${minimum} under "at least", then press Rebuild.`;
       generated.notes = generated.notes.map((n) => (n === early.note ? n + howTo : n));
     }
     if (horizon.startNote) generated.notes.unshift(horizon.startNote);
