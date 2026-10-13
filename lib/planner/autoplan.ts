@@ -1454,6 +1454,17 @@ function conflictWith(
 }
 
 /**
+ * Whether the requirement itself lists `held` (or a twin of it) among its
+ * courses: then a held course in the way of another course on the same
+ * requirement is one of the page's own routes, not credit to forfeit.
+ */
+function listedOnRequirement(requirement: PlanRequirement, held: string, equivalents: Map<string, string[]>): boolean {
+  const rule = requirement.rule;
+  if (rule.kind !== 'all' && rule.kind !== 'choose' && rule.kind !== 'pool') return false;
+  return rule.choices.some((choice) => choice.codes.some((code) => expandEquivalents(normaliseCode(code), equivalents).includes(held)));
+}
+
+/**
  * A prerequisite group nothing in this plan can ever satisfy, because every way
  * of satisfying it is a course the catalog says will not count alongside one
  * already in hand.
@@ -4076,10 +4087,57 @@ export function interestProfileOf(text: string | undefined): InterestProfile {
  * student a software engineering one; 106 of 308 program names named a topic
  * on their own. Callers that pass no `career` are read the old way.
  */
-function careerProfileOf(input: { interests?: string; career?: string; context?: PlanningContext }): InterestProfile {
+function careerProfileOf(input: { interests?: string; career?: string; context?: PlanningContext; prior?: PriorCredit }): InterestProfile {
   const profile = interestProfileOf(input.career ?? input.interests);
   // Published track course codes are Illinois-specific; UGA still uses topic relevance.
-  return input.context?.schoolId === 'uga' ? { ...profile, tracks: [] } : profile;
+  return input.context?.schoolId === 'uga' ? { ...profile, tracks: [] } : withHeldSameMaterial(profile, input);
+}
+
+/**
+ * A track row met by credit the student holds for the same material.
+ *
+ * The guide names CHEM 102-105 and CHEM 232; a transfer with CHEM 202-205
+ * (Accelerated Chemistry) or CHEM 236 holds the same material under codes
+ * the catalog will not count beside them, so no row could book its own
+ * course and every one read as missing. A held course the catalog excludes
+ * against a row's course joins that row's alternatives, for this student
+ * only; nothing is ever booked from it, since a held row books nothing. With
+ * no such course held the profile is returned as it is.
+ */
+const heldSameMaterialMemo = new WeakMap<InterestProfile, Map<string, InterestProfile>>();
+function withHeldSameMaterial(profile: InterestProfile, input: { context?: PlanningContext; prior?: PriorCredit }): InterestProfile {
+  const exclusions = input.context?.exclusions;
+  const priorCodes = input.prior?.courseCodes ?? [];
+  if (!exclusions || priorCodes.length === 0 || profile.tracks.length === 0) return profile;
+  const held = new Set(priorCodes.map(normaliseCode));
+  const partnersOf = (code: string): string[] => {
+    const out = new Set<string>();
+    for (const other of exclusions.get(code) ?? []) out.add(normaliseCode(other));
+    for (const [other, list] of exclusions) if (list.some((c) => normaliseCode(c) === code)) out.add(normaliseCode(other));
+    return [...out];
+  };
+  const added = profile.tracks.map((track) =>
+    track.courses.map((row) => {
+      const codes = row.codes.map(normaliseCode);
+      if (codes.some((c) => held.has(c))) return [];
+      return [...new Set(codes.flatMap(partnersOf))].filter((p) => held.has(p) && !codes.includes(p)).sort();
+    }),
+  );
+  const key = JSON.stringify(added);
+  if (added.every((rows) => rows.every((codes) => codes.length === 0))) return profile;
+  const memo = heldSameMaterialMemo.get(profile) ?? new Map<string, InterestProfile>();
+  heldSameMaterialMemo.set(profile, memo);
+  const hit = memo.get(key);
+  if (hit) return hit;
+  const made: InterestProfile = {
+    ...profile,
+    tracks: profile.tracks.map((track, t) => ({
+      ...track,
+      courses: track.courses.map((row, r) => (added[t][r].length > 0 ? { ...row, codes: [...row.codes, ...added[t][r]] } : row)),
+    })),
+  };
+  memo.set(key, made);
+  return made;
 }
 
 /**
@@ -7900,7 +7958,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       [...new Set(option.map(chosenEquivalent).filter((code): code is string => code !== null))],
     );
     if (shared) return { code: shared, shared: true };
-    const open = best(option.filter((code) => !chosen.has(code)));
+    // An alternative that leaves the student's credit standing before one
+    // that would cancel it: with RHET 105 from AP English, "CMN 101 or ALEC
+    // 115 or CMN 111" is CMN 101, not CMN 111 at the cost of RHET 105.
+    const fresh = option.filter((code) => !chosen.has(code));
+    const keepsCredit = fresh.filter((code) => conflictWith(code, conflicts, [earned]) === null);
+    const open = (keepsCredit.length < fresh.length ? best(keepsCredit) : null) ?? best(fresh);
     if (open) return { code: open, shared: false };
     const taken = best(option.filter((code) => chosen.has(code)));
     return taken ? { code: taken, shared: true } : null;
@@ -8539,11 +8602,19 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             // credit already in hand, not credit in the way. With a twin map the
             // twin is in `earned` and never reaches this line; without one the
             // engine cannot tell a twin from an exclusion, so it does not forfeit.
+            //
+            // Nor when the held course is on this same requirement: a page
+            // that lists both halves of a pair the catalog will not count
+            // twice is listing two routes, and the student's credit is one of
+            // them. Integrative Biology prints CHEM 102-105 "or" CHEM 202-205
+            // and is read as one take-all row, so a pre-med with AP Chemistry
+            // (CHEM 102 and 104) was booked CHEM 204 and lost CHEM 104.
             const onlyHeld =
               slot.kind === 'all' &&
               ctx.equivalents !== undefined &&
               earned.has(by) &&
               !expandEquivalents(entry.code, equivalents).includes(by) &&
+              !listedOnRequirement(requirement, by, equivalents) &&
               conflictWith(entry.code, conflicts, [chosen, heldHere]) === null;
             if (onlyHeld) {
               forfeits.push({ held: by, for: entry.code });
