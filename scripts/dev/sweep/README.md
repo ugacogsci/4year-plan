@@ -106,3 +106,21 @@ node scripts/dev/sweep/sweep.mjs /tmp/planner-base /tmp/base.jsonl
 node scripts/dev/sweep/sweep.mjs . /tmp/head.jsonl
 node scripts/dev/sweep/compare.mjs /tmp/base.jsonl /tmp/head.jsonl
 ```
+
+## The yardstick: the official sample sequences
+
+Every Illinois program page has a Sample Sequence tab, the department's own
+four-year plan. `scripts/illinois/sample-sequences.mjs` reads all 308 into
+`public/illinois/sample-sequences.json` (course codes, hours and slot kinds
+per term, no page wording; 289 programs have one). Nothing in the product
+reads that file.
+
+`compare-sample.mjs <fall sweep.jsonl> [--spring <spring sweep.jsonl>]
+[--json out] [--md out]` sets each program's board (no goal, lang 2) beside
+its official sequence: the official named courses the board lacks, with a
+likely cause from the reading (`.blocks.jsonl`); courses the board holds
+that the official plan never names and no official elective slot can hold;
+and courses more than a year apart. It ends with a 0-100 match score per
+program, the misread lists it found (take-all lists the official plan never
+follows, lists counted short, a level rule read for the wrong subject, a
+count the reading lost) and a markdown scoreboard. It changes nothing.
