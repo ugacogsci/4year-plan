@@ -804,8 +804,23 @@ export interface IllinoisGraduateSummary {
   plannable: boolean;
   /** Set by the build on a degree that requires a concentration whose pages are in the menu: pick one of those instead. */
   pickConcentration?: boolean;
+  /** Why a page that was read is never offered (GRADUATE_HELD). */
+  held?: string;
   facts: GraduateFact[];
 }
+
+/**
+ * Pages read but never offered, with the reason in plain words. The MD is a
+ * fixed lock-step curriculum (every course in a set order, by phase), so
+ * there is nothing for a student to plan; the MD-PhD and DVM pages print no
+ * requirements a plan could hold.
+ */
+export const GRADUATE_HELD: Readonly<Record<string, string>> = {
+  'professional/medicine-md': 'a fixed curriculum taken in a set order, with nothing for a student to choose',
+  'professional/medical-scholars-program': 'the page describes the program in sentences and lists no requirements',
+  'professional/dvm-doctor-veterinary-medicine': 'the page lists no requirements',
+  'veterinary/joint-degree/dvm-veterinary-medical-scholars': 'a joint degree whose page lists no requirements',
+};
 
 export function graduateSummaryOf(reading: GraduateReading, raw: RawGraduateProgram): IllinoisGraduateSummary {
   const codes = new Set(reading.blocks.flatMap((b) => ('choices' in b.rule ? b.rule.choices.flatMap((c) => c.codes) : [])));
@@ -836,7 +851,8 @@ export function graduateSummaryOf(reading: GraduateReading, raw: RawGraduateProg
     thesis: raw.thesis,
     typicalLength: raw.typicalLength,
     concentrationRequired: raw.rules.concentrationRequired === true,
-    plannable: reading.blocks.length > 0 && reading.totalCredits !== null,
+    plannable: reading.blocks.length > 0 && reading.totalCredits !== null && GRADUATE_HELD[raw.id] === undefined,
+    ...(GRADUATE_HELD[raw.id] ? { held: GRADUATE_HELD[raw.id] } : {}),
     facts: raw.facts,
   };
 }
