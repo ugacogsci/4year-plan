@@ -3409,6 +3409,8 @@ interface ElectiveScoring {
   lightFirst?: boolean;
   /** Courses that open a course the student's goal names (goalOpenersOf). */
   opensGoal?: ReadonlySet<string>;
+  /** The student's goal weighs as a goal (goalWeighs): GOAL_POINTS on top of the relevance knob's own. */
+  goalPoints?: boolean;
 }
 
 /**
@@ -4092,12 +4094,28 @@ function careerProfileOf(input: { interests?: string; career?: string; context?:
 }
 
 /**
+ * Whether what the student said they want to do weighs as a goal on its own
+ * (GOAL_POINTS, goalOpenersOf, goalSubjectsOf, the general education order):
+ * not when a pre-professional track books the goal's courses itself, at their
+ * dates. A pre-med's goal subjects and named courses then double-booked what
+ * the track had already chosen between: IB 303 Anatomy beside the track's MCB
+ * 244 put a pre-med Neuroscience board four hours past its total, and IB 202
+ * and IB 303 took a pre-med English student's last fall. A track whose rows
+ * only suggest (pre-law) books nothing, and its student's goal still weighs.
+ */
+function goalWeighs(profile: InterestProfile): boolean {
+  return !profile.tracks.some((track) => track.courses.some((row) => row.need !== 'suggested'));
+}
+
+/**
  * The subjects a student's goal is about: the ones its topics name (FIN for
  * finance) and the subjects of the courses they name (FIN and ACCY for
  * investment banking, whose topic names no subject of its own). A
- * pre-professional track's rows book their own courses and add none.
+ * pre-professional track's rows book their own courses and add none, and a
+ * goal that does not weigh (goalWeighs) adds none at all.
  */
 function goalSubjectsOf(profile: InterestProfile): Set<string> {
+  if (!goalWeighs(profile)) return new Set();
   const out = new Set(profile.subjects);
   for (const topic of profile.topics) for (const code of topic.courses) out.add(normaliseCode(code).split(' ')[0]);
   return out;
@@ -4114,7 +4132,7 @@ function goalSubjectsOf(profile: InterestProfile): Set<string> {
  */
 function goalOpenersOf(ctx: Pick<PlanningContext, 'prereqs'>, profile: InterestProfile, priorities: Priorities | undefined): Set<string> {
   const out = new Set<string>();
-  if ((priorities ?? DEFAULT_PRIORITIES).relevance === 0) return out;
+  if ((priorities ?? DEFAULT_PRIORITIES).relevance === 0 || !goalWeighs(profile)) return out;
   for (const topic of profile.topics) {
     for (const raw of topic.courses) {
       for (const group of ctx.prereqs?.get(normaliseCode(raw))?.groups ?? []) {
@@ -4913,8 +4931,10 @@ function scoreElective(code: string, s: ElectiveScoring): number {
   // under-three-credit course loses.
   // A course that opens one the goal names (FIN 300 before FIN 321 for
   // investment banking) gets the three without the knob's own points.
+  // Neither when a pre-professional track books the goal's courses itself
+  // (goalWeighs): the knob's own points only, as before.
   const goal = q.interest ?? 0;
-  score += goal > 0 ? GOAL_POINTS + 1.5 * goal : s.opensGoal?.has(code) ? GOAL_POINTS : 0;
+  score += goal > 0 ? (s.goalPoints ? GOAL_POINTS : 0) + 1.5 * goal : s.opensGoal?.has(code) ? GOAL_POINTS : 0;
   // Lighter workload matters most: the measure again, on its own (lightFirst).
   if (s.lightFirst) score += LIGHT_POINTS * (q.lightness ?? 0);
   return score;
@@ -5172,6 +5192,7 @@ export function electiveOptions(input: {
     barred: freeElectiveBar(ctx, byCode, { college: input.programCollege ?? null, primary: majors.primary, programName: input.programName }),
     lightFirst: lightFirst(input.priorities),
     opensGoal: goalOpenersOf(ctx, careerProfileOf(input), input.priorities),
+    goalPoints: goalWeighs(careerProfileOf(input)),
     quality: input.quality ?? qualityFor(ctx, byCode, {
       priorities: input.priorities,
       interestWords: interestWordsOf(input.interests),
@@ -7491,8 +7512,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * not HK 302 on top of it.
    */
   const tracks = careerProfileOf(input).tracks;
-  // What opens the goal's own courses (goalOpenersOf), for the general education order below.
+  // What opens the goal's own courses (goalOpenersOf), and whether the goal weighs at all (goalWeighs), for the general education order below.
   const opensGoal = goalOpenersOf(ctx, careerProfileOf(input), prefs.priorities);
+  const goalCounts = goalWeighs(careerProfileOf(input));
   const trackPreferred = (open: string[]): string | null => {
     for (const track of tracks) {
       for (const row of track.courses) {
@@ -8384,7 +8406,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
            */
           let goalEarly: number[] | null = null;
           const goalGenEd = rememberedBy((code: string): number => {
-            if (!((qualityAtPlacement(code).interest ?? 0) > 0 || opensGoal.has(code))) return 1;
+            if (!goalCounts || !((qualityAtPlacement(code).interest ?? 0) > 0 || opensGoal.has(code))) return 1;
             return goalEarly === null || compareRank(rankGenEd(code).slice(0, 2), goalEarly, '', '') <= 0 ? 0 : 1;
           });
           const genEdOrder = (a: string, b: string): number => {
@@ -11263,6 +11285,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       barred: electiveBarred,
       lightFirst: lightFirst(prefs.priorities),
       opensGoal: goalOpenersOf(ctx, careerProfileOf(input), prefs.priorities),
+      goalPoints: goalWeighs(careerProfileOf(input)),
       quality: qualityFor(ctx, byCode, {
         priorities: prefs.priorities,
         interestWords: interestWordsOf(input.interests),
