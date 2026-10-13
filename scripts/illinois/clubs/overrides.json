@@ -1,0 +1,670 @@
+{
+ "_about": "Hand-checked corrections, keyed by OneIllinois id (DESIGN 2.6, evidence 5). Each entry names the group (tag.mjs warns if the directory renames it or drops it) and may set: audience ('undergrad' | 'both' | 'check' | 'grad' | 'law' | 'med' | 'vet'; the last four drop the group from the file), kind (a ClubKind), identity (true or false: centered on a shared identity, which decides the folded communities row), goalsAdd / goalsRemove (CAREER_TRACKS / INTEREST_TOPICS ids), subjectsAdd (course prefixes in index.json, for a club about the major whose name does not say so), majors (program names as the planner reads them, before ':' and the degree: with subjectsAdd, the subject counts only for students in these majors, for a prefix several majors share, such as HK or FSHN), does (our own one-line description, replacing the reading pass's; it must pass the same 20-word and no-copy rules), hide (true: never shipped), starter (true: shown to a student with no goal yet; 'undeclared': only to one with no major yet, never to a declared major; false: never). Every entry says why in `note`, from the group's own directory page or another source named there. First rows written 2026-10-04. Rows added 2026-10-05 (the step-11 check) were read by hand against each group's own directory text in data/clubs/texts.jsonl, locally, with no new requests; their notes paraphrase it.",
+ "checked": "2026-10-04",
+ "overrides": {
+  "36087": {
+   "name": "National Lawyers Guild",
+   "audience": "law",
+   "note": "A College of Law chapter (DESIGN 2.6). The name rules miss it: it says 'Lawyers', not 'Law Society'."
+  },
+  "35511": {
+   "name": "American Constitution Society",
+   "audience": "law",
+   "note": "A College of Law chapter (DESIGN 2.6). Nothing in the name says so."
+  },
+  "35720": {
+   "name": "Federalist Society for Law & Public Policy Studies",
+   "audience": "law",
+   "note": "Its page describes a forum for law students; the name rules miss it."
+  },
+  "35777": {
+   "name": "Guild of Unpaid Illinois Lawyer Thespians",
+   "audience": "law",
+   "note": "Its page says its productions are by students of the College of Law."
+  },
+  "37103": {
+   "name": "Pre-Anesthesiologist Assistant Association",
+   "goalsRemove": [
+    "pre-medicine"
+   ],
+   "note": "Anesthesiologist assistants train in a master's program, not medical school (DESIGN 2.6; a known miss in DESIGN 7.1, risk 15). The name reader hears the anesthesiologist and tags pre-medicine."
+  },
+  "35452": {
+   "name": "Illinois Leadership Center (ILC)",
+   "starter": false,
+   "note": "DESIGN 2.6 asked to confirm it is a student organization before marking it a starter. It is not: the directory files it under Student Services & Support, one of the office types, so it is dropped with the offices and is never a starter."
+  },
+  "36885": {
+   "name": "Exploratory Students Association",
+   "starter": "undeclared",
+   "kind": "academic",
+   "note": "A starter club for a student with no goal yet (DESIGN 3.4). Kind academic: the Division of Exploratory Studies' own student group for undecided students; it ticked only Social & Leisure. Starter 'undeclared' (2026-10-05, after the spot check): it is the group for students who have not chosen a major, so it is never shown to a declared major."
+  },
+  "36360": {
+   "name": "Venture Capital Association",
+   "goalsRemove": [
+    "investment-banking"
+   ],
+   "note": "Added 2026-10-05 after the spot check. The goal reader files \"venture capital\" under investment banking/corporate finance, so the name alone tagged it; its page is about analyzing startups and due diligence for venture funds, not investment banking or corporate finance. It keeps entrepreneurship (its name) and the finance and consulting goals the reading pass found, so a student who says \"venture capital\" still finds it."
+  },
+  "37024": {
+   "name": "Illinois Political Consulting",
+   "goalsRemove": [
+    "consulting"
+   ],
+   "note": "Added 2026-10-05 after the spot check. Political and campaign consulting is politics, not management consulting: its page is about careers in political consulting. The name rule in tag.mjs already drops consulting for a 'political consulting' name; this row also removes the consulting goal the reading pass found. It keeps politics."
+  },
+  "37006": {
+   "name": "Campus Volunteer Leadership Association",
+   "starter": true,
+   "kind": "service",
+   "note": "A starter club for a student with no goal yet (DESIGN 3.4). Kind service: its page is about volunteering and leading service projects."
+  },
+  "37002": {
+   "name": "Alternative Seasonal Breaks at UIUC",
+   "starter": true,
+   "kind": "service",
+   "note": "A starter club for a student with no goal yet (DESIGN 3.4). Kind service: its page is about service trips over semester breaks and volunteering."
+  },
+  "35969": {
+   "name": "International Water Resources Association",
+   "audience": "grad",
+   "note": "Its page names it the Illinois Water Resources Association, a group for graduate students in the water resources program. Engineering Council lists it as IWRA; aliases.json leaves that name null, as the design says."
+  },
+  "36801": {
+   "name": "ACS Polymer and Polymer Materials Science and Engineering Divisions UIUC Student Chapter",
+   "audience": "grad",
+   "note": "Its page says it connects graduate students in soft-matter research."
+  },
+  "36015": {
+   "name": "Laboratory Animal Medicine Club",
+   "audience": "vet",
+   "note": "Its page says it serves veterinary students."
+  },
+  "36081": {
+   "name": "National Arab American Medical Association NextGen at UIUC",
+   "audience": "check",
+   "note": "The name rules read 'Medical Association' as a medical-student group and would drop it, but 'NextGen' is the national body's student arm and its page does not say who joins. Kept, with the check caution, until the reading pass decides."
+  },
+  "37014": {
+   "name": "Palestinian American Medical Association at the University of Illinois at Urbana Champaign",
+   "audience": "check",
+   "note": "The name rules read 'Medical Association' as a medical-student group and would drop it; its page describes fundraising, networking and volunteering, not who joins. Kept, with the check caution, until the reading pass decides."
+  },
+  "36361": {
+   "name": "Veterinarians as One Inclusive Community for Empowerment",
+   "audience": "check",
+   "note": "Its page names the field of veterinary medicine, not who joins; VOICE chapters are usually veterinary-school groups. Kept, with the check caution, until the reading pass decides."
+  },
+  "35837": {
+   "name": "Illini Esports",
+   "goalsRemove": [
+    "sports-business"
+   ],
+   "note": "An esports community, per its page; the name reader hears 'sports'."
+  },
+  "36231": {
+   "name": "Social Gaming Club",
+   "goalsRemove": [
+    "game-design"
+   ],
+   "note": "A club for casual and competitive gamers, per its page, not game design."
+  },
+  "36362": {
+   "name": "Video Game Music Club",
+   "goalsRemove": [
+    "game-design"
+   ],
+   "note": "Performs video game music; not game design."
+  },
+  "36169": {
+   "name": "Pre-Genetic Counseling Club",
+   "goalsRemove": [
+    "clinical-psychology"
+   ],
+   "note": "Genetic counseling is a health profession of its own; the name reader hears 'counseling' as psychology/counseling/therapy."
+  },
+  "36414": {
+   "name": "Animal Welfare Club",
+   "audience": "vet",
+   "note": "Its page says it is designed for veterinary students."
+  },
+  "37055": {
+   "name": "CarlePride",
+   "audience": "med",
+   "note": "Its page says it supports LGBTQ+ and allied medical students (Carle Illinois College of Medicine)."
+  },
+  "37091": {
+   "name": "Women in Medicine",
+   "audience": "med",
+   "note": "Its page says it serves women medical students."
+  },
+  "35809": {
+   "name": "If/When/How",
+   "audience": "law",
+   "note": "Its page says it organizes law students and legal professionals."
+  },
+  "35749": {
+   "name": "Geotechnical Engineering Student Organization",
+   "audience": "grad",
+   "note": "Its page says it is a Geo-Institute chapter run by and for geotechnical graduate students."
+  },
+  "35893": {
+   "name": "Illinois Biophysics",
+   "audience": "grad",
+   "note": "Its page says it supports the biophysics community among graduate students."
+  },
+  "36036": {
+   "name": "Linguistics Student Organization",
+   "audience": "grad",
+   "note": "Its page says it fosters community among linguistics graduate students."
+  },
+  "36093": {
+   "name": "Neuroscience Student Organization",
+   "audience": "grad",
+   "note": "Its page says it serves graduate students of the Neuroscience Program (NSP)."
+  },
+  "36446": {
+   "name": "Chi Epsilon Civil Engineering Honor Society",
+   "audience": "both",
+   "note": "Its page says membership is open to juniors and seniors in the top third of their class and to graduate students; the text check alone would mark it 'check'."
+  },
+  "35722": {
+   "name": "Field and Furrow Agronomy Club",
+   "audience": "undergrad",
+   "note": "Its page mentions graduate students only as people members meet; the text check alone would mark it 'check'."
+  },
+  "35805": {
+   "name": "Human Resources and Psychology Organization",
+   "audience": "undergrad",
+   "kind": "pre-professional",
+   "note": "Its page mentions graduate students only as speakers; the text check alone would mark it 'check'. A gold club for the HR persona (p23). Kind pre-professional: its page says it prepares members for careers in human resources."
+  },
+  "35914": {
+   "name": "Illinois National Organization for the Professional Advancement of Black Chemists and Chemical Engineers Student Chapter",
+   "audience": "both",
+   "note": "Its page mentions graduate students as leaders and guides of a chapter open to students; the text check alone would mark it 'check'."
+  },
+  "37089": {
+   "name": "Afterwards: Arts in Medicine",
+   "audience": "both",
+   "note": "Its page says the medical school hosts it but any student on campus may take part."
+  },
+  "37083": {
+   "name": "First Generation and Low Income in Medicine",
+   "kind": "pre-professional",
+   "note": "The categories alone (Advocacy, Identity & Culture) read as a cultural group and would hold back its pre-medicine tag; its name says it is about medicine. Identity stays true from the name."
+  },
+  "37029": {
+   "name": "Sports and Gaming Project Management",
+   "goalsRemove": [
+    "game-design"
+   ],
+   "goalsAdd": [
+    "sports-business"
+   ],
+   "identity": false,
+   "note": "Its page is about running projects in the sports and gaming business, not designing games; the name reader hears 'gaming'. Not identity-centered: it ticked Identity & Culture, but its page offers project management practice to any student."
+  },
+  "36983": {
+   "name": "Future Women in Sports",
+   "kind": "pre-professional",
+   "goalsAdd": [
+    "sports-business"
+   ],
+   "note": "Its page says it supports women pursuing careers in the sports industry; its categories alone (Athletic & Recreation, Social & Leisure) read as a sports club."
+  },
+  "36667": {
+   "name": "Iota Phi Lambda Sorority Incorporated",
+   "kind": "professional-fraternity",
+   "note": "Its page describes a sisterhood of women in business and entrepreneurship: a business sorority, though the name says only 'Sorority'."
+  },
+  "36386": {
+   "name": "WPGU-FM 107.1",
+   "goalsAdd": [
+    "journalism"
+   ],
+   "note": "The student radio station; its page says it trains future broadcasters and media professionals. The name reader hears nothing in a call sign."
+  },
+  "35788": {
+   "name": "Her Campus Illinois",
+   "kind": "media",
+   "goalsAdd": [
+    "journalism"
+   ],
+   "note": "An online student publication; its page says staff gain journalism, marketing and digital media experience. Kind media: it is a publication, not a study club."
+  },
+  "35945": {
+   "name": "Illio Yearbook",
+   "goalsAdd": [
+    "journalism"
+   ],
+   "note": "The campus yearbook; its page describes recording campus life in students' stories and photos each year."
+  },
+  "35673": {
+   "name": "Design For America at UIUC",
+   "goalsAdd": [
+    "ux-hci"
+   ],
+   "note": "Its page is about human-centered design projects and teaching that design process."
+  },
+  "35674": {
+   "name": "Design Innovation Illinois",
+   "goalsAdd": [
+    "ux-hci"
+   ],
+   "note": "A design club; its page is about designers working at the edge of technology. A gold club for the UX persona (p20)."
+  },
+  "36591": {
+   "name": "Product Space UIUC",
+   "goalsAdd": [
+    "consulting"
+   ],
+   "note": "Its page describes product strategy consulting for technology firms and learning product management."
+  },
+  "35584": {
+   "name": "Brain Matters",
+   "goalsAdd": [
+    "neuroscience"
+   ],
+   "note": "An open-access student journal; its page says it covers neuroscience, psychology and biology and runs neuroscience discussions."
+  },
+  "36094": {
+   "name": "NeuroTech@UIUC",
+   "goalsAdd": [
+    "neuroscience"
+   ],
+   "note": "Its page is about neurotechnology, the science and engineering between neuroscience and technology."
+  },
+  "35912": {
+   "name": "Illinois Model United Nations",
+   "goalsAdd": [
+    "politics",
+    "public-policy"
+   ],
+   "note": "Its page is about the United Nations, debate, international relations and foreign policy. A gold club for the pre-law persona (p02)."
+  },
+  "36835": {
+   "name": "BridgeIllini",
+   "goalsAdd": [
+    "politics"
+   ],
+   "identity": false,
+   "note": "A multi-partisan group; its page is about political dialogue across the ideological spectrum. Not identity-centered: it ticked Identity & Culture, but its page is about dialogue across political views for any student."
+  },
+  "36950": {
+   "name": "Pi Lambda Sigma",
+   "goalsAdd": [
+    "politics",
+    "public-policy"
+   ],
+   "note": "Its page is for undergraduates drawn to policy, law and government work; it runs career events and brings in speakers who work in government."
+  },
+  "36212": {
+   "name": "Security Studies Group",
+   "kind": "academic",
+   "identity": false,
+   "goalsAdd": [
+    "public-policy"
+   ],
+   "note": "Its page is about global security issues and career preparation for intelligence, diplomacy and policy. Kind academic: it ticked only Identity & Culture, which made the category rules call it cultural."
+  },
+  "36840": {
+   "name": "I-Public Affairs Committee",
+   "goalsRemove": [
+    "public-policy"
+   ],
+   "note": "A lobbying and campaign group for one cause, the United States-Israel relationship. The name reader hears 'public affairs' as the public-policy goal; the planner does not send students to a cause or party group from a career goal (as with the College Democrats and Republicans, which carry no goal). ALMA finds it when a student asks for it."
+  },
+  "36739": {
+   "name": "Partners in Health Engage at UIUC",
+   "goalsAdd": [
+    "public-health"
+   ],
+   "note": "A global health group; its page is about health equity advocacy, fundraising and education."
+  },
+  "36880": {
+   "name": "Empower Through Health Illinois",
+   "goalsAdd": [
+    "public-health"
+   ],
+   "note": "Its page is about global health and global equity, with mentors, research and fieldwork."
+  },
+  "36979": {
+   "name": "United Against Inequities in Disease",
+   "goalsAdd": [
+    "public-health"
+   ],
+   "note": "Its page is about health equity: student research projects on health inequities in the local community."
+  },
+  "36850": {
+   "name": "Global Surgery Student Alliance at UIUC",
+   "goalsAdd": [
+    "public-health"
+   ],
+   "note": "Its page is about global health equity, focused on surgical care for underserved populations."
+  },
+  "36079": {
+   "name": "NAMI on Campus UIUC",
+   "goalsAdd": [
+    "clinical-psychology"
+   ],
+   "note": "The campus chapter of the National Alliance on Mental Illness; its page is about mental health awareness, resources and advocacy."
+  },
+  "36638": {
+   "name": "The Gray Matters at the University of Illinois Urbana-Champaign",
+   "goalsAdd": [
+    "clinical-psychology"
+   ],
+   "note": "Its page is about mental health education and advocacy and suicide prevention."
+  },
+  "36675": {
+   "name": "Psychology Research and Community Club",
+   "goalsAdd": [
+    "clinical-psychology"
+   ],
+   "note": "Its page covers psychology research, conversation frameworks drawn from psychotherapy, and mental health advocacy."
+  },
+  "35919": {
+   "name": "Illinois Semiconductor Student Alliance",
+   "goalsAdd": [
+    "hardware"
+   ],
+   "note": "Its page is about careers and skills in the semiconductor industry."
+  },
+  "37051": {
+   "name": "Mu Sigma Lambda",
+   "kind": "professional-fraternity",
+   "goalsAdd": [
+    "sports-business"
+   ],
+   "note": "Its page calls it a fraternity that links classroom study with the professional sport industry. Kind professional fraternity: the name does not say so."
+  },
+  "37032": {
+   "name": "The Playbook",
+   "goalsAdd": [
+    "sports-business"
+   ],
+   "note": "Its page is about leadership and careers for BIPOC students across the sports industry (identity-centered, so it can only appear in the communities row)."
+  },
+  "36257": {
+   "name": "Steel Bridge",
+   "subjectsAdd": [
+    "CEE"
+   ],
+   "note": "The steel bridge competition team; its page is about hands-on steel design and fabrication, civil engineering work."
+  },
+  "36672": {
+   "name": "Concrete Canoe at UIUC",
+   "subjectsAdd": [
+    "CEE"
+   ],
+   "note": "Its page says the team applies civil engineering principles and races at ASCE events. A gold club for the civil engineering persona (p21)."
+  },
+  "35706": {
+   "name": "Engineers in Action Bridge Program",
+   "subjectsAdd": [
+    "CEE"
+   ],
+   "note": "Its page is about designing and building footbridges with communities."
+  },
+  "36000": {
+   "name": "Kinesiology Student Association",
+   "kind": "academic",
+   "subjectsAdd": [
+    "HK"
+   ],
+   "majors": [
+    "Kinesiology"
+   ],
+   "note": "Its page is for students in kinesiology heading to health science careers. Kind academic: the category rules called it service. Subject HK, for the Kinesiology major only (round 2, 2026-10-05): HK holds both Kinesiology and Community Health, and this is the kinesiology students' own association, so `majors` keeps it from a Community Health student."
+  },
+  "36598": {
+   "name": "Climate and Meteorological Association of Students",
+   "audience": "grad",
+   "note": "Its page describes a graduate student community in the atmospheric sciences department."
+  },
+  "37112": {
+   "name": "Lacuna",
+   "audience": "med",
+   "note": "Its page says it is the medical school's own literary and arts journal, written by its medical students and faculty."
+  },
+  "37120": {
+   "name": "Sociolinguistics Association at Illinois",
+   "audience": "both",
+   "note": "Its page says it connects students across academic levels."
+  },
+  "35779": {
+   "name": "Hack4Impact UIUC",
+   "goalsAdd": [
+    "software-engineering"
+   ],
+   "note": "Its page is about building technology for activists and nonprofits; a software project club. A gold club for the software persona (p03)."
+  },
+  "35588": {
+   "name": "BuildIllinois",
+   "goalsAdd": [
+    "software-engineering",
+    "entrepreneurship"
+   ],
+   "note": "Its page describes a community of founders and builders with hackathons and startup trips. A gold club for the software persona (p03)."
+  },
+  "36184": {
+   "name": "Project Code UIUC",
+   "goalsAdd": [
+    "software-engineering",
+    "game-design"
+   ],
+   "note": "Its page describes semester-long student software projects in web and app development, data science, machine learning and game development. A gold club for the software persona (p03)."
+  },
+  "36936": {
+   "name": "Leetcode Club UIUC",
+   "goalsAdd": [
+    "software-engineering"
+   ],
+   "note": "Its page is about practicing coding problems for software industry interviews."
+  },
+  "37129": {
+   "name": "One Health Alliance At Illinois",
+   "goalsAdd": [
+    "pre-veterinary"
+   ],
+   "note": "Added 2026-10-05, when general pre-health clubs stopped counting for pre-vet. Its page describes an undergraduate group spanning animal, human and environmental health, whose members work toward certifications that include veterinary medicine."
+  },
+  "36973": {
+   "name": "Program for Animal Welfare Through Service at Illinois",
+   "goalsAdd": [
+    "pre-veterinary"
+   ],
+   "note": "Added 2026-10-05, when general pre-health clubs stopped counting for pre-vet. Its page describes hands-on volunteer work with animals at local organizations, open to any student; animal experience is what vet school applicants are asked for."
+  },
+  "35628": {
+   "name": "College of Nursing at Urbana Urban Health Program",
+   "identity": false,
+   "note": "Changed 2026-10-05 after the second spot check (round 2). Its page offers prospective students from under-represented groups an early look at nursing study and careers, and also academic support for every student it serves; its name centers no group. It is one of the few nursing clubs on this campus, so it belongs in the nursing list itself rather than only the folded communities row. The reading check had marked it identity-centered (the reader had not)."
+  },
+  "36871": {
+   "name": "Hearts in Practice",
+   "kind": "pre-professional",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page is for pre-health students in general (panels with health professionals, pre-health workshops, volunteer hours), not pre-med alone; the reader kept only pre-medicine. Kind pre-professional, as the reader said: its Identity & Culture category made tag.mjs call it cultural and hold its goals back. Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "35739": {
+   "name": "Future Health Care Executives",
+   "goalsAdd": [
+    "public-health"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). A student society for future leaders in health care management. The planner files health administration under public health (its words include health care management); the reader gave no goal."
+  },
+  "35756": {
+   "name": "Global Medical Training",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page offers medical relief trips, volunteering and patient-care learning to pre-health students in general; the reader kept only pre-medicine. Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "36073": {
+   "name": "Mu Epsilon Delta",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page describes a brotherhood across the pre-health fields; the reader named five tracks and left out occupational therapy, optometry and nursing. Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "36664": {
+   "name": "Heart of Kindness UIUC",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page offers pre-health workshops, mentoring on shadowing and clinical experience, and service, for students exploring many health careers; the reader kept only pre-medicine. Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "36851": {
+   "name": "Hands of Health",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page ties its hand-skill practice to medicine, dentistry and other health careers and calls itself a pre-health community; the reader kept pre-medicine and pre-dental. Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "37041": {
+   "name": "Campana de Salud",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page offers volunteer roles at community health fairs to pre-health undergraduates as well as medical and nursing students; the reader kept only pre-medicine (and public health). Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "37026": {
+   "name": "Female Future Health Professionals",
+   "goalsAdd": [
+    "pre-medicine",
+    "pre-dental",
+    "pre-physician-assistant",
+    "pre-physical-therapy",
+    "pre-occupational-therapy",
+    "pre-pharmacy",
+    "pre-optometry",
+    "nursing"
+   ],
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page supports women on pre-health paths with mentoring, service and hands-on experience; the reader gave no goal. Identity stays true, so it shows in the communities row. Same tracks as the Pre-Health name rule: every health track but pre-vet, plus nursing."
+  },
+  "36020": {
+   "name": "Latinx in Law",
+   "audience": "undergrad",
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page addresses Latino students drawn to the law and helps them prepare for law school, so it is a pre-law group undergraduates can join. The reader marked the audience unclear, which kept it off the rail."
+  },
+  "36263": {
+   "name": "Student Academy of Audiology",
+   "audience": "undergrad",
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page speaks for students heading toward careers in audiology and names no graduate program or degree, so an undergraduate aiming at audiology fits. The reader marked the audience unclear, which kept it off the rail."
+  },
+  "36200": {
+   "name": "Retrocomputing and Hardware at Illinois",
+   "kind": "academic",
+   "note": "Added 2026-10-05 from the reading check (READING.md). Computer hardware is its main subject, with repair and FPGA emulation projects its page links to coursework: a technical club, so it keeps the hardware goal its name gives. The reader called it social, which drops every goal."
+  },
+  "36745": {
+   "name": "The Latine Social Work Organization",
+   "kind": "professional-society",
+   "note": "Added 2026-10-05 from the reading check (READING.md). Its page is about putting social work values into practice through advocacy, mental health and outreach committees, for undergraduates and graduates: a club for one field with a Latine focus (identity stays true), not mainly a cultural one. The reader's cultural kind dropped its counseling goal."
+  },
+  "37136": {
+   "name": "Vantage Acquisitions Group",
+   "goalsAdd": [
+    "investment-banking"
+   ],
+   "note": "Added 2026-10-05 after the second spot check (round 2). Its page is about mergers and acquisitions, corporate finance and advisory work: members study deals that were really announced, build financial models and present them to people working in the field. The reading pass found investment banking too, but a reading goal alone ranked it under the cutoff; this makes it a goal of its own, beside the M&A club."
+  },
+  "36764": {
+   "name": "Illini Business Forum",
+   "goalsAdd": [
+    "investment-banking"
+   ],
+   "does": "Members learn about careers in investment banking, consulting, accounting and private equity through case projects and guest speakers.",
+   "note": "Added 2026-10-05 after the second spot check (round 2). Its page introduces several business-service careers and lists investment banking first, with accounting, finance, consulting and private equity, and says any major may join easily. The reader's one-line description said only 'corporate services', so this row gives our own line naming the fields, and makes investment banking a goal of its own (the reading pass also found accounting, finance and consulting)."
+  },
+  "35548": {
+   "name": "Association of Food Technologists",
+   "subjectsAdd": [
+    "FSHN"
+   ],
+   "majors": [
+    "Food Science"
+   ],
+   "note": "Added 2026-10-05 after the second spot check (round 2). A professional group that helps food science students, and students of other majors, toward careers in food. FSHN also holds Hospitality Management and the two nutrition majors, so `majors` keeps it to Food Science."
+  },
+  "35801": {
+   "name": "Hospitality Management Association",
+   "subjectsAdd": [
+    "FSHN"
+   ],
+   "majors": [
+    "Hospitality Management"
+   ],
+   "note": "Added 2026-10-05 after the second spot check (round 2). The social and professional group of Hospitality Management students: members meet others in the program, make industry contacts and gain experience together. FSHN also holds Food Science and the nutrition majors, so `majors` keeps it to Hospitality Management."
+  },
+  "36270": {
+   "name": "Student Dietetic Association",
+   "subjectsAdd": [
+    "FSHN"
+   ],
+   "majors": [
+    "Dietetics and Nutrition",
+    "Nutrition and Health"
+   ],
+   "note": "Added 2026-10-05 after the second spot check (round 2). A professional group for students aiming to become registered dietitian nutritionists (professional events, nutrition volunteering, meeting people in the field). It suits the two nutrition majors under FSHN, not Food Science or Hospitality Management."
+  },
+  "36108": {
+   "name": "NutrImpact",
+   "subjectsAdd": [
+    "FSHN"
+   ],
+   "majors": [
+    "Dietetics and Nutrition",
+    "Nutrition and Health"
+   ],
+   "note": "Added 2026-10-05 after the second spot check (round 2). Its page describes the same aim as the Student Dietetic Association: students working toward becoming registered dietitian nutritionists, with professional events and nutrition volunteering. It suits the two nutrition majors under FSHN, not Food Science or Hospitality Management."
+  }
+ }
+}

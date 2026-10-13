@@ -1,0 +1,200 @@
+/*
+ * "Clubs for your goals" (components/planner/club-picks.tsx). Imported by the
+ * component, so nothing is appended to app/globals.css while another session
+ * edits it. To follow the house convention later, move this block into
+ * globals.css right after the .pool-* rules (around line 720), never at the
+ * end of that file, which is the UGA ORION merge zone (DESIGN 6).
+ *
+ * It reuses the rail's own .rail-section disclosure and tokens. Widths it must
+ * fit: the rail is 248px (220px at <=1100px, a 260px overlay at <=900px) less
+ * 28px of padding, so a row is 192 to 232px wide. Names wrap, the why line
+ * clamps to two lines, nothing scrolls sideways. Nothing is smaller than 13px
+ * except the uppercase group label, which uses --fs-label like "PICK FROM A LIST".
+ */
+
+.rail-clubs-count {
+  letter-spacing: 0;
+  color: var(--ink-mid);
+}
+
+.club-groups {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 6px;
+}
+
+.club-group-head {
+  margin: 0 0 4px;
+  font-size: var(--fs-label);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7b8da4;
+}
+
+.club-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+
+.club-row {
+  display: grid;
+  gap: 2px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line-soft);
+  min-width: 0;
+}
+
+.club-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-height: 24px;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: 1.35;
+  color: #eef3fa;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.club-name:hover,
+.club-name:focus-visible {
+  text-decoration: underline;
+}
+.club-name svg {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  color: #6f8098;
+}
+
+.club-why {
+  font-size: var(--fs-micro);
+  line-height: 1.45;
+  color: var(--ink-mid);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.club-meta {
+  font-size: var(--fs-micro);
+  line-height: 1.4;
+  color: #6f8098;
+}
+
+.club-thin,
+.club-empty p {
+  margin: 0 0 6px;
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+  color: var(--ink-mid);
+}
+
+.club-more,
+.club-actions button {
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  min-height: 24px;
+  font: inherit;
+  font-size: var(--fs-micro);
+  color: #7fb4dd;
+  cursor: pointer;
+  text-align: left;
+}
+.club-more:hover,
+.club-actions button:hover {
+  color: #dbe4f0;
+}
+
+.club-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+.club-actions a,
+.club-thin a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  font-size: var(--fs-micro);
+  color: #7fb4dd;
+}
+.club-actions svg {
+  width: 11px;
+  height: 11px;
+}
+
+.club-communities {
+  margin-top: 4px;
+  border-top: 1px solid var(--line-soft);
+}
+.club-communities > summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-size: var(--fs-micro);
+  color: #7b8da4;
+}
+.club-communities > summary:hover {
+  color: #cfdaea;
+}
+
+.club-source {
+  margin: 6px 0 12px;
+}
+.club-source p {
+  margin: 0;
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+  color: #6f8098;
+}
+.club-source.is-stale p:first-child {
+  color: #e7bd60;
+}
+
+.club-loading {
+  display: grid;
+  gap: 10px;
+  padding: 4px 0 12px;
+}
+.club-skeleton {
+  display: grid;
+  gap: 6px;
+}
+.club-skeleton i {
+  display: block;
+  height: 10px;
+  border-radius: 3px;
+  background: #142033;
+  animation: club-pulse 1.4s ease-in-out infinite;
+}
+@keyframes club-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .club-skeleton i {
+    animation: none;
+  }
+}
+
+/* Under 900px the rail is a 260px overlay behind the header's Progress button:
+   tap targets grow to 32px; nothing else changes. */
+@media (max-width: 900px) {
+  .club-name,
+  .club-more,
+  .club-actions button,
+  .club-actions a,
+  .club-thin a,
+  .club-communities > summary {
+    min-height: 32px;
+    align-items: center;
+  }
+}

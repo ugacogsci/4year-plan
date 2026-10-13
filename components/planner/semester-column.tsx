@@ -52,6 +52,11 @@ interface SemesterColumnProps {
   heavy: boolean;
   width?: number;
   onWidthChange: (termId: string, width: number) => void;
+  /**
+   * Whether the term's courses fit in one week of published class times
+   * (weekly-fit.ts). Null for a term whose schedule is not published.
+   */
+  weekly?: { status: 'fits' | 'clash' | 'unknown'; line: string | null } | null;
 }
 
 export function SemesterColumn({
@@ -81,6 +86,7 @@ export function SemesterColumn({
   heavy,
   width,
   onWidthChange,
+  weekly,
 }: SemesterColumnProps) {
   const columnRef = useRef<HTMLElement | null>(null);
   const coursesRef = useRef<HTMLDivElement | null>(null);
@@ -244,14 +250,32 @@ export function SemesterColumn({
           {credits}
         </p>
       </header>
+      {weekly?.line && (
+        <p
+          className="semester-weekly"
+          data-status={weekly.status}
+          title={`From ${term.label}'s published class times: one section of each course, with its discussion or lab, and no two classes at the same hour. Full or restricted sections are not known.`}
+        >
+          {weekly.status === 'clash' && <CircleAlert aria-hidden="true" />}
+          {weekly.line}
+        </p>
+      )}
 
       <div ref={coursesRef} className="semester-courses" onScroll={updateScrollIndicator}>
-        {term.courseIds.map((courseId) => {
+        {term.courseIds.map((courseId, at) => {
           const course = courseIndex.get(courseId);
           if (!course) return null;
+          // A course taken more than once (THEA 359 four times for Stage
+          // Management) sits in several terms, or twice in one where the
+          // catalog allows it, so the key and the card's id carry which
+          // sitting this is.
+          const inTerm = term.courseIds.slice(0, at).filter((id) => id === courseId).length;
+          const sitting = course.repeat ? sittingOf(allTerms, term, courseId, inTerm) : null;
           return (
             <CourseCard
-              key={courseId}
+              key={`${courseId}#${inTerm}`}
+              instance={inTerm}
+              sitting={sitting}
               course={course}
               coursesByCode={coursesByCode}
               onShowCourse={onShowCourse}
@@ -352,4 +376,19 @@ export function SemesterColumn({
       </button>
     </section>
   );
+}
+
+/**
+ * Which sitting of a repeated course this card is, counting every term of the
+ * board in order ("2nd of 4"), or null when the board holds it once.
+ */
+function sittingOf(allTerms: PlanTerm[], term: PlanTerm, courseId: string, inTerm: number): { n: number; of: number } | null {
+  let n = 0;
+  let of = 0;
+  for (const t of allTerms) {
+    const here = t.courseIds.filter((id) => id === courseId).length;
+    if (t.id === term.id) n = of + inTerm + 1;
+    of += here;
+  }
+  return of > 1 && n > 0 ? { n, of } : null;
 }

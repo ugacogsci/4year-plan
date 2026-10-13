@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Image from 'next/image';
 import { ArrowUp, Check, CircleAlert, Loader2, Undo2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,7 @@ import {
 } from '@/lib/planner/advisor';
 import type { Source } from '@/lib/planner/ask-router';
 import type { SchoolId } from '@/lib/planner/onboarding';
+import { chatSpans } from '@/lib/planner/chat-markdown';
 import { CHAT_KEY } from '@/lib/planner/saved-board';
 
 /**
@@ -46,11 +47,12 @@ import { CHAT_KEY } from '@/lib/planner/saved-board';
  * ALMA's "I added HIST 200 to Fall 2027" is not the last word on a board
  * that no longer has it.
  *
- * The bot has the school's name, ALMA at Illinois, the same one its TRU
- * tenant answers to, so a student meets one bot across both products.
+ * The bot has the school's name, ALMA at Illinois and ARCH at UGA. Questions
+ * about the university itself go through its university_answer tool to the
+ * planner's own lookup (/api/ask), which reads the school's official pages.
  */
 export interface BotPanelProps {
-  /** ALMA, TRU, REV: the school's own bot name. */
+  /** ALMA, ARCH: the school's own bot name. */
   botName: string;
   schoolId: SchoolId | null;
   schoolName: string;
@@ -128,7 +130,9 @@ function toolLabel(name: AdvisorToolName, input: Record<string, unknown>): strin
     case 'planner_answer':
       return 'Checking the board';
     case 'university_answer':
-      return 'Reading university pages';
+      return 'Reading the university’s official pages';
+    case 'find_clubs':
+      return s('query') ? `Looking up clubs for “${s('query')}”` : s('goal') ? `Looking up clubs for ${s('goal')}` : 'Looking up clubs for your goals';
     default:
       return name;
   }
@@ -187,6 +191,16 @@ function sourcesIn(messages: AdvisorMessage[], fromIndex: number): Source[] {
     }
   }
   return out;
+}
+
+/**
+ * The sources a reply names come first, so the four links under it are the
+ * ones it talks about: find_clubs returns up to ten clubs and ALMA names at
+ * most four, not always the first four. Stable, so the rest keep their order.
+ */
+function namedFirst(sources: Source[], text: string): Source[] {
+  const named = (s: Source) => Boolean(s.title) && text.includes(s.title);
+  return [...sources.filter(named), ...sources.filter((s) => !named(s))];
 }
 
 /**
@@ -317,6 +331,31 @@ function AssistantAvatar({
         </span>
       )}
     </span>
+  );
+}
+
+/**
+ * A reply with its bold, italics, code and links drawn rather than printed as
+ * "**" marks (lib/planner/chat-markdown.ts). Links open in a new tab.
+ */
+function RichText({ text }: { text: string }) {
+  return (
+    <>
+      {chatSpans(text).map((s, i) => {
+        let node: ReactNode = s.text;
+        if (s.code) node = <code className="bot-code">{node}</code>;
+        if (s.em) node = <em>{node}</em>;
+        if (s.strong) node = <strong>{node}</strong>;
+        if (s.href) {
+          node = (
+            <a href={s.href} target="_blank" rel="noreferrer">
+              {node}
+            </a>
+          );
+        }
+        return <span key={i}>{node}</span>;
+      })}
+    </>
   );
 }
 
@@ -548,7 +587,7 @@ export function BotPanel({
             return (
               <div key={i} className="bot-row">
                 <div style={{ display: 'grid', gap: 6, justifyItems: 'start', minWidth: 0 }}>
-                  <div className="bot-msg assistant">{line.text}</div>
+                  <div className="bot-msg assistant"><RichText text={line.text} /></div>
                   {line.last && line.turn === undoableTurn && latest && turns && (
                     <button type="button" className="bot-undo" onClick={() => turns.undo(latest.id)}>
                       <Undo2 aria-hidden="true" /> Undo these changes
@@ -556,7 +595,7 @@ export function BotPanel({
                   )}
                   {line.sources.length > 0 && (
                     <ul className="bot-sources">
-                      {line.sources.slice(0, 4).map((s) => (
+                      {namedFirst(line.sources, line.text).slice(0, 4).map((s) => (
                         <li key={s.url}>
                           <a href={s.url} target="_blank" rel="noreferrer">
                             {s.title || s.host}
@@ -586,7 +625,7 @@ export function BotPanel({
           )}
           {streaming && (
             <div className="bot-row">
-              <div className="bot-msg assistant">{streaming}</div>
+              <div className="bot-msg assistant"><RichText text={streaming} /></div>
             </div>
           )}
           {busy && !streaming && !activity && (

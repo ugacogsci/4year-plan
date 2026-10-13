@@ -37,7 +37,7 @@
  */
 
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from 'node:zlib';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -59,7 +59,7 @@ export async function resolve(spec, ctx, next) {
   return next(spec, ctx);
 }`),
 );
-const { buildIllinoisData, gradeFootnote } = await import('../../lib/planner/illinois-data.ts');
+const { buildIllinoisData, gradeFootnote, sectionTermOf, summariseSections } = await import('../../lib/planner/illinois-data.ts');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PUBLIC = join(ROOT, 'public');
@@ -158,6 +158,34 @@ for (const [key, name] of Object.entries(RAW)) {
   if (!raw[key].json) notes.push(`${name} is ${raw[key].error}.`);
 }
 
+/**
+ * Every other crawled term of class times, one raw file per term.
+ *
+ * schedule.mjs writes each term to public/illinois-sections-<term>.json
+ * (illinois-sections-sp2027.json). Fall 2026 was crawled before terms had
+ * files of their own and is RAW.sections above; it stays the term the plan's
+ * scoring reads and the only one in the first load. The others are built into
+ * a summary file per term (sections/<term id>.json) and into each subject
+ * shard's sectionsByTerm, and the browser fetches them only when a card, ALMA
+ * or the advisor packet asks about a course in that term. A file the crawler
+ * has not finished is not read: half a term would tell a student a course
+ * does not run.
+ */
+const EXTRA_SECTION_FILE = /^illinois-sections-(fa|sp|su|wi)(\d{4})\.json$/;
+const extraTerms = [];
+for (const name of readdirSync(PUBLIC).filter((n) => EXTRA_SECTION_FILE.test(n)).sort()) {
+  const r = readRaw(name);
+  if (!r.json) {
+    notes.push(`${name} is ${r.error}.`);
+    continue;
+  }
+  if (r.json.complete === false || !Array.isArray(r.json.courses)) {
+    notes.push(`${name} is not a finished crawl, so its term was left out.`);
+    continue;
+  }
+  extraTerms.push({ name, file: r.json, info: sectionTermOf(r.json) });
+}
+
 console.log('BEFORE, the raw crawls in public/');
 console.log(`  ${pad('file', 24)} ${padL('raw', 10)} ${padL('gzip', 10)}`);
 let rawTotal = 0;
@@ -197,6 +225,7 @@ for (const row of raw.map.json?.courses ?? []) {
 // from a re-crawl cannot keep serving yesterday's file.
 rmSync(join(OUT, 'course'), { recursive: true, force: true });
 rmSync(join(OUT, 'program'), { recursive: true, force: true });
+rmSync(join(OUT, 'sections'), { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
 // ---------------------------------------------------------------------------
@@ -227,6 +256,8 @@ mkdirSync(OUT, { recursive: true });
  */
 const indexRows = [];
 let positioned = 0;
+/** Old codes whose rows a renumbered course reads; they ship in grades.json though no index row has their code. */
+const renumberSources = new Set();
 for (const course of data.courses) {
   const code = normCode(course.code);
   const fact = data.facts.get(code);
@@ -237,10 +268,19 @@ for (const course of data.courses) {
   // identical ADV 492 showed a 3.78 average from 114 grades. 501 undergraduate
   // courses were in that position. The twin's row is used and the code it came
   // from is recorded, so the surface can say whose numbers these are.
+  //
+  // A renumbered course is the same thing across time rather than across
+  // departments: ES 470 was NPRE 470 and every one of its recent grades is
+  // filed as NPRE 470. The pairs read by hand and listed in
+  // RENUMBERED_GRADE_HISTORY borrow the old number's row the same way, after
+  // the twin lookup and only when the old code has left the catalog.
+  // data.borrowedGrades holds both answers, so the ask router reads the same.
   const twins = (data.equivalents.get(code) ?? []).filter((t) => t !== code);
   const ownGrade = data.grades.get(code);
-  const twinCode = ownGrade ? null : twins.find((t) => data.grades.get(t));
+  const borrowed = ownGrade ? null : data.borrowedGrades.get(code) ?? null;
+  const twinCode = borrowed?.code ?? null;
   const grade = ownGrade ?? (twinCode ? data.grades.get(twinCode) : undefined);
+  if (borrowed?.via === 'renumbered') renumberSources.add(borrowed.code);
 
   const row = {
     id: course.id,
@@ -270,6 +310,10 @@ for (const course of data.courses) {
   // a held LLS 200 as the AAS 200 a degree page asks for without waiting for
   // the full catalog, which the first plan never sees.
   if (twins.length > 0) row.twins = twins;
+  // The catalog's repeat rule (lib/planner/repeats.ts), so a degree row that
+  // asks for THEA 359 x 8 hours can book it four times without the full
+  // catalog's descriptions, which the first plan never loads.
+  if (course.repeat) row.repeat = course.repeat;
   if (pos) {
     row.mapPosition = pos;
     positioned += 1;
@@ -319,6 +363,20 @@ const indexCodes = new Set(indexRows.map((r) => normCode(r.code)));
  */
 const prereqs = {};
 let prereqNoteOnly = 0;
+/**
+ * A clause the catalog writes for graduate students alone is not an
+ * undergraduate's prerequisite. ANTH 461 reads "For undergraduates: ANTH 220
+ * ... For graduate students: enrollment in ANTH 430 during the same term
+ * advised", and GGIS 427 "Undergraduates: GGIS 379 ... Graduate students:
+ * GGIS 403". Read as two groups, an undergraduate had to finish ANTH 430
+ * first: once ANTH 430 ran in a spring, an Archaeology board put it in the
+ * last spring and ANTH 461, a required course, had no term left after it.
+ */
+const GRADUATE_ONLY = /^\s*(for )?graduate students?( only)?\s*:/i;
+const forUndergraduates = (spec) =>
+  (spec.groups ?? []).some((g) => GRADUATE_ONLY.test(g.source ?? ''))
+    ? { ...spec, groups: spec.groups.filter((g) => !GRADUATE_ONLY.test(g.source ?? '')) }
+    : spec;
 for (const [code, fact] of data.facts) {
   if (!indexCodes.has(code)) continue;
   if (!fact.prereq) continue;
@@ -334,7 +392,7 @@ for (const [code, fact] of data.facts) {
    */
   if (!fact.prereq.parsed && fact.prereq.text.length === 0 && !fact.prereq.note) continue;
   if (!fact.prereq.parsed && fact.prereq.note) prereqNoteOnly += 1;
-  prereqs[code] = fact.prereq;
+  prereqs[code] = forUndergraduates(fact.prereq);
 }
 write('prereqs.json', prereqs);
 
@@ -347,7 +405,10 @@ write('prereqs.json', prereqs);
 const slimGrades = [];
 let orphanGrades = 0;
 for (const [code, row] of data.grades) {
-  if (!indexCodes.has(code)) {
+  // A retired code is shipped only when a current course reads it: NPRE 470's
+  // row is how the loader, the sweep and every check find ES 470's numbers
+  // through gradeFrom, exactly as they find CS 468's under ADV 492.
+  if (!indexCodes.has(code) && !renumberSources.has(code)) {
     orphanGrades += 1;
     continue;
   }
@@ -391,6 +452,42 @@ if (data.sectionTerm) {
     courses: rows,
   });
 }
+
+/**
+ * The other crawled terms, the same shape as sections.json, one file each.
+ * Summarised by the same summariseSections the first term goes through, so a
+ * Spring 2027 card and a Fall 2026 card say "usually in" on the same rule.
+ * A term that repeats the first one is skipped rather than shipped twice.
+ */
+const sectionTermRows = [];
+if (data.sectionTerm) {
+  sectionTermRows.push({
+    ...data.sectionTerm,
+    source: raw.sections.json?.source ?? null,
+    courses: sectionCount,
+    file: 'sections.json',
+    raw: RAW.sections,
+  });
+}
+for (const extra of extraTerms) {
+  if (data.sectionTerm && extra.info.id === data.sectionTerm.id) {
+    notes.push(`${extra.name} repeats ${data.sectionTerm.label}, which ${RAW.sections} already holds, so it was left out.`);
+    continue;
+  }
+  const rows = [];
+  for (const course of extra.file.courses) {
+    if (!course?.code || !indexCodes.has(normCode(course.code))) continue;
+    const { termId: _t, termLabel: _l, ...rest } = summariseSections(course, extra.info);
+    rows.push(rest);
+  }
+  const file = `sections/${extra.info.id}.json`;
+  write(file, { termId: extra.info.id, termLabel: extra.info.label, capturedAt: extra.info.fetchedAt, courses: rows }, { group: 'on demand' });
+  extra.withSections = rows.length;
+  sectionTermRows.push({ ...extra.info, source: extra.file.source ?? null, courses: rows.length, file, raw: extra.name });
+}
+const shippedExtraTerms = extraTerms.filter((t) => t.withSections !== undefined);
+const termRank = (t) => t.year * 4 + ({ winter: 0, spring: 1, summer: 2, fall: 3 }[String(t.term).toLowerCase()] ?? 0);
+sectionTermRows.sort((a, b) => termRank(a) - termRank(b));
 
 // ---------------------------------------------------------------------------
 // programs.json, the picker list, with no course rows in it
@@ -440,6 +537,17 @@ for (const course of raw.sections.json?.courses ?? []) {
   sectionsBySubject.get(course.subject).push(course);
 }
 
+/** subject -> term id -> raw rows, for the terms past the first. */
+const extraSectionsBySubject = new Map();
+for (const extra of shippedExtraTerms) {
+  for (const course of extra.file.courses) {
+    if (!course?.subject) continue;
+    if (!extraSectionsBySubject.has(course.subject)) extraSectionsBySubject.set(course.subject, {});
+    const byTerm = extraSectionsBySubject.get(course.subject);
+    (byTerm[extra.info.id] ??= []).push(course);
+  }
+}
+
 const instructorsBySubject = new Map();
 for (const [code, row] of data.grades) {
   if ((row.instructors ?? []).length === 0) continue;
@@ -474,6 +582,17 @@ for (const [subject, courses] of [...catalogBySubject].sort(([a], [b]) => a.loca
         courses,
         sections: sectionsBySubject.get(subject) ?? [],
         instructors: instructorsBySubject.get(subject) ?? [],
+        // The other crawled terms' rows, keyed by term id, after the three
+        // fields above so the first term's bytes are exactly what they were.
+        // Every shipped term gets a list, empty when the subject has no
+        // course that term: crawled and empty is not the same as not crawled.
+        ...(shippedExtraTerms.length > 0
+          ? {
+              sectionsByTerm: Object.fromEntries(
+                shippedExtraTerms.map((t) => [t.info.id, extraSectionsBySubject.get(subject)?.[t.info.id] ?? []]),
+              ),
+            }
+          : {}),
       },
       { group: 'on demand' },
     ),
@@ -590,12 +709,21 @@ if (raw.offerings.json) {
    * table says SPAN 201 was SPAN 130 until this year. Its history is SPAN
    * 130's, and without it every third and fourth semester of Spanish, French,
    * German, Italian, Scandinavian and Yiddish read as never offered.
+   *
+   * The two histories are joined, not swapped. The old number was borrowed
+   * only while the new one had no history of its own, so the day Fall 2026
+   * recorded SPAN 201 under its new number (the 45 subjects the first read
+   * lost), SPAN 201, 203 and 205 and SCAN 203 dropped to that one fall term:
+   * "ran once", fall only, and no longer plannable in a spring.
    */
   const renumbered = {};
   for (const lang of raw.languages.json?.languages ?? []) {
     for (const [now, before] of Object.entries(lang.renumbered ?? {})) {
       const old = (file.courses?.[before] ?? []).filter((t) => termIds.includes(t));
-      if (!courses[now] && old.length) { courses[now] = old; renumbered[now] = before; }
+      if (old.length === 0) continue;
+      const own = courses[now] ?? [];
+      courses[now] = termIds.filter((t) => own.includes(t) || old.includes(t));
+      renumbered[now] = before;
     }
   }
   write('offerings.json', { source: file.source, fetchedAt: file.fetchedAt, terms: termIds, courses, renumbered });
@@ -735,6 +863,14 @@ const meta = {
       : null,
   },
   term: data.sectionTerm,
+  /**
+   * Every crawled term of class times, oldest first. `term` above stays the
+   * one the plan's scoring and checks read (and the one in the first load);
+   * the others are fetched on demand from `file` for the cards, ALMA and the
+   * advisor packet. `raw` is the crawl file ALMA's question router reads rows
+   * from.
+   */
+  sectionTerms: sectionTermRows,
   bands: data.bands,
   gradeFootnote: gradeFootnote(data.gradeProvenance),
   coverage,
@@ -742,7 +878,11 @@ const meta = {
     indexed: indexRows.length,
     positioned,
     withPrereqSpec: Object.keys(prereqs).length,
-    withGrades: slimGrades.length,
+    // Courses a student sees grade history for, own row or borrowed, which is
+    // what the header's coverage line means. It printed the grade file's row
+    // count instead (2,293) and undercounted the 503 twins it was showing.
+    withGrades: indexRows.filter((r) => typeof r.difficulty === 'number').length,
+    gradeRows: slimGrades.length,
     withSections: sectionCount,
     programs: programList.length,
     programsWithCourses: programList.filter((p) => p.dataStatus === 'catalog').length,
@@ -783,6 +923,11 @@ console.log(
 console.log(
   `  ${pad(`program/*.json (${programRows.length})`, 24)} ${padL(size(sum(programRows, 'raw')), 10)} ${padL(size(sum(programRows, 'gzip')), 10)} ${padL(size(sum(programRows, 'brotli')), 10)}  never all fetched`,
 );
+for (const row of written.filter((r) => r.path.startsWith('sections/'))) {
+  console.log(
+    `  ${pad(row.path, 24)} ${padL(size(row.raw), 10)} ${padL(size(row.gzip), 10)} ${padL(size(row.brotli), 10)}  fetched only when a course in that term is asked about`,
+  );
+}
 console.log('');
 
 const fpGzip = sum(firstPaint, 'gzip');
@@ -823,13 +968,21 @@ console.log(
   `  ${padL(coverage.withPrereqNoteOnly, 6)} say in prose that they have prerequisites and list none, ${prereqNoteOnly} of those shipped in prereqs.json`,
 );
 console.log(`  ${padL(coverage.withStandingRequirement, 6)} require a class standing before a student can register`);
-console.log(`  ${padL(coverage.withGrades, 6)} have grade history, ${coverage.withoutGrades} do not`);
+console.log(
+  `  ${padL(coverage.withGrades, 6)} have grade history, ${coverage.withoutGrades} do not ` +
+    `(${coverage.withGradesFromTwin} through a cross-listed twin, ${coverage.withGradesFromOldNumber} under an old number)`,
+);
 console.log(
   `  ${padL(sectionCount, 6)} have section data for ${coverage.sectionTerm ?? 'no term'}` +
     (raw.sections.json
       ? `, from a crawl file holding ${coursesInSectionFile} courses when this ran`
       : ' (no section file)'),
 );
+for (const extra of shippedExtraTerms) {
+  console.log(
+    `  ${padL(extra.withSections, 6)} have section data for ${extra.info.label} (loaded on demand), from ${extra.name} holding ${extra.file.courses.length} courses`,
+  );
+}
 console.log(`  ${padL(coverage.programs, 6)} programs, ${coverage.programsWithCourses} with readable course rows`);
 console.log(
   `  ${padL(coverage.programsWithGenEd, 6)} carry a campus general education table, ${coverage.genEdCategories} categories in all, ` +

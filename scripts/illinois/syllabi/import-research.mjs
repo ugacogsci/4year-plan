@@ -47,7 +47,7 @@ import { writeManifest } from './lib/manifest.mjs';
 
 const argv = process.argv.slice(2);
 const at = argv.indexOf('--from');
-const FROM = at >= 0 ? argv[at + 1] : '/private/tmp/claude-501/-Users-michaelcrews-THE-ADVISOR/348fb0bb-ab76-4776-87e7-d82b0f1dae46/scratchpad/syllabi';
+const FROM = at >= 0 ? argv[at + 1] : 'scripts/illinois/syllabi/research/raw';
 if (!existsSync(FROM)) {
   console.error(`No research directory at ${FROM}. Pass --from DIR.`);
   process.exit(1);

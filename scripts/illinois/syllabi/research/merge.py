@@ -1,7 +1,7 @@
-import json, re, collections, sys
+import json, re, collections, sys, os
 sys.path.insert(0,'.')
 from college import COLLEGE
-P='/Users/michaelcrews/THE ADVISOR/planner/public/illinois/'
+P=os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', 'public', 'illinois') + os.sep
 idx=json.load(open(P+'index.json'))
 codes={c['code']:c for c in idx}
 f26={c['code'] for c in json.load(open(P+'sections.json'))['courses']}

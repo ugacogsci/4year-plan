@@ -40,6 +40,23 @@
  *   SWEEP_IDS=las/psychology-bslas,…  only these degrees
  *   SWEEP_GOALS='none,medical school' only these goals ('none' is no goal)
  *   SWEEP_LANGS=2                     only these language starts
+ *   SWEEP_START='Spring 2027'         the first term (default Fall 2026); a Spring start finishes Fall three years on
+ *   SWEEP_BLOCKS=0                    skip the reading file (below)
+ *   SWEEP_NO_EARLY=1                  the student asked for no classes before 9 (Priorities.noEarly)
+ *   SWEEP_ONE_TERM=1                  hand the engine the first crawled term's sections only, as before termSections
+ *
+ * The reading: beside <out.jsonl> the sweep writes <out>.blocks.jsonl, every
+ * requirement block of every swept degree as this checkout reads its page
+ * (blocks.mjs). compare.mjs judges both boards on the after sweep's reading,
+ * so a board that meets more of a page read correctly is not scored as worse
+ * because the old reading counted something else.
+ *
+ * What each row adds for the three-level verdict (gate.mjs): the start and
+ * target finish, the dated career-track rows the board was held to
+ * (trackRows, so compare can measure both boards with the release's own
+ * list), residency hours, the validator's warning ids (warnKeys), which
+ * course each added prerequisite was booked for (addedBy), and each course
+ * not placed with its requirement's kind.
  *   SWEEP_STUDYING='pre-med.'         the student's "what are you studying" words,
  *                                     joined before the goal into interests as
  *                                     planner-workspace.tsx joins them. The
@@ -115,6 +132,18 @@ if (process.env.SWEEP_WORKER === undefined) {
   writeFileSync(OUT, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
   const threw = rows.filter((r) => r.error).length;
   console.error(`${rows.length} boards (${threw} threw) from ${ROOT} in ${Math.round((Date.now() - started) / 1000)}s with ${n} workers -> ${OUT}`);
+  if (process.env.SWEEP_BLOCKS !== '0') {
+    // The reading these boards were built on, for compare.mjs (blocks.mjs).
+    const blocksOut = OUT.replace(/\.jsonl$/, '') + '.blocks.jsonl';
+    const r = spawnSync(process.execPath, [...process.execArgv, join(fileURLToPath(new URL('.', import.meta.url)), 'blocks.mjs'), ROOT, blocksOut], {
+      env: { ...process.env, SWEEP_IDS: IDS.join(',') },
+      stdio: 'inherit',
+    });
+    if (r.status !== 0) {
+      console.error('the reading file (blocks.mjs) failed');
+      process.exit(1);
+    }
+  }
   process.exit(rows.length === JOBS.length ? 0 : 1);
 }
 
@@ -161,11 +190,25 @@ for (const c of rows) {
   creditRanges.set(norm(c.code), { credits: c.credits, min: c.credits, max, variable: max > c.credits, known: true });
 }
 const season = (meta.term?.term ?? 'fall').toLowerCase();
+const seasonWord = (t) => (t === 'spring' ? 'Spring' : t === 'summer' ? 'Summer' : 'Fall');
+const firstSections = new Map(sectionFile.courses.map((r) => [norm(r.code), { ...r, termId: sectionFile.termId, termLabel: sectionFile.termLabel }]));
+/**
+ * Every crawled term's sections (meta.sectionTerms: Fall 2026 and Spring
+ * 2027), as the workspace hands them to the engine (PlanningContext
+ * termSections). A checkout whose engine does not read them builds the
+ * same boards with or without them.
+ */
+const termSections = (meta.sectionTerms ?? []).map((t) => {
+  const file = t.file === 'sections.json' ? sectionFile : pub(`illinois/${t.file}`);
+  const sections = t.file === 'sections.json' ? firstSections : new Map(file.courses.map((r) => [norm(r.code), { ...r, termId: file.termId, termLabel: file.termLabel }]));
+  return { id: t.id, label: t.label, season: seasonWord(String(t.term).toLowerCase()), year: t.year, sections };
+});
 const context = {
   courses: rows,
   prereqs: new Map(Object.entries(pub('illinois/prereqs.json'))),
   grades,
-  sections: new Map(sectionFile.courses.map((r) => [norm(r.code), { ...r, termId: sectionFile.termId, termLabel: sectionFile.termLabel }])),
+  sections: firstSections,
+  ...(termSections.length > 1 && process.env.SWEEP_ONE_TERM !== '1' ? { termSections } : {}),
   equivalents,
   exclusions: new Map(Object.entries(pub('illinois/exclusions.json'))),
   excellent: new Map(Object.entries(excellentFile.courses)),
@@ -197,7 +240,14 @@ function load(programId) {
   return { summary, program: adapted.programs[0], blocks };
 }
 
-const FOUR_YEARS = { startSeason: 'Fall', startYear: 2026, gradSeason: 'Spring', gradYear: 2030, stated: true };
+// SWEEP_START="Spring 2027" plans a student who starts that term instead,
+// finishing eight falls and springs later (Spring 2027 -> Fall 2030): what a
+// student building a plan after the fall add deadline gets.
+const START = (process.env.SWEEP_START ?? 'Fall 2026').match(/^(Fall|Spring) (\d{4})$/);
+if (!START) throw new Error(`SWEEP_START must look like "Spring 2027", got ${process.env.SWEEP_START}`);
+const FOUR_YEARS = START[1] === 'Fall'
+  ? { startSeason: 'Fall', startYear: Number(START[2]), gradSeason: 'Spring', gradYear: Number(START[2]) + 4, stated: true }
+  : { startSeason: 'Spring', startYear: Number(START[2]), gradSeason: 'Fall', gradYear: Number(START[2]) + 3, stated: true };
 const FRESHMAN = { courseCodes: [], exemptCodes: [], unmatchedCredits: 0, known: true, languageSemesters: 4, languageName: 'Spanish', genEdCredits: [] };
 const codesOf = (ids) => ids.map((id) => norm(byId.get(id)?.code ?? '')).filter(Boolean);
 const codesOn = (b) => b.terms.flatMap((t) => codesOf(t.courseIds));
@@ -211,7 +261,7 @@ function build({ program, prior = FRESHMAN, horizon = FOUR_YEARS, target = null,
     context,
     prior,
     horizon,
-    preferences: { creditsPerTerm: { min: 12, target, max: 18 }, priorities: PRIORITY_PRESETS.balanced },
+    preferences: { creditsPerTerm: { min: 12, target, max: 18 }, priorities: process.env.SWEEP_NO_EARLY === '1' ? { ...PRIORITY_PRESETS.balanced, noEarly: true } : PRIORITY_PRESETS.balanced },
     programId: L.summary.id,
     degreeTotal,
     interests: words,
@@ -333,6 +383,8 @@ function measure(job) {
    */
   const profile = job.goal ? A.interestProfileOf(job.goal) : null;
   const dated = profile ? profile.tracks.flatMap((track) => track.courses.filter((r) => r.due || r.need === 'required').map((r) => ({ track: track.id, row: r }))) : [];
+  // The planner's own date (autoplan's applicationDue): the last spring before
+  // the last fall, Spring 2029 for a Fall 2026 start and Spring 2030 for Spring 2027.
   const dueLabel = `Spring ${FOUR_YEARS.startYear + 3}`;
   const dueIndex = terms.findIndex((t) => t.label === dueLabel);
   const heldSet = new Set(b.held);
@@ -361,9 +413,14 @@ function measure(job) {
     total: g.credits.total.min,
     beyond: Math.max(0, g.credits.total.min - b.degreeTotal),
     filledToMax: g.notes.some((n) => /^Terms were filled to \d+ credits/.test(n)),
-    notPlaced: g.notPlaced.map((n) => ({ code: norm(n.code), reason: n.reason, requirementId: n.requirementId ?? null })),
+    notPlaced: g.notPlaced.map((n) => ({ code: norm(n.code), reason: n.reason, requirementId: n.requirementId ?? null, kind: b.L.blocks.find((r) => r.id === n.requirementId)?.rule.kind ?? null })),
     unsatisfied: g.unsatisfied.map((u) => ({ id: u.requirementId, label: u.label, reason: u.reason })),
     errors: issues.filter((i) => i.severity === 'error').map((i) => ({ id: i.id, message: i.message.slice(0, 200) })),
+    // The board's notes about when courses run: "ran once" (ap-rare), "has not
+    // run recently" (ap-dormant), out of season, not in the schedule snapshot,
+    // several parts of term, closed to the major. The offering record and the
+    // class-times crawl move these, and no other field shows it.
+    offeringIssues: issues.filter((i) => /^ap-(offering|snapshot|dormant|rare|closed|parts)-/.test(i.id)).map((i) => i.id),
     yearOne: yearOne.map((t) => ({ label: t.label, cr: t.cr })),
     hardPerTerm: terms.map((t) => t.hard.length),
     stack2: terms.filter((t) => t.hard.length === 2).length,
@@ -386,6 +443,15 @@ function measure(job) {
     orderFaults,
     kept: g.gate?.kept ?? null,
     gateWorse: g.gate?.worse ?? [],
+    // For the three-level verdict (gate.mjs) and compare.mjs.
+    start: `${FOUR_YEARS.startSeason} ${FOUR_YEARS.startYear}`,
+    target: `${FOUR_YEARS.gradSeason} ${FOUR_YEARS.gradYear}`,
+    trackDue: dueLabel,
+    trackRows: dated.map(({ track, row }) => `${track}:${row.codes.join('/')}`),
+    held: b.held,
+    residency: g.residency ? { upper: g.residency.plannedUpper, hours: g.residency.plannedHours, ok: g.residency.ok } : null,
+    warnKeys: issues.filter((i) => i.severity !== 'info').map((i) => i.id.replace(`-${i.termId}-`, '-')),
+    addedBy: (g.addedPrerequisites ?? []).map((p) => [norm(p.code), norm(p.requiredBy)]),
   };
 }
 

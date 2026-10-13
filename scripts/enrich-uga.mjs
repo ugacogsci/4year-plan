@@ -29,7 +29,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 const SRC = join(ROOT, "..", "semantic-course-map", "frontend", "public", "data", "database_mapped_pacmap_o.json");
 const OUT = join(ROOT, "data", "uga-courses.json");
-const UA = "TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)";
+const UA = "FourYearPlanBot/1.0 (student planning project; respects robots.txt)";
 
 const CONCURRENCY = 4;
 const DELAY_MS = 260;

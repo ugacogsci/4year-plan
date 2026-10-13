@@ -17,10 +17,18 @@ Plans, setup answers, transcript review results and chat history are saved in th
 
 This integration is for local review and the `uga2` branch only. No production deployment is part of this merge.
 
+### Illinois
+
+What is here now is a working planner for the University of Illinois Urbana-Champaign, built on this skeleton: the real catalog (6,110 undergraduate courses), 308 degree pages, Fall 2026 sections and DAIR grade history, with the generator, the checks and the assistant below. The school roster in `lib/planner/onboarding.ts` lists Illinois and UGA, and onboarding offers both; the work and checks on this branch are for Illinois.
+
+- Onboarding runs on every launch: three questions, AP and IB scores priced against the registrar's table, and a transcript (PDF, image or text) read once by Claude into a checklist the student confirms. Nothing about a student is stored.
+- Plans reach the degree's published total with balanced terms. The graduation date outranks the hours a student asks for. Elective slots fill what the degree page does not name; tapping one lists everything eligible in that term.
+- ALMA, named after the Alma Mater, sits in a column beside the board. It answers anything about Illinois through the planner's own lookup of the university's official pages (Claude with web search limited to illinois.edu, every answer linked to the pages it used), reads the board, and can add, remove, replace or move courses, always through the same prerequisite, standing and credit checks a drag goes through. Removing a required course needs the student's yes.
+
 Running it:
 
 ```
-cp .env.example .env.local   # set ANTHROPIC_API_KEY (transcript reading, ALMA) and TRU_UPSTREAM (university answers)
+cp .env.example .env.local   # set ANTHROPIC_API_KEY (transcript reading, ALMA, university answers)
 npm install                  # Node 22 or newer
 npm run dev -- -p 3010
 ```
@@ -454,6 +462,40 @@ Canvas behind a login, so the research estimated public syllabi for about a
 fifth of the catalog, concentrated in Grainger, IB, MCB, Math, Chemistry and
 Economics.
 
+### Club recommendations
+
+An Illinois student's rail has a "Clubs for your goals" section under "Pick
+from a list", and ALMA has a `find_clubs` tool. Both run one function,
+`recommendClubs` in `lib/planner/clubs.ts`, over
+`public/illinois/clubs.json`, so ALMA asked with no query names the clubs the
+rail shows. Nothing here touches the board or the undo stack.
+- The clubs come from OneIllinois, the university's student-organization
+  directory, and its public events calendar, read by hand with
+  `scripts/illinois/clubs/` (its README has how to run it, the refresh dates
+  and the privacy rules). Officer names, emails and the clubs' own text never
+  ship; a row shows the club's name linked to its own page, one "why" line
+  from a fixed template, the kind of club, its next or last event, and a
+  caution such as "By invitation".
+- Goals are read from the same words that steer the electives ("What you want
+  to be doing after"); the major's name is never read as a goal. The single
+  strongest piece of evidence counts: a university office's list, a club named
+  for the goal, a club about the topic, then the major's subjects and the
+  college. Five show, "Show more" reaches ten, at most three a goal, and the
+  last visible row goes to the major's best club.
+- Social, Greek and faith clubs are never career picks; ALMA names them only
+  when the student asks for that kind of group. Identity-centered groups sit
+  in a folded "Communities in these fields" row, matched by goal only. A goal
+  with fewer than three clubs says so and links the directory.
+- The footer names the directory and the day it was read, and turns amber
+  after 120 days. When `clubs.json` is missing the section hides itself.
+- ALMA's rules (`CLUBS_RULES` in `lib/planner/clubs-tool.ts`): at most four
+  clubs a reply, only clubs the tool returned, the source and date said once,
+  and a question about clubs is never a change of goal.
+
+`__clubs.check.mjs` and four `__clubs-*.check.mjs` checks hold the data and
+the lists to the bars; the scoreboard and the latest graded spot check are in
+`scripts/illinois/clubs/README.md`.
+
 ### The board review
 
 `review_board` (`lib/planner/review.ts`, `__review.check.mjs`) reads the board
@@ -517,6 +559,30 @@ and a reading thinner than its page is flagged, not trusted: Accountancy's
 21-hour major reads as one course of eight, because the crawl folded its
 "Select one of the following:" into the whole list (`__programs-compare.check.mjs`).
 
+### Minors (beta reading, no screens yet)
+
+The catalog has 130 undergraduate minors, all on one A to Z page that the
+degree crawl never followed. `node scripts/illinois/programs.mjs --minors`
+reads them into `public/illinois/minors/crawl.json` (its own file, never
+`illinois-programs.json`), and every full degree crawl runs it too, so the
+minors are refreshed whenever the degrees are. It keeps each minor's link,
+name, the total hours its page states (12 to 30; read on 121 of the 130) and
+its requirement tables, with footnote markers, email addresses and phone
+numbers taken out; no page paragraph is stored.
+
+`lib/planner/illinois-minors.ts` reads a minor for the engine with the degree
+reader, minus the campus gen-ed table (which made every minor ask for a third
+semester of a language), with the minor's own total, ids starting `minor:`,
+and two shapes only minor code reaches: a required course printed as a table
+heading (Data Science's core) and "N hours of SUBJ" (Horticulture, Asian
+American Studies, Music electives). `__minors.check.mjs` plans each minor alone
+and keeps the scoreboard: on the crawl of 9 October 2026, 44 of 130 minors read
+within one hour of their stated total (40 with the degree reader alone), and 35
+pass every test a beta needs (`MINOR_BETA`). Most of the rest are sentences in
+a table ("two 300- or 400-level Political Science courses"), choose-one-track
+pages and one table per kind of major (minors-research DESIGN.md shapes b, d
+and e). Nothing in the app offers a minor yet.
+
 ### Year one and the gate
 
 The year-one, date and pairing work for career-track boards (seminars into
@@ -549,6 +615,20 @@ worse than a930f09's on any of these; late track rows fall from 1,434 to 746
 and first-term seminars after year one from 447 to 227. The cost is build
 time: about 1.7 times a930f09's per board, and about 2 seconds for the
 chemistry degrees, on the page's main thread.
+
+### Degrees held at the release
+
+Option lists inside degree tables are read as choices ("Calculus Option -
+Select one of the following"), and the engine fixes that reading needs are
+kept only where the owner's three-level rule accepts every board against
+the release (`scripts/dev/sweep/gate.mjs`, both a Fall 2026 and a Spring
+2027 start). A degree with any board the rule blocks or sends back for
+engine work is held in `lib/planner/held-degrees.ts`: `READ_AS_RELEASED`
+reads its page as the release read it (`adaptIllinoisPrograms`), and
+`PLANNED_AS_RELEASED` also plans it with the release's engine
+(`autoplan-release.ts`, a verbatim copy), for the degrees whose boards the
+fixes alone would leave failing on the release's reading. Each entry says
+which board did not pass. A degree leaves the list once its boards pass.
 
 ### Known gaps
 

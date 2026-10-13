@@ -1,6 +1,7 @@
 import type { GradeRow } from './scheduler';
 import type { ExcellentSummary } from './quality';
 import type { SemesterSeason } from './types';
+import type { RepeatRule } from './repeats';
 import type { AdmissionTable, LanguageTable } from './autoplan';
 import type {
   CoverageReport,
@@ -11,6 +12,7 @@ import type {
   RawIllinoisProgram,
   RawSectionCourse,
   SectionSummary,
+  SectionTermInfo,
 } from './illinois-data';
 
 /**
@@ -90,6 +92,11 @@ export interface IllinoisMeta {
     map: { method: string; builtAt: string; count: number } | null;
   };
   term: { id: string; label: string; year: number; term: string; fetchedAt: string } | null;
+  /**
+   * Every crawled term of class times, oldest first, `term` among them.
+   * Absent from builds that crawled one term only; sectionTermsOf reads both.
+   */
+  sectionTerms?: IllinoisSectionTermEntry[];
   bands: DifficultyBands;
   /** Already written in the house voice by gradeFootnote. Render it verbatim. */
   gradeFootnote: string;
@@ -98,7 +105,10 @@ export interface IllinoisMeta {
     indexed: number;
     positioned: number;
     withPrereqSpec: number;
+    /** Indexed courses that show grade history, their own row or a borrowed one (see gradeFrom). */
     withGrades: number;
+    /** Rows in grades.json. Absent from builds before the two were told apart. */
+    gradeRows?: number;
     withSections: number;
     programs: number;
     programsWithCourses: number;
@@ -133,11 +143,17 @@ export interface IllinoisIndexRow {
   /** Absent means 'In person'. Set only when every section of the course is online. */
   online?: true;
   difficulty?: number;
-  /** The cross-listed code the registrar filed this course's grades under. */
+  /**
+   * The code the registrar filed this course's grades under: a cross-listed
+   * twin (CS 468 under ADV 492), or this course's old number (ES 470 under
+   * NPRE 470). RENUMBERED_GRADE_HISTORY in illinois-data.ts says which.
+   */
   gradeFrom?: string;
   /** The other codes this same class is filed under. */
   twins?: string[];
   mapPosition?: { x: number; y: number };
+  /** The catalog's repeat rule (repeats.ts); absent when the course may not be repeated. */
+  repeat?: RepeatRule;
 }
 
 export interface IllinoisIndexCourse extends IllinoisCourse {
@@ -146,9 +162,10 @@ export interface IllinoisIndexCourse extends IllinoisCourse {
   /** Registrar difficulty, 0 to 100. Absent means no grade history for this course. */
   difficulty?: number;
   /**
-   * The cross-listed code the registrar actually filed these grades under, when
-   * it is not this course's own. CS 468's history is on file as ADV 492; it is
-   * the same class under two codes. Present on 503 rows.
+   * The code the registrar actually filed these grades under, when it is not
+   * this course's own. CS 468's history is on file as ADV 492, the same class
+   * under two codes (503 rows); ES 470's is on file as NPRE 470, its number
+   * until this year (9 rows, RENUMBERED_GRADE_HISTORY in illinois-data.ts).
    */
   gradeFrom?: string;
   /** The other codes this same class is filed under, when there are any. */
@@ -176,6 +193,17 @@ export interface IllinoisGradeSummary {
   withdrawPct: number | null;
   difficulty: number | null;
   instructorCount: number;
+}
+
+/** One crawled term of class times as meta.json lists it. */
+export interface IllinoisSectionTermEntry extends SectionTermInfo {
+  source?: string | null;
+  /** Undergraduate courses with at least one section that term. */
+  courses?: number;
+  /** The built summary, relative to /illinois: "sections.json", "sections/spring-2027.json". */
+  file?: string;
+  /** The crawl file in public/ that the ask router reads rows from: "illinois-sections-sp2027.json". */
+  raw?: string;
 }
 
 /** sections.json, with the term hoisted out of one identical copy per course. */
@@ -209,6 +237,12 @@ export interface IllinoisSubjectShard {
   sections: RawSectionCourse[];
   /** Historical per-instructor grade rows, keyed by course code. */
   instructors: Array<{ code: string; instructors: GradeRow['instructors'] }>;
+  /**
+   * The other crawled terms' rows, by term id ("spring-2027"). A term with an
+   * empty list was crawled and the subject had nothing that term; a term
+   * missing here was not crawled. Absent from one-term builds.
+   */
+  sectionsByTerm?: Record<string, RawSectionCourse[]>;
 }
 
 export interface IllinoisCourseDetail {
@@ -217,6 +251,12 @@ export interface IllinoisCourseDetail {
   course: RawIllinoisCourse | null;
   /** Null when the section crawl has no row for this course, not when it has none. */
   sections: RawSectionCourse | null;
+  /**
+   * The same, for every crawled term, by term id: the first term (the one
+   * `sections` holds) and each term in the shard's sectionsByTerm. A term id
+   * missing here was not crawled; null means crawled and no row for this course.
+   */
+  sectionsByTerm: Record<string, RawSectionCourse | null>;
   /** Null when there is no grade history for this course at all. */
   instructors: GradeRow['instructors'] | null;
 }
@@ -278,6 +318,14 @@ export interface IllinoisCore {
   prereqs: Map<string, PrereqSpec> | null;
   grades: Map<string, IllinoisGradeSummary> | null;
   sections: Map<string, SectionSummary> | null;
+  /**
+   * Every crawled term whose sections loaded, oldest first, the first term
+   * (`sections`) among them: Fall 2026 and Spring 2027. The plan scores a
+   * spring column's courses on the spring schedule (PlanningContext
+   * termSections), so the other terms load with the core rather than when a
+   * card first asks. Null when only the first term was crawled or loaded.
+   */
+  sectionTerms: Array<{ entry: IllinoisSectionTermEntry; sections: Map<string, SectionSummary> }> | null;
   programs: IllinoisProgramSummary[] | null;
   /**
    * "Credit is not given for both MATH 221 and either MATH 220 or MATH 234."
@@ -398,6 +446,7 @@ function memo<T>(
 export function resetIllinoisCache(): void {
   cache.clear();
   shardCache.clear();
+  sectionTermCache.clear();
   syllabusCache.clear();
   programCache.clear();
   metaPromise = null;
@@ -486,6 +535,7 @@ export function hydrateIndexRow(row: IllinoisIndexRow): IllinoisIndexCourse {
     ...(row.gradeFrom ? { gradeFrom: row.gradeFrom } : {}),
     ...(row.twins && row.twins.length > 0 ? { twins: row.twins } : {}),
     ...(row.mapPosition ? { mapPosition: row.mapPosition } : {}),
+    ...(row.repeat ? { repeat: row.repeat } : {}),
     detailLoaded: false,
   };
 }
@@ -539,7 +589,8 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
   if (corePromise) return corePromise;
   const started = (async (): Promise<IllinoisCore> => {
     const meta = await loadIllinoisMeta();
-    const [index, prereqs, grades, sections, programs, exclusions, excellent, offerings, languages, admission] = await Promise.all([
+    const laterTerms = sectionTermsOf(meta).filter((t) => t.id !== meta?.term?.id && t.file);
+    const [index, prereqs, grades, sections, programs, exclusions, excellent, offerings, languages, admission, laterSections] = await Promise.all([
       indexResult(),
       artifact<Record<string, PrereqSpec>>('prereqs.json'),
       artifact<IllinoisGradeSummary[]>('grades.json'),
@@ -552,6 +603,8 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
       artifact<IllinoisOfferingsFile>('offerings.json'),
       artifact<LanguageTable>('languages.json'),
       artifact<AdmissionTable>('admission.json'),
+      // The other crawled terms, through the same cache a card's question uses (loadIllinoisSectionTerm).
+      Promise.all(laterTerms.map((t) => memo(sectionTermCache, t.id, () => artifact<IllinoisSectionsFile>(t.file as string)))),
     ]);
 
     const results = [index, prereqs, grades, sections, programs, exclusions];
@@ -567,6 +620,20 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
     if (!sections.ok) missing.push('sections.json');
     if (!programs.ok) missing.push('programs.json');
     if (!exclusions.ok) missing.push('exclusions.json');
+    /**
+     * The term is stamped back onto every row here rather than stored once
+     * per course. A whole SectionSummary is what buildingLine, partOfTermLine
+     * and sectionSnapshot take, and handing out a near-miss would make every
+     * call site patch it.
+     */
+    const firstSections = sections.ok
+      ? new Map(
+          sections.value.courses.map((row) => [
+            normCode(row.code),
+            { ...row, termId: sections.value.termId, termLabel: sections.value.termLabel },
+          ]),
+        )
+      : null;
 
     return {
       meta,
@@ -594,8 +661,9 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
        * filed it under.
        *
        * 503 courses carry their grade history under a cross-listed twin, and
-       * index.json records that in gradeFrom. Keying this map by the row's own
-       * code alone meant grades.get("CS 468") was undefined while the card two
+       * 9 under their old number, and index.json records that in gradeFrom.
+       * Keying this map by the row's own code alone meant grades.get("CS 468")
+       * was undefined while the card two
        * inches away showed ADV 492's real 3.78 average. The plan then counted
        * CS 468 as "no grade data" when weighing a term, so the product denied
        * history it was displaying and printed two different numbers for the
@@ -612,21 +680,19 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
             return byCode;
           })()
         : null,
-      /**
-       * The term is stamped back onto every row here rather than stored once
-       * per course. A whole SectionSummary is what buildingLine, partOfTermLine
-       * and sectionSnapshot take, and handing out a near-miss would make every
-       * call site patch it.
-       */
-      sections: sections.ok
-        ? new Map(
-            sections.value.courses.map((row) => [
-              normCode(row.code),
-              { ...row, termId: sections.value.termId, termLabel: sections.value.termLabel },
-            ]),
-          )
-        : null,
+      sections: firstSections,
       programs: programs.ok ? programs.value : null,
+      sectionTerms: (() => {
+        if (!firstSections || !meta?.term) return null;
+        const first = sectionTermsOf(meta).find((t) => t.id === meta.term?.id) ?? { ...meta.term, file: 'sections.json' };
+        const out: Array<{ entry: IllinoisSectionTermEntry; sections: Map<string, SectionSummary> }> = [];
+        laterTerms.forEach((entry, i) => {
+          const r = laterSections[i];
+          if (r.ok) out.push({ entry, sections: summariesOf(r.value) });
+        });
+        if (out.length === 0) return null;
+        return [{ entry: first, sections: firstSections }, ...out];
+      })(),
       missing,
     };
   })();
@@ -679,14 +745,87 @@ export async function loadIllinoisSubject(subject: string): Promise<RawIllinoisC
 export async function loadIllinoisCourseDetail(code: string): Promise<IllinoisCourseDetail | null> {
   const wanted = normCode(code);
   const subject = wanted.split(' ')[0] ?? '';
-  const shard = await loadIllinoisSubjectShard(subject);
+  const [shard, meta] = await Promise.all([loadIllinoisSubjectShard(subject), loadIllinoisMeta()]);
   if (!shard) return null;
+  const sections = shard.sections.find((s) => normCode(s.code) === wanted) ?? null;
+  const sectionsByTerm: Record<string, RawSectionCourse | null> = {};
+  if (meta?.term) sectionsByTerm[meta.term.id] = sections;
+  for (const [termId, rows] of Object.entries(shard.sectionsByTerm ?? {})) {
+    sectionsByTerm[termId] = rows.find((s) => normCode(s.code) === wanted) ?? null;
+  }
   return {
     code: wanted,
     course: shard.courses.find((c) => normCode(c.code) === wanted) ?? null,
-    sections: shard.sections.find((s) => normCode(s.code) === wanted) ?? null,
+    sections,
+    sectionsByTerm,
     instructors: shard.instructors.find((g) => normCode(g.code) === wanted)?.instructors ?? null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// More than one term of class times, on demand
+// ---------------------------------------------------------------------------
+
+/**
+ * Every crawled term of class times, oldest first.
+ *
+ * A build that crawled one term has no sectionTerms and reads as that term
+ * alone, so a caller never has to tell the two kinds of build apart.
+ */
+export function sectionTermsOf(meta: IllinoisMeta | null | undefined): IllinoisSectionTermEntry[] {
+  if (!meta) return [];
+  if (meta.sectionTerms && meta.sectionTerms.length > 0) return meta.sectionTerms;
+  return meta.term ? [{ ...meta.term, file: 'sections.json' }] : [];
+}
+
+const sectionTermCache = new Map<string, Promise<Fetched<IllinoisSectionsFile>>>();
+
+/**
+ * One crawled term's section summaries, by course code, with the term
+ * stamped back on every row the way loadIllinoisCore stamps the first one.
+ *
+ * The first term is the one the core already holds, and is answered from it
+ * rather than parsed twice. Any other term is fetched the first time a card,
+ * ALMA or the advisor packet asks about a course in it (about 120 KB gzip for
+ * Spring 2027), which is why it is not in the first load. Null when the term
+ * was not crawled or its file did not load.
+ */
+export async function loadIllinoisSectionTerm(termId: string): Promise<Map<string, SectionSummary> | null> {
+  const meta = await loadIllinoisMeta();
+  if (!meta) return null;
+  if (meta.term?.id === termId) return (await loadIllinoisCore()).sections;
+  const entry = sectionTermsOf(meta).find((t) => t.id === termId);
+  if (!entry?.file) return null;
+  const file = entry.file;
+  const r = await memo(sectionTermCache, termId, () => artifact<IllinoisSectionsFile>(file));
+  if (!r.ok) return null;
+  return summariesOf(r.value);
+}
+
+/** The parsed map per file, so two callers of the same term share one. */
+const summaryMaps = new WeakMap<IllinoisSectionsFile, Map<string, SectionSummary>>();
+
+function summariesOf(file: IllinoisSectionsFile): Map<string, SectionSummary> {
+  const hit = summaryMaps.get(file);
+  if (hit) return hit;
+  const map = new Map(
+    file.courses.map((row) => [normCode(row.code), { ...row, termId: file.termId, termLabel: file.termLabel }]),
+  );
+  summaryMaps.set(file, map);
+  return map;
+}
+
+/** Every crawled term's summaries, by term id. A term that did not load is left out. */
+export async function loadIllinoisSectionTerms(): Promise<Map<string, Map<string, SectionSummary>>> {
+  const meta = await loadIllinoisMeta();
+  const out = new Map<string, Map<string, SectionSummary>>();
+  const terms = sectionTermsOf(meta);
+  const loaded = await Promise.all(terms.map((t) => loadIllinoisSectionTerm(t.id)));
+  terms.forEach((t, i) => {
+    const map = loaded[i];
+    if (map) out.set(t.id, map);
+  });
+  return out;
 }
 
 /**
@@ -806,7 +945,11 @@ export function coverageLine(core: IllinoisCore): string {
   const parts = [`${counts.indexed} courses`];
   parts.push(core.grades ? `${counts.withGrades} with grade history` : 'grades not loaded');
   if (core.sections && core.meta.term) {
-    parts.push(`${counts.withSections} with ${core.meta.term.label} sections`);
+    // The other crawled terms load on demand, so their counts come from meta.
+    const others = sectionTermsOf(core.meta).filter((t) => t.id !== core.meta?.term?.id && typeof t.courses === 'number');
+    parts.push(
+      [`${counts.withSections} with ${core.meta.term.label} sections`, ...others.map((t) => `${t.courses} with ${t.label} sections`)].join(', '),
+    );
   } else {
     parts.push('sections not loaded');
   }

@@ -14,13 +14,88 @@ stacks, momentum flags, track rows late, seminars and the first math. About
 five minutes with 7 workers (Node 23; it re-runs itself with
 `--experimental-strip-types`).
 
-`compare.mjs <before.jsonl> <after.jsonl> [--top N | --all]` prints the totals
-per metric and every degree and goal that got worse, worst first.
+`compare.mjs <before.jsonl> <after.jsonl> [--top N | --all]` opens with the
+scoreboard (the headline numbers before and after, and the same without the
+suspended ESES degree), prints the totals per metric and every degree and
+goal that got worse, worst first, and ends with the three-level verdict.
+
+Beside every sweep, `sweep.mjs` writes `<out>.blocks.jsonl`: every
+requirement block as that checkout reads the pages (`blocks.mjs`). compare
+judges both boards on the after sweep's file, "the new reading" (or
+`--reading <file>`); `--checkout <dir>` gives the credits, prerequisites and
+lab pairs (default: this checkout).
+
+What the scoreboard counts, so a number can be trusted:
+
+- A requirement split into option lists (`::3::0` -> `::3::0::opt1`) is the
+  same requirement, not a new unmet one.
+- Pre-med and pre-PT rows are measured on both boards with the release's own
+  row list (the before sweep's `trackRows`): a change to `career-tracks.ts`
+  cannot move the yardstick.
+- A pool counts both halves of a pair (STAT 400 & STAT 410).
+- The release's pre-health Composition I row (RHET 105) is met by the CMN
+  111-112 sequence too, as the row's own description says; the catalog will
+  not credit RHET 105 beside it (gate.mjs ROW_SEQUENCES).
+- Year one is the plan's first two falls and springs, counted from its own
+  first term, never the school's academic year. A validator warning
+  "Composition I after the first year" on a board whose Composition I began
+  in year one (CMN 112 after CMN 111 on a spring start) is not counted as a
+  year-one loss; the scoreboard still shows how many plans carry it. Since
+  fix-batch-a the planner no longer shows that warning when Composition I
+  began in year one (validatePlan); generatePlan's own gate still measures
+  it the strict way (strictComposition), so the boards it picks do not move.
+- An extra term is worse only when the board now finishes after the
+  student's target term.
+- Two sweeps with different start terms are refused (`--mixed-starts`).
+
+`gate.mjs <before.jsonl> <after.jsonl> [--list] [--json out]` is the
+three-level verdict alone (the owner's rule of 2026-10-06, ported from the
+research's gatepolicy.py): never worse on errors, prerequisite order, labs
+apart from lectures or a finish after the target; a board that meets more
+real requirements may be worse on term shape, and on credits past the total
+or pre-med/PT rows only when the arithmetic forces it; a board that meets
+fewer real requirements is always blocked. Each changed board is accepted,
+blocked or sent to engine work. On the research's sweeps of the parked split
+(c47de54b -> cdc06dd9) it gives 629 accepted, 5 blocked and 196 engine work.
+
+`gate.mjs ... --mode data` is the owner's lighter rule for a data update
+(2026-10-08): new or corrected offering terms, or grade data. A refresh like
+that reshuffles electives on hundreds of boards, so a changed board is
+blocked only when, against its old board, it (1) meets fewer real
+requirements, (2) has a new validator error or a course placed before its
+prerequisite (an order fault, or a prerequisite placement could meet while the
+board itself puts that prerequisite course in the same or a later term: LAT
+102 in Fall 2027 and LAT 101 in Spring 2030; gate.mjs prereqLater), (3)
+places a lab apart from its lecture, or (4) finishes after
+the student's target term, later than the old board did. Everything else
+(electives, term shape, two hardest in a term, credits past the total,
+pre-med/PT rows late or off) is printed as "reported, not gating". A change
+to how degree pages are read keeps the full three-level rule (no `--mode`).
+
+Pre-med/PT rows late or off the board on a board that meets more real
+requirements are a forced cost only by the owner's "the degree beats
+pre-med/PT" rule (gate.mjs degreeFirst): no course of the row has a seat
+under 18 in any fall or spring (by its date, for a row only later), with its
+lab or lecture beside it and after the prerequisites it names, and the plan's
+own track note names the course as needing a summer or an extra term.
+
+`takeall.mjs <blocks.jsonl>` lists the take-all blocks that hold two courses
+the catalog will not credit together, the mark of an option list read as
+"take every course" (64 at illinois-2 715d894). `blocks.mjs` prints the count
+too.
+
+**Every plan-changing step reports two sweeps**, each against its own
+baseline: the default Fall 2026 start and `SWEEP_START="Spring 2027"`, which
+is what a student building a plan today gets. On this 8 GB Mac run at most two
+sweeps at a time (`SWEEP_JOBS=3` each).
 
 Environment: `SWEEP_JOBS` (workers), `SWEEP_IDS` (only these degree ids),
 `SWEEP_GOALS`, `SWEEP_LANGS`, `SWEEP_STUDYING` (studying words joined into the
 interests as the workspace does), `SWEEP_PLAIN=1` (build with the plain engine
-the year-one gate compares against), `SWEEP_NOTES=1` (keep plan notes).
+the year-one gate compares against), `SWEEP_NOTES=1` (keep plan notes),
+`SWEEP_START="Spring 2027"` (start there instead of Fall 2026, finishing eight
+falls and springs later: what a student who builds a plan after the fall add
+deadline gets).
 
 To compare against an older commit, sweep a detached worktree of it:
 

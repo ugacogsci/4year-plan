@@ -14,6 +14,7 @@ import {
   type UgaProgram,
   type UgaSelectionRequirement,
 } from './uga-source';
+import { SiteFooter } from './site-notice';
 import {
   EMPTY_ANSWERS,
   UNDECIDED_PROGRAM_ID,
@@ -688,7 +689,7 @@ export function Onboarding({
                     rows={3}
                     value={answers[q.key]}
                     placeholder={q.placeholder}
-                    onChange={(e) => setAnswers((a) => ({ ...a, [q.key]: e.target.value }))}
+                    onChange={(e) => setAnswers((a) => ({ ...a, [q.key]: e.target.value, ...(q.key === 'timeline' ? { timelineAt: new Date().toISOString() } : {}) }))}
                   />
                 </label>
               ))}
@@ -909,6 +910,7 @@ export function Onboarding({
             </p>
           </section>
         )}
+        <SiteFooter schoolName={school?.name ?? null} bot={school?.bot ?? 'the assistant'} />
       </div>
     </div>
   );

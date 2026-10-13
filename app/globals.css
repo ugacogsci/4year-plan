@@ -1289,6 +1289,31 @@ p.requirement-unnamed {
   height: 19px;
 }
 
+/* The weekly clash check: one quiet line under the heading, amber when no
+   choice of sections keeps the term's classes apart. */
+.semester-weekly {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 0;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: var(--fs-micro);
+  line-height: 1.35;
+  color: var(--ink-dim);
+}
+
+.semester-weekly[data-status='clash'] {
+  color: var(--warning);
+}
+
+.semester-weekly svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 1px;
+}
+
 .semester-courses {
   flex: 1 1 auto;
   min-height: 120px;
@@ -1446,6 +1471,7 @@ p.requirement-unnamed {
 
 .course-required,
 .course-elective,
+.course-sitting,
 .course-check {
   display: inline-flex;
   align-items: center;
@@ -6178,6 +6204,40 @@ p.requirement-unnamed {
   cursor: pointer;
 }
 
+/* ALMA's replies: the few marks a chat reply uses (lib/planner/chat-markdown.ts). */
+.bot-msg.assistant strong { font-weight: 650; color: #fff; }
+.bot-msg.assistant a { color: #a5b4fc; text-decoration: underline; text-underline-offset: 2px; }
+.bot-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; padding: 0 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); }
+
+/* The unofficial label (components/planner/site-notice.tsx): always on screen. The pill never hides; the sentence
+   beside it gives way first on a narrow header, and the full sentence is the pill's title and the privacy dialog's. */
+.unofficial { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
+.unofficial-pill {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.12);
+  color: #fcd34d;
+  font-size: var(--fs-micro);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.unofficial-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-micro); color: #8a9ab0; }
+.unofficial-link {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #a5b4fc;
+  font-size: var(--fs-micro);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 .issue-course-link:hover { text-decoration-thickness: 2px; }
 .issue-course-link:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
 
@@ -6597,4 +6657,27 @@ p.requirement-unnamed {
 
 :root[data-planner-theme='light'] .planner-loading p {
   color: #555555;
+}
+
+@media (max-width: 1100px) {
+  .unofficial-text { display: none; }
+}
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  font-size: var(--fs-micro);
+  color: #8a9ab0;
+}
+.site-footer .unofficial-pill { cursor: default; }
+.privacy-dialog { max-height: 85vh; overflow-y: auto; }
+.privacy-body { display: grid; gap: 14px; font-size: 0.9rem; line-height: 1.5; }
+.privacy-body h3 { margin: 0 0 4px; font-size: 0.95rem; font-weight: 650; }
+.privacy-body p { margin: 0 0 6px; }
+@media print {
+  .unofficial-link { display: none; }
 }

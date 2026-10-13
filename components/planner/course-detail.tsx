@@ -11,19 +11,21 @@
  */
 
 import { clusterColor } from './cluster-color';
-import { useCourseDetail } from './illinois-source';
+import { useCourseDetail, useSectionTerm } from './illinois-source';
 import { plural } from './words';
 import { DEADLINE_DISCLAIMER, DEFAULT_STANDING_HOURS } from '@/lib/planner/autoplan';
 import {
   difficultyLabel,
   partOfTermLine,
   prettyDateRange,
+  RENUMBERED_GRADE_HISTORY,
   sectionIsRestricted,
   THIN_SAMPLE,
   visibleInstructors,
 } from '@/lib/planner/illinois-data';
 import type { IllinoisCore } from '@/lib/planner/illinois-load';
-import { toGradeRow } from '@/lib/planner/illinois-load';
+import { sectionTermsOf, toGradeRow } from '@/lib/planner/illinois-load';
+import { pickSectionTerm, sectionTermCaveat, type PlanTermRef } from '@/lib/planner/section-terms';
 import { describeExcellent } from '@/lib/planner/quality';
 import type { RawSection } from '@/lib/planner/illinois-data';
 import type { Course } from '@/lib/planner/types';
@@ -164,11 +166,14 @@ export function CourseDetail({
   core,
   schoolId,
   completed,
+  planTerm = null,
 }: {
   course: Course;
   core: IllinoisCore | null;
   schoolId: SchoolId | null;
   completed: boolean;
+  /** The board column this course sits in, when it is on the board. */
+  planTerm?: PlanTermRef | null;
 }) {
   const code = normCode(course.code);
   const isIllinois = schoolId === 'illinois';
@@ -176,9 +181,24 @@ export function CourseDetail({
   const { detail, loading } = useCourseDetail(code, isIllinois);
   const spec = core?.prereqs?.get(code) ?? null;
   const summary = core?.grades?.get(code) ?? null;
-  const sections = core?.sections?.get(code) ?? null;
   const bands = core?.meta?.bands ?? null;
-  const term = core?.meta?.term ?? null;
+
+  /**
+   * Which term's class times this card shows: the column the course sits in
+   * when that term's schedule is published (Spring 2027 for a spring-column
+   * course), the latest schedule of the same season for a later column, and
+   * the newest schedule for a course not on the board. Every term but the
+   * first is fetched the first time a card asks for it. See section-terms.ts.
+   */
+  const scheduleTerms = sectionTermsOf(core?.meta);
+  const pick = pickSectionTerm(scheduleTerms, planTerm);
+  const coreTermId = core?.meta?.term?.id ?? null;
+  const pickedId = pick?.term.id ?? coreTermId;
+  const otherTerm = useSectionTerm(pickedId && pickedId !== coreTermId ? pickedId : null, isIllinois);
+  const termSections = pickedId === coreTermId ? (core?.sections ?? null) : otherTerm.sections;
+  const sections = termSections?.get(code) ?? null;
+  const scheduleLabel = pick?.term.label ?? core?.meta?.term?.label ?? null;
+  const caveat = sectionTermCaveat(pick);
 
   /**
    * The grade row this course's numbers really come from.
@@ -197,6 +217,18 @@ export function CourseDetail({
         .map((code) => ({ code: normCode(code), row: core?.grades?.get(normCode(code)) ?? null }))
         .find((t) => t.row !== null) ?? null;
   const gradeRow = summary ?? twin?.row ?? null;
+  /**
+   * Whose row the numbers are, when they are not this course's own.
+   *
+   * The loader files a borrowed row under the course's own code (see
+   * loadIllinoisCore), so `summary` is already ADV 492's row on CS 468's card
+   * and the twin lookup above never ran: the numbers showed with nothing
+   * saying whose they were. The row's own code is the honest name to print.
+   * ES 470 reads NPRE 470's row the same way, its number until this year,
+   * and says so in those words rather than calling it a cross-listing.
+   */
+  const filedUnder = gradeRow && normCode(gradeRow.code) !== code ? normCode(gradeRow.code) : null;
+  const filedUnderOldNumber = filedUnder !== null && RENUMBERED_GRADE_HISTORY[code] === filedUnder;
 
   /**
    * A course whose history is under a code this page cannot name.
@@ -217,7 +249,22 @@ export function CourseDetail({
       ? difficultyLabel(toGradeRow(gradeRow, course.title, detail?.instructors ?? []), bands)
       : { kind: 'none' as const };
 
-  const rows = detail?.sections?.sections ?? [];
+  const rows = (pickedId ? detail?.sectionsByTerm?.[pickedId]?.sections : detail?.sections?.sections) ?? [];
+  /**
+   * For a course not on the board, what the other published schedules say,
+   * so a student weighing spring against fall sees both.
+   */
+  const alsoListed =
+    pick?.how === 'newest' && detail
+      ? scheduleTerms
+          .filter((t) => t.id !== pickedId && t.id in (detail.sectionsByTerm ?? {}))
+          .map((t) => {
+            const n = detail.sectionsByTerm[t.id]?.sections.length ?? 0;
+            return n > 0
+              ? `The ${t.label} schedule lists ${n} ${plural(n, 'section')} of it.`
+              : `The ${t.label} schedule does not list it.`;
+          })
+      : [];
   /** Sections a student may not be allowed to register for. 42% of Illinois's are. */
   const restricted = rows.filter((row) => sectionIsRestricted(row.availability)).length;
   const max = course.creditsMax ?? course.credits;
@@ -346,10 +393,11 @@ export function CourseDetail({
               {grade.aPct !== null && `, ${grade.aPct}% A grades`}
               {grade.withdrawPct !== null && `, ${grade.withdrawPct}% withdrew`}.
             </p>
-            {twin && (
+            {filedUnder && (
               <p className="quiet">
-                Illinois filed those grades under {twin.code}. It is this same class under its
-                other code.
+                {filedUnderOldNumber
+                  ? `Illinois filed those grades under ${filedUnder}, this course's number before it was renumbered.`
+                  : `Illinois filed those grades under ${filedUnder}. It is this same class under its other code.`}
               </p>
             )}
             <p className="quiet">
@@ -415,12 +463,23 @@ export function CourseDetail({
             </p>
           </>
         )}
-        {isIllinois && !core?.sections && <p className="quiet">The schedule has not loaded.</p>}
-        {isIllinois && core?.sections && !sections && (
+        {isIllinois && !termSections && (
           <p className="quiet">
-            {term ? `No ${term.label} section has been read for this course.` : 'No sections read.'}
+            {otherTerm.loading && scheduleLabel ? `Reading the ${scheduleLabel} schedule.` : 'The schedule has not loaded.'}
           </p>
         )}
+        {isIllinois && termSections && !sections && (
+          <p className="quiet">
+            {scheduleLabel ? `No ${scheduleLabel} section has been read for this course.` : 'No sections read.'}
+          </p>
+        )}
+        {isIllinois && termSections && !sections && caveat && <p className="quiet">{caveat}</p>}
+        {isIllinois && termSections && !sections &&
+          alsoListed.map((line) => (
+            <p key={line} className="quiet">
+              {line}
+            </p>
+          ))}
         {core?.offeringTerms && (
           <p className={core.offerings?.get(code)?.length ? 'quiet' : undefined}>
             {offeredWords(core.offerings?.get(code) ?? [], core.offeringTerms, core.offeringAliases?.get(code) ?? null)}
@@ -431,6 +490,12 @@ export function CourseDetail({
             <p>
               {sections.total} {plural(sections.total, 'section')} in {sections.termLabel}.
             </p>
+            {caveat && <p className="quiet">{caveat}</p>}
+            {alsoListed.map((line) => (
+              <p key={line} className="quiet">
+                {line}
+              </p>
+            ))}
             {rows.slice(0, 5).map((row) => (
               <p key={row.crn} className="quiet">
                 {row.section ?? row.crn} {row.type ? `(${row.type}) ` : ''}

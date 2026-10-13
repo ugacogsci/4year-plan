@@ -1,6 +1,6 @@
 {
   "school": "illinois",
-  "fetchedAt": "2026-10-11T08:36:50.485Z",
+  "fetchedAt": "2026-10-13T03:18:01.628Z",
   "sources": {
     "catalog": {
       "source": "catalog.illinois.edu/courses-of-instruction",
@@ -35,6 +35,30 @@
     "term": "fall",
     "fetchedAt": "2026-09-20T12:33:30.079Z"
   },
+  "sectionTerms": [
+    {
+      "id": "fall-2026",
+      "label": "Fall 2026",
+      "year": 2026,
+      "term": "fall",
+      "fetchedAt": "2026-09-20T12:33:30.079Z",
+      "source": "https://courses.illinois.edu/schedule/2026/fall",
+      "courses": 3034,
+      "file": "sections.json",
+      "raw": "illinois-sections.json"
+    },
+    {
+      "id": "spring-2027",
+      "label": "Spring 2027",
+      "year": 2027,
+      "term": "spring",
+      "fetchedAt": "2026-10-06T07:11:39.289Z",
+      "source": "https://courses.illinois.edu/schedule/2027/spring",
+      "courses": 3016,
+      "file": "sections/spring-2027.json",
+      "raw": "illinois-sections-sp2027.json"
+    }
+  ],
   "bands": {
     "typical": 10,
     "harder": 28,
@@ -49,8 +73,10 @@
     "withPrereqTextOnly": 1361,
     "withPrereqNoteOnly": 51,
     "withStandingRequirement": 419,
-    "withGrades": 2293,
-    "withoutGrades": 3817,
+    "withGrades": 2805,
+    "withoutGrades": 3305,
+    "withGradesFromTwin": 503,
+    "withGradesFromOldNumber": 9,
     "orphanGradeRows": 104,
     "withSections": 3034,
     "sectionTerm": "Fall 2026",
@@ -60,24 +86,25 @@
     "unknownCredit": 0,
     "droppedProgramRows": 0,
     "droppedTotalRows": 341,
-    "poolGroups": 466,
+    "poolGroups": 451,
     "implausibleProgramTotals": 0,
     "programsWithGenEd": 306,
     "genEdCategories": 2723,
-    "genEdCategoriesFromCampus": 665
+    "genEdCategoriesFromCampus": 656
   },
   "counts": {
     "indexed": 6110,
     "positioned": 6110,
     "withPrereqSpec": 3796,
-    "withGrades": 2293,
+    "withGrades": 2805,
+    "gradeRows": 2302,
     "withSections": 3034,
     "programs": 308,
     "programsWithCourses": 294,
     "programCourseRows": 13276,
     "programRowsWithCredits": 8966,
     "programRowsWithTitle": 13270,
-    "orphanGradeRows": 675,
+    "orphanGradeRows": 666,
     "subjectShards": 194,
     "programFiles": 308
   },
@@ -279,24 +306,24 @@
   ],
   "artifacts": {
     "index.json": {
-      "raw": 1206183,
-      "gzip": 197858
+      "raw": 1238758,
+      "gzip": 202364
     },
     "prereqs.json": {
-      "raw": 1226269,
-      "gzip": 100558
+      "raw": 1225923,
+      "gzip": 100748
     },
     "grades.json": {
-      "raw": 281487,
-      "gzip": 33479
+      "raw": 282596,
+      "gzip": 34199
     },
     "sections.json": {
       "raw": 1789091,
-      "gzip": 146618
+      "gzip": 148786
     },
     "programs.json": {
-      "raw": 105038,
-      "gzip": 10266
+      "raw": 105433,
+      "gzip": 10327
     }
   },
   "notes": [

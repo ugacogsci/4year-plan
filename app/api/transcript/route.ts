@@ -9,6 +9,7 @@ import {
   type TranscriptUploadBody,
   type TranscriptUploadFile,
 } from '@/lib/planner/transcript';
+import { dailyCapUsd, LIMITS, parseJson, readBodyCapped, sharedGuard, tokensForChars, visitorKey, worstCaseUsd } from '@/lib/planner/spend-guard';
 
 /**
  * The transcript reader.
@@ -32,6 +33,11 @@ import {
  * The contract is the reading, nothing more: { reading: TranscriptReading }.
  * Every failure is a sentence a student can act on, because the error text is
  * rendered under the upload button.
+ *
+ * A reading passes the spend guard first (lib/planner/spend-guard.ts): the
+ * body is refused past 32 MB before it is parsed, each visitor gets a few
+ * readings in ten minutes and twenty a day, and the day's spend cap
+ * (PLANNER_DAILY_SPEND_USD, shared with ALMA) reserves the worst case.
  */
 
 export const dynamic = 'force-dynamic';
@@ -45,6 +51,13 @@ const MAX_PDF_BASE64 = 14_000_000;
 /** All files of one request together. */
 const MAX_TOTAL_BASE64 = 30_000_000;
 const MAX_TEXT_CHARS = 300_000;
+const MAX_TOKENS = 16000;
+/**
+ * The input side of the worst case: a page of PDF or a screenshot reads as a
+ * few thousand tokens, far fewer than its base64 length suggests, so the
+ * estimate counts a quarter of the characters, capped at the model's window.
+ */
+const MAX_INPUT_TOKENS_ESTIMATE = 400_000;
 
 const Course = z.object({
   code: z.string().describe('The subject and catalog number exactly as printed, for example "MATH 221" or another school\'s "MAT 128". Illinois indirect credit is printed as "HIST 1--"; keep it that way.'),
@@ -91,6 +104,9 @@ For the document:
 
 Do not invent lines, grades, hours or equivalents. If a line is unreadable, leave it out and say so in notes. If several files were sent, read them as one document in the order given and do not repeat a line that appears on two of them.`;
 
+/** The reading for a University of Georgia student: UGA's own numbers, no Illinois equivalencies. */
+const UGA_SYSTEM = `Read the uploaded records for a University of Georgia degree planner. List every course line exactly as printed, including four-digit UGA course numbers and suffixes. Preserve the institution, sending school, grades, credit hours, term and status, and mark failed, withdrawn or explicitly no-credit lines accurately. For equivalent and equivalent_credits, copy only a UGA equivalency explicitly printed by the document; never invent a transfer equivalency. Do not apply Illinois equivalencies, IAI rules, or transfer assumptions. Return all files as one reading; do not include courses merely listed as requirements still to take in a DegreeWorks audit. Use null for unprinted values. Set hours_unit from the document. Include exam scores and subscores only when printed. The student will review and confirm the result.`;
+
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status });
 
 /** A file the body carries, checked, or a sentence about why it was refused. */
@@ -125,7 +141,9 @@ function readFile(file: Partial<TranscriptUploadFile>, index: number): { blocks:
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => null)) as Partial<TranscriptUploadBody> | null;
+  const raw = await readBodyCapped(req, LIMITS.transcript.maxBodyBytes);
+  if (raw === null) return json({ error: 'Those files are too large together. Send fewer at a time.' }, 413);
+  const body = parseJson(raw) as Partial<TranscriptUploadBody> | null;
   if (!body || typeof body !== 'object') return json({ error: 'Send a file to read.' }, 400);
 
   const files: Array<Partial<TranscriptUploadFile>> = 'files' in body && Array.isArray(body.files) ? body.files : [body as Partial<TranscriptUploadFile>];
@@ -156,17 +174,25 @@ export async function POST(req: Request) {
     text: `${files.length === 1 ? 'Read this document and list every course line on it.' : `Read these ${files.length} files as one document and list every course line on them.`} Today is ${today}: a course in a term that has already ended is completed (or failed, withdrawn, no credit, as printed) even when the document prints no grade; only a term still running or in the future is in progress.`,
   });
 
+  const admitted = sharedGuard().admit('transcript', visitorKey(req.headers), {
+    model: MODEL,
+    estimateUsd: worstCaseUsd(MODEL, Math.min(MAX_INPUT_TOKENS_ESTIMATE, tokensForChars((body.schoolId === 'uga' ? UGA_SYSTEM : SYSTEM).length) + Math.ceil(total / 4)), MAX_TOKENS),
+    capUsd: dailyCapUsd(),
+    names: { who: 'The transcript reader' },
+  });
+  if (!admitted.ok) return NextResponse.json({ error: admitted.error }, { status: admitted.status, headers: { 'retry-after': String(admitted.retryAfter) } });
+  const ticket = admitted;
+
   const client = new Anthropic();
   try {
     const response = await client.messages.parse({
       model: MODEL,
-      max_tokens: 16000,
-      system: body.schoolId === 'uga'
-        ? `Read the uploaded records for a University of Georgia degree planner. List every course line exactly as printed, including four-digit UGA course numbers and suffixes. Preserve the institution, sending school, grades, credit hours, term and status, and mark failed, withdrawn or explicitly no-credit lines accurately. For equivalent and equivalent_credits, copy only a UGA equivalency explicitly printed by the document; never invent a transfer equivalency. Do not apply Illinois equivalencies, IAI rules, or transfer assumptions. Return all files as one reading; do not include courses merely listed as requirements still to take in a DegreeWorks audit. Use null for unprinted values. Set hours_unit from the document. Include exam scores and subscores only when printed. The student will review and confirm the result.`
-        : SYSTEM,
+      max_tokens: MAX_TOKENS,
+      system: body.schoolId === 'uga' ? UGA_SYSTEM : SYSTEM,
       messages: [{ role: 'user', content }],
       output_config: { format: zodOutputFormat(Reading) },
     });
+    ticket.settle(response.usage);
 
     if (response.stop_reason === 'refusal') {
       return json({ error: 'The reader declined this file. A clearer copy, or a screenshot of just the course list, usually works.' }, 502);
@@ -209,6 +235,8 @@ export async function POST(req: Request) {
       usage: { input_tokens: response.usage.input_tokens, output_tokens: response.usage.output_tokens },
     });
   } catch (error) {
+    // A 4xx was refused before any tokens were made; anything else may have spent some.
+    ticket.settle(null, { keepReservation: !(error instanceof Anthropic.APIError && typeof error.status === 'number' && error.status < 500) });
     if (error instanceof Anthropic.AuthenticationError) {
       console.warn('[transcript] the API key was rejected.');
       return json({ error: 'Transcript reading is not configured correctly on this build.' }, 503);

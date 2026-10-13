@@ -17,7 +17,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { decode } from 'node:querystring';
 
-const UA = 'TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)';
+const UA = 'FourYearPlanBot/1.0 (student planning project; respects robots.txt)';
 const BASE = 'https://catalog.illinois.edu';
 const DELAY = 1200;            // robots.txt asks nothing, but the UGA crawl's pace is the house rule
 

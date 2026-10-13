@@ -16,6 +16,7 @@
  * ask for a confirmation the model has to obtain in the conversation first.
  */
 import type Anthropic from '@anthropic-ai/sdk';
+import { CLUBS_RULES, FIND_CLUBS_TOOL } from './clubs-tool';
 
 export type AdvisorMessage = Anthropic.Beta.BetaMessageParam;
 export type AdvisorBlock = Anthropic.Beta.BetaContentBlock;
@@ -46,7 +47,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'course_details',
     description:
-      "Everything the planner holds about one course: the catalog description, its prerequisite sentence, general education categories, grade history, its record on the university's Teachers Ranked as Excellent lists, how it fits the student's priorities and why, how many sections ran in the crawled term, whether it is on the board or already taken, whether its card could be taken credit/no credit (crnc_eligible, crnc_why) and, for a course behind an application, apply_first.",
+      "Everything the planner holds about one course: the catalog description, its prerequisite sentence, general education categories, grade history, its record on the university's Teachers Ranked as Excellent lists, how it fits the student's priorities and why, its sections and who teaches them in the term that matters (sections_term: the term it sits in when that term's class schedule is published, otherwise the schedule sections_note names; the newest schedule for a course not on the board), whether it is on the board or already taken, whether its card could be taken credit/no credit (crnc_eligible, crnc_why) and, for a course behind an application, apply_first.",
     input_schema: {
       type: 'object',
       properties: { code: { type: 'string', description: 'A course code like "HIST 200".' } },
@@ -68,7 +69,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'term_summary',
     description:
-      'One term of the board: its courses with why each is there (required, from a list, elective slot, or added by the student), its credit hours, any available workload evidence, and any review issues on it. crnc_eligible and crnc_why explain credit/no-credit eligibility where the active university data supports it.',
+      'One term of the board: its courses with why each is there (required, from a list, elective slot, or added by the student) and whether each could be taken credit/no credit (crnc_eligible, crnc_why, where the active university data supports it), its credit hours, any available workload evidence (at Illinois, how heavy it reads against grade history), whether its courses fit in one week of published class times (weekly_schedule: checked for terms whose schedule Illinois has published, Fall 2026 and Spring 2027; a clash names the courses no choice of sections keeps apart), and any review issues on it.',
     input_schema: {
       type: 'object',
       properties: { term: { type: 'string', description: 'A term label like "Spring 2028".' } },
@@ -185,7 +186,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'review_board',
     description:
-      "The planner's own read of the whole board: each term's credits and how heavy it reads against Illinois grade history, terms that stack several hardest-band courses, courses that have not run in any recent term, courses placed in a season they have not run in, requirements still open, the review flags, the first year's pace, hours that count toward nothing, and a summer where one would buy time (a suggestion only). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
+      "The planner's own read of the whole board: each term's credits and how heavy it reads against Illinois grade history, terms that stack several hardest-band courses, courses that have not run in any recent term, courses placed in a season they have not run in, each published term's weekly class-time check (weekly_schedule), requirements still open, the review flags, the first year's pace, hours that count toward nothing, and a summer where one would buy time (a suggestion only). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -370,6 +371,8 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
       additionalProperties: false,
     },
   },
+  // Illinois only, like course_syllabus: the club directory is Illinois's. Defined in clubs-tool.ts.
+  FIND_CLUBS_TOOL,
 ];
 
 export type AdvisorToolName =
@@ -395,7 +398,8 @@ export type AdvisorToolName =
   | 'record_prior_credit'
   | 'drop_prior_credit'
   | 'planner_answer'
-  | 'university_answer';
+  | 'university_answer'
+  | 'find_clubs';
 
 /**
  * Runs one tool against the real board. Implemented by the workspace.
@@ -460,12 +464,10 @@ const ILLINOIS_RULES = [
   // las.illinois.edu/academics/courses/repeating (read 2026-09-24): a course passed with D- or better may be repeated
   // but earns no more credit, and without grade replacement both grades count in the GPA.
   "- Grade replacement (Student Code 3-309): only when the first grade was C-, D+, D, D- or F; at most 4 distinct courses and 10 hours in all, retaken at Illinois; filed on a form at the college office in the first half of the retake's term; never for a course with a reported academic integrity violation. The second grade then replaces the first in the GPA, and the hours count once. A C or better cannot be replaced: repeating a passed course earns no more hours, and both grades count in the GPA. The board shows a taken course as taken; a retake is the student's to add.",
-  // registrar.illinois.edu/ug-reg-dlines-fa26/ and registrar.illinois.edu/fall-2026-academic-calendar/ (read
-  // 2026-09-24), full-term (POT 1) column: add Sep 4; drop with no W, CR/NC request and grade replacement Oct 16;
-  // withdraw with a minimum 40% refund Oct 30; Spring 2027 time tickets Oct 26, priority registration Nov 2, open
-  // registration Nov 19.
-  '- Fall 2026 full-term courses: add by Sept 4; Oct 16 is the last day to drop with no W, to request CR/NC and to file a grade replacement at the college office; Oct 30 is the last day to withdraw with at least a 40% refund. Spring 2027 time tickets appear Oct 26, priority registration begins Nov 2 and open registration Nov 19. Half-term courses and later terms have their own dates: use university_answer.',
-  "- Today's date is the first line of the board description. Measure every deadline against it: a date before today has passed, so say it has passed (\"Oct 16, the last day to drop without a W, has passed\") and name who can still help.",
+  // The term's add, drop, withdrawal and registration dates are not here: they come from lib/planner/term-dates.ts,
+  // by term, for the day the student asks, in their own system block (app/api/advisor/route.ts).
+  '- Add, drop, CR/NC, withdrawal and registration dates come from the "Illinois term dates" block below, for the term in progress and the next one. State only those dates; for half-term courses and any other term use university_answer.',
+  "- Today's date is the first line of the board description. Measure every deadline against it: a date before today has passed, so say it has passed (\"the last day to drop without a W has passed\") and name who can still help.",
 ].join('\n');
 
 const WHO_DECIDES = [
@@ -554,7 +556,7 @@ What you are for
 - When a request is ambiguous in a way that changes what you would do (which of two required courses to drop, whether to keep a course they said they liked), ask one short question and wait.
 - Keep the conversation: remember what they told you earlier in this chat and build on it.
 - The student's priorities decide which electives the planner picks and how choices are ordered: lighter workload, highly rated teaching, relevance to their interests and career, covering more requirements at once, fitting their schedule. The board description says what they are now. When the student says what they care about ("easy classes", "the best professors", "nothing before 9", "afternoons only", "Fridays off", "in person only"), call set_priorities, let it re-pick the planner's choices (electives, list picks and gen-ed picks; never required courses or the language), and tell them what changed and why. Priorities choose courses; they do not move required courses or change how many credits a term holds. For balance between terms, the credit load, the finish date, summers, terms away or spreading hard courses, use set_plan_shape.
-- The plan picks courses for each term, not sections. Days off, exact times and a particular instructor are chosen at registration: say so, and use course_details or planner_answer to show when a course met and who taught it. Section times come from one crawled term (the board says which), so a spring course is judged on its fall sections.
+- The plan picks courses for each term, not sections. Days off, exact times and a particular instructor are chosen at registration: say so, and use course_details or planner_answer to show when a course met and who taught it. Section times come from the published class schedules: course_details and planner_answer give the sections of the term a course sits in when that term's schedule is published, and otherwise say which term's sections they show (sections_term, sections_note); repeat that label. The planner's own choices (fit, no 8 a.m., days off, teaching) still weigh every term on the first crawled term's sections, which the fit reasons name, so when they differ from a spring course's own sections, the sections are the fact.
 - A second major, a dual degree, or "is X worth adding": call compare_programs first. Say whether the pair is a double major or a dual degree and why, in the college's own rule with its page; what already counts; what it adds in courses, hours and terms; and any reading doubt it flags, since a doubted reading undercounts. The board can contain several explicitly selected programs: put the second program's courses on it only after the student says yes to them (what_if first), and never switch their program for them. Name the closest second majors (compare_programs with no program) only when the student is weighing one or asks what their spare room could become, and then one or two. The planner has no minor or certificate pages: for a minor, say so, get its requirements from university_answer and try its courses with what_if; courses added by hand for a minor are not checked against it.
 - When a student wants a course or subject kept out of their electives, replace it and tell them a rebuild may bring it back until they say so again.
 
@@ -569,6 +571,9 @@ Rules about the board
 
 Illinois rules you state (read on the university's pages; say which)
 ${ILLINOIS_RULES}
+
+Clubs (the university's own directory, through find_clubs)
+${CLUBS_RULES}
 
 Situations
 ${SITUATIONS}

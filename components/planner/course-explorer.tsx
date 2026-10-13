@@ -14,6 +14,7 @@ import { COLLAPSED_MAP_HEIGHT, MIN_MAP_HEIGHT, resolveMapHeight } from '@/lib/pl
 import type { IllinoisCore } from '@/lib/planner/illinois-load';
 import type { SchoolId } from '@/lib/planner/onboarding';
 import type { Course, MapPosition, PlanTerm } from '@/lib/planner/types';
+import { mayBookAgain } from '@/lib/planner/repeats';
 
 interface CourseExplorerProps {
   /** The whole catalog. The canvas paints every course; only active nodes use DOM controls. */
@@ -926,6 +927,8 @@ export function CourseExplorer({
   const showList = chooser ? listRows.length > 0 : Boolean(normalizedQuery) && results.length > 0;
   const add = (courseId: string) => (chooser ? chooser.onPick(courseId) : onAddCourse(courseId, targetTermId));
   const addLabel = chooser ? `into ${chooser.termLabel}` : `to ${targetLabel}`;
+  /** May this course go on the board once more, in the term the student is adding to (repeats.ts)? Never from the elective chooser. */
+  const addsAgain = (course: Course) => !chooser && targetTermId !== 'completed' && mayBookAgain(course, { completedCourseIds: [], terms }, course.id, targetTermId);
 
   return (
     <aside
@@ -1217,6 +1220,12 @@ export function CourseExplorer({
                   core={core}
                   schoolId={schoolId}
                   completed={completedCodes.has(selected.code.toUpperCase())}
+                  // The column the course sits in decides which term's class
+                  // times the card shows: a spring-column course shows Spring 2027.
+                  planTerm={(() => {
+                    const at = terms.find((t) => t.courseIds.includes(selected.id));
+                    return at ? { id: at.id, label: at.label } : null;
+                  })()}
                 />
               </details>
               <div className="inspector-add">
@@ -1234,11 +1243,15 @@ export function CourseExplorer({
                 </NativeSelect>
                 <Button
                   className="inspector-add-button"
-                  disabled={plannedCourseIds.has(selected.id)}
+                  disabled={plannedCourseIds.has(selected.id) && !addsAgain(selected)}
                   onClick={() => add(selected.id)}
                 >
-                  {plannedCourseIds.has(selected.id) ? <Check /> : <Plus />}
-                  {plannedCourseIds.has(selected.id) ? 'In plan' : 'Add'}
+                  {plannedCourseIds.has(selected.id) && !addsAgain(selected) ? <Check /> : <Plus />}
+                  {plannedCourseIds.has(selected.id) && !addsAgain(selected)
+                    ? 'In plan'
+                    : plannedCourseIds.has(selected.id)
+                      ? 'Add again'
+                      : 'Add'}
                 </Button>
               </div>
             </div>
@@ -1259,8 +1272,9 @@ export function CourseExplorer({
           </p>
           <ul>
             {listRows.map((course) => {
-              const inPlan = plannedCourseIds.has(course.id);
-              const taken = completedCodes.has(course.code.toUpperCase());
+              // A course the catalog lets a student repeat can go on again (THEA 359 for Stage Management's 8 hours).
+              const inPlan = plannedCourseIds.has(course.id) && !addsAgain(course);
+              const taken = completedCodes.has(course.code.toUpperCase()) && !addsAgain(course);
               return (
                 <li key={course.id} className={cn(course.id === selectedCourseId && 'is-selected')}>
                   <button type="button" className="finder-result" onClick={() => onSelectCourse(course.id)}>

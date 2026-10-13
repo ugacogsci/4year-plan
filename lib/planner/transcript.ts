@@ -465,18 +465,29 @@ export function matchTranscript(
   }
 
   // The same Illinois course twice. A repeat of the same course counts once
-  // (Illinois never grants the hours twice); two different courses that both
+  // (Illinois never grants the hours twice), unless the catalog lets a
+  // student repeat it for credit (MUSC 105, private voice, "may be repeated
+  // in separate terms up to 16 undergraduate hours"): then each sitting's
+  // hours count, up to the catalog's cap. Two different courses that both
   // look like one Illinois course keep the second as elective hours, which is
   // what an evaluator does with the second of two similar courses.
   const firstFor = new Map<string, TranscriptCourseRecord>();
+  const sittings = new Map<string, number>();
   for (const line of courses) {
     if (!line.use || line.counts !== 'course' || !line.matched) continue;
     const earlier = firstFor.get(line.matched);
     if (!earlier) {
       firstFor.set(line.matched, line);
+      sittings.set(line.matched, 1);
       continue;
     }
-    if (earlier.code === line.code) {
+    const repeat = known.get(line.matched)?.repeat;
+    const n = (sittings.get(line.matched) ?? 1) + 1;
+    const perSitting = known.get(line.matched)?.credits ?? 0;
+    if (earlier.code === line.code && repeat && (repeat.max === null || n * perSitting <= repeat.max + 0.01)) {
+      sittings.set(line.matched, n);
+      Object.assign(line, { counts: 'hours', matched: null, matchedBy: null, illinoisCredits: null, also: undefined, matchNote: `a repeat of ${line.code}, which the catalog lets a student take for credit again; its hours count` });
+    } else if (earlier.code === line.code) {
       Object.assign(line, { counts: 'none', use: false, matchNote: `a repeat of ${line.code}; it counts once` });
     } else {
       Object.assign(line, { counts: 'hours', matched: null, matchedBy: null, illinoisCredits: null, also: undefined, matchNote: `${earlier.code} already counts as ${earlier.matched}` });

@@ -1,0 +1,1102 @@
+{
+ "about": "Persona set for judging club recommendations. Club ids are one.illinois.edu (CampusGroups) club ids from the directory read on 2026-10-05. gold: a good list includes at least one. traps: must never appear. heardNow: what lib/planner/career-tracks.ts interestProfile(after) hears today; unheard goals need new topics before clubs can match them. traps.scope: never = no undergraduate should be sent there for any goal; persona = wrong only for this student (a goal taken back, a relative's goal, a different specialty).",
+ "copied": "A copy of the club design's personas.json (2026-10-04), used by lib/planner/__clubs.check.mjs. Club ids are OneIllinois ids; names are as the directory printed them when the set was written, and the check notes any the directory has since renamed.",
+ "directory": "https://one.illinois.edu/club_signup?view=all",
+ "read": "2026-10-05",
+ "personas": [
+  {
+   "id": "p01-premed",
+   "label": "Pre-med biology major",
+   "programId": "las/molecular-cellular-biology-bslas",
+   "studying": "Molecular and cellular biology",
+   "after": "medical school, maybe a surgeon",
+   "wantKinds": [
+    "professional",
+    "interest",
+    "community"
+   ],
+   "gold": [
+    {
+     "id": "35517",
+     "name": "American Medical Student Association Pre-Med",
+     "slug": "AmericanMedicalStudentAssociationPreMed",
+     "link": "https://one.illinois.edu/AmericanMedicalStudentAssociationPreMed/"
+    },
+    {
+     "id": "36066",
+     "name": "Minority Association of Pre-Medical Students",
+     "slug": "MinorityAssociationofPreMedicalStudents",
+     "link": "https://one.illinois.edu/MinorityAssociationofPreMedicalStudents/"
+    },
+    {
+     "id": "35483",
+     "name": "Alpha Epsilon Delta Pre-Health Society",
+     "slug": "AlphaEpsilonDelta",
+     "link": "https://one.illinois.edu/AlphaEpsilonDelta/"
+    },
+    {
+     "id": "36137",
+     "name": "Phi Chi Premedical Society",
+     "slug": "PhiChi",
+     "link": "https://one.illinois.edu/PhiChi/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "37115",
+     "name": "Carle Illinois College of Medicine",
+     "reason": "medical-school or graduate members only",
+     "slug": "carleillinois",
+     "link": "https://one.illinois.edu/carleillinois/",
+     "scope": "never"
+    },
+    {
+     "id": "37113",
+     "name": "Christian Medical and Dental Association",
+     "reason": "medical-school or graduate members only",
+     "slug": "christianmedicalanddentalassociation",
+     "link": "https://one.illinois.edu/christianmedicalanddentalassociation/",
+     "scope": "never"
+    }
+   ],
+   "heardNow": [
+    "pre-medicine"
+   ],
+   "goalKind": "track"
+  },
+  {
+   "id": "p02-prelaw",
+   "label": "Pre-law political science major",
+   "programId": "las/political-science-balas/general-political-science",
+   "studying": "Political science",
+   "after": "law school",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "36133",
+     "name": "Phi Alpha Delta - Pre-Law Undergraduate Chapter",
+     "slug": "PhiAlphaDeltaPreLawUndergraduate",
+     "link": "https://one.illinois.edu/PhiAlphaDeltaPreLawUndergraduate/"
+    },
+    {
+     "id": "35934",
+     "name": "Illinois Trial Team",
+     "slug": "IllinoisTrialTeam",
+     "link": "https://one.illinois.edu/IllinoisTrialTeam/"
+    },
+    {
+     "id": "35842",
+     "name": "Illini Speech and Debate",
+     "slug": "IlliniSpeechandDebate",
+     "link": "https://one.illinois.edu/IlliniSpeechandDebate/"
+    },
+    {
+     "id": "35912",
+     "name": "Illinois Model United Nations",
+     "slug": "IllinoisModelUnitedNations",
+     "link": "https://one.illinois.edu/IllinoisModelUnitedNations/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "35578",
+     "name": "Black Law Students Association",
+     "reason": "College of Law (JD) student organization",
+     "slug": "BlackLawStudentsAssociation",
+     "link": "https://one.illinois.edu/BlackLawStudentsAssociation/",
+     "scope": "never"
+    },
+    {
+     "id": "36134",
+     "name": "Phi Alpha Delta Law Fraternity, Magruder Chapter ( Illinois Law School )",
+     "reason": "College of Law (JD) student organization",
+     "slug": "PhiAlphaDeltaLawFraternityMagruderChapter",
+     "link": "https://one.illinois.edu/PhiAlphaDeltaLawFraternityMagruderChapter/",
+     "scope": "never"
+    },
+    {
+     "id": "35646",
+     "name": "Criminal Law Society",
+     "reason": "College of Law (JD) student organization",
+     "slug": "CriminalLawSociety",
+     "link": "https://one.illinois.edu/CriminalLawSociety/",
+     "scope": "never"
+    },
+    {
+     "id": "35559",
+     "name": "Bankruptcy Law Society",
+     "reason": "College of Law (JD) student organization",
+     "slug": "BankruptcyLawSociety",
+     "link": "https://one.illinois.edu/BankruptcyLawSociety/",
+     "scope": "never"
+    }
+   ],
+   "heardNow": [
+    "pre-law"
+   ],
+   "goalKind": "track"
+  },
+  {
+   "id": "p03-swe",
+   "label": "Software engineer, CS major",
+   "programId": "engineering/computer-science-bs",
+   "studying": "Computer science",
+   "after": "software engineer at a big tech company",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "35545",
+     "name": "Association for Computing Machinery",
+     "slug": null,
+     "link": "https://acm.illinois.edu/"
+    },
+    {
+     "id": "35779",
+     "name": "Hack4Impact UIUC",
+     "slug": "Hack4Impact",
+     "link": "https://one.illinois.edu/Hack4Impact/"
+    },
+    {
+     "id": "36184",
+     "name": "Project Code UIUC",
+     "slug": null,
+     "link": "https://www.projectcodeuiuc.org/"
+    },
+    {
+     "id": "35588",
+     "name": "BuildIllinois",
+     "slug": null,
+     "link": "https://buildillinois.org/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "36900",
+     "name": "Grainger Computer Science",
+     "reason": "department office account, membership closed, no mission",
+     "slug": "graingercs",
+     "link": "https://one.illinois.edu/graingercs/",
+     "scope": "never"
+    }
+   ],
+   "heardNow": [
+    "software engineering"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p04-consulting",
+   "label": "Management consulting, economics major",
+   "programId": "las/economics-balas",
+   "studying": "Economics",
+   "after": "management consulting",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "35896",
+     "name": "Illinois Consulting Group",
+     "slug": "IllinoisConsultingGroup",
+     "link": "https://one.illinois.edu/IllinoisConsultingGroup/"
+    },
+    {
+     "id": "36120",
+     "name": "OTCR Consulting",
+     "slug": "OTCRConsulting",
+     "link": "https://one.illinois.edu/OTCRConsulting/"
+    },
+    {
+     "id": "35717",
+     "name": "FACES Consulting",
+     "slug": "FACESConsulting",
+     "link": "https://one.illinois.edu/FACESConsulting/"
+    },
+    {
+     "id": "35601",
+     "name": "Champaign-Urbana Business and Engineering Consulting",
+     "slug": null,
+     "link": "https://www.cubeconsulting.org/"
+    }
+   ],
+   "traps": [],
+   "heardNow": [
+    "consulting"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p05-ib",
+   "label": "Investment banking, finance major",
+   "programId": "bus/finance-bs",
+   "studying": "Finance",
+   "after": "Investment banking in Chicago",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "36179",
+     "name": "Prime Mergers and Acquisitions",
+     "slug": "PrimeMergersAcquisitions",
+     "link": "https://one.illinois.edu/PrimeMergersAcquisitions/"
+    },
+    {
+     "id": "36407",
+     "name": "Alpha Investment Management Partners",
+     "slug": null,
+     "link": "https://www.aim-illinois.com"
+    },
+    {
+     "id": "35972",
+     "name": "Investment Portfolio Organization",
+     "slug": null,
+     "link": "https://www.ipouiuc.com/"
+    },
+    {
+     "id": "35489",
+     "name": "Alpha Kappa Psi Professional Business Fraternity",
+     "slug": "AlphaKappaPsi",
+     "link": "https://one.illinois.edu/AlphaKappaPsi/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "36522",
+     "name": "Phi Kappa Psi",
+     "reason": "social fraternity whose name only looks like a business one",
+     "slug": "PhiKappaPsi",
+     "link": "https://one.illinois.edu/PhiKappaPsi/",
+     "scope": "persona"
+    },
+    {
+     "id": "35993",
+     "name": "Kappa Kappa Psi",
+     "reason": "band service honorary, membership closed",
+     "slug": "KappaKappaPsi",
+     "link": "https://one.illinois.edu/KappaKappaPsi/",
+     "scope": "persona"
+    }
+   ],
+   "heardNow": [
+    "investment banking/corporate finance"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p06-teacher",
+   "label": "Elementary teacher",
+   "programId": "education/elementary-education-bs",
+   "studying": "Elementary education",
+   "after": "I want to teach third grade",
+   "wantKinds": [
+    "professional",
+    "community"
+   ],
+   "gold": [
+    {
+     "id": "35901",
+     "name": "Illinois Education Association - Aspiring Educators",
+     "slug": "IllinoisEducationAssociationAspiringEducators",
+     "link": "https://one.illinois.edu/IllinoisEducationAssociationAspiringEducators/"
+    },
+    {
+     "id": "35711",
+     "name": "Epsilon Delta Professional Teaching Organization",
+     "slug": "EpsilonDeltaProfessionalTeachingOrganization",
+     "link": "https://one.illinois.edu/EpsilonDeltaProfessionalTeachingOrganization/"
+    },
+    {
+     "id": "35538",
+     "name": "Asha for Education: Urbana-Champaign",
+     "slug": "AshaforEducation",
+     "link": "https://one.illinois.edu/AshaforEducation/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "35696",
+     "name": "Education Law and Policy Society",
+     "reason": "College of Law society (education law), not teacher prep",
+     "slug": "EducationLawandPolicySociety",
+     "link": "https://one.illinois.edu/EducationLawandPolicySociety/",
+     "scope": "never"
+    }
+   ],
+   "heardNow": [
+    "education/teaching"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p07-nursing",
+   "label": "Future nurse, community health major",
+   "programId": "ahs/community-health-bs",
+   "studying": "Community health",
+   "after": "I want to be a nurse",
+   "wantKinds": [
+    "professional",
+    "community"
+   ],
+   "gold": [
+    {
+     "id": "36272",
+     "name": "Student Nurses’ Association",
+     "slug": "StudentNursesAssociation",
+     "link": "https://one.illinois.edu/StudentNursesAssociation/"
+    },
+    {
+     "id": "35483",
+     "name": "Alpha Epsilon Delta Pre-Health Society",
+     "slug": "AlphaEpsilonDelta",
+     "link": "https://one.illinois.edu/AlphaEpsilonDelta/"
+    }
+   ],
+   "traps": [],
+   "notes": "Illinois has no BSN on the Urbana campus (the nursing topic cites UIC). Identity-centered nursing groups (Black Student Nursing Association, Hispanic Student Nursing Association) only if the student names that identity.",
+   "heardNow": [
+    "nursing"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p08-phd-chem",
+   "label": "Research / PhD in chemistry",
+   "programId": "las/chemistry-bs",
+   "studying": "Chemistry",
+   "after": "get a PhD and do research in chemistry",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "35508",
+     "name": "American Chemical Society",
+     "slug": "AmericanChemicalSociety",
+     "link": "https://one.illinois.edu/AmericanChemicalSociety/"
+    },
+    {
+     "id": "36185",
+     "name": "Undergraduate Research in Scientific Advancement",
+     "slug": "UndergraduateResearchinScientificAdvancement",
+     "link": "https://one.illinois.edu/UndergraduateResearchinScientificAdvancement/"
+    },
+    {
+     "id": "36311",
+     "name": "The Illinois Student Undergraduate Research Journal",
+     "slug": "TheIllinoisStudentUndergraduateResearchJournal",
+     "link": "https://one.illinois.edu/TheIllinoisStudentUndergraduateResearchJournal/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "35671",
+     "name": "Department of Chemical and Biomolecular Engineering Graduate Student Advisory Council University of Illinois at Urbana Champaign",
+     "reason": "graduate students only",
+     "slug": "DCBEGSAC",
+     "link": "https://one.illinois.edu/DCBEGSAC/",
+     "scope": "never"
+    }
+   ],
+   "heardNow": [],
+   "goalKind": "unheard"
+  },
+  {
+   "id": "p09-nonprofit",
+   "label": "Nonprofit work, sociology major",
+   "programId": "las/sociology-balas",
+   "studying": "Sociology",
+   "after": "work for a nonprofit that helps kids",
+   "wantKinds": [
+    "professional",
+    "community"
+   ],
+   "gold": [
+    {
+     "id": "36275",
+     "name": "Students Consulting for Nonprofit Organizations",
+     "slug": null,
+     "link": "https://illiniscno.org/"
+    },
+    {
+     "id": "37006",
+     "name": "Campus Volunteer Leadership Association",
+     "slug": "CampusVolunteerLeadershipAssociation",
+     "link": "https://one.illinois.edu/CampusVolunteerLeadershipAssociation/"
+    },
+    {
+     "id": "37002",
+     "name": "Alternative Seasonal Breaks at UIUC",
+     "slug": "alternativeseasonalbreaks",
+     "link": "https://one.illinois.edu/alternativeseasonalbreaks/"
+    },
+    {
+     "id": "35538",
+     "name": "Asha for Education: Urbana-Champaign",
+     "slug": "AshaforEducation",
+     "link": "https://one.illinois.edu/AshaforEducation/"
+    }
+   ],
+   "traps": [],
+   "heardNow": [],
+   "goalKind": "unheard"
+  },
+  {
+   "id": "p10-music",
+   "label": "Orchestral trumpet player",
+   "programId": "faa/instrumental-music-bmus",
+   "studying": "Instrumental music, trumpet",
+   "after": "play trumpet professionally in an orchestra",
+   "wantKinds": [
+    "professional",
+    "interest",
+    "community"
+   ],
+   "gold": [
+    {
+     "id": "35999",
+     "name": "Kick Brass - Brass Band",
+     "slug": "KickBrassBrassBand",
+     "link": "https://one.illinois.edu/KickBrassBrassBand/"
+    },
+    {
+     "id": "36806",
+     "name": "Phi Mu Alpha Sinfonia Fraternity",
+     "slug": "phimualphasinfonia",
+     "link": "https://one.illinois.edu/phimualphasinfonia/"
+    },
+    {
+     "id": "35913",
+     "name": "Illinois Music Business Club",
+     "slug": "IllinoisMusicBusinessClub",
+     "link": "https://one.illinois.edu/IllinoisMusicBusinessClub/"
+    },
+    {
+     "id": "36612",
+     "name": "Film Score Orchestra ( FSO )",
+     "slug": "filmscoreorchestra",
+     "link": "https://one.illinois.edu/filmscoreorchestra/"
+    },
+    {
+     "id": "37101",
+     "name": "Electric Orchestra at UIUC",
+     "slug": "ElectricOrchestraatUIUC",
+     "link": "https://one.illinois.edu/ElectricOrchestraatUIUC/"
+    }
+   ],
+   "traps": [],
+   "heardNow": [],
+   "goalKind": "unheard"
+  },
+  {
+   "id": "p11-journalism",
+   "label": "Newspaper reporter",
+   "programId": "media/journalism-bs",
+   "studying": "Journalism",
+   "after": "reporter at a big newspaper",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "36242",
+     "name": "Society of Professional Journalists",
+     "slug": "SocietyofProfessionalJournalists",
+     "link": "https://one.illinois.edu/SocietyofProfessionalJournalists/"
+    },
+    {
+     "id": "36386",
+     "name": "WPGU-FM 107.1",
+     "slug": "WPGUFM1071",
+     "link": "https://one.illinois.edu/WPGUFM1071/"
+    },
+    {
+     "id": "35788",
+     "name": "Her Campus Illinois",
+     "slug": "HerCampus",
+     "link": "https://one.illinois.edu/HerCampus/"
+    }
+   ],
+   "traps": [],
+   "notes": "The Daily Illini (Illini Media) is not in the RSO directory; whether to add it from a hand list is an owner decision.",
+   "heardNow": [
+    "journalism"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p12-undecided",
+   "label": "Undecided freshman",
+   "programId": null,
+   "studying": "Not sure yet",
+   "after": "I have no idea yet",
+   "wantKinds": [
+    "community",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "36885",
+     "name": "Exploratory Students Association",
+     "slug": "exploratorystudentsassociation",
+     "link": "https://one.illinois.edu/exploratorystudentsassociation/"
+    },
+    {
+     "id": "37006",
+     "name": "Campus Volunteer Leadership Association",
+     "slug": "CampusVolunteerLeadershipAssociation",
+     "link": "https://one.illinois.edu/CampusVolunteerLeadershipAssociation/"
+    }
+   ],
+   "traps": [],
+   "notes": "No career-specific (pre-professional, consulting, banking) club may appear; the list should be broad and say how to explore.",
+   "heardNow": [],
+   "goalKind": "none"
+  },
+  {
+   "id": "p13-prept",
+   "label": "Pre-physical therapy, kinesiology",
+   "programId": "ahs/kinesiology-bs/applied-exercise-science",
+   "studying": "Kinesiology",
+   "after": "physical therapy school",
+   "wantKinds": [
+    "professional",
+    "community"
+   ],
+   "gold": [
+    {
+     "id": "36175",
+     "name": "Pre-Physical Therapy Club",
+     "slug": "PrePhysicalTherapyClub",
+     "link": "https://one.illinois.edu/PrePhysicalTherapyClub/"
+    },
+    {
+     "id": "35483",
+     "name": "Alpha Epsilon Delta Pre-Health Society",
+     "slug": "AlphaEpsilonDelta",
+     "link": "https://one.illinois.edu/AlphaEpsilonDelta/"
+    }
+   ],
+   "traps": [],
+   "notes": "Thin goal: one dedicated club. A good list says so and adds the pre-health family rather than padding with unrelated clubs.",
+   "heardNow": [
+    "pre-physical-therapy"
+   ],
+   "goalKind": "track"
+  },
+  {
+   "id": "p14-data",
+   "label": "Sports data analyst",
+   "programId": "ischool/information-sciences-data-science-bs",
+   "studying": "Information sciences + data science",
+   "after": "data analyst for a pro sports team",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "35898",
+     "name": "Illinois Data Science Club",
+     "slug": "IllinoisDataScienceClub",
+     "link": "https://one.illinois.edu/IllinoisDataScienceClub/"
+    },
+    {
+     "id": "37031",
+     "name": "Illini Strategy and Statistics Society",
+     "slug": "IlliniStrategyandStatisticsSociety",
+     "link": "https://one.illinois.edu/IlliniStrategyandStatisticsSociety/"
+    },
+    {
+     "id": "36553",
+     "name": "Sports Analytics Society",
+     "slug": "SportsAnalyticsSociety",
+     "link": "https://one.illinois.edu/SportsAnalyticsSociety/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "36256",
+     "name": "Statistics Doctoral Student Association",
+     "reason": "doctoral students only",
+     "slug": "StatisticsDoctoralStudentAssociation",
+     "link": "https://one.illinois.edu/StatisticsDoctoralStudentAssociation/",
+     "scope": "never"
+    }
+   ],
+   "heardNow": [
+    "data science/analytics",
+    "sports management/business"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p15-advertising",
+   "label": "Ad agency creative",
+   "programId": "media/advertising-bs",
+   "studying": "Advertising",
+   "after": "creative director at an ad agency",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "35504",
+     "name": "American Advertising Federation at the University of Illinois",
+     "slug": null,
+     "link": "https://www.aafillinois.com"
+    },
+    {
+     "id": "35516",
+     "name": "American Marketing Association",
+     "slug": "AmericanMarketingAssociation",
+     "link": "https://one.illinois.edu/AmericanMarketingAssociation/"
+    },
+    {
+     "id": "36271",
+     "name": "Student Media Marketing Association",
+     "slug": "StudentMediaMarketingAssociation",
+     "link": "https://one.illinois.edu/StudentMediaMarketingAssociation/"
+    }
+   ],
+   "traps": [],
+   "heardNow": [],
+   "goalKind": "unheard"
+  },
+  {
+   "id": "p16-robotics",
+   "label": "Robotics, mechanical engineering",
+   "programId": "engineering/mechanical-engineering-bs",
+   "studying": "Mechanical engineering",
+   "after": "design robots",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "35525",
+     "name": "American Society of Mechanical Engineers",
+     "slug": "AmericanSocietyofMechanicalEngineers",
+     "link": "https://one.illinois.edu/AmericanSocietyofMechanicalEngineers/"
+    },
+    {
+     "id": "35881",
+     "name": "Illini VEX Robotics",
+     "slug": "IlliniVEXRobotics",
+     "link": "https://one.illinois.edu/IlliniVEXRobotics/"
+    },
+    {
+     "id": "35632",
+     "name": "Combat Robotics",
+     "slug": "CombatRobotics",
+     "link": "https://one.illinois.edu/CombatRobotics/"
+    },
+    {
+     "id": "36958",
+     "name": "FIRST Illini Robotics",
+     "slug": "firstillinirobotics",
+     "link": "https://one.illinois.edu/firstillinirobotics/"
+    },
+    {
+     "id": "36486",
+     "name": "Illini ARC Robotics",
+     "slug": "ARCRobotics",
+     "link": "https://one.illinois.edu/ARCRobotics/"
+    },
+    {
+     "id": "36830",
+     "name": "Exploration Robotics at University of Illinois",
+     "slug": "explorationrobotics",
+     "link": "https://one.illinois.edu/explorationrobotics/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "36906",
+     "name": "Grainger Mechanical Science and Engineering",
+     "reason": "department office account, membership closed, no mission",
+     "slug": null,
+     "link": "https://mechse.illinois.edu/undergraduate",
+     "scope": "never"
+    }
+   ],
+   "heardNow": [
+    "robotics"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p17-cpa",
+   "label": "CPA at a Big Four firm",
+   "programId": "bus/accountancy-bs",
+   "studying": "Accountancy",
+   "after": "CPA at a Big Four firm",
+   "wantKinds": [
+    "professional",
+    "community"
+   ],
+   "gold": [
+    {
+     "id": "35458",
+     "name": "Accounting Club",
+     "slug": "AccountingClub",
+     "link": "https://one.illinois.edu/AccountingClub/"
+    },
+    {
+     "id": "35566",
+     "name": "Beta Alpha Psi",
+     "slug": "BetaAlphaPsi",
+     "link": "https://one.illinois.edu/BetaAlphaPsi/"
+    },
+    {
+     "id": "35667",
+     "name": "Delta Sigma Pi Business Fraternity",
+     "slug": "DeltaSigmaPi",
+     "link": "https://one.illinois.edu/DeltaSigmaPi/"
+    }
+   ],
+   "traps": [],
+   "heardNow": [
+    "accounting/CPA"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p18-prevet",
+   "label": "Pre-vet, animal sciences",
+   "programId": "aces/animal-sciences-bs/science-pre-veterinary--medical",
+   "studying": "Animal sciences",
+   "after": "vet school",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "36178",
+     "name": "Pre-Vet Club",
+     "slug": "PreVetClub",
+     "link": "https://one.illinois.edu/PreVetClub/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "35926",
+     "name": "Illinois Student American Veterinary Medical Association",
+     "reason": "for students already in veterinary school (DVM)",
+     "slug": "SAVMA",
+     "link": "https://one.illinois.edu/SAVMA/",
+     "scope": "never"
+    },
+    {
+     "id": "35506",
+     "name": "American Association of Zoo Veterinarians, Illinois Student Chapter",
+     "reason": "for students already in veterinary school (DVM)",
+     "slug": "AmericanAssociationofZooVeterinarians",
+     "link": "https://one.illinois.edu/AmericanAssociationofZooVeterinarians/",
+     "scope": "never"
+    }
+   ],
+   "heardNow": [
+    "pre-veterinary"
+   ],
+   "goalKind": "track"
+  },
+  {
+   "id": "p19-climate",
+   "label": "Climate policy",
+   "programId": "las/earth-society-environmental-sustainability-bslas",
+   "studying": "Earth, society and environmental sustainability",
+   "after": "climate policy for the government",
+   "wantKinds": [
+    "professional",
+    "interest",
+    "community"
+   ],
+   "gold": [
+    {
+     "id": "35461",
+     "name": "ActGreen",
+     "slug": "ActGreen",
+     "link": "https://one.illinois.edu/ActGreen/"
+    },
+    {
+     "id": "36724",
+     "name": "Green Leadership Council",
+     "slug": "GreenLeadershipCouncil",
+     "link": "https://one.illinois.edu/GreenLeadershipCouncil/"
+    },
+    {
+     "id": "36819",
+     "name": "Public Policy Leaders",
+     "slug": "publicpolicyleaders",
+     "link": "https://one.illinois.edu/publicpolicyleaders/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "35702",
+     "name": "Energy and Environmental Law Society",
+     "reason": "College of Law (JD) society",
+     "slug": "EnergyandEnvironmentalLawSociety",
+     "link": "https://one.illinois.edu/EnergyandEnvironmentalLawSociety/",
+     "scope": "never"
+    }
+   ],
+   "heardNow": [
+    "climate/sustainability/environment",
+    "public policy",
+    "politics/government"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p20-retracted",
+   "label": "Took back pre-med, now UX research",
+   "programId": "las/psychology-bslas",
+   "studying": "Psychology",
+   "after": "pre-med actually I don't want to do pre-med anymore, I want UX research",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "35804",
+     "name": "Human Factors and Ergonomics Society at the University of Illinois Urbana-Champaign",
+     "slug": "HumanFactorsandErgonomicsSociety",
+     "link": "https://one.illinois.edu/HumanFactorsandErgonomicsSociety/"
+    },
+    {
+     "id": "35674",
+     "name": "Design Innovation Illinois",
+     "slug": "DesignInnovationIllinois",
+     "link": "https://one.illinois.edu/DesignInnovationIllinois/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "35517",
+     "name": "American Medical Student Association Pre-Med",
+     "reason": "pre-med goal was taken back",
+     "slug": "AmericanMedicalStudentAssociationPreMed",
+     "link": "https://one.illinois.edu/AmericanMedicalStudentAssociationPreMed/",
+     "scope": "persona"
+    },
+    {
+     "id": "36066",
+     "name": "Minority Association of Pre-Medical Students",
+     "reason": "pre-med goal was taken back",
+     "slug": "MinorityAssociationofPreMedicalStudents",
+     "link": "https://one.illinois.edu/MinorityAssociationofPreMedicalStudents/",
+     "scope": "persona"
+    },
+    {
+     "id": "36137",
+     "name": "Phi Chi Premedical Society",
+     "reason": "pre-med goal was taken back",
+     "slug": "PhiChi",
+     "link": "https://one.illinois.edu/PhiChi/",
+     "scope": "persona"
+    },
+    {
+     "id": "35483",
+     "name": "Alpha Epsilon Delta Pre-Health Society",
+     "reason": "pre-med goal was taken back",
+     "slug": "AlphaEpsilonDelta",
+     "link": "https://one.illinois.edu/AlphaEpsilonDelta/",
+     "scope": "persona"
+    }
+   ],
+   "heardNow": [
+    "UX/HCI design"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p21-third-person",
+   "label": "Sister is pre-law; student wants civil engineering",
+   "programId": "engineering/civil-engineering-bs",
+   "studying": "Civil engineering",
+   "after": "my sister is pre-law, I want to build bridges",
+   "wantKinds": [
+    "professional",
+    "interest",
+    "community"
+   ],
+   "gold": [
+    {
+     "id": "35524",
+     "name": "American Society of Civil Engineers",
+     "slug": null,
+     "link": "http://www.asceuiuc.com/"
+    },
+    {
+     "id": "36672",
+     "name": "Concrete Canoe at UIUC",
+     "slug": "concretecanoe",
+     "link": "https://one.illinois.edu/concretecanoe/"
+    },
+    {
+     "id": "35707",
+     "name": "Engineers Without Borders, UIUC Chapter",
+     "slug": "EngineersWithoutBorders",
+     "link": "https://one.illinois.edu/EngineersWithoutBorders/"
+    },
+    {
+     "id": "35510",
+     "name": "American Concrete Institute",
+     "slug": "AmericanConcreteInstitute",
+     "link": "https://one.illinois.edu/AmericanConcreteInstitute/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "36133",
+     "name": "Phi Alpha Delta - Pre-Law Undergraduate Chapter",
+     "reason": "pre-law is the sister's goal, not the student's",
+     "slug": "PhiAlphaDeltaPreLawUndergraduate",
+     "link": "https://one.illinois.edu/PhiAlphaDeltaPreLawUndergraduate/",
+     "scope": "persona"
+    },
+    {
+     "id": "35543",
+     "name": "Asian Pre-Law Association",
+     "reason": "pre-law is the sister's goal, not the student's",
+     "slug": "AsianPreLawAssociation",
+     "link": "https://one.illinois.edu/AsianPreLawAssociation/",
+     "scope": "persona"
+    },
+    {
+     "id": "36171",
+     "name": "Pre-Law Honors Society: The Order of Prospective Lawyers",
+     "reason": "pre-law is the sister's goal, not the student's",
+     "slug": "PreLawHonorsSocietyTheOrderofProspectiveLawyers",
+     "link": "https://one.illinois.edu/PreLawHonorsSocietyTheOrderofProspectiveLawyers/",
+     "scope": "persona"
+    }
+   ],
+   "heardNow": [],
+   "goalKind": "unheard"
+  },
+  {
+   "id": "p22-sports-biz",
+   "label": "Sports management",
+   "programId": "ahs/recreation-sport-tourism-bs/sport-management",
+   "studying": "Sport management",
+   "after": "work in sports management for a pro team",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "35925",
+     "name": "Illinois Sports Business Conference",
+     "slug": "IllinoisSportsBusinessConference",
+     "link": "https://one.illinois.edu/IllinoisSportsBusinessConference/"
+    },
+    {
+     "id": "36553",
+     "name": "Sports Analytics Society",
+     "slug": "SportsAnalyticsSociety",
+     "link": "https://one.illinois.edu/SportsAnalyticsSociety/"
+    }
+   ],
+   "traps": [],
+   "heardNow": [
+    "sports management/business"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p23-io-hr",
+   "label": "HR / I-O psychology",
+   "programId": "las/psychology-bslas",
+   "studying": "Psychology",
+   "after": "HR, industrial organizational psychology",
+   "wantKinds": [
+    "professional",
+    "interest"
+   ],
+   "gold": [
+    {
+     "id": "35805",
+     "name": "Human Resources and Psychology Organization",
+     "slug": "HumanResourcesandPsychologyOrganization",
+     "link": "https://one.illinois.edu/HumanResourcesandPsychologyOrganization/"
+    },
+    {
+     "id": "36978",
+     "name": "Labor and Industrial Relations Association",
+     "slug": "laborandindustrialrelationsassoc",
+     "link": "https://one.illinois.edu/laborandindustrialrelationsassoc/"
+    }
+   ],
+   "traps": [
+    {
+     "id": "36651",
+     "name": "Pre-Health Psychology Association of UIUC ( PPA )",
+     "reason": "clinical/pre-health psychology, not the workplace side",
+     "slug": "prehealthpsychologyassociation",
+     "link": "https://one.illinois.edu/prehealthpsychologyassociation/",
+     "scope": "persona"
+    }
+   ],
+   "notes": "Student Society for Human Resource Management has a live one.illinois.edu page but is missing from the join directory: a coverage gap to watch.",
+   "heardNow": [
+    "industrial-organizational psychology/HR"
+   ],
+   "goalKind": "topic"
+  },
+  {
+   "id": "p24-firstgen",
+   "label": "First-gen Latina, finance (identity stated)",
+   "programId": "bus/finance-bs",
+   "studying": "Finance",
+   "after": "I'm a first-gen Latina student and I want to work in corporate finance",
+   "wantKinds": [
+    "professional",
+    "community"
+   ],
+   "gold": [
+    {
+     "id": "35477",
+     "name": "ALPFA Illinois",
+     "slug": "ALPFAIllinois",
+     "link": "https://one.illinois.edu/ALPFAIllinois/"
+    },
+    {
+     "id": "36407",
+     "name": "Alpha Investment Management Partners",
+     "slug": null,
+     "link": "https://www.aim-illinois.com"
+    },
+    {
+     "id": "35489",
+     "name": "Alpha Kappa Psi Professional Business Fraternity",
+     "slug": "AlphaKappaPsi",
+     "link": "https://one.illinois.edu/AlphaKappaPsi/"
+    }
+   ],
+   "traps": [],
+   "notes": "The student named her identity, so identity-centered professional groups (ALPFA Illinois) are welcome here and should not appear for p05, who did not.",
+   "heardNow": [
+    "investment banking/corporate finance"
+   ],
+   "goalKind": "topic"
+  }
+ ]
+}

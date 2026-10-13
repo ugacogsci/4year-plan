@@ -44,21 +44,24 @@ It stores both the parsed course codes and the original sentence, because
 silently drop.
 
 **It identifies itself honestly.** The existing scraper sends a spoofed Firefox
-user agent. This one sends `TruBot/1.0 (+url; respects robots.txt)`. Every UGA
+user agent. This one sends `FourYearPlanBot/1.0 (student planning project; respects robots.txt)`. Every UGA
 host tested serves it normally, and a project that wants a university as a
 customer should not be the project that lied to their bot detection.
 
-## 2. The ask bar
+## 2. University questions
 
-`components/planner/ask-bar.tsx`, `app/api/ask/route.ts`
+`app/api/ask/route.ts`, `lib/planner/university-lookup.ts`, `lib/planner/ask-router.ts`
 
-The bar across the bottom of the whiteboard sketch. Not a chat window: the
-student is mid-decision on the board above it, so the answer opens in place
-and the plan stays put.
+ALMA's university_answer tool posts here. Anything the planner can answer from
+its own files (a course, the board, grade history) is answered in the browser
+first by `lib/planner/ask-router.ts`, so what reaches this route is a question
+about the university itself: a deadline, a policy, an office, a price.
 
-The API route is a thin proxy with a deliberately narrow contract,
-`{ text, sources[] }`. Set `TRU_UPSTREAM` to a deployed tenant and it returns
-real answers; leave it unset and it says so and the planner still works.
+The API route has a deliberately narrow contract, `{ text, sources[] }`. It
+answers through the planner's own lookup (`lib/planner/university-lookup.ts`):
+one Claude API call whose web search is restricted to the school's official
+domains, citing the pages it used. With no `ANTHROPIC_API_KEY`, or for a school
+with no lookup, it says so and the planner still works.
 
 An answer without the page it came from does not ship. That is the same rule
 as the README's "an LLM should not decide whether a student can graduate".
@@ -107,9 +110,8 @@ node scripts/enrich-uga.mjs        # ~16 min, re-reads all 14,092 pages
 
 Three screens before anyone sees a planner:
 
-1. **Which school.** UGA, Texas A&M, Mizzou, Illinois, Virginia Tech. This is
-   the first decision because every answer afterwards comes from that
-   university's own pages.
+1. **Which school.** UGA or Illinois. This is the first decision because
+   every answer afterwards comes from that university's own pages.
 2. **Three open questions,** not a form:
    - What are you studying, or thinking about studying?
    - When do you want to finish, and where are you now?
@@ -178,20 +180,21 @@ CSCI 1301, Calc AB 4 → MATH 2250 plus two exemptions.
 
 ### The school picker now drives everything
 
-It previously chose an accent colour and nothing else, so picking Texas A&M
-produced an A&M header above UGA's catalog, UGA's colleges in the placeholders
-and a DegreeWorks reference. Every school-specific string moved into `SCHOOLS`:
+It previously chose an accent colour and nothing else, so a second school
+would have shown its name above UGA's catalog, UGA's colleges in the
+placeholders and a DegreeWorks reference. Every school-specific string moved
+into `SCHOOLS`:
 
-| | UGA | Texas A&M | Illinois | Virginia Tech | Mizzou |
-|---|---|---|---|---|---|
-| portal | Athena/DegreeWorks | Howdy | Self-Service | Hokie SPA | myZou |
-| college in placeholder | Franklin | Mays | LAS | Engineering | Arts & Science |
-| transfer feeder | Georgia State | Blinn | Parkland | Virginia Western | Moberly Area |
-| late drop | withdrawal | **Q-drop** | withdrawal | withdrawal | withdrawal |
+| | UGA | Illinois |
+|---|---|---|
+| portal | Athena/DegreeWorks | Self-Service |
+| college in placeholder | Franklin | LAS |
+| transfer feeder | Georgia State | Parkland |
+| late drop | withdrawal | withdrawal |
 
-The ask bar routes to the matching tenant path, and a school with no crawled
-catalog says so and falls back to the demo set instead of quietly serving
-another university's courses. The map count only says "demo courses" when the
+University questions are looked up on the chosen school's own domains only,
+and a school with no crawled catalog says so and falls back to the demo set
+instead of quietly serving another university's courses. The map count only says "demo courses" when the
 data actually is demo.
 
 ## 7. Degree requirements, grade data, and an operational scheduler
@@ -222,24 +225,17 @@ Two parsing bugs were load-bearing:
 - `Total Major Hours (120 Hours)` is the degree total, not another bucket to
   sum. Treating it as an area made Accounting BBA claim 237 hours.
 
-### Grade data from TRU, for the four schools that have it
+### Grade data: Illinois
 
-`scripts/import-tru-grades.mjs` pulls the pipelines TRU already built:
-
-| school | courses | source |
-|---|---|---|
-| Virginia Tech | 11,510 | University DataCommons |
-| Illinois | 2,968 | DAIR |
-| Texas A&M | 2,946 | Registrar grade distribution reports |
-| Mizzou | 1,781 | MU Grade Distribution Application |
+`public/illinois-grades.json` holds 2,968 Illinois courses from the
+university's public grade distribution (DAIR, Spring 2024 through Summer
+2026), with instructor rows.
 
 Each course gets a 0-100 `difficulty` derived from average GPA and nudged by
-the withdrawal rate, so a term can be weighed rather than counted.
-
-Two guards were ported from TRU because both produced nonsense without them:
-Mizzou publishes no GPA field at all (derive it from the letter split, or every
-Mizzou course scores null), and pass/fail courses publish a 0.00 GPA next to
-90% A, which made A&M's ASCC 289 the hardest course at the university.
+the withdrawal rate, so a term can be weighed rather than counted. A published
+GPA is believed only when the letter split agrees with it: pass/fail courses
+publish a 0.00 GPA next to 90% A, and believing that would make a pass/fail
+course the hardest at the university.
 
 ### What UGA does not publish
 

@@ -16,19 +16,18 @@ import { normalizeUgaCollegeId, UGA_COLLEGE_BY_ID } from './uga-colleges';
  * Everything that changes when a student picks a different school.
  *
  * The first build hardcoded UGA into the placeholders, the data file paths and
- * the ask bar, so choosing Texas A&M produced a Texas A&M header above UGA's
+ * the assistant, so a second school would have shown its name above UGA's
  * catalog. Every school-specific string now lives here.
  *
- * The transfer feeders are the real ones: Blinn is the dominant pipeline into
- * A&M, Parkland into Illinois, the VCCS colleges into Virginia Tech. Naming
+ * The transfer feeders are the real ones: Parkland is the dominant pipeline
+ * into Illinois, and Georgia State and the technical colleges into UGA. Naming
  * the actual college a student transferred from is the difference between a
  * placeholder that helps and one that reads as filler.
  */
 /**
- * `bot` is the name each school's TRU tenant already answers to: TRU after
- * Truman the Tiger, REV after Reveille, PROSIM after Ut Prosim, ALMA after
- * the Alma Mater, ARCH after the Arch. The planner's own assistant uses the
- * same name, so a student sees one bot across both products.
+ * `bot` is the name of the school's assistant in the planner, taken from the
+ * school's own tradition: ALMA after the Alma Mater at Illinois, ARCH after
+ * the Arch at UGA.
  */
 export const SCHOOLS = [
   {
@@ -47,36 +46,6 @@ export const SCHOOLS = [
     examCredit: '/uga-exam-credit.json',
   },
   {
-    id: 'tamu',
-    name: 'Texas A&M University',
-    short: 'Texas A&M',
-    bot: 'REV',
-    people: 'Aggies',
-    accent: '#500000',
-    portal: 'Howdy',
-    colleges: 'Mays, Engineering, Liberal Arts',
-    town: 'College Station',
-    feeders: 'Blinn College, Lone Star, Austin Community College',
-    dropTerm: 'Q-drop',
-    catalog: null,
-    examCredit: null,
-  },
-  {
-    id: 'mizzou',
-    name: 'University of Missouri',
-    short: 'Mizzou',
-    bot: 'TRU',
-    people: 'Tigers',
-    accent: '#F1B82D',
-    portal: 'myZou',
-    colleges: 'Arts & Science, Trulaske, Journalism',
-    town: 'Columbia',
-    feeders: 'Moberly Area, State Fair, Columbia College',
-    dropTerm: 'withdrawal',
-    catalog: null,
-    examCredit: null,
-  },
-  {
     id: 'illinois',
     name: 'University of Illinois',
     short: 'Illinois',
@@ -87,21 +56,6 @@ export const SCHOOLS = [
     colleges: 'LAS, Grainger, Gies',
     town: 'Urbana-Champaign',
     feeders: 'Parkland College, Harper, College of DuPage',
-    dropTerm: 'withdrawal',
-    catalog: null,
-    examCredit: null,
-  },
-  {
-    id: 'vt',
-    name: 'Virginia Tech',
-    short: 'Virginia Tech',
-    bot: 'PROSIM',
-    people: 'Hokies',
-    accent: '#861F41',
-    portal: 'Hokie SPA',
-    colleges: 'Engineering, Pamplin, Science',
-    town: 'Blacksburg',
-    feeders: 'Virginia Western, NOVA, New River',
     dropTerm: 'withdrawal',
     catalog: null,
     examCredit: null,
@@ -119,11 +73,11 @@ export type SchoolId = (typeof SCHOOLS)[number]['id'];
 /**
  * The schools this build can actually plan for.
  *
- * SCHOOLS is the roster the product is written towards. This is the part of it
- * with a catalog and degree pages behind it today: Illinois and UGA. Offering
- * the other roster schools before their data exists would render a demo catalog
- * under a real university's name, which is exactly the kind of false statement
- * a degree planner cannot make.
+ * Both schools in SCHOOLS have a catalog and degree pages behind them today.
+ * The set stays separate from the roster so a school can be added to SCHOOLS
+ * before its data exists without being offered: a demo catalog under a real
+ * university's name is exactly the kind of false statement a degree planner
+ * cannot make.
  */
 export const READY_SCHOOL_IDS: ReadonlySet<SchoolId> = new Set<SchoolId>(['illinois', 'uga']);
 
@@ -253,6 +207,12 @@ export interface OnboardingAnswers {
   /** Other subjects and interests the student wants the plan to consider. */
   studying: string;
   timeline: string;
+  /**
+   * When the timeline answer was last written, so "this fall" and "next
+   * spring" are read against that day, not the day a plan is rebuilt.
+   * Absent on answers saved before it existed.
+   */
+  timelineAt?: string;
   after: string;
   /**
    * What the student already has. Without this the planner is guessing at the

@@ -1,3 +1,4 @@
+import type { RepeatRule } from './repeats';
 /**
  * Summer is here because leaving it out was a product gap, not a simplification.
  * It is the normal way a transfer student catches up and the normal way a failed
@@ -56,6 +57,8 @@ export interface Course {
   section?: CourseSectionSnapshot;
   mapPosition?: MapPosition;
   pathwayRole?: 'required' | 'choice';
+  /** The catalog's repeat rule ("May be repeated in separate terms to a maximum of 12 hours"); absent when the course may not be repeated. */
+  repeat?: RepeatRule;
 }
 
 export interface PlanTerm {

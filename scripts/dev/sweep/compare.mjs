@@ -2,6 +2,7 @@
  * Two sweeps side by side: what got worse, board by board, most severe first.
  *
  *   node compare.mjs <before.jsonl> <after.jsonl> [--top N | --all]
+ *                    [--reading <blocks.jsonl>] [--checkout <dir>] [--list-gate]
  *
  * Both files come from sweep.mjs. For every metric it prints the totals in
  * each goal-and-language group, then every degree, goal and language start
@@ -22,11 +23,39 @@
  * that rose to 17 or more; a new plan-caused momentum flag; a new 2+ stack;
  * Composition I or the first math newly after year one; a second first-term
  * seminar.
+ *
+ * What makes it a scoreboard to trust (Family 0a, 2026-10-06):
+ *
+ *   - It opens with the scoreboard: the headline numbers before and after
+ *     (plans leaving out a required class, courses not placed, requirement
+ *     rows not met, plans meeting fewer real requirements, credits past the
+ *     total, residency, seminars, order faults, pre-med/PT rows, the
+ *     take-all check), and the same plans without the suspended Earth,
+ *     Society & Environmental Sustainability degree.
+ *   - A requirement split into option lists (::3::0 -> ::3::0::opt1) is the
+ *     same requirement, not a new unmet one.
+ *   - Pre-med and pre-PT rows are measured on both boards with the release's
+ *     own row list (the before sweep's trackRows), so a change to the track
+ *     list cannot move the yardstick.
+ *   - Pools count both halves of a pair (STAT 400 & STAT 410) when scoring
+ *     real requirements (gate.mjs metBlock).
+ *   - An extra term is worse only when the board now finishes after the
+ *     student's target term.
+ *   - It ends with the three-level verdict (gate.mjs), every board judged on
+ *     the after sweep's reading (<after>.blocks.jsonl, or --reading).
+ *   - Two sweeps with different start terms are refused (--mixed-starts to
+ *     compare them anyway): every plan-changing step reports a Fall 2026 and
+ *     a Spring 2027 start, each against its own baseline.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+import { reqKey, onReleaseRows, pastTarget, startOf, targetOf, loadStatics, readingOf, unmetOn, verdicts, report, makeMeasures, yearOneEnd, comp1InYearOne } from './gate.mjs';
+import { takeAllExclusionPairs } from './takeall.mjs';
 
 const args = process.argv.slice(2);
-const files = args.filter((a) => !a.startsWith('--') && !/^\d+$/.test(a));
+const VALUED = ['--top', '--reading', '--checkout'];
+const files = args.filter((a, i) => !a.startsWith('--') && !VALUED.includes(args[i - 1]));
 if (files.length !== 2) {
   console.error('usage: node compare.mjs <before.jsonl> <after.jsonl> [--top N | --all]');
   process.exit(2);
@@ -42,6 +71,19 @@ const readRows = (path) =>
 const keyOf = (r) => `${r.id}|${r.goal}|${r.lang}`;
 const before = new Map(readRows(files[0]).map((r) => [keyOf(r), r]));
 const after = new Map(readRows(files[1]).map((r) => [keyOf(r), r]));
+const optAt = (name) => (args.indexOf(name) >= 0 ? args[args.indexOf(name) + 1] : null);
+const CHECKOUT = resolve(optAt('--checkout') ?? fileURLToPath(new URL('../../..', import.meta.url)));
+const sidecar = (f) => f.replace(/\.jsonl$/, '') + '.blocks.jsonl';
+const READING = optAt('--reading') ?? (existsSync(sidecar(files[1])) ? sidecar(files[1]) : null);
+{
+  const first = (m) => [...m.values()].find((r) => !r.error);
+  const sb = startOf(first(before));
+  const sa = startOf(first(after));
+  if (sb !== sa && !args.includes('--mixed-starts')) {
+    console.error(`the two sweeps start in different terms (${sb} and ${sa}); compare each start with its own baseline, or pass --mixed-starts`);
+    process.exit(2);
+  }
+}
 const groupOf = (r) => `${r.goal || 'no goal'}, lang ${r.lang}`;
 const boardName = (r) => `${r.id} [${r.goal || 'no goal'}, lang ${r.lang}]`;
 
@@ -51,10 +93,7 @@ const added = (now, was) => {
   return [...new Set(now)].filter((x) => !old.has(x));
 };
 const hardTerms = (r, n) => r.terms.filter((t) => t.hard.length >= n).map((t) => `${t.label}: ${t.hard.join(', ')}`);
-const yearOneEnd = (r) => {
-  const last = r.yearOne[r.yearOne.length - 1]?.label;
-  return r.terms.findIndex((t) => t.label === last);
-};
+// Year one is counted from the plan's own first term (gate.mjs yearOneEnd).
 const afterYearOne = (r, at) => at === null || at === undefined || at.term > yearOneEnd(r);
 const seminarPile = (r) => r.firstTermSeminars.length >= 2;
 const LAB_PAIRS = { ...JSON.parse(readFileSync(new URL('./labpairs.json', import.meta.url), 'utf8')), 'CHEM 105': 'CHEM 104', 'MCB 245': 'MCB 244', 'MCB 247': 'MCB 246', 'MCB 251': 'MCB 250' };
@@ -127,20 +166,21 @@ const METRICS = [
     key: 'unsatisfied',
     title: 'Unsatisfied requirements',
     total: (r) => r.unsatisfied.length,
+    // A requirement split into option lists is the same requirement (reqKey).
     worse(x, y) {
-      const ids = added(y.unsatisfied.map((u) => u.id), x.unsatisfied.map((u) => u.id));
+      const ids = added(y.unsatisfied.map((u) => reqKey(u.id)), x.unsatisfied.map((u) => reqKey(u.id)));
       if (!ids.length) return null;
-      const rows = y.unsatisfied.filter((u) => ids.includes(u.id));
+      const rows = y.unsatisfied.filter((u) => ids.includes(reqKey(u.id)));
       // "filled-by-electives" is an hours-only row the fill covered: worth
       // listing, not worth ranking with a required course that did not fit.
       const hard = rows.some((u) => !['filled-by-electives', 'not-parsed'].includes(u.reason));
       return { sev: (hard ? 85 : 40) + rows.length, detail: rows.map((u) => `${u.label.slice(0, 70)} (${u.reason})`).join(' | ') };
     },
-    better: (x, y) => added(x.unsatisfied.map((u) => u.id), y.unsatisfied.map((u) => u.id)).length > 0,
+    better: (x, y) => added(x.unsatisfied.map((u) => reqKey(u.id)), y.unsatisfied.map((u) => reqKey(u.id))).length > 0,
   },
   {
     key: 'trackLate',
-    title: 'Track dated rows placed after Spring 2029',
+    title: "Track dated rows placed after the application spring (the release's row list)",
     total: (r) => r.trackLate.length,
     worse(x, y) {
       // Newly late, or late and later still: SOC 100 was missing from the
@@ -156,7 +196,7 @@ const METRICS = [
   },
   {
     key: 'trackMissing',
-    title: 'Track dated rows not on the board',
+    title: "Track dated rows not on the board (the release's row list)",
     total: (r) => r.trackMissing.length,
     worse(x, y) {
       const rows = added(y.trackMissing, x.trackMissing);
@@ -168,9 +208,11 @@ const METRICS = [
   },
   {
     key: 'terms',
-    title: 'Terms used',
+    title: 'Terms used (worse only when the finish is past the target term)',
     total: (r) => r.termsUsed,
-    worse: (x, y) => (y.termsUsed > x.termsUsed ? { sev: 70 + 10 * (y.termsUsed - x.termsUsed), detail: `${x.termsUsed} -> ${y.termsUsed} (finish ${x.finish} -> ${y.finish})` } : null),
+    // Worse only past the student's own target: finishing Spring 2030 instead
+    // of Fall 2029 is still on time for a Fall 2026 freshman.
+    worse: (x, y) => (y.termsUsed > x.termsUsed && pastTarget(y) ? { sev: 70 + 10 * (y.termsUsed - x.termsUsed), detail: `${x.termsUsed} -> ${y.termsUsed} (finish ${x.finish} -> ${y.finish}, target ${targetOf(y)})` } : null),
     better: (x, y) => y.termsUsed < x.termsUsed,
   },
   {
@@ -342,7 +384,7 @@ for (const [key, x] of before) {
   if (!y) problems.push(`only in ${files[0]}: ${key}`);
   else if (y.error && !x.error) problems.push(`[200] ${boardName(y)} threw after: ${y.error.split('\n')[0]}`);
   else if (x.error && !y.error) problems.push(`fixed: ${boardName(y)} threw before: ${x.error.split('\n')[0]}`);
-  else if (!x.error) pairs.push({ x, y });
+  else if (!x.error) pairs.push(onReleaseRows(x, y));
 }
 for (const key of after.keys()) if (!before.has(key)) problems.push(`only in ${files[1]}: ${key}`);
 
@@ -355,6 +397,49 @@ console.log(`before: ${files[0]} (${before.size} boards)\nafter:  ${files[1]} ($
 if (problems.length) {
   console.log('== Boards that did not pair or threw ==');
   for (const p of problems) console.log(`  ${p}`);
+  console.log('');
+}
+
+// ---- the scoreboard ---------------------------------------------------------
+const STATICS = loadStatics(CHECKOUT);
+const MEASURES = makeMeasures(STATICS);
+const reading = READING ? readingOf(readRows(READING)) : null;
+const changedBoards = pairs.filter(({ x, y }) => JSON.stringify(x.terms.map((t) => t.codes)) !== JSON.stringify(y.terms.map((t) => t.codes))).length;
+{
+  /** Suspended "effective Spring 2027" and replaced by Environmental Sustainability (approval h): reported both ways. */
+  const ESES = /^las\/earth-society-environmental-sustainability-bslas/;
+  const exclusions = JSON.parse(readFileSync(resolve(CHECKOUT, 'public/illinois/exclusions.json'), 'utf8'));
+  const takeAll = (f) => (f && existsSync(f) ? takeAllExclusionPairs(readRows(f), exclusions).length : 'n/a');
+  const sides = { x: pairs.map((p) => p.x), y: pairs.map((p) => p.y) };
+  const n = pairs.length;
+  const pct = (v) => `${v} (${((100 * v) / n).toFixed(1)}%)`;
+  const sum = (rows, f) => rows.reduce((s, r) => s + f(r), 0);
+  const hasRes = (rows) => rows.every((r) => 'residency' in r);
+  const rows = [
+    ['Plans that leave out a required class', (r) => pct(r.filter((b) => b.notPlaced.length).length)],
+    ['  the same, without the suspended ESES degree', (r) => r.filter((b) => b.notPlaced.length && !ESES.test(b.id)).length],
+    ['Required courses not placed (all plans)', (r) => sum(r, (b) => b.notPlaced.length)],
+    ['  the same, without the suspended ESES degree', (r) => sum(r.filter((b) => !ESES.test(b.id)), (b) => b.notPlaced.length)],
+    ['Requirement rows not met', (r) => sum(r, (b) => b.unsatisfied.length)],
+    ['Real requirements unmet on the new reading', (r) => (reading ? sum(r, (b) => unmetOn(reading, b, STATICS.credits)) : 'n/a')],
+    ['Credits planned past the degree total', (r) => sum(r, (b) => b.beyond)],
+    ['Plans short on Illinois residency hours (300+ under 21)', (r) => (hasRes(r) ? r.filter((b) => (b.residency?.upper ?? 99) < 21).length : 'n/a')],
+    ['First-year seminars after year one (LAS 100-102, BUS 101, ENG 100, FAA 101, HK 125)', (r) => sum(r, (b) => lateSeminars(b).length)],
+    ['  the same, with the colleges\' orientations (the gate\'s count)', (r) => sum(r, (b) => MEASURES.semLate(b).size)],
+    ["Composition I begun after year one or not on the board (years from the plan's first term)", (r) => r.filter((b) => !comp1InYearOne(b)).length],
+    ["  plans the planner warns 'Composition I after the first year' (also a sequence's second half: CMN 112)", (r) => r.filter((b) => (b.warnKeys ?? []).some((k) => k.startsWith('ap-comp1-late-'))).length],
+    ['Courses placed before their prerequisite (order faults)', (r) => sum(r, (b) => (b.orderFaults ?? []).length)],
+    ["Pre-med/PT rows late or missing (the release's row list)", (r) => sum(r, (b) => b.trackLate.length + b.trackMissing.length)],
+    ['Terms used past the target term', (r) => r.filter(pastTarget).length],
+  ];
+  const fewer = reading ? pairs.filter(({ x, y }) => unmetOn(reading, y, STATICS.credits) > unmetOn(reading, x, STATICS.credits)).length : 'n/a';
+  console.log(`== Scoreboard: ${n} plans, start ${startOf(sides.y[0])}, target ${targetOf(sides.y[0])} ==`);
+  console.log(`  reading (both boards judged on it): ${READING ?? 'none (sweep with blocks, or pass --reading)'}`);
+  console.log(`  ${'measure'.padEnd(88)}${pad('before', 16)}${pad('after', 16)}`);
+  for (const [label, f] of rows) console.log(`  ${label.padEnd(88)}${pad(f(sides.x), 16)}${pad(f(sides.y), 16)}`);
+  console.log(`  ${'Plans changed (courses per term)'.padEnd(88)}${pad('', 16)}${pad(changedBoards, 16)}`);
+  console.log(`  ${'Plans that meet FEWER real requirements than before (must stay 0)'.padEnd(88)}${pad('', 16)}${pad(fewer, 16)}`);
+  console.log(`  ${'"Take all" blocks holding two courses that do not both count'.padEnd(88)}${pad(takeAll(sidecar(files[0])), 16)}${pad(takeAll(READING), 16)}`);
   console.log('');
 }
 
@@ -427,4 +512,9 @@ const ranked = [...byBoard.entries()]
   .sort((a, b) => b.top - a.top || b.sum - a.sum || a.board.id.localeCompare(b.board.id));
 console.log(`\n== Boards worse on any metric: ${ranked.length} of ${pairs.length}${ranked.length > TOP ? `, top ${TOP} by severity (--all for every one)` : ''} ==`);
 for (const r of ranked.slice(0, TOP)) console.log(`  [${r.top}] ${boardName(r.board)}: ${r.list.map((l) => l.metric).join(', ')}`);
+
+// ---- the three-level verdict (gate.mjs) ---------------------------------------
+console.log('\n== Three-level verdict (owner rule of 2026-10-06; gate.mjs), every board judged on the new reading ==');
+if (!reading) console.log('  no reading: sweep with blocks (the default) or pass --reading <blocks.jsonl>');
+else for (const l of report(verdicts(before, after, reading, STATICS), { list: args.includes('--list-gate') })) console.log(l);
 process.exit(0);

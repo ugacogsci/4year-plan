@@ -35,7 +35,7 @@
  */
 import { writeFileSync } from 'node:fs';
 
-const UA = 'TruBot/1.0 (+https://trumizzou.com; student project; respects robots.txt)';
+const UA = 'FourYearPlanBot/1.0 (student planning project; respects robots.txt)';
 const PAGE = 'https://citl.illinois.edu/current-cutoff-scores';
 const CSV = 'https://citl.illinois.edu/themes/custom/citl/PnPCutoffs/TestBasedCredit2026.csv';
 /** The entering terms Illinois says this file covers, printed on the cutoff page. */

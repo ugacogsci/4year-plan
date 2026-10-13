@@ -117,6 +117,8 @@ interface RailProps {
   pools?: ReactNode;
   /** The transcript upload, rendered by the caller for the same reason the pools are. */
   transcript?: ReactNode;
+  /** "Clubs for your goals", rendered by the caller like the pools; Illinois only. */
+  clubs?: ReactNode;
 }
 
 /**
@@ -140,6 +142,7 @@ function CareerInterestsField({
     <label className="rail-field">
       <span>What you want to be doing after</span>
       <textarea
+        id="rail-career"
         rows={3}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
@@ -192,6 +195,7 @@ export function StudentProfilePanel({
   caveats,
   pools,
   transcript,
+  clubs,
 }: RailProps) {
   const rows = areas.map((row, index) => ({
     row,
@@ -299,6 +303,8 @@ export function StudentProfilePanel({
         </details>
       )}
 
+      {clubs}
+
       <details className="rail-section" id="rail-programs">
         <summary>Programs</summary>
         {supportsGraduatePrograms && (
@@ -368,7 +374,8 @@ export function StudentProfilePanel({
         )}
       </details>
 
-      <details className="rail-section">
+      {/* The ids let the clubs section's "Change my goals" open this and put the cursor in the goals box. */}
+      <details className="rail-section" id="rail-preferences">
         <summary>Preferences</summary>
         <label className="rail-field">
           <span>Credits you want each term, about</span>
@@ -405,7 +412,9 @@ export function StudentProfilePanel({
           onCommit={onCareerChange}
         />
         <p className="rail-field rail-helper">
-          Used to rank elective suggestions after you press Rebuild.
+          {clubs
+            ? 'Used to rank elective suggestions after you press Rebuild, and to pick the clubs under Clubs for your goals. The bot reads them too.'
+            : 'Used to rank elective suggestions after you press Rebuild. The bot reads them too.'}
         </p>
 
         <div className="rail-priorities">
