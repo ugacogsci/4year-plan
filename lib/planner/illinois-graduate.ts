@@ -9,7 +9,8 @@ import type {
 import { requirementRulesForProgram } from './illinois-data.ts';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
 import type { ProgramRequirements, RequirementArea, RequirementGroup } from './scheduler.ts';
-import type { PrereqSpec, SectionSummary } from './illinois-data.ts';
+import type { CourseFacts, PrereqSpec, SectionSummary } from './illinois-data.ts';
+import { attachRequirementIds } from './illinois-data.ts';
 import type { IllinoisCore, IllinoisIndexRow, IllinoisOfferingsFile, IllinoisSectionsFile } from './illinois-load.ts';
 import { applyOfferings, hydrateIndexRow } from './illinois-load.ts';
 
@@ -1075,6 +1076,43 @@ export function withGraduateCourses(core: IllinoisCore, files: GraduateCatalogFi
     sections,
     sectionTerms,
   };
+}
+
+/**
+ * One graduate program for the board, the way loadProgram (illinois-source.tsx)
+ * loads a degree: fetched, read with the same reader the build used, and each
+ * course in the core pointed at the requirements that want it (what colours
+ * the map and marks a card "required"). `core` is the core with the graduate
+ * courses (withGraduateCourses). The facts are built here the way
+ * illinois-source.tsx builds them for a degree: gen-ed tags and cross-listings.
+ */
+export async function loadIllinoisGraduateForBoard(
+  core: IllinoisCore,
+  summary: IllinoisGraduateSummary,
+  fetchImpl: typeof fetch = fetch,
+): Promise<LoadedGraduateProgram | null> {
+  const loaded = await loadIllinoisGraduateProgram(summary, core.byCode, fetchImpl);
+  if (!loaded) return null;
+  const facts = new Map<string, CourseFacts>();
+  for (const course of core.index) {
+    const code = normCode(course.code);
+    const max = course.creditsMax ?? course.credits;
+    facts.set(code, {
+      code,
+      creditRange: { credits: course.credits, min: course.credits, max, variable: max > course.credits, known: true },
+      prereq: core.prereqs?.get(code) ?? null,
+      genEd: course.tags,
+      equivalents: core.equivalents?.get(code) ?? [],
+      exclusions: [],
+      offeringKnown: false,
+      catalogUrl: '',
+      scheduleUrl: '',
+      level: course.level,
+      noise: false,
+    });
+  }
+  attachRequirementIds(core.index, loaded.blocks, facts);
+  return loaded;
 }
 
 // ---------------------------------------------------------------------------
