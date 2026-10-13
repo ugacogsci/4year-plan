@@ -6681,3 +6681,67 @@ p.requirement-unnamed {
 @media print {
   .unofficial-link { display: none; }
 }
+
+/* --------------------------------------------------------------------------
+   Illinois additions in ORION's look
+
+   The Unofficial label, the privacy notice, ALMA's reply marks, the weekly
+   clash line, repeat-course sittings and club picks were drawn for the old
+   dark board. Inside ORION they take its own tokens, so they read the same
+   in the light and the dark theme.
+   -------------------------------------------------------------------------- */
+
+.planner-app .unofficial-pill {
+  border-color: var(--orion-line-strong);
+  background: var(--orion-soft);
+  color: var(--orion-text);
+}
+.planner-app .unofficial-text { color: var(--orion-dim); }
+.planner-app .unofficial-link { color: var(--orion-mid); }
+.planner-app .unofficial-link:hover { color: var(--orion-text); }
+.planner-app .app-header .unofficial { margin-left: 14px; margin-right: auto; }
+
+.onb .site-footer { border-top-color: var(--onb-line); color: var(--onb-dim); }
+.onb .unofficial-pill { border-color: var(--onb-line); background: var(--onb-soft); color: var(--onb-text); }
+.onb .unofficial-text { color: var(--onb-dim); }
+.onb .unofficial-link { color: var(--onb-mid); }
+
+.planner-app .bot-msg.assistant strong { color: inherit; }
+.planner-app .bot-msg.assistant a { color: inherit; }
+.planner-app .bot-code { background: color-mix(in srgb, currentColor 12%, transparent); }
+
+.planner-app .semester-weekly {
+  border-bottom-color: var(--orion-line);
+  color: var(--orion-dim);
+  font-size: 10px;
+}
+.planner-app .semester-weekly[data-status='clash'] { color: #9a7410; }
+.planner-app[data-theme='dark'] .semester-weekly[data-status='clash'] { color: #d9b438; }
+
+.planner-app .course-sitting { color: var(--orion-dim); }
+
+.planner-app .board-bar-note {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--orion-mid);
+}
+
+.planner-app .rail-clubs-count,
+.planner-app .club-why,
+.planner-app .club-thin { color: var(--orion-mid); }
+.planner-app .club-group-head,
+.planner-app .club-meta,
+.planner-app .club-communities > summary,
+.planner-app .club-source p { color: var(--orion-dim); }
+.planner-app .club-name { color: var(--orion-text); }
+.planner-app .club-more,
+.planner-app .club-actions button,
+.planner-app .club-actions a,
+.planner-app .club-thin a { color: var(--orion-mid); text-decoration: underline; text-underline-offset: 2px; }
+.planner-app .club-more:hover,
+.planner-app .club-actions button:hover,
+.planner-app .club-communities > summary:hover { color: var(--orion-text); }
+.planner-app .club-communities { border-top-color: var(--orion-line); }
+.planner-app .club-source.is-stale p:first-child { color: #9a7410; }
+.planner-app[data-theme='dark'] .club-source.is-stale p:first-child { color: #d9b438; }
+.planner-app .club-skeleton i { background: var(--orion-soft); }
