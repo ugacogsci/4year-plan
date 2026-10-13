@@ -42,9 +42,10 @@ import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
  *       plan fills with whatever fits.
  *
  * Everything else is the degree reader's (requirementRulesForProgram), called
- * on the minor's tables as they are. minors-research/DESIGN.md has the shapes
- * not read yet: (b) a subject-and-level sentence inside a table, (d) choose
- * one track and (e) one table per kind of major.
+ * on the minor's tables as they are, and (b), a subject-and-level comment row
+ * ("Select two 300- or 400-level Psychology courses", 6 hours), read since
+ * 2026-10-13 (subjectLevelIn). minors-research/DESIGN.md has the shapes not
+ * read yet: (d) choose one track and (e) one table per kind of major.
  */
 
 export const MINOR_ID_PREFIX = 'minor:';
@@ -154,6 +155,9 @@ export const MINOR_BETA: readonly string[] = [
   'las/minors/integrative-biology',
   'las/minors/italian',
   'las/minors/mathematics',
+  'las/minors/political-science',
+  'las/minors/psychology',
+  'las/minors/sociology',
   'las/minors/statistics',
   'las/minors/turkish',
   'law/minors/legal-studies',
@@ -314,6 +318,79 @@ function subjectPool(rule: SubjectHours, byCode: CatalogRowLookup, named: Set<st
   return out;
 }
 
+/** Subject names, longest first, so "Political Science" is found before "Science". */
+const SUBJECT_NAMES_LONGEST = [...SUBJECT_NAME_TO_PREFIX.entries()].sort((a, b) => b[0].length - a[0].length);
+
+export interface SubjectLevel {
+  hours: number;
+  subjects: string[];
+  /** Course-number hundreds the row allows: [3, 4] for "300- or 400-level". */
+  levels: number[];
+}
+
+/**
+ * (b) A row of hours in one subject at a level, printed as a comment row with
+ * its hours in the table's hours column:
+ *
+ *   "Select two 300- or 400- level Psychology courses"            6
+ *   "Sociology (SOC) courses at the 300- or 400-level"             7
+ *   "Select two additional 100- or 200-level Political Science courses"  6
+ *   "Anthropology (ANTH) courses at any level."                    6
+ *
+ * Only a row that names one subject and a level and points at no list: a row
+ * that says "from the following", "approved list", "taught by", "in
+ * consultation" or "distinct from" needs more than a subject and a level to
+ * read, and is left as it was. Exported for the check.
+ */
+export function subjectLevelIn(text: string, hours: number | null | undefined): SubjectLevel | null {
+  if (!hours || hours <= 0) return null;
+  const said = (text ?? '').replace(/\s+/g, ' ').trim();
+  if (!said || /\b(following|list|approved|consultation|advisor|taught by|at least|no more than|maximum|of which|distinct|areas? of|disciplines?|units?|include|including|non)\b/i.test(said)) return null;
+  let levels: number[] = [];
+  if (/\bany level\b/i.test(said)) levels = [1, 2, 3, 4];
+  else if (/\blevel\b/i.test(said)) {
+    const nums = [...said.matchAll(/\b([1-4])00\b/g)].map((m) => Number(m[1]));
+    if (nums.length === 0) return null;
+    const ranged = nums.length === 2 && /\b[1-4]00\s*-?\s*to\s*[1-4]00\b/i.test(said);
+    levels = ranged ? Array.from({ length: nums[1] - nums[0] + 1 }, (_, i) => nums[0] + i) : [...new Set(nums)];
+  } else return null;
+  let subjects = [...said.matchAll(/\b([A-Z]{2,4})\b(?!\s?\d{3})/g)].map((m) => m[1]).filter((p) => ILLINOIS_SUBJECT_NAMES[p] !== undefined);
+  if (subjects.length === 0) {
+    const lower = ` ${said.toLowerCase().replace(/[^a-z ]+/g, ' ')} `;
+    const hit = SUBJECT_NAMES_LONGEST.find(([name]) => name.length >= 4 && lower.includes(` ${name} `));
+    if (hit) subjects = [hit[1]];
+  }
+  subjects = [...new Set(subjects)];
+  if (subjects.length !== 1) return null;
+  return { hours, subjects, levels };
+}
+
+/**
+ * Courses a minor's page says do not count toward it, read by hand from the
+ * page (2026-10-13), for its subject-and-level rows: Psychology's research,
+ * independent-study and special-topics numbers.
+ */
+export const MINOR_COURSES_NOT_COUNTED: Readonly<Record<string, readonly string[]>> = {
+  'las/minors/psychology': ['PSYC 290', 'PSYC 340', 'PSYC 341', 'PSYC 398', 'PSYC 492', 'PSYC 494', 'PSYC 498', 'PSYC 499'],
+};
+
+/** The subject's undergraduate catalog courses at the row's levels, less the ones the minor already names or its page rules out. */
+function levelPool(rule: SubjectLevel, byCode: CatalogRowLookup, named: Set<string>, notCounted: readonly string[] = []): CourseChoice[] {
+  const excluded = new Set(notCounted.map(normCode));
+  if (typeof byCode.values !== 'function') return [];
+  const levels = new Set(rule.levels);
+  const out: CourseChoice[] = [];
+  for (const row of byCode.values()) {
+    const code = normCode(row.code);
+    const [subject, number] = code.split(' ');
+    if (subject !== rule.subjects[0] || !(Number(number) < 500) || !levels.has(Number(number?.[0]))) continue;
+    if (named.has(code) || excluded.has(code) || (row.credits ?? 0) < 1) continue;
+    out.push({ codes: [code], title: row.title, credits: row.credits, creditsMax: row.creditsMax ?? null, substitutes: [] });
+  }
+  out.sort((a, b) => a.codes[0].localeCompare(b.codes[0]));
+  return out;
+}
+
 /** The fewest credit hours one row of a requirement can be met with, by the page's cell or the catalog. */
 function choiceHours(choice: CourseChoice, byCode: CatalogRowLookup): number {
   const catalog = (code: string) => byCode.get(normCode(code))?.credits ?? null;
@@ -432,6 +509,34 @@ export function adaptIllinoisMinor(raw: RawIllinoisMinor, byCode: CatalogRowLook
       });
     }
   });
+
+  // (b) subject-and-level comment rows, each a list of its own after its area's rows.
+  if (shapes) {
+    areas.forEach((area, ai) => {
+      (area.groups ?? []).forEach((group, gi) => {
+        (group.comments ?? []).forEach((comment, ci) => {
+          const said = subjectLevelIn(comment.text, comment.hours);
+          if (!said) return;
+          const choices = levelPool(said, byCode, named, MINOR_COURSES_NOT_COUNTED[raw.id]);
+          if (choices.length === 0) return;
+          const levelText = said.levels.length === 4 ? 'any' : said.levels.map((l) => `${l}00`).join('/');
+          const label = `${said.hours} hours of ${said.subjects[0]} courses at the ${levelText} level`;
+          blocks.push({
+            id: `${id}::${ai}::${gi}::b${ci}`,
+            areaId: `${id}::${ai}`,
+            areaLabel: area.label,
+            label,
+            hours: said.hours,
+            hoursMax: null,
+            rule: { kind: 'pool', hours: said.hours, n: null, choices, lists: [{ label: `${said.subjects[0]} ${levelText}-level courses`, codes: choices.flatMap((c) => c.codes) }], constraints: [], from: 'group', label },
+            note: '',
+            url: raw.url,
+          });
+          readings.push(`(b) ${label}`);
+        });
+      });
+    });
+  }
 
   return {
     id,
