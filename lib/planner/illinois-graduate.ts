@@ -689,12 +689,22 @@ export function adaptIllinoisGraduateOption(raw: RawGraduateProgram, optionIndex
     });
   }
   const quoted = blocks.filter((b) => b.rule.kind === 'unparsed').length;
+  /*
+   * Courses a row requires that no course list holds: the page still prints a
+   * code the current course listing no longer has (no CHLH or KIN course is
+   * listed any more, and HK's numbers are not the old ones: HK 540 is a
+   * kinesiology course, CHLH 540 was not; SOC 500 and SOC 485 are not in the
+   * Sociology listing). The hours still add up, but a plan cannot book them,
+   * so the reading is not "right" until the page or the catalog changes.
+   */
+  const unlisted = missingRequiredCourses(blocks, byCode);
   let status: GraduateStatus = 'not yet checked';
   let why: string;
   if (raw.shape === 'none') why = 'the page lists no requirements';
   else if (raw.shape !== 'tables' || blocks.length === 0) why = 'the page states its requirements only in sentences, which are not read yet';
   else if (total === null) why = 'the page states no total, so the reading cannot be checked against it';
   else if (quoted > 0) why = `${quoted} requirement${quoted === 1 ? '' : 's'} could only be quoted, not read`;
+  else if (unlisted.length > 0) why = `${unlisted.length} required course${unlisted.length === 1 ? ' is' : 's are'} not in the current course catalog (${unlisted.slice(0, 3).join(', ')}${unlisted.length > 3 ? ', ...' : ''})`;
   else if (Math.abs(hours.total - total) <= 1) {
     status = 'reads right';
     why = hours.open === 0 ? `the named courses add up to the stated ${total} hours` : `named courses and sized hour rows add up to the stated ${total} hours`;
@@ -719,6 +729,31 @@ export function adaptIllinoisGraduateOption(raw: RawGraduateProgram, optionIndex
     why,
     droppedGenEd,
   };
+}
+
+/**
+ * Required courses no course list holds, by code: a required row naming one, a
+ * choose row left with fewer listed choices than it asks for, or a list whose
+ * listed courses cannot reach its hours. A list with one retired member among
+ * many listed ones is still plannable and is not counted.
+ */
+export function missingRequiredCourses(blocks: RequirementBlock[], byCode: CatalogRowLookup): string[] {
+  const listed = (codes: string[]) => codes.some((code) => byCode.get(normCode(code)) !== undefined);
+  const out: string[] = [];
+  for (const block of blocks) {
+    const rule = block.rule;
+    if (rule.kind !== 'all' && rule.kind !== 'choose' && rule.kind !== 'pool') continue;
+    const missing = rule.choices.filter((c) => !listed(c.codes)).map((c) => normCode(c.codes[0]));
+    if (missing.length === 0) continue;
+    const kept = rule.choices.filter((c) => listed(c.codes));
+    const short =
+      rule.kind === 'all' ? true
+        : rule.kind === 'choose' ? kept.length < (rule.n ?? 1)
+          : rule.hours !== null ? kept.reduce((sum, c) => sum + (c.credits ?? 0), 0) < rule.hours
+            : rule.n !== null ? kept.length < rule.n : kept.length === 0;
+    if (short) out.push(...missing.filter((code) => !out.includes(code)));
+  }
+  return out;
 }
 
 /** Every reading of one page: one per option, or one saying why there is nothing to read. */
