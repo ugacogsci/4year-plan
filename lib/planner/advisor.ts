@@ -21,7 +21,7 @@ import { CLUBS_RULES, FIND_CLUBS_TOOL } from './clubs-tool';
 export type AdvisorMessage = Anthropic.Beta.BetaMessageParam;
 export type AdvisorBlock = Anthropic.Beta.BetaContentBlock;
 
-/** The model the advisor runs on. One place, because the route and the UI both name it. */
+/** The model the advisor runs on unless PLANNER_ADVISOR_MODEL names another (advisor-request.ts). */
 export const ADVISOR_MODEL = 'claude-opus-5';
 
 // ---------------------------------------------------------------------------

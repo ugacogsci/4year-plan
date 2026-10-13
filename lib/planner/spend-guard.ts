@@ -41,19 +41,20 @@ export interface ModelPrice {
   output: number;
   /** Writing the prompt cache (5-minute cache: 1.25x input). */
   cacheWrite: number;
-  /** Reading the prompt cache (0.1x input). */
+  /** Reading the prompt cache (0.1x input; 0.05x on Opus 5.5 and Sonnet 5.5). */
   cacheRead: number;
 }
 
 /**
- * Anthropic's list prices for the models these routes use. A model missing
- * here is priced as the most expensive row, so a model change never makes the
- * cap more generous by accident.
+ * Anthropic's list prices for the models these routes use
+ * (platform.claude.com/docs/en/about-claude/pricing, read 2026-10-13). A
+ * model missing here is priced as the most expensive row, so a model change
+ * never makes the cap more generous by accident.
  */
 export const MODEL_PRICES: Record<string, ModelPrice> = {
   'claude-opus-5': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
   'claude-opus-5-5': { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 },
-  'claude-sonnet-5-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1 },
 };
 
 /**
@@ -96,11 +97,14 @@ export function costUsd(model: string, usage: UsageLike | null | undefined): num
 
 /**
  * The most a call could cost before it runs: every input token at the full
- * input price (no cache discount) and the whole output allowance.
+ * input price (no cache discount) and the whole output allowance. A route
+ * that marks its prompt for the cache passes cacheWrites, since a cold call
+ * writes every input token at the dearer cache-write price.
  */
-export function worstCaseUsd(model: string, inputTokens: number, maxOutputTokens: number): number {
+export function worstCaseUsd(model: string, inputTokens: number, maxOutputTokens: number, opts: { cacheWrites?: boolean } = {}): number {
   const p = priceOf(model);
-  return (n(inputTokens) * p.input + n(maxOutputTokens) * p.output) / 1_000_000;
+  const input = opts.cacheWrites ? Math.max(p.input, p.cacheWrite) : p.input;
+  return (n(inputTokens) * input + n(maxOutputTokens) * p.output) / 1_000_000;
 }
 
 /** A rough token count for text: about 3 characters a token, rounded up (generous on purpose). */

@@ -1,8 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
-import { ADVISOR_MODEL, ADVISOR_TOOLS, advisorSystem, type AdvisorMessage } from '@/lib/planner/advisor';
+import { ADVISOR_TOOLS, advisorSystem, type AdvisorMessage } from '@/lib/planner/advisor';
+import { ADVISOR_MAX_TOKENS, advisorModel, advisorRequest } from '@/lib/planner/advisor-request';
 import { dailyCapUsd, LIMITS, parseJson, readBodyCapped, sharedGuard, tokensForChars, visitorKey, worstCaseUsd } from '@/lib/planner/spend-guard';
-import { termDatesBlock } from '@/lib/planner/term-dates';
 
 /**
  * One step of the advisor's loop.
@@ -20,13 +20,16 @@ import { termDatesBlock } from '@/lib/planner/term-dates';
  * Every step passes the spend guard first (lib/planner/spend-guard.ts): a
  * size cap on the body, a per-visitor rate limit, and the day's spend cap
  * (PLANNER_DAILY_SPEND_USD). A refusal is a sentence the panel prints.
+ *
+ * The request itself is built by lib/planner/advisor-request.ts, which puts
+ * the board and the term dates after the conversation so each step reuses
+ * the conversation at the cache price. PLANNER_ADVISOR_MODEL picks the model.
  */
 export const dynamic = 'force-dynamic';
 export const maxDuration = 180;
 
 const MAX_MESSAGES = 120;
 const MAX_BOARD_CHARS = 24_000;
-const MAX_TOKENS = 4096;
 /** The system prompt and the tool list, in characters, for the worst-case estimate. */
 const FIXED_CHARS = advisorSystem('ALMA').length + JSON.stringify(ADVISOR_TOOLS).length;
 
@@ -72,9 +75,11 @@ export async function POST(req: Request) {
     }
   }
 
+  const model = advisorModel();
   const admitted = sharedGuard().admit('advisor', visitorKey(req.headers), {
-    model: ADVISOR_MODEL,
-    estimateUsd: worstCaseUsd(ADVISOR_MODEL, tokensForChars(raw.length + FIXED_CHARS), MAX_TOKENS),
+    model,
+    // A cold step writes the whole conversation to the cache, at the cache-write price.
+    estimateUsd: worstCaseUsd(model, tokensForChars(raw.length + FIXED_CHARS), ADVISOR_MAX_TOKENS, { cacheWrites: true }),
     capUsd: dailyCapUsd(),
     names: { who: bot === 'the assistant' ? 'The assistant' : bot },
   });
@@ -89,30 +94,9 @@ export async function POST(req: Request) {
     async start(controller) {
       const send = (event: object) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       try {
-        const run = client.beta.messages.stream({
-          model: ADVISOR_MODEL,
-          max_tokens: MAX_TOKENS,
-          // A refusal is re-run on Anthropic's recommended fallback for its
-          // category rather than handed to the student as a dead end.
-          betas: ['server-side-fallback-2026-07-01'],
-          fallbacks: 'default',
-          // Adaptive thinking is on by default on this model. High effort,
-          // because the student asks this bot to weigh a schedule: which of
-          // two courses, whether a move breaks a chain, what a term costs
-          // them. The tools carry the facts; the reasoning over them is the
-          // job. Streaming keeps the wait honest.
-          output_config: { effort: 'high' },
-          system: [
-            { type: 'text', text: advisorSystem(bot, schoolName, schoolShort), cache_control: { type: 'ephemeral' } },
-            // Illinois registrar dates, for an Illinois student only. After the cached prompt, so a new day never breaks the cache.
-            ...(/illinois/i.test(schoolName) ? [{ type: 'text' as const, text: termDatesBlock(new Date()) }] : []),
-            { type: 'text', text: `The board right now:\n\n${board}` },
-          ],
-          tools: /illinois/i.test(schoolName)
-            ? ADVISOR_TOOLS
-            : ADVISOR_TOOLS.filter((tool) => new Set(["search_courses","course_details","term_summary","add_course","remove_course","replace_course","move_course","planner_answer","university_answer"]).has(tool.name)),
-          messages,
-        });
+        const run = client.beta.messages.stream(
+          advisorRequest({ model, bot, schoolName, schoolShort, board, messages, now: new Date() }),
+        );
         for await (const event of run) {
           if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
             send({ type: 'text', delta: event.delta.text });
