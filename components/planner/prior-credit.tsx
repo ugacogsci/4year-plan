@@ -143,7 +143,7 @@ export function PriorCredit({
 
   /** Grants that name a subject and a level rather than a class. */
   const electiveOnly = useMemo(
-    () => result.creditCourses.filter((code) => !/^[A-Z]{2,5} \d{3}$/.test(code)),
+    () => result.creditCourses.filter((code) => !/^[A-Z]{2,5} \d{3,4}[A-Z]?$/.test(code)),
     [result],
   );
 
