@@ -1221,9 +1221,9 @@ export function PlannerWorkspace({
       if (r.ok) clubFile.current = r.value;
     });
   }, [isIllinois]);
-  /** The clubs card's "Change my goals": the rail (the overlay on a phone), Preferences open, the cursor in the goals box. */
+  /** The clubs card's "Change my goals": the rail open, Preferences open, the cursor in the goals box. */
   function editGoals() {
-    if (narrow) setRailOpen(true);
+    setRailOpen(true);
     requestAnimationFrame(() => {
       const preferences = document.getElementById('rail-preferences');
       if (preferences instanceof HTMLDetailsElement) preferences.open = true;
