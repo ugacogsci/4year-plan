@@ -26,6 +26,7 @@
 import { degreeSubjects, normaliseCode } from '@/lib/planner/autoplan';
 import type { GenEdCredit, LanguagePlan, LanguageTable, PlanRequirement, PoolReport } from '@/lib/planner/autoplan';
 import type { CourseChoice, RequirementBlock } from '@/lib/planner/illinois-data';
+import { withoutMinorPageHeading } from '@/lib/planner/illinois-minors';
 import type { Course, PlanState } from '@/lib/planner/types';
 import type { PlanningContext } from '@/lib/planner/autoplan';
 import type { AreaRow } from './student-profile-panel';
@@ -574,7 +575,7 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
     const needed = row.needed;
     const percent = needed ? Math.min(100, Math.round((row.earned / needed) * 100)) : 0;
     return {
-      area: { label: headingOf(block.label || block.areaLabel || ruleLabel(block) || ''), hours: row.unit === 'hr' ? (needed ?? 0) : 0, groups: [] },
+      area: { label: rowHeading(block), hours: row.unit === 'hr' ? (needed ?? 0) : 0, groups: [] },
       earned: row.earned,
       percent,
       satisfied: needed !== null && row.earned >= needed,
@@ -594,6 +595,19 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
  * show, and "Additional course work" is the page's own start of it, not a name
  * this planner made up. A trailing colon or period is punctuation, not words.
  */
+/**
+ * A row's heading on the rail. A minor page's own heading ("for the
+ * Undergraduate Minor in Geology"), which its tables carry as their label, is
+ * taken off first, and a row it left with no words is headed by its courses.
+ * Degree labels never carry it, so a degree's rows read as they did.
+ */
+function rowHeading(block: RequirementBlock): string {
+  const label = block.label || block.areaLabel || ruleLabel(block) || '';
+  const own = withoutMinorPageHeading(label);
+  if (own === label.replace(/\s+/g, ' ').trim()) return headingOf(label);
+  return headingOf(own) || headingOf(ruleLabel(block));
+}
+
 function headingOf(label: string): string {
   const trimmed = (label ?? '').replace(/\s+/g, ' ').replace(/[\s:;,.]+$/, '').trim();
   if (trimmed.length <= 48) return trimmed;

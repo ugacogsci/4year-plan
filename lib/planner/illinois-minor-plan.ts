@@ -1,6 +1,6 @@
 import type { AutoplanInput, GeneratedPlan } from './autoplan.ts';
 import type { CourseChoice, RequirementBlock, RequirementRule } from './illinois-data.ts';
-import { MINOR_ID_PREFIX } from './illinois-minors.ts';
+import { MINOR_ID_PREFIX, withoutMinorPageHeading } from './illinois-minors.ts';
 
 /**
  * An Illinois minor planned beside the degree (beta).
@@ -159,7 +159,7 @@ export function residualMinor(
  * sweep, so both name a row the same way.
  */
 export function rowLabel(block: RequirementBlock): string {
-  const clean = (s: string | null | undefined) => String(s ?? '').replace(/\s+/g, ' ').replace(/[\s:;,.]+$/, '').trim();
+  const clean = (s: string | null | undefined) => withoutMinorPageHeading(String(s ?? '')).replace(/[\s:;,.]+$/, '').trim();
   const own = clean(block.label) || clean(block.areaLabel);
   if (own && own !== 'null') return own;
   const rule = block.rule;

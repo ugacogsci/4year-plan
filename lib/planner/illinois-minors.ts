@@ -657,6 +657,22 @@ export function minorIsChecked(catalogId: string): boolean {
 /** What a picker shows for an unchecked minor, after its name. */
 export const NOT_CHECKED_TAG = '(not checked yet)';
 
+/**
+ * A minor page's section heading ("for the Undergraduate Minor in Geology"),
+ * which the crawl keeps as the label of 97 minors' tables. It names the page,
+ * not a row: on the rail it made Geology's three rows read alike.
+ */
+const MINOR_PAGE_HEADING = /^for the undergraduate minor in [^:]*(?::\s*|$)/i;
+
+/**
+ * A minor row's label with the page heading taken off, for display only (the
+ * engine and the rail's counter still read the label as it was). Empty when
+ * the heading was all the label had; the caller then names the row by its courses.
+ */
+export function withoutMinorPageHeading(label: string): string {
+  return String(label ?? '').replace(/\s+/g, ' ').trim().replace(MINOR_PAGE_HEADING, '').trim();
+}
+
 export interface IllinoisMinorOption {
   /** "minor:las/minors/statistics". */
   id: string;
