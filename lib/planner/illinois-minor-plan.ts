@@ -237,6 +237,8 @@ export interface MinorPlanOutcome {
   cost: string | null;
   /** Hours past the degree-only plan's total. */
   extraHours: number;
+  /** The courses the kept plan books for each minor's own rows, by minor id (shared courses are the degree's). */
+  booked: Record<string, string[]>;
   runs: number;
 }
 
@@ -319,8 +321,14 @@ export function planBesideDegree(
     const block = rows.find((r) => r.block.id === u.requirementId)?.block;
     needRoom.push({ minorId: minor?.id ?? '', minorName: minor ? (nameOf.get(minor.id) ?? minor.name) : 'Minor', blockId: u.requirementId, label: block ? rowLabel(block) : (u.label || u.areaLabel || 'a requirement'), hours: block?.hours ?? null, why: 'did-not-fit' });
   }
+  const booked: Record<string, string[]> = {};
+  for (const [code, req] of Object.entries(best.plan.bookedFor ?? {})) {
+    const minor = req ? minorOf(String(req)) : null;
+    if (minor) (booked[minor.id] ??= []).push(norm(code));
+  }
   return {
     generated: best.plan,
+    booked,
     kept: best.k,
     offered: rows.length,
     shared,
@@ -374,9 +382,9 @@ export function minorPlanNotes(outcome: MinorPlanOutcome, minors: Array<{ id: st
   for (const minor of minors) {
     const shared = outcome.shared.filter((row) => row.minorId === minor.id).flatMap((row) => row.codes);
     const room = outcome.needRoom.filter((row) => row.minorId === minor.id);
-    const placedNothing = outcome.kept === 0 && room.length > 0;
+    const placed = outcome.booked[minor.id] ?? [];
     const parts: string[] = [];
-    if (placedNothing) {
+    if (placed.length === 0 && room.length > 0) {
       parts.push(`${minor.name} (beta): the planner checked this minor against its catalog page, but none of what it still needs fits beside your degree in the terms you have without taking a degree requirement's place or putting a term over 18 hours${outcome.cost ? ` (${outcome.cost})` : ''}.`);
     } else {
       parts.push(`${minor.name} (beta): planned beside your degree from its catalog page, which the planner has checked. Your degree comes first; the minor's courses take free-elective room${minors.length === 1 && outcome.extraHours > 0 ? ` and add ${outcome.extraHours} hours to the plan` : ''}.`);

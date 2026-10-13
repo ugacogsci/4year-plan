@@ -189,6 +189,15 @@ const HORIZON = START[1] === 'Fall'
   ? { startSeason: 'Fall', startYear: Number(START[2]), gradSeason: 'Spring', gradYear: Number(START[2]) + 4, stated: true }
   : { startSeason: 'Spring', startYear: Number(START[2]), gradSeason: 'Fall', gradYear: Number(START[2]) + 3, stated: true };
 const FRESHMAN = { courseCodes: [], exemptCodes: [], unmatchedCredits: 0, known: true, languageSemesters: 2, languageName: 'Spanish', genEdCredits: [] };
+/**
+ * MINOR_IN_FALL=1: the student the app sees today, a first-year already in
+ * Fall 2026 whose plan starts in Spring 2027 (adding classes has closed) with
+ * the fall counted as 15 assumed hours, finishing Spring 2030: seven terms.
+ */
+if (process.env.MINOR_IN_FALL === '1') {
+  Object.assign(HORIZON, { startSeason: 'Spring', startYear: 2027, gradSeason: 'Spring', gradYear: 2030 });
+  FRESHMAN.unmatchedCredits = 15;
+}
 const codesOn = (g) => g.plan.terms.flatMap((t) => t.courseIds.map((id) => norm(byId.get(id)?.code ?? ''))).filter(Boolean);
 
 function progressRows(blocks, g, programName, degreeTotal, pools) {
