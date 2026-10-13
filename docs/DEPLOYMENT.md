@@ -44,8 +44,8 @@ across devices or transfer automatically from localhost to the public site.
 Use the planner's export/import controls to move saved work. Changing to a new
 domain also creates a separate storage origin, so export first.
 
-The first public deployment does not configure `ANTHROPIC_API_KEY` or
-`TRU_UPSTREAM`. Deterministic planning and browser-local features remain
+The first public deployment does not configure `ANTHROPIC_API_KEY`.
+Deterministic planning and browser-local features remain
 available; model-powered advice and transcript extraction are not enabled.
 Add authentication or appropriate abuse controls and spending limits before
 enabling paid AI endpoints for anonymous visitors. Keep keys out of source,
