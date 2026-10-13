@@ -28,9 +28,9 @@ import { termDatesBlock } from './term-dates';
  * changed. Nothing is stored: the browser never sees the attached block, so
  * the next step attaches a fresh one to the new newest message.
  *
- * MERGE-UGA: this new order is ALMA's (Illinois) only. ARCH (UGA, Cameron's)
- * is sent exactly the request it had before (board in the system prompt, the
- * conversation as the browser sent it), until its owner chooses otherwise.
+ * MERGE-UGA: ARCH (UGA) gets the same order, without the Illinois dates
+ * (needs owner decision: Cameron's call; the commit before this one kept
+ * ARCH on its old request).
  */
 
 /** The tools a non-Illinois (UGA) student's assistant gets. */
@@ -151,29 +151,12 @@ export function messagesForStep(
 
 /** Everything one step sends; the route passes it to the SDK's stream(), which adds the streaming flag. */
 export function advisorRequest(input: AdvisorRequestInput): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
-  if (!isIllinois(input.schoolName)) return legacyRequest(input);
+  const illinois = isIllinois(input.schoolName);
   return {
     ...commonParams(input.model),
     system: [{ type: 'text', text: advisorSystem(input.bot, input.schoolName, input.schoolShort), cache_control: { type: 'ephemeral' } }],
-    tools: ADVISOR_TOOLS,
+    tools: illinois ? ADVISOR_TOOLS : ADVISOR_TOOLS.filter((tool) => UGA_TOOLS.has(tool.name)),
     messages: messagesForStep(input.messages, stepContextBlocks(input), input.model),
-  };
-}
-
-/**
- * The request as the route built it before the cache change, kept for a
- * non-Illinois (UGA) student: the instructions (marked), the board in the
- * system prompt, and the conversation exactly as the browser sent it.
- */
-export function legacyRequest(input: AdvisorRequestInput): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
-  return {
-    ...commonParams(input.model),
-    system: [
-      { type: 'text', text: advisorSystem(input.bot, input.schoolName, input.schoolShort), cache_control: { type: 'ephemeral' } },
-      { type: 'text', text: `The board right now:\n\n${input.board}` },
-    ],
-    tools: ADVISOR_TOOLS.filter((tool) => UGA_TOOLS.has(tool.name)),
-    messages: input.messages,
   };
 }
 
