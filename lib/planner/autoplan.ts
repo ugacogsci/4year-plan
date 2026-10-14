@@ -1190,6 +1190,13 @@ export interface GeneratedPlan {
   notes: string[];
   partsOfTerm: string[];
   /**
+   * A plan that ends before the finish the student named: the note in
+   * `notes` that says so and why, and the Preferences numbers ("about",
+   * "at least") that rebuild it lighter through that finish, where this
+   * engine's term count is what ended it early (null otherwise).
+   */
+  earlyFinish?: { note: string; settings: { target: number; minimum: number } | null };
+  /**
    * Which board generatePlan kept: a930f09's ('plain', AutoplanInput.plainEngine),
    * with what the first board weighed against it was worse on, or another
    * ('improved') that is worse on nothing the gate measures. For the sweep
@@ -15725,6 +15732,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   everyTerm.forEach((term, index) => {
     if (term.codes.length > 0) lastUsed = index;
   });
+  let earlyFinish: GeneratedPlan['earlyFinish'];
   const plannedTerms = lastUsed < 0 ? everyTerm.slice(0, 1) : everyTerm.slice(0, lastUsed + 1);
   if (lastUsed >= 0 && lastUsed < everyTerm.length - 1) {
     // A semester abroad that earns hours after the last course is the last
@@ -15745,11 +15753,56 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const finishes = lastAbroad
         ? `This plan's courses end in ${everyTerm[lastUsed].label}, and ${awayNamed(lastAbroad)} after them is your last term, so it finishes in ${lastAbroad.season} ${lastAbroad.year}`
         : `This plan finishes in ${everyTerm[lastUsed].label}`;
-      notes.push(
-        input.horizon.stated === true
-          ? `${finishes}, ${spare} term${spare === 1 ? '' : 's'} before the ${input.horizon.gradSeason} ${input.horizon.gradYear} you asked for.`
-          : `${finishes}, ${spare} term${spare === 1 ? '' : 's'} before ${input.horizon.gradSeason} ${input.horizon.gradYear}, because the courses left run out sooner.`,
-      );
+      if (input.horizon.stated === true) {
+        /**
+         * A finish the student named and the plan beats: say why, in the
+         * numbers the plan was built from, and what using every term up to
+         * that finish would mean. A freshman who asked for Spring 2030 got a
+         * board ending Fall 2029 with only "1 term before" in the notes, and
+         * no word that the work fit in fewer terms at the usual load or that
+         * a lighter plan to their own date was possible.
+         */
+        const asked = `${input.horizon.gradSeason} ${input.horizon.gradYear}`;
+        const awayAt = new Set(awayTerms.map((a) => calendarOrd(a.season, a.year)));
+        const onCampus = (t: (typeof terms)[number]) => !isSummer(t) && !awayAt.has(calendarOrd(t.season, t.calendarYear));
+        const used = terms.filter((t, i) => i <= lastUsed && onCampus(t));
+        const all = terms.filter(onCampus);
+        const usedCredits = used.reduce((sum, t) => sum + (everyTerm[terms.indexOf(t)]?.credits.min ?? 0), 0);
+        const left = remainingDegree !== null && remainingDegree > 0 ? remainingDegree : null;
+        const perTerm = used.length > 0 ? Math.round(usedCredits / used.length) : 0;
+        const termsWord = (n: number) => `${n} ${n === 1 ? 'term' : 'terms'}`;
+        const why = left !== null && degreeTotalPublished !== null
+          ? `: the ${left} credits you still need of the ${degreeTotalPublished} this degree takes fit in ${termsWord(used.length)} at about ${perTerm} a term.`
+          : `: the courses this plan holds fit in ${termsWord(used.length)} at about ${perTerm} a term.`;
+        const spreadOver = left ?? usedCredits;
+        const lighter = all.length > used.length ? spreadOver / all.length : null;
+        const lighterNote = lighter === null
+          ? ''
+          : lighter >= credits.min
+            ? ` Using every term to ${asked} would be about ${Math.round(lighter)} a term.`
+            : ` Using every term to ${asked} would be about ${Math.round(lighter * 10) / 10} a term, under the ${credits.min} minimum (part-time), unless you add classes the degree does not need, such as a minor.`;
+        const note = `${finishes}, ${spare} term${spare === 1 ? '' : 's'} before the ${asked} you asked for${why}${lighterNote}`;
+        notes.push(note);
+        /**
+         * The Preferences numbers that rebuild it through the student's date,
+         * where this engine's term count (regularNeeded, and the fill's cap
+         * of no more terms than the minimum can fill) is what ended it early:
+         * "about" an even share over every term, "at least" no more than that
+         * share. Summers and terms away count differently and get none.
+         */
+        let settings: { target: number; minimum: number } | null = null;
+        if (left !== null && lighter !== null && awayTerms.length === 0 && !terms.some(isSummer)) {
+          const n = all.length;
+          const target = Math.ceil(left / n);
+          const minimum = Math.min(credits.min, Math.floor(left / n));
+          const counted = regularNeeded < n || Math.floor(left / Math.max(1, credits.min)) < n;
+          const reaches = Math.ceil(left / Math.max(target, minimum)) >= n && Math.floor(left / Math.max(1, minimum)) >= n;
+          if (counted && reaches && minimum >= 6 && target <= credits.max) settings = { target, minimum };
+        }
+        earlyFinish = { note, settings };
+      } else {
+        notes.push(`${finishes}, ${spare} term${spare === 1 ? '' : 's'} before ${input.horizon.gradSeason} ${input.horizon.gradYear}, because the courses left run out sooner.`);
+      }
     }
   }
 
@@ -15964,6 +16017,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     offering: { unknown: offeringUnknown, seenOnlyInSnapshot, message: offeringMessage },
     notes,
     partsOfTerm,
+    ...(earlyFinish ? { earlyFinish } : {}),
   };
   if (pacedPlacement !== null || soonerPlacement) trialsTaken.set(generated, { pace: pacedPlacement, sooner: soonerPlacement, ceiling: ceilingAlternative });
   if (trimmable && input.trimPast !== true) trimMatters.add(generated);
