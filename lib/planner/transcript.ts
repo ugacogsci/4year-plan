@@ -874,9 +874,10 @@ export function transcriptCreditAdjustment(
   /**
    * The board's own hours for a course. UGA's upload step matches against
    * public/uga-catalog.json, which lists every course at 3 hours, while the
-   * board counts BIOL 1107L at 1 and MATH 2250 at 4; for a UGA record the
-   * board's figure is the one to settle against, or a lab line is taken off
-   * twice. Illinois records keep the hours stored on the line.
+   * board counts BIOL 1107L at 1 and MATH 2250 at 4; for a transfer line
+   * on a UGA record the board's figure is the one to settle against, or a
+   * lab line is taken off twice. Illinois records keep the hours stored on
+   * the line.
    */
   creditsOf?: (code: string) => number | null,
 ): number {
@@ -885,7 +886,10 @@ export function transcriptCreditAdjustment(
   for (const c of record.courses) {
     if (!c.use || c.counts !== 'course' || !c.matched) continue;
     const earned = c.equivalentCredits ?? c.credits;
-    const board = record.schoolId === 'uga' && creditsOf ? [c.matched, ...(c.also ?? [])].map((code) => creditsOf(code)) : null;
+    // Only for transfer lines: a UGA student's own courses keep the figure
+    // they had, so no plan without transfer credit moves (a 4-hour course on
+    // UGA's own record still adds an hour; reported, not changed here).
+    const board = record.schoolId === 'uga' && creditsOf && lineIsForeign(record, c) ? [c.matched, ...(c.also ?? [])].map((code) => creditsOf(code)) : null;
     const catalog = board && board.every((n) => n !== null) ? board.reduce<number>((sum, n) => sum + (n ?? 0), 0) : c.illinoisCredits ?? null;
     if (earned === null || earned === undefined || catalog === null || !(earned > 0)) continue;
     delta += earned - catalog;
