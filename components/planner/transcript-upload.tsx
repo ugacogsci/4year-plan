@@ -74,8 +74,13 @@ export function TranscriptUpload({
     if (school?.id === 'uga' && school.catalog) {
       const response = await fetch(school.catalog);
       if (!response.ok) throw new Error('The UGA catalog could not be loaded.');
-      const data = await response.json() as { courses: Course[] };
-      const lite = data.courses.map((c) => ({ code: normalizeCourseCode(c.code), title: c.title, credits: c.credits, level: Number(c.code.match(/\d/)?.[0] ?? 0) * 100, cluster: c.cluster, tags: c.tags }));
+      // public/uga-catalog.json is a plain list of courses (uga-source.tsx
+      // and prior-credit.tsx read it that way); a { courses } wrapper is
+      // accepted too, so either shape matches instead of throwing after the
+      // reading has already come back.
+      const data = (await response.json()) as Course[] | { courses?: Course[] };
+      const courses = Array.isArray(data) ? data : Array.isArray(data?.courses) ? data.courses : [];
+      const lite = courses.filter((c) => typeof c?.code === 'string').map((c) => ({ code: normalizeCourseCode(c.code), title: c.title, credits: c.credits, level: Number(c.code.match(/\d/)?.[0] ?? 0) * 100, cluster: c.cluster, tags: c.tags }));
       setCatalog(lite);
       return lite;
     }
@@ -112,6 +117,7 @@ export function TranscriptUpload({
       }
     }
     setBusy(files.length === 1 ? `Reading ${files[0].fileName}` : `Reading ${files.length} files`);
+    let sent = false;
     try {
       const res = await fetch('/api/transcript', {
         method: 'POST',
@@ -123,6 +129,7 @@ export function TranscriptUpload({
         setError(json.error ?? `The transcript reader answered ${res.status}.`);
         return;
       }
+      sent = true;
       const lite = await catalogLite();
       const guide = school?.id === 'illinois' ? await loadTransferGenEd() : null;
       const names = files.map((f) => f.fileName);
@@ -157,7 +164,12 @@ export function TranscriptUpload({
         onChange(matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois'));
       }
     } catch {
-      setError('The transcript could not be sent. Check your connection and try again.');
+      // Past the reply, the network is not the problem: say so honestly.
+      setError(
+        sent
+          ? 'The transcript was read, but its courses could not be matched to the catalog. Reload the page and try again.'
+          : 'The transcript could not be sent. Check your connection and try again.',
+      );
     } finally {
       setBusy(null);
       // So the same file can be picked again after a failure.
