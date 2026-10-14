@@ -183,6 +183,7 @@ import {
   type TranscriptCourseRecord,
   type TranscriptRecord,
 } from '@/lib/planner/transcript';
+import { withCoreCredit } from '@/lib/planner/transfer-core';
 import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
 import { assumedHours as assumedHoursOf, recordCoverage, uncoveredTerms } from '@/lib/planner/start-term';
 import { distinctHeld, heldTowardDegree, type GenEdCredit, type Horizon, type PlanRequirement, type PriorCredit } from '@/lib/planner/autoplan';
@@ -1245,7 +1246,17 @@ export function PlannerWorkspace({
     };
   }, [isIllinois, isUga, isUndecided, core, uga, programIds, minorIds, selectedProgramIds, programKey, emphasisKey, answers?.emphasisSelections, emphasesComplete, isGraduatePlan, gradCore, gradMenu, certificateIds]);
 
-  const loaded = fetched?.key === programKey ? fetched.value : null;
+  const fetchedLoaded = fetched?.key === programKey ? fetched.value : null;
+  // UGA core electives the student already holds (a transfer line UGA gives
+  // as "SOCI 1GXX") come off the core areas they usually fill, so the board
+  // does not book a course there the student does not need (transfer-core.ts).
+  // The same object when the record holds none, so no other board changes.
+  const transcriptRecord = answers?.transcript ?? null;
+  const loaded = useMemo(() => {
+    if (!isUga || !fetchedLoaded) return fetchedLoaded;
+    const { blocks } = withCoreCredit(fetchedLoaded.blocks, transcriptRecord);
+    return blocks === fetchedLoaded.blocks ? fetchedLoaded : { ...fetchedLoaded, blocks };
+  }, [isUga, fetchedLoaded, transcriptRecord]);
   const programBusy = Boolean(isCatalogSchool && programIds.length > 0 && !isUndecided) && fetched?.key !== programKey;
 
 
