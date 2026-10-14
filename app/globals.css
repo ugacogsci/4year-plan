@@ -2537,6 +2537,13 @@ p.requirement-unnamed {
   border-radius: 5px; padding: 2px 6px; background: #142033; color: #9fb0c6; white-space: nowrap;
 }
 .transcript-chip.warn { background: #2a1d1a; color: #e6a596; }
+/* What a transfer line became and why, under the line, with its source. */
+.transcript-basis { grid-column: 1 / -1; order: 3; font-size: 11.5px; line-height: 1.45; color: #9fb0c6; white-space: normal; }
+.transcript-basis a { color: inherit; text-decoration: underline; }
+.transcript-chip.basis-course { background: #12301f; color: #8fd6a8; }
+.transcript-chip.basis-core, .transcript-chip.basis-elective { background: #1b2840; color: #a9c1e6; }
+.transcript-chip.basis-none { background: #2a1d1a; color: #e6a596; }
+.transcript-chip.basis-not-evaluated { background: #2b2614; color: #e3cf8f; }
 .transcript-remove { background: none; border: 0; padding: 0; width: fit-content; cursor: pointer; text-decoration: underline; color: #63748c; font-size: 12.5px; }
 .transcript-remove:hover { color: #e88175; }
 

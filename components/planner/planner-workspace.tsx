@@ -4889,14 +4889,15 @@ export function PlannerWorkspace({
             term: c.term,
             status: c.status,
             from: c.from ?? (record?.home === false ? record.institution : null),
-            how: c.matchedBy === 'code' ? 'Illinois code on the record' : c.matchedBy === 'printed' ? 'equivalent printed on the document (confirmed)' : c.matchedBy === 'proposal' ? 'likely equivalent from the catalog (not confirmed)' : 'entered by the student or in chat',
+            how: c.matchedBy === 'code' ? 'Illinois code on the record' : c.matchedBy === 'printed' ? 'equivalent printed on the document (confirmed)' : c.matchedBy === 'official' ? "the university's own transfer equivalency list" : c.matchedBy === 'proposal' ? 'likely equivalent from the catalog (not confirmed)' : 'entered by the student or in chat',
+            ...(c.basis ? { why: c.basis.text, source: c.basis.source ?? null } : {}),
           }));
         const hoursLines = (record?.courses ?? [])
           .filter((c) => c.use && c.counts === 'hours')
-          .map((c) => ({ as_printed: c.code, title: c.title, hours: c.equivalentCredits ?? c.credits, from: c.from ?? (record?.home === false ? record.institution : null), status: c.status, likely_equivalents: (c.proposals ?? []).map((p) => `${p.code} ${p.title} (${p.confidence})`) }));
+          .map((c) => ({ as_printed: c.code, title: c.title, hours: c.equivalentCredits ?? c.credits, from: c.from ?? (record?.home === false ? record.institution : null), status: c.status, likely_equivalents: (c.proposals ?? []).map((p) => `${p.code} ${p.title} (${p.confidence})`), ...(c.designation ? { designation: c.designation, core_area: c.coreArea ?? null } : {}), ...(c.basis ? { why: c.basis.text, source: c.basis.source ?? null } : {}) }));
         const notCounted = (record?.courses ?? [])
           .filter((c) => !c.use)
-          .map((c) => ({ as_printed: c.code, title: c.title, status: c.status, why: c.status === 'no_credit' ? 'the document says it earns no credit' : c.status === 'withdrawn' ? 'withdrawn' : c.status === 'failed' ? 'failed' : 'turned off by the student' }));
+          .map((c) => ({ as_printed: c.code, title: c.title, status: c.status, why: c.basis?.badge === 'none' ? c.basis.text : c.status === 'no_credit' ? 'the document says it earns no credit' : c.status === 'withdrawn' ? 'withdrawn' : c.status === 'failed' ? 'failed' : 'turned off by the student' }));
         const examCodes = L.priorForOptions.courseCodes.filter((code) => !transcriptCodes(record).includes(code));
         /**
          * Hours in beside hours that fill something. Every transferable
