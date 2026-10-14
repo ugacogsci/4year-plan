@@ -185,6 +185,19 @@ export function isVocational(code: string, title: string | null): boolean {
   return /\b(automotive|welding|cosmetology|culinary|hvac|diesel|machining|barbering|phlebotomy|nursing assistant|medical terminology|truck driving|fire science|emergency medical)\b/i.test(title ?? '');
 }
 
+/**
+ * UGA courses an equivalency list still names by an older number. UGA's own
+ * lists show the change: the same statewide technical-college course, SPCH
+ * 1101 Public Speaking, is COMM 1100 on 13 lists, SPCM 1100 on one and COMM
+ * 1110 on eight, and COMM 1110 is the Introduction to Public Speaking in
+ * UGA's current catalog. Used only when the old number is not in the
+ * catalog and the new one is.
+ */
+export const UGA_RENUMBERED: Record<string, { now: string; title: string }> = {
+  'COMM 1100': { now: 'COMM 1110', title: 'Introduction to Public Speaking' },
+  'SPCM 1100': { now: 'COMM 1110', title: 'Introduction to Public Speaking' },
+};
+
 /** A D, as printed on a sending school's line ("D", "D+", "TD"). */
 export function isDGrade(grade: string | null | undefined): boolean {
   return /^T?D[+-]?$/i.test(String(grade ?? '').trim());

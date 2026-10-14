@@ -41,6 +41,7 @@ import {
   ugaDesignation,
   ugaLookup,
   ugaSchoolEntry,
+  UGA_RENUMBERED,
   type TransferBasis,
   type UgaDesignation,
   type UgaTransferTable,
@@ -88,6 +89,12 @@ export interface TranscriptCourse {
   iai?: string | null;
   /** Gen-ed categories the document itself prints beside the line ("Gen Ed: SBS"), as printed. */
   genEdText?: string | null;
+  /**
+   * The unit of this line's hours when its own school's part of the upload
+   * states it: a DePaul transcript in quarter hours read together with a
+   * semester school's. Null when not stated; the document's unit applies.
+   */
+  hoursUnit?: 'semester' | 'quarter' | null;
 }
 
 export interface TranscriptExam {
@@ -297,7 +304,9 @@ export function earns(status: TranscriptStatus): boolean {
 export function isDevelopmental(code: string, title: string | null): boolean {
   const number = code.match(/\b(\d{3,4})[A-Z]{0,2}$/)?.[1];
   if (number && Number(number[0]) === 0) return true;
-  return /\b(developmental|remedial|foundations? for college|basic (math|writing|algebra)|pre-?college|college prep)\b/i.test(title ?? '');
+  // "Developmental Psychology" and "Developmental Biology" are college
+  // courses: the word marks a remedial course only before a basic subject.
+  return /\b(developmental (reading|writing|english|math\w*|algebra|studies|composition|education)|remedial|foundations? for college|basic (math|writing|algebra)|pre-?college|college prep)\b/i.test(title ?? '');
 }
 
 /**
@@ -404,10 +413,13 @@ export function matchTranscript(
     : 1;
   const home = reading.institution ? issuerIsHome : knownShare >= 0.5;
   const codesAreIllinois = home && reading.kind !== 'transfer_report';
+  const mixedQuarter = new Set<string>();
   const courses: TranscriptCourseRecord[] = reading.courses.map((raw) => {
     // Quarter hours are two-thirds of a semester hour, the usual conversion;
     // the Transfer Evaluation Report shows the figure your university settles on.
-    const c = quarter && raw.credits !== null ? { ...raw, credits: Math.round(raw.credits * (2 / 3) * 100) / 100 } : raw;
+    const lineQuarter = raw.hoursUnit === 'quarter' || (quarter && raw.hoursUnit !== 'semester');
+    if (lineQuarter && !quarter) mixedQuarter.add(raw.from ?? reading.institution ?? 'one school');
+    const c = lineQuarter && raw.credits !== null ? { ...raw, credits: Math.round(raw.credits * (2 / 3) * 100) / 100 } : raw;
     const code = normalizeCourseCode(c.code);
     const term = normalizeTerm(c.term);
     const taughtElsewhere = codesAreIllinois ? false : c.from ? !isHomeTranscript(c.from, schoolId) : !home;
@@ -424,7 +436,7 @@ export function matchTranscript(
       matchedBy: null,
       use: false,
       counts: 'none',
-      ...(quarter && raw.credits !== null ? { printedCredits: raw.credits } : {}),
+      ...(lineQuarter && raw.credits !== null ? { printedCredits: raw.credits } : {}),
     };
     const off = !earns(c.status);
 
@@ -488,7 +500,18 @@ export function matchTranscript(
         const where = `UGA's equivalency list for ${hit.entry.name}`;
         const designations = hit.results.map((r) => ugaDesignation(r)).filter((d): d is UgaDesignation => d !== null);
         const courseResults = hit.results.filter((r) => !ugaDesignation(r));
-        const held = courseResults.map((r) => normalizeCourseCode(r)).filter((r) => known.has(r));
+        // A list that still names a UGA course by its older number (COMM
+        // 1100 for Introduction to Public Speaking, now COMM 1110) means the
+        // course the catalog lists today.
+        const renumbered: string[] = [];
+        const current = (r: string) => {
+          const n = normalizeCourseCode(r);
+          const now = UGA_RENUMBERED[n]?.now;
+          if (known.has(n) || !now || !known.has(now)) return n;
+          renumbered.push(`${n} is the older number of UGA's ${UGA_RENUMBERED[n].title}, now ${now}`);
+          return now;
+        };
+        const held = courseResults.map(current).filter((r) => known.has(r));
         if (held.length > 0) {
           const [first, ...also] = held;
           const extra = designations.filter((d) => d.kind !== 'none').map((d) => d.code);
@@ -504,7 +527,7 @@ export function matchTranscript(
             basis: {
               from: 'official',
               badge: 'course',
-              text: `${where} makes it UGA ${courseResults.join(' + ')}${extra.length ? `; the list also shows ${extra.join(', ')} for it` : ''}.${missingNote(courseResults.map((r) => normalizeCourseCode(r)).filter((r) => !known.has(r)), held)}`,
+              text: `${where} makes it UGA ${courseResults.join(' + ')}${extra.length ? `; the list also shows ${extra.join(', ')} for it` : ''}.${renumbered.length ? ` ${[...new Set(renumbered)].join('; ')}.` : ''}${missingNote(courseResults.map(current).filter((r) => !known.has(r)), held)}`,
               source: hit.file.source,
               checked: hit.file.readAt,
             },
@@ -702,6 +725,11 @@ export function matchTranscript(
       Object.assign(line, { counts: 'hours', matched: null, matchedBy: null, illinoisCredits: null, also: undefined, matchNote: `a repeat of ${line.code}, which the catalog lets a student take for credit again; its hours count` });
       if (line.basis) line.basis = { ...line.basis, badge: 'elective', text: `A repeat of ${line.code}, which the catalog lets a student take for credit again; its hours count.` };
     } else if (earlier.code === line.code) {
+      // Retaken for a better grade: the D note no longer applies to the course.
+      if (earlier.gradeNote && !line.gradeNote && !isDGrade(line.grade)) {
+        earlier.gradeNote = null;
+        if (earlier.basis) earlier.basis = { ...earlier.basis, text: `${earlier.basis.text} Retaken for ${line.grade ?? 'a passing grade'} (${line.term ?? 'later'}).` };
+      }
       Object.assign(line, { counts: 'none', use: false, matchNote: `a repeat of ${line.code}; it counts once` });
       if (line.basis) line.basis = { ...line.basis, badge: 'none', text: `A repeat of ${line.code}; it counts once.` };
     } else {
@@ -709,6 +737,7 @@ export function matchTranscript(
       if (line.basis) line.basis = { ...line.basis, badge: 'elective', text: `${earlier.code} already counts as ${earlier.matched}, so this one counts as elective hours.` };
     }
   }
+  if (mixedQuarter.size > 0) notes.unshift(`${[...mixedQuarter].join(', ')} ${mixedQuarter.size === 1 ? 'states' : 'state'} quarter hours; those lines are converted to semester hours at two-thirds, the usual conversion. Your Transfer Evaluation Report shows the figure your university settles on.`);
   if (quarter) notes.unshift('This transcript is in quarter hours; each line\'s hours are converted to semester hours at two-thirds, the usual conversion. Your Transfer Evaluation Report shows the figure your university settles on.');
   const foreign = codesAreIllinois ? [] : courses.filter((c) => c.from ? !isHomeTranscript(c.from, schoolId) : !home);
   if (!reading.institution && !home) {
