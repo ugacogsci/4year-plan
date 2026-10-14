@@ -43,13 +43,39 @@ export function transcriptCoreCredits(record: TranscriptRecord | null | undefine
   return out;
 }
 
+/** Terry College subjects: a "Non-Business" elective list takes none of them. */
+const BUSINESS_SUBJECTS = new Set(['ACCT', 'BUSN', 'ECON', 'FINA', 'INTB', 'LEGL', 'MARK', 'MGMT', 'MIST', 'REAL', 'RMIN']);
+
+/**
+ * Elective hours UGA's list gives a transfer course ("UNIV 1TXX", "PEDB
+ * 1TXX"): hours toward the degree that no named requirement takes. A degree's
+ * general-electives list is where those hours go, so they come off it the way
+ * a core elective comes off its core area. An "Upper Division" list takes
+ * only 3TXX and 4TXX; a "Non-Business" list takes no Terry subject.
+ */
+export function transcriptElectiveCredits(record: TranscriptRecord | null | undefined): Array<{ line: string; subject: string; level: number; hours: number }> {
+  if (!record || record.schoolId !== 'uga') return [];
+  const out: Array<{ line: string; subject: string; level: number; hours: number }> = [];
+  for (const c of record.courses) {
+    if (!c.use || c.counts !== 'hours' || c.basis?.badge !== 'elective') continue;
+    const m = (c.designation ?? '').match(/^([A-Z]{2,4}) ([1-4])TXXL?$/);
+    if (!m) continue;
+    const hours = c.equivalentCredits ?? c.credits ?? c.assumedCredits ?? 0;
+    if (!(hours > 0)) continue;
+    out.push({ line: `${c.code} (${c.designation})`, subject: m[1], level: Number(m[2]), hours });
+  }
+  return out;
+}
+
 /**
  * The blocks with held core-elective hours taken off the core areas they
- * fill. Returns the same array when nothing applies.
+ * fill, and held elective hours off the general-electives lists. Returns the
+ * same array when nothing applies.
  */
 export function withCoreCredit(blocks: RequirementBlock[], record: TranscriptRecord | null | undefined): { blocks: RequirementBlock[]; used: CoreCreditUse[] } {
   const credits = transcriptCoreCredits(record);
-  if (credits.length === 0) return { blocks, used: [] };
+  const electives = transcriptElectiveCredits(record);
+  if (credits.length === 0 && electives.length === 0) return { blocks, used: [] };
   const left = new Map<string, number>();
   const used: CoreCreditUse[] = [];
   // A core-area list sized in hours ("3 hours from these"), or in courses
@@ -75,6 +101,31 @@ export function withCoreCredit(blocks: RequirementBlock[], record: TranscriptRec
         used.push({ line: credit.line, area, hours: size.by === 'hours' ? take : hours, blockId: block.id, filled: remaining - take <= 0 });
         hours = size.by === 'hours' ? hours - take : 0;
       }
+    }
+  }
+  for (const credit of electives) {
+    let hours = credit.hours;
+    // An upper-division list first for a 3TXX or 4TXX, so a lower list keeps
+    // room for credit only it can take.
+    const fits = blocks
+      .filter((b) => /\bgeneral electives?\b/i.test(`${b.areaLabel ?? ''} ${b.label ?? ''}`))
+      .filter((b) => {
+        const name = `${b.areaLabel ?? ''} ${b.label ?? ''}`;
+        if (/upper[- ]division/i.test(name) && credit.level < 3) return false;
+        if (/non-?business/i.test(name) && BUSINESS_SUBJECTS.has(credit.subject)) return false;
+        return true;
+      })
+      .sort((a, b) => Number(/upper[- ]division/i.test(`${b.areaLabel ?? ''} ${b.label ?? ''}`)) - Number(/upper[- ]division/i.test(`${a.areaLabel ?? ''} ${a.label ?? ''}`)));
+    for (const block of fits) {
+      if (hours <= 0) break;
+      const size = sizeOf(block);
+      if (!size || size.by !== 'hours') continue;
+      const remaining = left.get(block.id) ?? size.size;
+      if (remaining <= 0) continue;
+      const take = Math.min(hours, remaining);
+      left.set(block.id, remaining - take);
+      used.push({ line: credit.line, area: block.areaLabel ?? block.label ?? '', hours: take, blockId: block.id, filled: remaining - take <= 0 });
+      hours -= take;
     }
   }
   if (used.length === 0) return { blocks, used };
