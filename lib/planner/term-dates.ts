@@ -15,9 +15,9 @@
  * day it was read, and extend __college-rules.check.mjs section 6.
  *
  * MERGE-UGA: Illinois only. These are Illinois registrar dates and must never
- * reach a UGA student. On this branch the whole advisor prompt is Illinois's
- * (advisorSystem names Illinois for every bot), so the route sends the block
- * with it; once the route reads a schoolId, send it for 'illinois' only.
+ * reach a UGA student. advisor-request.ts attaches the block to each step's
+ * newest message only when the school's name says Illinois; once the route
+ * reads a schoolId, key it on 'illinois' instead.
  */
 
 export interface TermDates {
