@@ -436,7 +436,9 @@ function basisBadge(c: TranscriptCourseRecord): string {
     case 'elective':
       return `Elective hours only${c.designation ? ` (${c.designation})` : ''}`;
     case 'none':
-      return 'Does not transfer';
+      // A second sitting of a course that already counts (an AP score and
+      // the course, a retake) transfers once; it is not refused.
+      return /^a repeat of /.test(c.matchNote ?? '') ? 'Counted once (repeat)' : 'Does not transfer';
     default:
       return 'Not yet evaluated';
   }
