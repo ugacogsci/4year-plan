@@ -1,0 +1,728 @@
+{
+ "schools": [
+  {
+   "key": "005001",
+   "name": "Abraham Baldwin Agricultural College",
+   "system": "usg",
+   "match": [
+    "abraham baldwin"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 545,
+   "courses": 516
+  },
+  {
+   "key": "005004",
+   "name": "Albany State University",
+   "system": "usg",
+   "match": [
+    "albany state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 497,
+   "courses": 457
+  },
+  {
+   "key": "003921",
+   "name": "Albany Technical College",
+   "system": "tcsg",
+   "match": [
+    "albany technical",
+    "albany tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 117,
+   "courses": 94
+  },
+  {
+   "key": "000462",
+   "name": "Athens Technical College",
+   "system": "tcsg",
+   "match": [
+    "athens technical",
+    "athens tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 529,
+   "courses": 522
+  },
+  {
+   "key": "005725",
+   "name": "Atlanta Metropolitan State College",
+   "system": "usg",
+   "match": [
+    "atlanta metropolitan"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 331,
+   "courses": 298
+  },
+  {
+   "key": "005030",
+   "name": "Atlanta Technical College",
+   "system": "tcsg",
+   "match": [
+    "atlanta technical",
+    "atlanta tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 72,
+   "courses": 72
+  },
+  {
+   "key": "001005",
+   "name": "Auburn University",
+   "system": "other",
+   "match": [
+    "auburn university"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 678,
+   "courses": 642
+  },
+  {
+   "key": "002620",
+   "name": "Augusta Technical College",
+   "system": "tcsg",
+   "match": [
+    "augusta technical",
+    "augusta tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 128,
+   "courses": 127
+  },
+  {
+   "key": "005336",
+   "name": "Augusta University",
+   "system": "usg",
+   "match": [
+    "augusta university"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 1382,
+   "courses": 1345
+  },
+  {
+   "key": "005059",
+   "name": "Berry College",
+   "system": "other",
+   "match": [
+    "berry college"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 470,
+   "courses": 431
+  },
+  {
+   "key": "001709",
+   "name": "Central Georgia Technical College",
+   "system": "tcsg",
+   "match": [
+    "central georgia technical",
+    "central georgia tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 184,
+   "courses": 183
+  },
+  {
+   "key": "005441",
+   "name": "Chattahoochee Technical College",
+   "system": "tcsg",
+   "match": [
+    "chattahoochee technical",
+    "chattahoochee tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 283,
+   "courses": 282
+  },
+  {
+   "key": "005145",
+   "name": "Clayton State University",
+   "system": "usg",
+   "match": [
+    "clayton state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 657,
+   "courses": 646
+  },
+  {
+   "key": "005111",
+   "name": "Clemson University",
+   "system": "other",
+   "match": [
+    "clemson"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 578,
+   "courses": 557
+  },
+  {
+   "key": "004172",
+   "name": "Coastal Pines Technical College",
+   "system": "tcsg",
+   "match": [
+    "coastal pines"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 107,
+   "courses": 103
+  },
+  {
+   "key": "005113",
+   "name": "College of Charleston",
+   "system": "other",
+   "match": [
+    "college of charleston"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 346,
+   "courses": 332
+  },
+  {
+   "key": "005078",
+   "name": "College of Coastal Georgia",
+   "system": "usg",
+   "match": [
+    "coastal georgia"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 370,
+   "courses": 327
+  },
+  {
+   "key": "005123",
+   "name": "Columbus State University",
+   "system": "usg",
+   "match": [
+    "columbus state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 1148,
+   "courses": 1115
+  },
+  {
+   "key": "005704",
+   "name": "Columbus Technical College",
+   "system": "tcsg",
+   "match": [
+    "columbus technical",
+    "columbus tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 98,
+   "courses": 93
+  },
+  {
+   "key": "005167",
+   "name": "Dalton State College",
+   "system": "usg",
+   "match": [
+    "dalton state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 368,
+   "courses": 342
+  },
+  {
+   "key": "005200",
+   "name": "East Georgia State College",
+   "system": "usg",
+   "match": [
+    "east georgia state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 241,
+   "courses": 222
+  },
+  {
+   "key": "005187",
+   "name": "Emory University",
+   "system": "other",
+   "match": [
+    "emory university"
+   ],
+   "not": [
+    "oxford"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 590,
+   "courses": 518
+  },
+  {
+   "key": "005219",
+   "name": "Florida State University",
+   "system": "other",
+   "match": [
+    "florida state university"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 520,
+   "courses": 497
+  },
+  {
+   "key": "005220",
+   "name": "Fort Valley State University",
+   "system": "usg",
+   "match": [
+    "fort valley state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 321,
+   "courses": 299
+  },
+  {
+   "key": "005252",
+   "name": "Georgia College & State University",
+   "system": "usg",
+   "match": [
+    "georgia college & state",
+    "georgia college and state",
+    "georgia college"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 1158,
+   "courses": 1118
+  },
+  {
+   "key": "004796",
+   "name": "Georgia Gwinnett College",
+   "system": "usg",
+   "match": [
+    "georgia gwinnett"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 620,
+   "courses": 504
+  },
+  {
+   "key": "005237",
+   "name": "Georgia Highlands College",
+   "system": "usg",
+   "match": [
+    "georgia highlands"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 300,
+   "courses": 278
+  },
+  {
+   "key": "005248",
+   "name": "Georgia Institute of Technology",
+   "system": "usg",
+   "match": [
+    "georgia institute of technology",
+    "georgia tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 2645,
+   "courses": 2480,
+   "not": [
+    "technical college"
+   ]
+  },
+  {
+   "key": "002860",
+   "name": "Georgia Northwestern Technical College",
+   "system": "tcsg",
+   "match": [
+    "georgia northwestern"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 138,
+   "courses": 121
+  },
+  {
+   "key": "003226",
+   "name": "Georgia Piedmont Technical College",
+   "system": "tcsg",
+   "match": [
+    "georgia piedmont"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 166,
+   "courses": 157
+  },
+  {
+   "key": "005253",
+   "name": "Georgia Southern University",
+   "system": "usg",
+   "match": [
+    "georgia southern"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 2749,
+   "courses": 2113
+  },
+  {
+   "key": "005250",
+   "name": "Georgia Southwestern State University",
+   "system": "usg",
+   "match": [
+    "georgia southwestern"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 571,
+   "courses": 546
+  },
+  {
+   "key": "005251",
+   "name": "Georgia State University",
+   "system": "usg",
+   "match": [
+    "georgia state university",
+    "georgia state"
+   ],
+   "not": [
+    "middle georgia",
+    "east georgia",
+    "south georgia"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 2350,
+   "courses": 2077
+  },
+  {
+   "key": "005256",
+   "name": "Gordon State College",
+   "system": "usg",
+   "match": [
+    "gordon state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 431,
+   "courses": 405
+  },
+  {
+   "key": "005168",
+   "name": "Gwinnett Technical College",
+   "system": "tcsg",
+   "match": [
+    "gwinnett technical",
+    "gwinnett tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 340,
+   "courses": 319
+  },
+  {
+   "key": "005359",
+   "name": "Kennesaw State University",
+   "system": "usg",
+   "match": [
+    "kennesaw state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 1917,
+   "courses": 1868
+  },
+  {
+   "key": "130352",
+   "name": "Lanier Technical College",
+   "system": "tcsg",
+   "match": [
+    "lanier technical",
+    "lanier tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 249,
+   "courses": 249
+  },
+  {
+   "key": "005409",
+   "name": "Mercer University",
+   "system": "other",
+   "match": [
+    "mercer university"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 702,
+   "courses": 666
+  },
+  {
+   "key": "005439",
+   "name": "Middle Georgia State University",
+   "system": "usg",
+   "match": [
+    "middle georgia state university",
+    "middle georgia state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 850,
+   "courses": 804
+  },
+  {
+   "key": "005507",
+   "name": "North Georgia Technical College",
+   "system": "tcsg",
+   "match": [
+    "north georgia technical",
+    "north georgia tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 269,
+   "courses": 261
+  },
+  {
+   "key": "005772",
+   "name": "Oconee Fall Line Technical College",
+   "system": "tcsg",
+   "match": [
+    "oconee fall line"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 96,
+   "courses": 93
+  },
+  {
+   "key": "000154",
+   "name": "Ogeechee Technical College",
+   "system": "tcsg",
+   "match": [
+    "ogeechee"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 78,
+   "courses": 77
+  },
+  {
+   "key": "005521",
+   "name": "Oglethorpe University",
+   "system": "other",
+   "match": [
+    "oglethorpe"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 334,
+   "courses": 251
+  },
+  {
+   "key": "005186",
+   "name": "Oxford College of Emory University",
+   "system": "other",
+   "match": [
+    "oxford college"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 154,
+   "courses": 121
+  },
+  {
+   "key": "005609",
+   "name": "Savannah State University",
+   "system": "usg",
+   "match": [
+    "savannah state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 384,
+   "courses": 339
+  },
+  {
+   "key": "003741",
+   "name": "Savannah Technical College",
+   "system": "tcsg",
+   "match": [
+    "savannah technical",
+    "savannah tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 157,
+   "courses": 154
+  },
+  {
+   "key": "005619",
+   "name": "South Georgia State College",
+   "system": "usg",
+   "match": [
+    "south georgia state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 372,
+   "courses": 262
+  },
+  {
+   "key": "006555",
+   "name": "South Georgia Technical College",
+   "system": "tcsg",
+   "match": [
+    "south georgia technical",
+    "south georgia tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 99,
+   "courses": 99
+  },
+  {
+   "key": "005652",
+   "name": "Southeastern Technical College",
+   "system": "tcsg",
+   "match": [
+    "southeastern technical"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 94,
+   "courses": 94
+  },
+  {
+   "key": "005670",
+   "name": "Southern Crescent Technical College",
+   "system": "tcsg",
+   "match": [
+    "southern crescent"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 198,
+   "courses": 193
+  },
+  {
+   "key": "007058",
+   "name": "Southern Regional Technical College",
+   "system": "tcsg",
+   "match": [
+    "southern regional technical"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 150,
+   "courses": 150
+  },
+  {
+   "key": "001830",
+   "name": "The University of Alabama",
+   "system": "other",
+   "match": [
+    "university of alabama"
+   ],
+   "not": [
+    "birmingham",
+    "huntsville"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 1651,
+   "courses": 1458
+  },
+  {
+   "key": "005812",
+   "name": "University of Florida",
+   "system": "other",
+   "match": [
+    "university of florida"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 392,
+   "courses": 368
+  },
+  {
+   "key": "005816",
+   "name": "University of North Carolina at Chapel Hill",
+   "system": "other",
+   "match": [
+    "chapel hill",
+    "unc chapel hill"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 459,
+   "courses": 426
+  },
+  {
+   "key": "005497",
+   "name": "University of North Georgia",
+   "system": "usg",
+   "match": [
+    "university of north georgia"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 2030,
+   "courses": 1958
+  },
+  {
+   "key": "005818",
+   "name": "University of South Carolina",
+   "system": "other",
+   "match": [
+    "university of south carolina"
+   ],
+   "not": [
+    "aiken",
+    "upstate",
+    "beaufort"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 949,
+   "courses": 914
+  },
+  {
+   "key": "001843",
+   "name": "University of Tennessee",
+   "system": "other",
+   "match": [
+    "university of tennessee"
+   ],
+   "not": [
+    "chattanooga",
+    "martin"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 522,
+   "courses": 468
+  },
+  {
+   "key": "005900",
+   "name": "University of West Georgia",
+   "system": "usg",
+   "match": [
+    "university of west georgia"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 1258,
+   "courses": 1215
+  },
+  {
+   "key": "005855",
+   "name": "Valdosta State University",
+   "system": "usg",
+   "match": [
+    "valdosta state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 2048,
+   "courses": 1372
+  },
+  {
+   "key": "006342",
+   "name": "West Georgia Technical College",
+   "system": "tcsg",
+   "match": [
+    "west georgia technical",
+    "west georgia tech"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 114,
+   "courses": 112
+  },
+  {
+   "key": "004557",
+   "name": "Wiregrass Georgia Technical College",
+   "system": "tcsg",
+   "match": [
+    "wiregrass georgia technical",
+    "wiregrass"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 156,
+   "courses": 154
+  }
+ ],
+ "source": "https://apply.uga.edu/portal/transfer-equivalency",
+ "note": "UGA Admissions' Transfer Equivalency Search. UGA calls it a guide that is not complete and can change; the official evaluation comes after admission.",
+ "legend": {
+  "number": "a UGA course",
+  "GXX": "general-education core elective",
+  "GHX": "core elective that also meets the U.S. history requirement",
+  "TXX": "transfer elective credit only",
+  "NTFR": "does not transfer"
+ }
+}
