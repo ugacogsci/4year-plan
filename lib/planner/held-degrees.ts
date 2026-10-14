@@ -201,4 +201,10 @@ export const SELECT_LINES_HELD = new Set<string>([
   'las/slavic-studies-balas/ukranian-studies', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
   'media/journalism-bs', // Fall 2026 start, pre-med, 4 language semesters: engine work (same requirements met, a pre-med/PT course late or off)
   'media/media-cinema-studies-bs', // Spring 2027 start, pre-med, 4 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
+  'las/economics-balas', // Fall 2026 start, no goal, 4 language semesters: engine work (same requirements met, MATH 241 a term apart from MATH 231, worse across the sweep); full sweeps of 21e2766
+  'aces/engineering-technology-management-agricultural-systems-bs', // Spring 2027 start, no goal, 2 language semesters: engine work (same requirements met, a sequence a term apart, worse across the sweep); full sweeps of 21e2766
+  'aces/natural-resources-environmental-sciences-bs', // Fall 2026 start, pre-med, 2 language semesters: engine work (same requirements met, PHYS 102 a term apart from PHYS 101, worse across the sweep); full sweeps of 21e2766
+  'faa/immersive-interactive-theatre-ba', // Fall 2026 start, pre-med, 2 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep once the three above are held)
+  'las/history-balas', // Fall 2026 start, pre-PT, 2 language semesters: engine work (same requirements met, the first math course later, a momentum flag, worse across the sweep once the three above are held)
+  'las/slavic-studies-balas/south-slavic-studies', // Fall 2026 start, pre-PT, 4 language semesters: engine work (same requirements met, two hardest courses in one term, worse across the sweep once the five above are held)
 ]);
