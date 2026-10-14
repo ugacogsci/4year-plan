@@ -156,7 +156,12 @@ export function TranscriptUpload({
         // student's choices, and only the new lines are matched.
         const fresh = matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable);
         const seen = new Set(addTo.courses.map((c) => `${c.code}|${c.term ?? ''}`));
-        const added = fresh.courses.filter((c) => !seen.has(`${c.code}|${c.term ?? ''}`));
+        // A home record added to another school's record (a UGA history after a
+        // Georgia State transcript): its own lines say so, or the merged record
+        // would read them as the other school's.
+        const added = fresh.courses
+          .filter((c) => !seen.has(`${c.code}|${c.term ?? ''}`))
+          .map((c) => (!c.from && fresh.home && addTo.home === false && fresh.institution ? { ...c, from: fresh.institution } : c));
         onChange({
           ...addTo,
           institution: addTo.institution ?? fresh.institution,
@@ -414,7 +419,7 @@ function countsOptions(
   };
   if (c.matched && c.matchNote) push(c.matched, c.matchNote);
   if (c.matched && c.matchedBy === 'official') push(c.matched, 'UGA\'s list');
-  if (c.matched && (c.matchedBy === 'code' || c.matchedBy === 'student')) push(c.matched, foreign ? 'your choice' : '');
+  if (c.matched && (c.matchedBy === 'code' || c.matchedBy === 'student')) push(c.matched, c.basis?.from === 'document' ? 'on your record' : foreign ? 'your choice' : '');
   if (c.equivalent && known.has(c.equivalent)) push(c.equivalent, 'printed on the document');
   for (const p of c.proposals ?? []) push(p.code, p.confidence === 'high' ? 'likely' : p.confidence === 'medium' ? 'possible' : 'a guess');
   if (c.matched && !seen.has(c.matched)) push(c.matched, '');

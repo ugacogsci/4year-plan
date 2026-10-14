@@ -2522,7 +2522,7 @@ p.requirement-unnamed {
 .transcript-summary { color: #dbe4f0; }
 .transcript-review summary { cursor: pointer; font-size: 12.5px; color: #9fb0c6; }
 .transcript-review summary:hover { color: #eef3fa; }
-.transcript-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; max-height: 280px; overflow: auto; }
+.transcript-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; max-height: 420px; overflow: auto; }
 .transcript-list li {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center;
   padding: 6px 8px; border: 1px solid #1d2838; border-radius: 8px; background: #0b1220;
@@ -5600,6 +5600,7 @@ p.requirement-unnamed {
 .onb .prior-exempt,
 .onb .prior-waiting { color: var(--onb-dim); font-size: 9px; }
 
+.onb .transcript-summary { color: var(--onb-text); }
 .onb .transcript-pick {
   border-color: var(--onb-line);
   border-radius: 4px;
@@ -5745,6 +5746,7 @@ p.requirement-unnamed {
 .planner-app .rail .transcript-review summary {
   color: var(--orion-dim);
 }
+.planner-app .rail .transcript-basis { color: var(--orion-mid); }
 .planner-app .rail-helper {
   margin: 4px 0 8px;
   font-size: var(--fs-micro);
