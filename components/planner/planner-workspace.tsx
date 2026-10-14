@@ -1252,11 +1252,14 @@ export function PlannerWorkspace({
   // does not book a course there the student does not need (transfer-core.ts).
   // The same object when the record holds none, so no other board changes.
   const transcriptRecord = answers?.transcript ?? null;
+  const coreCredit = useMemo(
+    () => (isUga && fetchedLoaded ? withCoreCredit(fetchedLoaded.blocks, transcriptRecord) : null),
+    [isUga, fetchedLoaded, transcriptRecord],
+  );
   const loaded = useMemo(() => {
-    if (!isUga || !fetchedLoaded) return fetchedLoaded;
-    const { blocks } = withCoreCredit(fetchedLoaded.blocks, transcriptRecord);
-    return blocks === fetchedLoaded.blocks ? fetchedLoaded : { ...fetchedLoaded, blocks };
-  }, [isUga, fetchedLoaded, transcriptRecord]);
+    if (!fetchedLoaded || !coreCredit || coreCredit.blocks === fetchedLoaded.blocks) return fetchedLoaded;
+    return { ...fetchedLoaded, blocks: coreCredit.blocks };
+  }, [fetchedLoaded, coreCredit]);
   const programBusy = Boolean(isCatalogSchool && programIds.length > 0 && !isUndecided) && fetched?.key !== programKey;
 
 
@@ -2308,13 +2311,28 @@ export function PlannerWorkspace({
         if (course) have.add(normCode(course.code));
       }
     }
-    const progress = areaProgress(
+    const counted: AreaRow[] = areaProgress(
       loaded.program,
       have,
       context?.equivalents,
       { allowCrossAreaOverlap: isUga },
     );
-    if (!isUga) return progress;
+    if (!isUga) return counted;
+    // Core electives from transfer credit count toward the core area they
+    // fill, as the plan build counted them (transfer-core.ts).
+    const coreUsed = coreCredit?.used ?? [];
+    const progress = coreUsed.length === 0 ? counted : counted.map((row) => {
+      const mine = coreUsed.filter((u) => u.area === row.area.label);
+      if (mine.length === 0) return row;
+      const earned = Math.min(row.area.hours, row.earned + mine.reduce((sum, u) => sum + u.hours, 0));
+      return {
+        ...row,
+        earned,
+        percent: row.area.hours ? Math.round((earned / row.area.hours) * 100) : 0,
+        satisfied: row.area.hours > 0 && earned >= row.area.hours,
+        note: `${row.note ? `${row.note} ` : ''}Includes ${mine.map((u) => u.line).join(', ')} from your transfer credit.`,
+      };
+    });
 
     // UGA's General Electives row is the degree credit left after the named
     // areas have claimed their capped hours. That includes editable elective
@@ -2345,7 +2363,7 @@ export function PlannerWorkspace({
     isUga,
     context,
     credits.total.min,
-    isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits,
+    isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits, coreCredit,
   ]);
 
   /**
@@ -6335,7 +6353,7 @@ function priorHoursOf(
   return (
     examElectiveHours(exams, table, transcriptIndirectCodes(record), creditsOf) +
     transcriptHours(record) +
-    transcriptCreditAdjustment(record)
+    transcriptCreditAdjustment(record, creditsOf)
   );
 }
 

@@ -790,7 +790,7 @@ export function applyTransferCaps(courses: TranscriptCourseRecord[], schoolId: '
 /**
  * One line over the review list, by what each transfer line became:
  * "4 count as UGA courses, 2 as core electives, 1 as elective hours only,
- * 3 do not transfer, 2 are not yet evaluated (counted as hours)."
+ * 3 do not count, 2 are not yet evaluated (counted as hours)."
  */
 export function describeTransfer(record: TranscriptRecord, catalogName: string): string | null {
   const lines = record.courses.filter((c) => c.basis && c.status !== 'withdrawn' && c.status !== 'failed');
@@ -804,7 +804,7 @@ export function describeTransfer(record: TranscriptRecord, catalogName: string):
   const elective = n('elective');
   if (elective) parts.push(`${elective} as elective hours only`);
   const none = n('none');
-  if (none) parts.push(`${none} ${none === 1 ? 'does' : 'do'} not transfer`);
+  if (none) parts.push(`${none} ${none === 1 ? 'does' : 'do'} not count`);
   const pending = n('not-evaluated');
   if (pending) parts.push(`${pending} ${pending === 1 ? 'is' : 'are'} not yet evaluated (counted as hours)`);
   return parts.length ? `Transfer lines: ${parts.join(', ')}.` : null;
@@ -869,13 +869,24 @@ export function transcriptHours(record: TranscriptRecord | null | undefined): nu
  * transferred (or the Illinois hours the document prints beside it), so the
  * difference is added to the hours with no course, up or down.
  */
-export function transcriptCreditAdjustment(record: TranscriptRecord | null | undefined): number {
+export function transcriptCreditAdjustment(
+  record: TranscriptRecord | null | undefined,
+  /**
+   * The board's own hours for a course. UGA's upload step matches against
+   * public/uga-catalog.json, which lists every course at 3 hours, while the
+   * board counts BIOL 1107L at 1 and MATH 2250 at 4; for a UGA record the
+   * board's figure is the one to settle against, or a lab line is taken off
+   * twice. Illinois records keep the hours stored on the line.
+   */
+  creditsOf?: (code: string) => number | null,
+): number {
   if (!record) return 0;
   let delta = 0;
   for (const c of record.courses) {
     if (!c.use || c.counts !== 'course' || !c.matched) continue;
     const earned = c.equivalentCredits ?? c.credits;
-    const catalog = c.illinoisCredits ?? null;
+    const board = record.schoolId === 'uga' && creditsOf ? [c.matched, ...(c.also ?? [])].map((code) => creditsOf(code)) : null;
+    const catalog = board && board.every((n) => n !== null) ? board.reduce<number>((sum, n) => sum + (n ?? 0), 0) : c.illinoisCredits ?? null;
     if (earned === null || earned === undefined || catalog === null || !(earned > 0)) continue;
     delta += earned - catalog;
   }
