@@ -22,7 +22,7 @@ import type { IllinoisProgramSummary } from '@/lib/planner/illinois-load';
 import {
   EMPTY_ANSWERS,
   UNDECIDED_PROGRAM_ID,
-  availablePlanningTerms,
+  applyExamCredit,
   inferAcademicYear,
   inferGraduationTarget,
   isGraduationTermPast,
@@ -42,6 +42,13 @@ import {
   normalizeUgaCollegeId,
   UGA_COLLEGES,
 } from '@/lib/planner/uga-colleges';
+import {
+  creditFitNote,
+  essentialsFitNote,
+  type FitCatalog,
+  type FitNote,
+} from '@/lib/planner/graduation-fit';
+import { useExamCredit } from './exam-credit';
 import {
   PLANNER_THEME_STORAGE_KEY,
   readStoredTheme,
@@ -111,73 +118,33 @@ function ugaMajorCredits(program: UgaProgram): number {
     .reduce((sum, area) => sum + Math.max(0, area.hours), 0);
 }
 
-function feasibilityWarning(
-  answers: OnboardingAnswers,
-  catalog: ProgramCatalog | null,
-  now: Date,
-): { title: string; message: string } | null {
-  if (
-    !catalog ||
-    answers.programIds.includes(UNDECIDED_PROGRAM_ID) ||
-    !answers.graduationSeason ||
-    !answers.graduationYear ||
-    isGraduationTermPast(answers.graduationSeason, answers.graduationYear, now)
-  ) {
-    return null;
-  }
+/** The menus the fit check reads: degrees at the student's level, then minors and certificates. */
+function fitCatalog(answers: OnboardingAnswers, catalog: ProgramCatalog | null): FitCatalog | null {
+  if (!catalog) return null;
+  const graduate = answers.programLevel === 'graduate';
+  return {
+    degrees: graduate ? catalog.graduateDegrees : catalog.undergraduateDegrees,
+    additions: [
+      ...catalog.minors,
+      ...(graduate ? catalog.graduateCertificates : catalog.undergraduateCertificates),
+    ],
+  };
+}
 
-  const terms = availablePlanningTerms(
-    answers.graduationSeason,
-    answers.graduationYear,
-    now,
+/** A fit note: soft notes read as a heads-up, a warning as an alert. */
+function FitNoteBox({ note }: { note: FitNote }) {
+  return (
+    <div
+      className={`onb-feasibility${note.tone === 'soft' ? ' is-soft' : ''}`}
+      role={note.tone === 'warn' ? 'alert' : 'status'}
+    >
+      <AlertTriangle aria-hidden="true" />
+      <span>
+        <strong>{note.title}</strong>
+        {note.message}
+      </span>
+    </div>
   );
-  const capacity = terms * 18;
-  if (terms === 0) return null;
-
-  const degreeOptions = answers.programLevel === 'graduate'
-    ? catalog.graduateDegrees
-    : catalog.undergraduateDegrees;
-  const certificateOptions = answers.programLevel === 'graduate'
-    ? catalog.graduateCertificates
-    : catalog.undergraduateCertificates;
-  const degrees = answers.programIds
-    .map((id) => degreeOptions.find((program) => program.id === id))
-    .filter((program): program is ProgramOption => Boolean(program));
-  const additions = [...answers.minorIds, ...answers.certificateIds]
-    .map((id) => [...catalog.minors, ...certificateOptions].find((program) => program.id === id))
-    .filter((program): program is ProgramOption => Boolean(program));
-  const primaryCredits = answers.programLevel === 'graduate'
-    ? Math.max(
-        0,
-        ...degrees.map(
-          (program) => program.totalCredits ?? program.additionalCredits ?? 0,
-        ),
-      )
-    : Math.max(120, ...degrees.map((program) => program.totalCredits ?? 0));
-  const additionalDegreeCredits = degrees
-    .slice(1)
-    .reduce((sum, program) => sum + (program.additionalCredits ?? 30), 0);
-  const additionalProgramCredits = additions.reduce(
-    (sum, program) => sum + (program.additionalCredits ?? 12),
-    0,
-  );
-  const estimatedCredits = primaryCredits + additionalDegreeCredits + additionalProgramCredits;
-
-  if (primaryCredits > capacity) {
-    return {
-      title: 'The graduation date does not leave enough terms',
-      message: `${terms} ${terms === 1 ? 'term is' : 'terms are'} available through ${answers.graduationSeason} ${answers.graduationYear}. Even at 18 credits per term, that is ${capacity} credits of room for a degree requiring at least ${primaryCredits}, before completed or transfer credit is counted. Choose a later date or add your prior credit on the next screen.`,
-    };
-  }
-
-  if (estimatedCredits > capacity) {
-    return {
-      title: 'This program combination is unlikely to fit',
-      message: `${degrees.length} degree ${degrees.length === 1 ? 'program' : 'programs'} and ${additions.length} additional ${additions.length === 1 ? 'program' : 'programs'} represent roughly ${estimatedCredits} credits before shared courses and prior credit are counted. The ${terms} available terms hold at most ${capacity} credits at 18 per term. The planner can still build a draft, but expect unmet requirements unless substantial coursework overlaps or is already complete.`,
-    };
-  }
-
-  return null;
 }
 
 const ACADEMIC_YEAR_OPTIONS: Array<{ value: Exclude<AcademicYear, ''>; label: string }> = [
@@ -311,9 +278,20 @@ export function Onboarding({
     answers.schoolId === 'uga' && !undecided && !answers.collegeId,
     !emphasesComplete,
   ].filter(Boolean).length;
-  const setupWarning = useMemo(
-    () => feasibilityWarning(answers, catalog, today),
+  // Before any credit is entered: judged on the stated year, never an error.
+  const essentialsNote = useMemo(
+    () => essentialsFitNote(answers, fitCatalog(answers, catalog), today),
     [answers, catalog, today],
+  );
+  // After the Credit step: judged on the credit actually added.
+  const examTable = useExamCredit(school);
+  const examCredits = useMemo(
+    () => applyExamCredit(answers.exams, examTable.entries).credits,
+    [answers.exams, examTable],
+  );
+  const creditNote = useMemo(
+    () => creditFitNote(answers, fitCatalog(answers, catalog), examCredits, today),
+    [answers, catalog, examCredits, today],
   );
   const graduationYears = useMemo(() => {
     const current = today.getFullYear();
@@ -887,15 +865,7 @@ export function Onboarding({
                 </div>
               )}
 
-              {setupWarning && (
-                <div className="onb-feasibility" role="alert">
-                  <AlertTriangle aria-hidden="true" />
-                  <span>
-                    <strong>{setupWarning.title}</strong>
-                    {setupWarning.message}
-                  </span>
-                </div>
-              )}
+              {essentialsNote && <FitNoteBox note={essentialsNote} />}
 
               <EmphasisPicker
                 requirements={emphasisRequirements}
@@ -941,6 +911,7 @@ export function Onboarding({
                 setAnswers((a) => ({ ...a, alreadyTakenCourseCodes }))
               }
             />
+            {creditNote && <FitNoteBox note={creditNote} />}
             <div className="onb-actions">
               <button className="onb-back" onClick={() => setStep(3)}>Back</button>
               <span className="onb-count">{priorSummary(answers)}</span>

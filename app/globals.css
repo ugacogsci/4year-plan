@@ -5533,6 +5533,16 @@ p.requirement-unnamed {
 .onb[data-theme='dark'] .onb-feasibility { color: #f0a4a4; }
 .onb-feasibility > svg { width: 14px; height: 14px; color: currentColor; }
 .onb-feasibility strong { color: inherit; font-size: 10px; }
+/* A heads-up, not an error: the date is judged again once credit is added. */
+.onb-feasibility.is-soft {
+  border-color: var(--onb-line);
+  border-left-color: var(--onb-mid);
+  background: var(--onb-soft);
+  color: var(--onb-mid);
+}
+.onb[data-theme='dark'] .onb-feasibility.is-soft { color: var(--onb-mid); }
+.onb-feasibility.is-soft strong { color: var(--onb-text); }
+.onb-step > .onb-feasibility { margin-top: 18px; }
 
 .onb-actions { gap: 12px; margin-top: 28px; }
 .onb-count { color: var(--onb-dim); font-size: 9px; }
