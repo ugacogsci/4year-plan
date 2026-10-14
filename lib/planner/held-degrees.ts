@@ -106,6 +106,7 @@ export const PLANNED_AS_RELEASED = new Set<string>([
  */
 export const HEADER_LISTS_HELD = new Set<string>([
   'engineering/engineering-mechanics-bs', // Fall 2026 start, no goal, 2 language semesters: blocked (TAM 252 a term after its lecture TAM 251, a sequence a term apart)
+  'las/anthropology-balas', // kept held at the merge of w9-readings (2026-10-14): on the new reading the pre-PT freshman's year one has no MATH 112, which __review.check.mjs pins as her first college math
 ]);
 
 /**
@@ -143,4 +144,7 @@ export const SELECT_LINES_HELD = new Set<string>([
   'faa/studio-art-bfasa/photography', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
   'las/chemistry-bslas', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
   'aces/animal-sciences-bs/food-animal-production-management', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a prerequisite to check, worse across the sweep); reading it also drops the concentration core block ::2::0 a check pins
+  'las/economics-balas', // kept held at the merge of w9-readings (2026-10-14): on the new reading Sofia's (AP) lightest and workload-2 list picks are harder than balanced's (__electives.check.mjs), and Psychology + Economics has no 300/400-level MATH row for __programs-compare.check.mjs to check
+  'las/econometrics-quantitative-economics-bslas', // kept held at the merge of w9-readings (2026-10-14): on the new reading a no-goal freshman gets MATH 112 a term after calculus (__review.check.mjs)
+  'aces/engineering-technology-management-agricultural-systems-bs/construction-management', // kept held at the merge of w9-readings (2026-10-14): on the new reading the plain engine's pre-med board loses MATH 112 or AGCM 220 (__review.check.mjs, round 5)
 ]);
