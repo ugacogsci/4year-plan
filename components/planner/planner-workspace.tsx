@@ -194,7 +194,7 @@ import { loadIllinoisCourseDetail, loadIllinoisSectionTerms, loadIllinoisSyllabi
 import type { IllinoisCore } from '@/lib/planner/illinois-load';
 import {
   graduateOptionName, graduatePlanSettings, isIllinoisGraduateId, loadIllinoisGraduateCatalog,
-  loadIllinoisGraduateForBoard, loadIllinoisGraduatePrograms, withGraduateCourses,
+  loadIllinoisGraduateForBoard, loadIllinoisGraduateNotChecked, loadIllinoisGraduatePrograms, withGraduateCourses,
   type IllinoisGraduateSummary, type LoadedGraduateProgram,
 } from '@/lib/planner/illinois-graduate';
 import { pickSectionTerm, sectionTermCaveat, termsInWords } from '@/lib/planner/section-terms';
@@ -1201,7 +1201,7 @@ export function PlannerWorkspace({
         course.pathwayRole = undefined;
       }
       let cancelled = false;
-      void Promise.all(picked.map((summary) => loadIllinoisGraduateForBoard(gradCore, summary))).then((results) => {
+      void Promise.all(picked.map((summary) => summary.status === 'reads right' ? loadIllinoisGraduateForBoard(gradCore, summary) : loadIllinoisGraduateNotChecked(gradCore, summary))).then((results) => {
         if (cancelled) return;
         const sources = results.filter((r): r is LoadedGraduateProgram => Boolean(r));
         setFetched({ key: programKey, value: sources.length === picked.length && sources.length > 0 ? combinePrograms(sources as LoadedProgram[]) : null });

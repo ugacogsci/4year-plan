@@ -1196,6 +1196,41 @@ export async function loadIllinoisGraduateForBoard(
   return loaded;
 }
 
+/**
+ * A program the planner has not checked yet, for the board: pickable, but none
+ * of its courses are booked. Its requirements become one unfilled block that
+ * says so and points at the official catalog page, the way an Illinois minor
+ * that is not checked is named and not planned. No course is pointed at it.
+ */
+export async function loadIllinoisGraduateNotChecked(
+  core: IllinoisCore,
+  summary: IllinoisGraduateSummary,
+  fetchImpl: typeof fetch = fetch,
+): Promise<LoadedGraduateProgram | null> {
+  const loaded = await loadIllinoisGraduateProgram(summary, core.byCode, fetchImpl);
+  if (!loaded) return null;
+  const hours = summary.totalCredits ?? loaded.program.totalCredits ?? summary.readHours ?? 0;
+  const label = `Not checked yet by the planner: plan these ${hours || 'program'} hours from the official catalog page with your department (${loaded.url})`;
+  const id = `${summary.id}::not-checked`;
+  // No total and no 500-level share either: either one makes the engine fill the plan with electives.
+  return {
+    ...loaded,
+    summary: { ...summary, totalCredits: null, min500Hours: null },
+    program: { ...loaded.program, totalCredits: null, areas: [], areaHours: 0 },
+    blocks: [{
+      id,
+      areaId: id,
+      areaLabel: `${summary.name} (not checked yet)`,
+      label,
+      hours,
+      hoursMax: null,
+      rule: { kind: 'hours', source: 'parser-gap', hours, genEd: null, label, minLevel: 500 },
+      note: '',
+      url: loaded.url,
+    }],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Engine settings for a graduate plan, per school
 // ---------------------------------------------------------------------------
