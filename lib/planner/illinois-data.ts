@@ -15,7 +15,7 @@ import type {
 } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
 import { registrationFits } from './meeting-fit.ts';
-import { HAND_READINGS_HELD, HEADER_LISTS_HELD, READ_AS_RELEASED } from './held-degrees.ts';
+import { HAND_READINGS_HELD, HEADER_LISTS_HELD, READ_AS_RELEASED, SELECT_LINES_HELD } from './held-degrees.ts';
 import { handReading } from './hand-readings.ts';
 import { repeatAskFor, repeatRuleOf, type RepeatAsk, type RepeatRule } from './repeats.ts';
 
@@ -2701,9 +2701,27 @@ let readingAsReleased = false;
  * reading and not in HEADER_LISTS_HELD.
  */
 let readingHeaderLists = true;
+/**
+ * True while adaptIllinoisPrograms reads a degree with the select-line readings (not in SELECT_LINES_HELD).
+ * False everywhere else, so the minors reader (illinois-minors.ts, which calls requirementRulesForProgram
+ * directly) reads as it did.
+ */
+let readingSelectLines = false;
+/** The comment rows asReleasedProgram left unread, kept for the one select-line reading held degrees get (releasedOptionLists). */
+const unreadComments = new WeakMap<RawProgramGroup, RawProgramComment[]>();
 /** A program with its tables' comment rows left unread, as the release read it. */
 function asReleasedProgram(raw: RawIllinoisProgram): RawIllinoisProgram {
-  return { ...raw, areas: raw.areas?.map((area) => ({ ...area, groups: area.groups.map((group) => { const { comments: _unread, ...rest } = group; return rest; }) })) };
+  return {
+    ...raw,
+    areas: raw.areas?.map((area) => ({
+      ...area,
+      groups: area.groups.map((group) => {
+        const { comments: unread, ...rest } = group;
+        if (unread?.length) unreadComments.set(rest, unread);
+        return rest;
+      }),
+    })),
+  };
 }
 
 export function genEdRulesFromText(text: string): GenEdCategoryRule[] {
@@ -3137,6 +3155,8 @@ export function levelRuleIn(text: string, fallbackHours: number | null = null): 
         const at = lower.indexOf(name);
         if (at < 0) return false;
         if (/[A-Z]/.test(body1.charAt(at))) return true;
+        // "11 additional hours of economics at the 300- or 400-level" (select-line reading).
+        if (readingSelectLines && /\b(?:hours?|courses?|credits?)\s+(?:of|in)\s+$/.test(lower.slice(0, at))) return true;
         return /^\s+(?:courses?|electives?|coursework|classes)\b/.test(lower.slice(at + name.length));
       })
       .sort((a, b) => b[1].length - a[1].length);
@@ -3220,6 +3240,18 @@ function statesSeveralCounts(text: string): boolean {
   return (text.match(COUNT_MENTIONS) ?? []).length > 1;
 }
 
+/**
+ * The count a heading opens with when it states a second one as a condition
+ * (select-line reading): "Select three courses from the following list of ECE
+ * labs. At least one must be a Hardware Lab." is three labs, one of them a
+ * hardware lab; read as no count, the 32 labs were an unsized pool.
+ */
+function leadCount(text: string): number | null {
+  if (!readingSelectLines || !text) return null;
+  const m = /^\s*(?:select|choose|take|complete)\s+(one|two|three|four|five|six|\d)\s+courses?\b[^.]*\.\s+at least (?:one|two|\d)\b[^.]*\bmust\b/i.exec(text);
+  return m ? (COUNT_WORDS[m[1].toLowerCase()] ?? Number(m[1])) : null;
+}
+
 /** A count from one piece of catalog prose, or null when the prose is ambiguous. */
 function soleCount(text: string): number | null {
   if (!text || statesSeveralCounts(text)) return null;
@@ -3233,6 +3265,7 @@ const COMMENT_HOURS = /\b(\d{1,2})(?:\s*-\s*\d{1,2})?\s*(?:credit\s*)?(?:hours?|
 /** The count a comment row opens with, where it says more than one number: "Select three of the following (excluding courses taken for the Advanced Law Option)". */
 const COMMENT_COUNT = /\b(?:select|choose|pick|complete|take)\s+(?:at least\s+|a minimum of\s+)?(one|two|three|four|five|six|\d)\b(?!\s*(?:credit|hours?|credits?)\b)/i;
 const COMMENT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+const COUNT_WORDS = COMMENT_WORDS;
 
 /**
  * The option lists inside one table of required rows, from its comment rows.
@@ -3268,6 +3301,12 @@ export function optionListsIn(
   /** Where the rows of the last list end: an "or" there goes on with that list. */
   let lastUntil = -1;
   let orJoined = false;
+  /** An "or" read by the select-line reading, in a table whose required rows have hours of their own. */
+  let orWithCredited = false;
+  /** Hours of a lead-in comment stacked on the next one (select-line reading). */
+  let leadHours: number | null = null;
+  /** Rows under a sized comment its rows cannot reach (select-line reading): required, as rows with hours are. */
+  const requiredRun = new Set<RawProgramCourse>();
   for (const [i, comment] of comments.entries()) {
     // "Select one group of courses" (choicesFrom reads it).
     if (/\bone group\b/i.test(comment.text)) return null;
@@ -3282,6 +3321,22 @@ export function optionListsIn(
       const next = comments[i + 1]?.at ?? all.length;
       let end = comment.at;
       while (end < next && end < all.length && (all[end].credits === null || all[end].credits === undefined)) end += 1;
+      if (readingSelectLines && last.n !== null && end > comment.at && (end === all.length || all[end].credits !== null && all[end].credits !== undefined)) {
+        // The select-line reading: every row after the "OR" up to the next row with hours of its own
+        // is one more alternative of the list it goes on with. The CS + Physics core's "Choose one of
+        // the following options:" is CS 233 OR CS 340 and two 400-level courses; CS + Bioengineering's
+        // "Choose one of the following:" is CHEM 102 & 103 OR MCB 150. Read before, either table
+        // became one pick from the whole table, and CS 222 and CS 341 were off the plan.
+        for (let j = comment.at; j < end; j += 1) {
+          if (!kept.has(all[j])) continue;
+          last.rows.push(all[j]);
+          inList.add(all[j]);
+        }
+        lastUntil = end;
+        orJoined = true;
+        orWithCredited = true;
+        continue;
+      }
       if (end !== comment.at + 1 || (end < all.length && end === next)) return null;
       const row = all[comment.at];
       if (!kept.has(row)) return null;
@@ -3291,9 +3346,24 @@ export function optionListsIn(
       orJoined = true;
       continue;
     }
-    if (!OPTION_HEAD.test(comment.text) && comment.hours === null) continue;
-    // A lead-in stacked on the next comment ("Core Requirement:" over "Group I ...") hands it the rows.
-    if (comments[i + 1]?.at === comment.at) continue;
+    // A lead-in stacked on the next comment ("Core Requirement:" over "Group I ...") hands it the rows,
+    // and, in the select-line reading, its hours: "Communications Requirement" (3) over "Select from
+    // the following:" on the Natural Resources pages.
+    if (comments[i + 1]?.at === comment.at) {
+      if (readingSelectLines && comment.hours !== null) leadHours = comment.hours;
+      continue;
+    }
+    const carriedHours = leadHours;
+    leadHours = null;
+    if (!OPTION_HEAD.test(comment.text) && comment.hours === null && carriedHours === null) {
+      // A plain heading over rows, in the select-line reading: its rows are required ("Theory" over
+      // MACS 361, "Methods" over MACS 350, between the Cinema Studies track's "Choose 1:" lists).
+      if (readingSelectLines) {
+        const until = comments[i + 1]?.at ?? all.length;
+        for (let j = comment.at; j < until && j < all.length; j += 1) if (kept.has(all[j])) requiredRun.add(all[j]);
+      }
+      continue;
+    }
     const until = comments[i + 1]?.at ?? all.length;
     const run: RawProgramCourse[] = [];
     for (let j = comment.at; j < until && j < all.length; j += 1) {
@@ -3308,12 +3378,22 @@ export function optionListsIn(
     const stated = COMMENT_HOURS.exec(comment.text);
     const counted = soleCount(comment.text) ?? (word ? (COMMENT_WORDS[word] ?? Number(word)) : null);
     const n = counted ?? (!stated && /\boption\b|\bone of\b/i.test(comment.text) ? 1 : null);
-    const hours = n === null ? (stated ? Number(stated[1]) : comment.hours) : comment.hours;
+    const hours = n === null ? (stated ? Number(stated[1]) : (comment.hours ?? carriedHours)) : (comment.hours ?? carriedHours);
     if (n === null && hours === null) return null;
     // Hours its rows cannot reach are hours some other part of the page names ("Disciplinary and period courses: 12" over one course).
     if (n === null && hours !== null && byCode) {
       const reach = run.reduce((sum, row) => sum + Math.max(...[row.code, ...(row.or ?? [])].map((c) => { const hit = byCode.get(c); return hit ? (hit.creditsMax ?? hit.credits) : 0; })), 0);
-      if (reach < hours) return null;
+      // Rows whose least hours already make the heading's ("Mathematics:" (7) over MATH 220 or 221 and MATH 231) are all needed.
+      const least = run.reduce((sum, row) => sum + Math.min(...[row.code, ...(row.or ?? [])].map((c) => byCode.get(c)?.credits ?? 0)), 0);
+      if (reach < hours || (readingSelectLines && !OPTION_HEAD.test(comment.text) && least >= hours)) {
+        // The select-line reading: rows that cannot reach their heading's hours are required rows
+        // ("Science Requirements" (19) over CHEM 102 & 103, CHEM 104 & 105, IB 103 and IB 104, then
+        // "Select one additional course from the following:"), not a list.
+        if (!readingSelectLines || OPTION_HEAD.test(comment.text)) return null;
+        for (const row of run) requiredRun.add(row);
+        lastUntil = until;
+        continue;
+      }
     }
     if (n !== null && n > run.length) return null;
     for (const row of run) inList.add(row);
@@ -3322,8 +3402,10 @@ export function optionListsIn(
   }
   if (lists.length === 0) return null;
   const core = rows.filter((row) => !inList.has(row));
-  if (core.length === 0) return null;
-  const uncredited = (row: RawProgramCourse) => row.credits === null || row.credits === undefined;
+  // A table that is all lists stays as it reads, except in the select-line reading where it has two or more.
+  if (core.length === 0 && !(readingSelectLines && lists.length > 1 && lists.every((list) => list.n !== null || list.hours !== null))) return null;
+  const uncredited = (row: RawProgramCourse) => (row.credits === null || row.credits === undefined) && !requiredRun.has(row);
+  if (orWithCredited) return core.some(uncredited) ? null : { core, lists };
   // Every row left over must be one the page gives hours of its own, as required rows have; a row
   // with none that no list claimed is part of a structure this does not read (CS 340 after an "OR").
   // Where an "or" went on with a list, none has, and the table's own hours are the catalog's for
@@ -3415,7 +3497,13 @@ function wholeTableCount(group: RawProgramGroup, rows: RawProgramCourse[], choic
   const comments = group.comments ?? [];
   if (comments.length !== 1 || comments[0].at !== 0) return null;
   if (rows.length !== (group.courses ?? []).length || rows.some((row) => row.credits !== null && row.credits !== undefined)) return null;
-  const m = /\b(?:select|choose|take|complete)\s+(one|two|three|four|five|six|\d{1,2})\s+courses\s+from\b/i.exec(comments[0].text);
+  const m =
+    /\b(?:select|choose|take|complete)\s+(one|two|three|four|five|six|\d{1,2})\s+courses\s+from\b/i.exec(comments[0].text) ??
+    // The select-line reading (readingSelectLines): "Select four of the following:" over Journalism's
+    // fifteen Skills courses, "Choose two of the following:", "Select at least two courses from:".
+    (readingSelectLines
+      ? /^\s*(?:select|choose|take|complete)\s+(?:at least\s+|a minimum of\s+|any\s+)?(one|two|three|four|five|six|\d)\s+(?:(?:additional\s+)?courses?\s+)?(?:of|from)\s+(?:the\s+)?(?:following|list|courses?\s+below|below)\b[^.]*$/i.exec(comments[0].text)
+      : null);
   if (!m) return null;
   const n = COMMENT_WORDS[m[1].toLowerCase()] ?? Number(m[1]);
   return Number.isInteger(n) && n > 0 && n < choices.length ? n : null;
@@ -3981,7 +4069,7 @@ export function requirementRulesForArea(
       rows,
       isTotal: total,
       isDegreeTotal: total && isDegreeTotalRow(label, group.hours),
-      ownChoose: positive(soleCount(label) ?? group.choose ?? null),
+      ownChoose: positive(soleCount(label) ?? leadCount(label) ?? group.choose ?? null),
       // Only for a group with rows: a courseless "Select 18 credit hours from
       // List 1 and List 2" is the area's own sentence, which mergeAreaPool
       // already reads, and sizing it here would move the Chemical Engineering
@@ -4064,7 +4152,20 @@ export function requirementRulesForArea(
   const levelBlockFor = (r: AreaGroupRead, requireAdditional: boolean): AreaRuleBlock | null => {
     // A courseless row's own hours size a sentence that names none:
     // "Additional Advanced (300- or 400-level) PSYC or BCOG Courses", 9 hours.
-    const rule = levelRuleIn([r.label, r.group.note ?? ''].filter(Boolean).join(' '), r.rows.length === 0 ? r.ownHours : null);
+    // The select-line reading reads a table's comment rows one at a time first: the note runs them
+    // together, and Economics's "11 additional hours of economics at the 300- or 400-level" took its
+    // subject from the "Mathematics:" row after it.
+    let rule: LevelRule | null = null;
+    if (readingSelectLines && (r.group.comments?.length ?? 0) > 1) {
+      for (const comment of r.group.comments ?? []) {
+        const one = levelRuleIn(comment.text);
+        if (one && (!requireAdditional || one.additional)) {
+          rule = one;
+          break;
+        }
+      }
+    }
+    rule ??= levelRuleIn([r.label, r.group.note ?? ''].filter(Boolean).join(' '), r.rows.length === 0 ? r.ownHours : null);
     if (!rule || (requireAdditional && !rule.additional)) return null;
     const choices = levelPoolChoices(rule, byCode, namedInArea);
     if (!choices) return null;
@@ -4171,7 +4272,7 @@ export function requirementRulesForArea(
      * the required rows keep the group's own block and id, and each list is a
      * block of its own.
      */
-    const options = r.rows.length > 0 ? optionListsIn(r.group, r.rows, byCode) : null;
+    const options = r.rows.length > 0 ? (releasedOptionLists(r, byCode) ?? optionListsIn(r.group, r.rows, byCode)) : null;
     if (options) {
       if (options.core.length > 0) {
         blocks.push({ groupIndex: r.index, label: r.label, hours: null, note: r.group.note ?? '', rule: { kind: 'all', choices: choicesFrom(options.core, byCode, r.label) }, rows: options.core.length });
@@ -4388,6 +4489,31 @@ export function requirementRulesForArea(
 }
 
 const positive = (n: number | null): number | null => (n !== null && n > 0 ? n : null);
+
+/**
+ * On a degree read as released (READ_AS_RELEASED), the option lists of a table
+ * the release read as one pick from the whole table (select-line reading).
+ *
+ * The release leaves comment rows unread, so the "Select one of the
+ * following:" printed under Accountancy's six required ACCY courses, over ACCY
+ * 410 and ACCY 451, was the whole table's count: one course of eight, and ACCY
+ * 301, 303, 304 and 405 were off the plan. The Studio Art, Art & Art History
+ * and Industrial Design first-year tables are the same with "Select one
+ * Drawing course:". Only that misreading is undone: a list whose count came
+ * from its note, where every comment that counts sits below the table's first
+ * row, and the split optionListsIn reads from the unread comments keeps
+ * required rows of its own. Everything else on the page reads as released.
+ */
+function releasedOptionLists(r: AreaGroupRead, byCode: CatalogRowLookup): ReturnType<typeof optionListsIn> {
+  if (!readingAsReleased || !readingSelectLines || !r.isList || r.ownChoose === null || r.ownHours !== null) return null;
+  if (soleCount(r.label) !== null || r.group.choose) return null;
+  const unread = unreadComments.get(r.group);
+  if (!unread || unread.length === 0) return null;
+  const counting = unread.filter((c) => OPTION_HEAD.test(c.text));
+  if (counting.length === 0 || counting.some((c) => c.at === 0)) return null;
+  const split = optionListsIn({ ...r.group, comments: unread }, r.rows, byCode);
+  return split && split.core.length > 0 ? split : null;
+}
 
 /** One group of an area, after its rows and its own numbers have been read. */
 interface AreaGroupRead {
@@ -5281,6 +5407,7 @@ export function adaptIllinoisPrograms(
     // A degree held at the release's reading (READ_AS_RELEASED) is read as it was.
     readingAsReleased = READ_AS_RELEASED.has(crawled.id);
     readingHeaderLists = !readingAsReleased && !HEADER_LISTS_HELD.has(crawled.id);
+    readingSelectLines = !SELECT_LINES_HELD.has(crawled.id);
     const raw = withCampusGenEd(readingAsReleased ? asReleasedProgram(crawled) : crawled);
 
     const programBlocks: RequirementBlock[] = [];
@@ -5428,6 +5555,7 @@ export function adaptIllinoisPrograms(
   } finally {
     readingAsReleased = false;
     readingHeaderLists = true;
+    readingSelectLines = false;
   }
 
   return {
