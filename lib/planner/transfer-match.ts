@@ -127,6 +127,8 @@ const CURATED: CuratedRule[] = [
   { test: /\b(introduction to|intro|general|principles of|introductory) psychology\b|\bpsychology 1\b/, prefixes: ['PSYC'], code: 'PSYC 100', confidence: 'high', why: 'Introductory psychology is PSYC 100 at Illinois.' },
   { test: /\b(introduction to|intro|principles of|introductory) sociology\b|\bsociology 1\b/, prefixes: ['SOC'], code: 'SOC 100', confidence: 'high', why: 'Introductory sociology is SOC 100 at Illinois.' },
   { test: /\bmacro-?economic/, prefixes: ['ECON', 'BUS', 'BADM'], code: 'ECON 103', confidence: 'high', why: 'Principles of macroeconomics is ECON 103 at Illinois.' },
+  { test: /\bintermediate micro-?economic/, prefixes: ['ECON'], code: 'ECON 302', confidence: 'high', why: 'Intermediate microeconomics is ECON 302 at Illinois.' },
+  { test: /\bintermediate macro-?economic/, prefixes: ['ECON'], code: 'ECON 303', confidence: 'high', why: 'Intermediate macroeconomics is ECON 303 at Illinois.' },
   { test: /\bmicro-?economic/, prefixes: ['ECON', 'BUS', 'BADM'], code: 'ECON 102', confidence: 'high', why: 'Principles of microeconomics is ECON 102 at Illinois.' },
   { test: /\bpublic speaking\b|\b(fundamentals of|introduction to|intro|principles of|basic) (speech|oral communication)\b|\bspeech communication\b|\bspeech\b/, prefixes: ['CMN'], code: 'CMN 101', confidence: 'high', why: 'A public speaking or fundamentals of speech course is CMN 101 at Illinois.' },
   { test: /\binterpersonal communication\b/, prefixes: ['CMN'], code: 'CMN 102', confidence: 'medium', why: 'Interpersonal communication is CMN 102 at Illinois.' },
@@ -145,8 +147,8 @@ const CURATED: CuratedRule[] = [
   { test: /\bmanagerial accounting\b|\baccounting 2\b/, prefixes: ['ACCY'], code: 'ACCY 202', confidence: 'high', why: 'Managerial accounting is ACCY 202 at Illinois.' },
   { test: /\b(introduction to|intro to|intro) business\b/, prefixes: ['BUS', 'BADM'], code: 'BUS 101', confidence: 'medium', why: 'An introduction to business course is closest to BUS 101 at Illinois.' },
   { test: /\bnutrition\b/, prefixes: ['FSHN', 'CHLH', 'KIN'], code: 'FSHN 120', confidence: 'medium', why: 'Introductory nutrition is FSHN 120 at Illinois.' },
-  { test: /\bintermediate spanish\b.*\b1\b|\bspanish 3\b/, prefixes: ['SPAN'], code: 'SPAN 201', confidence: 'high', why: 'Third-semester Spanish is SPAN 201 at Illinois.' },
-  { test: /\bintermediate spanish\b.*\b2\b|\bspanish 4\b/, prefixes: ['SPAN'], code: 'SPAN 203', confidence: 'medium', why: 'Fourth-semester Spanish is SPAN 203 (or SPAN 228) at Illinois, per the registrar\'s language table.' },
+  { test: /\b(intermediate|second.year) spanish\b.*\b1\b|\bspanish 3\b/, prefixes: ['SPAN'], code: 'SPAN 201', confidence: 'high', why: 'Third-semester Spanish is SPAN 201 at Illinois.' },
+  { test: /\b(intermediate|second.year) spanish\b.*\b2\b|\bspanish 4\b/, prefixes: ['SPAN'], code: 'SPAN 203', confidence: 'medium', why: 'Fourth-semester Spanish is SPAN 203 (or SPAN 228) at Illinois, per the registrar\'s language table.' },
   { test: /^(?!.*intermediate).*(\b(elementary|beginning) spanish\b.*\b1\b|\bspanish 1\b)/, prefixes: ['SPAN'], code: 'SPAN 101', confidence: 'high', why: 'First-semester Spanish is SPAN 101 at Illinois.' },
   { test: /^(?!.*intermediate).*(\b(elementary|beginning) spanish\b.*\b2\b|\bspanish 2\b)/, prefixes: ['SPAN'], code: 'SPAN 102', confidence: 'high', why: 'Second-semester Spanish is SPAN 102 at Illinois.' },
   { test: /\bintermediate french\b.*\b1\b|\bfrench 3\b/, prefixes: ['FR'], code: 'FR 203', confidence: 'medium', why: 'Third-semester French is FR 203 at Illinois, per the registrar\'s language table.' },
@@ -215,7 +217,8 @@ function levelOf(code: string): number | null {
 }
 
 function prefixOf(code: string): string {
-  return code.split(' ')[0] ?? '';
+  // Indiana prints its campus letter on the subject ("SPAN-S 200", "ECON-E 201").
+  return (code.split(' ')[0] ?? '').replace(/-[A-Z]$/, '');
 }
 
 /** A title written the way the curated rules read it: expanded and with numerals as digits. */
@@ -275,6 +278,12 @@ export function proposeEquivalents(
       if (rule.code === null) return [];
       const course = known.get(rule.code);
       if (!course) break;
+      // An upper-level or second-year course is not the first-year course
+      // its subject words name: DePaul's ECO 305 Intermediate Microeconomics
+      // is not ECON 102, and Indiana's SPAN-S 200 Second-Year Spanish I is
+      // not SPAN 101.
+      const lineLevel = levelOf(line.code);
+      if (course.level < 200 && ((lineLevel !== null && lineLevel >= 300) || /\b(intermediate|advanced|second.year|third.year)\b/.test(key))) continue;
       const also = rule.also && line.credits !== null && line.credits >= course.credits + 1 ? known.get(rule.also) : undefined;
       out.push({
         code: course.code,
