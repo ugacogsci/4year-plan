@@ -35,6 +35,7 @@ export function PriorCredit({
   grainger = false,
   alreadyTakenCourseCodes = [],
   onAlreadyTakenChange,
+  graduate = false,
 }: {
   school: School | undefined;
   exams: PriorExam[];
@@ -49,6 +50,8 @@ export function PriorCredit({
   grainger?: boolean;
   alreadyTakenCourseCodes?: string[];
   onAlreadyTakenChange?: (next: string[]) => void;
+  /** A graduate plan: no high-school language or AP/IB questions (Illinois only for now). */
+  graduate?: boolean;
 }) {
   const loaded = useExamCredit(school);
   const table = loaded.entries;
@@ -242,7 +245,7 @@ export function PriorCredit({
           )}
         </div>
       )}
-      {school?.id === 'illinois' && (
+      {school?.id === 'illinois' && !graduate && (
         <div className="onb-q">
           <span className="onb-q-label">Language other than English in high school</span>
           <p className="onb-q-help">
@@ -300,6 +303,7 @@ export function PriorCredit({
             record={transcript ?? null}
             onChange={onTranscriptChange}
             onExams={(found) => {
+              if (graduate) return 0;
               const priced = matchDocumentExams(found, table, grainger).filter(
                 (e) => !exams.some((have) => have.kind === e.kind && have.exam === e.exam),
               );
@@ -310,6 +314,7 @@ export function PriorCredit({
         </div>
       )}
 
+      {!graduate && (
       <div className="prior-block">
         <span className="onb-q-label">Did you take any AP or IB exams?</span>
         <span className="onb-q-hint">
@@ -419,6 +424,7 @@ export function PriorCredit({
           </p>
         )}
       </div>
+      )}
 
       <label className="prior-block onb-q">
         <span className="onb-q-label">Transferred or dual enrollment credit?</span>

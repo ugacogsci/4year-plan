@@ -191,6 +191,12 @@ import { buildAdvisorPacket, cardRole, type AdvisorPacket, type CardRole } from 
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail, loadIllinoisSectionTerms, loadIllinoisSyllabi, sectionTermsOf } from '@/lib/planner/illinois-load';
+import type { IllinoisCore } from '@/lib/planner/illinois-load';
+import {
+  graduateOptionName, graduatePlanSettings, isIllinoisGraduateId, loadIllinoisGraduateCatalog,
+  loadIllinoisGraduateForBoard, loadIllinoisGraduatePrograms, withGraduateCourses,
+  type IllinoisGraduateSummary, type LoadedGraduateProgram,
+} from '@/lib/planner/illinois-graduate';
 import { pickSectionTerm, sectionTermCaveat, termsInWords } from '@/lib/planner/section-terms';
 import { weeklyFit, type WeeklyFit, type WeeklySchedule } from '@/lib/planner/weekly-fit';
 import type { AdvisorExecutor } from '@/lib/planner/advisor';
@@ -682,11 +688,26 @@ export function PlannerWorkspace({
   const isIllinois = school?.id === 'illinois';
   const isUga = school?.id === 'uga';
   const programLevel: ProgramLevel = answers?.programLevel ?? 'undergraduate';
-  const isGraduatePlan = isUga && programLevel === 'graduate';
-  const defaultMinimumTermCredits = isGraduatePlan ? 9 : 12;
-  const defaultTargetTermCredits = isGraduatePlan ? 9 : null;
+  const isGraduatePlan = (isUga || isIllinois) && programLevel === 'graduate';
+  const gradSettings = useMemo(() => graduatePlanSettings(isIllinois ? 'illinois' : 'uga'), [isIllinois]);
+  const defaultMinimumTermCredits = isGraduatePlan ? gradSettings.minimumTermCredits : 12;
+  const defaultTargetTermCredits = isGraduatePlan ? gradSettings.targetTermCredits : null;
   const isCatalogSchool = isIllinois || isUga;
   const { status: illinoisStatus, core } = useIllinoisCore(Boolean(isIllinois));
+  const [gradMenu, setGradMenu] = useState<IllinoisGraduateSummary[] | null>(null);
+  const [gradCore, setGradCore] = useState<IllinoisCore | null>(null);
+  useEffect(() => {
+    if (!isIllinois || !isGraduatePlan || !core) return;
+    let cancelled = false;
+    void Promise.all([loadIllinoisGraduatePrograms(), loadIllinoisGraduateCatalog()]).then(([menu, files]) => {
+      if (cancelled) return;
+      setGradMenu(menu);
+      setGradCore(files ? withGraduateCourses(core, files) : null);
+    });
+    return () => { cancelled = true; };
+  }, [isIllinois, isGraduatePlan, core]);
+  /** The core a plan reads: with the graduate courses for an Illinois graduate plan. */
+  const planCore = isIllinois && isGraduatePlan ? gradCore : core;
   const { status: ugaStatus, data: uga } = useUgaData(Boolean(isUga));
   const status = isIllinois ? illinoisStatus : isUga ? ugaStatus : 'unavailable';
   /**
@@ -923,8 +944,8 @@ export function PlannerWorkspace({
   // ---- catalog -------------------------------------------------------------
 
   const catalog: Course[] = useMemo(
-    () => (isIllinois ? (core?.index ?? []) : isUga ? (uga?.courses ?? []) : sampleCourses),
-    [isIllinois, isUga, core, uga],
+    () => (isIllinois ? (planCore?.index ?? []) : isUga ? (uga?.courses ?? []) : sampleCourses),
+    [isIllinois, isUga, planCore, uga],
   );
   const courseIndex = useMemo(() => indexCourses(catalog), [catalog]);
   const byCode = useMemo(() => {
@@ -935,6 +956,12 @@ export function PlannerWorkspace({
 
   const programOptions = useMemo(() => {
     if (isIllinois) {
+      if (isGraduatePlan) {
+        return [UNDECIDED_PROGRAM, ...(gradMenu ?? [])
+          .filter((p) => p.plannable && p.kind !== 'certificate' && p.kind !== 'minor')
+          .map((p) => ({ id: p.id, name: graduateOptionName(p) }))
+          .sort((a, b) => a.name.localeCompare(b.name))];
+      }
       // A degree closed to new students stays in the menu only for a plan already on it.
       return [UNDECIDED_PROGRAM, ...(core?.programs ?? [])
         .filter((p) => openProgram(p) || (programIds.includes(p.id) && plannableProgram(p)))
@@ -952,7 +979,7 @@ export function PlannerWorkspace({
         .sort((left, right) => left.name.localeCompare(right.name))];
     }
     return samplePrograms.map((p) => ({ id: p.id, name: `${p.name}, ${p.degree}` }));
-  }, [isIllinois, isUga, core, uga, programLevel, programIds]);
+  }, [isIllinois, isUga, core, uga, programLevel, programIds, isGraduatePlan, gradMenu]);
 
   /** The Illinois minor pages, for the rail's list (onboarding reads its own copy). */
   const [illinoisMinorFile, setIllinoisMinorFile] = useState<RawMinorFile | null>(null);
@@ -968,7 +995,7 @@ export function PlannerWorkspace({
   }, [isIllinois]);
   const minorOptions = useMemo(
     () =>
-      isIllinois
+      isIllinois && !isGraduatePlan
         ? illinoisMinorOptions(illinoisMinorFile).map((option) => ({ id: option.id, name: option.name }))
         : isUga && !isGraduatePlan
         ? (uga?.programs ?? [])
@@ -979,7 +1006,9 @@ export function PlannerWorkspace({
   );
   const certificateOptions = useMemo(
     () =>
-      isUga
+      isIllinois && isGraduatePlan
+        ? (gradMenu ?? []).filter((p) => p.kind === 'certificate' && p.plannable).map((p) => ({ id: p.id, name: graduateOptionName(p) }))
+        : isUga
         ? (uga?.programs ?? [])
             .filter(
               (program) =>
@@ -988,7 +1017,7 @@ export function PlannerWorkspace({
             )
             .map((program) => ({ id: program.id, name: program.name }))
         : [],
-    [isUga, isGraduatePlan, uga],
+    [isUga, isGraduatePlan, uga, isIllinois, gradMenu],
   );
   const emphasisRequirements = useMemo(
     () =>
@@ -1026,8 +1055,8 @@ export function PlannerWorkspace({
       setProgramIds(nextProgramIds);
       setMinorIds([]);
       setCertificateIds([]);
-      setMinimumTermCredits(nextLevel === 'graduate' ? 9 : 12);
-      setTargetTermCredits(nextLevel === 'graduate' ? 9 : null);
+      setMinimumTermCredits(nextLevel === 'graduate' ? gradSettings.minimumTermCredits : 12);
+      setTargetTermCredits(nextLevel === 'graduate' ? gradSettings.targetTermCredits : null);
       resetProgramPlan();
       if (answers && onAnswersChange) {
         onAnswersChange({
@@ -1041,7 +1070,7 @@ export function PlannerWorkspace({
         });
       }
     },
-    [answers, onAnswersChange, programLevel, resetProgramPlan],
+    [answers, onAnswersChange, programLevel, resetProgramPlan, gradSettings],
   );
 
   const changePrograms = useCallback((ids: string[]) => {
@@ -1161,6 +1190,24 @@ export function PlannerWorkspace({
       setFetched({ key: programKey, value: sources.length === selectedProgramIds.length ? combinePrograms(sources) : null });
       return;
     }
+    if (isIllinois && isGraduatePlan) {
+      if (!gradCore || !gradMenu) return;
+      const picked = [...programIds, ...certificateIds]
+        .map((id) => gradMenu.find((row) => row.id === id))
+        .filter((row): row is IllinoisGraduateSummary => Boolean(row));
+      for (const course of gradCore.index) {
+        // oxlint-disable-next-line react/react-compiler
+        course.requirementIds = [];
+        course.pathwayRole = undefined;
+      }
+      let cancelled = false;
+      void Promise.all(picked.map((summary) => loadIllinoisGraduateForBoard(gradCore, summary))).then((results) => {
+        if (cancelled) return;
+        const sources = results.filter((r): r is LoadedGraduateProgram => Boolean(r));
+        setFetched({ key: programKey, value: sources.length === picked.length && sources.length > 0 ? combinePrograms(sources as LoadedProgram[]) : null });
+      });
+      return () => { cancelled = true; };
+    }
     if (!isIllinois || !core) return;
     const summaries = programIds
       .map((id) => (core.programs ?? []).find((candidate) => candidate.id === id))
@@ -1193,7 +1240,7 @@ export function PlannerWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [isIllinois, isUga, isUndecided, core, uga, programIds, minorIds, selectedProgramIds, programKey, emphasisKey, answers?.emphasisSelections, emphasesComplete]);
+  }, [isIllinois, isUga, isUndecided, core, uga, programIds, minorIds, selectedProgramIds, programKey, emphasisKey, answers?.emphasisSelections, emphasesComplete, isGraduatePlan, gradCore, gradMenu, certificateIds]);
 
   const loaded = fetched?.key === programKey ? fetched.value : null;
   const programBusy = Boolean(isCatalogSchool && programIds.length > 0 && !isUndecided) && fetched?.key !== programKey;
@@ -1222,6 +1269,7 @@ export function PlannerWorkspace({
    * taken here is front-loaded onto the board (admission-route.ts).
    */
   const admissionChoice = useMemo((): AdmissionChoice | null => {
+    if (isGraduatePlan) return null;
     const table = core?.admission;
     if (!table || !loaded) return null;
     const words = [answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? '', careerInterests].join(' ');
@@ -1230,16 +1278,16 @@ export function PlannerWorkspace({
     const horizon = horizonFor(answers, new Date(), planShape);
     const start = { season: horizon.startSeason, year: horizon.startYear };
     return chooseAdmission(table, goal, readEntry(words, answers?.transcript, start, horizon.began), start);
-  }, [core, loaded, answers, careerInterests, planShape]);
+  }, [core, loaded, answers, careerInterests, planShape, isGraduatePlan]);
   const admissionRoute = admissionChoice?.front ? admissionChoice.route : null;
 
   // ---- the planning context -------------------------------------------------
 
   const context: PlanningContext | null = useMemo(() => {
-    if (isIllinois && core) return buildContext(core, loaded?.blocks ?? [], null).context;
+    if (isIllinois && planCore) return buildContext(planCore, loaded?.blocks ?? [], null).context;
     if (isUga && uga) return uga.context;
     return null;
-  }, [isIllinois, isUga, core, uga, loaded]);
+  }, [isIllinois, isUga, planCore, uga, loaded]);
 
   // ---- clubs ----------------------------------------------------------------
 
@@ -1347,7 +1395,7 @@ export function PlannerWorkspace({
      * never past eight from the plan's start, and only when 18 a term could
      * not hold what is left.
      */
-    if (isIllinois && !horizon.stated && horizon.began) {
+    if (isIllinois && !isGraduatePlan && !horizon.stated && horizon.began) {
       const held = priorHere.courseCodes.reduce((sum, code) => sum + (byCode.get(normCode(code))?.credits ?? 0), 0) + priorHere.unmatchedCredits;
       const left = (publishedTotal || 120) - held;
       const awayAt = new Set((horizon.away ?? []).map((a) => termOrd(a.season, a.year)));
@@ -1386,13 +1434,13 @@ export function PlannerWorkspace({
             ? loaded.fillToDegreeTotal
             : undefined,
         standingHours: isGraduatePlan
-          ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 }
+          ? gradSettings.standingHours
           : undefined,
         electiveLevelRange: isGraduatePlan
-          ? { min: 600, maxExclusive: 1000 }
+          ? gradSettings.electiveLevelRange
           : undefined,
         autoPrerequisiteLevelRange: isGraduatePlan
-          ? { min: 600, maxExclusive: 1000 }
+          ? gradSettings.autoPrerequisiteLevelRange
           : undefined,
 
       // The published total is what the plan must reach; the blocks alone
@@ -1400,7 +1448,7 @@ export function PlannerWorkspace({
       // electives that fill the rest.
       // A published total of 0 is a page the crawl could not read a total from,
       // not a degree of no credits: English BALAS planned 2 terms and 28 hours.
-      degreeTotal: publishedTotal || (isIllinois ? 120 : null),
+      degreeTotal: publishedTotal || (isIllinois && !isGraduatePlan ? 120 : null),
       interests: [answers?.studying ?? '', careerText].join(' '),
       // Goals come from what the student wants to do, never from the major's
       // name: "Psychology" alone was booking psychopathology as their goal.
@@ -1410,13 +1458,13 @@ export function PlannerWorkspace({
       arrival: arrivalOf(answers),
       // The review's own rule, so the planner arranges year one for the
       // student the review measures it for, and no one else.
-      firstYear: isIllinois && enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
+      firstYear: isIllinois && !isGraduatePlan && enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
       admissionRoute,
       // Illinois's residency rule, from its transfer-credit page: 45 hours at
       // Illinois, 21 of them at the 300 level or above. What the student has
       // already taken here comes from their own record; transfer and exam
       // credit is not residence, whatever course it became.
-      residency: isIllinois
+      residency: isIllinois && !isGraduatePlan
         ? {
             hours: 45,
             upperLevel: 21,
@@ -1519,7 +1567,7 @@ export function PlannerWorkspace({
     // case plans change; a shortfall against it is a finish nobody gave.
     if (horizon.gradPassed) generated.notes = generated.notes.filter((n) => !n.startsWith('Finishing by '));
     if (horizon.startNote) generated.notes.unshift(horizon.startNote);
-    if (!publishedTotal && isIllinois) {
+    if (!publishedTotal && isIllinois && !isGraduatePlan) {
       generated.notes.push(`The catalog page for ${loaded.program.name} states no total, so this plan aims at 120 hours, the minimum most Illinois bachelor's degrees state (las.illinois.edu/academics/requirements/minimum). Ask your advisor for this degree's own total.`);
     }
     /**
@@ -2193,7 +2241,7 @@ export function PlannerWorkspace({
         equivalents: core?.equivalents ?? undefined,
         degreeTotal: activeProgramTotal,
         priorHours: priorHoursOf(answers, exams, examCredit.entries, catalogCredits) - towardDegree.hoursOff,
-        genEdCredits: genEdCreditsOf(answers, exams, examCredit.entries, catalogCredits),
+        genEdCredits: isGraduatePlan ? [] : genEdCreditsOf(answers, exams, examCredit.entries, catalogCredits),
         programName: loaded.program.name,
       });
       const plannedMinors = (loaded.minors ?? []).filter((minor) => minor.checked);
@@ -2288,11 +2336,11 @@ export function PlannerWorkspace({
     if (!plan) return [];
     const validation = context
       ? validatePlan(plan, context, {
-          minimumTermCredits, programName: loaded?.program.name, programCollege: isIllinois ? loaded?.program.college : undefined,
-          standingHours: isGraduatePlan ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 } : undefined,
+          minimumTermCredits, programName: loaded?.program.name, programCollege: isIllinois && !isGraduatePlan ? loaded?.program.college : undefined,
+          standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
           priorCredits: priorCreditHours, away: report?.away, language: report?.language,
-          firstYear: isIllinois ? enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript) : false,
-          arrival: isIllinois ? arrivalOf(answers) : undefined,
+          firstYear: isIllinois && !isGraduatePlan ? enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript) : false,
+          arrival: isIllinois && !isGraduatePlan ? arrivalOf(answers) : undefined,
         }).filter(
           (issue) => !isUga || !issue.id.startsWith('ap-weighed-'),
         )
@@ -2801,13 +2849,13 @@ export function PlannerWorkspace({
       // open chooser while the student is editing that text.
       interests: [answers?.studying ?? '', answers?.after ?? ''].join(' '),
       programName: loaded.program.name,
-      programCollege: isIllinois ? loaded.program.college : undefined,
+      programCollege: isIllinois && !isGraduatePlan ? loaded.program.college : undefined,
       priorities,
       standingHours: isGraduatePlan
-        ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 }
+        ? gradSettings.standingHours
         : undefined,
       electiveLevelRange: isGraduatePlan
-        ? { min: 600, maxExclusive: 1000 }
+        ? gradSettings.electiveLevelRange
         : undefined,
       candidateCodes: scope.codes ?? undefined,
       limit: scope.codes === null ? catalog.length : Math.max(800, scope.codes.size),
@@ -3104,15 +3152,15 @@ export function PlannerWorkspace({
       minimumTermCredits: L.minimumTermCredits,
       maxTermCredits: 18,
       programName: L.loaded?.program.name,
-      programCollege: isIllinois ? L.loaded?.program.college : undefined,
+      programCollege: isIllinois && !isGraduatePlan ? L.loaded?.program.college : undefined,
       priorCredits: L.priorCreditHours,
-      standingHours: isGraduatePlan ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 } : undefined,
+      standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
       away: L.report?.away,
       language: L.language,
       // Read for this student: a transfer or a continuing sophomore is never
       // told a first-term seminar belongs in "the first year".
-      firstYear: isIllinois && enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
-      arrival: arrivalOf(L.answers),
+      firstYear: isIllinois && !isGraduatePlan && enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
+      arrival: isGraduatePlan ? undefined : arrivalOf(L.answers),
     };
   }
 
@@ -3193,7 +3241,7 @@ export function PlannerWorkspace({
   function degreeTotalNow(): number | null {
     const loadedNow = live.current.loaded;
     if (!loadedNow) return null;
-    return loadedNow.summary.totalCredits || loadedNow.program.totalCredits || (isIllinois ? 120 : null);
+    return loadedNow.summary.totalCredits || loadedNow.program.totalCredits || (isIllinois && !isGraduatePlan ? 120 : null);
   }
 
   function progressCheckOn(board: PlanState) {
@@ -3210,7 +3258,7 @@ export function PlannerWorkspace({
       languages: L.core?.languages, equivalents: L.context.equivalents,
       degreeTotal: degreeTotalNow(),
       priorHours: L.priorForOptions.unmatchedCredits - held.hoursOff,
-      genEdCredits: L.priorForOptions.genEdCredits,
+      genEdCredits: isGraduatePlan ? [] : L.priorForOptions.genEdCredits,
       programName: L.loaded.program.name,
     });
   }
@@ -3232,8 +3280,8 @@ export function PlannerWorkspace({
       priorCredits: L.priorCreditHours,
       degreeTotal: degreeTotalNow(),
       programName: L.loaded.program.name,
-      programCollege: isIllinois ? L.loaded.program.college : undefined,
-      standingHours: isGraduatePlan ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 } : undefined,
+      programCollege: isIllinois && !isGraduatePlan ? L.loaded.program.college : undefined,
+      standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
       progressCheck: progressCheckOn(board),
       arrival: arrivalOf(L.answers),
     });
@@ -3308,8 +3356,8 @@ export function PlannerWorkspace({
         plan: { ...board, terms: board.terms.map((t) => t.id === termId ? { ...t, courseIds: t.courseIds.filter((id) => id !== courseId) } : t) },
         termId, prior: L.priorForOptions, interests: L.interestsText, priorities: L.priorities,
         programName: L.loaded.program.name, candidateCodes: scope.codes ?? undefined,
-        standingHours: isGraduatePlan ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 } : undefined,
-        electiveLevelRange: isGraduatePlan ? { min: 600, maxExclusive: 1000 } : undefined,
+        standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
+        electiveLevelRange: isGraduatePlan ? gradSettings.electiveLevelRange : undefined,
         limit: 30,
       }).flatMap((option) => {
         const replacement = L.byCode.get(normCode(option.code));
@@ -3487,9 +3535,9 @@ export function PlannerWorkspace({
       interests: L.interestsText,
       career: L.careerText,
       programName: L.loaded.program.name,
-      programCollege: isIllinois ? L.loaded.program.college : undefined,
-      electiveLevelRange: isGraduatePlan ? { min: 600, maxExclusive: 1000 } : undefined,
-      standingHours: isGraduatePlan ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 } : undefined,
+      programCollege: isIllinois && !isGraduatePlan ? L.loaded.program.college : undefined,
+      electiveLevelRange: isGraduatePlan ? gradSettings.electiveLevelRange : undefined,
+      standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
       priorities: next,
       minimumTermCredits: L.minimumTermCredits,
       priorCredits: L.priorCreditHours,
@@ -5395,6 +5443,7 @@ export function PlannerWorkspace({
             : []),
         ]
       : []),
+    ...(isIllinois && isGraduatePlan ? [gradSettings.caveat] : []),
     ...(programIds.length > 1
       ? [
           isGraduatePlan
@@ -5404,7 +5453,7 @@ export function PlannerWorkspace({
       : []),
     ...(minorIds.length + certificateIds.length > 0
       ? [
-          isIllinois
+          isIllinois && !isGraduatePlan
             ? 'Minors are a beta: a minor the planner has checked is planned from its catalog page beside your degree, which always comes first; one it has not checked is named with its page and not planned. Campus rules: 16 to 21 hours, 6 of them at the 300 or 400 level apart from your major, courses taken for a grade, and the minor declared with the department that offers it.'
             : 'Selected minors and certificates are planned from their published requirement pages and share courses where the catalog allows. Residency, grade, and application rules still need advisor confirmation.',
         ]
@@ -5644,7 +5693,7 @@ export function PlannerWorkspace({
         }
         areas={areas}
         programLevel={programLevel}
-        supportsGraduatePrograms={isUga}
+        supportsGraduatePrograms={isUga || isIllinois}
         onProgramLevelChange={changeProgramLevel}
         programs={programOptions}
         programIds={programIds}

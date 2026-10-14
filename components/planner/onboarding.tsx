@@ -17,6 +17,7 @@ import {
 import { SiteFooter } from './site-notice';
 import { loadIllinoisMinorFile, openProgram } from './illinois-source';
 import { illinoisMinorOptions } from '@/lib/planner/illinois-minors';
+import { graduateProgramOptions, loadIllinoisGraduatePrograms } from '@/lib/planner/illinois-graduate';
 import type { IllinoisProgramSummary } from '@/lib/planner/illinois-load';
 import {
   EMPTY_ANSWERS,
@@ -295,7 +296,8 @@ export function Onboarding({
     answers.graduationYear,
     today,
   );
-  const programChoicesReady = answers.schoolId !== 'uga' || catalog !== null;
+  const programChoicesReady =
+    (answers.schoolId !== 'uga' && !(answers.schoolId === 'illinois' && answers.programLevel === 'graduate')) || catalog !== null;
   const detailsComplete =
     Boolean(answers.academicYear) &&
     Boolean(answers.graduationSeason) &&
@@ -410,6 +412,16 @@ export function Onboarding({
           const minors = illinoisMinorOptions(file).map(({ id, name, totalCredits, additionalCredits }) => ({ id, name, totalCredits, additionalCredits }));
           setCatalog((current) => (current ? { ...current, minors } : current));
         });
+        // Graduate and professional programs (beta); those not checked yet say so in their name.
+        void loadIllinoisGraduatePrograms().then((rows) => {
+          if (cancelled || rows.length === 0) return;
+          const grad = graduateProgramOptions(rows);
+          setCatalog((current) =>
+            current
+              ? { ...current, graduateDegrees: [UNDECIDED_PROGRAM, ...grad.graduateDegrees], graduateCertificates: grad.graduateCertificates }
+              : current,
+          );
+        });
       })
       .catch(() => {
         if (!cancelled) {
@@ -434,7 +446,7 @@ export function Onboarding({
     setAnswers((a) => ({
       ...a,
       schoolId: id,
-      programLevel: id === 'uga' ? a.programLevel : 'undergraduate',
+      programLevel: id === 'uga' || id === 'illinois' ? a.programLevel : 'undergraduate',
       programIds: a.schoolId === id ? a.programIds : [UNDECIDED_PROGRAM_ID],
       minorIds: a.schoolId === id ? a.minorIds : [],
       certificateIds: a.schoolId === id ? a.certificateIds : [],
@@ -605,7 +617,7 @@ export function Onboarding({
                 ? 'Choose one or more graduate or professional degrees. Graduate certificates are optional.'
                 : 'Choose one or more majors. Minors and certificates are optional.'}
             </p>
-            {answers.schoolId === 'uga' && (
+            {(answers.schoolId === 'uga' || answers.schoolId === 'illinois') && (
               <fieldset className="onb-level-toggle">
                 <legend className="sr-only">Program level</legend>
                 <button
@@ -635,7 +647,7 @@ export function Onboarding({
                   kindLabel={answers.programLevel === 'graduate' ? 'degree' : 'major'}
                 />
               </section>
-              {answers.schoolId === 'illinois' && (
+              {answers.schoolId === 'illinois' && answers.programLevel === 'undergraduate' && (
                 <details className="onb-optional-programs" open={answers.minorIds.length > 0 || undefined}>
                   <summary>Add a minor</summary>
                   <ProgramPicker
@@ -650,6 +662,19 @@ export function Onboarding({
                     Beta. Your degree comes first; a minor goes in the room it leaves. Minors marked
                     &ldquo;not checked yet&rdquo; are shown with their catalog page but not planned.
                   </p>
+                </details>
+              )}
+              {answers.schoolId === 'illinois' && answers.programLevel === 'graduate' && (
+                <details className="onb-optional-programs" open={answers.certificateIds.length > 0 || undefined}>
+                  <summary>Add a graduate certificate</summary>
+                  <ProgramPicker
+                    options={certificateOptions}
+                    selectedIds={answers.certificateIds}
+                    onChange={(certificateIds) => setAnswers((current) => ({ ...current, certificateIds }))}
+                    loading={catalog === null}
+                    kindLabel="certificate"
+                    emptyMessage="The Illinois graduate certificate list did not load."
+                  />
                 </details>
               )}
               {answers.schoolId === 'uga' && (
@@ -910,6 +935,7 @@ export function Onboarding({
               transcript={answers.transcript ?? null}
               onTranscriptChange={(transcript) => setAnswers((a) => ({ ...a, transcript }))}
               grainger={answers.programIds.some((id) => id.startsWith('engineering/'))}
+              graduate={answers.schoolId === 'illinois' && answers.programLevel === 'graduate'}
               alreadyTakenCourseCodes={answers.alreadyTakenCourseCodes}
               onAlreadyTakenChange={(alreadyTakenCourseCodes) =>
                 setAnswers((a) => ({ ...a, alreadyTakenCourseCodes }))
