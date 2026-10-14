@@ -917,6 +917,18 @@ export interface AutoplanInput {
    */
   leftoverRules?: boolean;
   /**
+   * True to let a general education category take a course the student's
+   * goal is about ahead of a course that also covers a second category
+   * (generatePlanInner's goalGenEd). Set by generatePlan for one more board,
+   * the board it keeps built again with it, where the student named a goal
+   * no pre-professional track books; that board stands only where the gate
+   * finds it no worse than the floor, the release and the board kept.
+   * 'after' puts the goal course behind a course covering a second
+   * category and ahead of the season rule, for one more board where that
+   * one is turned away.
+   */
+  goalGenEd?: boolean | 'after';
+  /**
    * True to rank a list or pool candidate whose prerequisite sentence is
    * only a class standing ("Junior standing.") as one whose condition is
    * read (standingIsAll), not behind every course that drags a prerequisite
@@ -6504,7 +6516,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
    * inferred pairings (AutoplanInput), and `asRead`, the requirements as
    * a930f09 read them (asReadBefore).
    */
-  type Build = { pace: boolean | 'ceiling'; sooner: boolean; plain?: boolean; pairs?: boolean; asRead?: boolean; before?: boolean; seminars?: boolean; swap?: boolean; trim?: boolean; tracks?: TrackPicks; dated?: boolean; goalRows?: boolean | 'lean'; tidy?: boolean; standing?: boolean; left?: boolean; repair?: boolean };
+  type Build = { pace: boolean | 'ceiling'; sooner: boolean; plain?: boolean; pairs?: boolean; asRead?: boolean; before?: boolean; seminars?: boolean; swap?: boolean; trim?: boolean; tracks?: TrackPicks; dated?: boolean; goalRows?: boolean | 'lean'; tidy?: boolean; standing?: boolean; left?: boolean; repair?: boolean; goalGenEd?: boolean | 'after' };
   /*
    * A row the page joins with "OR" alone is one pick (joinedByOr in
    * illinois-data): the LAS orientation row, LAS 101 or LAS 100 or LAS 102.
@@ -6560,6 +6572,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
     repairBoard: build.repair === true,
     standingRead: build.standing === true,
     leftoverRules: build.left === true,
+    goalGenEd: build.goalGenEd,
     electiveRanking,
     qualityMemo,
   });
@@ -6583,6 +6596,9 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
    * board had, fell off it; without the pairings her board keeps the year-one
    * and date moves and PSYC 100. A board already weighed is not weighed again.
    */
+  // A goal that orders the general education picks (AutoplanInput.goalGenEd): one the student named that no pre-professional track books.
+  const goalProfile = careerProfileOf(raw);
+  const goalAsked = goalWeighs(goalProfile) && (goalProfile.topics.length > 0 || goalProfile.subjects.length > 0 || goalProfile.courses.length > 0 || goalProfile.words.length > 0);
   const inner = (horizon: Horizon) => {
     if (given.plainEngine === true) return once(horizon, { pace: false, sooner: false, plain: true, asRead: true, before: true });
     // The major's subjects as the review reads them, from the page's own rows.
@@ -6992,6 +7008,63 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
        * or a Classics freshman's LAT 101 a term after LAT 102.
        */
       if (best === kept && orderFaultsOf(rebuilt) < orderFaultsOf(kept) && [plain, released, kept].every((b) => smallCostOnly(measureOf(rebuilt), measureOf(b)))) best = rebuilt;
+    }
+    /*
+     * Last of all, what the student said they want to do, in the general
+     * education categories: the board kept, built again with each category
+     * taking a course the goal is about ahead of one that also covers a
+     * second category (AutoplanInput.goalGenEd), stands where the gate finds
+     * it no worse than the floor, the release and the board kept, rank
+     * aside, and no further past the degree total than the board kept. An
+     * English freshman who wants to teach then takes EDUC 201 and EDUC 202
+     * for her categories, not PORT 150 and HK 300. On every board, over 308
+     * degrees and four goals, the preference left CHEM 237 a term apart from
+     * CHEM 236 (Chemical Engineering + Data Science, three goals) and one
+     * more requirement unmet (Environmental Science and Management,
+     * journalism): a board that splits a lab from its lecture, puts a course
+     * before its prerequisite, loads a term past the cap, leaves a required
+     * course off or anything else the gate measures is turned away, and the
+     * student keeps the board she had. Only for a goal that weighs
+     * (goalWeighs) on a board with general education picks; no other board
+     * is built.
+     */
+    const goalRecipe = buildOf.get(best);
+    if (goalRecipe && goalRecipe.goalGenEd === undefined && goalAsked && (best.genEdPicks ?? []).length > 0) {
+      const kept = best;
+      /*
+       * Turned away only for the residency rule (fewer hours at the 300
+       * level, short of 21, than the board kept), it is built once more
+       * with its picks traded in place for courses at the 300 level
+       * (upperSwap), as the boards for a goal's rows are. Turned away only
+       * for a lab apart, a course before its prerequisite, three of the
+       * hardest in a term or a warning, it is built once more tidied
+       * (tidyBoard) and once with the last repair (repairBoard). Then,
+       * whatever turned it away, once with the goal course behind a course
+       * covering a second category (goalGenEd 'after'). Each stands only as
+       * the first would, and the first that stands is kept.
+       */
+      const tries: Build[] = [{ ...goalRecipe, goalGenEd: true }];
+      const mended = new Set(['labApart', 'order', 'stack3', 'warnings']);
+      for (let k = 0; k < tries.length; k += 1) {
+        const rebuilt = once(horizon, tries[k]);
+        if (seen.has(shapeOf(rebuilt))) continue;
+        seen.add(shapeOf(rebuilt));
+        const worse = [...new Set([plain, released, kept].flatMap((b) => gateWorse(measureOf(rebuilt), measureOf(b))))];
+        if (measureOf(rebuilt).beyond > measureOf(kept).beyond) worse.push('beyond');
+        // Only a board that stands joins the trail: a board turned away here is never a candidate later (shorterStands).
+        if (worse.length === 0) {
+          trail.tried.push({ board: rebuilt, worse, how: builtAs.get(rebuilt) });
+          best = rebuilt;
+          break;
+        }
+        if (k > 0) continue;
+        if (worse.every((w) => w === 'residency') && tries[0].swap !== true) tries.push({ ...tries[0], swap: true });
+        else if (worse.every((w) => mended.has(w))) {
+          if (tries[0].tidy !== true) tries.push({ ...tries[0], tidy: true });
+          if (tries[0].repair !== true) tries.push({ ...tries[0], repair: true });
+        }
+        tries.push({ ...goalRecipe, goalGenEd: 'after' });
+      }
     }
     best.gate = best === plain ? { kept: 'plain', worse: trail.tried[0]?.worse ?? [] } : { kept: 'improved', worse: [] };
     gateTrails.set(best, trail);
@@ -7748,9 +7821,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * not HK 302 on top of it.
    */
   const tracks = careerProfileOf(input).tracks;
-  // What opens the goal's own courses (goalOpenersOf), and whether the goal weighs at all (goalWeighs), for the general education order below.
-  const opensGoal = goalOpenersOf(ctx, careerProfileOf(input), prefs.priorities);
-  const goalCounts = goalWeighs(careerProfileOf(input));
+  // Whether the goal orders the general education picks (AutoplanInput.goalGenEd, goalWeighs), and what opens its own courses (goalOpenersOf).
+  const goalCounts = (input.goalGenEd === true || input.goalGenEd === 'after') && goalWeighs(careerProfileOf(input));
+  const goalFirst = input.goalGenEd === true;
+  const opensGoal = goalCounts ? goalOpenersOf(ctx, careerProfileOf(input), prefs.priorities) : new Set<string>();
   const trackPreferred = (open: string[]): string | null => {
     for (const track of tracks) {
       for (const row of track.courses) {
@@ -8692,12 +8766,21 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
              * an elective, beside the two-for-one (that English student had
              * EDUC 201, EDUC 202 and EPSY 201 as electives and PORT 150 and HK
              * 300 for her categories), so the categories take the goal courses
-             * and the electives move on to more of them.
+             * and the electives move on to more of them. Only on the board
+             * generatePlan builds for it (AutoplanInput.goalGenEd), which
+             * stands where the gate finds it no worse: on every board, over
+             * 308 degrees and four goals, it left CHEM 237 a term apart from
+             * CHEM 236 (Chemical Engineering + Data Science, three goals) and
+             * one more requirement unmet (Environmental Science and
+             * Management, journalism).
              */
             const goal = goalGenEd(a) - goalGenEd(b);
-            if (goal !== 0) return goal;
+            if (goalFirst && goal !== 0) return goal;
             const both = alsoCounts(b) - alsoCounts(a);
             if (both !== 0) return both;
+            // Behind the second category (AutoplanInput.goalGenEd 'after'): the
+            // goal course among the courses that cover as many categories.
+            if (goal !== 0) return goal;
             // A category course that runs every term goes anywhere the plan has
             // room; one that runs only in the fall waits for a fall with room.
             // AFST 254 was a Computer Engineering student's social science pick,
@@ -8721,9 +8804,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
                 // application is never the planner's pick for it.
                 gatedPick(code) === 0,
             );
-          for (const code of open) {
-            const early = rankGenEd(code).slice(0, 2);
-            if (goalEarly === null || compareRank(early, goalEarly, '', '') < 0) goalEarly = early;
+          if (goalCounts) {
+            for (const code of open) {
+              const early = rankGenEd(code).slice(0, 2);
+              if (goalEarly === null || compareRank(early, goalEarly, '', '') < 0) goalEarly = early;
+            }
           }
           open.sort(genEdOrder);
           for (const code of open) {
