@@ -1291,6 +1291,17 @@ function conflictWith(
 }
 
 /**
+ * Whether the requirement itself lists `held` (or a twin of it) among its
+ * courses: then a held course in the way of another course on the same
+ * requirement is one of the page's own routes, not credit to forfeit.
+ */
+function listedOnRequirement(requirement: PlanRequirement, held: string, equivalents: Map<string, string[]>): boolean {
+  const rule = requirement.rule;
+  if (rule.kind !== 'all' && rule.kind !== 'choose' && rule.kind !== 'pool') return false;
+  return rule.choices.some((choice) => choice.codes.some((code) => expandEquivalents(normaliseCode(code), equivalents).includes(held)));
+}
+
+/**
  * A prerequisite group nothing in this plan can ever satisfy, because every way
  * of satisfying it is a course the catalog says will not count alongside one
  * already in hand.
@@ -6447,7 +6458,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   // changed (FR 335 fills two rows, FR 301 dropped); Illinois checks pass. Keep, or limit it to UGA/twins.
   const pickFromOption = (option: string[]): { code: string; shared: boolean } | null => {
     for (const code of option) if (earned.has(code)) return { code, shared: false };
-    const open = best(option.filter((code) => !chosen.has(code)));
+    // An alternative that leaves the student's credit standing first (autoplan.ts says why).
+    const fresh = option.filter((code) => !chosen.has(code));
+    const keepsCredit = fresh.filter((code) => conflictWith(code, conflicts, [earned]) === null);
+    const open = (keepsCredit.length < fresh.length ? best(keepsCredit) : null) ?? best(fresh);
     if (open) return { code: open, shared: false };
     const taken = best(option.filter((code) => chosen.has(code)));
     return taken ? { code: taken, shared: true } : null;
@@ -7027,11 +7041,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             // credit already in hand, not credit in the way. With a twin map the
             // twin is in `earned` and never reaches this line; without one the
             // engine cannot tell a twin from an exclusion, so it does not forfeit.
+            // Nor when the held course is on this same requirement (autoplan.ts
+            // says why: Integrative Biology's CHEM 102-105 or 202-205).
             const onlyHeld =
               slot.kind === 'all' &&
               ctx.equivalents !== undefined &&
               earned.has(by) &&
               !expandEquivalents(entry.code, equivalents).includes(by) &&
+              !listedOnRequirement(requirement, by, equivalents) &&
               conflictWith(entry.code, conflicts, [chosen, heldHere]) === null;
             if (onlyHeld) {
               forfeits.push({ held: by, for: entry.code });

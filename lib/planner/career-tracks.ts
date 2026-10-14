@@ -97,8 +97,15 @@ export interface CareerTrack {
    * The admission test the student prepares for in the spring of year 3, if
    * the guide's timeline puts it there. The planner keeps that term to one
    * hardest-band course where the degree allows it.
+   *
+   * `content`: the track's courses whose material the test leans on most,
+   * the upper-level science and the behavioral courses. A plan that leaves
+   * three or more of them for the test's own spring has the student
+   * learning the material in the term they are tested on it, so the planner
+   * takes the ones that can go earlier into an earlier term (autoplan
+   * spreadExamTerm).
    */
-  exam?: { name: string };
+  exam?: { name: string; content?: string[] };
 }
 
 export interface InterestTopic {
@@ -334,7 +341,8 @@ export const CAREER_TRACKS: CareerTrack[] = [
     related: [],
     source: guide('Medicine%20Guide%202021-2022%20FINAL.pdf', 'Pre-Medicine Guide'),
     // The guide's timeline: MCAT preparation in year 3, the application the summer after.
-    exam: { name: 'MCAT' },
+    // Organic II, biochemistry, and the psychology and sociology the MCAT's behavioral section assumes.
+    exam: { name: 'MCAT', content: ['CHEM 332', 'MCB 354', 'MCB 450', 'PSYC 100', 'SOC 100'] },
     alsoSee: [
       { url: 'https://www.careercenter.illinois.edu/healthprofessions/medicine', title: 'Health Professions: Medicine | The Career Center | UIUC', read: READ },
       catalogPage('medicine', 'Medicine'),
