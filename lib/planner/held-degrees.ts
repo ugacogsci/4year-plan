@@ -105,32 +105,7 @@ export const PLANNED_AS_RELEASED = new Set<string>([
  * pages on 2026-10-08 and read correctly; they wait for the engine work only.
  */
 export const HEADER_LISTS_HELD = new Set<string>([
-  'ahs/speech-hearing-science-bs', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'engineering/aerospace-engineering-bs', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but credits past the total it did not need, a pre-med/PT course late or off with room for it)
   'engineering/engineering-mechanics-bs', // Fall 2026 start, no goal, 2 language semesters: blocked (TAM 252 a term after its lecture TAM 251, a sequence a term apart)
-  'engineering/industrial-engineering-bs', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but credits past the total it did not need, three hardest courses in one term)
-  'engineering/neural-engineering-bs', // Spring 2027 start, no goal, 2 language semesters: engine work (same requirements met, a prerequisite to check, worse across the sweep)
-  'engineering/physics-bs', // Spring 2027 start, no goal, 2 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
-  'faa/fine-applied-arts-ba', // Fall 2026 start, pre-med, 2 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
-  'las/african-american-studies-balas', // Fall 2026 start, pre-med, 2 language semesters: engine work (same requirements met, a pre-med/PT course late or off with room for it)
-  'las/anthropology-balas', // Fall 2026 start, pre-med, 2 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
-  'las/art-history-balas', // Fall 2026 start, no goal, 4 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'las/communication-balas', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'las/earth-society-environmental-sustainability-bslas/society-the-environment', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
-  'las/environmental-sustainability-bslas', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, the first math course later, worse across the sweep)
-  'las/environmental-sustainability-bslas/science-of-the-earth-system', // Fall 2026 start, pre-med, 4 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
-  'las/integrative-biology-bslas', // Fall 2026 start, pre-med, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, the first math course later, worse across the sweep)
-  'las/psychology-bslas/behavioral-neuroscience', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'las/psychology-bslas/clinical-community-psychology', // Fall 2026 start, pre-PT, 2 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
-  'las/psychology-bslas/cognitive-neuroscience', // Fall 2026 start, pre-PT, 2 language semesters: engine work (same requirements met, the first math course later, a momentum flag, worse across the sweep)
-  'las/psychology-bslas/cognitive-psychology', // Fall 2026 start, pre-med, 4 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'las/psychology-bslas/developmental-psychology', // Fall 2026 start, pre-med, 4 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'las/psychology-bslas/diversity-science', // Fall 2026 start, pre-med, 4 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'las/psychology-bslas/intradisciplinary-psychology', // Fall 2026 start, pre-med, 2 language semesters: engine work (same requirements met, the first math course later, worse across the sweep)
-  'las/psychology-bslas/organizational-psychology', // Fall 2026 start, pre-med, 4 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'las/psychology-bslas/personality-psychology', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'las/psychology-bslas/social-psychology', // Fall 2026 start, pre-med, 4 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'media/media-cinema-studies-bs', // Fall 2026 start, pre-PT, 2 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
 ]);
 
 /**
@@ -143,8 +118,6 @@ export const HEADER_LISTS_HELD = new Set<string>([
 export const HAND_READINGS_HELD = new Set<string>([
   'engineering/civil-engineering-bs', // Fall 2026 start, pre-PT, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
   'engineering/materials-science-engineering-bs', // extra students, a pre-vet freshman: engine work (more requirements met, but credits past the total it did not need and a pre-vet course off with room for it); every board also leaves MSE 404, MSE 494 and MSE 495 off, MSE 206 landing in Spring 2029 and the design chain running out of terms
-  'las/political-science-balas/international-relations', // Fall 2026 start, pre-PT, 4 language semesters: engine work (same requirements met, the first math course later, worse across the sweep)
-  'las/political-science-balas/law-power', // Fall 2026 start, pre-PT, 2 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
 ]);
 
 /**
@@ -163,48 +136,11 @@ export const HAND_READINGS_HELD = new Set<string>([
  * board that did not pass.
  */
 export const SELECT_LINES_HELD = new Set<string>([
-  'aces/agricultural-leadership-education-communications-bs/agricultural-communications', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
-  'aces/animal-sciences-bs/food-animal-production-management', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a prerequisite to check, worse across the sweep)
   'aces/animal-sciences-bs/science-pre-veterinary--medical', // Fall 2026 start, pre-PT, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
-  'aces/engineering-technology-management-agricultural-systems-bs/construction-management', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
-  'aces/engineering-technology-management-agricultural-systems-bs/digital-precision-agriculture', // Fall 2026 start, pre-PT, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
-  'aces/natural-resources-environmental-sciences-bs/ecosystem-stewardship-restoration-ecology', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but credits past the total it did not need, a pre-med/PT course late or off with room for it)
   'aces/natural-resources-environmental-sciences-bs/environmental-science-management', // Spring 2027 start, pre-PT, 4 language semesters: blocked (an error, a course before its prerequisite, a lab apart from its lecture or a finish after the target)
-  'aces/natural-resources-environmental-sciences-bs/environmental-social-sciences', // Fall 2026 start, pre-med, 4 language semesters: engine work (more requirements met, but credits past the total it did not need, a pre-med/PT course late or off with room for it)
-  'aces/natural-resources-environmental-sciences-bs/fish-wildlife-conservation-biology', // Fall 2026 start, pre-med, 4 language semesters: engine work (more requirements met, but credits past the total it did not need, a pre-med/PT course late or off with room for it)
-  'bus/accountancy-bs', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but credits past the total it did not need, a pre-med/PT course late or off with room for it)
-  'bus/finance-data-science-bs', // Fall 2026 start, pre-med, 2 language semesters: engine work (same requirements met, a pre-med/PT course late or off)
-  'education/middle-grades-education-bs/science', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but credits past the total it did not need, a pre-med/PT course late or off with room for it)
   'engineering/computer-science-bioengineering-bs', // Fall 2026 start, pre-med, 2 language semesters: blocked (an error, a course before its prerequisite, a lab apart from its lecture or a finish after the target)
-  'engineering/computer-science-physics-bs', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but credits past the total it did not need, a pre-med/PT course late or off with room for it)
-  'engineering/electrical-engineering-bs', // Spring 2027 start, pre-med, 4 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
-  'faa/art-art-history-bfa', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but credits past the total it did not need, a pre-med/PT course late or off with room for it)
-  'faa/industrial-design-bfa', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
   'faa/studio-art-bfasa/fashion', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
-  'faa/studio-art-bfasa/illustration', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but credits past the total it did not need, a pre-med/PT course late or off with room for it)
-  'faa/studio-art-bfasa/painting', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
   'faa/studio-art-bfasa/photography', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
-  'faa/studio-art-bfasa/printmaking', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
-  'faa/studio-art-bfasa/sculpture', // Fall 2026 start, pre-med, 4 language semesters: engine work (more requirements met, but a pre-med/PT course late or off with room for it)
-  'las/anthropology-balas/biological-anthropology', // Fall 2026 start, pre-med, 4 language semesters: engine work (same requirements met, a year-one term under 15 hours, a momentum flag, worse across the sweep)
   'las/chemistry-bslas', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'las/communication-balas', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'las/econometrics-quantitative-economics-bslas', // Fall 2026 start, pre-med, 2 language semesters: engine work (more requirements met, but credits past the total it did not need, a pre-med/PT course late or off with room for it)
-  'las/geography-geographic-information-science-balas/human-geography', // Fall 2026 start, pre-med, 4 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'las/geography-geographic-information-science-bslas/geographic-information-science', // Spring 2027 start, pre-med, 4 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
-  'las/geography-geographic-information-science-bslas/physical-geography', // Fall 2026 start, pre-med, 2 language semesters: engine work (same requirements met, credits past the total)
-  'las/geology-bs/geophysics', // Fall 2026 start, pre-PT, 2 language semesters: engine work (same requirements met, credits past the total, under 21 hours at the 300 level)
-  'las/history-balas/history-teaching', // Fall 2026 start, pre-PT, 4 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
-  'las/latina-latino-studies-balas', // Spring 2027 start, pre-med, 4 language semesters: engine work (same requirements met, a year-one term under 15 hours, a momentum flag, worse across the sweep)
-  'las/linguistics-balas', // Spring 2027 start, pre-PT, 2 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
-  'las/slavic-studies-balas/polish-studies', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'las/slavic-studies-balas/ukranian-studies', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a year-one term under 15 hours, worse across the sweep)
-  'media/journalism-bs', // Fall 2026 start, pre-med, 4 language semesters: engine work (same requirements met, a pre-med/PT course late or off)
-  'media/media-cinema-studies-bs', // Spring 2027 start, pre-med, 4 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep)
-  'las/economics-balas', // Fall 2026 start, no goal, 4 language semesters: engine work (same requirements met, MATH 241 a term apart from MATH 231, worse across the sweep); full sweeps of 21e2766
-  'aces/engineering-technology-management-agricultural-systems-bs', // Spring 2027 start, no goal, 2 language semesters: engine work (same requirements met, a sequence a term apart, worse across the sweep); full sweeps of 21e2766
-  'aces/natural-resources-environmental-sciences-bs', // Fall 2026 start, pre-med, 2 language semesters: engine work (same requirements met, PHYS 102 a term apart from PHYS 101, worse across the sweep); full sweeps of 21e2766
-  'faa/immersive-interactive-theatre-ba', // Fall 2026 start, pre-med, 2 language semesters: engine work (same requirements met, a momentum flag, worse across the sweep once the three above are held)
-  'las/history-balas', // Fall 2026 start, pre-PT, 2 language semesters: engine work (same requirements met, the first math course later, a momentum flag, worse across the sweep once the three above are held)
-  'las/slavic-studies-balas/south-slavic-studies', // Fall 2026 start, pre-PT, 4 language semesters: engine work (same requirements met, two hardest courses in one term, worse across the sweep once the five above are held)
+  'aces/animal-sciences-bs/food-animal-production-management', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a prerequisite to check, worse across the sweep); reading it also drops the concentration core block ::2::0 a check pins
 ]);
