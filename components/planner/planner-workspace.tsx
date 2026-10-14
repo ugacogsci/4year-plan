@@ -183,6 +183,7 @@ import {
   type TranscriptCourseRecord,
   type TranscriptRecord,
 } from '@/lib/planner/transcript';
+import { withCoreCredit } from '@/lib/planner/transfer-core';
 import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
 import { assumedHours as assumedHoursOf, recordCoverage, uncoveredTerms } from '@/lib/planner/start-term';
 import { distinctHeld, heldTowardDegree, type GenEdCredit, type Horizon, type PlanRequirement, type PriorCredit } from '@/lib/planner/autoplan';
@@ -1245,7 +1246,20 @@ export function PlannerWorkspace({
     };
   }, [isIllinois, isUga, isUndecided, core, uga, programIds, minorIds, selectedProgramIds, programKey, emphasisKey, answers?.emphasisSelections, emphasesComplete, isGraduatePlan, gradCore, gradMenu, certificateIds]);
 
-  const loaded = fetched?.key === programKey ? fetched.value : null;
+  const fetchedLoaded = fetched?.key === programKey ? fetched.value : null;
+  // UGA core electives the student already holds (a transfer line UGA gives
+  // as "SOCI 1GXX") come off the core areas they usually fill, so the board
+  // does not book a course there the student does not need (transfer-core.ts).
+  // The same object when the record holds none, so no other board changes.
+  const transcriptRecord = answers?.transcript ?? null;
+  const coreCredit = useMemo(
+    () => (isUga && fetchedLoaded ? withCoreCredit(fetchedLoaded.blocks, transcriptRecord) : null),
+    [isUga, fetchedLoaded, transcriptRecord],
+  );
+  const loaded = useMemo(() => {
+    if (!fetchedLoaded || !coreCredit || coreCredit.blocks === fetchedLoaded.blocks) return fetchedLoaded;
+    return { ...fetchedLoaded, blocks: coreCredit.blocks };
+  }, [fetchedLoaded, coreCredit]);
   const programBusy = Boolean(isCatalogSchool && programIds.length > 0 && !isUndecided) && fetched?.key !== programKey;
 
 
@@ -2297,13 +2311,28 @@ export function PlannerWorkspace({
         if (course) have.add(normCode(course.code));
       }
     }
-    const progress = areaProgress(
+    const counted: AreaRow[] = areaProgress(
       loaded.program,
       have,
       context?.equivalents,
       { allowCrossAreaOverlap: isUga },
     );
-    if (!isUga) return progress;
+    if (!isUga) return counted;
+    // Core electives from transfer credit count toward the core area they
+    // fill, as the plan build counted them (transfer-core.ts).
+    const coreUsed = coreCredit?.used ?? [];
+    const progress = coreUsed.length === 0 ? counted : counted.map((row) => {
+      const mine = coreUsed.filter((u) => u.area === row.area.label);
+      if (mine.length === 0) return row;
+      const earned = Math.min(row.area.hours, row.earned + mine.reduce((sum, u) => sum + u.hours, 0));
+      return {
+        ...row,
+        earned,
+        percent: row.area.hours ? Math.round((earned / row.area.hours) * 100) : 0,
+        satisfied: row.area.hours > 0 && earned >= row.area.hours,
+        note: `${row.note ? `${row.note} ` : ''}Includes ${mine.map((u) => u.line).join(', ')} from your transfer credit.`,
+      };
+    });
 
     // UGA's General Electives row is the degree credit left after the named
     // areas have claimed their capped hours. That includes editable elective
@@ -2334,7 +2363,7 @@ export function PlannerWorkspace({
     isUga,
     context,
     credits.total.min,
-    isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits,
+    isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits, coreCredit,
   ]);
 
   /**
@@ -4889,14 +4918,15 @@ export function PlannerWorkspace({
             term: c.term,
             status: c.status,
             from: c.from ?? (record?.home === false ? record.institution : null),
-            how: c.matchedBy === 'code' ? 'Illinois code on the record' : c.matchedBy === 'printed' ? 'equivalent printed on the document (confirmed)' : c.matchedBy === 'proposal' ? 'likely equivalent from the catalog (not confirmed)' : 'entered by the student or in chat',
+            how: c.matchedBy === 'code' ? 'Illinois code on the record' : c.matchedBy === 'printed' ? 'equivalent printed on the document (confirmed)' : c.matchedBy === 'official' ? "the university's own transfer equivalency list" : c.matchedBy === 'proposal' ? 'likely equivalent from the catalog (not confirmed)' : 'entered by the student or in chat',
+            ...(c.basis ? { why: c.basis.text, source: c.basis.source ?? null } : {}),
           }));
         const hoursLines = (record?.courses ?? [])
           .filter((c) => c.use && c.counts === 'hours')
-          .map((c) => ({ as_printed: c.code, title: c.title, hours: c.equivalentCredits ?? c.credits, from: c.from ?? (record?.home === false ? record.institution : null), status: c.status, likely_equivalents: (c.proposals ?? []).map((p) => `${p.code} ${p.title} (${p.confidence})`) }));
+          .map((c) => ({ as_printed: c.code, title: c.title, hours: c.equivalentCredits ?? c.credits, from: c.from ?? (record?.home === false ? record.institution : null), status: c.status, likely_equivalents: (c.proposals ?? []).map((p) => `${p.code} ${p.title} (${p.confidence})`), ...(c.designation ? { designation: c.designation, core_area: c.coreArea ?? null } : {}), ...(c.basis ? { why: c.basis.text, source: c.basis.source ?? null } : {}) }));
         const notCounted = (record?.courses ?? [])
           .filter((c) => !c.use)
-          .map((c) => ({ as_printed: c.code, title: c.title, status: c.status, why: c.status === 'no_credit' ? 'the document says it earns no credit' : c.status === 'withdrawn' ? 'withdrawn' : c.status === 'failed' ? 'failed' : 'turned off by the student' }));
+          .map((c) => ({ as_printed: c.code, title: c.title, status: c.status, why: c.basis?.badge === 'none' ? c.basis.text : c.status === 'no_credit' ? 'the document says it earns no credit' : c.status === 'withdrawn' ? 'withdrawn' : c.status === 'failed' ? 'failed' : 'turned off by the student' }));
         const examCodes = L.priorForOptions.courseCodes.filter((code) => !transcriptCodes(record).includes(code));
         /**
          * Hours in beside hours that fill something. Every transferable
@@ -6323,7 +6353,7 @@ function priorHoursOf(
   return (
     examElectiveHours(exams, table, transcriptIndirectCodes(record), creditsOf) +
     transcriptHours(record) +
-    transcriptCreditAdjustment(record)
+    transcriptCreditAdjustment(record, creditsOf)
   );
 }
 

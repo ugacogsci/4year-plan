@@ -27,6 +27,27 @@
 
 import { genEdTagsFromText, guideSchool, proposeEquivalents, type CatalogLite, type EquivalentProposal, type TransferGenEdGuide } from './transfer-match';
 import type { GenEdCredit } from './autoplan';
+import {
+  ILLINOIS_TRANSFER_POLICIES,
+  ILLINOIS_TRANSFERRING_CREDIT,
+  UGA_TRANSFER_GUIDE,
+  UGA_TRANSFER_PORTAL,
+  isDGrade,
+  isGeneralEducationSubject,
+  isPhysicalActivity,
+  isTechnicalCollege,
+  isVocational,
+  ugaCoreArea,
+  ugaDesignation,
+  ugaLookup,
+  ugaSchoolEntry,
+  UGA_RENUMBERED,
+  type TransferBasis,
+  type UgaDesignation,
+  type UgaTransferTable,
+} from './transfer-official';
+
+export type { TransferBasis } from './transfer-official';
 
 export type TranscriptStatus =
   | 'completed'
@@ -68,6 +89,12 @@ export interface TranscriptCourse {
   iai?: string | null;
   /** Gen-ed categories the document itself prints beside the line ("Gen Ed: SBS"), as printed. */
   genEdText?: string | null;
+  /**
+   * The unit of this line's hours when its own school's part of the upload
+   * states it: a DePaul transcript in quarter hours read together with a
+   * semester school's. Null when not stated; the document's unit applies.
+   */
+  hoursUnit?: 'semester' | 'quarter' | null;
 }
 
 export interface TranscriptExam {
@@ -100,8 +127,8 @@ export type CountsAs = 'course' | 'hours' | 'none';
 export interface TranscriptCourseRecord extends TranscriptCourse {
   /** The catalog code this line counts as, or null when it counts as hours or not at all. */
   matched: string | null;
-  /** Where the match came from. */
-  matchedBy: 'code' | 'printed' | 'proposal' | 'student' | null;
+  /** Where the match came from. 'official' is the university's own equivalency list (UGA's). */
+  matchedBy: 'code' | 'printed' | 'official' | 'proposal' | 'student' | null;
   /** Whether the student wants it counted. Off for a W, an F, and a line that earns nothing. */
   use: boolean;
   /** As the matched course, as hours toward the total, or not at all. */
@@ -135,6 +162,19 @@ export interface TranscriptCourseRecord extends TranscriptCourse {
    * overstate a three-hour course; the line says so until the student edits it.
    */
   assumedCredits?: number | null;
+  /**
+   * UGA's designation for the line, when it is credit but not one UGA
+   * course: "MATH 1GXX" (core elective), "HIST 1GHX" (core elective that
+   * also meets the U.S. history requirement), "ARTS 3TXX" (elective credit
+   * only) or "NTFR" (does not transfer).
+   */
+  designation?: string | null;
+  /** The UGA core area a core elective usually fills, for the line's note. */
+  coreArea?: string | null;
+  /** What the line became, why, and where that answer came from. */
+  basis?: TransferBasis | null;
+  /** A word about the grade: a D transfers, but a program may ask for a C. */
+  gradeNote?: string | null;
 }
 
 /** What the student keeps, alongside the rest of their answers. */
@@ -264,7 +304,9 @@ export function earns(status: TranscriptStatus): boolean {
 export function isDevelopmental(code: string, title: string | null): boolean {
   const number = code.match(/\b(\d{3,4})[A-Z]{0,2}$/)?.[1];
   if (number && Number(number[0]) === 0) return true;
-  return /\b(developmental|remedial|foundations? for college|basic (math|writing|algebra)|pre-?college|college prep)\b/i.test(title ?? '');
+  // "Developmental Psychology" and "Developmental Biology" are college
+  // courses: the word marks a remedial course only before a basic subject.
+  return /\b(developmental (reading|writing|english|math\w*|algebra|studies|composition|education)|remedial|foundations? for college|basic (math|writing|algebra)|pre-?college|college prep)\b/i.test(title ?? '');
 }
 
 /**
@@ -318,8 +360,40 @@ export function matchTranscript(
   /** Published guides of which Illinois gen-ed categories another school's courses meet. */
   guide: TransferGenEdGuide | null = null,
   schoolId: 'uga' | 'illinois' = 'illinois',
+  /** UGA's own equivalency list for the schools the reading names (transfer-official.ts). */
+  ugaTable: UgaTransferTable | null = null,
 ): TranscriptRecord {
   const known = new Map(catalog.map((c) => [c.code, c]));
+  const uga = schoolId === 'uga';
+  /**
+   * A line that carries a UGA designation, from the document or from UGA's
+   * list: credit toward a core area, elective hours, or nothing.
+   */
+  const designated = (base: TranscriptCourseRecord, d: UgaDesignation, off: boolean, basisFrom: TransferBasis['from'], where: string, source: string, checked: string | null = null): TranscriptCourseRecord => {
+    if (d.kind === 'none') {
+      return {
+        ...base,
+        status: 'no_credit',
+        counts: 'none',
+        use: false,
+        designation: 'NTFR',
+        basis: { from: basisFrom, badge: 'none', text: `${where} marks it NTFR: it does not transfer to UGA.`, source, checked },
+      };
+    }
+    const area = d.kind === 'elective' ? null : ugaCoreArea(d.subject);
+    const text =
+      d.kind === 'elective'
+        ? `${where} gives it ${d.code}: elective hours toward your total, not a specific requirement. After you enroll, the department can be asked to assign a course.`
+        : `${where} gives it ${d.code}: a core elective${area ? `, usually in ${area}` : ''}${d.kind === 'core-us-history' ? ', and it meets UGA\'s U.S. history requirement' : ''}. It counts as hours, not as one UGA course; confirm the core area with your advisor.`;
+    return {
+      ...base,
+      counts: off ? 'none' : 'hours',
+      use: !off,
+      designation: d.code,
+      coreArea: area,
+      basis: { from: basisFrom, badge: d.kind === 'elective' ? 'elective' : 'core', text, source, checked },
+    };
+  };
   /**
    * Whose codes the document prints.
    *
@@ -339,10 +413,13 @@ export function matchTranscript(
     : 1;
   const home = reading.institution ? issuerIsHome : knownShare >= 0.5;
   const codesAreIllinois = home && reading.kind !== 'transfer_report';
+  const mixedQuarter = new Set<string>();
   const courses: TranscriptCourseRecord[] = reading.courses.map((raw) => {
     // Quarter hours are two-thirds of a semester hour, the usual conversion;
     // the Transfer Evaluation Report shows the figure your university settles on.
-    const c = quarter && raw.credits !== null ? { ...raw, credits: Math.round(raw.credits * (2 / 3) * 100) / 100 } : raw;
+    const lineQuarter = raw.hoursUnit === 'quarter' || (quarter && raw.hoursUnit !== 'semester');
+    if (lineQuarter && !quarter) mixedQuarter.add(raw.from ?? reading.institution ?? 'one school');
+    const c = lineQuarter && raw.credits !== null ? { ...raw, credits: Math.round(raw.credits * (2 / 3) * 100) / 100 } : raw;
     const code = normalizeCourseCode(c.code);
     const term = normalizeTerm(c.term);
     const taughtElsewhere = codesAreIllinois ? false : c.from ? !isHomeTranscript(c.from, schoolId) : !home;
@@ -359,13 +436,15 @@ export function matchTranscript(
       matchedBy: null,
       use: false,
       counts: 'none',
-      ...(quarter && raw.credits !== null ? { printedCredits: raw.credits } : {}),
+      ...(lineQuarter && raw.credits !== null ? { printedCredits: raw.credits } : {}),
     };
     const off = !earns(c.status);
 
     // The document's own word: an evaluation report or an audit that prints
     // the Illinois equivalent beside the line. "HIST 1--" is hours.
     if (base.equivalent) {
+      const printed = uga ? ugaDesignation(c.equivalent) : null;
+      if (printed) return designated(base, printed, off, 'document', 'Your document', UGA_TRANSFER_GUIDE);
       if (isIndirectCode(base.equivalent)) {
         return { ...base, counts: off ? 'none' : 'hours', use: !off };
       }
@@ -377,23 +456,160 @@ export function matchTranscript(
       return { ...base, counts: off ? 'none' : 'hours', use: !off };
     }
     if (!taughtElsewhere) {
-      if (known.has(code)) return { ...base, matched: code, matchedBy: 'code', illinoisCredits: creditsOfCode(code), counts: off ? 'none' : 'course', use: !off };
+      // UGA's own record prints its evaluation of a transfer course: a UGA
+      // course, or a designation the catalog does not list.
+      const own = uga ? ugaDesignation(c.code) : null;
+      if (own) return designated(base, own, off, 'document', 'Your UGA record', UGA_TRANSFER_GUIDE);
+      if (known.has(code)) {
+        const fromElsewhere = c.from && !isHomeTranscript(c.from, schoolId);
+        return {
+          ...base,
+          matched: code,
+          matchedBy: 'code',
+          illinoisCredits: creditsOfCode(code),
+          counts: off ? 'none' : 'course',
+          use: !off,
+          ...(fromElsewhere ? { basis: { from: 'document' as const, badge: 'course' as const, text: `Your ${uga ? 'UGA' : 'Illinois'} record lists it as ${code}.`, source: null } } : {}),
+        };
+      }
       // An Illinois record with a code the catalog no longer lists: the hours
       // are real, the course is not something the plan can name.
       return { ...base, counts: off || c.credits === null ? 'none' : 'hours', use: !off && c.credits !== null };
     }
     if (isDevelopmental(code, c.title) || c.status === 'no_credit') {
-      return { ...base, status: 'no_credit', counts: 'none', use: false };
+      return {
+        ...base,
+        status: 'no_credit',
+        counts: 'none',
+        use: false,
+        basis: c.status === 'no_credit'
+          ? { from: 'document', badge: 'none', text: 'The document says this line earns no credit.', source: null }
+          : { from: 'rule', badge: 'none', text: `A course below college level (learning support or remedial) does not transfer to ${uga ? 'UGA' : 'Illinois'}.`, source: uga ? UGA_TRANSFER_GUIDE : ILLINOIS_TRANSFER_POLICIES },
+      };
     }
-    const proposals = schoolId === 'illinois' ? proposeEquivalents({ code, title: c.title, credits: c.credits }, catalog) : [];
+    const gradeNote = isDGrade(c.grade) && !off
+      ? uga
+        ? 'A D in a transferable course still transfers to UGA, but your major may require a C or better in it.'
+        : 'Illinois\'s transfer pages do not say how a D counts; it is counted here, but your program may require a C or better.'
+      : null;
+    const withGrade = gradeNote ? { gradeNote } : {};
+    if (uga) {
+      const school = c.from ?? reading.institution;
+      const hit = ugaLookup(ugaTable, school, code);
+      if (hit) {
+        const where = `UGA's equivalency list for ${hit.entry.name}`;
+        const designations = hit.results.map((r) => ugaDesignation(r)).filter((d): d is UgaDesignation => d !== null);
+        const courseResults = hit.results.filter((r) => !ugaDesignation(r));
+        // A list that still names a UGA course by its older number (COMM
+        // 1100 for Introduction to Public Speaking, now COMM 1110) means the
+        // course the catalog lists today.
+        const renumbered: string[] = [];
+        const current = (r: string) => {
+          const n = normalizeCourseCode(r);
+          const now = UGA_RENUMBERED[n]?.now;
+          if (known.has(n) || !now || !known.has(now)) return n;
+          renumbered.push(`${n} is the older number of UGA's ${UGA_RENUMBERED[n].title}, now ${now}`);
+          return now;
+        };
+        const held = courseResults.map(current).filter((r) => known.has(r));
+        if (held.length > 0) {
+          const [first, ...also] = held;
+          const extra = designations.filter((d) => d.kind !== 'none').map((d) => d.code);
+          return {
+            ...base,
+            ...withGrade,
+            matched: first,
+            matchedBy: 'official',
+            illinoisCredits: held.reduce((sum, h) => sum + (creditsOfCode(h) ?? 0), 0),
+            counts: off ? 'none' : 'course',
+            use: !off,
+            ...(also.length ? { also } : {}),
+            basis: {
+              from: 'official',
+              badge: 'course',
+              text: `${where} makes it UGA ${courseResults.join(' + ')}${extra.length ? `; the list also shows ${extra.join(', ')} for it` : ''}.${renumbered.length ? ` ${[...new Set(renumbered)].join('; ')}.` : ''}${missingNote(courseResults.map(current).filter((r) => !known.has(r)), held)}`,
+              source: hit.file.source,
+              checked: hit.file.readAt,
+            },
+          };
+        }
+        if (courseResults.length > 0) {
+          return {
+            ...base,
+            ...withGrade,
+            counts: off ? 'none' : 'hours',
+            use: !off,
+            basis: { from: 'official', badge: 'not-evaluated', text: `${where} makes it UGA ${courseResults.join(' + ')}, which this planner's catalog does not list, so it counts as hours.`, source: hit.file.source, checked: hit.file.readAt },
+          };
+        }
+        const d = designations.find((x) => x.kind !== 'none') ?? designations[0];
+        if (d) return { ...designated(base, d, off, 'official', where, hit.file.source, hit.file.readAt), ...withGrade };
+      }
+      const entry = ugaSchoolEntry(ugaTable?.index, school);
+      const prefix = code.split(' ')[0] ?? '';
+      if (isTechnicalCollege(school, entry) && !isGeneralEducationSubject(prefix)) {
+        return {
+          ...base,
+          counts: 'none',
+          use: false,
+          basis: { from: 'rule', badge: 'none', text: 'UGA accepts only general-education courses from a technical college, and this one is not on UGA\'s list as one, so it does not count. Change it if UGA evaluates it otherwise.', source: UGA_TRANSFER_GUIDE },
+        };
+      }
+      return {
+        ...base,
+        ...withGrade,
+        counts: off ? 'none' : 'hours',
+        use: !off,
+        basis: entry
+          ? { from: 'none', badge: 'not-evaluated', text: `UGA's equivalency list for ${entry.name} (checked ${entry.readAt}) does not include this course, so it counts as hours until UGA evaluates it.`, source: UGA_TRANSFER_PORTAL, checked: entry.readAt }
+          : { from: 'none', badge: 'not-evaluated', text: `This planner does not hold UGA's equivalency list for ${school ?? 'this school'}; it counts as hours until UGA evaluates it. You can look it up in UGA's Transfer Equivalency Search.`, source: UGA_TRANSFER_PORTAL },
+      };
+    }
+    if (isVocational(code, c.title)) {
+      return {
+        ...base,
+        counts: 'none',
+        use: false,
+        basis: { from: 'rule', badge: 'none', text: 'This looks like a vocational (career-program) course, and Illinois says vocational courses do not transfer, so it probably does not count. Change it if Illinois evaluates it otherwise.', source: ILLINOIS_TRANSFER_POLICIES },
+      };
+    }
+    // Guesses below "possible" are hidden: "Program Design II" offered an
+    // architecture course. The student can still pick any course by hand.
+    const proposals = proposeEquivalents({ code, title: c.title, credits: c.credits }, catalog).filter((p) => p.confidence !== 'low');
     const best = proposals[0];
     if (best && best.confidence === 'high') {
       const also = proposals.filter((p) => p.pairedWith === best.code).map((p) => p.code);
       const illinoisCredits = [best.code, ...also].reduce((sum, code) => sum + (creditsOfCode(code) ?? 0), 0);
-      return { ...base, matched: best.code, matchedBy: 'proposal', proposals, illinoisCredits, counts: off ? 'none' : 'course', use: !off, ...(also.length ? { also } : {}) };
+      return {
+        ...base,
+        ...withGrade,
+        matched: best.code,
+        matchedBy: 'proposal',
+        proposals,
+        illinoisCredits,
+        counts: off ? 'none' : 'course',
+        use: !off,
+        ...(also.length ? { also } : {}),
+        basis: { from: 'none', badge: 'course', text: `Counted as ${[best.code, ...also].join(' + ')}, the planner's likely match for this course. Illinois's Transfer Course Evaluation Report (or Transferology) decides.`, source: ILLINOIS_TRANSFERRING_CREDIT },
+      };
     }
-    return { ...base, proposals, counts: off ? 'none' : 'hours', use: !off };
+    return {
+      ...base,
+      ...withGrade,
+      proposals,
+      counts: off ? 'none' : 'hours',
+      use: !off,
+      basis: {
+        from: 'none',
+        badge: 'not-evaluated',
+        text: best
+          ? `Not yet evaluated by Illinois: it may be ${best.code}. It counts as hours until you confirm the course below (from Transferology or your Transfer Course Evaluation Report).`
+          : 'Not yet evaluated by Illinois: it counts as hours toward your total until Illinois evaluates it.',
+        source: ILLINOIS_TRANSFERRING_CREDIT,
+      },
+    };
   });
+  applyTransferCaps(courses, schoolId);
 
   // A document that prints no hours (a portal list of dual-credit courses)
   // still earns them: each such line from another school is counted at three
@@ -423,7 +639,8 @@ export function matchTranscript(
     const tags = entry ? entry.tags : printed;
     if (tags.length === 0) continue;
     line.genEdTags = tags;
-    line.genEdSource = entry ? `${guide?.title ?? 'the published guide'} (${guide?.effective ?? 'current'})` : 'printed on the document';
+    const expired = guideExpired(guide?.effective ?? null, reading);
+    line.genEdSource = entry ? `${guide?.title ?? 'the published guide'} (${guide?.effective ?? 'current'}${expired ? ', expired; the newest edition this planner holds' : ''})` : 'printed on the document';
     // A likely Illinois course is kept only when it meets the same categories
     // the guide says the line meets; otherwise the line counts as hours with
     // the guide's categories, which is what Illinois has said about it.
@@ -431,6 +648,20 @@ export function matchTranscript(
       const courseTags = new Set([line.matched, ...(line.also ?? [])].flatMap(tagsOf));
       const same = courseTags.size === tags.length && tags.every((t) => courseTags.has(t));
       if (!same) Object.assign(line, { matched: null, matchedBy: null, counts: line.use ? 'hours' : 'none', also: undefined, illinoisCredits: null });
+    }
+    if (line.counts === 'hours' && line.basis) {
+      line.basis = {
+        ...line.basis,
+        // A published guide (Illinois admissions with the college) is an
+        // answer about the categories, not about a course.
+        from: entry ? 'official' : 'document',
+        badge: 'core',
+        checked: null,
+        text: entry
+          ? `${school?.name ?? 'The college'}'s guide to Illinois gen eds (${guide?.effective ?? 'current'}${expired ? ', expired' : ''}) lists it for ${tags.join(', ')}; it counts as hours toward those categories, not as one Illinois course.`
+          : `The document lists it for ${tags.join(', ')}; it counts as hours toward those categories.`,
+        source: entry ? guide?.source ?? null : null,
+      };
     }
   }
   // Composition I is the two-course sequence. With both courses from another
@@ -440,7 +671,7 @@ export function matchTranscript(
   // nearly every Illinois community college gives them (ENG 101 and 102,
   // ENGLI 1101 and 1102): Joliet's "Rhetoric" and "Critical Writing and
   // Research" are the same two courses under other names.
-  const foreignLine = (c: TranscriptCourseRecord) => c.use && c.matchedBy !== 'code' && c.matchedBy !== 'printed' && Boolean(c.from) && !isHomeTranscript(c.from, schoolId);
+  const foreignLine = (c: TranscriptCourseRecord) => c.use && c.matchedBy !== 'code' && c.matchedBy !== 'printed' && c.matchedBy !== 'official' && Boolean(c.from) && !isHomeTranscript(c.from, schoolId);
   const writingTitle = /\b(composition|rhetoric|writing|english)\b/i;
   const isCompOne = (c: TranscriptCourseRecord) =>
     (c.proposals ?? [])[0]?.code === 'RHET 105' || (/^(ENG|ENGL|ENGLI|WRT|WRIT|RHET|ENC)\s(101|1101|111|1110)$/.test(c.code) && writingTitle.test(c.title ?? ''));
@@ -460,7 +691,12 @@ export function matchTranscript(
       illinoisCredits: known.get('RHET 105')?.credits ?? null,
       genEdTags: undefined,
       matchNote: `with ${(compFirst && compSecond ? compSecond : iaiSecond)?.code ?? 'the second course'}: Composition I`,
+      basis: { from: 'official', badge: 'course', text: `Together with ${(compFirst && compSecond ? compSecond : iaiSecond)?.code ?? 'the second composition course'}, it counts as Composition I (RHET 105): Illinois meets Composition I with the two-course transfer sequence.`, source: guide?.source ?? ILLINOIS_TRANSFERRING_CREDIT },
     });
+    const second = compFirst && compSecond ? compSecond : iaiSecond;
+    if (second && second.counts === 'hours') {
+      second.basis = { from: 'official', badge: 'elective', text: `Completes Composition I with ${pairFirst.code}; its own hours count toward your total.`, source: guide?.source ?? ILLINOIS_TRANSFERRING_CREDIT };
+    }
     notes.push('Your two composition courses together count as Composition I (RHET 105), the way Illinois treats the transfer composition sequence.');
   }
 
@@ -487,12 +723,21 @@ export function matchTranscript(
     if (earlier.code === line.code && repeat && (repeat.max === null || n * perSitting <= repeat.max + 0.01)) {
       sittings.set(line.matched, n);
       Object.assign(line, { counts: 'hours', matched: null, matchedBy: null, illinoisCredits: null, also: undefined, matchNote: `a repeat of ${line.code}, which the catalog lets a student take for credit again; its hours count` });
+      if (line.basis) line.basis = { ...line.basis, badge: 'elective', text: `A repeat of ${line.code}, which the catalog lets a student take for credit again; its hours count.` };
     } else if (earlier.code === line.code) {
+      // Retaken for a better grade: the D note no longer applies to the course.
+      if (earlier.gradeNote && !line.gradeNote && !isDGrade(line.grade)) {
+        earlier.gradeNote = null;
+        if (earlier.basis) earlier.basis = { ...earlier.basis, text: `${earlier.basis.text} Retaken for ${line.grade ?? 'a passing grade'} (${line.term ?? 'later'}).` };
+      }
       Object.assign(line, { counts: 'none', use: false, matchNote: `a repeat of ${line.code}; it counts once` });
+      if (line.basis) line.basis = { ...line.basis, badge: 'none', text: `A repeat of ${line.code}; it counts once.` };
     } else {
       Object.assign(line, { counts: 'hours', matched: null, matchedBy: null, illinoisCredits: null, also: undefined, matchNote: `${earlier.code} already counts as ${earlier.matched}` });
+      if (line.basis) line.basis = { ...line.basis, badge: 'elective', text: `${earlier.code} already counts as ${earlier.matched}, so this one counts as elective hours.` };
     }
   }
+  if (mixedQuarter.size > 0) notes.unshift(`${[...mixedQuarter].join(', ')} ${mixedQuarter.size === 1 ? 'states' : 'state'} quarter hours; those lines are converted to semester hours at two-thirds, the usual conversion. Your Transfer Evaluation Report shows the figure your university settles on.`);
   if (quarter) notes.unshift('This transcript is in quarter hours; each line\'s hours are converted to semester hours at two-thirds, the usual conversion. Your Transfer Evaluation Report shows the figure your university settles on.');
   const foreign = codesAreIllinois ? [] : courses.filter((c) => c.from ? !isHomeTranscript(c.from, schoolId) : !home);
   if (!reading.institution && !home) {
@@ -503,7 +748,7 @@ export function matchTranscript(
     const asHours = foreign.filter((c) => c.counts === 'hours').length;
     const where = reading.institution && !home ? reading.institution : [...new Set(foreign.map((c) => c.from).filter(Boolean))].join(', ') || 'another school';
     notes.unshift(
-      schoolId === 'uga' ? `${foreign.length} lines are from ${where}. UGA must confirm which credits transfer and which requirements they meet. Review all matches and hours with your advisor.` : `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Illinois decides what transfers and as which course (Transferology is the estimate, the Transfer Evaluation Report the decision).${
+      schoolId === 'uga' ? `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Each line says what it becomes at UGA and why: UGA's own equivalency list first (a UGA course, a core elective, elective hours only, or no credit), then UGA's published rules. A line the list does not cover counts as hours until UGA evaluates it. UGA's evaluation after admission is the decision.` : `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Illinois decides what transfers and as which course (Transferology is the estimate, the Transfer Evaluation Report the decision).${
         proposed > 0 ? ` ${proposed} ${proposed === 1 ? 'has' : 'have'} a likely Illinois equivalent filled in from the catalog's titles; check each.` : ''
       }${asHours > 0 ? ` ${asHours} ${asHours === 1 ? 'counts' : 'count'} as hours toward the total until you pick the Illinois course it became.` : ''}`,
     );
@@ -520,6 +765,78 @@ export function matchTranscript(
     exams: reading.exams,
     notes,
   };
+}
+
+/**
+ * UGA results the planner's catalog does not list beside the ones it does:
+ * a lab the catalog folds into its lecture ("PHYS 1211-1211L"), or a course
+ * it lacks, said plainly either way.
+ */
+function missingNote(missing: string[], held: string[]): string {
+  if (missing.length === 0) return '';
+  const labs = missing.every((m) => m.endsWith('L') && held.includes(m.slice(0, -1)));
+  return labs
+    ? ` This planner's catalog lists ${held.join(' + ')} with ${held.length === 1 ? 'its' : 'their'} lab.`
+    : ` ${missing.join(' and ')} ${missing.length === 1 ? 'is' : 'are'} not in this planner's catalog, so only ${held.join(' + ')} ${held.length === 1 ? 'is' : 'are'} marked as taken.`;
+}
+
+/** Whether a published guide's "08/01/2024 to 07/31/2025" ended before the reading. */
+function guideExpired(effective: string | null, _reading: TranscriptReading): boolean {
+  const end = effective?.match(/(\d{2})\/(\d{2})\/(\d{4})\s*$/);
+  if (!end) return false;
+  return new Date(`${end[3]}-${end[1]}-${end[2]}T23:59:59`).getTime() < Date.now();
+}
+
+/**
+ * UGA counts at most one hour of physical education from another school
+ * (its Transfer Planning Guide and transfer FAQ). Activity lines past the
+ * first hour are capped or left out, first lines first, with the reason on
+ * the line. Run again over a record that grows by another upload.
+ */
+export function applyTransferCaps(courses: TranscriptCourseRecord[], schoolId: 'uga' | 'illinois' = 'illinois'): TranscriptCourseRecord[] {
+  if (schoolId !== 'uga') return courses;
+  let left = 1;
+  for (const line of courses) {
+    if (!line.use || line.counts === 'none') continue;
+    const elsewhere = Boolean(line.designation) || (line.from ? !isHomeTranscript(line.from, 'uga') : false);
+    if (!elsewhere || !isPhysicalActivity(line.designation ?? line.code, line.title)) continue;
+    const hours = line.equivalentCredits ?? line.credits ?? line.assumedCredits ?? 0;
+    if (line.counts === 'course' || hours <= left) {
+      left = Math.max(0, left - hours);
+      continue;
+    }
+    const capText = 'UGA counts at most 1 hour of physical education (activity) credit from other schools';
+    if (left > 0) {
+      Object.assign(line, { equivalentCredits: left, basis: { from: 'rule', badge: 'elective', text: `${capText}, so ${left} of its ${hours} hours count.`, source: UGA_TRANSFER_GUIDE } });
+      left = 0;
+    } else {
+      Object.assign(line, { counts: 'none', use: false, basis: { from: 'rule', badge: 'none', text: `${capText}, and another line already uses that hour, so this one does not count.`, source: UGA_TRANSFER_GUIDE } });
+    }
+  }
+  return courses;
+}
+
+/**
+ * One line over the review list, by what each transfer line became:
+ * "4 count as UGA courses, 2 as core electives, 1 as elective hours only,
+ * 3 do not count, 2 are not yet evaluated (counted as hours)."
+ */
+export function describeTransfer(record: TranscriptRecord, catalogName: string): string | null {
+  const lines = record.courses.filter((c) => c.basis && c.status !== 'withdrawn' && c.status !== 'failed');
+  if (lines.length === 0) return null;
+  const n = (badge: TransferBasis['badge']) => lines.filter((c) => (c.use ? c.basis?.badge === badge : badge === 'none')).length;
+  const parts: string[] = [];
+  const course = n('course');
+  if (course) parts.push(`${course} ${course === 1 ? 'counts' : 'count'} as ${catalogName} ${course === 1 ? 'course' : 'courses'}`);
+  const core = n('core');
+  if (core) parts.push(`${core} as ${core === 1 ? 'a core elective' : 'core electives'}`);
+  const elective = n('elective');
+  if (elective) parts.push(`${elective} as elective hours only`);
+  const none = n('none');
+  if (none) parts.push(`${none} ${none === 1 ? 'does' : 'do'} not count`);
+  const pending = n('not-evaluated');
+  if (pending) parts.push(`${pending} ${pending === 1 ? 'is' : 'are'} not yet evaluated (counted as hours)`);
+  return parts.length ? `Transfer lines: ${parts.join(', ')}.` : null;
 }
 
 /** The student's own choice for one line: an Illinois course, hours, or nothing. */
@@ -581,13 +898,28 @@ export function transcriptHours(record: TranscriptRecord | null | undefined): nu
  * transferred (or the Illinois hours the document prints beside it), so the
  * difference is added to the hours with no course, up or down.
  */
-export function transcriptCreditAdjustment(record: TranscriptRecord | null | undefined): number {
+export function transcriptCreditAdjustment(
+  record: TranscriptRecord | null | undefined,
+  /**
+   * The board's own hours for a course. UGA's upload step matches against
+   * public/uga-catalog.json, which lists every course at 3 hours, while the
+   * board counts BIOL 1107L at 1 and MATH 2250 at 4; for a transfer line
+   * on a UGA record the board's figure is the one to settle against, or a
+   * lab line is taken off twice. Illinois records keep the hours stored on
+   * the line.
+   */
+  creditsOf?: (code: string) => number | null,
+): number {
   if (!record) return 0;
   let delta = 0;
   for (const c of record.courses) {
     if (!c.use || c.counts !== 'course' || !c.matched) continue;
     const earned = c.equivalentCredits ?? c.credits;
-    const catalog = c.illinoisCredits ?? null;
+    // Only for transfer lines: a UGA student's own courses keep the figure
+    // they had, so no plan without transfer credit moves (a 4-hour course on
+    // UGA's own record still adds an hour; reported, not changed here).
+    const board = record.schoolId === 'uga' && creditsOf && lineIsForeign(record, c) ? [c.matched, ...(c.also ?? [])].map((code) => creditsOf(code)) : null;
+    const catalog = board && board.every((n) => n !== null) ? board.reduce<number>((sum, n) => sum + (n ?? 0), 0) : c.illinoisCredits ?? null;
     if (earned === null || earned === undefined || catalog === null || !(earned > 0)) continue;
     delta += earned - catalog;
   }

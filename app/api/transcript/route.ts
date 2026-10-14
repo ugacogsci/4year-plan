@@ -71,6 +71,7 @@ const Course = z.object({
   equivalent_credits: z.number().nullable().describe('The destination university hours printed beside the equivalent, when the document prints them separately from the line\'s own hours. Null otherwise.'),
   iai: z.string().nullable().describe('An Illinois Articulation Initiative code printed beside the line, like "M1 900" or "C1 900", or null.'),
   gen_ed: z.string().nullable().describe('General education categories the document prints beside this line, as printed ("Gen Ed: SBS", "Humanities", "NST-Life"). Null when it prints none. Never infer one.'),
+  hours_unit: z.enum(['semester', 'quarter']).nullable().describe('The unit of this line\'s hours when the transcript (or part of the upload) it comes from states it, for example a quarter-system school\'s transcript read together with a semester school\'s. Null when it does not say.'),
 });
 
 const Reading = z.object({
@@ -93,6 +94,7 @@ For each line:
 - equivalent: only what the document itself prints as the Illinois equivalent of this line, as printed. A Transfer Evaluation Report has a column for it; a degree audit lists the Illinois code with the sending school's course in parentheses, in which case the Illinois code is the code and the sending school's course goes in from (school) and is not a second line. Never invent an equivalent.
 - iai: an IAI code printed beside the line, else null.
 - gen_ed: the general education categories the document prints for the line (an evaluation report's "Gen Ed: SBS", an audit's category heading the line sits under), else null.
+- hours_unit: "quarter" or "semester" when the transcript the line comes from states its own unit (a quarter-system school's transcript sent together with a semester school's), else null. Never convert the hours yourself.
 
 For the document:
 - institution: the school that issued it (the university on the letterhead, the school named in the header). A Transfer Evaluation Report from Illinois is issued by Illinois; the sending school goes in each line's from.
@@ -105,7 +107,7 @@ For the document:
 Do not invent lines, grades, hours or equivalents. If a line is unreadable, leave it out and say so in notes. If several files were sent, read them as one document in the order given and do not repeat a line that appears on two of them.`;
 
 /** The reading for a University of Georgia student: UGA's own numbers, no Illinois equivalencies. */
-const UGA_SYSTEM = `Read the uploaded records for a University of Georgia degree planner. List every course line exactly as printed, including four-digit UGA course numbers and suffixes. Preserve the institution, sending school, grades, credit hours, term and status, and mark failed, withdrawn or explicitly no-credit lines accurately. For equivalent and equivalent_credits, copy only a UGA equivalency explicitly printed by the document; never invent a transfer equivalency. Do not apply Illinois equivalencies, IAI rules, or transfer assumptions. Return all files as one reading; do not include courses merely listed as requirements still to take in a DegreeWorks audit. Use null for unprinted values. Set hours_unit from the document. Include exam scores and subscores only when printed. The student will review and confirm the result.`;
+const UGA_SYSTEM = `Read the uploaded records for a University of Georgia degree planner. List every course line exactly as printed, including four-digit UGA course numbers and suffixes, and UGA's transfer designations such as HIST 1GHX, SOCI 1GXX, MATH 2TXX or NTFR exactly as printed (never replace them with a course number). Preserve the institution, sending school, grades, credit hours, term and status, and mark failed, withdrawn or explicitly no-credit lines accurately. For equivalent and equivalent_credits, copy only a UGA equivalency explicitly printed by the document; never invent a transfer equivalency. Do not apply Illinois equivalencies, IAI rules, or transfer assumptions. Return all files as one reading; do not include courses merely listed as requirements still to take in a DegreeWorks audit. Use null for unprinted values. Set hours_unit from the document. Include exam scores and subscores only when printed. The student will review and confirm the result.`;
 
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status });
 
@@ -221,6 +223,7 @@ export async function POST(req: Request) {
           equivalentCredits: typeof c.equivalent_credits === 'number' && Number.isFinite(c.equivalent_credits) ? c.equivalent_credits : null,
           iai: clean(c.iai),
           genEdText: clean(c.gen_ed),
+          hoursUnit: c.hours_unit ?? null,
         }))
         .filter((c) => c.code.length > 0),
       exams: parsed.exams.map((e) => ({ kind: e.kind.trim(), exam: e.exam.trim(), score: clean(e.score), subscore: clean(e.subscore) })),

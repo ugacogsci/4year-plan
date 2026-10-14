@@ -8,7 +8,9 @@ import {
   IMAGE_MEDIA_TYPES,
   TRANSCRIPT_MAX_BYTES,
   TRANSCRIPT_MAX_FILES,
+  applyTransferCaps,
   describeTranscript,
+  describeTransfer,
   isHomeTranscript,
   matchTranscript,
   normalizeCourseCode,
@@ -20,6 +22,7 @@ import {
   type TranscriptUploadFile,
 } from '@/lib/planner/transcript';
 import { loadTransferGenEd, type CatalogLite } from '@/lib/planner/transfer-match';
+import { loadUgaTransfer } from '@/lib/planner/transfer-official';
 
 /**
  * "Upload what you have."
@@ -132,6 +135,8 @@ export function TranscriptUpload({
       sent = true;
       const lite = await catalogLite();
       const guide = school?.id === 'illinois' ? await loadTransferGenEd() : null;
+      // UGA's own equivalency list, for the schools this reading names.
+      const ugaTable = school?.id === 'uga' ? await loadUgaTransfer([json.reading.institution, ...json.reading.courses.map((c) => c.from)]) : null;
       const names = files.map((f) => f.fileName);
       // A score report: exams and no course lines. The exams go to the exam
       // list, priced by the registrar's table like the ones picked by hand,
@@ -149,19 +154,25 @@ export function TranscriptUpload({
       if (addTo) {
         // More pages of the same record: the lines already settled keep the
         // student's choices, and only the new lines are matched.
-        const fresh = matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois');
+        const fresh = matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable);
         const seen = new Set(addTo.courses.map((c) => `${c.code}|${c.term ?? ''}`));
-        const added = fresh.courses.filter((c) => !seen.has(`${c.code}|${c.term ?? ''}`));
+        // A home record added to another school's record (a UGA history after a
+        // Georgia State transcript): its own lines say so, or the merged record
+        // would read them as the other school's.
+        const added = fresh.courses
+          .filter((c) => !seen.has(`${c.code}|${c.term ?? ''}`))
+          .map((c) => (!c.from && fresh.home && addTo.home === false && fresh.institution ? { ...c, from: fresh.institution } : c));
         onChange({
           ...addTo,
           institution: addTo.institution ?? fresh.institution,
           files: [...(addTo.files ?? [addTo.fileName]), ...names],
-          courses: [...addTo.courses, ...added],
+          // UGA's one-hour cap on physical education runs over the whole record.
+          courses: applyTransferCaps([...addTo.courses, ...added.map((c) => ({ ...c }))], school?.id === 'uga' ? 'uga' : 'illinois'),
           exams: [...addTo.exams, ...fresh.exams].filter((e, i, all) => all.findIndex((o) => o.kind === e.kind && o.exam === e.exam) === i),
           notes: [...addTo.notes, ...fresh.notes.filter((n) => !addTo.notes.includes(n))],
         });
       } else {
-        onChange(matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois'));
+        onChange(matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable));
       }
     } catch {
       // Past the reply, the network is not the problem: say so honestly.
@@ -260,6 +271,7 @@ export function TranscriptUpload({
       {record && record.courses.length > 0 && (
         <>
           <p className="transcript-summary">{describeTranscript(record, school?.short ?? 'this')}</p>
+          {describeTransfer(record, school?.short ?? 'this') && <p className="transcript-summary">{describeTransfer(record, school?.short ?? 'this')}</p>}
           {record.institution && (
             <p className="transcript-meta">
               Issued by {record.institution}
@@ -285,13 +297,29 @@ export function TranscriptUpload({
                           .join(' · ')}
                       </span>
                     </span>
+                    {c.basis && c.status !== 'withdrawn' && c.status !== 'failed' && (
+                      <span className="transcript-basis">
+                        <span className={`transcript-chip basis-${c.basis.badge}`}>{basisBadge(c)}</span>{' '}
+                        {basisChanged(c) ? 'You changed this line. ' : ''}
+                        {c.basis.text}
+                        {c.gradeNote ? ` ${c.gradeNote}` : ''}
+                        {c.basis.source ? (
+                          <>
+                            {' '}
+                            <a href={c.basis.source} target="_blank" rel="noreferrer">
+                              {c.basis.from === 'official' ? `Source${c.basis.checked ? `, checked ${c.basis.checked}` : ''}` : 'Source'}
+                            </a>
+                          </>
+                        ) : null}
+                      </span>
+                    )}
                     {c.status === 'no_credit' || c.status === 'withdrawn' || c.status === 'failed' ? (
                       <span className="transcript-chip warn">{chipFor(c)}</span>
                     ) : (
                       <select
                         className={`transcript-counts${c.matchedBy === 'proposal' ? ' is-likely' : ''}`}
                         aria-label={`What ${c.code} counts as`}
-                        title={c.matchedBy === 'proposal' ? c.proposals?.[0]?.why : c.matchedBy === 'printed' ? 'The document prints this equivalent.' : undefined}
+                        title={c.matchedBy === 'proposal' ? c.proposals?.[0]?.why : c.matchedBy === 'printed' ? 'The document prints this equivalent.' : c.matchedBy === 'official' ? 'From UGA\'s own transfer equivalency list.' : undefined}
                         value={value}
                         onChange={(e) => {
                           const v = e.target.value;
@@ -390,11 +418,39 @@ function countsOptions(
     out.push({ value: `course:${code}`, label: `${code}${course ? ` ${course.title}` : ''}${note ? ` (${note})` : ''}` });
   };
   if (c.matched && c.matchNote) push(c.matched, c.matchNote);
-  if (c.matched && (c.matchedBy === 'code' || c.matchedBy === 'student')) push(c.matched, foreign ? 'your choice' : '');
+  if (c.matched && c.matchedBy === 'official') push(c.matched, 'UGA\'s list');
+  if (c.matched && (c.matchedBy === 'code' || c.matchedBy === 'student')) push(c.matched, c.basis?.from === 'document' ? 'on your record' : foreign ? 'your choice' : '');
   if (c.equivalent && known.has(c.equivalent)) push(c.equivalent, 'printed on the document');
   for (const p of c.proposals ?? []) push(p.code, p.confidence === 'high' ? 'likely' : p.confidence === 'medium' ? 'possible' : 'a guess');
   if (c.matched && !seen.has(c.matched)) push(c.matched, '');
   return out;
+}
+
+/** The badge over a transfer line: what it became, in two or three words. */
+function basisBadge(c: TranscriptCourseRecord): string {
+  switch (c.basis?.badge) {
+    case 'course':
+      return c.matched ? `Counts as ${[c.matched, ...(c.also ?? [])].join(' + ')}` : 'Counts as a course';
+    case 'core':
+      return c.designation ? `Core elective (${c.designation})` : 'Gen ed credit';
+    case 'elective':
+      return `Elective hours only${c.designation ? ` (${c.designation})` : ''}`;
+    case 'none':
+      // A second sitting of a course that already counts (an AP score and
+      // the course, a retake) transfers once; it is not refused.
+      return /^a repeat of /.test(c.matchNote ?? '') ? 'Counted once (repeat)' : 'Does not transfer';
+    default:
+      return 'Not yet evaluated';
+  }
+}
+
+/** Whether the student has set the line to something other than what the answer said. */
+function basisChanged(c: TranscriptCourseRecord): boolean {
+  const badge = c.basis?.badge;
+  if (!badge) return false;
+  if (badge === 'course') return !(c.use && c.counts === 'course');
+  if (badge === 'none') return c.use && c.counts !== 'none';
+  return !(c.use && c.counts === 'hours');
 }
 
 /** The chip on a line that cannot count. */

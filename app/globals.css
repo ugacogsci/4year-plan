@@ -2522,7 +2522,7 @@ p.requirement-unnamed {
 .transcript-summary { color: #dbe4f0; }
 .transcript-review summary { cursor: pointer; font-size: 12.5px; color: #9fb0c6; }
 .transcript-review summary:hover { color: #eef3fa; }
-.transcript-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; max-height: 280px; overflow: auto; }
+.transcript-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; max-height: 420px; overflow: auto; }
 .transcript-list li {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center;
   padding: 6px 8px; border: 1px solid #1d2838; border-radius: 8px; background: #0b1220;
@@ -2537,6 +2537,13 @@ p.requirement-unnamed {
   border-radius: 5px; padding: 2px 6px; background: #142033; color: #9fb0c6; white-space: nowrap;
 }
 .transcript-chip.warn { background: #2a1d1a; color: #e6a596; }
+/* What a transfer line became and why, under the line, with its source. */
+.transcript-basis { grid-column: 1 / -1; order: 3; font-size: 11.5px; line-height: 1.45; color: #9fb0c6; white-space: normal; }
+.transcript-basis a { color: inherit; text-decoration: underline; }
+.transcript-chip.basis-course { background: #12301f; color: #8fd6a8; }
+.transcript-chip.basis-core, .transcript-chip.basis-elective { background: #1b2840; color: #a9c1e6; }
+.transcript-chip.basis-none { background: #2a1d1a; color: #e6a596; }
+.transcript-chip.basis-not-evaluated { background: #2b2614; color: #e3cf8f; }
 .transcript-remove { background: none; border: 0; padding: 0; width: fit-content; cursor: pointer; text-decoration: underline; color: #63748c; font-size: 12.5px; }
 .transcript-remove:hover { color: #e88175; }
 
@@ -5603,6 +5610,7 @@ p.requirement-unnamed {
 .onb .prior-exempt,
 .onb .prior-waiting { color: var(--onb-dim); font-size: 9px; }
 
+.onb .transcript-summary { color: var(--onb-text); }
 .onb .transcript-pick {
   border-color: var(--onb-line);
   border-radius: 4px;
@@ -5748,6 +5756,7 @@ p.requirement-unnamed {
 .planner-app .rail .transcript-review summary {
   color: var(--orion-dim);
 }
+.planner-app .rail .transcript-basis { color: var(--orion-mid); }
 .planner-app .rail-helper {
   margin: 4px 0 8px;
   font-size: var(--fs-micro);

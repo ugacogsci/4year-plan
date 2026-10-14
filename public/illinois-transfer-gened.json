@@ -1,8 +1,8 @@
 {
- "source": "https://www.parkland.edu/Portals/3/Transfer/Documents/2024-2025%20Parkland%20to%20UIUC%20GE%20course%20equivalencies.pdf",
+ "source": "https://www.parkland.edu/Portals/3/Transfer/Documents/2025-2026%20Parkland%20to%20UIUC%20GE%20course%20equivalencies.pdf",
  "title": "Parkland College Course Equivalencies for General Education Requirements at the University of Illinois Urbana-Champaign",
  "editedBy": "Office of Undergraduate Admissions, University of Illinois Urbana-Champaign, and Advising Services, Parkland College",
- "effective": "08/01/2024 to 07/31/2025",
+ "effective": "08/01/2025 to 07/31/2026",
  "schools": [
   {
    "name": "Parkland College",
@@ -250,13 +250,19 @@
      ]
     },
     "CSC 175": {
-     "title": "Javascript Development",
+     "title": "JavaScript Development",
      "tags": [
       "Quantitative Reasoning I"
      ]
     },
     "CSC 220": {
      "title": "Data Structures",
+     "tags": [
+      "Quantitative Reasoning II"
+     ]
+    },
+    "CSC 240": {
+     "title": "Computer Science II (Java)",
      "tags": [
       "Quantitative Reasoning II"
      ]
@@ -424,13 +430,6 @@
       "Humanities - Hist & Phil"
      ]
     },
-    "HIS 203": {
-     "title": "History Of Women In America",
-     "tags": [
-      "Cultural Studies - US Minority",
-      "Humanities - Hist & Phil"
-     ]
-    },
     "HUM 101": {
      "title": "Western Culture: Antiquity to Renaissance",
      "tags": [
@@ -494,7 +493,7 @@
      ]
     },
     "HUM 122": {
-     "title": "Native American Culture/N Amer",
+     "title": "Native American Culture/N Amer (pending after",
      "tags": [
       "Cultural Studies - US Minority",
       "Social & Beh Sci - Soc Sci"
@@ -866,7 +865,7 @@
      ]
     },
     "THE 103": {
-     "title": "Performance of Literature",
+     "title": "Performance of Literature (pending after Fall \u201925)",
      "tags": [
       "Advanced Composition",
       "Cultural Studies - Western",
@@ -874,7 +873,7 @@
      ]
     },
     "THE 120": {
-     "title": "do NOT satisfy Parkland\u2019s General Education Core Curriculum-Humanities/Fine Arts requirements",
+     "title": "do NOT satisfy Parkland\u2019s General Education Core Curriculum-Humanities/Fine Arts requirements for the AA/AS",
      "tags": [
       "Humanities - Lit & Arts"
      ]
