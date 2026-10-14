@@ -25,15 +25,16 @@ Output: public/illinois-transfer-gened.json
 """
 import json, re, sys, urllib.request, io, os
 
-SOURCE = 'https://www.parkland.edu/Portals/3/Transfer/Documents/2024-2025%20Parkland%20to%20UIUC%20GE%20course%20equivalencies.pdf?ver=DgXlqgtxYMTV3ZK-lWLkTw%3D%3D'
+# The 2025-2026 edition (read 2026-10-14); the 2024-2025 one ended 07/31/2025.
+SOURCE = 'https://www.parkland.edu/Portals/3/Transfer/Documents/2025-2026%20Parkland%20to%20UIUC%20GE%20course%20equivalencies.pdf'
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, '..', '..', 'public', 'illinois-transfer-gened.json')
-CACHE = os.path.join(HERE, '..', '..', 'data', 'parkland-uiuc-ge.pdf')
+CACHE = os.path.join(HERE, '..', '..', 'data', 'parkland-uiuc-ge-2025-2026.pdf')
 
 import pdfplumber
 
 if not os.path.exists(CACHE):
-    req = urllib.request.Request(SOURCE, headers={'User-Agent': 'Mozilla/5.0 (student planner; contact via GitHub)'})
+    req = urllib.request.Request(SOURCE, headers={'User-Agent': 'FourYearPlanBot/1.0 (student planning project; respects robots.txt)'})
     data = urllib.request.urlopen(req, timeout=60).read()
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
     open(CACHE, 'wb').write(data)
