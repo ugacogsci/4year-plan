@@ -7512,6 +7512,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * not HK 302 on top of it.
    */
   const tracks = careerProfileOf(input).tracks;
+  // What opens the goal's own courses (goalOpenersOf), and whether the goal weighs at all (goalWeighs), for the general education order below.
+  const opensGoal = goalOpenersOf(ctx, careerProfileOf(input), prefs.priorities);
+  const goalCounts = goalWeighs(careerProfileOf(input));
   const trackPreferred = (open: string[]): string | null => {
     for (const track of tracks) {
       for (const row of track.courses) {
@@ -8394,6 +8397,18 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             }
           }
           const claimedByTrack = (code: string): number => (tracks.length > 0 && trackClaims.has(code) ? 1 : 0);
+          /*
+           * 0 for a course the student's goal is about (a title or subject
+           * that matches it, a course it names, or one that opens such a
+           * course: opensGoal) that can go as early as the category's
+           * earliest course (the ranker's catalog and chain steps, goalEarly),
+           * 1 for any other. One answer a course, so the order stays an order.
+           */
+          let goalEarly: number[] | null = null;
+          const goalGenEd = rememberedBy((code: string): number => {
+            if (!goalCounts || !((qualityAtPlacement(code).interest ?? 0) > 0 || opensGoal.has(code))) return 1;
+            return goalEarly === null || compareRank(rankGenEd(code).slice(0, 2), goalEarly, '', '') <= 0 ? 0 : 1;
+          });
           const genEdOrder = (a: string, b: string): number => {
             // A course the track books anyway counts here first, even one
             // other courses in the category build on: PSYC 100 is not half of
@@ -8421,14 +8436,25 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
               const lighter = lightStep(qualityAtPlacement(a)) - lightStep(qualityAtPlacement(b));
               if (lighter !== 0) return lighter;
             }
-            // No preference here for what the student said they want to do.
-            // Ahead of a course that also covers a second category it put
-            // more education courses in a would-be teacher's categories, but
-            // over 308 degrees and four goals it left CHEM 237 a term apart
-            // from CHEM 236 (Chemical Engineering + Data Science, three goals)
-            // and one more requirement unmet (Environmental Science and
-            // Management, journalism); after the season rule, the lab apart
-            // for the finance goal still. The goal's electives carry it.
+            /**
+             * What the student said they want to do, among courses placeable
+             * as early (the ranker's catalog and chain steps): a title or
+             * subject that matches the goal, a course the goal names, or one
+             * that opens such a course (opensGoal). Averaged into the score
+             * with workload and teaching it decided almost nothing, and behind
+             * a second category it never came up: an English student who
+             * wants to teach took PORT 150 Writing Brazilians into the U.S.
+             * over EDUC 201 Identity and Difference in Education, and HK 300
+             * Health Behavior Theories over EDUC 202 for Advanced Composition.
+             * Ahead of a course that also covers a second category: on a
+             * board with free electives the goal course was booked anyway, as
+             * an elective, beside the two-for-one (that English student had
+             * EDUC 201, EDUC 202 and EPSY 201 as electives and PORT 150 and HK
+             * 300 for her categories), so the categories take the goal courses
+             * and the electives move on to more of them.
+             */
+            const goal = goalGenEd(a) - goalGenEd(b);
+            if (goal !== 0) return goal;
             const both = alsoCounts(b) - alsoCounts(a);
             if (both !== 0) return both;
             // A category course that runs every term goes anywhere the plan has
@@ -8453,8 +8479,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
                 // A category has hundreds of courses; one behind an
                 // application is never the planner's pick for it.
                 gatedPick(code) === 0,
-            )
-            .sort(genEdOrder);
+            );
+          for (const code of open) {
+            const early = rankGenEd(code).slice(0, 2);
+            if (goalEarly === null || compareRank(early, goalEarly, '', '') < 0) goalEarly = early;
+          }
+          open.sort(genEdOrder);
           for (const code of open) {
             if (met()) break;
             // "Credit is not given for both X and Y" applies here like anywhere
