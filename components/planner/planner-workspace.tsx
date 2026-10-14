@@ -3160,7 +3160,7 @@ export function PlannerWorkspace({
       // Read for this student: a transfer or a continuing sophomore is never
       // told a first-term seminar belongs in "the first year".
       firstYear: isIllinois && !isGraduatePlan && enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
-      arrival: isGraduatePlan ? undefined : arrivalOf(L.answers),
+      arrival: isIllinois && isGraduatePlan ? undefined : arrivalOf(L.answers),
     };
   }
 
