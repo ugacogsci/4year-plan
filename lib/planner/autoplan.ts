@@ -3418,6 +3418,10 @@ interface ElectiveScoring {
   barred?: (code: string) => string | null;
   /** The student said lighter workload matters most (workload 2). See lightFirst(). */
   lightFirst?: boolean;
+  /** Courses that open a course the student's goal names (goalOpenersOf). */
+  opensGoal?: ReadonlySet<string>;
+  /** The student's goal weighs as a goal (goalWeighs): GOAL_POINTS on top of the relevance knob's own. */
+  goalPoints?: boolean;
 }
 
 /**
@@ -3444,6 +3448,13 @@ function lightFirst(p: Priorities | undefined): boolean {
  * reads as the student's major.
  */
 const LIGHT_POINTS = 6;
+
+/**
+ * What a free elective that matches the student's stated goal gains on top of
+ * the relevance knob's own 1.5 a step (scoreElective): enough that it outranks
+ * a course in the major's own subject that matches nothing the student said.
+ */
+const GOAL_POINTS = 3;
 
 /** Grade-history lightness in steps of a tenth, lightest 0, for the list and gen-ed orders at workload 2. */
 function lightStep(q: QualityResult): number {
@@ -4138,6 +4149,57 @@ function withHeldSameMaterial(profile: InterestProfile, input: { context?: Plann
   };
   memo.set(key, made);
   return made;
+}
+
+/**
+ * Whether what the student said they want to do weighs as a goal on its own
+ * (GOAL_POINTS, goalOpenersOf, goalSubjectsOf, the general education order):
+ * not when a pre-professional track books the goal's courses itself, at their
+ * dates. A pre-med's goal subjects and named courses then double-booked what
+ * the track had already chosen between: IB 303 Anatomy beside the track's MCB
+ * 244 put a pre-med Neuroscience board four hours past its total, and IB 202
+ * and IB 303 took a pre-med English student's last fall. A track whose rows
+ * only suggest (pre-law) books nothing, and its student's goal still weighs.
+ */
+function goalWeighs(profile: InterestProfile): boolean {
+  return !profile.tracks.some((track) => track.courses.some((row) => row.need !== 'suggested'));
+}
+
+/**
+ * The subjects a student's goal is about: the ones its topics name (FIN for
+ * finance) and the subjects of the courses they name (FIN and ACCY for
+ * investment banking, whose topic names no subject of its own). A
+ * pre-professional track's rows book their own courses and add none, and a
+ * goal that does not weigh (goalWeighs) adds none at all.
+ */
+function goalSubjectsOf(profile: InterestProfile): Set<string> {
+  if (!goalWeighs(profile)) return new Set();
+  const out = new Set(profile.subjects);
+  for (const topic of profile.topics) for (const code of topic.courses) out.add(normaliseCode(code).split(' ')[0]);
+  return out;
+}
+
+/**
+ * The courses that open the goal's own courses: the prerequisites the catalog
+ * names for a course one of the student's goal topics names (not a
+ * pre-professional track's rows, which book their own). FIN 221 takes ECON
+ * 102 or 103 and FIN 321 takes FIN 300, so a Mathematics student who wants
+ * finance can be given ECON 102 for social science and an Economics student
+ * headed for investment banking FIN 300 as an elective, and the finance
+ * courses become reachable. Empty when the relevance knob is off.
+ */
+function goalOpenersOf(ctx: Pick<PlanningContext, 'prereqs'>, profile: InterestProfile, priorities: Priorities | undefined): Set<string> {
+  const out = new Set<string>();
+  if ((priorities ?? DEFAULT_PRIORITIES).relevance === 0 || !goalWeighs(profile)) return out;
+  for (const topic of profile.topics) {
+    for (const raw of topic.courses) {
+      for (const group of ctx.prereqs?.get(normaliseCode(raw))?.groups ?? []) {
+        if (group.confidence === 'low' || group.concurrent || group.priorLearning) continue;
+        for (const alt of group.any) out.add(normaliseCode(alt));
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -4916,7 +4978,21 @@ function scoreElective(code: string, s: ElectiveScoring): number {
   // title hit was worth about 0.4 points, less than a well-liked instructor,
   // and a machine-learning student got every Computer Science course but
   // the machine-learning ones.
-  score += 1.5 * (q.interest ?? 0);
+  //
+  // And a goal course has to beat the major's own subject, or a goal changes
+  // nothing on a board with room for only a few electives: a course in the
+  // primary subject starts four points up (three, and one more at the 300
+  // level), so an Economics student who wants finance got ECON 484 Law and
+  // Economics and ECON 442 Women in the Economy ahead of FIN 221 Corporate
+  // Finance at 1.5 points. Three more points whenever the course matches the
+  // goal (4.5 at relevance 1, 6 at 2), still short of the nine a dormant or
+  // under-three-credit course loses.
+  // A course that opens one the goal names (FIN 300 before FIN 321 for
+  // investment banking) gets the three without the knob's own points.
+  // Neither when a pre-professional track books the goal's courses itself
+  // (goalWeighs): the knob's own points only, as before.
+  const goal = q.interest ?? 0;
+  score += goal > 0 ? (s.goalPoints ? GOAL_POINTS : 0) + 1.5 * goal : s.opensGoal?.has(code) ? GOAL_POINTS : 0;
   // Lighter workload matters most: the measure again, on its own (lightFirst).
   if (s.lightFirst) score += LIGHT_POINTS * (q.lightness ?? 0);
   return score;
@@ -4929,9 +5005,13 @@ function scoreElective(code: string, s: ElectiveScoring): number {
  * degree's other subjects get three: enough room for relevant depth without
  * letting a tied catalog sort fill every open slot from one department.
  */
-function subjectRoomLeft(subject: string, taken: Map<string, number>, primary: string | null, degreeSubjects: Set<string>, uga = false): boolean {
+function subjectRoomLeft(subject: string, taken: Map<string, number>, primary: string | null, degreeSubjects: Set<string>, uga = false, goalSubjects?: ReadonlySet<string>): boolean {
   const n = taken.get(subject) ?? 0;
-  const cap = uga ? (subject === primary ? 5 : degreeSubjects.has(subject) ? 3 : 1) : (subject === primary ? 10 : degreeSubjects.has(subject) ? 4 : 2);
+  // A subject the student's goal is about (InterestProfile.subjects: FIN for
+  // finance) gets the room of one of the degree's own: an Economics student
+  // who wants finance can take four FIN courses, as a finance minor would.
+  const own = degreeSubjects.has(subject) || goalSubjects?.has(subject) === true;
+  const cap = uga ? (subject === primary ? 5 : own ? 3 : 1) : (subject === primary ? 10 : own ? 4 : 2);
   return n < cap;
 }
 
@@ -5147,6 +5227,8 @@ export function electiveOptions(input: {
   const occupiedVariants = new Set([...held, ...onBoard].map(electiveVariantKey));
 
   const majors = degreeSubjectsOf(input.requirements, input.programName);
+  // The subjects the student's goal is about, which get a degree subject's room (subjectRoomLeft).
+  const goalSubjects = goalSubjectsOf(careerProfileOf(input));
   // Categories the board does not yet carry a course for.
   const carried = new Set<string>();
   for (const code of [...onBoard, ...held]) for (const t of byCode.get(code)?.tags ?? []) carried.add(t);
@@ -5167,6 +5249,8 @@ export function electiveOptions(input: {
     rare: rareCheck(ctx),
     barred: freeElectiveBar(ctx, byCode, { college: input.programCollege ?? null, primary: majors.primary, programName: input.programName }),
     lightFirst: lightFirst(input.priorities),
+    opensGoal: goalOpenersOf(ctx, careerProfileOf(input), input.priorities),
+    goalPoints: goalWeighs(careerProfileOf(input)),
     quality: input.quality ?? qualityFor(ctx, byCode, {
       priorities: input.priorities,
       interestWords: interestWordsOf(input.interests),
@@ -5201,7 +5285,7 @@ export function electiveOptions(input: {
   for (const code of pool) {
     const course = byCode.get(code);
     if (!course) continue;
-    if (code !== keep && input.electiveCodes && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga')) continue;
+    if (code !== keep && input.electiveCodes && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga', goalSubjects)) continue;
     if (code !== keep && preparesForHeld(code, ctx.prereqs, (c) => onBoard.has(c) || held.has(c))) continue;
     if (outOfSeason(course, term.season, published.has(code))) continue;
     const needs = ctx.prereqs?.get(code)?.standing;
@@ -8571,6 +8655,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
               const lighter = lightStep(qualityAtPlacement(a)) - lightStep(qualityAtPlacement(b));
               if (lighter !== 0) return lighter;
             }
+            // No preference here for what the student said they want to do.
+            // Ahead of a course that also covers a second category it put
+            // more education courses in a would-be teacher's categories, but
+            // over 308 degrees and four goals it left CHEM 237 a term apart
+            // from CHEM 236 (Chemical Engineering + Data Science, three goals)
+            // and one more requirement unmet (Environmental Science and
+            // Management, journalism); after the season rule, the lab apart
+            // for the finance goal still. The goal's electives carry it.
             const both = alsoCounts(b) - alsoCounts(a);
             if (both !== 0) return both;
             // A category course that runs every term goes anywhere the plan has
@@ -11381,6 +11473,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     );
     fillAim = overallAim;
     const majors = degreeSubjectsOf(input.requirements, input.programName);
+    // The subjects the student's goal is about, which get a degree subject's room (subjectRoomLeft).
+    const goalSubjects = goalSubjectsOf(careerProfileOf(input));
     const stillWanted = new Set<string>();
     for (const u of unsatisfied) {
       const req = input.requirements.find((r) => r.id === u.requirementId);
@@ -11402,6 +11496,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       rare: rareCheck(ctx),
       barred: electiveBarred,
       lightFirst: lightFirst(prefs.priorities),
+      opensGoal: goalOpenersOf(ctx, careerProfileOf(input), prefs.priorities),
+      goalPoints: goalWeighs(careerProfileOf(input)),
       quality: qualityFor(ctx, byCode, {
         priorities: prefs.priorities,
         interestWords: interestWordsOf(input.interests),
@@ -11808,7 +11904,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             if (preparesForHeld(code, ctx.prereqs, (c) => plannedAll.has(c) || earned.has(c), !plainEngine)) return false;
             const course = byCode.get(code);
             if (!course) return false;
-            if (!trackWanted.has(code) && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga')) return false;
+            if (!trackWanted.has(code) && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga', goalSubjects)) return false;
             if (tooBig(creditsOf(code))) return false;
             if (outOfSeason(course, term.season, published.has(code))) return false;
             // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
@@ -11971,7 +12067,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (preparesForHeld(code, ctx.prereqs, (c) => plannedAll.has(c) || earned.has(c), !plainEngine)) return false;
           const course = byCode.get(code);
           if (!course) return false;
-          if (!trackWanted.has(code) && !row && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga')) return false;
+          if (!trackWanted.has(code) && !row && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga', goalSubjects)) return false;
           if (tooBig(creditsOf(code))) return false;
           if (outOfSeason(course, term.season, published.has(code))) return false;
           // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
@@ -12310,7 +12406,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (input.notTowardDegree?.(code)) return false;
           if (preparesForHeld(code, ctx.prereqs, (c) => plannedAll.has(c) || earned.has(c), !plainEngine)) return false;
           const course = byCode.get(code);
-          if (!course || isMathOrStatistics(course) || !subjectRoomLeft(course.cluster, taken, majors.primary, majors.subjects, ctx.schoolId === 'uga')) return false;
+          if (!course || isMathOrStatistics(course) || !subjectRoomLeft(course.cluster, taken, majors.primary, majors.subjects, ctx.schoolId === 'uga', goalSubjects)) return false;
           // The most courses of one subject in the term stays what it was.
           if (Math.max(...[...bySubject.keys(), course.cluster].map((s) => (bySubject.get(s) ?? 0) - (s === smallSubject ? 1 : 0) + (s === course.cluster ? 1 : 0))) !== mostOfOne) return false;
           if (outOfSeason(course, term.season, published.has(code))) return false;

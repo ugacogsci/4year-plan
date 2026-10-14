@@ -189,6 +189,20 @@ function titleWord(word: string, whole: boolean): RegExp {
 }
 
 /**
+ * A student's word cut back to the part its other forms share, for titles
+ * only: "finance" is the start of "Finance" and not of "Financial", so ECON
+ * 460 Financial Economics and FIN 300 Financial Markets read as unrelated to
+ * a student who wrote "I want to work in finance". A final e, -ing or -ism
+ * comes off when five letters or more are left: financ(e), teach(ing),
+ * market(ing), journal(ism). Shorter stems stay whole ("banking" is not
+ * "bank", which starts "Bankruptcy").
+ */
+function stemOf(word: string): string {
+  const cut = word.replace(/(?:e|ing|ism)$/, '');
+  return cut.length >= 5 ? cut : word;
+}
+
+/**
  * Whether a word the student said names a subject: a whole word of the
  * department's name, or the first six or more letters of one. Substring
  * matching made "mental" name Environmental Studies and "company"
@@ -418,7 +432,7 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     // Nor does it make a title relevant: "computer" from "Computer
     // engineering" matched every "...for Computer Vision" course as well as
     // the hardware courses the student asked about.
-    const freeHits = free.filter((w) => !namesMajor(w) && inTitle(w, false));
+    const freeHits = free.filter((w) => !namesMajor(w) && (inTitle(w, false) || (stemOf(w) !== w && inTitle(stemOf(w), false))));
     const strongFree = freeHits.filter((w) => !LOW_INFORMATION.has(w));
     const titleHit = curatedHits.length > 0 || strongFree.length > 0 || freeHits.length >= 2;
     const subjectHit =
