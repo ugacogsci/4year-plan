@@ -326,6 +326,16 @@ if (process.argv.includes('--minors')) {
   process.exit(0);
 }
 
+// --graduate: the graduate and professional pages instead, into public/illinois/graduate/
+// (scripts/illinois/graduate.mjs). --graduate-out <dir> writes elsewhere; --graduate-cache
+// <dir> reads saved pages and fetches (and saves) only the ones missing.
+const graduateWith = (out) => import('./graduate.mjs').then(({ crawlGraduate }) =>
+  crawlGraduate({ get, sleep, parseTables, text, BASE, DELAY, out, cache: flag('--graduate-cache') }));
+if (process.argv.includes('--graduate')) {
+  await graduateWith(flag('--graduate-out') ?? 'public/illinois/graduate');
+  process.exit(0);
+}
+
 const index = await get(`${BASE}/undergraduate/`);
 if (!index) { console.error('index unreachable'); process.exit(1); }
 
@@ -381,4 +391,12 @@ console.log(`\n${out.length} programs, ${out.filter((p) => p.courseCount).length
 if (!ONLY && !process.argv.includes('--no-minors')) {
   console.log('\nMinors');
   await minorsWith(flag('--minors-out') ?? (flag('--out') ? OUT_FILE.replace(/\.json$/, '') + '-minors' : 'public/illinois/minors'));
+}
+
+// Graduate and professional programs ride the same refresh, for the same reason.
+// Rebuild their planner files afterwards with scripts/illinois/graduate-build.mjs
+// (npm run build:illinois runs it). --no-graduate skips them.
+if (!ONLY && !process.argv.includes('--no-graduate')) {
+  console.log('\nGraduate and professional programs');
+  await graduateWith(flag('--graduate-out') ?? (flag('--out') ? OUT_FILE.replace(/\.json$/, '') + '-graduate' : 'public/illinois/graduate'));
 }
