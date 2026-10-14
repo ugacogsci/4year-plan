@@ -340,13 +340,15 @@ export function proposeEquivalents(
       const t = tokens.get(course.code) ?? [];
       const identical = shared.length === lineTokens.length && shared.length === t.length;
       const levelOk = level === null || course.level <= level + 100;
+      // Nor is a first-year course a match for an upper-level one.
+      const tooLow = level !== null && level >= 300 && course.level < 200;
       // A near title in another subject is a guess, not a possibility:
       // Indiana's STAT-S 300 offered ANSC 440, Parkland's CSC 105 offered
       // ARTD 228. When the line's subject is known, only its own subject's
       // courses (or an identical title) are offered.
       const sameSubject = subjects.size === 0 || subjects.has(course.cluster);
       const confidence: EquivalentProposal['confidence'] =
-        identical && levelOk && course.credits > 0 ? 'high' : score >= 0.62 && (levelOk || course.level < 300) && sameSubject ? 'medium' : 'low';
+        tooLow ? 'low' : identical && levelOk && course.credits > 0 ? 'high' : score >= 0.62 && (levelOk || course.level < 300) && sameSubject ? 'medium' : 'low';
       out.push({
         code: course.code,
         title: course.title,
