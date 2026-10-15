@@ -23,6 +23,7 @@ import {
 } from '@/lib/planner/transcript';
 import { loadTransferGenEd, type CatalogLite } from '@/lib/planner/transfer-match';
 import { loadUgaTransfer } from '@/lib/planner/transfer-official';
+import { declineMaybe, maybeLines } from '@/lib/planner/transfer-maybe';
 
 /**
  * "Upload what you have."
@@ -234,6 +235,8 @@ export function TranscriptUpload({
   }, [query, catalog]);
 
   const known = useMemo(() => new Map((catalog ?? []).map((c) => [c.code, c])), [catalog]);
+  /** Lines that only "may be" a course, by index: the board books none of them until the student says. */
+  const maybeOf = useMemo(() => new Map(maybeLines(record).map((m) => [m.index, m])), [record]);
   const hoursOf = (c: TranscriptCourseRecord) => c.equivalentCredits ?? c.credits ?? c.assumedCredits ?? null;
 
   return (
@@ -284,6 +287,7 @@ export function TranscriptUpload({
             </summary>
             <ul className="transcript-list">
               {record.courses.map((c, i) => {
+                const maybe = maybeOf.get(i);
                 const foreign = c.from ? !isHomeTranscript(c.from, school?.id === 'uga' ? 'uga' : 'illinois') : record.home === false;
                 const options = countsOptions(c, foreign, known);
                 const value = c.counts === 'course' && c.matched ? `course:${c.matched}` : c.counts;
@@ -312,6 +316,24 @@ export function TranscriptUpload({
                           </>
                         ) : null}
                       </span>
+                    )}
+                    {maybe && (
+                      <span className="transcript-maybe">
+                        May be {maybe.code}: until you say, the plan does not book {maybe.code}, and a requirement it would meet stays open. The line&apos;s {maybe.hours} hr still count.{' '}
+                        <button
+                          type="button"
+                          className="transcript-maybe-yes"
+                          onClick={() => onChange(setLineCounts(record, i, { counts: 'course', code: maybe.code }, (code: string) => known.get(code)?.credits ?? c.proposals?.find((p) => p.code === code)?.credits ?? null))}
+                        >
+                          Yes, it is {maybe.code}
+                        </button>{' '}
+                        <button type="button" className="transcript-maybe-no" onClick={() => onChange(declineMaybe(record, i))}>
+                          No, it is not
+                        </button>
+                      </span>
+                    )}
+                    {c.maybeDeclined && c.use && c.counts === 'hours' && c.proposals?.[0] && (
+                      <span className="transcript-maybe">You said it is not {c.proposals[0].code}, so it counts as hours and the plan books {c.proposals[0].code} where the degree needs it.</span>
                     )}
                     {c.status === 'no_credit' || c.status === 'withdrawn' || c.status === 'failed' ? (
                       <span className="transcript-chip warn">{chipFor(c)}</span>

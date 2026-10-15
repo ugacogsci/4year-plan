@@ -2546,6 +2546,10 @@ p.requirement-unnamed {
 .transcript-chip.basis-not-evaluated { background: #2b2614; color: #e3cf8f; }
 .transcript-remove { background: none; border: 0; padding: 0; width: fit-content; cursor: pointer; text-decoration: underline; color: #63748c; font-size: 12.5px; }
 .transcript-remove:hover { color: #e88175; }
+/* A line that only "may be" a course: not booked until the student confirms or rejects it. */
+.transcript-maybe { grid-column: 1 / -1; order: 4; font-size: 11.5px; line-height: 1.45; color: #e3cf8f; white-space: normal; }
+.transcript-maybe button { background: #2b2614; border: 1px solid #5a4d22; border-radius: 6px; padding: 1px 8px; color: #f1e2ae; font-size: 11.5px; cursor: pointer; }
+.transcript-maybe button:hover { background: #3a3218; }
 
 /* In the rail the control is a small link-sized button and the list stacks. */
 .rail-progress .transcript-compact { margin-top: 4px; }

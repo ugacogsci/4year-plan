@@ -49,6 +49,7 @@ import { AdvisorPacketDialog } from './advisor-packet';
 import { SemesterColumn } from './semester-column';
 import { illinoisProgress, illinoisProgressGuard } from './illinois-progress';
 import { StudentProfilePanel, type AreaRow } from './student-profile-panel';
+import { holdMaybe, maybeCodes, maybeIssues, maybeLines, openMaybeOnBoard, withoutMaybe } from '@/lib/planner/transfer-maybe';
 import { ProgramPicker } from './program-picker';
 import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
 import {
@@ -307,6 +308,9 @@ function creditKeyOf(answers: OnboardingAnswers | null | undefined): string {
     ...transcriptCodes(answers?.transcript).sort(),
     ...(answers?.alreadyTakenCourseCodes ?? []).slice().sort(),
     `h${transcriptHours(answers?.transcript)}|${transcriptCreditAdjustment(answers?.transcript)}`,
+    // Only a record with an unconfirmed "may be" line adds this, so every
+    // other student's saved board keeps its key.
+    ...(maybeCodes(answers?.transcript).length > 0 ? [`maybe:${maybeCodes(answers?.transcript).sort().join(',')}`] : []),
     ...(answers?.exams ?? []).map((e) => `${e.kind}|${e.exam}|${e.score}`),
     answers?.transferText ?? '',
     String(answers?.languageYears ?? ''),
@@ -1437,7 +1441,7 @@ export function PlannerWorkspace({
         }
       }
     }
-    const planInput: AutoplanInput = {
+    let planInput: AutoplanInput = {
       requirements: loaded.blocks,
       context,
       prior: priorHere,
@@ -1491,8 +1495,22 @@ export function PlannerWorkspace({
           }
         : null,
     };
+    /**
+     * A transfer line the planner only thinks "may be" a course (Parkland's
+     * BUS 101 "may be BUS 101"): where the board would book that course, it
+     * is held for the build instead, with the hours held unchanged, so the
+     * board does not schedule what the student may already have; the board
+     * below then leaves its requirement open until the student confirms or
+     * rejects the line (transfer-maybe.ts). No such line, the same one build.
+     */
     let generated: GeneratedPlan;
-    try { generated = generatePlan(planInput); }
+    let maybe: { codes: string[] } = { codes: [] };
+    try {
+      const held = holdMaybe(planInput.prior, answers?.transcript, (code) => byCode.get(normCode(code))?.credits ?? null, (p) => generatePlan({ ...planInput, prior: p }));
+      if (held.codes.length > 0) planInput = { ...planInput, prior: held.prior };
+      maybe = held;
+      generated = held.generated;
+    }
     catch (error) { setStatus(`The draft could not be generated: ${error instanceof Error ? error.message : 'unknown error'}`); return; }
     let builtFrom = planInput;
     /**
@@ -1630,6 +1648,14 @@ export function PlannerWorkspace({
     }
     for (const s of examsAligned.switched) {
       generated.notes.push(`Your ${s.from.replace(/\s+-\s+Entering.*$/, '')} credit is priced from the table for students entering ${s.to.endsWith('Entering Grainger') ? 'Grainger' : 'colleges other than Grainger'}, the college of this degree.`);
+    }
+    if (maybe.codes.length > 0) {
+      const keep = new Set(prior.courseCodes.map(normCode));
+      generated = {
+        ...generated,
+        plan: openMaybeOnBoard(generated.plan, maybe.codes, (code) => byCode.get(normCode(code))?.id, (code) => context.equivalents?.get(code) ?? [], keep),
+        satisfiedByPriorCredit: withoutMaybe(generated.satisfiedByPriorCredit, maybe.codes),
+      };
     }
     replaceActivePlan(generated.plan);
     setChooser(null);
@@ -2065,6 +2091,10 @@ export function PlannerWorkspace({
             },
           ]
         : []),
+      // A transfer line that only "may be" a course the board would have
+      // booked: the course is not booked and its requirement is open until
+      // the student says.
+      ...maybeIssues(answers?.transcript, firstTerm, (plan?.maybeCourseIds ?? []).map((id) => courseIndex.get(id)?.code ?? '').filter(Boolean)),
       // Held credit the plan gave up for a required course. A student who sees
       // MATH 221 booked next to the MATH 234 they marked as taken needs the
       // reason where the other reasons are, not only in the caveats.
@@ -2099,7 +2129,7 @@ export function PlannerWorkspace({
         termId: firstTerm,
       })),
     ];
-  }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits, admissionChoice]);
+  }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits, admissionChoice, plan?.maybeCourseIds, courseIndex]);
 
   /**
    * Illinois's published class schedules by term id (Fall 2026, Spring 2027),
@@ -6308,6 +6338,8 @@ function describeCredit(record: TranscriptRecord | null, prior: PriorCredit, res
     parts.push(`Credit read from ${source} (${record.courses.length} lines).`);
     if (likely.length) parts.push(`Likely equivalents filled in from the catalog, not confirmed by the university: ${likely.join(', ')}.`);
     if (open.length) parts.push(`Lines counted as hours only, with a university course still to settle: ${open.join('; ')}.`);
+    const maybe = maybeLines(record);
+    if (maybe.length) parts.push(`Lines that only may be a course, unconfirmed: ${maybe.map((m) => `${m.lineCode} may be ${m.code}`).join('; ')}. The board does not book such a course; where the degree needs it, that requirement stays open until the student confirms or rejects the line in the transfer list.`);
   }
   if (prior.unmatchedCredits > 0) parts.push(`${prior.unmatchedCredits} hours count toward the total with no course code.`);
   if (residency) {

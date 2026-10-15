@@ -16159,7 +16159,7 @@ export function validatePlan(
    * two terms later, so the whole board is what meets it.
    */
   const anywhere = new Set<string>();
-  const wanted = new Set([...plan.completedCourseIds, ...(plan.exemptCourseIds ?? []), ...plan.terms.flatMap((t) => t.courseIds)]);
+  const wanted = new Set([...plan.completedCourseIds, ...(plan.exemptCourseIds ?? []), ...(plan.maybeCourseIds ?? []), ...plan.terms.flatMap((t) => t.courseIds)]);
   for (const course of ctx.courses) {
     if (wanted.has(course.id)) for (const equiv of expandEquivalents(normaliseCode(course.code), equivalents)) anywhere.add(equiv);
   }
@@ -16216,7 +16216,9 @@ export function validatePlan(
   // Exempt courses clear a prerequisite without earning hours or counting
   // toward anything: SPAN 201 after two years of high school Spanish stands
   // on an exemption from SPAN 102, and the board must not flag it.
-  for (const courseId of plan.exemptCourseIds ?? []) {
+  // So does a course a transfer line only "may be" (transfer-maybe.ts) until
+  // the student confirms or rejects it; boards without one have none.
+  for (const courseId of [...(plan.exemptCourseIds ?? []), ...(plan.maybeCourseIds ?? [])]) {
     const code = codeOf(courseId);
     if (!code) continue;
     for (const equiv of expandEquivalents(code, equivalents)) earlier.add(equiv);

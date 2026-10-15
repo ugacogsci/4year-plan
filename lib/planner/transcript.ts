@@ -175,6 +175,12 @@ export interface TranscriptCourseRecord extends TranscriptCourse {
   basis?: TransferBasis | null;
   /** A word about the grade: a D transfers, but a program may ask for a C. */
   gradeNote?: string | null;
+  /**
+   * True when the student said the line is not the course it "may be"
+   * (proposals[0]): it stays hours, and the board books that course where
+   * the degree needs it (transfer-maybe.ts).
+   */
+  maybeDeclined?: boolean;
 }
 
 /** What the student keeps, alongside the rest of their answers. */
