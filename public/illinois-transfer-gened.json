@@ -973,5 +973,118 @@
     }
    }
   }
- ]
+ ],
+ "iai": {
+  "source": "https://www.itransfer.org/courses/gecc/",
+  "checked": "2026-10-14",
+  "note": "What an Illinois Articulation Initiative (IAI) code usually counts for at Illinois. Illinois applies IAI courses to its gen eds one course at a time (gened.illinois.edu/choosing/first-year-transfer-students/), so this is the usual result, and the Transfer Course Evaluation Report decides. A code whose Illinois category is not clear is left out.",
+  "areas": {
+   "C1": {
+    "area": "writing",
+    "tags": [],
+    "why": "one course of the two-course IAI writing sequence; with the other course it counts as Composition I (RHET 105), on its own it is elective hours"
+   },
+   "C2": {
+    "area": "oral communication",
+    "tags": [],
+    "why": "Illinois has no oral-communication gen ed, so it counts as elective hours"
+   },
+   "H2": {
+    "area": "history",
+    "tags": [
+     "Humanities - Hist & Phil"
+    ]
+   },
+   "S2": {
+    "area": "history",
+    "tags": [
+     "Humanities - Hist & Phil"
+    ]
+   },
+   "H3": {
+    "area": "literature",
+    "tags": [
+     "Humanities - Lit & Arts"
+    ]
+   },
+   "H4": {
+    "area": "philosophy",
+    "tags": [
+     "Humanities - Hist & Phil"
+    ]
+   },
+   "F1": {
+    "area": "fine arts",
+    "tags": [
+     "Humanities - Lit & Arts"
+    ]
+   },
+   "F2": {
+    "area": "fine arts",
+    "tags": [
+     "Humanities - Lit & Arts"
+    ]
+   },
+   "S1": {
+    "area": "anthropology",
+    "tags": [
+     "Social & Beh Sci - Soc Sci"
+    ]
+   },
+   "S3": {
+    "area": "economics",
+    "tags": [
+     "Social & Beh Sci - Soc Sci"
+    ]
+   },
+   "S4": {
+    "area": "human geography",
+    "tags": [
+     "Social & Beh Sci - Soc Sci"
+    ]
+   },
+   "S5": {
+    "area": "political science",
+    "tags": [
+     "Social & Beh Sci - Soc Sci"
+    ]
+   },
+   "S6": {
+    "area": "psychology",
+    "tags": [
+     "Social & Beh Sci - Beh Sci"
+    ]
+   },
+   "S7": {
+    "area": "sociology",
+    "tags": [
+     "Social & Beh Sci - Soc Sci"
+    ]
+   },
+   "L1": {
+    "area": "life science",
+    "tags": [
+     "Nat Sci & Tech - Life Sciences"
+    ]
+   },
+   "P1": {
+    "area": "physical science",
+    "tags": [
+     "Nat Sci & Tech - Phys Sciences"
+    ]
+   },
+   "P2": {
+    "area": "physical science",
+    "tags": [
+     "Nat Sci & Tech - Phys Sciences"
+    ]
+   },
+   "M1": {
+    "area": "mathematics",
+    "tags": [
+     "Quantitative Reasoning I"
+    ]
+   }
+  }
+ }
 }

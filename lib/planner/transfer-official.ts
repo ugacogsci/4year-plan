@@ -23,6 +23,18 @@ export const UGA_TRANSFER_GUIDE = 'https://transfer.uga.edu/wp-content/uploads/T
 export const UGA_TRANSFER_FAQ = 'https://admissions.uga.edu/apply/transfer-applicants/transfer-faqs/';
 export const ILLINOIS_TRANSFER_POLICIES = 'https://admissions.illinois.edu/transfer-admission-policies/';
 export const ILLINOIS_TRANSFERRING_CREDIT = 'https://admissions.illinois.edu/transferring-credit/';
+/** Illinois's Gen Ed office: IAI GECC courses are applied to campus gen eds course by course. */
+export const ILLINOIS_GENED_TRANSFER = 'https://gened.illinois.edu/choosing/first-year-transfer-students/';
+/** iTransfer: the Illinois A.A. carries the full GECC; the A.S. a modified one (two courses left for after transfer). */
+export const IAI_ASSOCIATE_DEGREES = 'https://www.itransfer.org/about/';
+/**
+ * McHenry County College's UIUC transfer guide, one of the community colleges'
+ * own guides: a completed GECC meets UIUC's lower-division campus gen eds
+ * except Advanced Composition, Cultural Studies, language and Quantitative
+ * Reasoning II. Not an illinois.edu page; the conservative reading of the
+ * exceptions Illinois's own pages leave unstated.
+ */
+export const IAI_GECC_EXCEPTIONS_GUIDE = 'https://insidemcc.mchenry.edu/pubwebapp/uploadfile/transferguide/UIUCtrngd19.pdf';
 
 /** What a line became, why, and where that answer came from, for the review list. */
 export interface TransferBasis {

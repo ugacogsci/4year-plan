@@ -170,6 +170,8 @@ export function TranscriptUpload({
           courses: applyTransferCaps([...addTo.courses, ...added.map((c) => ({ ...c }))], school?.id === 'uga' ? 'uga' : 'illinois'),
           exams: [...addTo.exams, ...fresh.exams].filter((e, i, all) => all.findIndex((o) => o.kind === e.kind && o.exam === e.exam) === i),
           notes: [...addTo.notes, ...fresh.notes.filter((n) => !addTo.notes.includes(n))],
+          // A completed GECC shown on either upload stays on the record.
+          gecc: addTo.gecc ?? fresh.gecc ?? null,
         });
       } else {
         onChange(matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable));

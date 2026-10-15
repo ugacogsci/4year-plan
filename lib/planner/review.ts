@@ -443,7 +443,7 @@ export interface PriorUseInput {
   /** Held courses, each class once, none forfeited to a required course. */
   heldCodes: string[];
   /** Gen-ed categories met by held credit with no course: Parkland lines, exams. */
-  genEdCredits: Array<Pick<GenEdCredit, 'label' | 'credits' | 'tags'>>;
+  genEdCredits: Array<Pick<GenEdCredit, 'label' | 'credits' | 'tags' | 'package'>>;
   /** Requirements the generation found already met by held credit. */
   satisfied?: Array<{ codes: string[] }>;
 }
@@ -491,7 +491,8 @@ export function priorCreditUse(input: PriorUseInput): { hoursIn: number; hoursFi
   for (const g of input.genEdCredits) {
     if (g.tags.some((t) => genEd.has(t))) {
       filling.push(`${g.label} (${g.tags.join(', ')})`);
-      hoursFilling += g.credits;
+      // A completed package's hours are its courses' hours, counted on their lines.
+      if (!g.package) hoursFilling += g.credits;
     }
   }
   return { hoursIn: input.hoursIn, hoursFilling: Math.min(hoursFilling, input.hoursIn), hoursNothing, filling, electiveOnly, nothing };

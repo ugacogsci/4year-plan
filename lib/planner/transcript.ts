@@ -25,11 +25,14 @@
  * more than a proposal, and it says so on the line.
  */
 
-import { genEdTagsFromText, guideSchool, proposeEquivalents, type CatalogLite, type EquivalentProposal, type TransferGenEdGuide } from './transfer-match';
+import { genEdTagsFromText, guideSchool, iaiArea, proposeEquivalents, type CatalogLite, type EquivalentProposal, type TransferGenEdGuide } from './transfer-match';
 import type { GenEdCredit } from './autoplan';
 import {
+  ILLINOIS_GENED_TRANSFER,
   ILLINOIS_TRANSFER_POLICIES,
   ILLINOIS_TRANSFERRING_CREDIT,
+  IAI_ASSOCIATE_DEGREES,
+  IAI_GECC_EXCEPTIONS_GUIDE,
   UGA_TRANSFER_GUIDE,
   UGA_TRANSFER_PORTAL,
   isDGrade,
@@ -119,6 +122,40 @@ export interface TranscriptReading {
   exams: TranscriptExam[];
   /** Anything the model could not read, in plain sentences. */
   notes: string[];
+  /**
+   * Degrees, certificates and completions the document says were awarded,
+   * as printed: "Associate in Arts", "IAI GECC Completed". Empty or absent
+   * when it prints none.
+   */
+  credentials?: string[];
+}
+
+/**
+ * A completed Illinois Articulation Initiative General Education Core
+ * Curriculum on the record, or an Illinois associate degree that carries it.
+ *
+ * Illinois Admissions: completing the IAI GECC means a student's general
+ * education requirements are met on transfer, while campus, college and major
+ * graduation requirements beyond it still apply
+ * (admissions.illinois.edu/transfer-admission-policies/). The categories it
+ * is counted for are the campus ones the GECC itself covers, at the campus
+ * minimum; Advanced Composition, Cultural Studies, Quantitative Reasoning II
+ * and the language requirement stay in the plan, as the Illinois community
+ * colleges' own UIUC transfer guides list them as outside the package.
+ */
+export interface GeccCompletion {
+  /** What the document shows: the GECC marked complete, or an Illinois A.A. or A.S. */
+  kind: 'gecc' | 'aa' | 'as';
+  /** The document's own words. */
+  evidence: string;
+  school: string | null;
+  /** Campus categories counted as met, and the hours each stands for. */
+  meets: Array<{ category: string; tags: string[]; hours: number }>;
+  /** Campus requirements still planned. */
+  stillToDo: string[];
+  /** One plain paragraph for the record's notes. */
+  text: string;
+  sources: string[];
 }
 
 /** How one line counts toward the degree. */
@@ -196,6 +233,8 @@ export interface TranscriptRecord {
   courses: TranscriptCourseRecord[];
   exams: TranscriptExam[];
   notes: string[];
+  /** A completed IAI GECC (or an Illinois A.A./A.S. carrying it), when the document shows one. */
+  gecc?: GeccCompletion | null;
 }
 
 /** One file of the upload body. */
@@ -336,6 +375,7 @@ export function mergeReadings(readings: TranscriptReading[]): TranscriptReading 
     courses,
     exams,
     notes: readings.flatMap((r) => r.notes),
+    credentials: [...new Set(readings.flatMap((r) => r.credentials ?? []))],
   };
 }
 
@@ -636,11 +676,24 @@ export function matchTranscript(
     const school = guideSchool(guide, line.from);
     const entry = school?.courses[line.code];
     const printed = genEdTagsFromText(line.genEdText);
-    const tags = entry ? entry.tags : printed;
+    // The IAI code printed beside the line, when nothing more specific says
+    // which category it meets: iTransfer's GECC areas, read against the
+    // catalog's categories (H3 literature is Literature & the Arts).
+    const iai = !entry && printed.length === 0 ? iaiArea(guide, line.iai) : null;
+    const iaiSource = guide?.iai?.source ?? null;
+    if (iai && iai.tags.length === 0) {
+      if (iai.why && line.counts === 'hours' && line.basis?.badge === 'not-evaluated') {
+        line.basis = { from: 'rule', badge: 'elective', text: `Its IAI code ${iai.code} is ${iai.area}: ${iai.why}.`, source: iaiSource, checked: guide?.iai?.checked ?? null };
+      }
+      continue;
+    }
+    const tags = entry ? entry.tags : printed.length > 0 ? printed : iai?.tags ?? [];
     if (tags.length === 0) continue;
     line.genEdTags = tags;
     const expired = guideExpired(guide?.effective ?? null, reading);
-    line.genEdSource = entry ? `${guide?.title ?? 'the published guide'} (${guide?.effective ?? 'current'}${expired ? ', expired; the newest edition this planner holds' : ''})` : 'printed on the document';
+    line.genEdSource = entry
+      ? `${guide?.title ?? 'the published guide'} (${guide?.effective ?? 'current'}${expired ? ', expired; the newest edition this planner holds' : ''})`
+      : iai ? `its IAI code ${iai.code} (${iai.area})` : 'printed on the document';
     // A likely Illinois course is kept only when it meets the same categories
     // the guide says the line meets; otherwise the line counts as hours with
     // the guide's categories, which is what Illinois has said about it.
@@ -649,7 +702,16 @@ export function matchTranscript(
       const same = courseTags.size === tags.length && tags.every((t) => courseTags.has(t));
       if (!same) Object.assign(line, { matched: null, matchedBy: null, counts: line.use ? 'hours' : 'none', also: undefined, illinoisCredits: null });
     }
-    if (line.counts === 'hours' && line.basis) {
+    if (iai && line.counts === 'hours' && line.basis) {
+      const maybe = line.proposals?.[0];
+      line.basis = {
+        from: 'rule',
+        badge: 'core',
+        checked: guide?.iai?.checked ?? null,
+        text: `Its IAI code ${iai.code} (${iai.area}) usually counts for Illinois's ${tags.join(', ')}, so it counts as hours toward that category, not as one Illinois course. Illinois applies IAI courses to its gen eds one at a time; your Transfer Course Evaluation Report decides.${maybe ? ` It may also be ${maybe.code}; pick that below if your report says so.` : ''}`,
+        source: iaiSource,
+      };
+    } else if (line.counts === 'hours' && line.basis) {
       line.basis = {
         ...line.basis,
         // A published guide (Illinois admissions with the college) is an
@@ -737,6 +799,20 @@ export function matchTranscript(
       if (line.basis) line.basis = { ...line.basis, badge: 'elective', text: `${earlier.code} already counts as ${earlier.matched}, so this one counts as elective hours.` };
     }
   }
+  // A completed GECC (or an Illinois A.A./A.S. carrying it) meets the campus
+  // categories it covers. Composition I and Quantitative Reasoning I are left
+  // to the lines when a line already meets them, so the package never stands
+  // in for a second Quantitative Reasoning course.
+  const gecc = schoolId === 'illinois' ? geccCompletion(reading) : null;
+  if (gecc) {
+    const heldTags = new Set(
+      courses
+        .filter((c) => c.use)
+        .flatMap((c) => (c.counts === 'course' && c.matched ? [c.matched, ...(c.also ?? [])].flatMap(tagsOf) : c.counts === 'hours' ? c.genEdTags ?? [] : [])),
+    );
+    gecc.meets = gecc.meets.filter((m) => !(GECC_ONLY_IF_MISSING.has(m.category) && m.tags.some((t) => heldTags.has(t))));
+    notes.unshift(gecc.text);
+  }
   if (mixedQuarter.size > 0) notes.unshift(`${[...mixedQuarter].join(', ')} ${mixedQuarter.size === 1 ? 'states' : 'state'} quarter hours; those lines are converted to semester hours at two-thirds, the usual conversion. Your Transfer Evaluation Report shows the figure your university settles on.`);
   if (quarter) notes.unshift('This transcript is in quarter hours; each line\'s hours are converted to semester hours at two-thirds, the usual conversion. Your Transfer Evaluation Report shows the figure your university settles on.');
   const foreign = codesAreIllinois ? [] : courses.filter((c) => c.from ? !isHomeTranscript(c.from, schoolId) : !home);
@@ -764,6 +840,75 @@ export function matchTranscript(
     courses,
     exams: reading.exams,
     notes,
+    ...(gecc ? { gecc } : {}),
+  };
+}
+
+/** Categories a completed package meets only when no line on the record already does. */
+const GECC_ONLY_IF_MISSING = new Set(['Composition I', 'Quantitative Reasoning I']);
+
+/**
+ * The campus categories the IAI GECC covers, at the campus minimum
+ * (GENED_CAMPUS_SIZE in illinois-data.ts: gened.illinois.edu/requirements).
+ * A degree page that asks for more than the minimum still gets the rest
+ * planned, and a degree's own hours blocks are never filled by the package.
+ */
+const GECC_MEETS: Array<{ category: string; tags: string[]; hours: number; asHours?: number }> = [
+  { category: 'Composition I', tags: ['Composition I'], hours: 4 },
+  { category: 'Humanities & the Arts', tags: ['Humanities - Hist & Phil', 'Humanities - Lit & Arts'], hours: 6, asHours: 3 },
+  { category: 'Natural Sciences & Technology', tags: ['Nat Sci & Tech - Phys Sciences', 'Nat Sci & Tech - Life Sciences'], hours: 6 },
+  { category: 'Social & Behavioral Sciences', tags: ['Social & Beh Sci - Soc Sci', 'Social & Beh Sci - Beh Sci'], hours: 6, asHours: 3 },
+  { category: 'Quantitative Reasoning I', tags: ['Quantitative Reasoning I'], hours: 3 },
+];
+const GECC_STILL_TO_DO = ['Advanced Composition', 'the three Cultural Studies courses (Western/Comparative, Non-Western, US Minority)', 'Quantitative Reasoning II', 'the Language Other Than English requirement'];
+
+/**
+ * The Illinois community colleges, by the words that name each on a
+ * transcript. An A.A. or A.S. carries the GECC only from an Illinois school.
+ */
+const ILLINOIS_COMMUNITY_COLLEGE = /\b(black hawk|carl sandburg|city colleges of chicago|daley college|harold washington|truman college|kennedy-king|malcolm x|olive-harvey|wright college|danville area|du ?page|elgin community|harper college|william rainey harper|heartland community|highland community|illinois central college|illinois eastern|frontier community|lincoln trail|olney central|wabash valley|illinois valley community|joliet junior|kankakee community|kaskaskia|kishwaukee|college of lake county|lake land college|lewis (and|&) clark community|lincoln land|john a\.? logan|mchenry county|moraine valley|morton college|oakton|parkland|prairie state|rend lake|richland community|rock valley|sauk valley|shawnee community|south suburban|southeastern illinois|southwestern illinois|spoon river|triton college|waubonsee|john wood community)\b/i;
+
+/**
+ * Whether the document shows a completed IAI GECC, or an Illinois A.A. or
+ * A.S. that carries it, from the credentials it prints. An A.S. carries a
+ * modified package that leaves one Humanities and Fine Arts course and one
+ * Social and Behavioral Sciences course for after transfer (iTransfer), so
+ * those two categories count at half. Anything marked in progress, partial or
+ * expected is not a completion.
+ */
+export function geccCompletion(reading: Pick<TranscriptReading, 'institution' | 'courses' | 'credentials'>): GeccCompletion | null {
+  const school = reading.institution && !isHomeTranscript(reading.institution) ? reading.institution : reading.courses.map((c) => c.from).find((f): f is string => Boolean(f && !isHomeTranscript(f))) ?? null;
+  const unfinished = /\b(not|in progress|incomplete|partial(ly)?|pending|remaining|expected|anticipated|candidate|pursuing|working toward|needed)\b/i;
+  let found: { kind: GeccCompletion['kind']; evidence: string } | null = null;
+  for (const raw of reading.credentials ?? []) {
+    const text = raw.trim();
+    if (!text || unfinished.test(text)) continue;
+    const illinois = ILLINOIS_COMMUNITY_COLLEGE.test(text) || ILLINOIS_COMMUNITY_COLLEGE.test(school ?? '');
+    if (/\b(gecc|general education core curriculum|iai general education|iai gen(eral)? ed)\b/i.test(text) && /\b(complete[ds]?|completion|met|satisfied|fulfilled|certified)\b/i.test(text)) {
+      found = { kind: 'gecc', evidence: text };
+      break;
+    }
+    if (!illinois || /\b(applied|teaching|fine arts|general studies|engineering science)\b/i.test(text)) continue;
+    if (/\bassociate (in|of) arts\b|^a\.? ?a\.?(\s|$)|\ba\.a\. degree\b/i.test(text)) found = { kind: 'aa', evidence: text };
+    else if (!found && /\bassociate (in|of) science\b|^a\.? ?s\.?(\s|$)|\ba\.s\. degree\b/i.test(text)) found = { kind: 'as', evidence: text };
+  }
+  if (!found) return null;
+  const hit = found;
+  const from = school ?? 'your college';
+  const meets = GECC_MEETS.map((m) => ({ category: m.category, tags: m.tags, hours: hit.kind === 'as' && m.asHours ? m.asHours : m.hours }));
+  const what = hit.kind === 'gecc' ? `the IAI General Education Core Curriculum completed ("${hit.evidence}")` : hit.kind === 'aa' ? `an Associate in Arts ("${hit.evidence}"), which carries the full IAI General Education Core Curriculum` : `an Associate in Science ("${hit.evidence}"), which carries a modified IAI General Education Core Curriculum`;
+  const text =
+    `Your ${from} record shows ${what}. Illinois Admissions says a completed GECC meets Illinois's general education requirements, while campus, college and major requirements beyond it still apply. ` +
+    `So the plan counts Composition I, Humanities & the Arts, Natural Sciences & Technology, Social & Behavioral Sciences and Quantitative Reasoning I as met at the campus minimum${hit.kind === 'as' ? ', except one Humanities and one Social & Behavioral Sciences course, which the A.S. leaves for after transfer' : ''}. ` +
+    `The GECC does not cover ${GECC_STILL_TO_DO.slice(0, -1).join(', ')} or ${GECC_STILL_TO_DO[GECC_STILL_TO_DO.length - 1]} (Illinois community colleges' UIUC transfer guides list them as outside the package), so those stay in the plan unless other credit meets them, and so does every course your degree names. Your Transfer Course Evaluation Report decides.`;
+  return {
+    kind: hit.kind,
+    evidence: hit.evidence,
+    school,
+    meets,
+    stillToDo: GECC_STILL_TO_DO,
+    text,
+    sources: [ILLINOIS_TRANSFER_POLICIES, ILLINOIS_GENED_TRANSFER, IAI_ASSOCIATE_DEGREES, IAI_GECC_EXCEPTIONS_GUIDE],
   };
 }
 
@@ -829,7 +974,9 @@ export function describeTransfer(record: TranscriptRecord, catalogName: string):
   const course = n('course');
   if (course) parts.push(`${course} ${course === 1 ? 'counts' : 'count'} as ${catalogName} ${course === 1 ? 'course' : 'courses'}`);
   const core = n('core');
-  if (core) parts.push(`${core} as ${core === 1 ? 'a core elective' : 'core electives'}`);
+  // UGA calls credit toward a core area a core elective; Illinois has no such
+  // term, and the line is hours toward a gen-ed category.
+  if (core) parts.push(record.schoolId === 'uga' ? `${core} as ${core === 1 ? 'a core elective' : 'core electives'}` : `${core} as gen ed credit (hours toward a category)`);
   const elective = n('elective');
   if (elective) parts.push(`${elective} as elective hours only`);
   const none = n('none');
@@ -1015,6 +1162,10 @@ export function transcriptGenEdCredits(record: TranscriptRecord | null | undefin
     if (!(hours > 0)) return;
     out.push({ id: `${c.from ?? record.institution ?? 'transfer'} ${c.code} #${i}`, label: `${c.code}${c.title ? ` ${c.title}` : ''}${c.from ? ` (${c.from})` : ''}`, credits: hours, tags: c.genEdTags });
   });
+  // After the lines, so a category the lines already meet keeps them.
+  for (const m of record.gecc?.meets ?? []) {
+    out.push({ id: `IAI GECC ${m.category}`, label: `IAI GECC completed${record.gecc?.school ? ` (${record.gecc.school})` : ''}: ${m.category}`, credits: m.hours, tags: m.tags, package: true });
+  }
   return out;
 }
 

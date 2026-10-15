@@ -235,7 +235,7 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
       } else {
         for (const credit of input.genEdCredits ?? []) {
           if (isMet()) break;
-          if (assignedCredits.has(credit.id) || usedByHours.has(credit.id) || !credit.tags.some((tag) => wanted.has(tag))) continue;
+          if (credit.package || assignedCredits.has(credit.id) || usedByHours.has(credit.id) || !credit.tags.some((tag) => wanted.has(tag))) continue;
           usedByHours.add(credit.id);
           counted.push(credit.label);
           courses += 1;

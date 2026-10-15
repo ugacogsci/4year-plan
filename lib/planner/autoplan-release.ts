@@ -511,6 +511,12 @@ export interface GenEdCredit {
   credits: number;
   /** The catalog's own gen-ed strings it counts for. */
   tags: string[];
+  /**
+   * A completed general education package (the IAI GECC, an Illinois A.A.)
+   * standing in for the campus categories it meets, at the campus minimum.
+   * It fills campus gen-ed categories only, never a degree's own hours block.
+   */
+  package?: boolean;
 }
 
 // MERGE-UGA: Illinois added stated?, away? and summers? here (UGA's Horizon has none). buildHorizon,
@@ -6945,7 +6951,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const hoursTags = new Set(slot.tags ?? []);
         for (const credit of input.prior.genEdCredits ?? []) {
           if (have >= slot.hoursTarget) break;
-          if (genEdCreditAssigned.has(credit.id) || genEdCreditUsedByHours.has(credit.id)) continue;
+          if (credit.package || genEdCreditAssigned.has(credit.id) || genEdCreditUsedByHours.has(credit.id)) continue;
           if (!credit.tags.some((tag) => hoursTags.has(tag))) continue;
           genEdCreditUsedByHours.add(credit.id);
           have += credit.credits;
