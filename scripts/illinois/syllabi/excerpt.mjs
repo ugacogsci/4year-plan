@@ -32,7 +32,13 @@ const arg = (name, dflt) => {
   return i > 0 ? process.argv[i + 1] : dflt;
 };
 const BATCH = Number(arg('--batch', 25));
-const OUT = join(DIRS.state, 'excerpts');
+/**
+ * --only uga-bulletin           cut excerpts for these sources only (default: every manifest)
+ * --out excerpts-uga            write under data/syllabi/state/{name} instead of state/excerpts,
+ *                               so one school's batches do not wipe the other's
+ */
+const ONLY = (() => { const v = arg('--only', null); return v ? new Set(v.split(',').map((x) => x.trim()).filter(Boolean)) : null; })();
+const OUT = join(DIRS.state, arg('--out', 'excerpts'));
 const FACTS = join(DIRS.state, '..', 'facts');
 const ALL = process.argv.includes('--all');
 /**
@@ -41,6 +47,8 @@ const ALL = process.argv.includes('--all');
  * of every term since Fall 2023 (SE 101 has 17 sections in one term); the
  * newest three terms of a course, two sections each, answer what students ask.
  */
+/** --keep data/syllabi/state/read-uga.json: read only these shas (select-read.mjs), whatever their source. */
+const KEEP = (() => { const v = arg('--keep', null); return v ? new Set(JSON.parse(readFileSync(v, 'utf8'))) : null; })();
 const KEEP_FOR = (() => {
   const v = arg('--keep-for', null);
   if (!v) return null;
@@ -92,21 +100,25 @@ function excerptOf(text) {
   return kept.length < parts.length ? `${out}\n[some passages left out]` : out;
 }
 
+/** A term id ("fa2026") from a manifest string or text.mjs's { term, ... } object; null otherwise. */
+const termStr = (v) => (typeof v === 'string' && /^(fa|sp|su|wi)\d{4}$/.test(v) ? v : v && typeof v === 'object' && typeof v.term === 'string' ? v.term : null);
 const docs = [];
 const seen = new Set();
 let skipped = 0;
 for (const source of listManifests()) {
+  if (ONLY && !ONLY.has(source)) continue;
   for (const row of readManifest(source)) {
     if (row.outcome !== 'ok' || !row.sha || seen.has(row.sha)) continue;
     seen.add(row.sha);
     if (!ALL && existsSync(join(FACTS, `${row.sha}.json`))) continue;
     if (KEEP_FOR && source === KEEP_FOR.source && !KEEP_FOR.shas.has(row.sha)) continue;
+    if (KEEP && !KEEP.has(row.sha)) continue;
     const t = loadText(row.sha);
     if (!t || t.info.flags?.some((f) => SKIP_FLAGS.has(f)) || t.text.trim().length < 400) { skipped += 1; continue; }
     const text = t.text.replace(/\f/g, '\n');
     docs.push({
-      sha: row.sha, source, url: row.finalUrl ?? row.url, hintCodes: row.hintCodes ?? [], hintTerm: row.hintTerm ?? t.info.term ?? null,
-      hintSection: row.hintSection ?? null, kindHint: row.kindHint ?? null, title: t.info.title ?? null, chars: text.length,
+      sha: row.sha, source, url: row.finalUrl ?? row.url, hintCodes: row.hintCodes ?? [], hintTerm: termStr(row.hintTerm) ?? termStr(t.info.term),
+      hintSection: row.hintSection ?? null, instructorHint: row.instructorHint ?? null, kindHint: row.kindHint ?? null, title: t.info.title ?? null, chars: text.length,
       header: text.slice(0, HEADER_CHARS), excerpt: excerptOf(text),
     });
   }

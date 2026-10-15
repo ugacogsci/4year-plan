@@ -861,6 +861,10 @@ export interface IllinoisSyllabus {
   confidence: 'high' | 'medium' | 'low';
   /** Set when the syllabus was published under a cross-listed twin of this course. */
   viaCrossList?: string;
+  /** A master outline's stated learning objectives (UGA's Bulletin publishes them), when it has no grading. */
+  objectives?: string[];
+  /** A master outline's topical outline, in order. */
+  topics?: string[];
 }
 
 interface IllinoisSyllabusShard {

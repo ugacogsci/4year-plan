@@ -15,7 +15,10 @@ import { join } from 'node:path';
 import { DIRS } from './lib/paths.mjs';
 
 const FACTS = join(DIRS.state, '..', 'facts');
-const EXCERPTS = join(DIRS.state, 'excerpts');
+// --excerpts excerpts-uga: the batch folder (under state/) the results answer; default state/excerpts.
+const exArg = process.argv.indexOf('--excerpts');
+const EXCERPTS = join(DIRS.state, exArg > 0 ? process.argv[exArg + 1] : 'excerpts');
+const FILES = process.argv.slice(2).filter((a, i, all) => a !== '--excerpts' && all[i - 1] !== '--excerpts');
 mkdirSync(FACTS, { recursive: true });
 
 // What the crawl knew, by sha, from the excerpt batches.
@@ -23,7 +26,7 @@ const meta = new Map();
 for (const f of existsSync(EXCERPTS) ? readdirSync(EXCERPTS).filter((n) => n.endsWith('.jsonl')) : []) {
   for (const line of readFileSync(join(EXCERPTS, f), 'utf8').split('\n').filter(Boolean)) {
     const d = JSON.parse(line);
-    meta.set(d.sha, { source: d.source, url: d.url, hintCodes: d.hintCodes, hintTerm: d.hintTerm, hintSection: d.hintSection, title: d.title, chars: d.chars });
+    meta.set(d.sha, { source: d.source, url: d.url, hintCodes: d.hintCodes, hintTerm: d.hintTerm, hintSection: d.hintSection, instructorHint: d.instructorHint ?? null, title: d.title, chars: d.chars });
   }
 }
 
@@ -41,7 +44,7 @@ function* docsIn(file) {
 
 let written = 0;
 let unknown = 0;
-for (const file of process.argv.slice(2)) {
+for (const file of FILES) {
   for (const d of docsIn(file)) {
     const m = meta.get(d.sha);
     if (!m) { unknown += 1; continue; }
