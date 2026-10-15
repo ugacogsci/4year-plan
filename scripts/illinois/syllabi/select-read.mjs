@@ -26,6 +26,8 @@ const ONLY = new Set((arg('--only', '') || '').split(',').map((s) => s.trim()).f
 const PER = Number(arg('--per-course', 3));
 const OUT = arg('--out', join(DIRS.state, 'read-selected.json'));
 const FACTS = join(DIRS.state, '..', 'facts');
+/** text.mjs stores the detected term as { term, ... }; a manifest stores it as "fa2026". Either way, the id or null. */
+const termStr = (v) => (typeof v === 'string' && /^(fa|sp|su|wi)\d{4}$/.test(v) ? v : v && typeof v === 'object' && typeof v.term === 'string' ? v.term : null);
 
 const byCourse = new Map();
 let seenDocs = 0;
@@ -40,7 +42,7 @@ for (const source of listManifests()) {
     if (!info || (info.flags ?? []).some((f) => ['image-only', 'js-shell', 'template', 'login', 'soft-404'].includes(f))) continue;
     const code = row.hintCodes?.[0] ?? 'unknown';
     const list = byCourse.get(code) ?? [];
-    list.push({ sha: row.sha, term: row.hintTerm ?? info.term ?? null, instructor: row.instructorHint ?? null, section: row.hintSection ?? null });
+    list.push({ sha: row.sha, term: termStr(row.hintTerm) ?? termStr(info.term), instructor: row.instructorHint ?? null, section: row.hintSection ?? null });
     byCourse.set(code, list);
   }
 }

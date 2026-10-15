@@ -100,6 +100,8 @@ function excerptOf(text) {
   return kept.length < parts.length ? `${out}\n[some passages left out]` : out;
 }
 
+/** A term id ("fa2026") from a manifest string or text.mjs's { term, ... } object; null otherwise. */
+const termStr = (v) => (typeof v === 'string' && /^(fa|sp|su|wi)\d{4}$/.test(v) ? v : v && typeof v === 'object' && typeof v.term === 'string' ? v.term : null);
 const docs = [];
 const seen = new Set();
 let skipped = 0;
@@ -115,7 +117,7 @@ for (const source of listManifests()) {
     if (!t || t.info.flags?.some((f) => SKIP_FLAGS.has(f)) || t.text.trim().length < 400) { skipped += 1; continue; }
     const text = t.text.replace(/\f/g, '\n');
     docs.push({
-      sha: row.sha, source, url: row.finalUrl ?? row.url, hintCodes: row.hintCodes ?? [], hintTerm: row.hintTerm ?? t.info.term ?? null,
+      sha: row.sha, source, url: row.finalUrl ?? row.url, hintCodes: row.hintCodes ?? [], hintTerm: termStr(row.hintTerm) ?? termStr(t.info.term),
       hintSection: row.hintSection ?? null, instructorHint: row.instructorHint ?? null, kindHint: row.kindHint ?? null, title: t.info.title ?? null, chars: text.length,
       header: text.slice(0, HEADER_CHARS), excerpt: excerptOf(text),
     });

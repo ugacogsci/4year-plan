@@ -55,12 +55,14 @@ function courseOrder() {
   const cat = loadUgaCatalog();
   const all = process.env.UGA_SYLLABI_ALL === '1';
   const levels = (process.env.UGA_SYLLABI_LEVELS ?? '1,2,3,4').split(',').map((s) => Number(s.trim())).filter(Boolean);
-  const rows = cat.all().filter((c) => c.id && (all || c.undergraduate));
   const rank = (c) => {
     const k = Math.floor(c.level / 1000);
     const i = levels.indexOf(k);
     return i === -1 ? 99 : i;
   };
+  // Only the named levels run, in the order named, so a run per level writes
+  // its manifest within the hour instead of after all 7,322 pages.
+  const rows = cat.all().filter((c) => c.id && (all || c.undergraduate) && (all || rank(c) !== 99));
   rows.sort((a, b) => rank(a) - rank(b) || a.code.localeCompare(b.code));
   const limit = Number(process.env.UGA_SYLLABI_LIMIT ?? 0);
   return limit > 0 ? rows.slice(0, limit) : rows;
