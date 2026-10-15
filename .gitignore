@@ -36,3 +36,4 @@ public/__samples/
 # Instructors own the syllabus text, so none of it is committed; only the
 # facts in public/illinois/syllabi.json are.
 data/syllabi/
+data/syllabi

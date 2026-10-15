@@ -407,8 +407,9 @@ export type AdvisorToolName =
 
 /**
  * The tools ARCH (UGA) gets, in ALMA's order. Left out because the planner
- * holds their data for Illinois only: course_syllabus, program_admission,
- * compare_programs and find_clubs (ARCH's prompt says what to say instead).
+ * holds their data for Illinois only: program_admission, compare_programs and
+ * find_clubs (ARCH's prompt says what to say instead). course_syllabus reads
+ * UGA's own shards (public/uga/syllabi) since 2026-10-15.
  * Left out until they are checked on a UGA board: set_priorities and
  * set_plan_shape (the overload rule they relay comes from Illinois's
  * colleges, and the summer choice from Illinois's offering history).
@@ -416,6 +417,7 @@ export type AdvisorToolName =
 export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolName>([
   'search_courses',
   'course_details',
+  'course_syllabus',
   'term_summary',
   'add_course',
   'remove_course',
@@ -440,6 +442,11 @@ export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolN
  * where a field's own description names Illinois. ALMA's list is untouched.
  */
 const UGA_TOOL_TEXT: Partial<Record<AdvisorToolName, { description: string; properties?: Record<string, { description: string }> }>> = {
+  course_syllabus: {
+    description:
+      "What a course's own published syllabi say: the grade breakdown (each graded item and its percent or points), exams and their dates, the final, required materials, and the attendance, late-work, make-up and other course policies, each syllabus with its term, the instructor who uploaded it and a link to the file on UGA's Bulletin. Newest term first. Where the Bulletin publishes the course's master outline, an entry with objectives and topics and no grading follows, for \"what does this course cover\". Use it for any question about how a course is graded or run (\"what percent is the project\", \"is attendance graded\", \"which textbook\", \"how many exams\") or what it covers. An empty list means no instructor has uploaded a syllabus for the course and the Bulletin has no outline for it, not that the course has none.",
+    properties: { code: { description: 'A course code like "CHEM 1211".' } },
+  },
   course_details: {
     description:
       "Everything the planner holds about one course: the catalog description, its prerequisite sentence, general education categories, how it fits the student's priorities and why, whether it is on the board or already taken, and any grade history, sections or credit/no-credit reading the university's data holds (null or a note when it holds none; for UGA it holds none of those).",
@@ -762,7 +769,6 @@ const UGA_WHO_DECIDES = [
  */
 const UGA_NOT_LOADED = [
   '- Clubs: the planner has no UGA student-organization list. Say so, and use university_answer for how to find organizations at UGA; never name a club from memory.',
-  "- Syllabi: none are loaded for UGA. How a course is graded comes from that course's own syllabus (its eLC page or the instructor); never guess weights, exams or attendance rules.",
   '- Class times, sections and the weekly clash check: not loaded for UGA. The plan picks courses for each term, not sections; days, times and instructors are chosen at registration. Never state a meeting time, and say that whether a term\'s courses fit in one week is not checked.',
   '- Grade history and teaching ratings: none are loaded for UGA, so you cannot rank courses by difficulty or by teaching, and a term cannot be called heavy or light by grades. Judge a term by what is in it (labs, upper-level major courses, credits) and say that is all you go on. Never cite RateMyProfessors or any outside site, and never call an instructor good or bad.',
   '- Getting into a competitive major or college, a second major, minors and certificates: the planner does not check these for UGA. Say so, answer from UGA\'s pages with university_answer, and send the student to the department.',
@@ -807,6 +813,7 @@ ${SHARED_ADVISOR_RULES.forKeptOut}
 Rules about the board
 - Every card on the board is marked required, from a list, elective slot, language, gen ed pick, prerequisite, or added (the board description gives the legend). Prefer changing elective slots and gen ed picks (a gen ed pick is swapped for another course carrying the same categories). Never remove or replace a required or from-a-list course unless the student has clearly said yes to removing that specific course in this conversation; then, and only then, call the tool with confirmed true. If they ask you to drop one, say what it is required for and ask for a yes.
 ${SHARED_ADVISOR_RULES.boardToolsForFacts}
+- How a course is graded or run (what an assignment, project or exam is worth, how many exams, the final, attendance, late work, the textbook) and what it covers come only from course_syllabus. Name the term and instructor the facts come from and link the file. Say that weights and policies can change by term, instructor and section, so the student's own syllabus on the first day is the final word; say how old a syllabus is when it is older than a year; and call the Bulletin's outline what it is (the course's objectives and topics, with no grading). When course_syllabus finds none, say that no syllabus for the course is posted on UGA's Bulletin and point to the course's eLC page or instructor; never guess weights, exams or attendance rules.
 ${SHARED_ADVISOR_RULES.boardToolFails}
 - When you suggest a course, say why in the student's terms, from the reasons the tools return (the requirement it covers, its prerequisites, their interests). Do not invent reasons the tools did not give.
 ${SHARED_ADVISOR_RULES.boardTermSize}

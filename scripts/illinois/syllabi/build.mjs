@@ -22,12 +22,30 @@ import { join } from 'node:path';
 import { loadCatalog, normalizeCode } from './lib/catalog.mjs';
 import { DIRS, ROOT } from './lib/paths.mjs';
 import { makeTerm, termKey, termLabel, termMentions } from './lib/terms.mjs';
+import { loadUgaCatalog, normalizeUgaCode } from './lib/uga-catalog.mjs';
+
+/**
+ * --school illinois (default) | uga. Each school's facts ship to its own
+ * folder (public/{school}/syllabi) and are matched against its own catalog; a
+ * fact's source says which school it is (UGA's sources start with "uga-").
+ * For UGA the Bulletin's own course objectives and topical outline, which it
+ * publishes for about a quarter of courses, ship too, as an undated
+ * master-outline entry, so a course with no uploaded syllabus still answers
+ * "what is this course about".
+ */
+const schoolArg = process.argv.indexOf('--school');
+const SCHOOL = schoolArg > 0 ? process.argv[schoolArg + 1] : 'illinois';
+if (!['illinois', 'uga'].includes(SCHOOL)) throw new Error(`--school must be illinois or uga, not ${SCHOOL}`);
+const isUgaSource = (source) => String(source ?? '').startsWith('uga-');
 
 const FACTS = join(DIRS.state, '..', 'facts');
-const OUT = join(ROOT, 'public', 'illinois', 'syllabi');
+const OUT = join(ROOT, 'public', SCHOOL, 'syllabi');
 const SHIP = new Set(['syllabus', 'course-policy', 'master-outline']);
 
-const catalog = loadCatalog();
+const catalog = SCHOOL === 'uga' ? null : loadCatalog();
+const ugaCatalog = SCHOOL === 'uga' ? loadUgaCatalog() : null;
+const norm = SCHOOL === 'uga' ? normalizeUgaCode : normalizeCode;
+const twinsOf = (code) => (catalog ? catalog.twins(code) : []);
 const byCourse = new Map();
 const counts = { documents: 0, shipped: 0, notACourseDocument: 0, noCatalogCode: 0 };
 const sources = {};
@@ -56,10 +74,11 @@ const short = (s, n = 200) => (s == null ? null : String(s).replace(/\s+/g, ' ')
 
 for (const f of existsSync(FACTS) ? readdirSync(FACTS).filter((n) => n.endsWith('.json')) : []) {
   const doc = JSON.parse(readFileSync(join(FACTS, f), 'utf8'));
+  if (isUgaSource(doc.source) !== (SCHOOL === 'uga')) continue; // the other school's document
   counts.documents += 1;
   const x = doc.facts;
   if (!SHIP.has(x.kind)) { counts.notACourseDocument += 1; continue; }
-  const codes = [...new Set([...(doc.hintCodes ?? []), ...(x.codes ?? [])].map(normalizeCode).filter(Boolean))];
+  const codes = [...new Set([...(doc.hintCodes ?? []), ...(x.codes ?? [])].map(norm).filter(Boolean))];
   if (codes.length === 0) { counts.noCatalogCode += 1; continue; }
   const { term, listedTerm } = termOf(x.term, doc.hintTerm);
   const entry = {
@@ -67,7 +86,8 @@ for (const f of existsSync(FACTS) ? readdirSync(FACTS).filter((n) => n.endsWith(
     termLabel: termLabel(term),
     ...(listedTerm ? { listedFor: termLabel(listedTerm) } : {}),
     section: doc.hintSection ?? null,
-    instructors: (x.instructors ?? []).slice(0, 4),
+    // The store's own instructor label (UGA's Bulletin names who uploaded each file) fills in when the reader found no name.
+    instructors: (x.instructors?.length ? x.instructors : doc.instructorHint ? [doc.instructorHint] : []).slice(0, 4),
     kind: x.kind,
     source: doc.source,
     // A Google Doc was read through its plain-text export; a student gets the document itself.
@@ -93,11 +113,29 @@ for (const f of existsSync(FACTS) ? readdirSync(FACTS).filter((n) => n.endsWith(
   counts.shipped += 1;
   sources[doc.source] = (sources[doc.source] ?? 0) + 1;
   const shipTo = new Map(codes.map((c) => [c, null]));
-  for (const c of codes) for (const twin of catalog.twins(c)) if (!shipTo.has(twin)) shipTo.set(twin, c);
+  for (const c of codes) for (const twin of twinsOf(c)) if (!shipTo.has(twin)) shipTo.set(twin, c);
   for (const [code, via] of shipTo) {
     const list = byCourse.get(code) ?? [];
     list.push(via ? { ...entry, viaCrossList: via } : entry);
     byCourse.set(code, list);
+  }
+}
+
+if (ugaCatalog) {
+  // The Bulletin's master syllabus for the course: objectives and topics, no grading.
+  for (const c of ugaCatalog.all()) {
+    if (c.objectives.length === 0 && c.outline.length === 0) continue;
+    const list = byCourse.get(c.code) ?? [];
+    list.push({
+      term: null, termLabel: null, section: null, instructors: [], kind: 'master-outline', source: 'uga-bulletin-outline', url: c.url,
+      grading: { basis: 'unknown', components: [], pointsTotal: null, scale: null, curve: null, drop: null, extraCredit: null },
+      exams: [], finalExam: null, materials: [], attendance: null, lateWork: null, makeups: null, other: [],
+      objectives: c.objectives.slice(0, 8).map((o) => short(o, 220)).filter(Boolean),
+      topics: c.outline.slice(0, 14).map((t) => short(t, 120)).filter(Boolean),
+      confidence: 'high',
+    });
+    byCourse.set(c.code, list);
+    counts.outlines = (counts.outlines ?? 0) + 1;
   }
 }
 
@@ -120,4 +158,4 @@ for (const [code, list] of byCourse) {
 for (const [subject, courses] of bySubject) writeFileSync(join(OUT, `${subject}.json`), JSON.stringify({ subject, builtAt, courses }));
 writeFileSync(join(OUT, 'index.json'), JSON.stringify({ builtAt, counts, sources, courses: index }));
 const current = Object.values(index).filter((v) => v.latest && termKey(v.latest) >= termKey('fa2023')).length;
-console.log(`${counts.shipped} of ${counts.documents} documents ship (${counts.notACourseDocument} not a course document, ${counts.noCatalogCode} no catalog code), covering ${byCourse.size} courses in ${bySubject.size} subjects; ${current} with a syllabus from Fall 2023 or later`);
+console.log(`[${SCHOOL}] ${counts.shipped} of ${counts.documents} documents ship${counts.outlines ? ` + ${counts.outlines} Bulletin outlines` : ''} (${counts.notACourseDocument} not a course document, ${counts.noCatalogCode} no catalog code), covering ${byCourse.size} courses in ${bySubject.size} subjects; ${current} with a syllabus from Fall 2023 or later`);

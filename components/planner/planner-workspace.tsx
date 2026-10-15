@@ -195,6 +195,7 @@ import { buildAdvisorPacket, cardRole, type AdvisorPacket, type CardRole } from 
 import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail, loadIllinoisSectionTerms, loadIllinoisSyllabi, sectionTermsOf } from '@/lib/planner/illinois-load';
+import { loadUgaSyllabi } from '@/lib/planner/uga-syllabi';
 import type { IllinoisCore } from '@/lib/planner/illinois-load';
 import {
   graduateOptionName, graduatePlanSettings, isIllinoisGraduateId, loadIllinoisGraduateCatalog,
@@ -4148,7 +4149,25 @@ export function PlannerWorkspace({
       }
       case 'course_syllabus': {
         const c = courseOf(str('code'));
-        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        const ugaBoard = L.context?.schoolId === 'uga';
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${ugaBoard ? 'UGA' : 'Illinois'} catalog.` };
+        if (ugaBoard) {
+          // UGA: the files instructors upload to the Syllabus System, as the Bulletin
+          // publishes them per course, plus the Bulletin's own outline. No sections
+          // are loaded for UGA, so there is no "who teaches it this term" to compare.
+          const syllabi = await loadUgaSyllabi(c.code);
+          if (syllabi.length === 0) {
+            return { ok: true, code: c.code, found: 0, this_term: null, note: `No syllabus for ${c.code} is posted on UGA's Bulletin page for the course, and the Bulletin publishes no outline for it. Instructors upload syllabi to UGA's Syllabus System; the course's eLC page or its instructor has the current one.` };
+          }
+          return {
+            ok: true,
+            code: c.code,
+            found: syllabi.length,
+            this_term: null,
+            note: "Newest term first; an entry with objectives and topics and no grading is the Bulletin's master outline for the course. Weights and policies change by term, instructor and section; the syllabus a student gets on the first day is the final word. The instructor named is the one who uploaded the file.",
+            syllabi: syllabi.slice(0, 6),
+          };
+        }
         const [syllabi, detail] = await Promise.all([loadIllinoisSyllabi(c.code), loadIllinoisCourseDetail(c.code)]);
         // Who teaches it in the term that matters (its column's, or the newest
         // schedule), so a syllabus from another term or instructor can be told

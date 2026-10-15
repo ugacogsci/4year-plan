@@ -20,14 +20,17 @@ import { chemDocs, econDocs, mathDocs } from './sources/drupal-docs.mjs';
 import * as graingerIndex from './sources/grainger-index.mjs';
 import * as getfile from './sources/ws-engr-getfile.mjs';
 import * as getsyllabus from './sources/ws-engr-getsyllabus.mjs';
+import * as ugaBulletin from './sources/uga-bulletin.mjs';
 
-const SOURCES = Object.fromEntries([getsyllabus, getfile, graingerIndex, chemDocs, econDocs, mathDocs].map((s) => [s.id, s]));
+const SOURCES = Object.fromEntries([getsyllabus, getfile, graingerIndex, chemDocs, econDocs, mathDocs, ugaBulletin].map((s) => [s.id, s]));
+// UGA's source runs only when named: the default run is the Illinois refresh.
+const DEFAULT_SOURCES = Object.keys(SOURCES).filter((id) => !id.startsWith('uga-'));
 
 const arg = (name) => {
   const i = process.argv.indexOf(name);
   return i > 0 ? process.argv[i + 1] : null;
 };
-const picked = (arg('--sources') ?? Object.keys(SOURCES).join(',')).split(',').filter(Boolean);
+const picked = (arg('--sources') ?? DEFAULT_SOURCES.join(',')).split(',').filter(Boolean);
 const force = process.argv.includes('--force');
 if (process.argv.includes('--offline')) setOffline(true);
 for (const id of picked) if (!SOURCES[id]) throw new Error(`unknown source ${id}; known: ${Object.keys(SOURCES).join(', ')}`);
