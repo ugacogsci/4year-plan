@@ -84,6 +84,13 @@ export interface PlanState {
    * before the field existed.
    */
   exemptCourseIds?: string[];
+  /**
+   * Courses a transfer line only "may be" (an unconfirmed suggestion): not
+   * booked, not counted toward a requirement or the hours, and clearing
+   * prerequisites as an exemption does until the student confirms or rejects
+   * the line (transfer-maybe.ts). Absent on every other board.
+   */
+  maybeCourseIds?: string[];
   terms: PlanTerm[];
 }
 
