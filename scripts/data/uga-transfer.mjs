@@ -1,8 +1,8 @@
 /**
  * UGA's own transfer equivalency list, one sending school per file.
  *
- *   node scripts/data/uga-transfer.mjs            (all schools below)
- *   node scripts/data/uga-transfer.mjs 005251 …   (some schools, by key)
+ *   node scripts/data/uga-transfer.mjs --fetch            (all schools below)
+ *   node scripts/data/uga-transfer.mjs --fetch 005251 …   (some schools, by key)
  *
  * Source: UGA Admissions' public Transfer Equivalency Search,
  * https://apply.uga.edu/portal/transfer-equivalency . No login, and the
@@ -20,8 +20,22 @@
  * change; the official evaluation comes after admission. So each file keeps
  * the date it was read, and the planner shows that date. Refresh once a term
  * (a data update: gate --mode data).
+ *
+ * The portal page carries a hidden reCAPTCHA badge, so lists are now read in
+ * a real browser, one school per page view, at least 10 seconds apart, and
+ * handed to this script:
+ *
+ *   node scripts/data/uga-transfer.mjs --from-browser <dir> [key …]
+ *
+ * <dir>/<key>.txt holds what the browser tab read from the results page,
+ * parsed with the same rules as below (sending code, UGA result(s), row
+ * count, the school name the page prints). Lines are "RESULT[+RESULT]|CODE
+ * CODE …", where a code that starts with a digit keeps the letters of the
+ * code before it ("ACC201 202" is ACC201 and ACC202; "!101" is the bare code
+ * 101). The read date is the day the file was saved. If the page showed a
+ * challenge, the file says so and the script stops.
  */
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -103,6 +117,37 @@ export const SCHOOLS = [
   { key: '005219', name: 'Florida State University', system: 'other', match: ['florida state university'] },
   { key: '005113', name: 'College of Charleston', system: 'other', match: ['college of charleston'] },
   { key: '005816', name: 'University of North Carolina at Chapel Hill', system: 'other', match: ['chapel hill', 'unc chapel hill'] },
+  // Added 2026-10-14 (read in the browser): common feeders the first pass did not hold.
+  { key: '001058', name: 'Belmont University', system: 'other', match: ['belmont university'] },
+  { key: '005249', name: 'Georgia Military College', system: 'other', match: ['georgia military college', 'georgia military'] },
+  { key: '001871', name: 'Vanderbilt University', system: 'other', match: ['vanderbilt'] },
+  { key: '005537', name: 'Piedmont University', system: 'other', match: ['piedmont university', 'piedmont college'] },
+  { key: '005184', name: 'Emmanuel University', system: 'other', match: ['emmanuel university', 'emmanuel college'], not: ['boston', 'massachusetts'] },
+  { key: '005990', name: 'Young Harris College', system: 'other', match: ['young harris'] },
+  { key: '005002', name: 'Agnes Scott College', system: 'other', match: ['agnes scott'] },
+  { key: '005628', name: 'Spelman College', system: 'other', match: ['spelman'] },
+  { key: '005415', name: 'Morehouse College', system: 'other', match: ['morehouse college'], not: ['school of medicine'] },
+  { key: '005631', name: 'Savannah College of Art and Design', system: 'other', match: ['savannah college of art'] },
+  { key: '005066', name: 'Brenau University', system: 'other', match: ['brenau'] },
+  { key: '005568', name: 'Reinhardt University', system: 'other', match: ['reinhardt'] },
+  { key: '005798', name: 'Truett McConnell University', system: 'other', match: ['truett mcconnell', 'truett-mcconnell'] },
+  { key: '005362', name: 'LaGrange College', system: 'other', match: ['lagrange college', 'la grange college'] },
+  { key: '005616', name: 'Shorter University', system: 'other', match: ['shorter university', 'shorter college'] },
+  { key: '005895', name: 'Wesleyan College', system: 'other', match: ['wesleyan college'], not: ['kentucky wesleyan', 'north carolina wesleyan', 'virginia wesleyan', 'iowa wesleyan', 'tennessee wesleyan', 'west virginia wesleyan'] },
+  { key: '006124', name: 'Covenant College', system: 'other', match: ['covenant college'] },
+  { key: '001302', name: 'Samford University', system: 'other', match: ['samford'] },
+  { key: '001856', name: 'University of Alabama at Birmingham', system: 'other', match: ['university of alabama at birmingham', 'university of alabama birmingham'] },
+  { key: '001738', name: 'Troy University', system: 'other', match: ['troy university'] },
+  { key: '001831', name: 'University of Tennessee at Chattanooga', system: 'other', match: ['university of tennessee at chattanooga', 'university of tennessee chattanooga', 'ut chattanooga'] },
+  { key: '005222', name: 'Furman University', system: 'other', match: ['furman'] },
+  { key: '005837', name: 'Coastal Carolina University', system: 'other', match: ['coastal carolina university'] },
+  { key: '005233', name: 'University of Central Florida', system: 'other', match: ['university of central florida'] },
+  { key: '005828', name: 'University of South Florida', system: 'other', match: ['university of south florida'] },
+  { key: '001840', name: 'University of Mississippi', system: 'other', match: ['university of mississippi', 'ole miss'] },
+  { key: '006373', name: 'Louisiana State University', system: 'other', match: ['louisiana state university'], not: ['shreveport', 'alexandria', 'eunice', 'health'] },
+  { key: '001837', name: 'University of Kentucky', system: 'other', match: ['university of kentucky'] },
+  { key: '005859', name: 'Virginia Tech', system: 'other', match: ['virginia tech', 'virginia polytechnic'] },
+  { key: '005496', name: 'North Carolina State University', system: 'other', match: ['north carolina state', 'nc state'] },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -154,36 +199,90 @@ async function findKey(school) {
   return hit.key;
 }
 
+/** A date as YYYY-MM-DD in local time (the day the list was read here). */
+const localDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** What a browser tab handed over for one school (see the note at the top). */
+function readBrowserList(path) {
+  const head = {};
+  const courses = {};
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    if (line.startsWith('#')) {
+      const i = line.indexOf('=');
+      head[line.slice(1, i)] = line.slice(i + 1);
+      continue;
+    }
+    const bar = line.indexOf('|');
+    const results = line.slice(0, bar).split('+');
+    let prev = '';
+    for (const tok of line.slice(bar + 1).split(' ').filter(Boolean)) {
+      const from = tok.startsWith('!') ? tok.slice(1) : /^\d/.test(tok) && prev ? prev + tok : tok;
+      prev = from.match(/^[^0-9]*/)[0];
+      if (courses[from]) throw new Error(`${path}: ${from} listed twice`);
+      courses[from] = results;
+    }
+  }
+  if (head.challenge !== 'false') return { challenge: true };
+  if (head.bad !== '0') throw new Error(`${path}: the page had codes this format cannot carry`);
+  const rows = Object.fromEntries(Object.keys(courses).sort().map((k) => [k, courses[k]]));
+  if (Object.keys(rows).length !== Number(head.courses)) throw new Error(`${path}: ${Object.keys(rows).length} courses, page had ${head.courses}`);
+  return { challenge: false, listed: head.listed && head.listed !== 'null' ? head.listed : null, n: Number(head.n), rows, readAt: localDay(statSync(path).mtime) };
+}
+
 async function main() {
-  const only = process.argv.length > 2 ? new Set(process.argv.slice(2)) : null;
-  if (!(await robotsAllow())) {
+  const args = process.argv.slice(2);
+  const fb = args.indexOf('--from-browser');
+  const browserDir = fb >= 0 ? args[fb + 1] : null;
+  const picked = args.filter((a, i) => a !== '--fetch' && (fb < 0 || (i !== fb && i !== fb + 1)));
+  const only = picked.length > 0 ? new Set(picked) : null;
+  if (!browserDir && !args.includes('--fetch')) {
+    // Reading the portal directly needs the owner's say-so (its page carries
+    // a reCAPTCHA badge); the default way is the browser hand-off above.
+    console.error('Nothing read: pass --from-browser <dir> (the usual way) or --fetch (direct, only with the owner\'s say-so).');
+    process.exit(1);
+  }
+  if (!browserDir && !(await robotsAllow())) {
     console.error('robots.txt no longer allows the portal for our agent: stopping.');
     process.exit(2);
   }
   mkdirSync(OUT, { recursive: true });
   const indexPath = join(OUT, 'index.json');
   const index = existsSync(indexPath) ? JSON.parse(readFileSync(indexPath, 'utf8')) : { schools: [] };
-  const readAt = new Date().toISOString().slice(0, 10);
   for (const school of SCHOOLS) {
     if (only && !only.has(school.key) && !only.has(school.name)) continue;
-    const key = school.key ?? (await findKey(school));
-    if (!key) continue;
+    let key, listed, rows, n, readAt;
+    if (browserDir) {
+      key = school.key;
+      const path = join(browserDir, `${key}.txt`);
+      if (!existsSync(path)) continue;
+      const read = readBrowserList(path);
+      if (read.challenge) {
+        console.error(`The browser met a challenge for ${school.name}: stopping, nothing worked around.`);
+        process.exit(3);
+      }
+      ({ listed, rows, n, readAt } = read);
+    } else {
+      key = school.key ?? (await findKey(school));
+      if (!key) continue;
+      const html = await get(`${PORTAL}?cmd=search&ceeb=${key}`);
+      if (/g-recaptcha-response|captcha challenge|verify you are human/i.test(html) && !/<th>Transferring Course<\/th>/.test(html)) {
+        console.error(`A challenge page came back for ${school.name}: stopping, nothing worked around.`);
+        process.exit(3);
+      }
+      listed = html.match(/Here are the results for <b>([^<]+)<\/b>/)?.[1] ?? null;
+      rows = {};
+      n = 0;
+      for (const m of html.matchAll(/<tr[^>]*>\s*<td>([^<]*)<\/td>\s*<td>([^<]*)<\/td>/g)) {
+        const from = strip(m[1]).toUpperCase().replace(/\s+/g, '');
+        const to = ugaResult(m[2]);
+        if (!from || !to) continue;
+        (rows[from] ??= []).includes(to) || rows[from].push(to);
+        n += 1;
+      }
+      readAt = localDay(new Date());
+    }
     const url = `${PORTAL}?cmd=search&ceeb=${key}`;
-    const html = await get(url);
-    if (/g-recaptcha-response|captcha challenge|verify you are human/i.test(html) && !/<th>Transferring Course<\/th>/.test(html)) {
-      console.error(`A challenge page came back for ${school.name}: stopping, nothing worked around.`);
-      process.exit(3);
-    }
-    const listed = html.match(/Here are the results for <b>([^<]+)<\/b>/)?.[1] ?? null;
-    const rows = {};
-    let n = 0;
-    for (const m of html.matchAll(/<tr[^>]*>\s*<td>([^<]*)<\/td>\s*<td>([^<]*)<\/td>/g)) {
-      const from = strip(m[1]).toUpperCase().replace(/\s+/g, '');
-      const to = ugaResult(m[2]);
-      if (!from || !to) continue;
-      (rows[from] ??= []).includes(to) || rows[from].push(to);
-      n += 1;
-    }
     const file = { school: school.name, listedAs: listed, key, system: school.system, source: url, portal: PORTAL, readAt, rows: n, courses: rows };
     writeFileSync(join(OUT, `${key}.json`), JSON.stringify(file) + '\n');
     const entry = { key, name: school.name, system: school.system, match: school.match, ...(school.not ? { not: school.not } : {}), readAt, rows: n, courses: Object.keys(rows).length };
