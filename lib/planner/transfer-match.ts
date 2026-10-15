@@ -386,6 +386,32 @@ export interface TransferGenEdGuide {
     paired: Array<{ courses: string[]; tags: string[]; why: string; lab?: string }>;
     language: Record<string, { title: string; semester: number | null; language: string | null }>;
   }>;
+  /** What an Illinois Articulation Initiative code usually counts for at Illinois (itransfer.org's GECC areas). */
+  iai?: IaiGuide;
+}
+
+/** IAI code areas ("H3" literature, "S6" psychology) and the Illinois gen-ed category each usually meets. */
+export interface IaiGuide {
+  source: string;
+  checked: string | null;
+  note: string;
+  /** Keyed by the code's area, the letters and digit before the number: "H3", "M1", "HF". */
+  areas: Record<string, { area: string; tags: string[]; why?: string }>;
+}
+
+/**
+ * The IAI area a printed code belongs to, or null: "H3 900" is literature,
+ * "M1 900-1" mathematics, "L1 910L" a life science with a lab. A code this
+ * table does not name (interdisciplinary humanities, religious studies,
+ * whose Illinois category varies) is left to the evaluation.
+ */
+export function iaiArea(guide: TransferGenEdGuide | null | undefined, iai: string | null | undefined): { code: string; area: string; tags: string[]; why: string | null } | null {
+  if (!guide?.iai || !iai) return null;
+  const m = String(iai).toUpperCase().match(/\b(HF|LP|[CFHLMPS]\d)\s*-?\s*(\d{3})([A-Z0-9-]*)/);
+  if (!m) return null;
+  const hit = guide.iai.areas[m[1]];
+  if (!hit) return null;
+  return { code: `${m[1]} ${m[2]}${m[3]}`, area: hit.area, tags: hit.tags, why: hit.why ?? null };
 }
 
 let guideCache: Promise<TransferGenEdGuide | null> | null = null;

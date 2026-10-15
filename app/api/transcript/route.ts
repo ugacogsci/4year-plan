@@ -81,6 +81,7 @@ const Reading = z.object({
   courses: z.array(Course),
   exams: z.array(z.object({ kind: z.string(), exam: z.string(), score: z.string().nullable(), subscore: z.string().nullable().describe('A subscore the document prints for this exam: the AB subscore of AP Calculus BC, the aural subscore of AP Music Theory. Null when none.') })),
   notes: z.array(z.string()),
+  credentials: z.array(z.string()).describe('Degrees, certificates and completions the document says were awarded or completed, as printed ("Associate in Arts", "IAI GECC Completed", "General Education Core Curriculum complete"). Empty when it prints none. Never infer one from the courses.'),
 });
 
 const SYSTEM = `You read what a student has uploaded to a University of Illinois Urbana-Champaign four-year degree planner: a transcript, a degree audit, a Transfer Evaluation Report, a Student Self-Service academic history, a DegreeWorks or uAchieve page, a Canvas course list, or a plain typed list. The student will review every line you return before anything counts, so completeness and fidelity matter more than judgement: return one entry per course line, as printed, in the order printed, across every file and page.
@@ -102,6 +103,7 @@ For the document:
 - hours_unit: "quarter" when the document states quarter hours or the school is on quarters and says so; "semester" when it states semester hours; null when it does not say. Never convert the hours yourself.
 - A degree audit lists requirements still needed next to courses taken: return only courses taken or in progress, never a course the audit lists as still needed or as an option.
 - exams: the AP, IB, CLEP, A-Level or other exams the document names together with a score, the exam name as printed ("Calculus AB", "Psychology", "Biology HL") and kind "AP", "IB", "CLEP" or "A-Level". Empty when it prints none. Where the registrar has already posted the exam as a course line, keep the course line too. A score report has exams and no course lines; that is a complete reading.
+- credentials: every degree, certificate or completion the document says was awarded or completed, as printed (a degree-awarded line such as "Associate in Arts, May 2025", "IAI GECC Completed", "General Education Core Curriculum: complete"). Leave out anything in progress or merely planned. Empty when it prints none.
 - notes: one sentence for anything you could not read or had to leave out, and for any reading you made that the student should check (a cut-off header, a list with no grades printed). Otherwise empty.
 
 Do not invent lines, grades, hours or equivalents. If a line is unreadable, leave it out and say so in notes. If several files were sent, read them as one document in the order given and do not repeat a line that appears on two of them.`;
@@ -228,6 +230,7 @@ export async function POST(req: Request) {
         .filter((c) => c.code.length > 0),
       exams: parsed.exams.map((e) => ({ kind: e.kind.trim(), exam: e.exam.trim(), score: clean(e.score), subscore: clean(e.subscore) })),
       notes: parsed.notes.map((n) => n.trim()).filter(Boolean),
+      credentials: (parsed.credentials ?? []).map((n) => n.trim()).filter(Boolean),
     };
     // A score report has exams and no course lines, and that is a reading.
     if (reading.courses.length === 0 && reading.exams.length === 0) {

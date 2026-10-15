@@ -160,5 +160,11 @@ out = {
         'language': dict(sorted(lang.items())),
     }],
 }
+# The IAI code table (what an IAI code usually counts for at Illinois) is
+# kept by hand from itransfer.org, not from this PDF; carry it over.
+if os.path.exists(OUT):
+    previous = json.load(open(OUT))
+    if 'iai' in previous:
+        out['iai'] = previous['iai']
 json.dump(out, open(OUT, 'w'), indent=1)
 print(f'{len(courses)} Parkland courses with Illinois gen-ed categories, {len(lang)} language courses, effective {out["effective"]}')
