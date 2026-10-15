@@ -5029,7 +5029,7 @@ export function PlannerWorkspace({
                 const course = designation ? null : courseOf(r);
                 return {
                   result: r,
-                  ...(course ? { course: `${course.code} ${course.title} (${course.credits} cr)`, on_board_or_held: holding(course.id) || L.completedCodes.has(normCode(course.code)) } : {}),
+                  ...(course ? { course: `${course.code} ${course.title} (${course.credits} cr)`, on_board: holding(course.id)?.label ?? null, already_held: L.completedCodes.has(normCode(course.code)) } : {}),
                   ...(designation ? { meaning: designation.kind === 'none' ? 'does not transfer (NTFR)' : designation.kind === 'elective' ? 'elective credit in the subject, not a single UGA course' : designation.kind === 'core-us-history' ? 'core credit that also meets the U.S. history requirement, not a single UGA course' : 'core credit in the subject, not a single UGA course' } : {}),
                 };
               }),
