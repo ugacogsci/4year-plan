@@ -1,6 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { ADVISOR_MODEL, ADVISOR_TOOLS, advisorSystem, type AdvisorMessage } from './advisor';
+import { ADVISOR_MODEL, ADVISOR_TOOLS, advisorSystem, ugaAdvisorTools, type AdvisorMessage } from './advisor';
 import { termDatesBlock } from './term-dates';
+import { ugaTermDatesBlock } from './uga-term-dates';
 
 /**
  * The request /api/advisor sends to the model for one step of ALMA's loop,
@@ -28,23 +29,12 @@ import { termDatesBlock } from './term-dates';
  * changed. Nothing is stored: the browser never sees the attached block, so
  * the next step attaches a fresh one to the new newest message.
  *
- * MERGE-UGA: ARCH (UGA) gets the same order, without the Illinois dates
- * (needs owner decision: Cameron's call; the commit before this one kept
- * ARCH on its old request).
+ * ARCH (UGA) gets the same order, with UGA's own term dates
+ * (uga-term-dates.ts) in place of Illinois's, and its own tool list
+ * (ugaAdvisorTools in advisor.ts: ALMA's tools less the Illinois-only ones,
+ * worded without Illinois). Illinois dates never reach a UGA student, and
+ * UGA dates never reach an Illinois one.
  */
-
-/** The tools a non-Illinois (UGA) student's assistant gets. */
-const UGA_TOOLS = new Set([
-  'search_courses',
-  'course_details',
-  'term_summary',
-  'add_course',
-  'remove_course',
-  'replace_course',
-  'move_course',
-  'planner_answer',
-  'university_answer',
-]);
 
 export const ADVISOR_MAX_TOKENS = 4096;
 
@@ -88,17 +78,21 @@ export interface AdvisorRequestInput {
   board: string;
   /** The conversation as the browser holds it; never modified here. */
   messages: AdvisorMessage[];
-  /** For the Illinois term dates. */
+  /** For the school's term dates. */
   now: Date;
 }
 
 const isIllinois = (schoolName: string) => /illinois/i.test(schoolName);
 
-/** The step's changing text: Illinois term dates (Illinois only), then the board. */
+/** UGA, read the same way the route reads Illinois: by the school's name. */
+const isUga = (schoolName: string) => /university of georgia|^uga$/i.test(schoolName.trim());
+
+/** The step's changing text: the school's own term dates (Illinois or UGA), then the board. */
 export function stepContextBlocks(input: Pick<AdvisorRequestInput, 'board' | 'schoolName' | 'now'>): Anthropic.Beta.BetaTextBlockParam[] {
   const blocks: Anthropic.Beta.BetaTextBlockParam[] = [];
-  // Illinois registrar dates, for an Illinois student only.
+  // Registrar dates, each school's for its own students only.
   if (isIllinois(input.schoolName)) blocks.push({ type: 'text', text: `${PLANNER_CONTEXT}\n\n${termDatesBlock(input.now)}` });
+  else if (isUga(input.schoolName)) blocks.push({ type: 'text', text: `${PLANNER_CONTEXT}\n\n${ugaTermDatesBlock(input.now)}` });
   blocks.push({ type: 'text', text: `${blocks.length === 0 ? `${PLANNER_CONTEXT}\n\n` : ''}The board right now:\n\n${input.board}` });
   return blocks;
 }
@@ -155,7 +149,7 @@ export function advisorRequest(input: AdvisorRequestInput): Anthropic.Beta.Messa
   return {
     ...commonParams(input.model),
     system: [{ type: 'text', text: advisorSystem(input.bot, input.schoolName, input.schoolShort), cache_control: { type: 'ephemeral' } }],
-    tools: illinois ? ADVISOR_TOOLS : ADVISOR_TOOLS.filter((tool) => UGA_TOOLS.has(tool.name)),
+    tools: illinois ? ADVISOR_TOOLS : ugaAdvisorTools(),
     messages: messagesForStep(input.messages, stepContextBlocks(input), input.model),
   };
 }
