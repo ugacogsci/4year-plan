@@ -184,6 +184,7 @@ import {
   type TranscriptCourseRecord,
   type TranscriptRecord,
 } from '@/lib/planner/transcript';
+import { UGA_TRANSFER_PORTAL, loadUgaTransfer, ugaDesignation, ugaLookup, ugaSchoolEntry } from '@/lib/planner/transfer-official';
 import { withCoreCredit } from '@/lib/planner/transfer-core';
 import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
 import { assumedHours as assumedHoursOf, recordCoverage, uncoveredTerms } from '@/lib/planner/start-term';
@@ -3864,6 +3865,8 @@ export function PlannerWorkspace({
       const coreId = L.core?.meta?.term?.id ?? null;
       const schedule = t.id === coreId ? (L.core?.sections ?? null) : (schedules?.get(t.id) ?? null);
       if (!schedule) {
+        // Each school's own name: a UGA board was told "Illinois's ... class times" (audit, 2026-10-14).
+        if (!isIllinois) return { checked: false, line: null, why: `${school?.short ?? 'This university'}'s class times are not loaded here, so whether these courses fit in one week is not checked.` };
         return { checked: false, line: null, why: `Illinois's ${t.label} class times are not published here, so whether these courses fit in one week is not checked.` };
       }
       const codes = t.courseIds.map((id) => L.courseIndex.get(id)?.code).filter((c): c is string => Boolean(c));
@@ -4298,7 +4301,8 @@ export function PlannerWorkspace({
           const key = normCode(c.code);
           const prereq = L.core?.prereqs?.get(key);
           const grade = L.core?.grades?.get(key);
-          const detail = await loadIllinoisCourseDetail(c.code);
+          // Illinois's course pages only; another school's board uses its own catalog.
+          const detail = isIllinois ? await loadIllinoisCourseDetail(c.code) : null;
           const verdict = term && !holding(c.id) ? check(withCourseIn(board, c.id, term.id), c, term.id) : null;
           const sched = scheduleOf(c, term ? { id: term.id, label: term.label } : null);
           rows.push({
@@ -4318,7 +4322,7 @@ export function PlannerWorkspace({
       }
       case 'explain_choice': {
         const c = courseOf(str('code'));
-        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the Illinois catalog.` };
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${isIllinois ? 'Illinois' : (school?.short ?? 'university')} catalog.` };
         const t = holding(c.id);
         if (!t) return { ok: false, reason: `${c.code} is not on the board.` };
         const role = roleOf(c);
@@ -4921,16 +4925,20 @@ export function PlannerWorkspace({
         };
       }
       case 'exam_credit': {
-        const grainger = /engineering/i.test(L.loaded.program.college ?? '');
+        // Grainger's calculus pricing is Illinois's; a UGA College of Engineering degree has none.
+        const grainger = isIllinois && /engineering/i.test(L.loaded.program.college ?? '');
         const schedule = examSchedule(str('exam'), str('kind') || null, L.examTable, grainger);
-        if (!schedule) return { ok: false, reason: `${str('exam')} is not in the registrar's AP and IB table. Check the name, or it may earn no credit at Illinois.` };
+        if (!schedule) return { ok: false, reason: `${str('exam')} is not in the registrar's AP and IB table. Check the name, or it may earn no credit at ${isIllinois ? 'Illinois' : (school?.short ?? 'this university')}.` };
         const held = (L.answers?.exams ?? []).filter((e) => e.exam === schedule.exam);
         return {
           ok: true,
           ...schedule,
-          priced_for: /Entering/.test(schedule.exam) ? (grainger ? 'students entering Grainger (this degree)' : 'students entering a college other than Grainger (this degree)') : 'every college',
+          priced_for: isIllinois && /Entering/.test(schedule.exam) ? (grainger ? 'students entering Grainger (this degree)' : 'students entering a college other than Grainger (this degree)') : 'every college',
           student_has: held.map((e) => `${e.kind} ${e.exam}${e.level ? ` ${e.level}` : ''}: ${e.score}`),
-          source: 'https://citl.illinois.edu/current-cutoff-scores (policies for students entering Summer 2026, Fall 2026 or Spring 2027)',
+          // Each school's own table: public/uga-exam-credit.json was read from UGA's Registrar page.
+          source: isIllinois
+            ? 'https://citl.illinois.edu/current-cutoff-scores (policies for students entering Summer 2026, Fall 2026 or Spring 2027)'
+            : "https://reg.uga.edu/student-records/credit-from-testing (the UGA Registrar's credit-from-testing table)",
         };
       }
       case 'prior_credit': {
@@ -4948,7 +4956,7 @@ export function PlannerWorkspace({
             term: c.term,
             status: c.status,
             from: c.from ?? (record?.home === false ? record.institution : null),
-            how: c.matchedBy === 'code' ? 'Illinois code on the record' : c.matchedBy === 'printed' ? 'equivalent printed on the document (confirmed)' : c.matchedBy === 'official' ? "the university's own transfer equivalency list" : c.matchedBy === 'proposal' ? 'likely equivalent from the catalog (not confirmed)' : 'entered by the student or in chat',
+            how: c.matchedBy === 'code' ? `${isIllinois ? 'Illinois' : (school?.short ?? 'University')} code on the record` : c.matchedBy === 'printed' ? 'equivalent printed on the document (confirmed)' : c.matchedBy === 'official' ? "the university's own transfer equivalency list" : c.matchedBy === 'proposal' ? 'likely equivalent from the catalog (not confirmed)' : 'entered by the student or in chat',
             ...(c.basis ? { why: c.basis.text, source: c.basis.source ?? null } : {}),
           }));
         const hoursLines = (record?.courses ?? [])
@@ -4991,7 +4999,10 @@ export function PlannerWorkspace({
           open_lines_to_settle: transcriptOpenLines(record).map((c) => ({ as_printed: c.code, title: c.title, hours: c.credits, likely_equivalents: (c.proposals ?? []).map((p) => ({ code: p.code, title: p.title, credits: p.credits, confidence: p.confidence, why: p.why })) })),
           language: L.answers ? { high_school_years: L.answers.languageYears ?? null, language: L.answers.language || null } : null,
           residency: L.report?.residency ?? null,
-          rule: 'Illinois decides equivalency: Transferology is the estimate, the Transfer Evaluation Report the decision. Every transferable course counts at least as elective hours toward the total. Residency: 45 hours at Illinois, 21 at the 300 level or above (admissions.illinois.edu/transferring-credit/).',
+          // Each school's own rule: a UGA student was about to be told Illinois's residency rule (audit, 2026-10-14).
+          rule: isIllinois
+            ? 'Illinois decides equivalency: Transferology is the estimate, the Transfer Evaluation Report the decision. Every transferable course counts at least as elective hours toward the total. Residency: 45 hours at Illinois, 21 at the 300 level or above (admissions.illinois.edu/transferring-credit/).'
+            : `UGA decides equivalency. Its Transfer Equivalency Search (${UGA_TRANSFER_PORTAL}) is UGA's own list; a match marked "the university's own transfer equivalency list" comes from the copy the planner keeps, with its page. The planner does not check UGA's residency rule or how many transfer hours UGA accepts: use university_answer for those.`,
         };
       }
       case 'find_equivalent': {
@@ -4999,11 +5010,44 @@ export function PlannerWorkspace({
         if (!title) return { ok: false, reason: 'Give the course title as printed or as the student said it.' };
         const lite = catalogLiteOf(L.catalog);
         const proposals = proposeEquivalents({ code: str('code').toUpperCase(), title, credits: typeof input.credits === 'number' ? input.credits : null }, lite, 5);
+        /**
+         * UGA's own answer first: the planner keeps UGA's Transfer Equivalency
+         * lists for 91 schools (public/uga-transfer/), the same lists the
+         * transcript reader uses. A catalog guess is only the fallback.
+         */
+        let official: Record<string, unknown> | null = null;
+        let listFor: string | null = null;
+        if (!isIllinois && str('school')) {
+          const table = await loadUgaTransfer([str('school')]).catch(() => null);
+          listFor = ugaSchoolEntry(table?.index, str('school'))?.name ?? null;
+          const hit = str('code') ? ugaLookup(table, str('school'), str('code')) : null;
+          if (hit) {
+            official = {
+              school: hit.entry.name,
+              uga_results: hit.results.map((r) => {
+                const designation = ugaDesignation(r);
+                const course = designation ? null : courseOf(r);
+                return {
+                  result: r,
+                  ...(course ? { course: `${course.code} ${course.title} (${course.credits} cr)`, on_board_or_held: holding(course.id) || L.completedCodes.has(normCode(course.code)) } : {}),
+                  ...(designation ? { meaning: designation.kind === 'none' ? 'does not transfer (NTFR)' : designation.kind === 'elective' ? 'elective credit in the subject, not a single UGA course' : designation.kind === 'core-us-history' ? 'core credit that also meets the U.S. history requirement, not a single UGA course' : 'core credit in the subject, not a single UGA course' } : {}),
+                };
+              }),
+              source: hit.file.source,
+              read: hit.file.readAt,
+            };
+          }
+        }
         return {
           ok: true,
           course: { code: str('code') || null, title, credits: typeof input.credits === 'number' ? input.credits : null, school: str('school') || null },
           likely_equivalents: proposals.map((p) => ({ code: p.code, title: p.title, credits: p.credits, confidence: p.confidence, why: p.why, on_board_or_held: holding(courseOf(p.code)?.id ?? '') || L.completedCodes.has(normCode(p.code)) })),
-          note: proposals.length === 0
+          ...(official ? { uga_official: official } : {}),
+          note: !isIllinois
+            ? official
+              ? "uga_official is UGA's own Transfer Equivalency list for this school: say \"UGA's list says\" and give its page. A result like HIST 1GHX or MATH 1GXX is core credit in the subject (record it as hours), NTFR does not transfer. likely_equivalents below are only the catalog's guesses."
+              : `${!str('school') ? 'No school was given, so UGA\'s own lists were not read; ask which school taught it.' : listFor ? `UGA's list for ${listFor} has no line for ${str('code') || 'this course'}${str('code') ? '' : ' (give its code)'}.` : 'The planner holds no UGA list for that school.'} The student can check UGA's Transfer Equivalency Search (${UGA_TRANSFER_PORTAL}). ${proposals.length === 0 ? 'Nothing in the catalog reads as the same course; if it is college-level it may come in as elective hours.' : 'likely_equivalents are the catalog\'s guesses, not UGA\'s evaluation: present the top one as likely, confirm with the student, then record it.'}`
+            : proposals.length === 0
             ? 'Nothing in the catalog reads as the same course. It still transfers as elective hours if it is college-level; record it as hours.'
             : 'These come from the catalog\'s titles and a table of common equivalents, not from Illinois\'s evaluation. Present the top one as likely, confirm with the student, then record it.',
         };
@@ -5018,18 +5062,18 @@ export function PlannerWorkspace({
         let course: Course | null = null;
         if (code) {
           course = courseOf(code);
-          if (!course) return { ok: false, reason: `${code} is not in the Illinois catalog. If it is another school's course, call find_equivalent with its title first.` };
+          if (!course) return { ok: false, reason: `${code} is not in the ${isIllinois ? 'Illinois' : (school?.short ?? 'university')} catalog. If it is another school's course, call find_equivalent with its title first.` };
         } else if (hours === null || hours <= 0) {
-          return { ok: false, reason: 'Give an Illinois course code, or the hours it transferred as.' };
+          return { ok: false, reason: `Give ${isIllinois ? 'an Illinois' : `a ${school?.short ?? 'university'}`} course code, or the hours it transferred as.` };
         }
         const record = L.answers.transcript;
         if (course && (transcriptCodes(record).includes(normCode(course.code)) || L.completedCodes.has(normCode(course.code)))) {
           return { ok: true, changed: false, message: `${course.code} is already counted as taken.` };
         }
         const line: TranscriptCourseRecord = course
-          ? { code: course.code, title: title ?? course.title, credits: course.credits, grade: null, term: null, status: inProgress ? 'in_progress' : from && !/^(illinois|uiuc|urbana)/i.test(from) ? 'transfer' : 'completed', from, equivalent: null, matched: normCode(course.code), matchedBy: 'student', use: true, counts: 'course', illinoisCredits: course.credits }
+          ? { code: course.code, title: title ?? course.title, credits: course.credits, grade: null, term: null, status: inProgress ? 'in_progress' : from && !(isIllinois ? /^(illinois|uiuc|urbana)/i : /^(uga|university of georgia)\b/i).test(from) ? 'transfer' : 'completed', from, equivalent: null, matched: normCode(course.code), matchedBy: 'student', use: true, counts: 'course', illinoisCredits: course.credits }
           : { code: title?.match(/^[A-Z]{2,5}\s?\d{3,4}[A-Z]?/i)?.[0].toUpperCase() ?? 'TRANSFER', title, credits: hours, grade: null, term: null, status: 'transfer', from, equivalent: null, matched: null, matchedBy: null, use: true, counts: 'hours' };
-        const base: TranscriptRecord = record ?? { fileName: 'Told to ALMA', readAt: new Date().toISOString(), institution: null, kind: 'course_list', home: true, files: [], courses: [], exams: [], notes: [] };
+        const base: TranscriptRecord = record ?? { fileName: isIllinois ? 'Told to ALMA' : `Told to ${botName}`, readAt: new Date().toISOString(), institution: null, kind: 'course_list', home: true, files: [], courses: [], exams: [], notes: [] };
         rebuildForCredit.current = true;
         // The line and the rebuild around it are one undo step with the turn.
         almaChanged(`recorded ${course ? course.code : `${hours} hours`} as credit already held and rebuilt the plan`);
