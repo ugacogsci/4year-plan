@@ -12,6 +12,17 @@
    "courses": 516
   },
   {
+   "key": "005002",
+   "name": "Agnes Scott College",
+   "system": "other",
+   "match": [
+    "agnes scott"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 377,
+   "courses": 310
+  },
+  {
    "key": "005004",
    "name": "Albany State University",
    "system": "usg",
@@ -104,6 +115,17 @@
    "courses": 1345
   },
   {
+   "key": "001058",
+   "name": "Belmont University",
+   "system": "other",
+   "match": [
+    "belmont university"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 321,
+   "courses": 312
+  },
+  {
    "key": "005059",
    "name": "Berry College",
    "system": "other",
@@ -113,6 +135,17 @@
    "readAt": "2026-10-14",
    "rows": 470,
    "courses": 431
+  },
+  {
+   "key": "005066",
+   "name": "Brenau University",
+   "system": "other",
+   "match": [
+    "brenau"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 339,
+   "courses": 329
   },
   {
    "key": "001709",
@@ -159,6 +192,17 @@
    "readAt": "2026-10-14",
    "rows": 578,
    "courses": 557
+  },
+  {
+   "key": "005837",
+   "name": "Coastal Carolina University",
+   "system": "other",
+   "match": [
+    "coastal carolina university"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 202,
+   "courses": 193
   },
   {
    "key": "004172",
@@ -217,6 +261,17 @@
    "courses": 93
   },
   {
+   "key": "006124",
+   "name": "Covenant College",
+   "system": "other",
+   "match": [
+    "covenant college"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 139,
+   "courses": 125
+  },
+  {
    "key": "005167",
    "name": "Dalton State College",
    "system": "usg",
@@ -237,6 +292,22 @@
    "readAt": "2026-10-14",
    "rows": 241,
    "courses": 222
+  },
+  {
+   "key": "005184",
+   "name": "Emmanuel University",
+   "system": "other",
+   "match": [
+    "emmanuel university",
+    "emmanuel college"
+   ],
+   "not": [
+    "boston",
+    "massachusetts"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 278,
+   "courses": 273
   },
   {
    "key": "005187",
@@ -273,6 +344,17 @@
    "readAt": "2026-10-14",
    "rows": 321,
    "courses": 299
+  },
+  {
+   "key": "005222",
+   "name": "Furman University",
+   "system": "other",
+   "match": [
+    "furman"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 343,
+   "courses": 293
   },
   {
    "key": "005252",
@@ -323,6 +405,18 @@
    "not": [
     "technical college"
    ]
+  },
+  {
+   "key": "005249",
+   "name": "Georgia Military College",
+   "system": "other",
+   "match": [
+    "georgia military college",
+    "georgia military"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 283,
+   "courses": 254
   },
   {
    "key": "002860",
@@ -420,6 +514,18 @@
    "courses": 1868
   },
   {
+   "key": "005362",
+   "name": "LaGrange College",
+   "system": "other",
+   "match": [
+    "lagrange college",
+    "la grange college"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 167,
+   "courses": 162
+  },
+  {
    "key": "130352",
    "name": "Lanier Technical College",
    "system": "tcsg",
@@ -430,6 +536,23 @@
    "readAt": "2026-10-14",
    "rows": 249,
    "courses": 249
+  },
+  {
+   "key": "006373",
+   "name": "Louisiana State University",
+   "system": "other",
+   "match": [
+    "louisiana state university"
+   ],
+   "not": [
+    "shreveport",
+    "alexandria",
+    "eunice",
+    "health"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 329,
+   "courses": 321
   },
   {
    "key": "005409",
@@ -453,6 +576,32 @@
    "readAt": "2026-10-14",
    "rows": 850,
    "courses": 804
+  },
+  {
+   "key": "005415",
+   "name": "Morehouse College",
+   "system": "other",
+   "match": [
+    "morehouse college"
+   ],
+   "not": [
+    "school of medicine"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 91,
+   "courses": 86
+  },
+  {
+   "key": "005496",
+   "name": "North Carolina State University",
+   "system": "other",
+   "match": [
+    "north carolina state",
+    "nc state"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 295,
+   "courses": 199
   },
   {
    "key": "005507",
@@ -511,6 +660,51 @@
    "courses": 121
   },
   {
+   "key": "005537",
+   "name": "Piedmont University",
+   "system": "other",
+   "match": [
+    "piedmont university",
+    "piedmont college"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 629,
+   "courses": 595
+  },
+  {
+   "key": "005568",
+   "name": "Reinhardt University",
+   "system": "other",
+   "match": [
+    "reinhardt"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 335,
+   "courses": 316
+  },
+  {
+   "key": "001302",
+   "name": "Samford University",
+   "system": "other",
+   "match": [
+    "samford"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 279,
+   "courses": 227
+  },
+  {
+   "key": "005631",
+   "name": "Savannah College of Art and Design",
+   "system": "other",
+   "match": [
+    "savannah college of art"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 246,
+   "courses": 244
+  },
+  {
    "key": "005609",
    "name": "Savannah State University",
    "system": "usg",
@@ -532,6 +726,18 @@
    "readAt": "2026-10-14",
    "rows": 157,
    "courses": 154
+  },
+  {
+   "key": "005616",
+   "name": "Shorter University",
+   "system": "other",
+   "match": [
+    "shorter university",
+    "shorter college"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 286,
+   "courses": 275
   },
   {
    "key": "005619",
@@ -590,6 +796,17 @@
    "courses": 150
   },
   {
+   "key": "005628",
+   "name": "Spelman College",
+   "system": "other",
+   "match": [
+    "spelman"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 140,
+   "courses": 116
+  },
+  {
    "key": "001830",
    "name": "The University of Alabama",
    "system": "other",
@@ -605,6 +822,52 @@
    "courses": 1458
   },
   {
+   "key": "001738",
+   "name": "Troy University",
+   "system": "other",
+   "match": [
+    "troy university"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 227,
+   "courses": 187
+  },
+  {
+   "key": "005798",
+   "name": "Truett McConnell University",
+   "system": "other",
+   "match": [
+    "truett mcconnell",
+    "truett-mcconnell"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 297,
+   "courses": 266
+  },
+  {
+   "key": "001856",
+   "name": "University of Alabama at Birmingham",
+   "system": "other",
+   "match": [
+    "university of alabama at birmingham",
+    "university of alabama birmingham"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 257,
+   "courses": 249
+  },
+  {
+   "key": "005233",
+   "name": "University of Central Florida",
+   "system": "other",
+   "match": [
+    "university of central florida"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 366,
+   "courses": 352
+  },
+  {
    "key": "005812",
    "name": "University of Florida",
    "system": "other",
@@ -614,6 +877,29 @@
    "readAt": "2026-10-14",
    "rows": 392,
    "courses": 368
+  },
+  {
+   "key": "001837",
+   "name": "University of Kentucky",
+   "system": "other",
+   "match": [
+    "university of kentucky"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 400,
+   "courses": 389
+  },
+  {
+   "key": "001840",
+   "name": "University of Mississippi",
+   "system": "other",
+   "match": [
+    "university of mississippi",
+    "ole miss"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 394,
+   "courses": 382
   },
   {
    "key": "005816",
@@ -655,6 +941,17 @@
    "courses": 914
   },
   {
+   "key": "005828",
+   "name": "University of South Florida",
+   "system": "other",
+   "match": [
+    "university of south florida"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 492,
+   "courses": 466
+  },
+  {
    "key": "001843",
    "name": "University of Tennessee",
    "system": "other",
@@ -668,6 +965,19 @@
    "readAt": "2026-10-14",
    "rows": 522,
    "courses": 468
+  },
+  {
+   "key": "001831",
+   "name": "University of Tennessee at Chattanooga",
+   "system": "other",
+   "match": [
+    "university of tennessee at chattanooga",
+    "university of tennessee chattanooga",
+    "ut chattanooga"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 167,
+   "courses": 154
   },
   {
    "key": "005900",
@@ -692,6 +1002,48 @@
    "courses": 1372
   },
   {
+   "key": "001871",
+   "name": "Vanderbilt University",
+   "system": "other",
+   "match": [
+    "vanderbilt"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 355,
+   "courses": 244
+  },
+  {
+   "key": "005859",
+   "name": "Virginia Tech",
+   "system": "other",
+   "match": [
+    "virginia tech",
+    "virginia polytechnic"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 389,
+   "courses": 244
+  },
+  {
+   "key": "005895",
+   "name": "Wesleyan College",
+   "system": "other",
+   "match": [
+    "wesleyan college"
+   ],
+   "not": [
+    "kentucky wesleyan",
+    "north carolina wesleyan",
+    "virginia wesleyan",
+    "iowa wesleyan",
+    "tennessee wesleyan",
+    "west virginia wesleyan"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 187,
+   "courses": 159
+  },
+  {
    "key": "006342",
    "name": "West Georgia Technical College",
    "system": "tcsg",
@@ -714,6 +1066,17 @@
    "readAt": "2026-10-14",
    "rows": 156,
    "courses": 154
+  },
+  {
+   "key": "005990",
+   "name": "Young Harris College",
+   "system": "other",
+   "match": [
+    "young harris"
+   ],
+   "readAt": "2026-10-14",
+   "rows": 472,
+   "courses": 455
   }
  ],
  "source": "https://apply.uga.edu/portal/transfer-equivalency",
