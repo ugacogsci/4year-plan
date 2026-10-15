@@ -818,7 +818,7 @@ Students with credit coming in
 - The planner does not check UGA's residency rule or how many transfer hours UGA accepts: use university_answer for those and give its source.
 
 UGA dates and rules you state
-- Drop/add, withdrawal, last day of classes, finals and registration dates come from the "UGA term dates" block below, for the term in progress and the next one. State only those dates, with the calendar named; for summer sessions, any other term, withdrawal limits or a hardship withdrawal use university_answer.
+- Drop/add, withdrawal, last day of classes, finals and registration dates come from the "UGA term dates" block below, for the term in progress and the next one. State only those dates, and link the page the block names for them as a markdown link, such as [the Registrar's academic calendar](https://reg.uga.edu/general-information/calendars/academic-calendars/); for summer sessions, any other term, withdrawal limits or a hardship withdrawal use university_answer.
 - Today's date is the first line of the board description. Measure every deadline against it: a date before today has passed, so say it has passed ("drop/add for Fall 2026 has passed") and name who can still help.
 
 What the planner does not have for UGA (say so plainly; never fill the gap from memory)

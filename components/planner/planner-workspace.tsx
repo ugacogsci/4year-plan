@@ -5016,6 +5016,8 @@ export function PlannerWorkspace({
          * transcript reader uses. A catalog guess is only the fallback.
          */
         let official: Record<string, unknown> | null = null;
+        /** The list's own page, as a link under the reply (the panel shows a result's `sources`). */
+        let officialSources: { n: number; title: string; url: string; host: string }[] = [];
         let listFor: string | null = null;
         if (!isIllinois && str('school')) {
           const table = await loadUgaTransfer([str('school')]).catch(() => null);
@@ -5036,6 +5038,11 @@ export function PlannerWorkspace({
               source: hit.file.source,
               read: hit.file.readAt,
             };
+            try {
+              officialSources = [{ n: 1, title: `UGA Transfer Equivalency: ${hit.entry.name}`, url: hit.file.source, host: new URL(hit.file.source).host }];
+            } catch {
+              /* a list without a readable page has no link */
+            }
           }
         }
         return {
@@ -5043,6 +5050,7 @@ export function PlannerWorkspace({
           course: { code: str('code') || null, title, credits: typeof input.credits === 'number' ? input.credits : null, school: str('school') || null },
           likely_equivalents: proposals.map((p) => ({ code: p.code, title: p.title, credits: p.credits, confidence: p.confidence, why: p.why, on_board_or_held: holding(courseOf(p.code)?.id ?? '') || L.completedCodes.has(normCode(p.code)) })),
           ...(official ? { uga_official: official } : {}),
+          ...(officialSources.length > 0 ? { sources: officialSources } : {}),
           note: !isIllinois
             ? official
               ? "uga_official is UGA's own Transfer Equivalency list for this school: say \"UGA's list says\" and give its page. A result like HIST 1GHX or MATH 1GXX is core credit in the subject (record it as hours), NTFR does not transfer. likely_equivalents below are only the catalog's guesses."
