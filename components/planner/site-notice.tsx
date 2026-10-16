@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Info } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { privacySections, schoolPhrase, UNOFFICIAL_LABEL, unofficialNotice } from '@/lib/planner/notices';
 
 /**
  * The unofficial label and the privacy notice, on every screen.
  *
- * The planner header carries <UnofficialBadge>, a pill that is never hidden
+ * The planner header carries <UnofficialBadge>, a label that is never hidden
  * (narrow screens included) with the full sentence beside it where there is
  * room; the onboarding screens carry <SiteFooter>, the full sentence and a
  * Privacy link. Both open <PrivacyDialog>, which says what is stored and sent
@@ -57,13 +58,14 @@ function usePrivacyDialog(): [boolean, (open: boolean) => void] {
   return [open, change];
 }
 
-/** For the planner header: the pill, the sentence where it fits, and the Privacy link. */
+/** For the planner header: the label, the sentence where it fits, and the Privacy link. */
 export function UnofficialBadge({ schoolName, bot }: { schoolName: string | null; bot: string }) {
   const [open, setOpen] = usePrivacyDialog();
   const notice = unofficialNotice(schoolName);
   return (
     <div className="unofficial">
-      <button type="button" className="unofficial-pill" title={notice} aria-label={`${UNOFFICIAL_LABEL}. ${notice} About and privacy.`} onClick={() => setOpen(true)}>
+      <button type="button" className="unofficial-label" title={notice} aria-label={`${UNOFFICIAL_LABEL}. ${notice} About and privacy.`} onClick={() => setOpen(true)}>
+        <Info aria-hidden="true" />
         {UNOFFICIAL_LABEL}
       </button>
       <span className="unofficial-text">
@@ -82,10 +84,10 @@ export function SiteFooter({ schoolName, bot }: { schoolName: string | null; bot
   const [open, setOpen] = usePrivacyDialog();
   return (
     <footer className="site-footer">
-      <span className="unofficial-pill" aria-hidden="true">
+      <span className="unofficial-label" aria-hidden="true">
         {UNOFFICIAL_LABEL}
       </span>
-      <span>{unofficialNotice(schoolName)}</span>
+      <p className="site-footer-notice">{unofficialNotice(schoolName)}</p>
       <button type="button" className="unofficial-link" onClick={() => setOpen(true)}>
         Privacy: what this app stores and sends
       </button>

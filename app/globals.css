@@ -4480,8 +4480,8 @@ p.requirement-unnamed {
 }
 
 .planner-app .rail-progress { gap: 7px; margin: 0 0 8px; }
-.planner-app .rail-progress-head { font-size: 11px; }
-.planner-app .rail-progress-head strong { color: var(--orion-text); font-weight: 500; }
+.planner-app .rail-progress-head { flex-wrap: wrap; gap: 4px 8px; font-size: 11px; }
+.planner-app .rail-progress-head strong { color: var(--orion-text); font-size: inherit; font-weight: 500; white-space: nowrap; }
 .planner-app .rail-progress-head span { color: var(--orion-dim); }
 .planner-app .rail-bar { height: 1px; background: var(--orion-line); }
 .planner-app .rail-bar > i { background: var(--orion-text); }
@@ -5753,7 +5753,6 @@ p.requirement-unnamed {
 
 /* The progress rail shares the same paper/ink palette as the planner instead
    of retaining the older navy component defaults. */
-.planner-app .rail-credit-note,
 .planner-app .rail-helper,
 .planner-app .rail .pool-list-head,
 .planner-app .rail .pool-asked,
@@ -5768,10 +5767,15 @@ p.requirement-unnamed {
   color: var(--orion-dim);
 }
 .planner-app .rail .transcript-basis { color: var(--orion-mid); }
+.planner-app .rail-credit-note,
 .planner-app .rail-helper {
   margin: 4px 0 8px;
-  font-size: var(--fs-micro);
-  line-height: 1.5;
+  color: var(--orion-mid);
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 .planner-app .rail .pool-label,
 .planner-app .rail .pool-courses > li,
@@ -6241,34 +6245,57 @@ p.requirement-unnamed {
 .bot-msg.assistant a { color: #a5b4fc; text-decoration: underline; text-underline-offset: 2px; }
 .bot-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; padding: 0 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); }
 
-/* The unofficial label (components/planner/site-notice.tsx): always on screen. The pill never hides; the sentence
-   beside it gives way first on a narrow header, and the full sentence is the pill's title and the privacy dialog's. */
+/* The short disclaimer remains visible even when the header cannot fit the full notice. */
 .unofficial { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
-.unofficial-pill {
-  flex: 0 0 auto;
-  padding: 2px 8px;
-  border: 1px solid rgba(251, 191, 36, 0.55);
-  border-radius: 999px;
-  background: rgba(251, 191, 36, 0.12);
-  color: #fcd34d;
-  font-size: var(--fs-micro);
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  line-height: 1.5;
-  cursor: pointer;
-}
-.unofficial-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-micro); color: #8a9ab0; }
-.unofficial-link {
+.unofficial-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   flex: 0 0 auto;
   padding: 0;
   border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--app-font-serif);
+  font-size: 18px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+button.unofficial-label { min-height: 28px; cursor: pointer; }
+.unofficial-label svg { flex: 0 0 auto; width: 12px; height: 12px; }
+.unofficial-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+.unofficial-link {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 4px 0;
+  border: 0;
   background: none;
-  color: #a5b4fc;
-  font-size: var(--fs-micro);
+  color: var(--muted-foreground);
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.6;
+  text-align: left;
+  overflow-wrap: anywhere;
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-underline-offset: 3px;
   cursor: pointer;
 }
+button.unofficial-label:hover { text-decoration: underline; text-underline-offset: 3px; }
+button.unofficial-label:focus-visible,
+.unofficial-link:focus-visible { outline: 1px solid currentColor; outline-offset: 4px; }
 
 .issue-course-link:hover { text-decoration-thickness: 2px; }
 .issue-course-link:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
@@ -6695,21 +6722,109 @@ p.requirement-unnamed {
   .unofficial-text { display: none; }
 }
 .site-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  margin-top: 24px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(148, 163, 184, 0.2);
-  font-size: var(--fs-micro);
-  color: #8a9ab0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 6px 14px;
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.65;
 }
-.site-footer .unofficial-pill { cursor: default; }
-.privacy-dialog { max-height: 85vh; overflow-y: auto; }
-.privacy-body { display: grid; gap: 14px; font-size: 0.9rem; line-height: 1.5; }
-.privacy-body h3 { margin: 0 0 4px; font-size: 0.95rem; font-weight: 650; }
-.privacy-body p { margin: 0 0 6px; }
+.site-footer-notice { margin: 0; overflow-wrap: anywhere; }
+.site-footer .unofficial-link { grid-column: 2; justify-self: start; }
+
+/* These surfaces are portaled outside the planner; use the root theme tokens. */
+.privacy-dialog,
+.plan-assumptions-popover {
+  min-height: 0;
+  gap: 16px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.65;
+  letter-spacing: 0;
+}
+.privacy-dialog {
+  z-index: 80;
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: min(720px, calc(100dvh - 40px));
+  padding: 24px;
+}
+.privacy-dialog [data-slot='dialog-header'] { gap: 12px; padding-right: 24px; }
+.privacy-dialog [data-slot='dialog-title'],
+.plan-assumptions-popover [data-slot='popover-title'] {
+  margin: 0;
+  font-family: var(--app-font-serif);
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+.privacy-dialog [data-slot='dialog-description'] {
+  color: var(--muted-foreground);
+  font: inherit;
+}
+.privacy-body,
+.plan-assumptions-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  padding-right: 8px;
+  overflow-wrap: anywhere;
+}
+.privacy-body { display: grid; gap: 20px; }
+.privacy-body h3,
+.plan-assumptions-privacy h3 {
+  margin: 0 0 8px;
+  color: var(--popover-foreground);
+  font-family: var(--app-font-serif);
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+.privacy-body p,
+.plan-assumptions-body p { margin: 0 0 12px; color: var(--muted-foreground); }
+.privacy-body p:last-child,
+.plan-assumptions-body > :last-child,
+.plan-assumptions-privacy p:last-child { margin-bottom: 0; }
+.plan-assumptions-positioner { z-index: 70; }
+.plan-assumptions-popover {
+  width: min(400px, calc(100vw - 32px));
+  max-height: min(520px, calc(100dvh - 32px), var(--available-height, 520px));
+  padding: 18px;
+}
+.plan-assumptions-popover [data-slot='popover-title'] { font-size: 23px; }
+.plan-assumptions-body { flex: 1 1 auto; }
+.plan-assumptions-body:focus-visible { outline: 1px solid var(--ring); outline-offset: 2px; }
+.plan-assumptions-privacy { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.plan-assumptions-popover .rail-restart-button {
+  flex: 0 0 auto;
+  width: 100%;
+  margin: 0;
+  padding-top: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.plan-assumptions-popover .rail-restart-button svg { flex: 0 0 auto; }
+.plan-assumptions-popover .rail-restart-button:hover { color: var(--popover-foreground); }
+.plan-assumptions-popover .rail-restart-button:focus-visible { outline: 1px solid var(--ring); outline-offset: 3px; }
+
+@media (max-width: 480px) {
+  .site-footer { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .site-footer .unofficial-link { grid-column: 1; }
+  .privacy-dialog { padding: 20px; }
+}
 @media print {
   .unofficial-link { display: none; }
 }
@@ -6723,20 +6838,33 @@ p.requirement-unnamed {
    in the light and the dark theme.
    -------------------------------------------------------------------------- */
 
-.planner-app .unofficial-pill {
-  border-color: var(--orion-line-strong);
-  background: var(--orion-soft);
-  color: var(--orion-text);
-}
-.planner-app .unofficial-text { color: var(--orion-dim); }
+.planner-app .unofficial-label { color: var(--orion-mid); }
+.planner-app .unofficial-label:hover { color: var(--orion-text); }
+.planner-app .unofficial-text { color: var(--orion-mid); }
 .planner-app .unofficial-link { color: var(--orion-mid); }
 .planner-app .unofficial-link:hover { color: var(--orion-text); }
 .planner-app .app-header .unofficial { margin-left: 14px; margin-right: auto; }
 
-.onb .site-footer { border-top-color: var(--onb-line); color: var(--onb-dim); }
-.onb .unofficial-pill { border-color: var(--onb-line); background: var(--onb-soft); color: var(--onb-text); }
-.onb .unofficial-text { color: var(--onb-dim); }
+@media (max-width: 680px) {
+  .planner-app .app-header { gap: 8px; }
+  .planner-app .app-header .unofficial { flex: 0 0 auto; margin-left: 0; }
+  /* The Unofficial control also opens Privacy; keep room for the panel toggles. */
+  .planner-app .unofficial-link { display: none; }
+}
+@media (max-width: 380px) {
+  .planner-app .app-header { gap: 6px; }
+  .planner-app .brand { gap: 8px; }
+  .planner-app .brand img { width: 36px; height: 36px; }
+  .planner-app .brand-name { font-size: 29px; }
+  .planner-app .unofficial-label { font-size: 16px; }
+  .planner-app .unofficial-label svg { display: none; }
+}
+
+.onb .site-footer { border-top-color: var(--onb-line); color: var(--onb-mid); }
+.onb .unofficial-label { color: var(--onb-text); }
+.onb .unofficial-text { color: var(--onb-mid); }
 .onb .unofficial-link { color: var(--onb-mid); }
+.onb .unofficial-link:hover { color: var(--onb-text); }
 
 .planner-app .bot-msg.assistant strong { color: inherit; }
 .planner-app .bot-msg.assistant a { color: inherit; }
@@ -6765,7 +6893,38 @@ p.requirement-unnamed {
 .planner-app .club-meta,
 .planner-app .club-communities > summary,
 .planner-app .club-source p { color: var(--orion-dim); }
-.planner-app .club-name { color: var(--orion-text); }
+.planner-app .club-name {
+  color: var(--orion-text);
+  font-family: var(--app-font-serif);
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+.planner-app .club-group-head {
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.planner-app .club-row { gap: 5px; padding: 10px 0; border-color: var(--orion-line); }
+.planner-app .club-name svg { color: var(--orion-mid); }
+.planner-app .club-why,
+.planner-app .club-meta,
+.planner-app .club-thin,
+.planner-app .club-empty p,
+.planner-app .club-more,
+.planner-app .club-actions button,
+.planner-app .club-actions a,
+.planner-app .club-thin a,
+.planner-app .club-communities > summary,
+.planner-app .club-source p {
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+.planner-app .club-empty p { color: var(--orion-mid); }
 .planner-app .club-more,
 .planner-app .club-actions button,
 .planner-app .club-actions a,

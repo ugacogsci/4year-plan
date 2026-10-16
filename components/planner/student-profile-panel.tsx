@@ -18,10 +18,10 @@ import {
  * 888px of panel on arrival for settings almost nobody changes.
  */
 
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import Image from 'next/image';
 import { Info, RotateCcw, X } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@/components/ui/popover';
 import type { RequirementArea } from '@/lib/planner/scheduler';
 import { ProgramPicker, type ProgramOption } from './program-picker';
 import { EmphasisPicker } from './emphasis-picker';
@@ -197,6 +197,7 @@ export function StudentProfilePanel({
   transcript,
   clubs,
 }: RailProps) {
+  const assumptionsBodyRef = useRef<HTMLElement>(null);
   const rows = areas.map((row, index) => ({
     row,
     // The label is not a key. Two areas on one degree page can print the same
@@ -508,22 +509,34 @@ export function StudentProfilePanel({
         >
           <Info aria-hidden="true" />
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-80">
-          <div className="health-popover">
+        <PopoverContent
+          align="start"
+          className="plan-assumptions-popover"
+          positionerClassName="plan-assumptions-positioner"
+          collisionPadding={{ top: 76, bottom: 12, left: 12, right: 12 }}
+          initialFocus={assumptionsBodyRef}
+        >
+          <PopoverTitle>Plan assumptions and setup</PopoverTitle>
+          <section className="plan-assumptions-body" ref={assumptionsBodyRef} tabIndex={-1} aria-label="Plan assumptions">
             {caveats.map((line) => (
-              <p key={line} style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.5 }}>
+              <p key={line}>
                 {line}
               </p>
             ))}
-            <p style={{ margin: 0, fontSize: 'var(--fs-body)', lineHeight: 1.5 }}>
-              {schoolShort} and {portal} remain the source of truth. Nothing you type
-              here leaves this device. A transcript you upload is sent once to be read
-              and is not kept.
-            </p>
-            <button type="button" className="rail-restart-button" onClick={onStartOver}>
-              <RotateCcw aria-hidden="true" /> Change university or restart setup
-            </button>
-          </div>
+            <section className="plan-assumptions-privacy" aria-label="Your plan and privacy">
+              <h3>Your plan and privacy</h3>
+              <p>{schoolShort}, {portal}, and your advisor remain the official sources for degree requirements.</p>
+              <p>
+                Your plan is saved in this browser. When you use chat or upload a
+                transcript, the conversation and plan context or uploaded files
+                are sent to Anthropic for processing. Our server does not retain
+                those conversations or files. See Privacy for the full details.
+              </p>
+            </section>
+          </section>
+          <button type="button" className="rail-restart-button" onClick={onStartOver}>
+            <RotateCcw aria-hidden="true" /> Change university or restart setup
+          </button>
         </PopoverContent>
       </Popover>
     </aside>
