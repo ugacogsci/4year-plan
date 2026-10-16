@@ -942,6 +942,7 @@ export function graduateSummaryOf(reading: GraduateReading, raw: RawGraduateProg
 export interface GraduateProgramOption {
   id: string;
   name: string;
+  degree?: string;
   totalCredits?: number | null;
   additionalCredits?: number | null;
   /** The reading was checked against the page's own total ('reads right'). */
@@ -981,7 +982,7 @@ export function graduateProgramOptions(
 ): { graduateDegrees: GraduateProgramOption[]; graduateCertificates: GraduateProgramOption[]; graduateMinors: GraduateProgramOption[] } {
   const offered = rows.filter((r) => r.plannable && (!opts.onlyReadRight || r.status === 'reads right'));
   const option = (r: IllinoisGraduateSummary): GraduateProgramOption => ({
-    id: r.id, name: graduateOptionName(r), totalCredits: r.totalCredits, additionalCredits: r.totalCredits, checked: r.status === 'reads right',
+    id: r.id, name: graduateOptionName(r), degree: r.degree, totalCredits: r.totalCredits, additionalCredits: r.totalCredits, checked: r.status === 'reads right',
   });
   const byName = (a: GraduateProgramOption, b: GraduateProgramOption) => a.name.localeCompare(b.name);
   return {

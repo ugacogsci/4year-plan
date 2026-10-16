@@ -11,6 +11,8 @@ logs/
 *.log
 
 # secrets
+.dev.vars
+.dev.vars.*
 .env
 .env.*
 !.env.example

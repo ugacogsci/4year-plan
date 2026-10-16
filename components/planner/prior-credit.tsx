@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { examCreditUrl, useExamCredit, matchDocumentExams } from './exam-credit';
 import { TranscriptUpload } from './transcript-upload';
 import type { TranscriptRecord } from '@/lib/planner/transcript';
+import { searchCourseCatalog } from '@/lib/planner/course-search';
 import {
   applyExamCredit,
   type PriorExam,
@@ -128,14 +129,10 @@ export function PriorCredit({
     () => new Map((courseCatalog ?? []).map((course) => [course.code.replace(/\s+/g, ' ').trim().toUpperCase(), course])),
     [courseCatalog],
   );
-  const courseMatches = useMemo(() => {
-    const query = courseQuery.trim().toLowerCase();
-    if (!query) return [];
-    return (courseCatalog ?? [])
-      .filter((course) => !selectedCourseCodes.has(course.code.replace(/\s+/g, ' ').trim().toUpperCase()))
-      .filter((course) => `${course.code} ${course.title}`.toLowerCase().includes(query))
-      .slice(0, 8);
-  }, [courseCatalog, courseQuery, selectedCourseCodes]);
+  const courseMatches = useMemo(
+    () => searchCourseCatalog(courseCatalog ?? [], courseQuery, selectedCourseCodes),
+    [courseCatalog, courseQuery, selectedCourseCodes],
+  );
 
   const scoresFor = (kind: string, exam: string) =>
     table
@@ -202,7 +199,7 @@ export function PriorCredit({
             onChange={(event) => setCourseQuery(event.target.value)}
           />
           {courseMatches.length > 0 && (
-            <ul className="prior-matches">
+            <ul key={courseQuery} className="prior-matches prior-course-matches" aria-label={`${courseMatches.length} matching courses`}>
               {courseMatches.map((course) => (
                 <li key={course.code}>
                   <button

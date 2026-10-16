@@ -179,6 +179,36 @@ export function availablePlanningTerms(
 
 export type ProgramLevel = 'undergraduate' | 'graduate';
 
+/** Planning assumptions, not catalog guarantees. Students can always change the date. */
+export function defaultProgramYears(level: ProgramLevel, degrees: readonly string[]): number {
+  if (level === 'undergraduate') return 4;
+  const years: Record<string, number> = {
+    PHD: 5,
+    EDD: 3, DMA: 3, DRPH: 3, DSW: 3, JSD: 3, JD: 3,
+    MD: 4, DVM: 4, PHARMD: 4,
+    EDS: 1, LLM: 1, MSL: 1,
+  };
+  return degrees.length > 0
+    ? Math.max(...degrees.map((degree) => years[degree.replace(/[^a-z]/gi, '').toUpperCase()] ?? 2))
+    : 2;
+}
+
+export function suggestGraduationTarget(
+  academicYear: AcademicYear,
+  programYears: number,
+  now = new Date(),
+): { season: GraduationSeason; year: number | null } {
+  if (!academicYear) return { season: '', year: null };
+  const currentYear = { first: 1, second: 2, third: 3, fourth: 4, 'fifth-plus': 5 }[academicYear];
+  // The current academic year ends next spring in fall, or this spring otherwise.
+  const academicEnd = now.getFullYear() + (currentAcademicSeason(now) === 'Fall' ? 1 : 0);
+  const year = academicEnd + Math.max(0, programYears - currentYear);
+  return {
+    season: isGraduationTermPast('Spring', year, now) ? currentAcademicSeason(now) : 'Spring',
+    year,
+  };
+}
+
 export interface OnboardingAnswers {
   schoolId: SchoolId | null;
   /** Undergraduate or graduate/professional catalog and planning defaults. */

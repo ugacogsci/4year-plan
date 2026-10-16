@@ -23,6 +23,7 @@ import {
   EMPTY_ANSWERS,
   UNDECIDED_PROGRAM_ID,
   applyExamCredit,
+  defaultProgramYears,
   inferAcademicYear,
   inferGraduationTarget,
   isGraduationTermPast,
@@ -30,6 +31,7 @@ import {
   readySchools,
   schoolById,
   saveAnswers,
+  suggestGraduationTarget,
   type AcademicYear,
   type GraduationSeason,
   type OnboardingAnswers,
@@ -220,6 +222,9 @@ export function Onboarding({
   const [step, setStep] = useState(onlySchool ? 1 : 0);
   const [catalog, setCatalog] = useState<ProgramCatalog | null>(null);
   const [theme, setTheme] = useState<PlannerTheme>(readStoredTheme);
+  const [graduationEdited, setGraduationEdited] = useState(
+    Boolean(initial?.graduationSeason || initial?.graduationYear),
+  );
   const [answers, setAnswers] = useState<OnboardingAnswers>(() => {
     const base = initial ? { ...EMPTY_ANSWERS, ...initial } : EMPTY_ANSWERS;
     const programIds = base.programIds?.length ? base.programIds : [UNDECIDED_PROGRAM_ID];
@@ -252,6 +257,12 @@ export function Onboarding({
         ? catalog?.graduateCertificates ?? []
         : catalog?.undergraduateCertificates ?? [],
     [answers.programLevel, catalog],
+  );
+  const programYears = defaultProgramYears(
+    answers.programLevel,
+    degreeOptions
+      .filter((program) => answers.programIds.includes(program.id) && program.degree)
+      .map((program) => program.degree!),
   );
   const emphasesComplete = emphasisSelectionsComplete(
     emphasisRequirements,
@@ -337,6 +348,7 @@ export function Onboarding({
               .map((program) => ({
                 id: program.id,
                 name: program.name,
+                degree: program.degree,
                 totalCredits: program.totalCredits,
                 additionalCredits:
                   kind === 'degree' ? ugaMajorCredits(program) : program.areaHours,
@@ -470,16 +482,15 @@ export function Onboarding({
   }
 
   function prepareDetails() {
+    const mentionedGraduation = inferGraduationTarget(answers.timeline);
+    const useMentionedGraduation = !graduationEdited &&
+      Boolean(mentionedGraduation.season || mentionedGraduation.year) &&
+      !isGraduationTermPast(mentionedGraduation.season, mentionedGraduation.year, today);
+    if (useMentionedGraduation) setGraduationEdited(true);
     setAnswers((current) => {
       const text = [current.studying, current.timeline, current.after].join(' ');
-      const graduation = inferGraduationTarget(current.timeline);
-      const inferredGraduationIsPast = isGraduationTermPast(
-        graduation.season,
-        graduation.year,
-        today,
-      );
-      const shouldInferGraduation =
-        !current.graduationSeason && !current.graduationYear && !inferredGraduationIsPast;
+      const academicYear = current.academicYear || inferAcademicYear(current.timeline);
+      const suggestedGraduation = suggestGraduationTarget(academicYear, programYears, today);
       const selectedPrograms = (catalog?.ugaPrograms ?? []).filter((program) =>
         current.programIds.includes(program.id),
       );
@@ -498,11 +509,13 @@ export function Onboarding({
       return {
         ...current,
         collegeId,
-        academicYear: current.academicYear || inferAcademicYear(current.timeline),
+        academicYear,
         graduationSeason:
-          current.graduationSeason || (shouldInferGraduation ? graduation.season : ''),
+          useMentionedGraduation ? mentionedGraduation.season
+            : graduationEdited ? current.graduationSeason : suggestedGraduation.season,
         graduationYear:
-          current.graduationYear ?? (shouldInferGraduation ? graduation.year : null),
+          useMentionedGraduation ? mentionedGraduation.year
+            : graduationEdited ? current.graduationYear : suggestedGraduation.year,
         emphasisSelections: inferredProgramSelections(
           emphasisRequirements,
           current.emphasisSelections,
@@ -750,10 +763,17 @@ export function Onboarding({
                 <span className="onb-q-hint">This helps us interpret how much time and prior credit the plan should account for.</span>
                 <select
                   value={answers.academicYear}
-                  onChange={(event) => setAnswers((current) => ({
-                    ...current,
-                    academicYear: event.target.value as AcademicYear,
-                  }))}
+                  onChange={(event) => {
+                    const academicYear = event.target.value as AcademicYear;
+                    const target = suggestGraduationTarget(academicYear, programYears, today);
+                    setGraduationEdited(false);
+                    setAnswers((current) => ({
+                      ...current,
+                      academicYear,
+                      graduationSeason: target.season,
+                      graduationYear: target.year,
+                    }));
+                  }}
                 >
                   <option value="">Select your current year</option>
                   {ACADEMIC_YEAR_OPTIONS.map((option) => (
@@ -799,23 +819,25 @@ export function Onboarding({
 
               <fieldset className="onb-graduation">
                 <legend>When do you intend to graduate?</legend>
-                <span className="onb-q-hint">The planner will not schedule courses beyond this term.</span>
+                <span className="onb-q-hint">
+                  {!graduationEdited && answers.academicYear
+                    ? `Suggested using a ${programYears}-year program. Adjust for your pace.`
+                    : 'The planner will not schedule courses beyond this term.'}
+                </span>
                 <div>
                   <label>
                     <span>Term</span>
                     <select
                       value={answers.graduationSeason}
-                      onChange={(event) => setAnswers((current) => ({
-                        ...current,
-                        graduationSeason:
-                          isGraduationTermPast(
-                            event.target.value as GraduationSeason,
-                            current.graduationYear,
-                            today,
-                          )
-                            ? ''
-                            : event.target.value as GraduationSeason,
-                      }))}
+                      onChange={(event) => {
+                        const season = event.target.value as GraduationSeason;
+                        setGraduationEdited(true);
+                        setAnswers((current) => ({
+                          ...current,
+                          graduationSeason: isGraduationTermPast(season, current.graduationYear, today)
+                            ? '' : season,
+                        }));
+                      }}
                     >
                       <option value="">Select term</option>
                       {GRADUATION_SEASONS.map((season) => (
@@ -833,18 +855,16 @@ export function Onboarding({
                     <span>Year</span>
                     <select
                       value={answers.graduationYear ?? ''}
-                      onChange={(event) => setAnswers((current) => ({
-                        ...current,
-                        graduationYear: event.target.value ? Number(event.target.value) : null,
-                        graduationSeason:
-                          event.target.value && isGraduationTermPast(
-                            current.graduationSeason,
-                            Number(event.target.value),
-                            today,
-                          )
-                            ? ''
-                            : current.graduationSeason,
-                      }))}
+                      onChange={(event) => {
+                        const year = event.target.value ? Number(event.target.value) : null;
+                        setGraduationEdited(true);
+                        setAnswers((current) => ({
+                          ...current,
+                          graduationYear: year,
+                          graduationSeason: isGraduationTermPast(current.graduationSeason, year, today)
+                            ? '' : current.graduationSeason,
+                        }));
+                      }}
                     >
                       <option value="">Select year</option>
                       {graduationYears.map((year) => (

@@ -6,6 +6,8 @@ import { Plus, Search, X } from 'lucide-react';
 export interface ProgramOption {
   id: string;
   name: string;
+  /** Catalog degree code, used for editable program-length defaults. */
+  degree?: string;
   /** Published degree total, when the catalog exposes one. */
   totalCredits?: number | null;
   /** Credits this program is likely to add beyond a primary degree's shared core. */

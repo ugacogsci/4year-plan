@@ -71,14 +71,14 @@ function rank(severity: PlanIssue['severity']): number {
 
 /**
  * One plain sentence for the board bar and the build message: how many
- * problems, the first few kinds, and where the details are.
+ * problems and the first few kinds.
  */
 export function attentionLine(items: AttentionItem[], limit = 3): string {
   if (items.length === 0) return '';
   const total = items.reduce((sum, item) => sum + item.count, 0);
   const shown = items.slice(0, limit).map((item) => (item.count > 1 ? `${item.text} (${item.count})` : item.text));
   const more = items.length - shown.length;
-  return `${total} ${total === 1 ? 'thing needs' : 'things need'} attention: ${shown.join('; ')}${more > 0 ? `; ${more} more ${more === 1 ? 'kind' : 'kinds'}` : ''}. The dots by Rebuild and the ! marks on courses explain each one.`;
+  return `${total} ${total === 1 ? 'thing needs' : 'things need'} attention: ${shown.join('; ')}${more > 0 ? `; ${more} more ${more === 1 ? 'kind' : 'kinds'}` : ''}.`;
 }
 
 /**
