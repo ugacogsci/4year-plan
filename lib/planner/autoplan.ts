@@ -7,6 +7,7 @@ import { interestWordsFrom, scoreQuality, type ExcellentSummary, type QualityInp
 import { DEFAULT_PRIORITIES } from './priorities';
 import { weeklyFit, type WeeklySchedule } from './weekly-fit';
 import { PLANNED_AS_RELEASED } from './held-degrees';
+import { compareSampleCourses } from './uga-planning-guidance';
 import { repeatLine, type RepeatAsk } from './repeats';
 import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInput } from './autoplan-release';
 
@@ -371,6 +372,8 @@ export type PrereqMatcher = (
 
 export interface PlanningContext {
   schoolId?: 'uga' | 'illinois';
+  /** Named courses in this student's official sample plans; a final tie-break only. */
+  samplePlanCourses?: ReadonlySet<string>;
   /** Catalog courses in the planner's own shape. Credits and titles come from here, never from a program row. */
   courses: Course[];
   /**
@@ -2764,12 +2767,12 @@ function rememberedBy<T>(read: (code: string) => T): (code: string) => T {
   };
 }
 
-function compareRank(a: number[], b: number[], codeA: string, codeB: string): number {
+function compareRank(a: number[], b: number[], codeA: string, codeB: string, samplePlanCourses?: ReadonlySet<string>): number {
   for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
     const diff = (a[i] ?? 0) - (b[i] ?? 0);
     if (diff !== 0) return diff;
   }
-  return codeA.localeCompare(codeB);
+  return compareSampleCourses(codeA, codeB, samplePlanCourses) || codeA.localeCompare(codeB);
 }
 
 // ---------------------------------------------------------------------------
@@ -5074,6 +5077,7 @@ function rankedElectivePool(
     .sort(
       (a, b) =>
         b.score - a.score ||
+        compareSampleCourses(a.code, b.code, ctx.samplePlanCourses) ||
         Number(isElectiveVariant(a.code)) - Number(isElectiveVariant(b.code)) ||
         courseLevel(a.code) - courseLevel(b.code) ||
         (ctx.schoolId === 'uga' ? electiveTie(a.code) - electiveTie(b.code) : a.code.localeCompare(b.code)),
@@ -5108,15 +5112,18 @@ function rankedElectivePool(
     let bestSubject: string | null = null;
     let bestAdjusted = Number.NEGATIVE_INFINITY;
     let bestTie = Number.POSITIVE_INFINITY;
+    let bestSample = false;
     for (const [subject, queue] of queues) {
       const next = queue[0];
       if (!next) continue;
       const adjusted = next.score - (used.get(subject) ?? 0) * 1.5;
       const tie = electiveTie(next.code);
-      if (adjusted > bestAdjusted || (adjusted === bestAdjusted && tie < bestTie)) {
+      const sample = ctx.samplePlanCourses?.has(next.code) ?? false;
+      if (adjusted > bestAdjusted || (adjusted === bestAdjusted && (Number(sample) > Number(bestSample) || (sample === bestSample && tie < bestTie)))) {
         bestSubject = subject;
         bestAdjusted = adjusted;
         bestTie = tie;
+        bestSample = sample;
       }
     }
     if (bestSubject === null) break;
@@ -8217,7 +8224,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       if (traced && normaliseCode(traced) === code) console.error(`  [PLAN_DEBUG] ${code} list-pick key [inCatalog, audience, gated, shutsTrack, ${pickServe ? 'servesTrack, ' : ''}unverifiable, clash, aside, wanted, own, extra, ${light.length ? 'light, ' : ''}variable, unknown, -score, -known, chain] = ${JSON.stringify(key)}`);
       return key;
     });
-    return (a: string, b: string): number => compareRank(score(a), score(b), a, b);
+    return (a: string, b: string): number => compareRank(score(a), score(b), a, b, ctx.samplePlanCourses);
   };
 
   /**
@@ -8281,7 +8288,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   // application goes last, and one that needs another of them first
   // (needsSibling) goes behind that one.
   const best = (codes: string[]): string | null =>
-    codes.length === 0 ? null : codes.slice().sort((a, b) => gatedPick(a) - gatedPick(b) || needsSibling(a, codes) - needsSibling(b, codes) || compareRank(rank(a), rank(b), a, b))[0];
+    codes.length === 0 ? null : codes.slice().sort((a, b) => gatedPick(a) - gatedPick(b) || needsSibling(a, codes) - needsSibling(b, codes) || compareRank(rank(a), rank(b), a, b, ctx.samplePlanCourses))[0];
 
   const chosenEquivalent = (code: string): string | null =>
     expandEquivalents(code, equivalents).find((candidate) => chosen.has(candidate)) ?? null;
@@ -8349,7 +8356,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     if (held !== 0) return held;
     const depended = (dependents.get(b) ?? 0) - (dependents.get(a) ?? 0);
     if (depended !== 0) return depended;
-    return compareRank(rank(a), rank(b), a, b);
+    return compareRank(rank(a), rank(b), a, b, ctx.samplePlanCourses);
   };
 
   /** True when two of these courses cannot both count, so the choice matters. */
@@ -8797,7 +8804,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             if (ranked !== 0) return ranked;
             const offered = sectionCount(b) - sectionCount(a);
             if (offered !== 0) return offered;
-            return a.localeCompare(b);
+            return compareSampleCourses(a, b, ctx.samplePlanCourses) || a.localeCompare(b);
           };
           const open = all
             .filter(
@@ -8853,7 +8860,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const ordered = slot.options
           .map((option) => option[0])
           .filter((code) => (!chosen.has(code) && gatedPick(code) === 0) || earned.has(code))
-          .sort((a, b) => compareRank(rank(a), rank(b), a, b));
+          .sort((a, b) => compareRank(rank(a), rank(b), a, b, ctx.samplePlanCourses));
         let have = 0;
         const heldHere = new Set<string>();
         // Held credit for this category that no gen-ed category has used.
@@ -8938,7 +8945,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             (choosing ? gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || servesTrack(a.code) - servesTrack(b.code) : 0) ||
             (listOrder ? listOrder(a.code, b.code) : 0) ||
             (have ? (rank(a.code)[0] ?? 0) - (rank(b.code)[0] ?? 0) || extraOf(a.code) - extraOf(b.code) : 0) ||
-            (choosing ? compareRank(rankChoose(a.code), rankChoose(b.code), a.code, b.code) : compareRank(rank(a.code), rank(b.code), a.code, b.code)));
+            (choosing ? compareRank(rankChoose(a.code), rankChoose(b.code), a.code, b.code, ctx.samplePlanCourses) : compareRank(rank(a.code), rank(b.code), a.code, b.code, ctx.samplePlanCourses)));
 
         /**
          * Credit in hand is spent before anything is booked.
@@ -10274,7 +10281,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     if (depthDiff !== 0) return depthDiff;
     const levelDiff = courseLevel(a) - courseLevel(b);
     if (levelDiff !== 0) return levelDiff;
-    return compareRank(rank(a), rank(b), a, b);
+    return compareRank(rank(a), rank(b), a, b, ctx.samplePlanCourses);
   };
 
   /**
@@ -13224,7 +13231,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           return !expandEquivalents(code, equivalents).some((twin) => twin !== code && (plannedAll.has(twin) || earned.has(twin)));
         };
         const firstOf = (fits: (code: string) => boolean): string | undefined => options !== null
-          ? options.filter((c) => byCode.has(c) && gatedPick(c) === 0 && eligible(c) && fits(c)).sort((a, b) => compareRank(rank(a), rank(b), a, b))[0]
+          ? options.filter((c) => byCode.has(c) && gatedPick(c) === 0 && eligible(c) && fits(c)).sort((a, b) => compareRank(rank(a), rank(b), a, b, ctx.samplePlanCourses))[0]
           : firstFit((c) => eligible(c) && fits(c), (h) => h !== hours);
         // In its own term, or where none fits there, in a later term, in the
         // place of a course below the 300 level of the same credits that
@@ -13359,7 +13366,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
               return after.status !== 'clash' && !after.unknown.includes(code);
             };
             const pick = options !== null
-              ? options.filter((c) => byCode.has(c) && eligible(c)).sort((a, b) => compareRank(rank(a), rank(b), a, b))[0]
+              ? options.filter((c) => byCode.has(c) && eligible(c)).sort((a, b) => compareRank(rank(a), rank(b), a, b, ctx.samplePlanCourses))[0]
               : firstFit(eligible, (h) => h !== hours);
             if (!pick) continue;
             for (const { slot, fill } of poolFills) {

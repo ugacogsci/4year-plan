@@ -119,6 +119,7 @@ interface RailProps {
   transcript?: ReactNode;
   /** "Clubs for your goals", rendered by the caller like the pools; Illinois only. */
   clubs?: ReactNode;
+  programGuidance?: ReactNode;
 }
 
 /**
@@ -196,6 +197,7 @@ export function StudentProfilePanel({
   pools,
   transcript,
   clubs,
+  programGuidance,
 }: RailProps) {
   const assumptionsBodyRef = useRef<HTMLElement>(null);
   const rows = areas.map((row, index) => ({
@@ -364,6 +366,7 @@ export function StudentProfilePanel({
           selections={emphasisSelections}
           onChange={onEmphasisChange}
         />
+        {programGuidance}
         {programUrls.length > 0 && (
           <p className="rail-note program-catalog-links" style={{ margin: 0, paddingTop: 0, border: 0 }}>
             {programUrls.map((program) => (

@@ -49,6 +49,8 @@ import { AdvisorPacketDialog } from './advisor-packet';
 import { SemesterColumn } from './semester-column';
 import { illinoisProgress, illinoisProgressGuard } from './illinois-progress';
 import { StudentProfilePanel, type AreaRow } from './student-profile-panel';
+import { DoubleDawgsPicker } from './double-dawgs-picker';
+import { pathwaysFor, sampleCoursesFor, samplePlansFor } from '@/lib/planner/uga-planning-guidance';
 import { holdMaybe, maybeCodes, maybeIssues, maybeLines, openMaybeOnBoard, withoutMaybe } from '@/lib/planner/transfer-maybe';
 import { ProgramPicker } from './program-picker';
 import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
@@ -1072,6 +1074,7 @@ export function PlannerWorkspace({
         onAnswersChange({
           ...answers,
           programLevel: nextLevel,
+          doubleDawgsPathwayId: null,
           programIds: nextProgramIds,
           minorIds: [],
           certificateIds: [],
@@ -1100,7 +1103,7 @@ export function PlannerWorkspace({
           [...selected].some((id) => key.startsWith(`${id}::`)),
         ),
       );
-      onAnswersChange({ ...answers, programIds: next, emphasisSelections });
+      onAnswersChange({ ...answers, programIds: next, emphasisSelections, doubleDawgsPathwayId: null });
     }
   }, [answers, onAnswersChange, programIds, resetProgramPlan]);
 
@@ -1306,11 +1309,24 @@ export function PlannerWorkspace({
 
   // ---- the planning context -------------------------------------------------
 
+  const ugaSamplePlans = useMemo(() => isUga && !isGraduatePlan
+    ? samplePlansFor(uga?.guidance ?? null, programIds) : [], [isUga, isGraduatePlan, uga, programIds]);
+  const doubleDawgsPathway = isUga && !isGraduatePlan
+    ? pathwaysFor(uga?.guidance ?? null, programIds).find((pathway) => pathway.id === answers?.doubleDawgsPathwayId)
+    : undefined;
+
   const context: PlanningContext | null = useMemo(() => {
     if (isIllinois && planCore) return buildContext(planCore, loaded?.blocks ?? [], null).context;
-    if (isUga && uga) return uga.context;
+    if (isUga && uga) return {
+      ...uga.context,
+      samplePlanCourses: sampleCoursesFor(ugaSamplePlans, Object.fromEntries(programIds.map((id) => [id,
+        emphasisRequirements.filter((requirement) => requirement.programId === id).flatMap((requirement) =>
+          requirement.options.filter((option) => answers?.emphasisSelections[requirement.id]?.includes(option.id)).map((option) => option.label),
+        ),
+      ]))),
+    };
     return null;
-  }, [isIllinois, isUga, planCore, uga, loaded]);
+  }, [isIllinois, isUga, planCore, uga, loaded, ugaSamplePlans, programIds, emphasisRequirements, answers?.emphasisSelections]);
 
   // ---- clubs ----------------------------------------------------------------
 
@@ -3705,6 +3721,12 @@ export function PlannerWorkspace({
     lines.push(
       `Degree: ${L.loaded.program.name}, ${school?.name ?? 'selected university'}. Published total: ${L.activeProgramTotal ?? 'not published'} credits. Plan: ${L.totalCredits} through ${last}.`,
     );
+    if (doubleDawgsPathway) {
+      lines.push(`Double Dawgs intent: ${doubleDawgsPathway.name}. Source: ${doubleDawgsPathway.url}. This board covers the bachelor's stage only. It does not verify graduate admission, the graduate stage, or approved shared credits. Do not describe this as a completed combined-degree plan or automatically subtract shared hours.`);
+    }
+    if (ugaSamplePlans.length > 0) {
+      lines.push(`Official UGA sample plans are final tie-breakers, not extra requirements: ${ugaSamplePlans.map((sample) => `${sample.programName} (${sample.url})`).join('; ')}.`);
+    }
     // Who ALMA sends the student to for what it cannot decide: a Media student's
     // late drop is a petition at 119 Gregory Hall, not "your advisor".
     if (isIllinois) {
@@ -5585,6 +5607,8 @@ export function PlannerWorkspace({
   const years = plan ? [...new Set(plan.terms.map((t) => t.year))] : [];
 
   const caveats = [
+    ...(doubleDawgsPathway ? [`Double Dawgs: ${doubleDawgsPathway.name}. This is the bachelor's plan only, not a verified combined-degree plan. Graduate admission and any shared-credit substitutions need pathway advisor approval.`] : []),
+    ...(ugaSamplePlans.length > 0 ? ["UGA's published sample plans break ties between otherwise equally suitable courses. They do not override prerequisites, your preferences, or degree requirements. Unnamed elective slots in those samples are not treated as named recommendations."] : []),
     ...(activeProgramTotal && plan ? overTotal(totalCredits, activeProgramTotal) : []),
     ...planNotes,
     ...(core?.meta?.notes ?? []).map(studentWording),
@@ -5854,6 +5878,23 @@ export function PlannerWorkspace({
         programs={programOptions}
         programIds={programIds}
         onProgramsChange={changePrograms}
+        programGuidance={isUga && !isGraduatePlan ? (
+          <>
+            <DoubleDawgsPicker
+              programIds={programIds}
+              selectedId={answers?.doubleDawgsPathwayId}
+              onChange={(doubleDawgsPathwayId) => {
+                if (answers && onAnswersChange) onAnswersChange({ ...answers, doubleDawgsPathwayId });
+              }}
+            />
+            {ugaSamplePlans.length > 0 && (
+              <div className="sample-plan-links">
+                <p>Official sample plans guide otherwise tied suggestions.</p>
+                {ugaSamplePlans.map((sample) => <a key={sample.programId} href={sample.url} target="_blank" rel="noreferrer">{sample.programName}: sample plan</a>)}
+              </div>
+            )}
+          </>
+        ) : undefined}
         minors={minorOptions}
         minorIds={minorIds}
         onMinorsChange={changeMinors}

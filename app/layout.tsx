@@ -7,26 +7,30 @@ import './globals.css';
  */
 const title = 'ORION';
 const description =
-  'Plan every semester against your own university catalog, prerequisites and schedule.';
+  'Explore courses. Shape your semesters. An independent, visual degree planner for UGA and Illinois.';
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orion.cogsci.workers.dev';
+const preview = '/orion-social-preview.jpg';
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
+  metadataBase: new URL(siteUrl),
   title,
   description,
   openGraph: {
     type: 'website',
+    url: siteUrl,
+    siteName: 'ORION',
     title,
     description,
     images: [
       {
-        url: '/og.png',
-        width: 1731,
-        height: 909,
-        alt: 'ORION course constellation',
+        url: preview,
+        width: 1200,
+        height: 630,
+        alt: 'ORION - explore courses and shape your semesters at UGA and Illinois',
       },
     ],
   },
-  twitter: { card: 'summary_large_image', title, description, images: ['/og.png'] },
+  twitter: { card: 'summary_large_image', title, description, images: [preview] },
 };
 
 export default function RootLayout({

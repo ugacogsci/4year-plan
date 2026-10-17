@@ -18,6 +18,7 @@ import type {
 } from '@/lib/planner/scheduler';
 import type { Course, SemesterSeason } from '@/lib/planner/types';
 import { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
+import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
 
 export { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 
@@ -356,6 +357,7 @@ interface RawUgaProgramFile {
 }
 
 export interface UgaData {
+  guidance: UgaPlanningGuidance | null;
   courses: Course[];
   byCode: Map<string, Course>;
   programs: UgaProgram[];
@@ -924,9 +926,10 @@ function adaptProgram(
 export function loadUgaData(): Promise<UgaData | null> {
   if (ugaPromise) return ugaPromise;
   ugaPromise = (async () => {
-    const [rawCourses, programFile] = await Promise.all([
+    const [rawCourses, programFile, guidance] = await Promise.all([
       readJson<RawUgaCourse[]>('/uga-catalog.json'),
       readJson<RawUgaProgramFile>('/uga-programs.json'),
+      loadUgaPlanningGuidance(),
     ]);
     if (!rawCourses || !programFile) {
       ugaPromise = null;
@@ -980,6 +983,7 @@ export function loadUgaData(): Promise<UgaData | null> {
       courses,
       byCode,
       programs,
+      guidance,
       prereqs,
       context,
       source: programFile.source,

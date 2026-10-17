@@ -219,6 +219,8 @@ export interface OnboardingAnswers {
   minorIds: string[];
   /** Published certificates at the selected program level. */
   certificateIds: string[];
+  /** Published UGA combined-degree intent, not graduate admission or approved shared credit. */
+  doubleDawgsPathwayId?: string | null;
   /**
    * Named focus/emphasis choices, keyed by the requirement id published with
    * the program. Keeping the requirement in the key supports degrees with
@@ -273,6 +275,7 @@ export const EMPTY_ANSWERS: OnboardingAnswers = {
   programIds: [UNDECIDED_PROGRAM_ID],
   minorIds: [],
   certificateIds: [],
+  doubleDawgsPathwayId: null,
   emphasisSelections: {},
   collegeId: '',
   academicYear: '',
@@ -385,6 +388,8 @@ export function loadAnswers(): OnboardingAnswers | null {
         ? { ...parsed.transcript, schoolId: parsed.schoolId === 'uga' ? 'uga' : 'illinois' }
         : null,
       programLevel: parsed.programLevel === 'graduate' ? 'graduate' : 'undergraduate',
+      doubleDawgsPathwayId: parsed.schoolId === 'uga' && parsed.programLevel !== 'graduate' && typeof parsed.doubleDawgsPathwayId === 'string'
+        ? parsed.doubleDawgsPathwayId : null,
       programIds: Array.isArray(parsed.programIds)
         ? parsed.programIds.filter((id): id is string => typeof id === 'string')
         : savedBoard?.programId ? [savedBoard.programId] : [],

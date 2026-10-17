@@ -1,5 +1,36 @@
 # ORION
 
+## UGA planning guidance
+
+`public/uga-planning-guidance.json` records official Bulletin sample plans and the
+[Double Dawgs directory](https://doubledawgs.uga.edu/ProgramList), with source URLs
+and a refresh timestamp. Refresh with `npm run data:uga:guidance` (add `-- --refresh`
+to bypass the same-day temporary download cache). Failed or suspiciously small
+imports leave the previous snapshot intact. No server scraping is needed at runtime.
+
+- Named sample courses break otherwise equal elective/requirement-choice rankings,
+  after student fit and eligibility. Completed credit, prerequisites, standing,
+  level, offerings and diversity checks remain in force. Emphasis-specific samples
+  are used only for matching selections; otherwise the general sample (or courses
+  common to all variants) is used. Generic "elective" rows do not invent suggestions.
+- Double Dawgs is an optional, saved pathway choice in setup and Progress > Programs.
+  This first pass plans the bachelor's stage, not a verified combined degree. It
+  does not add a graduate degree, infer admission, or automatically deduct shared
+  credits. The selected pathway and this limitation are passed to the assistant.
+  Graduate admission, shared-credit approval and the graduate stage need pathway
+  advisor review. Official listings without an exact catalog degree-name match
+  remain in the snapshot and accessible through the directory, not guessed matches.
+- The initial import contains 160 sample plans and 395 pathway listings, 384 linked
+  to a catalog bachelor's program. These are snapshots, not live admission decisions.
+
+Check with `npm run test:uga-guidance`, `npm run check:uga`, and
+`node --experimental-strip-types lib/planner/__uga-integration.check.mjs`.
+
+The social preview uses `public/orion-social-preview.jpg` and the production URL
+in `app/layout.tsx` (`NEXT_PUBLIC_SITE_URL` can override it). `public/brand-preview.html`
+is its 1200x630 source composition. Messaging services may retain an older preview
+until their cache is refreshed after deployment.
+
 ## uga2: integrated UGA and Illinois planner
 
 This branch starts from `uga` and integrates the functionality from `illinois`. It keeps ORION's existing map, draggable and resizable schedule, light/dark themes, grouped plan tabs, UGA undergraduate/graduate programs, majors, minors, certificates and required emphases.
