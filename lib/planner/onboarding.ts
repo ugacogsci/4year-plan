@@ -219,6 +219,12 @@ export interface OnboardingAnswers {
   minorIds: string[];
   /** Published certificates at the selected program level. */
   certificateIds: string[];
+  /** Published UGA combined-degree pathway. Admission still needs confirmation. */
+  doubleDawgsPathwayId?: string | null;
+  doubleDawgsGraduateSeason?: GraduationSeason;
+  doubleDawgsGraduateYear?: number | null;
+  /** undefined chooses source-backed defaults; [] explicitly shares no courses. */
+  doubleDawgsSharedCodes?: string[];
   /**
    * Named focus/emphasis choices, keyed by the requirement id published with
    * the program. Keeping the requirement in the key supports degrees with
@@ -273,6 +279,7 @@ export const EMPTY_ANSWERS: OnboardingAnswers = {
   programIds: [UNDECIDED_PROGRAM_ID],
   minorIds: [],
   certificateIds: [],
+  doubleDawgsPathwayId: null,
   emphasisSelections: {},
   collegeId: '',
   academicYear: '',
@@ -385,6 +392,11 @@ export function loadAnswers(): OnboardingAnswers | null {
         ? { ...parsed.transcript, schoolId: parsed.schoolId === 'uga' ? 'uga' : 'illinois' }
         : null,
       programLevel: parsed.programLevel === 'graduate' ? 'graduate' : 'undergraduate',
+      doubleDawgsPathwayId: parsed.schoolId === 'uga' && parsed.programLevel !== 'graduate' && typeof parsed.doubleDawgsPathwayId === 'string'
+        ? parsed.doubleDawgsPathwayId : null,
+      doubleDawgsGraduateSeason: ['Fall', 'Spring', 'Summer'].includes(parsed.doubleDawgsGraduateSeason ?? '') ? parsed.doubleDawgsGraduateSeason : '',
+      doubleDawgsGraduateYear: Number.isInteger(parsed.doubleDawgsGraduateYear) && (parsed.doubleDawgsGraduateYear ?? 0) >= 2000 && (parsed.doubleDawgsGraduateYear ?? 0) <= 2100 ? parsed.doubleDawgsGraduateYear : null,
+      doubleDawgsSharedCodes: Array.isArray(parsed.doubleDawgsSharedCodes) ? [...new Set(parsed.doubleDawgsSharedCodes.filter((code): code is string => typeof code === 'string' && /^[A-Z]{2,5} [6-9]\d{3}[A-Z]?$/.test(code)))] : undefined,
       programIds: Array.isArray(parsed.programIds)
         ? parsed.programIds.filter((id): id is string => typeof id === 'string')
         : savedBoard?.programId ? [savedBoard.programId] : [],

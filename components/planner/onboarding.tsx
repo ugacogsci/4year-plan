@@ -51,6 +51,8 @@ import {
   type FitNote,
 } from '@/lib/planner/graduation-fit';
 import { useExamCredit } from './exam-credit';
+import { DoubleDawgsPicker } from './double-dawgs-picker';
+import { DoubleDawgsTiming, doubleDawgsTimingValid } from './double-dawgs-timing';
 import {
   PLANNER_THEME_STORAGE_KEY,
   readStoredTheme,
@@ -280,7 +282,7 @@ export function Onboarding({
     Boolean(answers.academicYear) &&
     Boolean(answers.graduationSeason) &&
     Boolean(answers.graduationYear) &&
-    !graduationInPast &&
+    !graduationInPast && doubleDawgsTimingValid(answers) &&
     (answers.schoolId !== 'uga' || undecided || Boolean(answers.collegeId)) &&
     emphasesComplete;
   const missingDetails = [
@@ -436,6 +438,7 @@ export function Onboarding({
     setAnswers((a) => ({
       ...a,
       schoolId: id,
+      doubleDawgsPathwayId: a.schoolId === id ? a.doubleDawgsPathwayId : null,
       programLevel: id === 'uga' || id === 'illinois' ? a.programLevel : 'undergraduate',
       programIds: a.schoolId === id ? a.programIds : [UNDECIDED_PROGRAM_ID],
       minorIds: a.schoolId === id ? a.minorIds : [],
@@ -450,6 +453,7 @@ export function Onboarding({
     setAnswers((current) => ({
       ...current,
       programLevel,
+      doubleDawgsPathwayId: null,
       programIds: [UNDECIDED_PROGRAM_ID],
       minorIds: [],
       certificateIds: [],
@@ -471,6 +475,7 @@ export function Onboarding({
       return {
         ...current,
         programIds: next,
+        doubleDawgsPathwayId: null,
         collegeId: '',
         emphasisSelections: Object.fromEntries(
           Object.entries(current.emphasisSelections).filter(([key]) =>
@@ -671,6 +676,17 @@ export function Onboarding({
               {answers.schoolId === 'uga' && (
                 <>
                   {answers.programLevel === 'undergraduate' && (
+                    <DoubleDawgsPicker
+                      programIds={answers.programIds}
+                      selectedId={answers.doubleDawgsPathwayId}
+                      sharedCodes={answers.doubleDawgsSharedCodes}
+                      completedCodes={answers.alreadyTakenCourseCodes}
+                      emphasisSelections={answers.emphasisSelections}
+                      onSharedChange={(doubleDawgsSharedCodes) => setAnswers((current) => ({ ...current, doubleDawgsSharedCodes }))}
+                      onChange={(doubleDawgsPathwayId) => setAnswers((current) => ({ ...current, doubleDawgsPathwayId, doubleDawgsSharedCodes: undefined }))}
+                    />
+                  )}
+                  {answers.programLevel === 'undergraduate' && (
                     <details className="onb-optional-programs" open={answers.minorIds.length > 0 || undefined}>
                       <summary>Add a minor</summary>
                       <ProgramPicker
@@ -818,11 +834,11 @@ export function Onboarding({
               )}
 
               <fieldset className="onb-graduation">
-                <legend>When do you intend to graduate?</legend>
+                <legend>{answers.doubleDawgsPathwayId ? "When do you intend to finish your bachelor's degree?" : 'When do you intend to graduate?'}</legend>
                 <span className="onb-q-hint">
                   {!graduationEdited && answers.academicYear
                     ? `Suggested using a ${programYears}-year program. Adjust for your pace.`
-                    : 'The planner will not schedule courses beyond this term.'}
+                    : answers.doubleDawgsPathwayId ? "The master's stage starts after this term." : 'The planner will not schedule courses beyond this term.'}
                 </span>
                 <div>
                   <label>
@@ -874,6 +890,8 @@ export function Onboarding({
                   </label>
                 </div>
               </fieldset>
+
+              {answers.doubleDawgsPathwayId && <DoubleDawgsTiming answers={answers} onChange={setAnswers} />}
 
               {graduationInPast && (
                 <div className="onb-feasibility" role="alert">

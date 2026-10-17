@@ -92,6 +92,23 @@ export interface PlanState {
    */
   maybeCourseIds?: string[];
   terms: PlanTerm[];
+  /** Snapshot belongs to this plan tab, not the currently selected setup. */
+  doubleDawgs?: {
+    pathwayId: string;
+    pathwayName: string;
+    source: string;
+    graduateProgramId: string;
+    undergraduateFinish: { season: SemesterSeason; year: number };
+    graduateFinish: { season: SemesterSeason; year: number };
+    undergraduateCredits: number;
+    graduateCredits: number;
+    shared: Array<{ code: string; undergraduateCode?: string; credits: number }>;
+    maxSharedCredits: number;
+    reviewNotes: string[];
+    graduateEligibleCodes?: string[];
+    curriculumIncomplete?: boolean;
+    sharedNotBefore?: { season: SemesterSeason; year: number };
+  };
 }
 
 export interface ProgramRequirement {

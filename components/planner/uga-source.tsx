@@ -18,6 +18,7 @@ import type {
 } from '@/lib/planner/scheduler';
 import type { Course, SemesterSeason } from '@/lib/planner/types';
 import { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
+import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
 
 export { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 
@@ -356,6 +357,7 @@ interface RawUgaProgramFile {
 }
 
 export interface UgaData {
+  guidance: UgaPlanningGuidance | null;
   courses: Course[];
   byCode: Map<string, Course>;
   programs: UgaProgram[];
@@ -363,6 +365,8 @@ export interface UgaData {
   context: PlanningContext;
   source: string;
   fetchedAt: string;
+  /** Graduate -> undergraduate number only where the catalog prints a dual-level listing. */
+  dualLevelCourses: Map<string, string>;
 }
 
 export interface UgaLoadedProgram {
@@ -924,9 +928,10 @@ function adaptProgram(
 export function loadUgaData(): Promise<UgaData | null> {
   if (ugaPromise) return ugaPromise;
   ugaPromise = (async () => {
-    const [rawCourses, programFile] = await Promise.all([
+    const [rawCourses, programFile, guidance] = await Promise.all([
       readJson<RawUgaCourse[]>('/uga-catalog.json'),
       readJson<RawUgaProgramFile>('/uga-programs.json'),
+      loadUgaPlanningGuidance(),
     ]);
     if (!rawCourses || !programFile) {
       ugaPromise = null;
@@ -934,6 +939,16 @@ export function loadUgaData(): Promise<UgaData | null> {
     }
 
     const courses = rawCourses.flatMap(adaptCourses);
+    // GradFIRST is one credit, additional to the graduate program of study.
+    // https://ai.uga.edu/ms-artificial-intelligence#degree-requirements
+    for (const course of courses) if (/^GRSC 7001E?$/.test(course.code)) { course.credits = 1; course.creditsMax = 1; }
+    const dualLevelCourses = new Map<string, string>();
+    for (const raw of rawCourses) {
+      const codes = listedUgaCourseCodes(raw.code);
+      const undergraduate = codes.find((code) => / [1-5]\d{3}/.test(code));
+      const graduate = codes.find((code) => / [6-9]\d{3}/.test(code));
+      if (undergraduate && graduate) dualLevelCourses.set(graduate, undergraduate);
+    }
     const byCode = new Map(courses.map((course) => [normCode(course.code), course]));
     const equivalents = ugaEquivalents(courses);
     const prereqs = new Map<string, PlanPrereq>();
@@ -980,10 +995,12 @@ export function loadUgaData(): Promise<UgaData | null> {
       courses,
       byCode,
       programs,
+      guidance,
       prereqs,
       context,
       source: programFile.source,
       fetchedAt: programFile.fetchedAt,
+      dualLevelCourses,
     };
   })();
   return ugaPromise;

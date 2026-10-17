@@ -2136,23 +2136,28 @@ p.requirement-unnamed {
 
 .planner-loading > div {
   display: grid;
-  gap: 8px;
-  max-width: 40ch;
+  gap: 14px;
+  width: min(100%, 460px);
 }
 
 .planner-loading h1 {
   margin: 0;
-  font-size: var(--fs-title);
-  font-weight: 650;
-  letter-spacing: -0.02em;
-  color: #f0f4f9;
+  font-family: var(--app-font-serif);
+  font-size: 36px;
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: 0;
+  color: var(--foreground);
 }
 
 .planner-loading p {
   margin: 0;
-  font-size: var(--fs-body);
-  line-height: 1.6;
-  color: var(--ink-dim);
+  font-family: var(--app-font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.7;
+  letter-spacing: 0;
+  color: var(--muted-foreground);
 }
 
 .no-scrollbar {
@@ -6723,12 +6728,12 @@ button.unofficial-label:focus-visible,
 }
 .site-footer {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 6px 14px;
-  margin-top: 28px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
+  justify-items: center;
+  gap: 8px;
+  margin: 36px auto 0;
+  padding: 20px 12px 8px;
+  max-width: 560px;
+  text-align: center;
   color: var(--muted-foreground);
   font-family: var(--app-font-mono);
   font-size: 11px;
@@ -6736,7 +6741,68 @@ button.unofficial-label:focus-visible,
   line-height: 1.65;
 }
 .site-footer-notice { margin: 0; overflow-wrap: anywhere; }
-.site-footer .unofficial-link { grid-column: 2; justify-self: start; }
+.site-footer .unofficial-link { justify-self: center; margin-top: 2px; }
+
+.double-dawgs,
+.sample-plan-links {
+  margin: 16px 0 0;
+  color: var(--onb-mid, var(--orion-mid));
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.double-dawgs summary {
+  cursor: pointer;
+  color: var(--onb-text, var(--orion-text));
+  font-family: var(--app-font-serif);
+  font-size: 21px;
+  font-weight: 400;
+}
+.onb .double-dawgs { margin-top: 0; border-top: 1px solid var(--onb-line); }
+.onb .double-dawgs > summary {
+  padding: 11px 0;
+  color: var(--onb-mid);
+  font-family: var(--app-font-mono);
+  font-size: 10px;
+  list-style-position: inside;
+}
+.double-dawgs p { margin: 10px 0; }
+.guidance-search { display: grid; gap: 6px; margin: 12px 0 8px; }
+.guidance-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--onb-line, var(--orion-line));
+  border-radius: 4px;
+  background: var(--onb-raised, var(--orion-bg));
+  color: var(--onb-text, var(--orion-text));
+  font: inherit;
+}
+.double-dawgs-options { max-height: 220px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.double-dawgs-options label { display: flex; gap: 9px; align-items: flex-start; padding: 8px 2px; cursor: pointer; }
+.double-dawgs-options input { flex: 0 0 auto; margin-top: 3px; accent-color: var(--onb-text, var(--orion-text)); }
+.double-dawgs-options label:has(input:checked) { color: var(--onb-text, var(--orion-text)); }
+.double-dawgs-summary strong { font-weight: 500; color: var(--onb-text, var(--orion-text)); }
+.double-dawgs a,
+.sample-plan-links a { display: inline; color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.double-dawgs-summary a,
+.sample-plan-links a { display: block; margin: 8px 0; }
+.double-dawgs a svg { display: inline; width: 11px; height: 11px; vertical-align: middle; }
+.double-dawgs-shared { min-width: 0; margin: 16px 0; padding: 0; border: 0; }
+.double-dawgs-shared legend { margin-bottom: 8px; color: var(--onb-text, var(--orion-text)); }
+.double-dawgs-shared label { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; }
+.double-dawgs-shared input { flex: 0 0 auto; margin-top: 3px; accent-color: var(--onb-text, var(--orion-text)); }
+.double-dawgs-shared small { display: block; font: inherit; color: var(--onb-mid, var(--orion-mid)); }
+.double-dawgs-shared label:has(input:disabled) { opacity: .55; }
+.double-dawgs-timing { min-width: 0; margin: 20px 0; padding: 0; border: 0; }
+.double-dawgs-timing legend { font-family: var(--app-font-serif); font-size: 22px; margin-bottom: 8px; }
+.double-dawgs-timing > div { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.double-dawgs-timing label { display: grid; min-width: 0; gap: 4px; font-family: var(--app-font-mono); font-size: 11px; }
+.double-dawgs-timing select { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--onb-line, var(--orion-line)); border-radius: 4px; background: var(--onb-raised, var(--orion-bg)); color: var(--onb-text, var(--orion-text)); font: inherit; }
+.double-dawgs-timing p { color: var(--destructive); font-family: var(--app-font-mono); font-size: 11px; }
+.planner-app .semester-degree-stage { display: block; font-family: var(--app-font-mono); font-size: 10px; line-height: 1.5; font-weight: 400; color: var(--orion-mid); }
 
 /* These surfaces are portaled outside the planner; use the root theme tokens. */
 .privacy-dialog,

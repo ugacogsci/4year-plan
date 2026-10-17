@@ -1,5 +1,52 @@
 # ORION
 
+## UGA planning guidance
+
+`public/uga-planning-guidance.json` records official Bulletin sample plans and the
+[Double Dawgs directory](https://doubledawgs.uga.edu/ProgramList), with source URLs
+and a refresh timestamp. Refresh with `npm run data:uga:guidance` (add `-- --refresh`
+to bypass the same-day temporary download cache). Failed or suspiciously small
+imports leave the previous snapshot intact. No server scraping is needed at runtime.
+
+- Named sample courses break otherwise equal elective/requirement-choice rankings,
+  after student fit and eligibility. Completed credit, prerequisites, standing,
+  level, offerings and diversity checks remain in force. Emphasis-specific samples
+  are used only for matching selections; otherwise the general sample (or courses
+  common to all variants) is used. Generic "elective" rows do not invent suggestions.
+- Double Dawgs now generates two connected stages with separate bachelor's and
+  master's completion dates. Setup and Progress > Programs expose the shared
+  course choices. A proposed graduate-number course replaces its undergraduate
+  counterpart, appears once, and counts in both independent degree ledgers.
+  Only courses named by the pathway, present in both curricula, and explicitly
+  dual-numbered in the catalog are offered as automatic shared substitutions.
+  Already-earned undergraduate credits are never converted into graduate credit.
+- The engine schedules shared courses in the final undergraduate year, adds the
+  graduate curriculum after that stage, and enforces the pathway cap (at most 12).
+  Removing a shared course or moving it outside its window removes its credit
+  benefit. Rebuild respects completed courses. Graduate/AP/transfer/exemption
+  accounting stays separate; dragging undergraduate courses into graduate terms
+  does not meet master's requirements. Shared-credit metadata survives saving,
+  exporting and plan-tab duplication.
+- Cognitive Science AB/AI MS and Computer Science BS/AI MS have end-to-end checks,
+  including the AI degree's 12 graduate-only coursework hours and extra one-credit
+  GradFIRST seminar. Course-sized requirements can exceed the published minimum.
+  Other mapped pathways use the existing graduate catalog adapter. Missing
+  curricula remain explicitly incomplete instead of being filled with arbitrary
+  courses. Unmatched graduate degrees cannot generate a combined plan yet.
+  Admission, minimum grades/GPA, residency, option-specific rules, thesis/defense
+  milestones and approval of shared credit still require the pathway advisor;
+  this is a planning draft, not a certified degree audit.
+- The import contains 160 sample plans and 395 pathway listings, 385 linked
+  to a catalog bachelor's program. These are snapshots, not live admission decisions.
+
+Check with `npm run test:double-dawgs`, `npm run test:uga-guidance`, `npm run check:uga`, and
+`node --experimental-strip-types lib/planner/__uga-integration.check.mjs`.
+
+The social preview uses `public/orion-social-preview.jpg` and the production URL
+in `app/layout.tsx` (`NEXT_PUBLIC_SITE_URL` can override it). `public/brand-preview.html`
+is its 1200x630 source composition. Messaging services may retain an older preview
+until their cache is refreshed after deployment.
+
 ## uga2: integrated UGA and Illinois planner
 
 This branch starts from `uga` and integrates the functionality from `illinois`. It keeps ORION's existing map, draggable and resizable schedule, light/dark themes, grouped plan tabs, UGA undergraduate/graduate programs, majors, minors, certificates and required emphases.

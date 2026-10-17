@@ -49,6 +49,10 @@ import { AdvisorPacketDialog } from './advisor-packet';
 import { SemesterColumn } from './semester-column';
 import { illinoisProgress, illinoisProgressGuard } from './illinois-progress';
 import { StudentProfilePanel, type AreaRow } from './student-profile-panel';
+import { DoubleDawgsPicker } from './double-dawgs-picker';
+import { DoubleDawgsTiming } from './double-dawgs-timing';
+import { defaultGraduateFinish, degreeTermOrder, doubleDawgsContext, doubleDawgsIssues, doubleDawgsLedger, doubleDawgsOptions, doubleDawgsProgress, generateDoubleDawgs, selectSharedCourses, sharedUndergraduateRequirements, withDoubleDawgsGraduateRules } from '@/lib/planner/double-dawgs';
+import { pathwaysFor, sampleCoursesFor, samplePlansFor } from '@/lib/planner/uga-planning-guidance';
 import { holdMaybe, maybeCodes, maybeIssues, maybeLines, openMaybeOnBoard, withoutMaybe } from '@/lib/planner/transfer-maybe';
 import { ProgramPicker } from './program-picker';
 import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
@@ -347,7 +351,7 @@ function choiceCodes(block: RequirementBlock): Set<string> {
     return out;
   }
   for (const choice of block.rule.choices) {
-    for (const code of [...choice.codes, ...choice.substitutes]) out.add(normCode(code));
+    for (const code of [...choice.codes, ...(choice.substitutes ?? [])]) out.add(normCode(code));
   }
   return out;
 }
@@ -395,11 +399,11 @@ function replacementScope(input: {
   for (const block of input.blocks) {
     if (block.rule.kind !== 'all') continue;
     const row = block.rule.choices.find((choice) =>
-      [...choice.codes, ...choice.substitutes].some((candidate) => normCode(candidate) === code),
+      [...choice.codes, ...(choice.substitutes ?? [])].some((candidate) => normCode(candidate) === code),
     );
     if (!row) continue;
     return {
-      codes: new Set([...row.codes, ...row.substitutes].map(normCode)),
+      codes: new Set([...row.codes, ...(row.substitutes ?? [])].map(normCode)),
       label: `Catalog-listed alternatives for ${block.label || block.areaLabel}.`,
     };
   }
@@ -518,6 +522,7 @@ type SourceProgram = LoadedProgram | UgaLoadedProgram;
 
 /** One or more catalog degree pages presented to the planner as one board. */
 interface LoadedBundle {
+  doubleDawgsGraduate?: UgaLoadedProgram;
   summary: { id: string; name: string; totalCredits: number | null };
   program: ProgramRequirements;
   blocks: RequirementBlock[];
@@ -750,6 +755,7 @@ export function PlannerWorkspace({
     `minor:${minorIds.join(',')}`,
     `certificate:${certificateIds.join(',')}`,
     `emphasis:${emphasisKey}`,
+    `double-dawgs:${answers?.doubleDawgsPathwayId ?? ''}`,
   ].join('|');
   /**
    * Steps back, newest last. Each holds the whole board, report and all
@@ -1072,6 +1078,7 @@ export function PlannerWorkspace({
         onAnswersChange({
           ...answers,
           programLevel: nextLevel,
+          doubleDawgsPathwayId: null,
           programIds: nextProgramIds,
           minorIds: [],
           certificateIds: [],
@@ -1100,7 +1107,7 @@ export function PlannerWorkspace({
           [...selected].some((id) => key.startsWith(`${id}::`)),
         ),
       );
-      onAnswersChange({ ...answers, programIds: next, emphasisSelections });
+      onAnswersChange({ ...answers, programIds: next, emphasisSelections, doubleDawgsPathwayId: null });
     }
   }, [answers, onAnswersChange, programIds, resetProgramPlan]);
 
@@ -1197,7 +1204,14 @@ export function PlannerWorkspace({
         }),
       );
       // oxlint-disable-next-line react/react-compiler
-      setFetched({ key: programKey, value: sources.length === selectedProgramIds.length ? combinePrograms(sources) : null });
+      const bundle = sources.length === selectedProgramIds.length ? combinePrograms(sources) : null;
+      const pathway = pathwaysFor(uga.guidance, programIds).find((row) => row.id === answers?.doubleDawgsPathwayId);
+      const graduate = pathway?.graduateProgramIds.length === 1 ? uga.programs.find((program) => program.id === pathway.graduateProgramIds[0] && isUgaGraduateDegree(program)) : undefined;
+      if (bundle && graduate) {
+        bundle.doubleDawgsGraduate = withDoubleDawgsGraduateRules(loadUgaProgram(uga, graduate, { resetRequirements: false, emphasisSelections: answers?.emphasisSelections }), uga.context);
+        bundle.urls.push({ name: graduate.name, url: bundle.doubleDawgsGraduate.url });
+      }
+      setFetched({ key: programKey, value: bundle });
       return;
     }
     if (isIllinois && isGraduatePlan) {
@@ -1306,11 +1320,25 @@ export function PlannerWorkspace({
 
   // ---- the planning context -------------------------------------------------
 
+  const ugaSamplePlans = useMemo(() => isUga && !isGraduatePlan
+    ? samplePlansFor(uga?.guidance ?? null, programIds) : [], [isUga, isGraduatePlan, uga, programIds]);
+  const doubleDawgsPathway = isUga && !isGraduatePlan
+    ? pathwaysFor(uga?.guidance ?? null, programIds).find((pathway) => pathway.id === answers?.doubleDawgsPathwayId)
+    : undefined;
+
   const context: PlanningContext | null = useMemo(() => {
     if (isIllinois && planCore) return buildContext(planCore, loaded?.blocks ?? [], null).context;
-    if (isUga && uga) return uga.context;
+    if (isUga && uga) return {
+      ...uga.context,
+      samplePlanCourses: sampleCoursesFor(ugaSamplePlans, Object.fromEntries(programIds.map((id) => [id,
+        emphasisRequirements.filter((requirement) => requirement.programId === id).flatMap((requirement) =>
+          requirement.options.filter((option) => answers?.emphasisSelections[requirement.id]?.includes(option.id)).map((option) => option.label),
+        ),
+      ]))),
+    };
     return null;
-  }, [isIllinois, isUga, planCore, uga, loaded]);
+  }, [isIllinois, isUga, planCore, uga, loaded, ugaSamplePlans, programIds, emphasisRequirements, answers?.emphasisSelections]);
+  const boardContext = useMemo(() => doubleDawgsContext(plan, context), [plan?.doubleDawgs, context]);
 
   // ---- clubs ----------------------------------------------------------------
 
@@ -1407,6 +1435,10 @@ export function PlannerWorkspace({
     }
 
     if (!loaded) return;
+    if (doubleDawgsPathway && !loaded.doubleDawgsGraduate) {
+      setStatus("This pathway's graduate degree is not linked to a catalog curriculum yet. Choose another pathway or remove it to build a bachelor's-only plan.");
+      return;
+    }
 
 
     const publishedTotal = loaded.summary.totalCredits || loaded.program.totalCredits || null;
@@ -1508,7 +1540,17 @@ export function PlannerWorkspace({
     let generated: GeneratedPlan;
     let maybe: { codes: string[] } = { codes: [] };
     try {
-      const held = holdMaybe(planInput.prior, answers?.transcript, (code) => byCode.get(normCode(code))?.credits ?? null, (p) => generatePlan({ ...planInput, prior: p }));
+      const held = holdMaybe(planInput.prior, answers?.transcript, (code) => byCode.get(normCode(code))?.credits ?? null, (p) => {
+        if (doubleDawgsPathway && loaded.doubleDawgsGraduate && uga) {
+          const finish = { season: horizon.gradSeason, year: horizon.gradYear };
+          const options = doubleDawgsOptions(doubleDawgsPathway, loaded, loaded.doubleDawgsGraduate, byCode, uga.dualLevelCourses);
+          return generateDoubleDawgs({ undergraduate: { ...planInput, prior: p }, undergraduateProgram: loaded.program, graduate: loaded.doubleDawgsGraduate, pathway: doubleDawgsPathway,
+            shared: selectSharedCourses(doubleDawgsPathway, options, answers?.doubleDawgsSharedCodes, p.courseCodes),
+            graduateFinish: answers?.doubleDawgsGraduateSeason && answers?.doubleDawgsGraduateYear ? { season: answers.doubleDawgsGraduateSeason, year: answers.doubleDawgsGraduateYear } : defaultGraduateFinish(finish),
+          });
+        }
+        return generatePlan({ ...planInput, prior: p });
+      });
       if (held.codes.length > 0) planInput = { ...planInput, prior: held.prior };
       maybe = held;
       generated = held.generated;
@@ -1523,7 +1565,7 @@ export function PlannerWorkspace({
      * why. spreadHardOutcome decides, and its note names the check that
      * failed or says what the kept plan really does.
      */
-    if (planShape.spreadHard) {
+    if (planShape.spreadHard && !doubleDawgsPathway) {
       const spreadInput = { ...planInput, preferences: { ...planInput.preferences, maxHardCourses: 1 } };
       const spread = generatePlan(spreadInput);
       const outcome = spreadHardOutcome(generated, spread, {
@@ -1681,7 +1723,7 @@ export function PlannerWorkspace({
     // computed for it (the effect after `issues`): the all-clear follows
     // every check the board shows, not only unplaced courses.
     announceBuild.current = true;
-  }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape]);
+  }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga]);
 
   /**
    * Credit that changes after the board exists rebuilds the board.
@@ -1992,6 +2034,15 @@ export function PlannerWorkspace({
    */
   const pools = useMemo(() => {
     if (!report || !context) return [];
+    if (plan?.doubleDawgs && loaded?.doubleDawgsGraduate) {
+      const ledger = doubleDawgsLedger(plan, context, [...completedCodes]);
+      if (!ledger) return [];
+      const graduateIds = new Set(loaded.doubleDawgsGraduate.blocks.map((block) => block.id));
+      return [
+        ...livePools({ base: report.pools.filter((pool) => !graduateIds.has(pool.requirementId)), blocks: sharedUndergraduateRequirements(loaded.blocks, plan.doubleDawgs.shared.filter((row): row is { code: string; undergraduateCode: string; credits: number } => Boolean(row.undergraduateCode))), boardCodes: ledger.undergraduateCodes, priorCodes: [], context }),
+        ...livePools({ base: report.pools.filter((pool) => graduateIds.has(pool.requirementId)), blocks: loaded.doubleDawgsGraduate.blocks, boardCodes: ledger.graduateCodes, priorCodes: [], context, reserveRequired: true, independentIds: new Set(['double-dawgs:ai-graduate-only']) }),
+      ];
+    }
     return livePools({
       base: report.pools,
       blocks: loaded?.blocks ?? [],
@@ -1999,7 +2050,7 @@ export function PlannerWorkspace({
       priorCodes: [...completedCodes],
       context,
     });
-  }, [report, context, loaded, boardCodes, completedCodes]);
+  }, [report, context, loaded, boardCodes, completedCodes, plan]);
 
   /**
    * The review list, rebuilt whenever the board moves.
@@ -2174,13 +2225,14 @@ export function PlannerWorkspace({
   }, [plan, isIllinois, weeklySchedules, core, courseIndex]);
   /** The degree on screen, from whichever source this school has. */
   const activeProgramName =
-    loaded?.program.name ??
+    plan?.doubleDawgs?.pathwayName ?? loaded?.program.name ??
     (programIds
         .map((id) => programOptions.find((program) => program.id === id)?.name)
         .filter((name): name is string => Boolean(name))
         .join(' + ') || null);
+  const combinedLedger = useMemo(() => plan && context ? doubleDawgsLedger(plan, context, [...completedCodes], Math.max(0, priorCreditHours - planCreditRange([...completedCodes], context).min)) : null, [plan, context, completedCodes, priorCreditHours]);
   const activeProgramTotal =
-    loaded?.program.totalCredits ||
+    combinedLedger?.requiredUniqueCredits || loaded?.program.totalCredits ||
     samplePrograms.find((p) => p.id === programId)?.totalCredits ||
     null;
 
@@ -2257,8 +2309,9 @@ export function PlannerWorkspace({
    * gets nothing extra, because "88 of 128, 0 of those you already have" is
    * noise.
    */
-  const creditNote =
-    context && assumedCredit.hours > 0
+  const creditNote = combinedLedger && plan?.doubleDawgs
+    ? `Bachelor's: ${combinedLedger.undergraduateCredits}/${plan.doubleDawgs.undergraduateCredits} credits. Master's: ${combinedLedger.graduateCredits}/${plan.doubleDawgs.graduateCredits}. ${combinedLedger.sharedCredits} shared credits count toward both; taken only once.`
+    : context && assumedCredit.hours > 0
       ? `${describeCreditTotal(credits.total)}${activeProgramTotal === null ? '' : ` of the ${activeProgramTotal} this degree takes`}. ${[
           credits.prior > 0 ? `${credits.prior} of those you already have` : null,
           `about ${assumedCredit.hours} are counted for ${assumedCredit.terms} until you add those classes`,
@@ -2271,6 +2324,7 @@ export function PlannerWorkspace({
 
   const areas: AreaRow[] = useMemo(() => {
     if (!loaded || !plan) return [];
+    if (plan.doubleDawgs && context && loaded.doubleDawgsGraduate) return doubleDawgsProgress(plan, context, loaded.program, loaded.doubleDawgsGraduate.program, [...completedCodes], Math.max(0, priorCreditHours - planCreditRange([...completedCodes], context).min));
     /**
      * Illinois gets one row per requirement block, in the unit the page sized
      * it in, because its pages print no hour total on their areas and a bar
@@ -2395,7 +2449,7 @@ export function PlannerWorkspace({
     isUga,
     context,
     credits.total.min,
-    isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits, coreCredit,
+    isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits, coreCredit, priorCreditHours,
   ]);
 
   /**
@@ -2406,15 +2460,15 @@ export function PlannerWorkspace({
    */
   const issues = useMemo(() => {
     if (!plan) return [];
-    const validation = context
-      ? validatePlan(plan, context, {
+    const validation = boardContext
+      ? validatePlan(plan, boardContext, {
           minimumTermCredits, programName: loaded?.program.name, programCollege: isIllinois && !isGraduatePlan ? loaded?.program.college : undefined,
           standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
           priorCredits: priorCreditHours, away: report?.away, language: report?.language,
           firstYear: isIllinois && !isGraduatePlan ? enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript) : false,
           arrival: isIllinois && !isGraduatePlan ? arrivalOf(answers) : undefined,
         }).filter(
-          (issue) => !isUga || !issue.id.startsWith('ap-weighed-'),
+          (issue) => (!isUga || !issue.id.startsWith('ap-weighed-')) && !(plan.doubleDawgs && issue.id.startsWith('ap-minimum-') && plan.terms.some((term) => term.id === issue.termId && degreeTermOrder(term) > degreeTermOrder(plan.doubleDawgs!.undergraduateFinish))),
         )
       : [];
     // A term whose published class times leave no clash-free choice of
@@ -2433,8 +2487,19 @@ export function PlannerWorkspace({
       ];
     });
     const rows = context
-      ? [...unmet, ...validation, ...clashes]
+      ? [...unmet, ...validation, ...clashes, ...doubleDawgsIssues(plan, context, [...completedCodes], Math.max(0, priorCreditHours - planCreditRange([...completedCodes], context).min))]
       : getPlanIssues(plan, catalog, { minimumTermCredits });
+    if (isUga && (answers?.doubleDawgsPathwayId ?? null) !== (plan.doubleDawgs?.pathwayId ?? null)) {
+      rows.push({
+        id: 'double-dawgs-rebuild',
+        termId: '',
+        severity: 'warning',
+        title: 'Apply your Double Dawgs pathway',
+        message: answers?.doubleDawgsPathwayId
+          ? 'This saved plan has not been built for the selected Double Dawgs pathway. Press Rebuild to generate both degree stages and their shared credits. Your current plan is unchanged until then.'
+          : 'This plan still contains the previous Double Dawgs pathway. Press Rebuild to return to a bachelor\'s-only plan.',
+      });
+    }
     const currentCredits = context ? credits.total.min : getPlanCredits(plan, catalog).total;
     const incompleteAreas = areas.filter((row) => row.area.hours > 0 && !row.satisfied);
     const incompletePools = pools.filter(
@@ -2465,7 +2530,7 @@ export function PlannerWorkspace({
     activeProgramTotal,
     areas,
     pools,
-    isIllinois, isGraduatePlan, loaded, priorCreditHours, report, answers, weeklyFits,
+    isIllinois, isGraduatePlan, loaded, priorCreditHours, report, answers, weeklyFits, completedCodes, boardContext,
   ]);
 
   const planWideIssues = useMemo(
@@ -2507,8 +2572,8 @@ export function PlannerWorkspace({
    * exactly the marks the board shows.
    */
   const electiveOf = useMemo(
-    (): Map<string, ElectiveOf> =>
-      planMarks(
+    (): Map<string, ElectiveOf> => {
+      const marks = planMarks(
         {
           pools,
           language: report?.language ?? null,
@@ -2517,8 +2582,18 @@ export function PlannerWorkspace({
           addedPrerequisites: report?.addedPrerequisites ?? [],
         },
         byCode,
-      ),
-    [pools, byCode, report],
+      );
+      for (const shared of plan?.doubleDawgs?.shared ?? []) {
+        const course = byCode.get(shared.code);
+        if (course) marks.set(course.id, {
+          kind: 'pool',
+          label: 'Double Dawgs shared course',
+          detail: `${shared.credits} proposed shared credits toward both degrees. Replaces ${shared.undergraduateCode}; pathway approval required.`,
+        });
+      }
+      return marks;
+    },
+    [pools, byCode, report, plan?.doubleDawgs],
   );
 
   /** Whether the query matches anything at all, so the panel can say when it does not. */
@@ -2904,12 +2979,19 @@ export function PlannerWorkspace({
     if (!chooser || !plan || !context || !loaded) return null;
     const oldCourse = courseIndex.get(chooser.courseId);
     if (!oldCourse) return null;
+    const term = plan.terms.find((row) => row.id === chooser.termId);
+    const graduateStage = Boolean(plan.doubleDawgs && term && degreeTermOrder(term) > degreeTermOrder(plan.doubleDawgs.undergraduateFinish));
+    const sharedSlot = plan.doubleDawgs?.shared.find((row) => row.code === oldCourse.code);
+    const source = graduateStage ? loaded.doubleDawgsGraduate ?? loaded : loaded;
+    const blocks = plan.doubleDawgs && !graduateStage
+      ? sharedUndergraduateRequirements(loaded.blocks, plan.doubleDawgs.shared.filter((row): row is { code: string; undergraduateCode: string; credits: number } => Boolean(row.undergraduateCode)))
+      : source.blocks;
     const isPrerequisite = plan.terms.some((term) =>
       term.courseIds.some((id) => courseIndex.get(id)?.prerequisites.includes(oldCourse.id)),
     );
     const scope = replacementScope({
       course: oldCourse,
-      blocks: loaded.blocks,
+      blocks,
       pools,
       isOpenElective: electiveOf.get(oldCourse.id)?.kind === 'elective',
       isPrerequisite,
@@ -2925,8 +3007,8 @@ export function PlannerWorkspace({
       ),
     };
     const ranked = electiveOptions({
-      context,
-      requirements: loaded.blocks,
+      context: boardContext ?? context,
+      requirements: blocks,
       plan: planWithoutCourse,
       termId: chooser.termId,
       prior,
@@ -2934,24 +3016,25 @@ export function PlannerWorkspace({
       // influences the next generated plan, but should not rescore an already
       // open chooser while the student is editing that text.
       interests: [answers?.studying ?? '', answers?.after ?? ''].join(' '),
-      programName: loaded.program.name,
+      programName: source.program.name,
       programCollege: isIllinois && !isGraduatePlan ? loaded.program.college : undefined,
       priorities,
-      standingHours: isGraduatePlan
+      standingHours: graduateStage ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 } : isGraduatePlan
         ? gradSettings.standingHours
         : undefined,
-      electiveLevelRange: isGraduatePlan
+      electiveLevelRange: graduateStage ? { min: 600, maxExclusive: 1000 } : isGraduatePlan
         ? gradSettings.electiveLevelRange
         : undefined,
       candidateCodes: scope.codes ?? undefined,
       limit: scope.codes === null ? catalog.length : Math.max(800, scope.codes.size),
     });
     const options = ranked
+      .filter((option) => !graduateStage || !plan.doubleDawgs?.graduateEligibleCodes || plan.doubleDawgs.graduateEligibleCodes.includes(option.code))
       .filter((option) => normCode(option.code) !== normCode(oldCourse.code))
       .filter((option) => scope.codes === null || scope.codes.has(normCode(option.code)))
       .map((option) => byCode.get(normCode(option.code)))
       .filter((course): course is Course => Boolean(course));
-    return { label: scope.label, options, whys: new Map(ranked.flatMap((option) => { const course = byCode.get(normCode(option.code)); return course ? [[course.id, option.reasons.slice(0, 2).join('; ') || option.why] as [string, string]] : []; })) };
+    return { label: sharedSlot ? `${scope.label} (replacing this course may remove shared credit)` : scope.label, options, whys: new Map(ranked.flatMap((option) => { const course = byCode.get(normCode(option.code)); return course ? [[course.id, option.reasons.slice(0, 2).join('; ') || option.why] as [string, string]] : []; })) };
   }, [
     chooser,
     plan,
@@ -2963,7 +3046,7 @@ export function PlannerWorkspace({
     catalog,
     answers,
     byCode,
-    isGraduatePlan, isIllinois, priorities, priorForOptions,
+    isGraduatePlan, isIllinois, priorities, priorForOptions, boardContext,
   ]);
 
   const chooserOptions = { options: chooserData?.options ?? [], whys: chooserData?.whys ?? new Map<string, string>() };
@@ -3192,7 +3275,7 @@ export function PlannerWorkspace({
     live.current = {
       courseIndex,
       byCode,
-      context,
+      context: boardContext,
       loaded,
       catalog,
       electiveOf,
@@ -3432,20 +3515,27 @@ export function PlannerWorkspace({
     if (L.context.schoolId === 'uga') {
       const course = L.courseIndex.get(courseId);
       if (!course) return [];
+      const term = board.terms.find((row) => row.id === termId);
+      const graduateStage = Boolean(board.doubleDawgs && term && degreeTermOrder(term) > degreeTermOrder(board.doubleDawgs.undergraduateFinish));
+      const source = graduateStage ? L.loaded.doubleDawgsGraduate ?? L.loaded : L.loaded;
+      const blocks = board.doubleDawgs && !graduateStage
+        ? sharedUndergraduateRequirements(L.loaded.blocks, board.doubleDawgs.shared.filter((row): row is { code: string; undergraduateCode: string; credits: number } => Boolean(row.undergraduateCode)))
+        : source.blocks;
       const scope = replacementScope({
-        course, blocks: L.loaded.blocks, pools: L.pools, catalog: L.catalog,
+        course, blocks, pools: L.pools, catalog: L.catalog,
         isOpenElective: mark.kind === 'elective',
         isPrerequisite: board.terms.some((t) => t.courseIds.some((id) => L.courseIndex.get(id)?.prerequisites.includes(courseId))),
       });
       return electiveOptions({
-        context: L.context, requirements: L.loaded.blocks,
+        context: L.context, requirements: blocks,
         plan: { ...board, terms: board.terms.map((t) => t.id === termId ? { ...t, courseIds: t.courseIds.filter((id) => id !== courseId) } : t) },
         termId, prior: L.priorForOptions, interests: L.interestsText, priorities: L.priorities,
-        programName: L.loaded.program.name, candidateCodes: scope.codes ?? undefined,
-        standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
-        electiveLevelRange: isGraduatePlan ? gradSettings.electiveLevelRange : undefined,
+        programName: source.program.name, candidateCodes: scope.codes ?? undefined,
+        standingHours: graduateStage ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 } : isGraduatePlan ? gradSettings.standingHours : undefined,
+        electiveLevelRange: graduateStage ? { min: 600, maxExclusive: 1000 } : isGraduatePlan ? gradSettings.electiveLevelRange : undefined,
         limit: 30,
       }).flatMap((option) => {
+        if (graduateStage && board.doubleDawgs?.graduateEligibleCodes && !board.doubleDawgs.graduateEligibleCodes.includes(option.code)) return [];
         const replacement = L.byCode.get(normCode(option.code));
         return replacement && replacement.id !== courseId ? [{ course: replacement, why: option.reasons.slice(0, 2).join('; ') || option.why }] : [];
       }).slice(0, 7);
@@ -3611,6 +3701,7 @@ export function PlannerWorkspace({
     const L = live.current;
     const board = planRef.current;
     if (!board || !L.context || !L.loaded) return { changes: [], unchanged: false };
+    if (board.doubleDawgs) { setStatus('Use Rebuild to apply preferences across both Double Dawgs stages, or replace a course individually.'); return { changes: [], unchanged: true }; }
     const result = repickBoard({
       context: L.context,
       requirements: L.loaded.blocks,
@@ -3705,6 +3796,12 @@ export function PlannerWorkspace({
     lines.push(
       `Degree: ${L.loaded.program.name}, ${school?.name ?? 'selected university'}. Published total: ${L.activeProgramTotal ?? 'not published'} credits. Plan: ${L.totalCredits} through ${last}.`,
     );
+    if (doubleDawgsPathway) {
+      lines.push(`Double Dawgs: ${doubleDawgsPathway.name}. Source: ${doubleDawgsPathway.url}. Combined draft: ${JSON.stringify(plan?.doubleDawgs ?? null)}. Current independent credit ledgers: ${JSON.stringify(combinedLedger)}. Shared courses must remain before the bachelor's milestone. Do not claim advisor approval or graduate admission.`);
+    }
+    if (ugaSamplePlans.length > 0) {
+      lines.push(`Official UGA sample plans are final tie-breakers, not extra requirements: ${ugaSamplePlans.map((sample) => `${sample.programName} (${sample.url})`).join('; ')}.`);
+    }
     // Who ALMA sends the student to for what it cannot decide: a Media student's
     // late drop is a petition at 119 Gregory Hall, not "your advisor".
     if (isIllinois) {
@@ -5585,6 +5682,8 @@ export function PlannerWorkspace({
   const years = plan ? [...new Set(plan.terms.map((t) => t.year))] : [];
 
   const caveats = [
+    ...(plan?.doubleDawgs ? [`Double Dawgs combines both degree stages. ${combinedLedger?.sharedCredits ?? 0} shared credits are scheduled once and counted toward both degrees. Graduate admission and the proposed program of study still require approval.`] : []),
+    ...(ugaSamplePlans.length > 0 ? ["UGA's published sample plans break ties between otherwise equally suitable courses. They do not override prerequisites, your preferences, or degree requirements. Unnamed elective slots in those samples are not treated as named recommendations."] : []),
     ...(activeProgramTotal && plan ? overTotal(totalCredits, activeProgramTotal) : []),
     ...planNotes,
     ...(core?.meta?.notes ?? []).map(studentWording),
@@ -5817,6 +5916,7 @@ export function PlannerWorkspace({
         onStartOver={startOver}
         onClose={() => setRailOpen(false)}
         plannedCredits={totalCredits}
+        combinedDegree={Boolean(plan?.doubleDawgs)}
         creditNote={creditNote}
         degreeTotal={activeProgramTotal}
         priorCount={plan?.completedCourseIds.length ?? 0}
@@ -5854,6 +5954,28 @@ export function PlannerWorkspace({
         programs={programOptions}
         programIds={programIds}
         onProgramsChange={changePrograms}
+        programGuidance={isUga && !isGraduatePlan ? (
+          <>
+            <DoubleDawgsPicker
+              programIds={programIds}
+              selectedId={answers?.doubleDawgsPathwayId}
+              sharedCodes={answers?.doubleDawgsSharedCodes}
+              completedCodes={[...completedCodes]}
+              emphasisSelections={answers?.emphasisSelections}
+              onSharedChange={(doubleDawgsSharedCodes) => { if (answers && onAnswersChange) onAnswersChange({ ...answers, doubleDawgsSharedCodes }); }}
+              onChange={(doubleDawgsPathwayId) => {
+                if (answers && onAnswersChange) onAnswersChange({ ...answers, doubleDawgsPathwayId, doubleDawgsSharedCodes: undefined });
+              }}
+            />
+            {answers?.doubleDawgsPathwayId && onAnswersChange && <DoubleDawgsTiming answers={answers} onChange={onAnswersChange} />}
+            {ugaSamplePlans.length > 0 && (
+              <div className="sample-plan-links">
+                <p>Official sample plans guide otherwise tied suggestions.</p>
+                {ugaSamplePlans.map((sample) => <a key={sample.programId} href={sample.url} target="_blank" rel="noreferrer">{sample.programName}: sample plan</a>)}
+              </div>
+            )}
+          </>
+        ) : undefined}
         minors={minorOptions}
         minorIds={minorIds}
         onMinorsChange={changeMinors}
@@ -6155,7 +6277,9 @@ export function PlannerWorkspace({
         >
           {!plan && (
             <p className="board-empty">
-              {programBusy ? 'Reading the degree page.' : 'Building your plan.'}
+              {programBusy ? 'Reading the degree page.' : doubleDawgsPathway && !loaded?.doubleDawgsGraduate
+                ? "This pathway's graduate curriculum is not linked yet. Open Programs to choose another pathway or a bachelor's-only plan."
+                : 'Building your plan.'}
             </p>
           )}
           {plan?.terms.map((term) => {
@@ -6164,6 +6288,7 @@ export function PlannerWorkspace({
               <SemesterColumn
                 key={term.id}
                 term={term}
+                degreeStage={plan.doubleDawgs ? (degreeTermOrder(term) <= degreeTermOrder(plan.doubleDawgs.undergraduateFinish) ? "Bachelor's" : "Master's") : undefined}
                 allTerms={plan.terms}
                 courseIndex={courseIndex}
                 coursesByCode={byCode}
