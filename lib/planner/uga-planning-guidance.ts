@@ -14,6 +14,11 @@ export interface DoubleDawgsPathway {
   undergraduateProgramIds: string[];
   graduateProgramIds: string[];
   url: string;
+  curriculum?: string;
+  additionalRequirements?: string;
+  admission?: string;
+  /** Named graduate courses, not an assertion that every combination is allowed. */
+  sharedCourseCodes?: string[];
 }
 
 export interface UgaPlanningGuidance {

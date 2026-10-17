@@ -365,6 +365,8 @@ export interface UgaData {
   context: PlanningContext;
   source: string;
   fetchedAt: string;
+  /** Graduate -> undergraduate number only where the catalog prints a dual-level listing. */
+  dualLevelCourses: Map<string, string>;
 }
 
 export interface UgaLoadedProgram {
@@ -937,6 +939,16 @@ export function loadUgaData(): Promise<UgaData | null> {
     }
 
     const courses = rawCourses.flatMap(adaptCourses);
+    // GradFIRST is one credit, additional to the graduate program of study.
+    // https://ai.uga.edu/ms-artificial-intelligence#degree-requirements
+    for (const course of courses) if (/^GRSC 7001E?$/.test(course.code)) { course.credits = 1; course.creditsMax = 1; }
+    const dualLevelCourses = new Map<string, string>();
+    for (const raw of rawCourses) {
+      const codes = listedUgaCourseCodes(raw.code);
+      const undergraduate = codes.find((code) => / [1-5]\d{3}/.test(code));
+      const graduate = codes.find((code) => / [6-9]\d{3}/.test(code));
+      if (undergraduate && graduate) dualLevelCourses.set(graduate, undergraduate);
+    }
     const byCode = new Map(courses.map((course) => [normCode(course.code), course]));
     const equivalents = ugaEquivalents(courses);
     const prereqs = new Map<string, PlanPrereq>();
@@ -988,6 +1000,7 @@ export function loadUgaData(): Promise<UgaData | null> {
       context,
       source: programFile.source,
       fetchedAt: programFile.fetchedAt,
+      dualLevelCourses,
     };
   })();
   return ugaPromise;

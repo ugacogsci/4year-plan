@@ -13,6 +13,7 @@
     "data:uga:pacmap": "node scripts/apply-uga-pacmap.mjs",
     "data:uga:guidance": "node scripts/uga-planning-guidance.mjs",
     "test:uga-guidance": "node --experimental-strip-types lib/planner/__uga-guidance.check.mjs",
+    "test:double-dawgs": "node --experimental-strip-types lib/planner/__double-dawgs.check.mjs",
     "check:uga": "node --experimental-strip-types scripts/uga-check.mjs",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",

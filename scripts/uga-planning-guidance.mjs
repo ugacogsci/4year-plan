@@ -8,6 +8,14 @@ const DIRECTORY = 'https://doubledawgs.uga.edu/ProgramList';
 const clean = (value) => value.replace(/\s+/g, ' ').trim();
 const key = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
 
+function matchingPrograms(name, programs) {
+  const [base, ...qualifiers] = name.split(/[()]/);
+  const subjectQualifiers = qualifiers.filter((part) => part.trim() && !/^(?:non[- ]?thesis|thesis)$/i.test(part.trim()));
+  const qualified = key([base, ...subjectQualifiers].join(' '));
+  const exact = programs.filter((program) => key(program.name) === qualified);
+  return (exact.length ? exact : programs.filter((program) => key(program.name) === key(base))).map((program) => program.id);
+}
+
 /** Only named course links in the sample table, never the requirement pools above it. */
 export function parseSamplePlan(html, program) {
   const { document } = parseHTML(html);
@@ -70,12 +78,8 @@ export function parsePathways(html, programs) {
     const graduate = rest.join('/').trim();
     // Match the exact degree name, retaining emphasis/thesis qualifiers in the visible pathway.
     // A similar subject or a different degree code does not establish a pairing.
-    const undergraduateProgramIds = programs
-      .filter((p) => key(p.name) === key(bachelors.split('(')[0]))
-      .map((p) => p.id);
-    const graduateProgramIds = programs
-      .filter((p) => key(p.name) === key(graduate.split('(')[0]))
-      .map((p) => p.id);
+    const undergraduateProgramIds = matchingPrograms(bachelors, programs);
+    const graduateProgramIds = matchingPrograms(graduate, programs);
     pathways.set(id, {
       id,
       name,
@@ -87,6 +91,20 @@ export function parsePathways(html, programs) {
     });
   }
   return [...pathways.values()];
+}
+
+export function parsePathwayDetails(html) {
+  const { document } = parseHTML(html);
+  const text = (id) => {
+    const node = document.getElementById(id);
+    if (!node) return '';
+    for (const br of node.querySelectorAll('br')) br.replaceWith(document.createTextNode('\n'));
+    return node.textContent.split('\n').map(clean).filter(Boolean).join('\n');
+  };
+  const curriculum = text('lblCurrCourseReqs');
+  const sharedCourseCodes = [...new Set([...curriculum.matchAll(/\b([A-Z]{2,5})(?:(?:\/|\()[A-Z]{2,5}\)?)*\s+([6-9]\d{3}[A-Z]?)\b/g)]
+    .map((match) => `${match[1]} ${match[2]}`))];
+  return { curriculum, sharedCourseCodes, additionalRequirements: text('lblCurrAddlReqs'), admission: text('lblAdmPathway') };
 }
 
 async function get(url) {
@@ -118,15 +136,22 @@ async function main() {
   const { programs } = JSON.parse(
     await readFile(new URL('public/uga-programs.json', root), 'utf8'),
   );
+  const detailsOnly = process.argv.includes('--pathways-only');
+  const previous = detailsOnly ? JSON.parse(await readFile(new URL('public/uga-planning-guidance.json', root), 'utf8')) : null;
   const pathways = parsePathways(await get(DIRECTORY), programs);
   if (pathways.length < 100)
     throw new Error('Unexpectedly few pathways; retaining the previous data.');
   const undergraduate = programs.filter(
     (p) => p.degree === 'AB' || /^B[A-Z]+$/.test(p.degree),
   );
-  const samplePlans = [];
-  const withoutSamplePlan = [];
-  for (const [index, program] of undergraduate.entries()) {
+  for (const [index, pathway] of pathways.entries()) {
+    Object.assign(pathway, parsePathwayDetails(await get(pathway.url)));
+    if (index % 25 === 0) console.log(`Read ${index + 1}/${pathways.length} Double Dawgs curricula`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const samplePlans = previous?.samplePlans ?? [];
+  const withoutSamplePlan = previous?.withoutSamplePlan ?? [];
+  for (const [index, program] of (detailsOnly ? [] : undergraduate).entries()) {
     const sample = parseSamplePlan(
       await get(`https://bulletin.uga.edu/Program/Details/${program.id}`),
       program,

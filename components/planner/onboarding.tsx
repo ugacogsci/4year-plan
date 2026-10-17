@@ -52,6 +52,7 @@ import {
 } from '@/lib/planner/graduation-fit';
 import { useExamCredit } from './exam-credit';
 import { DoubleDawgsPicker } from './double-dawgs-picker';
+import { DoubleDawgsTiming, doubleDawgsTimingValid } from './double-dawgs-timing';
 import {
   PLANNER_THEME_STORAGE_KEY,
   readStoredTheme,
@@ -281,7 +282,7 @@ export function Onboarding({
     Boolean(answers.academicYear) &&
     Boolean(answers.graduationSeason) &&
     Boolean(answers.graduationYear) &&
-    !graduationInPast &&
+    !graduationInPast && doubleDawgsTimingValid(answers) &&
     (answers.schoolId !== 'uga' || undecided || Boolean(answers.collegeId)) &&
     emphasesComplete;
   const missingDetails = [
@@ -678,7 +679,11 @@ export function Onboarding({
                     <DoubleDawgsPicker
                       programIds={answers.programIds}
                       selectedId={answers.doubleDawgsPathwayId}
-                      onChange={(doubleDawgsPathwayId) => setAnswers((current) => ({ ...current, doubleDawgsPathwayId }))}
+                      sharedCodes={answers.doubleDawgsSharedCodes}
+                      completedCodes={answers.alreadyTakenCourseCodes}
+                      emphasisSelections={answers.emphasisSelections}
+                      onSharedChange={(doubleDawgsSharedCodes) => setAnswers((current) => ({ ...current, doubleDawgsSharedCodes }))}
+                      onChange={(doubleDawgsPathwayId) => setAnswers((current) => ({ ...current, doubleDawgsPathwayId, doubleDawgsSharedCodes: undefined }))}
                     />
                   )}
                   {answers.programLevel === 'undergraduate' && (
@@ -833,7 +838,7 @@ export function Onboarding({
                 <span className="onb-q-hint">
                   {!graduationEdited && answers.academicYear
                     ? `Suggested using a ${programYears}-year program. Adjust for your pace.`
-                    : 'The planner will not schedule courses beyond this term.'}
+                    : answers.doubleDawgsPathwayId ? "The master's stage starts after this term." : 'The planner will not schedule courses beyond this term.'}
                 </span>
                 <div>
                   <label>
@@ -885,6 +890,8 @@ export function Onboarding({
                   </label>
                 </div>
               </fieldset>
+
+              {answers.doubleDawgsPathwayId && <DoubleDawgsTiming answers={answers} onChange={setAnswers} />}
 
               {graduationInPast && (
                 <div className="onb-feasibility" role="alert">

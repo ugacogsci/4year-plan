@@ -13,17 +13,33 @@ imports leave the previous snapshot intact. No server scraping is needed at runt
   level, offerings and diversity checks remain in force. Emphasis-specific samples
   are used only for matching selections; otherwise the general sample (or courses
   common to all variants) is used. Generic "elective" rows do not invent suggestions.
-- Double Dawgs is an optional, saved pathway choice in setup and Progress > Programs.
-  This first pass plans the bachelor's stage, not a verified combined degree. It
-  does not add a graduate degree, infer admission, or automatically deduct shared
-  credits. The selected pathway and this limitation are passed to the assistant.
-  Graduate admission, shared-credit approval and the graduate stage need pathway
-  advisor review. Official listings without an exact catalog degree-name match
-  remain in the snapshot and accessible through the directory, not guessed matches.
-- The initial import contains 160 sample plans and 395 pathway listings, 384 linked
+- Double Dawgs now generates two connected stages with separate bachelor's and
+  master's completion dates. Setup and Progress > Programs expose the shared
+  course choices. A proposed graduate-number course replaces its undergraduate
+  counterpart, appears once, and counts in both independent degree ledgers.
+  Only courses named by the pathway, present in both curricula, and explicitly
+  dual-numbered in the catalog are offered as automatic shared substitutions.
+  Already-earned undergraduate credits are never converted into graduate credit.
+- The engine schedules shared courses in the final undergraduate year, adds the
+  graduate curriculum after that stage, and enforces the pathway cap (at most 12).
+  Removing a shared course or moving it outside its window removes its credit
+  benefit. Rebuild respects completed courses. Graduate/AP/transfer/exemption
+  accounting stays separate; dragging undergraduate courses into graduate terms
+  does not meet master's requirements. Shared-credit metadata survives saving,
+  exporting and plan-tab duplication.
+- Cognitive Science AB/AI MS and Computer Science BS/AI MS have end-to-end checks,
+  including the AI degree's 12 graduate-only coursework hours and extra one-credit
+  GradFIRST seminar. Course-sized requirements can exceed the published minimum.
+  Other mapped pathways use the existing graduate catalog adapter. Missing
+  curricula remain explicitly incomplete instead of being filled with arbitrary
+  courses. Unmatched graduate degrees cannot generate a combined plan yet.
+  Admission, minimum grades/GPA, residency, option-specific rules, thesis/defense
+  milestones and approval of shared credit still require the pathway advisor;
+  this is a planning draft, not a certified degree audit.
+- The import contains 160 sample plans and 395 pathway listings, 385 linked
   to a catalog bachelor's program. These are snapshots, not live admission decisions.
 
-Check with `npm run test:uga-guidance`, `npm run check:uga`, and
+Check with `npm run test:double-dawgs`, `npm run test:uga-guidance`, `npm run check:uga`, and
 `node --experimental-strip-types lib/planner/__uga-integration.check.mjs`.
 
 The social preview uses `public/orion-social-preview.jpg` and the production URL

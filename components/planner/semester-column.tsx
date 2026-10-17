@@ -11,6 +11,7 @@ import { IssueBadge } from './issue-badge';
 import { isTermIssue } from './plan-health';
 
 interface SemesterColumnProps {
+  degreeStage?: string;
   term: PlanTerm;
   allTerms: PlanTerm[];
   courseIndex: Map<string, Course>;
@@ -60,6 +61,7 @@ interface SemesterColumnProps {
 }
 
 export function SemesterColumn({
+  degreeStage,
   term,
   allTerms,
   courseIndex,
@@ -223,7 +225,7 @@ export function SemesterColumn({
           course inspector, listed per part of term.
         */}
         <div className="semester-heading-title">
-          <h3>{term.label}</h3>
+          <h3>{term.label}{degreeStage && <small className="semester-degree-stage">{degreeStage}</small>}</h3>
           {(heavy || termIssues.length > 0) && (
             <div className="semester-issues" aria-label={`${term.label} notes`}>
               {heavy && (

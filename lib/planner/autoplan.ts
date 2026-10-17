@@ -371,6 +371,8 @@ export type PrereqMatcher = (
 };
 
 export interface PlanningContext {
+  /** Registration windows for explicit combined-degree courses, in calendar terms. */
+  courseNotBefore?: ReadonlyMap<string, { season: SemesterSeason; year: number }>;
   schoolId?: 'uga' | 'illinois';
   /** Named courses in this student's official sample plans; a final tie-break only. */
   samplePlanCourses?: ReadonlySet<string>;
@@ -10474,6 +10476,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const allowedHere = (code: string): boolean => {
         const course = byCode.get(code);
         if (!course) return false;
+        const notBefore = ctx.courseNotBefore?.get(code);
+        if (notBefore && calendarOrd(term.season, term.calendarYear) < calendarOrd(notBefore.season, notBefore.year)) return false;
         if ((depth.get(code) ?? 0) > term.index) { debug(code, term.label, `prerequisite depth ${depth.get(code)} past term index ${term.index}`); return false; }
         /**
          * A 300-level course waits for sophomore hours and a 400-level course

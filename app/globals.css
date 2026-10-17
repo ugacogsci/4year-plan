@@ -6790,6 +6790,19 @@ button.unofficial-label:focus-visible,
 .double-dawgs-summary a,
 .sample-plan-links a { display: block; margin: 8px 0; }
 .double-dawgs a svg { display: inline; width: 11px; height: 11px; vertical-align: middle; }
+.double-dawgs-shared { min-width: 0; margin: 16px 0; padding: 0; border: 0; }
+.double-dawgs-shared legend { margin-bottom: 8px; color: var(--onb-text, var(--orion-text)); }
+.double-dawgs-shared label { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; }
+.double-dawgs-shared input { flex: 0 0 auto; margin-top: 3px; accent-color: var(--onb-text, var(--orion-text)); }
+.double-dawgs-shared small { display: block; font: inherit; color: var(--onb-mid, var(--orion-mid)); }
+.double-dawgs-shared label:has(input:disabled) { opacity: .55; }
+.double-dawgs-timing { min-width: 0; margin: 20px 0; padding: 0; border: 0; }
+.double-dawgs-timing legend { font-family: var(--app-font-serif); font-size: 22px; margin-bottom: 8px; }
+.double-dawgs-timing > div { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.double-dawgs-timing label { display: grid; min-width: 0; gap: 4px; font-family: var(--app-font-mono); font-size: 11px; }
+.double-dawgs-timing select { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--onb-line, var(--orion-line)); border-radius: 4px; background: var(--onb-raised, var(--orion-bg)); color: var(--onb-text, var(--orion-text)); font: inherit; }
+.double-dawgs-timing p { color: var(--destructive); font-family: var(--app-font-mono); font-size: 11px; }
+.planner-app .semester-degree-stage { display: block; font-family: var(--app-font-mono); font-size: 10px; line-height: 1.5; font-weight: 400; color: var(--orion-mid); }
 
 /* These surfaces are portaled outside the planner; use the root theme tokens. */
 .privacy-dialog,

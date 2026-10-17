@@ -159,6 +159,10 @@ export interface LivePoolInput {
   /** Course codes the student marked as already taken. */
   priorCodes: string[];
   context: PlanningContext;
+  /** Cross-cutting requirements such as graduate-only hours do not consume curriculum courses. */
+  independentIds?: ReadonlySet<string>;
+  /** Graduate curricula cannot spend required/core courses again in elective pools. */
+  reserveRequired?: boolean;
 }
 
 /**
@@ -176,6 +180,8 @@ export function livePools({
   boardCodes,
   priorCodes,
   context,
+  independentIds,
+  reserveRequired,
 }: LivePoolInput): PoolReport[] {
   if (base.length === 0) return base;
 
@@ -187,13 +193,22 @@ export function livePools({
 
   const claimed = new Set<string>();
   const mine: string[][] = base.map(() => []);
+  if (reserveRequired) {
+    const have = new Set([...boardSet, ...prior]);
+    for (const block of blocks) {
+      if (block.rule.kind !== 'all' && block.rule.kind !== 'choose') continue;
+      const choices = block.rule.choices.flatMap((choice) => choice.codes.find((code) => have.has(normaliseCode(code))) ?? []);
+      for (const code of choices.slice(0, block.rule.kind === 'choose' ? block.rule.n : choices.length)) claimed.add(normaliseCode(code));
+    }
+  }
 
   // Courses this pool already held keep their pool, so a student who has not
   // touched an elective does not see it jump to another heading.
   base.forEach((pool, index) => {
+    if (independentIds?.has(pool.requirementId)) return;
     for (const raw of pool.picked) {
       const code = normaliseCode(raw);
-      if (!boardSet.has(code) || claimed.has(code)) continue;
+      if (!boardSet.has(code) || claimed.has(code) || !members[index].has(code)) continue;
       claimed.add(code);
       mine[index].push(code);
     }
@@ -203,14 +218,14 @@ export function livePools({
   // courses the way the plan reads left to right.
   for (const code of board) {
     if (claimed.has(code)) continue;
-    const index = members.findIndex((set) => set.has(code));
+    const index = members.findIndex((set, i) => !independentIds?.has(base[i].requirementId) && set.has(code));
     if (index < 0) continue;
     claimed.add(code);
     mine[index].push(code);
   }
 
   return base.map((pool, index) => {
-    const picked = mine[index];
+    const picked = independentIds?.has(pool.requirementId) ? [...boardSet].filter((code) => members[index].has(code)) : mine[index];
     const free = pool.fromPriorCredit.filter((code) => prior.has(normaliseCode(code)));
     const held = [...free.map(normaliseCode), ...picked];
     const heldSet = new Set(held);

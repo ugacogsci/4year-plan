@@ -76,6 +76,7 @@ interface RailProps {
    */
   creditNote?: string | null;
   degreeTotal: number | null;
+  combinedDegree?: boolean;
   priorCount: number;
   priorCourses: Array<{ code: string; title: string }>;
   areas: AreaRow[];
@@ -166,6 +167,7 @@ export function StudentProfilePanel({
   plannedCredits,
   creditNote,
   degreeTotal,
+  combinedDegree = false,
   priorCount,
   priorCourses,
   areas,
@@ -249,7 +251,7 @@ export function StudentProfilePanel({
       <div className="rail-progress">
         <div className="rail-progress-head">
           <strong>{plannedCredits}</strong>
-          <span>{degreeTotal ? `of ${degreeTotal} for the degree` : 'degree total not published'}</span>
+          <span>{degreeTotal ? `of ${degreeTotal} for ${combinedDegree ? 'both degrees' : 'the degree'}` : 'degree total not published'}</span>
         </div>
         <Bar percent={degreeTotal ? percentOf(plannedCredits, degreeTotal) : 0} />
         <details className="rail-completed">
