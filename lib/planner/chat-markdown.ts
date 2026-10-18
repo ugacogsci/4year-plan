@@ -9,7 +9,9 @@
  *   **bold** and __bold__   -> strong
  *   *italic*                -> em (only around a word, so "3 * 4" stays)
  *   `code`                  -> code
- *   [label](https://...)    -> a link, http and https only
+ *   [label](https://...)    -> a link, http and https only; a pair of
+ *                              parentheses inside the address is kept
+ *                              (".../Hannon_Econ%20415(367)_SP02.pdf")
  *   # Heading               -> the line in bold, marks dropped
  *   * item / + item         -> "• item" ("- item" is already fine as text)
  *
@@ -37,7 +39,7 @@ export interface ChatSpan {
 }
 
 const INLINE =
-  /(\*\*|__)(?=\S)([\s\S]*?\S)\1|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(?<![\w*])\*(?=[^\s*])([^*\n]*?[^\s*])\*(?![\w*])/g;
+  /(\*\*|__)(?=\S)([\s\S]*?\S)\1|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/(?:[^\s()]|\([^\s()]*\))+)\)|(?<![\w*])\*(?=[^\s*])([^*\n]*?[^\s*])\*(?![\w*])/g;
 
 function plain(text: string, base: Omit<ChatSpan, 'text'>): ChatSpan[] {
   const cleaned = text.replace(/\*\*/g, '');
