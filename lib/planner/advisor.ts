@@ -58,11 +58,29 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'course_syllabus',
     description:
-      "What a course's own published syllabi say: the grade breakdown (each graded item and its percent or points), exams and their dates, the final, required materials, and the attendance, late-work, make-up and other course policies, each syllabus with its term, instructors and a link to the instructor's document. Newest term first. Use it for any question about how a course is graded or run (\"what percent is the project\", \"is attendance graded\", \"which textbook\", \"how many exams\"). An empty list means no syllabus was found in the public sources (most are inside Canvas, behind a login), not that the course has none.",
+      "What a course's own published syllabi say: the grade breakdown (each graded item and its percent or points), exams and their dates, the final, required materials, and the attendance, late-work, make-up and other course policies, each syllabus with its term, instructors and a link to the instructor's document. Newest term first. Use it for any question about how a course is graded or run (\"what percent is the project\", \"is attendance graded\", \"which textbook\", \"how many exams\"). An empty list means no syllabus was found in the public sources (most are inside Canvas, behind a login), not that the course has none. The result also groups the syllabi by instructor (by_instructor, each instructor's newest first, with its term and link) and marks the instructor the student set for the course on the board (chosen).",
     input_schema: {
       type: 'object',
       properties: { code: { type: 'string', description: 'A course code like "CHEM 102".' } },
       required: ['code'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'term_syllabi',
+    description:
+      "What the syllabi say for many courses at once: every course on the board in the terms asked for (or only the codes asked for), each with the instructor the student set for it or, when none is set, every instructor found (those teaching it in the term's published sections, and everyone named on one of its syllabi), each with the facts asked for from that instructor's newest syllabus, the syllabus's term and a link. Courses with no syllabus found are listed plainly. Use it for any syllabus question about more than one course (\"what will attendance look like my senior year\", \"which of my fall classes have a final\", \"how are my Spring 2028 courses graded\"); use course_syllabus for one course.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        terms: { type: 'array', items: { type: 'string' }, description: 'Board terms ("Fall 2027"), a year of study ("senior year", "junior year", "year 2", "last year"), "this term", "next term" or "all". Default: the term in progress, or every term the codes sit in.' },
+        codes: { type: 'array', items: { type: 'string' }, description: 'Only these courses, e.g. ["CS 124", "CHEM 102"].' },
+        facts: {
+          type: 'array',
+          items: { type: 'string', enum: ['attendance', 'grading', 'exams', 'final', 'materials', 'late_work', 'makeups', 'other', 'all'] },
+          description: 'What the question is about. Default attendance, grading and exams.',
+        },
+      },
       additionalProperties: false,
     },
   },
@@ -379,6 +397,7 @@ export type AdvisorToolName =
   | 'search_courses'
   | 'course_details'
   | 'course_syllabus'
+  | 'term_syllabi'
   | 'term_summary'
   | 'add_course'
   | 'remove_course'
@@ -409,7 +428,8 @@ export type AdvisorToolName =
  * The tools ARCH (UGA) gets, in ALMA's order. Left out because the planner
  * holds their data for Illinois only: program_admission, compare_programs and
  * find_clubs (ARCH's prompt says what to say instead). course_syllabus reads
- * UGA's own shards (public/uga/syllabi) since 2026-10-15.
+ * UGA's own shards (public/uga/syllabi) since 2026-10-15, and term_syllabi
+ * (many courses at once, by instructor) the same shards since 2026-10-18.
  * Left out until they are checked on a UGA board: set_priorities and
  * set_plan_shape (the overload rule they relay comes from Illinois's
  * colleges, and the summer choice from Illinois's offering history).
@@ -418,6 +438,7 @@ export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolN
   'search_courses',
   'course_details',
   'course_syllabus',
+  'term_syllabi',
   'term_summary',
   'add_course',
   'remove_course',
@@ -444,8 +465,13 @@ export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolN
 const UGA_TOOL_TEXT: Partial<Record<AdvisorToolName, { description: string; properties?: Record<string, { description: string }> }>> = {
   course_syllabus: {
     description:
-      "What a course's own published syllabi say: the grade breakdown (each graded item and its percent or points), exams and their dates, the final, required materials, and the attendance, late-work, make-up and other course policies, each syllabus with its term, the instructor who uploaded it and a link to the file on UGA's Bulletin. Newest term first. Where the Bulletin publishes the course's master outline, an entry with objectives and topics and no grading follows, for \"what does this course cover\". Use it for any question about how a course is graded or run (\"what percent is the project\", \"is attendance graded\", \"which textbook\", \"how many exams\") or what it covers. An empty list means no instructor has uploaded a syllabus for the course and the Bulletin has no outline for it, not that the course has none.",
+      "What a course's own published syllabi say: the grade breakdown (each graded item and its percent or points), exams and their dates, the final, required materials, and the attendance, late-work, make-up and other course policies, each syllabus with its term, the instructor who uploaded it and a link to the file on UGA's Bulletin. Newest term first. Where the Bulletin publishes the course's master outline, an entry with objectives and topics and no grading follows, for \"what does this course cover\". Use it for any question about how a course is graded or run (\"what percent is the project\", \"is attendance graded\", \"which textbook\", \"how many exams\") or what it covers. An empty list means no instructor has uploaded a syllabus for the course and the Bulletin has no outline for it, not that the course has none. The result also groups the syllabi by instructor (by_instructor, each instructor's newest first, with its term and link) and marks the instructor the student set for the course on the board (chosen).",
     properties: { code: { description: 'A course code like "CHEM 1211".' } },
+  },
+  term_syllabi: {
+    description:
+      "What UGA's posted syllabi say for many courses at once: every course on the board in the terms asked for (or only the codes asked for), each with the instructor the student set for it or, when none is set, every instructor who uploaded a syllabus for it, each with the facts asked for from that instructor's newest syllabus, the syllabus's term and a link to the file on UGA's Bulletin. The class schedule is not loaded for UGA, so the names are the syllabi's, not who teaches a given term. Courses with no syllabus posted are listed plainly. Use it for any syllabus question about more than one course (\"what will attendance look like my senior year\", \"which of my fall classes have a final\", \"how are my Spring 2028 courses graded\"); use course_syllabus for one course.",
+    properties: { codes: { description: 'Only these courses, e.g. ["CHEM 1211", "ENGL 1101"].' } },
   },
   course_details: {
     description:
@@ -573,6 +599,7 @@ export const SHARED_ADVISOR_RULES = {
   forKeep: `- Keep the conversation: remember what they told you earlier in this chat and build on it.`,
   forKeptOut: `- When a student wants a course or subject kept out of their electives, replace it and tell them a rebuild may bring it back until they say so again.`,
   boardToolsForFacts: `- Use the tools for every fact. Do not state a course's prerequisites, credits, difficulty or description from memory; call course_details or planner_answer. Do not claim a course is eligible in a term without search_courses or a successful add.`,
+  syllabusLayout: `- Syllabus answers (course_syllabus, term_syllabi) are laid out course by course, and for them this layout replaces the rule against headers and lists and the "instructors named include" wording. Each course is a bold line with its code and title (**ABCD 1234, Course Title**). Under it, one line per instructor: a dash, the instructor's name in bold, then the answer for that instructor in a sentence or two, with the syllabus's term when it is not the course's own term ("Fall 2025 syllabus, likely similar") and its link. When the student set an instructor for the course ("my instructor" on the board, chosen in the tools), answer for that instructor alone; if their instructor has no syllabus, say so in one line and give the other instructors' as the nearest guide. When none is set, give every instructor the tool returns and end the answer with one short line: they can set their instructor by clicking the course, then My instructor. A course with no syllabus found gets one line saying so. For a question about several courses or a whole year, call term_syllabi once and cover every course it returns, in its order, under a bold term line when there is more than one term. Give the fact asked for, not the whole syllabus.`,
   boardToolFails: `- A tool that fails says why. Relay the reason plainly and try the next best option (another term, another course).`,
   boardTermSize: `- Keep terms between the student's minimum and 18 credits. Replacing keeps the size; adding raises it, so prefer replacing an elective slot when a term is already full.`,
   talkPlain: `- Plain, short, specific. Name courses by code and title, and name the term. Say exactly what changed: "Replaced FIN 435 with HIST 200, Introduction to Historical Interpretation, in Spring 2029."`,
@@ -718,6 +745,7 @@ Rules about the board
 - Every card on the board is marked required, from a list, elective slot, career track, language, gen ed pick, prerequisite, or added. Prefer changing elective slots and gen ed picks (a gen ed pick is swapped for another course carrying the same categories). A career-track card is a course the student's named goal requires (PHYS 101 for physical therapy school); keep it unless they drop the goal. Never remove or replace a required, from-a-list or career-track course unless the student has clearly said yes to removing that specific course in this conversation; then, and only then, call the tool with confirmed true. If they ask you to drop one, say what it is required for and ask for a yes.
 ${SHARED_ADVISOR_RULES.boardToolsForFacts}
 - How a course is graded or run (what an assignment, project or exam is worth, how many exams, the final, attendance, late work, the textbook) comes only from course_syllabus. Name the term and instructor the facts come from and link the syllabus. Say that weights can change by term, instructor and section, so the student's own syllabus on the first day is the final word. When the syllabus is not from this_term's term, or its instructors are not among this_term's instructors, say so plainly ("this is from Spring 2026; this fall Hutchens and He teach it"), and say how old it is when it is older than a year or is a master outline without grading. Give the instructors as the syllabus names them, as "instructors named include" rather than a full list. Paraphrase; never put quotation marks around words the tool did not return verbatim, and never fill in a date, location or rule the tool does not give. When course_syllabus finds none, say no public syllabus was found and suggest the course's Canvas page or the instructor; never guess weights.
+${SHARED_ADVISOR_RULES.syllabusLayout}
 ${SHARED_ADVISOR_RULES.boardToolFails}
 - Teaching ratings come only from the university's own Teachers Ranked as Excellent lists, which course_details and search results carry. Never cite RateMyProfessors or any outside site, and never call an instructor good or bad on your own; say whether they are on the list, and for which terms. A name missing from the list is not a rating against it.
 - When you suggest a course, say why in the student's terms, from the fit reasons the tools return: the grade history, the list, their interests, the requirement it also covers. Do not invent reasons the tools did not give.
@@ -814,6 +842,7 @@ Rules about the board
 - Every card on the board is marked required, from a list, elective slot, language, gen ed pick, prerequisite, or added (the board description gives the legend). Prefer changing elective slots and gen ed picks (a gen ed pick is swapped for another course carrying the same categories). Never remove or replace a required or from-a-list course unless the student has clearly said yes to removing that specific course in this conversation; then, and only then, call the tool with confirmed true. If they ask you to drop one, say what it is required for and ask for a yes.
 ${SHARED_ADVISOR_RULES.boardToolsForFacts}
 - How a course is graded or run (what an assignment, project or exam is worth, how many exams, the final, attendance, late work, the textbook) and what it covers come only from course_syllabus. Name the term and instructor the facts come from and link the file. Say that weights and policies can change by term, instructor and section, so the student's own syllabus on the first day is the final word; say how old a syllabus is when it is older than a year; and call the Bulletin's outline what it is (the course's objectives and topics, with no grading). When course_syllabus finds none, say that no syllabus for the course is posted on UGA's Bulletin and point to the course's eLC page or instructor; never guess weights, exams or attendance rules.
+${SHARED_ADVISOR_RULES.syllabusLayout}
 ${SHARED_ADVISOR_RULES.boardToolFails}
 - When you suggest a course, say why in the student's terms, from the reasons the tools return (the requirement it covers, its prerequisites, their interests). Do not invent reasons the tools did not give.
 ${SHARED_ADVISOR_RULES.boardTermSize}
