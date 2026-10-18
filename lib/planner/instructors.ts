@@ -136,10 +136,46 @@ function better(a: InstructorName, b: InstructorName): InstructorName {
 
 const SEASON_OF_CODE: Record<string, number> = { wi: 0, sp: 1, su: 2, fa: 3 };
 
-/** "fa2025" -> a number that sorts terms; an undated record sorts last. */
+/**
+ * The latest year a syllabus's term can be: next year's. The reader takes a
+ * term from a file's name or first page, and "MIST 2090 Spring 2026" read as
+ * Spring 2090. A year further out is a course number or a typo, never a term
+ * a syllabus was posted for, so the record counts as undated.
+ */
+const LATEST_SYLLABUS_YEAR = new Date().getFullYear() + 1;
+
+/** "fa2025" -> a number that sorts terms; an undated record, or one whose year cannot be its term's, sorts last. */
 export function syllabusTermRank(term: string | null | undefined): number {
   const m = String(term ?? '').match(/^(wi|sp|su|fa)(\d{4})$/);
-  return m ? Number(m[2]) * 4 + SEASON_OF_CODE[m[1]] : -1;
+  return m && Number(m[2]) <= LATEST_SYLLABUS_YEAR ? Number(m[2]) * 4 + SEASON_OF_CODE[m[1]] : -1;
+}
+
+/** A syllabus's own term ("Fall 2025"), or null when it has none that can be its term. */
+function datedTerm(s: SyllabusRecord): string | null {
+  return s.termLabel && syllabusTermRank(s.term) >= 0 ? s.termLabel : null;
+}
+
+/**
+ * A syllabus's term as the tools and the picker name it: "Fall 2025", or
+ * "term not listed" when the record has none it can be, so no instructor goes
+ * without one. The Bulletin's master outline is undated by nature.
+ */
+export function syllabusTermLabel(s: SyllabusRecord): string {
+  return datedTerm(s) ?? (s.kind === 'master-outline' ? 'undated course outline' : 'term not listed');
+}
+
+/**
+ * The words for a syllabus's link, as the answer layout writes them on every
+ * instructor: "Fall 2026 syllabus", "Fall 2025 syllabus, likely similar" when
+ * it is not the course's own term, "syllabus, term not listed, likely similar".
+ * An outline is called one ("Fall 2021 course outline"; UGA's Bulletin's are undated).
+ */
+export function syllabusLinkWords(s: SyllabusRecord, forTermLabel: string | null): string {
+  const term = datedTerm(s);
+  const outline = s.kind === 'master-outline';
+  if (!term && outline) return 'undated course outline';
+  const words = term ? `${term} ${outline ? 'course outline' : 'syllabus'}` : 'syllabus, term not listed';
+  return forTermLabel && term !== forTermLabel ? `${words}, likely similar` : words;
 }
 
 /** "Fall 2026" -> "fa2026", the syllabus records' own form, for the term a card sits in. */
@@ -194,7 +230,7 @@ function people(sectionNames: readonly string[], syllabi: readonly SyllabusRecor
   };
   for (const raw of sectionNames) add(raw, true, null);
   for (const s of syllabi) {
-    const label = s.termLabel ?? (s.kind === 'master-outline' ? 'undated outline' : 'undated');
+    const label = syllabusTermLabel(s);
     for (const raw of s.instructors ?? []) add(raw, false, { rank: syllabusTermRank(s.term), label });
   }
   for (const p of out) p.terms.sort((a, b) => b.rank - a.rank);
@@ -323,15 +359,15 @@ export function groupByInstructor(
 export const SYLLABUS_FACTS = ['attendance', 'grading', 'exams', 'final', 'materials', 'late_work', 'makeups', 'other', 'all'] as const;
 export type SyllabusFact = (typeof SYLLABUS_FACTS)[number];
 
-/** The asked-for facts of one syllabus, with its term and link. */
+/** The asked-for facts of one syllabus, with its term, link and the link's words. */
 export function syllabusFacts(s: SyllabusRecord, facts: readonly SyllabusFact[], forTermLabel: string | null): Record<string, unknown> {
   const want = new Set<SyllabusFact>(facts.length === 0 || facts.includes('all') ? SYLLABUS_FACTS : facts);
-  const term = s.termLabel ?? (s.kind === 'master-outline' ? 'undated course outline' : 'undated');
   const out: Record<string, unknown> = {
-    syllabus_term: term,
-    ...(forTermLabel && s.termLabel !== forTermLabel ? { not_this_term: true } : {}),
+    syllabus_term: syllabusTermLabel(s),
+    ...(forTermLabel && datedTerm(s) !== forTermLabel ? { not_this_term: true } : {}),
     ...(s.kind !== 'syllabus' ? { kind: s.kind } : {}),
     link: s.url,
+    link_words: syllabusLinkWords(s, forTermLabel),
   };
   if (want.has('attendance')) out.attendance = s.attendance ?? null;
   if (want.has('grading')) {
@@ -369,8 +405,8 @@ export function syllabiByInstructor(
       instructor: g.instructor ?? (g.syllabi.every((s) => s.kind === 'master-outline') ? 'course outline (no instructor)' : 'not named in the syllabus'),
       ...(g.chosen ? { chosen: true } : {}),
       ...(g.teaching && options.termLabel ? { teaches_in: options.termLabel } : {}),
-      newest: g.syllabi[0] ? { term: g.syllabi[0].termLabel ?? 'undated', link: g.syllabi[0].url } : null,
-      syllabi: g.syllabi.map((s) => ({ term: s.termLabel ?? 'undated', link: s.url })).slice(0, 4),
+      newest: g.syllabi[0] ? { term: syllabusTermLabel(g.syllabi[0]), link: g.syllabi[0].url, link_words: syllabusLinkWords(g.syllabi[0], options.termLabel ?? null) } : null,
+      syllabi: g.syllabi.map((s) => ({ term: syllabusTermLabel(s), link: s.url })).slice(0, 4),
     })),
   };
 }
@@ -379,6 +415,8 @@ export function syllabiByInstructor(
  * The six syllabi course_syllabus returns in full: the newest of each
  * instructor first (the chosen one's before anyone's), then the newest of
  * the rest, so a course with many instructors still shows each of them.
+ * One with no term that can be its own goes out undated, its termLabel
+ * saying so ("term not listed"), never blank or "Spring 2090".
  */
 export function syllabiToShow(syllabi: readonly SyllabusRecord[], options: { teaching?: readonly string[]; chosen?: string | null }, limit = 6): SyllabusRecord[] {
   const groups = groupByInstructor(syllabi, options);
@@ -390,7 +428,9 @@ export function syllabiToShow(syllabi: readonly SyllabusRecord[], options: { tea
   if (chosen) chosen.syllabi.slice(0, 2).forEach(push);
   for (const g of groups) push(g.syllabi[0]);
   for (const s of [...syllabi].sort((a, b) => syllabusTermRank(b.term) - syllabusTermRank(a.term))) push(s);
-  return out.sort((a, b) => syllabusTermRank(b.term) - syllabusTermRank(a.term));
+  return out
+    .sort((a, b) => syllabusTermRank(b.term) - syllabusTermRank(a.term))
+    .map((s) => (datedTerm(s) ? s : { ...s, term: null, termLabel: syllabusTermLabel(s) }));
 }
 
 // ---------------------------------------------------------------------------
