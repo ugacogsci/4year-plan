@@ -92,6 +92,13 @@ export interface PlanState {
    */
   maybeCourseIds?: string[];
   terms: PlanTerm[];
+  /**
+   * The instructor the student says they have or will take, by term id and
+   * then course code: { "fall-2026": { "CS 124": "Geoffrey Challen" } }. A
+   * course with no entry is "not sure yet". Optional: boards saved before it
+   * load unchanged, and the planner's checks never read it (instructors.ts).
+   */
+  instructors?: Record<string, Record<string, string>>;
   /** Snapshot belongs to this plan tab, not the currently selected setup. */
   doubleDawgs?: {
     pathwayId: string;
