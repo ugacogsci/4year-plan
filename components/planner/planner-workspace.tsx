@@ -202,7 +202,7 @@ import { loadIllinoisCourseDetail, loadIllinoisSectionTerms, loadIllinoisSyllabi
 import { loadUgaSyllabi } from '@/lib/planner/uga-syllabi';
 import {
   carryInstructors, chosenInstructor, currentTermLabel, instructorOptions, resolveTerms, SYLLABUS_FACTS, syllabiByInstructor,
-  syllabiToShow, teachingNames, termSyllabiResult, withInstructor, type SyllabusFact, type SyllabusRecord, type TermCourseInput,
+  studyYearAtBoardStart, syllabiToShow, teachingNames, termSyllabiResult, withInstructor, type SyllabusFact, type SyllabusRecord, type TermCourseInput,
 } from '@/lib/planner/instructors';
 import type { InstructorControl } from './instructor-picker';
 import type { IllinoisCore } from '@/lib/planner/illinois-load';
@@ -4358,8 +4358,11 @@ export function PlannerWorkspace({
         const facts = list('facts').filter((f): f is SyllabusFact => (SYLLABUS_FACTS as readonly string[]).includes(f));
         const want: SyllabusFact[] = facts.length > 0 ? facts : ['attendance', 'grading', 'exams'];
         const today = new Date();
-        const picked = resolveTerms(board.terms, askedTerms.length > 0 ? askedTerms : askedCodes.length > 0 ? ['all'] : ['this term'], today);
-        if (picked.terms.length === 0) return { ok: false, reason: `No term called ${askedTerms.join(', ') || 'that'} is on the board. The terms are ${termList}.`, terms_not_found: picked.unknown };
+        // "Senior year" is the student's own: a senior's board starts in it.
+        const saidAt = L.answers?.timelineAt ? new Date(L.answers.timelineAt) : today;
+        const studyYearAtStart = studyYearAtBoardStart(L.answers?.academicYear, board.terms[0]?.label, Number.isNaN(saidAt.getTime()) ? today : saidAt);
+        const picked = resolveTerms(board.terms, askedTerms.length > 0 ? askedTerms : askedCodes.length > 0 ? ['all'] : ['this term'], today, { studyYearAtStart });
+        if (picked.terms.length === 0) return { ok: false, reason: `No term called ${askedTerms.join(', ') || 'that'} is on the board. ${picked.notes.join(' ')} The terms are ${termList}.`.replace(/\s+/g, ' '), terms_not_found: picked.unknown };
         const rows: Array<{ c: Course; term: PlanTerm }> = [];
         for (const term of picked.terms) {
           for (const id of term.courseIds) {
@@ -4392,6 +4395,7 @@ export function PlannerWorkspace({
           ok: true,
           school: ugaBoard ? 'UGA' : 'Illinois',
           terms: picked.terms.map((t) => t.label),
+          ...(picked.notes.length > 0 ? { years_of_study: picked.notes } : {}),
           term_in_progress: currentTermLabel(today),
           facts: want,
           course_count: courses.length,

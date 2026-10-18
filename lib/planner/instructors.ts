@@ -406,15 +406,49 @@ const YEAR_WORDS: Array<[RegExp, number | 'last']> = [
   [/\b(last|final)\s+year\b/i, 'last'],
 ];
 
+const STUDY_YEAR: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, 'fifth-plus': 5 };
+const YEAR_NAME = ['', 'first', 'second', 'third', 'fourth', 'fifth'];
+const academicYearOfLabel = (label: string): number | null => {
+  const m = label.match(/\b(Fall|Spring|Summer|Winter)\s+(\d{4})\b/i);
+  if (!m) return null;
+  return /^fall$/i.test(m[1]) ? Number(m[2]) : Number(m[2]) - 1;
+};
+
+/**
+ * The student's year of study in the board's first year: the year they gave
+ * in the setup ("fourth"), moved on by the academic years between when they
+ * said it and the board's first term. A senior's board starts in their senior
+ * year, so "senior year" is the board's first year, not a fourth year the
+ * board does not have. Null when they did not say.
+ */
+export function studyYearAtBoardStart(academicYear: string | null | undefined, firstTermLabel: string | null | undefined, said: Date): number | null {
+  const stated = STUDY_YEAR[String(academicYear ?? '')];
+  if (!stated || !firstTermLabel) return null;
+  const start = academicYearOfLabel(firstTermLabel);
+  const then = academicYearOfLabel(currentTermLabel(said));
+  if (start === null || then === null) return null;
+  return Math.max(1, stated + (start - then));
+}
+
 /**
  * The board terms a request names: term labels ("Fall 2027"), a year of
  * study ("senior year", "year 2", "last year"), "this term", "next term" or
- * "all". A year of study is the board's own year number; a board with no
- * year 4 answers "senior year" with its last year.
+ * "all". A year of study is the student's own when studyYearAtStart says
+ * which year the board starts in (a senior's "senior year" is the board's
+ * first year); otherwise it is the board's own year number, and a board with
+ * no year 4 answers "senior year" with its last year. notes says how each
+ * year of study was read, for the advisor to say plainly.
  */
-export function resolveTerms(terms: readonly PlanTerm[], asked: readonly string[], now: Date): { terms: PlanTerm[]; unknown: string[] } {
+export function resolveTerms(
+  terms: readonly PlanTerm[],
+  asked: readonly string[],
+  now: Date,
+  options: { studyYearAtStart?: number | null } = {},
+): { terms: PlanTerm[]; unknown: string[]; notes: string[] } {
   const out: PlanTerm[] = [];
   const unknown: string[] = [];
+  const notes: string[] = [];
+  const k = options.studyYearAtStart ?? null;
   const add = (t: PlanTerm) => {
     if (!out.includes(t)) out.push(t);
   };
@@ -445,6 +479,25 @@ export function resolveTerms(terms: readonly PlanTerm[], asked: readonly string[
       continue;
     }
     const year = YEAR_WORDS.find(([re]) => re.test(want))?.[1];
+    if (year !== undefined && year !== 'last' && k !== null) {
+      // The student's own year: board year n holds their year k + n - 1. A
+      // fifth-year student is still a senior, so their senior year is now.
+      const n = year === 4 && k > 4 ? 1 : year - k + 1;
+      const inYear = terms.filter((t) => t.year === n);
+      const ord = (y: number) => (YEAR_NAME[y] ? `${YEAR_NAME[y]} year` : `year ${y}`);
+      const theirs = `"${raw}" is the student's ${ord(year)} of study, and they are in their ${ord(k)} when the board starts`;
+      if (n < 1) {
+        unknown.push(raw);
+        notes.push(`${theirs}, so it is already behind them and not on the board.`);
+      } else if (inYear.length === 0) {
+        unknown.push(raw);
+        notes.push(n > lastYear ? `${theirs}, so it falls after the board's last term.` : `${theirs}, and the board has no terms in that year.`);
+      } else {
+        inYear.forEach(add);
+        notes.push(`${theirs}: ${inYear.map((t) => t.label).join(', ')}.`);
+      }
+      continue;
+    }
     if (year !== undefined) {
       const n = year === 'last' ? lastYear : year;
       const inYear = terms.filter((t) => t.year === n);
@@ -457,7 +510,7 @@ export function resolveTerms(terms: readonly PlanTerm[], asked: readonly string[
     else unknown.push(raw);
   }
   const order = new Map(terms.map((t, i) => [t, i]));
-  return { terms: out.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0)), unknown };
+  return { terms: out.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0)), unknown, notes };
 }
 
 /** One course for term_syllabi, as the workspace loads it. */
