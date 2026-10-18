@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 import { CourseCard, type ElectiveOf } from './course-card';
+import type { InstructorControl } from './instructor-picker';
 import { IssueBadge } from './issue-badge';
 import { isTermIssue } from './plan-health';
 
@@ -58,6 +59,8 @@ interface SemesterColumnProps {
    * (weekly-fit.ts). Null for a term whose schedule is not published.
    */
   weekly?: { status: 'fits' | 'clash' | 'unknown'; line: string | null } | null;
+  /** "My instructor" on each card's menu. */
+  instructors?: InstructorControl;
 }
 
 export function SemesterColumn({
@@ -89,6 +92,7 @@ export function SemesterColumn({
   width,
   onWidthChange,
   weekly,
+  instructors,
 }: SemesterColumnProps) {
   const columnRef = useRef<HTMLElement | null>(null);
   const coursesRef = useRef<HTMLDivElement | null>(null);
@@ -298,6 +302,7 @@ export function SemesterColumn({
               onChoose={onChooseElective}
               alternativesFor={alternativesFor}
               onSwap={onSwapCourse}
+              instructors={instructors}
               onSelect={onSelectCourse}
               onMove={onMoveCourse}
               onRemove={onRemoveCourse}

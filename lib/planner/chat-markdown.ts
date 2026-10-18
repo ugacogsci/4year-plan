@@ -20,6 +20,11 @@
  * Pure and React-free so __chat-markdown.check.mjs can test it; the panel
  * (components/planner/advisor.tsx) maps the spans to elements. Newlines are
  * kept in the text, and the bubble's white-space: pre-wrap shows them.
+ *
+ * chatLines reads the same marks line by line, for the panel: a syllabus
+ * answer is a bold course line with one "- **Instructor**: ..." line per
+ * instructor under it (SHARED_ADVISOR_RULES.syllabusLayout), and a list item
+ * drawn as plain text wraps under its dash instead of under its words.
  */
 
 export interface ChatSpan {
@@ -91,4 +96,33 @@ export function chatPlainText(text: string): string {
   return chatSpans(text)
     .map((s) => (s.href ? `${s.text} (${s.href})` : s.text))
     .join('');
+}
+
+/** One line of a reply, for the panel: a paragraph line, a list item, or a blank line between them. */
+export interface ChatLine {
+  kind: 'text' | 'item' | 'blank';
+  /** How far a list item is nested: 0 for "- x", 1 for "  - x". */
+  depth: number;
+  /** "•" for a bullet, "1." for a numbered item. */
+  marker?: string;
+  spans: ChatSpan[];
+}
+
+const HEADING = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/;
+const ITEM = /^(\s*)([-*+•]|\d{1,2}[.)])\s+(.*)$/;
+
+/** The reply line by line, each with its own spans; "- item", "* item", "• item" and "1. item" are list items. */
+export function chatLines(text: string): ChatLine[] {
+  return text.split('\n').map((line): ChatLine => {
+    if (!line.trim()) return { kind: 'blank', depth: 0, spans: [] };
+    const heading = HEADING.exec(line);
+    if (heading) return { kind: 'text', depth: 0, spans: merge(inline(heading[1], { strong: true })) };
+    const item = ITEM.exec(line);
+    if (item) {
+      const depth = Math.min(3, Math.floor(item[1].replace(/\t/g, '  ').length / 2));
+      const marker = /\d/.test(item[2]) ? item[2].replace(')', '.') : '•';
+      return { kind: 'item', depth, marker, spans: merge(inline(item[3])) };
+    }
+    return { kind: 'text', depth: 0, spans: merge(inline(line)) };
+  });
 }

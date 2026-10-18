@@ -100,7 +100,7 @@ export function readInstructorName(raw: string): InstructorName | null {
     first = head.slice(0, -1);
   }
   const all = [...first, ...last];
-  if (all.length === 0 || all.every((w) => NOT_A_PERSON.test(w)) || (last.length === 1 && NOT_A_PERSON.test(last[0]))) return null;
+  if (all.every((w) => NOT_A_PERSON.test(w)) || (last.length === 1 && NOT_A_PERSON.test(last[0]))) return null;
   const lastWord = last[last.length - 1];
   const key = fold(lastWord);
   if (key.replace(/[-']/g, '').length < 2) return null;
@@ -241,8 +241,8 @@ export function chosenInstructor(plan: PlanState | null | undefined, termId: str
 /** The plan with that choice set, or cleared with null. Nothing else changes. */
 export function withInstructor(plan: PlanState, termId: string, code: string, name: string | null): PlanState {
   const key = normCode(code);
-  const current = { ...(plan.instructors ?? {}) };
-  const forTerm = { ...(current[termId] ?? {}) };
+  const current = { ...plan.instructors };
+  const forTerm = { ...current[termId] };
   const clean = (name ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
   if (clean) forTerm[key] = clean;
   else delete forTerm[key];

@@ -15,7 +15,7 @@ import {
 } from '@/lib/planner/advisor';
 import type { Source } from '@/lib/planner/ask-router';
 import type { SchoolId } from '@/lib/planner/onboarding';
-import { chatSpans } from '@/lib/planner/chat-markdown';
+import { chatLines, type ChatSpan } from '@/lib/planner/chat-markdown';
 import { CHAT_KEY } from '@/lib/planner/saved-board';
 
 /**
@@ -117,6 +117,10 @@ function toolLabel(name: AdvisorToolName, input: Record<string, unknown>): strin
       return `Reading ${s('code')}`;
     case 'course_syllabus':
       return `Reading ${s('code')}'s syllabi`;
+    case 'term_syllabi': {
+      const terms = Array.isArray(input.terms) ? input.terms.filter((t): t is string => typeof t === 'string') : [];
+      return terms.length > 0 ? `Reading the syllabi for ${terms.join(', ')}` : 'Reading your courses\' syllabi';
+    }
     case 'term_summary':
       return `Looking at ${s('term')}`;
     case 'add_course':
@@ -334,14 +338,11 @@ function AssistantAvatar({
   );
 }
 
-/**
- * A reply with its bold, italics, code and links drawn rather than printed as
- * "**" marks (lib/planner/chat-markdown.ts). Links open in a new tab.
- */
-function RichText({ text }: { text: string }) {
+/** One line's bold, italics, code and links, drawn rather than printed as marks. */
+function Spans({ spans }: { spans: ChatSpan[] }) {
   return (
     <>
-      {chatSpans(text).map((s, i) => {
+      {spans.map((s, i) => {
         let node: ReactNode = s.text;
         if (s.code) node = <code className="bot-code">{node}</code>;
         if (s.em) node = <em>{node}</em>;
@@ -355,6 +356,30 @@ function RichText({ text }: { text: string }) {
         }
         return <span key={i}>{node}</span>;
       })}
+    </>
+  );
+}
+
+/**
+ * A reply with its bold, italics, code and links drawn rather than printed as
+ * "**" marks (lib/planner/chat-markdown.ts), line by line, so a list item
+ * ("- **Instructor**: ...") wraps under its own text. Links open in a new tab.
+ */
+function RichText({ text }: { text: string }) {
+  return (
+    <>
+      {chatLines(text).map((line, i) =>
+        line.kind === 'blank' ? (
+          <span key={i} className="bot-gap" aria-hidden="true" />
+        ) : line.kind === 'item' ? (
+          <span key={i} className="bot-li" data-depth={line.depth}>
+            <span className="bot-li-mark" aria-hidden="true">{line.marker}</span>
+            <span className="bot-li-body"><Spans spans={line.spans} /></span>
+          </span>
+        ) : (
+          <span key={i} className="bot-line"><Spans spans={line.spans} /></span>
+        ),
+      )}
     </>
   );
 }

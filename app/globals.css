@@ -7002,3 +7002,64 @@ button.unofficial-label:focus-visible,
 .planner-app .club-source.is-stale p:first-child { color: #9a7410; }
 .planner-app[data-theme='dark'] .club-source.is-stale p:first-child { color: #d9b438; }
 .planner-app .club-skeleton i { background: var(--orion-soft); }
+
+/* "My instructor" (components/planner/instructor-picker.tsx): a quiet line on the
+   card, a submenu on its menu, and a row in the map's course popup. */
+.planner-app .course-card-instructor {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--orion-dim);
+  font-family: var(--app-font-mono);
+  font-size: 8px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.course-instructor-menu .course-instructor-loading {
+  margin: 4px 8px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  white-space: normal;
+}
+.course-instructor-menu [role='menuitemradio'] { white-space: normal; }
+.planner-app .map-inspector .inspector-instructor {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.14);
+}
+.planner-app[data-theme='dark'] .map-inspector .inspector-instructor { border-color: rgba(255, 255, 255, 0.18); }
+.planner-app .map-inspector .inspector-instructor-label { color: inherit; font-size: 9px; }
+.planner-app .map-inspector .inspector-instructor-note { margin: 0; color: #676767; font-size: 9px; line-height: 1.4; }
+.planner-app[data-theme='dark'] .map-inspector .inspector-instructor-note { color: #aaa; }
+.planner-app .map-inspector .inspector-instructor-own { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; }
+.planner-app .map-inspector .inspector-instructor-own [data-slot='input'] {
+  height: 28px;
+  border-color: rgba(0, 0, 0, 0.18);
+  background: #ffffff;
+  color: #000000;
+  font-size: 9px;
+}
+.planner-app[data-theme='dark'] .map-inspector .inspector-instructor-own [data-slot='input'] {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: #ffffff;
+}
+
+/* Replies line by line (lib/planner/chat-markdown.ts chatLines): a list item
+   wraps under its own words, and a blank line is a short gap. */
+.bot-msg .bot-line { display: block; }
+.bot-msg .bot-gap { display: block; height: 0.6em; }
+.bot-msg .bot-li { display: flex; gap: 0.5em; }
+.bot-msg .bot-li[data-depth='1'] { padding-left: 1em; }
+.bot-msg .bot-li[data-depth='2'] { padding-left: 2em; }
+.bot-msg .bot-li[data-depth='3'] { padding-left: 3em; }
+.bot-msg .bot-li-mark { flex: 0 0 auto; min-width: 0.6em; opacity: 0.6; }
+.bot-msg .bot-li-body { flex: 1 1 auto; min-width: 0; }
+/* The bubble's own colour in both themes: in dark the assistant bubble is light,
+   and the fixed white bold above (and the pale link) disappeared on it. */
+.planner-app .bot-msg.assistant strong { color: inherit; font-weight: 650; }
+.planner-app .bot-msg.assistant a { color: inherit; }
+.planner-app .bot-msg.assistant .bot-code { background: color-mix(in srgb, currentColor 12%, transparent); }

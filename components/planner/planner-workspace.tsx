@@ -200,6 +200,11 @@ import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail, loadIllinoisSectionTerms, loadIllinoisSyllabi, sectionTermsOf } from '@/lib/planner/illinois-load';
 import { loadUgaSyllabi } from '@/lib/planner/uga-syllabi';
+import {
+  carryInstructors, chosenInstructor, currentTermLabel, instructorOptions, resolveTerms, SYLLABUS_FACTS, syllabiByInstructor,
+  syllabiToShow, teachingNames, termSyllabiResult, withInstructor, type SyllabusFact, type SyllabusRecord, type TermCourseInput,
+} from '@/lib/planner/instructors';
+import type { InstructorControl } from './instructor-picker';
 import type { IllinoisCore } from '@/lib/planner/illinois-load';
 import {
   graduateOptionName, graduatePlanSettings, isIllinoisGraduateId, loadIllinoisGraduateCatalog,
@@ -791,6 +796,8 @@ export function PlannerWorkspace({
   const [planNotes, setPlanNotes] = useState<string[]>([]);
   const [report, setReport] = useState<PlanReport | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  /** The card's "Someone else (type a name)": the map popup opens with the name field ready. */
+  const [instructorTyping, setInstructorTyping] = useState<{ courseId: string; termId: string } | null>(null);
   const [mapFocusRequest, setMapFocusRequest] = useState<{ courseId: string; sequence: number } | null>(null);
   const [focusTermId, setFocusTermId] = useState<string | null>(null);
   const [targetTermId, setTargetTermId] = useState('');
@@ -1701,7 +1708,9 @@ export function PlannerWorkspace({
         satisfiedByPriorCredit: withoutMaybe(generated.satisfiedByPriorCredit, maybe.codes),
       };
     }
-    replaceActivePlan(generated.plan);
+    // The student's instructor picks stay with every course still in the same term.
+    const codeOfId = planRef.current?.instructors ? new Map([...byCode.values()].map((c) => [c.id, c.code])) : null;
+    replaceActivePlan(codeOfId ? carryInstructors(planRef.current, generated.plan, (id) => codeOfId.get(id)) : generated.plan);
     setChooser(null);
     setChooserOnMap(false);
     setTargetTermId(generated.plan.terms[0]?.id ?? '');
@@ -3183,6 +3192,45 @@ export function PlannerWorkspace({
     setFinderOpen(true);
   }
 
+  /**
+   * "My instructor" on a card and in the map popup. The picker offers the
+   * instructors on that term's published sections (Illinois's Fall 2026 and
+   * Spring 2027) and everyone named on the course's syllabi (both schools);
+   * the choice is saved on the plan by term and code, not as a board edit, so
+   * it takes no undo step and does not mark the board as changed by hand.
+   */
+  function syllabiOf(code: string): Promise<SyllabusRecord[]> {
+    const load = isIllinois ? loadIllinoisSyllabi(code) : school?.id === 'uga' ? loadUgaSyllabi(code) : Promise.resolve([]);
+    return load.catch(() => []);
+  }
+  async function instructorChoices(courseId: string, termId: string) {
+    const course = courseIndex.get(courseId);
+    if (!course) return [];
+    const [syllabi, detail] = await Promise.all([syllabiOf(course.code), isIllinois ? loadIllinoisCourseDetail(course.code).catch(() => null) : Promise.resolve(null)]);
+    return instructorOptions(teachingNames(detail?.sectionsByTerm?.[termId]?.sections ?? null), syllabi);
+  }
+  function setInstructor(courseId: string, termId: string, name: string | null) {
+    const board = planRef.current;
+    const course = courseIndex.get(courseId);
+    if (!board || !course) return;
+    replaceActivePlan(withInstructor(board, termId, course.code, name));
+    setInstructorTyping(null);
+    const label = board.terms.find((t) => t.id === termId)?.label ?? 'that term';
+    setStatus(name ? `${course.code}, ${label}: your instructor is ${name}.` : `${course.code}, ${label}: instructor not set.`);
+  }
+  const instructorControl: InstructorControl = {
+    chosen: (courseId, termId) => {
+      const course = courseIndex.get(courseId);
+      return course ? chosenInstructor(plan, termId, course.code) : null;
+    },
+    options: instructorChoices,
+    set: setInstructor,
+    typeOwn: (courseId, termId) => {
+      selectPlanned(courseId, termId);
+      setInstructorTyping({ courseId, termId });
+    },
+  };
+
   function openFinderFor(termId: string) {
     setTargetTermId(termId);
     setFocusTermId(termId);
@@ -3844,6 +3892,7 @@ export function PlannerWorkspace({
     if (choice && (!choice.front || choice.route?.applySemesters)) {
       lines.push(`Which route in, from how the student entered Illinois: ${describeAdmissionChoice(choice)}`);
     }
+    lines.push(`Instructors: "(my instructor: X)" after a course is the instructor the student set for it in that term; a course without it is not set (the student sets it by clicking the course, then My instructor). The term in progress is ${currentTermLabel(new Date())}.`);
     for (const term of board.terms) {
       const courses = term.courseIds
         .map((id) => L.courseIndex.get(id))
@@ -3861,7 +3910,10 @@ export function PlannerWorkspace({
       lines.push(
         `${term.label} (${credits}${read ? `; ${read}` : ''}): ${
           courses.length > 0
-            ? courses.map((c) => `${c.code} [${markOf(c)}] ${creditsOf(c)} ${c.title}`).join('; ')
+            ? courses.map((c) => {
+                const who = chosenInstructor(board, term.id, c.code);
+                return `${c.code} [${markOf(c)}] ${creditsOf(c)} ${c.title}${who ? ` (my instructor: ${who})` : ''}`;
+              }).join('; ')
             : 'empty'
         }`,
       );
@@ -4248,21 +4300,28 @@ export function PlannerWorkspace({
         const c = courseOf(str('code'));
         const ugaBoard = L.context?.schoolId === 'uga';
         if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${ugaBoard ? 'UGA' : 'Illinois'} catalog.` };
+        // The student's own instructor for it, where they set one on the board.
+        const at = holding(c.id);
+        const chosen = at ? chosenInstructor(board, at.id, c.code) : null;
+        const mine = at ? { on_board_in: at.label, chosen_instructor: chosen } : { on_board_in: null };
+        const grouped = "by_instructor groups the syllabi by instructor, newest first; chosen marks the instructor the student set on the board (answer for that one alone), and an instructor with teaches_in teaches the course that term.";
         if (ugaBoard) {
           // UGA: the files instructors upload to the Syllabus System, as the Bulletin
           // publishes them per course, plus the Bulletin's own outline. No sections
           // are loaded for UGA, so there is no "who teaches it this term" to compare.
           const syllabi = await loadUgaSyllabi(c.code);
           if (syllabi.length === 0) {
-            return { ok: true, code: c.code, found: 0, this_term: null, note: `No syllabus for ${c.code} is posted on UGA's Bulletin page for the course, and the Bulletin publishes no outline for it. Instructors upload syllabi to UGA's Syllabus System; the course's eLC page or its instructor has the current one.` };
+            return { ok: true, code: c.code, found: 0, this_term: null, ...mine, note: `No syllabus for ${c.code} is posted on UGA's Bulletin page for the course, and the Bulletin publishes no outline for it. Instructors upload syllabi to UGA's Syllabus System; the course's eLC page or its instructor has the current one.` };
           }
           return {
             ok: true,
             code: c.code,
             found: syllabi.length,
             this_term: null,
-            note: "Newest term first; an entry with objectives and topics and no grading is the Bulletin's master outline for the course. Weights and policies change by term, instructor and section; the syllabus a student gets on the first day is the final word. The instructor named is the one who uploaded the file.",
-            syllabi: syllabi.slice(0, 6),
+            ...syllabiByInstructor(syllabi, { chosen, termLabel: at?.label ?? null }),
+            on_board_in: at?.label ?? null,
+            note: `Newest term first; an entry with objectives and topics and no grading is the Bulletin's master outline for the course. Weights and policies change by term, instructor and section; the syllabus a student gets on the first day is the final word. The instructor named is the one who uploaded the file. ${grouped}`,
+            syllabi: syllabiToShow(syllabi, { chosen }),
           };
         }
         const [syllabi, detail] = await Promise.all([loadIllinoisSyllabi(c.code), loadIllinoisCourseDetail(c.code)]);
@@ -4277,16 +4336,71 @@ export function PlannerWorkspace({
           ? { term: sched.label, ...(sched.note ? { note: sched.note } : {}), instructors: teaching.slice(0, 12), sections: lectures.slice(0, 12).map((s) => ({ section: s.section, instructors: s.instructors })) }
           : null;
         if (syllabi.length === 0) {
-          return { ok: true, code: c.code, found: 0, this_term: thisTerm, note: `No public syllabus for ${c.code} was found. Most Illinois syllabi are posted inside Canvas, behind a login; the course's Canvas page or its instructor has the current one.` };
+          return { ok: true, code: c.code, found: 0, this_term: thisTerm, ...mine, note: `No public syllabus for ${c.code} was found. Most Illinois syllabi are posted inside Canvas, behind a login; the course's Canvas page or its instructor has the current one.` };
         }
         return {
           ok: true,
           code: c.code,
           found: syllabi.length,
           this_term: thisTerm,
-          note: "Newest term first. Weights and policies can change by term, instructor and section; the syllabus a student gets on the first day is the final word. A syllabus's instructors are the ones the reader found in it and may be incomplete. listedFor is the term a store filed it under when the document itself names another.",
-          // The six newest are plenty to answer from, and keep the reply small.
-          syllabi: syllabi.slice(0, 6),
+          ...syllabiByInstructor(syllabi, { teaching, chosen, termLabel: sched.label }),
+          on_board_in: at?.label ?? null,
+          note: `Newest term first. Weights and policies can change by term, instructor and section; the syllabus a student gets on the first day is the final word. A syllabus's instructors are the ones the reader found in it and may be incomplete. listedFor is the term a store filed it under when the document itself names another. ${grouped}`,
+          // Six are plenty to answer from and keep the reply small: each instructor's newest first, then the newest of the rest.
+          syllabi: syllabiToShow(syllabi, { teaching, chosen }),
+        };
+      }
+      case 'term_syllabi': {
+        const ugaBoard = L.context?.schoolId === 'uga';
+        const list = (key: string) => (Array.isArray(input[key]) ? (input[key] as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim() !== '') : typeof input[key] === 'string' && (input[key] as string).trim() ? [(input[key] as string).trim()] : []);
+        const askedTerms = list('terms');
+        const askedCodes = list('codes').map(normalizeCourseCode);
+        const facts = list('facts').filter((f): f is SyllabusFact => (SYLLABUS_FACTS as readonly string[]).includes(f));
+        const want: SyllabusFact[] = facts.length > 0 ? facts : ['attendance', 'grading', 'exams'];
+        const today = new Date();
+        const picked = resolveTerms(board.terms, askedTerms.length > 0 ? askedTerms : askedCodes.length > 0 ? ['all'] : ['this term'], today);
+        if (picked.terms.length === 0) return { ok: false, reason: `No term called ${askedTerms.join(', ') || 'that'} is on the board. The terms are ${termList}.`, terms_not_found: picked.unknown };
+        const rows: Array<{ c: Course; term: PlanTerm }> = [];
+        for (const term of picked.terms) {
+          for (const id of term.courseIds) {
+            const c = L.courseIndex.get(id);
+            if (!c || (askedCodes.length > 0 && !askedCodes.includes(normalizeCourseCode(c.code)))) continue;
+            if (!rows.some((r) => r.c.id === c.id && r.term.id === term.id)) rows.push({ c, term });
+          }
+        }
+        const notOnBoard = askedCodes.filter((code) => !rows.some((r) => normalizeCourseCode(r.c.code) === code));
+        const MAX = 24;
+        const inputs: TermCourseInput[] = await Promise.all(rows.slice(0, MAX).map(async ({ c, term }) => {
+          const syllabi = await syllabiOf(c.code);
+          if (ugaBoard || !isIllinois) return { code: c.code, title: c.title, termLabel: term.label, chosen: chosenInstructor(board, term.id, c.code), teaching: null, syllabi };
+          // The term's own published sections, or the latest of its season, labelled as such.
+          const pick = pickSectionTerm(scheduleTerms, { id: term.id, label: term.label });
+          const detail = pick ? await loadIllinoisCourseDetail(c.code).catch(() => null) : null;
+          const sectionRows = pick ? (detail?.sectionsByTerm?.[pick.term.id]?.sections ?? null) : null;
+          return {
+            code: c.code,
+            title: c.title,
+            termLabel: term.label,
+            chosen: chosenInstructor(board, term.id, c.code),
+            teaching: sectionRows ? teachingNames(sectionRows) : null,
+            teachingTermLabel: pick && pick.term.label !== term.label ? pick.term.label : null,
+            syllabi,
+          };
+        }));
+        const courses = termSyllabiResult(inputs, want);
+        return {
+          ok: true,
+          school: ugaBoard ? 'UGA' : 'Illinois',
+          terms: picked.terms.map((t) => t.label),
+          term_in_progress: currentTermLabel(today),
+          facts: want,
+          course_count: courses.length,
+          courses,
+          ...(rows.length > MAX ? { not_shown: rows.slice(MAX).map((r) => `${r.c.code} (${r.term.label})`) } : {}),
+          ...(picked.unknown.length > 0 ? { terms_not_found: picked.unknown, board_terms: termList } : {}),
+          ...(notOnBoard.length > 0 ? { codes_not_in_those_terms: notOnBoard } : {}),
+          without_syllabus: inputs.filter((c) => c.syllabi.length === 0).map((c) => `${c.code} (${c.termLabel})`),
+          note: `One entry per course in those terms, in board order: answer for all ${courses.length} of them, the ones without a syllabus included. chosen_instructor is the instructor the student set for it (then only that instructor is listed, with the others named in other_instructors); otherwise every instructor found is listed, each with the facts from their newest syllabus, its syllabus_term and link. not_this_term marks a syllabus from another term than the course's own: say it is likely similar, not certain. teaches_in names the published ${ugaBoard ? '' : 'class schedule '}term an instructor teaches it in.${ugaBoard ? " UGA's class schedule is not loaded, so no instructor is known to teach a given term; the names are the syllabi's." : ''} A course with syllabus_found false has no syllabus in the sources the planner reads; say so in one line. Weights and policies change by term, instructor and section; the syllabus on the first day is the final word.`,
         };
       }
       case 'term_summary': {
@@ -6322,6 +6436,7 @@ export function PlannerWorkspace({
                 alternativesFor={alternativesFor}
                 onSwapCourse={swapCourse}
                 electiveOf={electiveOf}
+                instructors={instructorControl}
                 width={termWidths[term.id]}
                 onWidthChange={resizeTerm}
               />
@@ -6370,6 +6485,8 @@ export function PlannerWorkspace({
         onAddCourse={addCourse}
         onRemoveCourse={removeCourse}
         highlightedCourseIds={replacementCourseIds}
+        instructors={plan ? instructorControl : undefined}
+        instructorTyping={instructorTyping}
       />
 
       {/**

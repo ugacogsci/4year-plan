@@ -30,6 +30,7 @@ import { IssueBadge } from './issue-badge';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
 import type { PlanMark } from '@/lib/planner/repick';
 import { ordinalWord } from '@/lib/planner/repeats';
+import { CardInstructorMenu, instructorShort, type InstructorControl } from './instructor-picker';
 
 /**
  * A course that is in the plan because a pool needed filling, a slot needed a
@@ -86,6 +87,8 @@ interface CourseCardProps {
   instance?: number;
   /** For a course taken more than once: which sitting this card is, of how many on the board. */
   sitting?: { n: number; of: number } | null;
+  /** "My instructor": the student's choice for this course in this term, saved on the plan. */
+  instructors?: InstructorControl;
 }
 
 /** "3 cr", or "1 to 4 cr" for the 1,829 Illinois courses with a range. */
@@ -114,11 +117,14 @@ export function CourseCard({
   replacement,
   instance = 0,
   sitting = null,
+  instructors,
 }: CourseCardProps) {
   const cardRef = useRef<HTMLElement | null>(null);
   const resizeStart = useRef<{ pointerId: number; y: number; height: number } | null>(null);
   const [alternatives, setAlternatives] = useState<Alternative[]>([]);
   const [cardHeight, setCardHeight] = useState<number | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const instructor = instructors?.chosen(course.id, term.id) ?? null;
 
   function resizeTo(height: number) {
     setCardHeight(Math.max(104, Math.min(440, Math.round(height))));
@@ -223,6 +229,11 @@ export function CourseCard({
           )}
         </span>
         <span className="course-card-title">{course.title}</span>
+        {instructor && (
+          <span className="course-card-instructor" title={`Your instructor in ${term.label}: ${instructor}`}>
+            {instructorShort(instructor)}
+          </span>
+        )}
       </button>
       <button
         type="button"
@@ -234,6 +245,7 @@ export function CourseCard({
       </button>
       <DropdownMenu onOpenChange={(open) => {
         if (open) setAlternatives(alternativesFor?.(course.id, term.id) ?? []);
+        setMenuOpen(open);
       }}>
         <DropdownMenuTrigger
           aria-label={`Options for ${course.code}`}
@@ -272,6 +284,16 @@ export function CourseCard({
                 ))}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+          )}
+          {instructors && (
+            <CardInstructorMenu
+              control={instructors}
+              courseId={course.id}
+              courseCode={course.code}
+              termId={term.id}
+              termLabel={term.label}
+              open={menuOpen}
+            />
           )}
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>

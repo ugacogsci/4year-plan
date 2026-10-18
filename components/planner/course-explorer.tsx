@@ -8,6 +8,7 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { cn } from '@/lib/utils';
 import { clusterColor } from './cluster-color';
 import { CourseDetail } from './course-detail';
+import { InstructorPicker, type InstructorControl } from './instructor-picker';
 import { subjectMatches } from '@/lib/planner/illinois-subjects';
 import { bucketMapCourses, hitTestMap } from '@/lib/planner/map-hit-testing';
 import { COLLAPSED_MAP_HEIGHT, MIN_MAP_HEIGHT, resolveMapHeight } from '@/lib/planner/map-resize';
@@ -60,6 +61,10 @@ interface CourseExplorerProps {
   onSelectCourse: (courseId: string | null) => void;
   onAddCourse: (courseId: string, termId: string) => void;
   onRemoveCourse: (courseId: string, termId: string) => void;
+  /** "My instructor" in the popup of a course on the board. */
+  instructors?: InstructorControl;
+  /** The card's "Someone else" asked for the name field on this course in this term. */
+  instructorTyping?: { courseId: string; termId: string } | null;
 }
 
 /**
@@ -105,6 +110,8 @@ export function CourseExplorer({
   onSelectCourse,
   onAddCourse,
   onRemoveCourse,
+  instructors,
+  instructorTyping = null,
 }: CourseExplorerProps) {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [deptQuery, setDeptQuery] = useState('');
@@ -1213,6 +1220,22 @@ export function CourseExplorer({
               </div>
               <h3>{selected.title}</h3>
               {selected.description && <p className="map-popup-description">{selected.description}</p>}
+              {instructors && (() => {
+                // The term the card sits in: the one the board opened it from, else the first holding it.
+                const at = terms.find((t) => t.id === targetTermId && t.courseIds.includes(selected.id)) ?? terms.find((t) => t.courseIds.includes(selected.id));
+                const typing = instructorTyping?.courseId === selected.id && instructorTyping.termId === at?.id;
+                return at ? (
+                  <InstructorPicker
+                    key={`${at.id}|${selected.id}|${typing ? 'typing' : 'picking'}`}
+                    control={instructors}
+                    courseId={selected.id}
+                    courseCode={selected.code}
+                    termId={at.id}
+                    termLabel={at.label}
+                    startTyping={typing}
+                  />
+                ) : null;
+              })()}
               <details className="map-popup-more">
                 <summary>Course details</summary>
                 <CourseDetail
