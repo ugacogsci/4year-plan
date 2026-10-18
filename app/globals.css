@@ -7005,14 +7005,16 @@ button.unofficial-label:focus-visible,
 
 /* "My instructor" (components/planner/instructor-picker.tsx): a quiet line on the
    card, a submenu on its menu, and a row in the map's course popup. */
+/* No top margin and a tight line: the card body is 58px tall, and a two-line
+   title plus this line must fit it without the body starting to scroll. */
 .planner-app .course-card-instructor {
   display: block;
-  margin-top: 3px;
+  margin-top: 0;
   overflow: hidden;
   color: var(--orion-dim);
   font-family: var(--app-font-mono);
   font-size: 8px;
-  line-height: 1.3;
+  line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
