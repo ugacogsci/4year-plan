@@ -391,13 +391,21 @@ export function syllabusFacts(s: SyllabusRecord, facts: readonly SyllabusFact[],
   return out;
 }
 
-/** What course_syllabus adds to its answer: the syllabi by instructor, and the student's choice. */
+/**
+ * What course_syllabus adds to its answer: the syllabi by instructor, and the
+ * student's choice. termLabel is the sections' term (teaches_in);
+ * courseTermLabel is the term the course sits in on the board, which
+ * link_words' "likely similar" is measured against (a Fall 2027 card read
+ * with Fall 2026's sections still calls a Fall 2026 syllabus likely similar).
+ * It falls back to termLabel.
+ */
 export function syllabiByInstructor(
   syllabi: readonly SyllabusRecord[],
-  options: { teaching?: readonly string[]; chosen?: string | null; termLabel?: string | null },
+  options: { teaching?: readonly string[]; chosen?: string | null; termLabel?: string | null; courseTermLabel?: string | null },
 ): { chosen_instructor: string | null; chosen_has_syllabus: boolean | null; by_instructor: Array<Record<string, unknown>> } {
   const groups = groupByInstructor(syllabi, options);
   const chosen = options.chosen ?? null;
+  const ownTerm = options.courseTermLabel ?? options.termLabel ?? null;
   return {
     chosen_instructor: chosen,
     chosen_has_syllabus: chosen ? groups.some((g) => g.chosen && g.syllabi.length > 0) : null,
@@ -405,7 +413,7 @@ export function syllabiByInstructor(
       instructor: g.instructor ?? (g.syllabi.every((s) => s.kind === 'master-outline') ? 'course outline (no instructor)' : 'not named in the syllabus'),
       ...(g.chosen ? { chosen: true } : {}),
       ...(g.teaching && options.termLabel ? { teaches_in: options.termLabel } : {}),
-      newest: g.syllabi[0] ? { term: syllabusTermLabel(g.syllabi[0]), link: g.syllabi[0].url, link_words: syllabusLinkWords(g.syllabi[0], options.termLabel ?? null) } : null,
+      newest: g.syllabi[0] ? { term: syllabusTermLabel(g.syllabi[0]), link: g.syllabi[0].url, link_words: syllabusLinkWords(g.syllabi[0], ownTerm) } : null,
       syllabi: g.syllabi.map((s) => ({ term: syllabusTermLabel(s), link: s.url })).slice(0, 4),
     })),
   };
