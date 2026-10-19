@@ -371,6 +371,8 @@ export type PrereqMatcher = (
 };
 
 export interface PlanningContext {
+  /** Published dual-level pairs, not academic equivalencies or graduate waivers. */
+  undergraduateCounterparts?: Map<string, string>;
   /** Registration windows for explicit combined-degree courses, in calendar terms. */
   courseNotBefore?: ReadonlyMap<string, { season: SemesterSeason; year: number }>;
   schoolId?: 'uga' | 'illinois';
@@ -3775,7 +3777,7 @@ function qualityFor(
     if (hit) return hit;
     const course = byCode.get(code);
     const result = course
-      ? scoreQuality({ code, title: course.title, cluster: course.cluster, tags: course.tags, credits: course.credits }, inputs)
+      ? scoreQuality({ code, title: course.title, description: ctx.schoolId === 'uga' ? course.description : undefined, cluster: course.cluster, tags: course.tags, credits: course.credits }, inputs)
       : { score: 0, known: 0, reasons: [], unknown: [] };
     memo.set(code, result);
     return result;

@@ -146,6 +146,8 @@ import type { Alternative, ElectiveOf } from './course-card';
 import { plural } from './words';
 import { alignExamsToCollege, examCourses, examCreditNotes, examElectiveHours, examGenEdCredits, examSchedule, matchDocumentExams, useExamCredit } from './exam-credit';
 import { areaProgress, type ProgramRequirements } from '@/lib/planner/scheduler';
+import { transcriptCourseCredits, transcriptCreditSummary, transcriptExemptCodes, withTranscriptCredits } from '@/lib/planner/transcript';
+import { auditUgaBoard, ugaProgressLoss } from './uga-board-audit';
 import { admissionGoal, chooseAdmission, describeAdmissionChoice, goalFromQuery, readEntry, type AdmissionChoice } from '@/lib/planner/admission-route';
 import { routeQuestion, sectionRowsFrom, type AskContext, type PlannedCourse } from '@/lib/planner/ask-router';
 import { createSamplePlan, sampleCourses, samplePrograms } from '@/lib/planner/sample-data';
@@ -1301,7 +1303,8 @@ export function PlannerWorkspace({
   );
   const exams = examsAligned.exams;
   /** Catalog hours by code, for pricing exam and transfer credit against the catalog. */
-  const catalogCredits = useCallback((code: string): number | null => byCode.get(normCode(code))?.credits ?? null, [byCode]);
+  const recordedCredits = useMemo(() => transcriptCourseCredits(transcriptRecord), [transcriptRecord]);
+  const catalogCredits = useCallback((code: string): number | null => recordedCredits.get(normCode(code)) ?? byCode.get(normCode(code))?.credits ?? null, [byCode, recordedCredits]);
 
   /**
    * The college the student is trying to get into, when their own words say
@@ -1336,7 +1339,7 @@ export function PlannerWorkspace({
   const context: PlanningContext | null = useMemo(() => {
     if (isIllinois && planCore) return buildContext(planCore, loaded?.blocks ?? [], null).context;
     if (isUga && uga) return {
-      ...uga.context,
+      ...withTranscriptCredits(uga.context, transcriptRecord),
       samplePlanCourses: sampleCoursesFor(ugaSamplePlans, Object.fromEntries(programIds.map((id) => [id,
         emphasisRequirements.filter((requirement) => requirement.programId === id).flatMap((requirement) =>
           requirement.options.filter((option) => answers?.emphasisSelections[requirement.id]?.includes(option.id)).map((option) => option.label),
@@ -1344,7 +1347,7 @@ export function PlannerWorkspace({
       ]))),
     };
     return null;
-  }, [isIllinois, isUga, planCore, uga, loaded, ugaSamplePlans, programIds, emphasisRequirements, answers?.emphasisSelections]);
+  }, [isIllinois, isUga, planCore, uga, loaded, ugaSamplePlans, programIds, emphasisRequirements, answers?.emphasisSelections, transcriptRecord]);
   const boardContext = useMemo(() => doubleDawgsContext(plan, context), [plan?.doubleDawgs, context]);
 
   // ---- clubs ----------------------------------------------------------------
@@ -1987,6 +1990,7 @@ export function PlannerWorkspace({
   }, [plan, courseIndex]);
 
   const completedCourses = useMemo(() => {
+    const pending = new Set((answers?.transcript?.courses ?? []).filter((line) => line.use && line.status === 'in_progress').flatMap((line) => line.matched ?? []));
     const codes = (plan?.completedCourseIds ?? []).flatMap((id) => {
       const course = courseIndex.get(id);
       return course ? [course.code] : [];
@@ -1994,9 +1998,9 @@ export function PlannerWorkspace({
     const unique = context ? distinctHeld(codes, context).codes : codes;
     return unique.flatMap((code) => {
       const course = byCode.get(normCode(code));
-      return course ? [{ code: course.code, title: course.title }] : [];
+      return course ? [{ code: course.code, title: `${course.title}${pending.has(code) ? ' (in progress)' : ''}` }] : [];
     });
-  }, [plan, courseIndex, context, byCode]);
+  }, [plan, courseIndex, context, byCode, answers?.transcript]);
   /**
    * Every hour the student holds, as the registrar would count it: each held
    * class once at its catalog hours (none the plan forfeited), plus exam and
@@ -2034,6 +2038,13 @@ export function PlannerWorkspace({
       .map(normCode);
   }, [plan, courseIndex]);
 
+  const ugaAudit = useMemo(() => isUga && plan && context && loaded ? auditUgaBoard({
+    board: plan, context, undergraduate: loaded, graduate: loaded.doubleDawgsGraduate,
+    priorCodes: [...completedCodes], extraCredits: priorCreditHours - planCreditRange([...completedCodes], context).min,
+    transcript: transcriptRecord, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used,
+    validation: { minimumTermCredits, priorCredits: priorCreditHours, standingHours: isGraduatePlan ? gradSettings.standingHours : undefined },
+  }) : null, [isUga, plan, context, loaded, completedCodes, priorCreditHours, transcriptRecord, uga, coreCredit, minimumTermCredits, isGraduatePlan, gradSettings.standingHours]);
+
   /**
    * The pools, counted off the board rather than off the generation.
    *
@@ -2042,13 +2053,14 @@ export function PlannerWorkspace({
    * which cards on the board wore a "from a list" chip.
    */
   const pools = useMemo(() => {
+    if (ugaAudit) return ugaAudit.pools;
     if (!report || !context) return [];
     if (plan?.doubleDawgs && loaded?.doubleDawgsGraduate) {
       const ledger = doubleDawgsLedger(plan, context, [...completedCodes]);
       if (!ledger) return [];
       const graduateIds = new Set(loaded.doubleDawgsGraduate.blocks.map((block) => block.id));
       return [
-        ...livePools({ base: report.pools.filter((pool) => !graduateIds.has(pool.requirementId)), blocks: sharedUndergraduateRequirements(loaded.blocks, plan.doubleDawgs.shared.filter((row): row is { code: string; undergraduateCode: string; credits: number } => Boolean(row.undergraduateCode))), boardCodes: ledger.undergraduateCodes, priorCodes: [], context }),
+        ...livePools({ base: report.pools.filter((pool) => !graduateIds.has(pool.requirementId)), blocks: sharedUndergraduateRequirements(loaded.blocks, plan.doubleDawgs.shared.filter((row): row is { code: string; undergraduateCode: string; credits: number } => Boolean(row.undergraduateCode))), boardCodes: ledger.undergraduateCodes.filter((code) => !completedCodes.has(code)), priorCodes: ledger.undergraduateCodes.filter((code) => completedCodes.has(code)), context, shareAcrossPrograms: true }),
         ...livePools({ base: report.pools.filter((pool) => graduateIds.has(pool.requirementId)), blocks: loaded.doubleDawgsGraduate.blocks, boardCodes: ledger.graduateCodes, priorCodes: [], context, reserveRequired: true, independentIds: new Set(['double-dawgs:ai-graduate-only']) }),
       ];
     }
@@ -2058,8 +2070,9 @@ export function PlannerWorkspace({
       boardCodes,
       priorCodes: [...completedCodes],
       context,
+      shareAcrossPrograms: isUga,
     });
-  }, [report, context, loaded, boardCodes, completedCodes, plan]);
+  }, [report, context, loaded, boardCodes, completedCodes, plan, isUga, ugaAudit]);
 
   /**
    * The review list, rebuilt whenever the board moves.
@@ -2074,6 +2087,7 @@ export function PlannerWorkspace({
    * the rows a student has to act on.
    */
   const unmet: PlanIssue[] = useMemo(() => {
+    if (isUga) return [];
     if (!report) return [];
     const poolIds = new Set(report.pools.map((p) => p.requirementId));
     const firstTerm = report.firstTermId;
@@ -2191,7 +2205,7 @@ export function PlannerWorkspace({
         termId: firstTerm,
       })),
     ];
-  }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits, admissionChoice, plan?.maybeCourseIds, courseIndex]);
+  }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits, admissionChoice, plan?.maybeCourseIds, courseIndex, isUga]);
 
   /**
    * Illinois's published class schedules by term id (Fall 2026, Spring 2027),
@@ -2239,7 +2253,7 @@ export function PlannerWorkspace({
         .map((id) => programOptions.find((program) => program.id === id)?.name)
         .filter((name): name is string => Boolean(name))
         .join(' + ') || null);
-  const combinedLedger = useMemo(() => plan && context ? doubleDawgsLedger(plan, context, [...completedCodes], Math.max(0, priorCreditHours - planCreditRange([...completedCodes], context).min)) : null, [plan, context, completedCodes, priorCreditHours]);
+  const combinedLedger = useMemo(() => plan && context ? doubleDawgsLedger(plan, context, [...completedCodes], priorCreditHours - planCreditRange([...completedCodes], context).min) : null, [plan, context, completedCodes, priorCreditHours]);
   const activeProgramTotal =
     combinedLedger?.requiredUniqueCredits || loaded?.program.totalCredits ||
     samplePrograms.find((p) => p.id === programId)?.totalCredits ||
@@ -2318,7 +2332,7 @@ export function PlannerWorkspace({
    * gets nothing extra, because "88 of 128, 0 of those you already have" is
    * noise.
    */
-  const creditNote = combinedLedger && plan?.doubleDawgs
+  const stageCreditNote = combinedLedger && plan?.doubleDawgs
     ? `Bachelor's: ${combinedLedger.undergraduateCredits}/${plan.doubleDawgs.undergraduateCredits} credits. Master's: ${combinedLedger.graduateCredits}/${plan.doubleDawgs.graduateCredits}. ${combinedLedger.sharedCredits} shared credits count toward both; taken only once.`
     : context && assumedCredit.hours > 0
       ? `${describeCreditTotal(credits.total)}${activeProgramTotal === null ? '' : ` of the ${activeProgramTotal} this degree takes`}. ${[
@@ -2330,10 +2344,15 @@ export function PlannerWorkspace({
       : context && (credits.prior > 0 || (credits.away ?? 0) > 0)
         ? describeCreditProgress(credits, activeProgramTotal)
         : null;
+  const recordCredit = transcriptCreditSummary(transcriptRecord);
+  const creditNote = isUga && (recordCredit.pending > 0 || recordCredit.physicalEducation > 0)
+    ? `${recordCredit.earned} earned credits on your record; ${recordCredit.pending} in progress, conditional on passing.${recordCredit.physicalEducation ? ` ${recordCredit.physicalEducation} PEDB credit is separate from academic degree hours.` : ''} ${combinedLedger ? stageCreditNote : `${credits.prior} projected academic credits from prior work; ${describeCreditTotal(credits.planned)} planned.`}`
+    : stageCreditNote;
 
   const areas: AreaRow[] = useMemo(() => {
+    if (ugaAudit) return ugaAudit.areas;
     if (!loaded || !plan) return [];
-    if (plan.doubleDawgs && context && loaded.doubleDawgsGraduate) return doubleDawgsProgress(plan, context, loaded.program, loaded.doubleDawgsGraduate.program, [...completedCodes], Math.max(0, priorCreditHours - planCreditRange([...completedCodes], context).min));
+    if (plan.doubleDawgs && context && loaded.doubleDawgsGraduate) return doubleDawgsProgress(plan, context, loaded.program, loaded.doubleDawgsGraduate.program, [...completedCodes], priorCreditHours - planCreditRange([...completedCodes], context).min);
     /**
      * Illinois gets one row per requirement block, in the unit the page sized
      * it in, because its pages print no hour total on their areas and a bar
@@ -2410,7 +2429,7 @@ export function PlannerWorkspace({
       loaded.program,
       have,
       context?.equivalents,
-      { allowCrossAreaOverlap: isUga },
+      { allowCrossAreaOverlap: isUga, creditsByCode: recordedCredits },
     );
     if (!isUga) return counted;
     // Core electives from transfer credit count toward the core area they
@@ -2458,7 +2477,7 @@ export function PlannerWorkspace({
     isUga,
     context,
     credits.total.min,
-    isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits, coreCredit, priorCreditHours,
+    isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits, coreCredit, priorCreditHours, recordedCredits, ugaAudit,
   ]);
 
   /**
@@ -2495,8 +2514,8 @@ export function PlannerWorkspace({
         },
       ];
     });
-    const rows = context
-      ? [...unmet, ...validation, ...clashes, ...doubleDawgsIssues(plan, context, [...completedCodes], Math.max(0, priorCreditHours - planCreditRange([...completedCodes], context).min))]
+    const rows = ugaAudit ? [...ugaAudit.issues] : context
+      ? [...unmet, ...validation, ...clashes, ...doubleDawgsIssues(plan, context, [...completedCodes], priorCreditHours - planCreditRange([...completedCodes], context).min)]
       : getPlanIssues(plan, catalog, { minimumTermCredits });
     if (isUga && (answers?.doubleDawgsPathwayId ?? null) !== (plan.doubleDawgs?.pathwayId ?? null)) {
       rows.push({
@@ -2539,7 +2558,7 @@ export function PlannerWorkspace({
     activeProgramTotal,
     areas,
     pools,
-    isIllinois, isGraduatePlan, loaded, priorCreditHours, report, answers, weeklyFits, completedCodes, boardContext,
+    isIllinois, isGraduatePlan, loaded, priorCreditHours, report, answers, weeklyFits, completedCodes, boardContext, ugaAudit,
   ]);
 
   const planWideIssues = useMemo(
@@ -3101,12 +3120,15 @@ export function PlannerWorkspace({
       setStatus(`${course.code} is already in the plan.`);
       return;
     }
-    commit({
+    const candidate = {
       ...plan,
       terms: plan.terms.map((t) =>
         t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === oldId ? newId : id)) } : t,
       ),
-    });
+    };
+    const problem = isUga ? checkPlacement(candidate, course, termId).blocking[0] ?? progressCheckOn(plan)?.(candidate) : null;
+    if (problem) { notify('Replacement needs review', problem, 'info'); return; }
+    commit(candidate);
     // A true open-elective card remains an open-elective card after a swap.
     if (oldCourse && electiveOf.get(oldCourse.id)?.kind === 'elective') {
       noteElectiveSwap(oldCourse.code, course.code, 'You chose it for this elective slot.');
@@ -3415,15 +3437,29 @@ export function PlannerWorkspace({
     return distinctHeld([...L.completedCodes].filter((code) => !forfeited.has(code)), L.context).codes;
   }
 
+  function ugaAuditOn(board: PlanState) {
+    const L = live.current;
+    if (!isUga || !L.context || !L.loaded) return null;
+    return auditUgaBoard({ board, context: L.context, undergraduate: L.loaded,
+      graduate: L.loaded.doubleDawgsGraduate, priorCodes: [...L.completedCodes],
+      extraCredits: L.priorCreditHours - planCreditRange([...L.completedCodes], L.context).min,
+      transcript: L.answers?.transcript, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used,
+      validation: validateOptions() });
+  }
+
+  function auditIssuesOn(board: PlanState) {
+    return ugaAuditOn(board)?.issues ?? (live.current.context ? validatePlan(board, live.current.context, validateOptions()) : []);
+  }
+
   /** Why a candidate board is not allowed for a course in a term, or what to warn about if it is. */
   function checkPlacement(candidate: PlanState, course: Course, termId: string) {
     const L = live.current;
     const ctx = L.context;
     if (!ctx) return { blocking: ['The catalog is not loaded yet.'], warnings: [] as string[], credits: '' };
-    const found = validatePlan(candidate, ctx, validateOptions());
+    const found = auditIssuesOn(candidate);
     const mine = found.filter((i) => i.courseId === course.id && i.termId === termId);
     const blocking = mine
-      .filter((i) => /^ap-(prereq-(?!check)|standing-|exclusion-|duplicate-)/.test(i.id) && i.severity !== 'info')
+      .filter((i) => /^(?:ap-(prereq-(?!check)|standing-|exclusion-|duplicate-)|double-dawgs-(stage|early|ineligible|late))/.test(i.id) && i.severity !== 'info')
       .map((i) => i.message);
     for (const i of mine) if (i.id.startsWith('ap-exclusion-')) blocking.push(i.message);
     const warnings = mine.filter((i) => !blocking.includes(i.message)).map((i) => i.message);
@@ -3456,6 +3492,7 @@ export function PlannerWorkspace({
 
   /** The published total a swap must not take the plan below, read the way buildPlan reads it. */
   function degreeTotalNow(): number | null {
+    if (planRef.current?.doubleDawgs) return ugaAuditOn(planRef.current)?.target ?? null;
     const loadedNow = live.current.loaded;
     if (!loadedNow) return null;
     return loadedNow.summary.totalCredits || loadedNow.program.totalCredits || (isIllinois && !isGraduatePlan ? 120 : null);
@@ -3463,6 +3500,11 @@ export function PlannerWorkspace({
 
   function progressCheckOn(board: PlanState) {
     const L = live.current;
+    const current = ugaAuditOn(board);
+    if (current) return (candidate: PlanState) => {
+      const after = ugaAuditOn(candidate);
+      return after ? ugaProgressLoss(current, after) : 'The degree requirements could not be checked.';
+    };
     if (!isIllinois || !L.loaded || !L.context) return undefined;
     const held = heldTowardDegree(
       distinctHeld([...L.completedCodes].filter((code) => !(L.report?.forfeited ?? []).some((f) => normCode(f.held) === code)), L.context).codes,
@@ -3574,6 +3616,7 @@ export function PlannerWorkspace({
         isOpenElective: mark.kind === 'elective',
         isPrerequisite: board.terms.some((t) => t.courseIds.some((id) => L.courseIndex.get(id)?.prerequisites.includes(courseId))),
       });
+      const progressCheck = progressCheckOn(board);
       return electiveOptions({
         context: L.context, requirements: blocks,
         plan: { ...board, terms: board.terms.map((t) => t.id === termId ? { ...t, courseIds: t.courseIds.filter((id) => id !== courseId) } : t) },
@@ -3585,7 +3628,10 @@ export function PlannerWorkspace({
       }).flatMap((option) => {
         if (graduateStage && board.doubleDawgs?.graduateEligibleCodes && !board.doubleDawgs.graduateEligibleCodes.includes(option.code)) return [];
         const replacement = L.byCode.get(normCode(option.code));
-        return replacement && replacement.id !== courseId ? [{ course: replacement, why: option.reasons.slice(0, 2).join('; ') || option.why }] : [];
+        if (!replacement || replacement.id === courseId) return [];
+        const candidate = { ...board, terms: board.terms.map((term) => term.id === termId ? { ...term, courseIds: term.courseIds.map((id) => id === courseId ? replacement.id : id) } : term) };
+        if (checkPlacement(candidate, replacement, termId).blocking.length || progressCheck?.(candidate)) return [];
+        return [{ course: replacement, why: option.reasons.slice(0, 2).join('; ') || option.why }];
       }).slice(0, 7);
     }
     const reason = (reasons: string[], fallback: string) => (reasons.length > 0 ? reasons.slice(0, 2).join('; ') : fallback);
@@ -3839,13 +3885,14 @@ export function PlannerWorkspace({
     // had passed; with the student's own date it says so.
     const today = `Today: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`;
     if (!board || !L.loaded) return `${today}\nNo plan is on the board yet.`;
+    const currentAudit = ugaAuditOn(board);
     const lines: string[] = [today];
     const last = board.terms[board.terms.length - 1]?.label ?? '';
     lines.push(
-      `Degree: ${L.loaded.program.name}, ${school?.name ?? 'selected university'}. Published total: ${L.activeProgramTotal ?? 'not published'} credits. Plan: ${L.totalCredits} through ${last}.`,
+      `Degree: ${L.loaded.program.name}, ${school?.name ?? 'selected university'}. Published total: ${currentAudit?.target ?? L.activeProgramTotal ?? 'not published'} credits. Plan: ${currentAudit?.total ?? L.totalCredits} through ${last}.`,
     );
     if (doubleDawgsPathway) {
-      lines.push(`Double Dawgs: ${doubleDawgsPathway.name}. Source: ${doubleDawgsPathway.url}. Combined draft: ${JSON.stringify(plan?.doubleDawgs ?? null)}. Current independent credit ledgers: ${JSON.stringify(combinedLedger)}. Shared courses must remain before the bachelor's milestone. Do not claim advisor approval or graduate admission.`);
+      lines.push(`Double Dawgs: ${doubleDawgsPathway.name}. Source: ${doubleDawgsPathway.url}. Combined draft: ${JSON.stringify(board.doubleDawgs ?? null)}. Current independent credit ledgers: ${JSON.stringify(currentAudit?.ledger ?? combinedLedger)}. Shared courses must remain before the bachelor's milestone. Do not claim advisor approval or graduate admission.`);
     }
     if (ugaSamplePlans.length > 0) {
       lines.push(`Official UGA sample plans are final tie-breakers, not extra requirements: ${ugaSamplePlans.map((sample) => `${sample.programName} (${sample.url})`).join('; ')}.`);
@@ -3869,10 +3916,17 @@ export function PlannerWorkspace({
       'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [career track: X] a course the student\'s career track X requires; keep it unless they drop the goal, and ask before removing or replacing it. [language] part of the language sequence for the language requirement; the language is the student\'s choice, the level is not. [gen ed pick] the planner chose it for a general education category; swap it for another course that carries the same categories. [prerequisite] the planner booked it because a later course needs it. [added] the student or you put it there.',
     );
     if (isIllinois && L.loaded.minors?.some((minor) => minor.checked)) lines.push('[minor: X] the planner booked it for the minor X; ask before removing it, since the minor then falls short.');
-    const taken = board.completedCourseIds
+    const plannedIds = new Set(board.terms.flatMap((term) => term.courseIds));
+    const pending = new Set((L.answers?.transcript?.courses ?? []).filter((line) => line.use && line.status === 'in_progress').flatMap((line) => [line.matched, ...(line.also ?? [])].filter(Boolean)));
+    const taken = board.completedCourseIds.filter((id) => !plannedIds.has(id))
       .map((id) => L.courseIndex.get(id)?.code)
       .filter((code): code is string => Boolean(code));
-    lines.push(`Already taken, counted but not on the board: ${taken.length > 0 ? taken.join(', ') : 'none'}.`);
+    const earned = isUga ? taken.filter((code) => !pending.has(code)) : taken;
+    lines.push(`Already taken, counted but not on the board: ${earned.length > 0 ? earned.join(', ') : 'none'}.`);
+    if (isUga) {
+      lines.push(`In progress, counted conditionally and not scheduled again: ${taken.filter((code) => pending.has(code)).join(', ') || 'none'}. These are not earned yet.`);
+      lines.push(`Transcript credit status: ${JSON.stringify(transcriptCreditSummary(L.answers?.transcript))}. PEDB is excluded from academic degree credits.`);
+    }
     lines.push(describeCredit(L.answers?.transcript ?? null, L.priorForOptions, L.report?.residency ?? null));
     lines.push(
       `Credit load: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'an even share of what is left'}, never above 18.${describeShape(planShapeRef.current)} ${scheduleSentence(sectionTermsOf(L.core?.meta), L.core?.meta?.term?.label ?? null)}`,
@@ -3918,7 +3972,7 @@ export function PlannerWorkspace({
         }`,
       );
     }
-    const groups = groupIssues(L.issues);
+    const groups = groupIssues(currentAudit?.issues ?? L.issues);
     const toReview = groups.filter((g) => g.severity !== 'info');
     const notes = groups.length - toReview.length;
     lines.push(`Review list: ${toReview.length} to review, ${notes} notes.`);
@@ -4034,7 +4088,8 @@ export function PlannerWorkspace({
     const fitOf = (c: Course) => {
       if (!L.quality) return null;
       const q = L.quality(normCode(c.code));
-      return { score_0_to_1: Math.round(q.score * 100) / 100, reasons: q.reasons, not_known: q.unknown };
+      return { score_0_to_1: Math.round(q.score * 100) / 100, reasons: q.reasons, not_known: q.unknown,
+        ...(isUga ? { interpretation: 'A preference-ranking heuristic from available catalog evidence, not a probability of career suitability or proof that a requirement is satisfied.' } : {}) };
     };
     const describe = (c: Course) => {
       // FIN 391 "Admission by application only": the Investment Banking
@@ -4458,14 +4513,17 @@ export function PlannerWorkspace({
         const stop = guard(c, 'removed');
         if (stop) return stop;
         const candidate = without(board, c.id);
-        const knockOn = validatePlan(candidate, ctx, validateOptions())
+        const knockOn = auditIssuesOn(candidate)
           .filter((i) => i.severity === 'error' && /^ap-prereq-(?!check)/.test(i.id))
           .map((i) => i.message);
         const caused = causedBy(board, candidate);
         apply(candidate, t.id, null, `${c.code} removed from ${t.label} by ${botName}.`, `${c.code} removed from ${t.label}`);
         const left = candidate.terms.find((x) => x.id === t.id);
         const credits = describeCreditTotal(planCreditRange((left?.courseIds ?? []).map((id) => L.courseIndex.get(id)?.code ?? ''), ctx));
-        return { ok: true, summary: `${c.code} removed from ${t.label}`, term: t.label, term_credits: credits, now_missing_a_prerequisite: knockOn, ...underMinimum(candidate, t.id), ...caused };
+        const beforeIssues = new Set(auditIssuesOn(board).map((issue) => `${issue.id}|${issue.message}`));
+        return { ok: true, summary: `${c.code} removed from ${t.label}`, term: t.label, term_credits: credits, now_missing_a_prerequisite: knockOn,
+          new_requirement_warnings: auditIssuesOn(candidate).filter((issue) => issue.severity !== 'info' && !beforeIssues.has(`${issue.id}|${issue.message}`)).map((issue) => issue.message),
+          ...underMinimum(candidate, t.id), ...caused };
       }
       case 'replace_course': {
         const oldC = courseOf(str('remove'));
@@ -4485,6 +4543,8 @@ export function PlannerWorkspace({
         };
         const verdict = check(candidate, newC, t.id);
         if (verdict.blocking.length > 0) return { ok: false, reason: `${newC.code} cannot go in ${t.label}: ${verdict.blocking.join(' ')}` };
+        const loss = isUga ? progressCheckOn(board)?.(candidate) : null;
+        if (loss) return { ok: false, reason: loss, note: 'Use what_if to explain the tradeoff. This replacement was not applied.' };
         const oldRole = roleOf(oldC);
         const oldMark = L.electiveOf.get(oldC.id);
         const keepsSlot = oldRole === 'elective slot' || oldRole === 'gen ed pick';
@@ -4511,6 +4571,8 @@ export function PlannerWorkspace({
         const candidate = withCourseIn(without(target.board, c.id), c.id, to.id);
         const verdict = check(candidate, c, to.id);
         if (verdict.blocking.length > 0) return { ok: false, reason: `${c.code} cannot move to ${to.label}: ${verdict.blocking.join(' ')}` };
+        const loss = isUga ? progressCheckOn(board)?.(candidate) : null;
+        if (loss) return { ok: false, reason: loss, note: 'The move was not applied.' };
         const caused = causedBy(board, candidate);
         apply(candidate, to.id, c.id, `${c.code} moved to ${to.label} by ${botName}.`, `${c.code} moved from ${from.label} to ${to.label}`);
         return {
@@ -4542,8 +4604,8 @@ export function PlannerWorkspace({
           rows.push({
             ...describe(c),
             role_on_board: holding(c.id) ? roleOf(c) : null,
-            description: (detail?.course?.description ?? '').slice(0, 400) || null,
-            prerequisite_sentence: prereq?.text || detail?.course?.prereqText || null,
+            description: (detail?.course?.description || c.description || '').slice(0, 400) || null,
+            prerequisite_sentence: prereq?.text || detail?.course?.prereqText || c.prerequisiteText || null,
             grade_history: grade ? { gpa: grade.gpa, a_percent: grade.aPct, drop_percent: grade.withdrawPct, students: grade.n } : null,
             sections_in_crawled_term: sched.summary?.total ?? 0,
             sections_term: sched.label,
@@ -4646,8 +4708,8 @@ export function PlannerWorkspace({
             candidate = withCourseIn(without(target.board, c.id), c.id, to.id); applied.push(`move ${c.code} from ${from.label} to ${to.label}`);
           } else refused.push(`${c.code}: unknown op ${op}`);
         }
-        const before = validatePlan(board, ctx, validateOptions());
-        const after = validatePlan(candidate, ctx, validateOptions());
+        const before = auditIssuesOn(board);
+        const after = auditIssuesOn(candidate);
         const keyOf = (i: PlanIssue) => `${i.id}|${i.message}`;
         const was = new Set(before.map(keyOf));
         // The edit flags come back once, under review_flags_caused.
@@ -4676,8 +4738,10 @@ export function PlannerWorkspace({
         const heaviest = terms
           .filter((t) => t.average_difficulty_0_to_100 !== null)
           .sort((a, b) => (b.average_difficulty_0_to_100 ?? 0) - (a.average_difficulty_0_to_100 ?? 0))[0]?.term ?? null;
-        const groups = groupIssues(L.issues).filter((g) => g.severity !== 'info');
-        const open = L.issues.filter((i) => /^(unsatisfied|pool|ap-missing)/.test(i.id) || /not (yet )?(met|satisfied)|still needs|short/i.test(i.title)).map((i) => i.message.slice(0, 200));
+        const currentAudit = ugaAuditOn(board);
+        const currentIssues = currentAudit?.issues ?? L.issues;
+        const groups = groupIssues(currentIssues).filter((g) => g.severity !== 'info');
+        const open = currentIssues.filter((i) => /^(unsatisfied|pool|ap-missing|uga-(area|pool|total)|double-dawgs-)/.test(i.id) || /not (yet )?(met|satisfied)|still needs|short/i.test(i.title)).map((i) => i.message.slice(0, 200));
         const dormant = terms.flatMap((t) => (Array.isArray(t.not_run_recently) ? t.not_run_recently : []).map((code) => `${code} in ${t.term}`));
         const stacked = terms.filter((t) => t.hardest_band_courses.length >= 2).map((t) => `${t.term}: ${t.hardest_band_courses.join(', ')}`);
         const suggestions: string[] = [];
@@ -4728,8 +4792,9 @@ export function PlannerWorkspace({
         return {
           ok: true,
           degree: L.loaded.program.name,
-          total_planned: L.totalCredits,
-          published_total: L.activeProgramTotal,
+          total_planned: currentAudit?.total ?? L.totalCredits,
+          published_total: currentAudit?.target ?? L.activeProgramTotal,
+          ...(currentAudit ? { degree_ledgers: currentAudit.ledger, transcript_credit_status: transcriptCreditSummary(L.answers?.transcript), requirement_progress: currentAudit.areas.map((row) => ({ requirement: row.area.label, hours: row.earned, target: row.area.hours, met: row.satisfied })) } : {}),
           ...(L.assumedCredit.hours > 0 ? { assumed_credits: `${L.assumedCredit.hours} of total_planned are assumed for ${L.assumedCredit.terms}, terms the student has been here with no classes on their record yet. Ask them to upload their record or tell you those classes; do not call those hours missing.` } : {}),
           priorities: describePriorities(L.priorities),
           terms,
@@ -4740,9 +4805,9 @@ export function PlannerWorkspace({
           review_flags: groups.slice(0, 12).map((g) => `${g.severity}: ${g.title}: ${g.message.slice(0, 200)}`),
           ...(review.momentum.length > 0 ? { first_year_momentum: review.momentum.map((f) => f.message) } : {}),
           ...(review.fact ? { momentum_fact_say_once: review.fact } : {}),
-          ...(use.beyondTotal > 0 ? { credits_beyond_total: `${use.beyondTotal} credits planned past the ${degreeTotalNow()} the degree takes; they count toward nothing it requires.` } : {}),
-          ...(use.countsNothing.length > 0 ? { counts_toward_nothing: use.countsNothing.map((c) => `${c.code} (${c.term}): ${c.why}`) } : {}),
-          ...(use.freeElectives.length > 0
+          ...(use.beyondTotal > 0 ? { credits_beyond_total: `${use.beyondTotal} credits above the ${degreeTotalNow()} minimum. These may still be needed for particular requirements; excess hours alone do not identify courses to remove.` } : {}),
+          ...(isIllinois && use.countsNothing.length > 0 ? { counts_toward_nothing: use.countsNothing.map((c) => `${c.code} (${c.term}): ${c.why}`) } : {}),
+          ...(isIllinois && use.freeElectives.length > 0
             ? { added_courses_filling_no_requirement: `${use.freeElectives.map((c) => `${c.code} (${c.term})`).join(', ')}: added by the student or you, each counts as free elective hours toward the total and fills no requirement. That is fine; say so rather than calling it wasted.` }
             : {}),
           ...(summers.length > 0 ? { summer_suggestions: summers.map((s) => s.text) } : {}),
@@ -5346,6 +5411,17 @@ export function PlannerWorkspace({
         return { ok: true, changed: true, dropped: `${dropped.matched ?? dropped.code}${dropped.title ? ` ${dropped.title}` : ''}`, message: 'Dropped. The plan is being rebuilt; call review_board in your next step to see it.' };
       }
       case 'planner_answer': {
+        if (isUga) {
+          const audit = ugaAuditOn(board);
+          return audit ? { handled: true, grounded: true,
+            question: str('question'), requirements: audit.areas.map((row) => ({ requirement: row.area.label, hours: row.earned, required: row.area.hours, satisfied: row.satisfied })),
+            pools: audit.pools.map((pool) => ({ requirement: pool.areaLabel, label: pool.label, hours: pool.hours, required_hours: pool.hoursTarget, courses: pool.count, required_courses: pool.countTarget, planned: pool.picked, prior: pool.fromPriorCredit, constraints: pool.constraints })),
+            issues: audit.issues, degree_credits: { total: audit.total, minimum: audit.target, combined: audit.ledger },
+            transcript_credits: transcriptCreditSummary(L.answers?.transcript),
+            sources: L.loaded.urls,
+            note: 'These checks describe the current board, including conditional in-progress credit. Do not claim official graduation clearance or a graduate waiver. For course details use the course tools; for university policy use university_answer.' }
+            : { handled: false, note: 'Select a degree to check its requirements.' };
+        }
         const ask = await askContext();
         if (!ask) return { handled: false, note: 'The planner data is not loaded.' };
         const routed = routeQuestion(str('question'), ask);
@@ -5803,7 +5879,9 @@ export function PlannerWorkspace({
     ...(plan?.doubleDawgs ? [`Double Dawgs combines both degree stages. ${combinedLedger?.sharedCredits ?? 0} shared credits are scheduled once and counted toward both degrees. Graduate admission and the proposed program of study still require approval.`] : []),
     ...(ugaSamplePlans.length > 0 ? ["UGA's published sample plans break ties between otherwise equally suitable courses. They do not override prerequisites, your preferences, or degree requirements. Unnamed elective slots in those samples are not treated as named recommendations."] : []),
     ...(activeProgramTotal && plan ? overTotal(totalCredits, activeProgramTotal) : []),
-    ...planNotes,
+    // Generation-time counts are not facts about an edited board. UGA's
+    // current audit supplies shortfalls and assumptions instead.
+    ...(isUga ? [] : planNotes),
     ...(core?.meta?.notes ?? []).map(studentWording),
     ...(isUga
       ? [
@@ -5901,7 +5979,7 @@ export function PlannerWorkspace({
           : loaded?.blocks ?? [],
         bookedFor: report?.bookedFor ?? {},
         studentAdded: studentAdded.current,
-        creditsLine: context ? describeCreditProgress(credits, activeProgramTotal) : totalCredits,
+        creditsLine: creditNote ?? (context ? describeCreditProgress(credits, activeProgramTotal) : totalCredits),
         hoursWithoutCourse: priorHoursOf(answers, exams, examCredit.entries, catalogCredits),
         goal: careerText,
         language: report?.language ?? null,
@@ -6935,5 +7013,5 @@ function withGenEdCredit(
   creditsOf: (code: string) => number | null,
 ): PriorCredit {
   const genEdCredits = genEdCreditsOf(answers, exams, table, creditsOf);
-  return genEdCredits.length > 0 ? { ...prior, genEdCredits } : prior;
+  return { ...prior, exemptCodes: [...new Set([...prior.exemptCodes, ...transcriptExemptCodes(answers?.transcript)])], ...(genEdCredits.length > 0 ? { genEdCredits } : {}) };
 }

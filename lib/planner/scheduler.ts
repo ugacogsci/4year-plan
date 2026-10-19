@@ -38,6 +38,9 @@ export interface RequirementGroup {
   label: string;
   choose: number | null;
   courses: RequirementRow[];
+  required?: boolean;
+  minimumCourses?: number;
+  minimumHours?: number;
   /**
    * The most this group can contribute, in whichever unit the catalog published.
    *
@@ -152,6 +155,8 @@ export function areaProgress(
   options?: {
     /** UGA permits a course to satisfy a Core area and a major-related area. */
     allowCrossAreaOverlap?: boolean;
+    /** Actual earned/transfer hours; catalog hours remain the default for future courses. */
+    creditsByCode?: ReadonlyMap<string, number>;
   },
 ): Array<{ area: RequirementArea; earned: number; percent: number; satisfied: boolean }> {
   const spend = (code: string, spent: Set<string>): void => {
@@ -159,17 +164,20 @@ export function areaProgress(
     for (const alias of equivalents?.get(code) ?? []) spent.add(alias);
   };
   const earnedBy = program.areas.map(() => 0);
+  const groupSatisfied = new Map<RequirementGroup, boolean>();
 
   /** The held course that fills one row, honouring "CS 210 or CS 211". */
   const rowMatch = (
     row: RequirementRow,
     spent: Set<string>,
   ): { code: string; credits: number } | null => {
-    if (haveCodes.has(row.code) && !spent.has(row.code)) {
-      return { code: row.code, credits: row.credits };
-    }
-    for (const alt of row.alternatives ?? []) {
-      if (haveCodes.has(alt.code) && !spent.has(alt.code)) return alt;
+    for (const candidate of [row, ...(row.alternatives ?? [])]) {
+      // Direction matters: a graduate course may satisfy its undergraduate
+      // counterpart, never the reverse merely because the row names it.
+      const held = [...haveCodes].find((code) =>
+        !spent.has(code) && (code === candidate.code || equivalents?.get(code)?.includes(candidate.code)),
+      );
+      if (held) return { code: held, credits: options?.creditsByCode?.get(held) ?? candidate.credits };
     }
     return null;
   };
@@ -204,6 +212,8 @@ export function areaProgress(
       earned += hit.credits;
       taken += 1;
     }
+    groupSatisfied.set(group, taken >= (group.required ? group.courses.length : group.minimumCourses ?? 0)
+      && earned >= (group.minimumHours ?? 0));
     return hoursCap === null ? earned : Math.min(earned, hoursCap);
   };
 
@@ -238,7 +248,7 @@ export function areaProgress(
       area,
       earned: capped,
       percent: area.hours ? Math.round((capped / area.hours) * 100) : 0,
-      satisfied: area.hours > 0 && capped >= area.hours,
+      satisfied: area.hours > 0 && capped >= area.hours && area.groups.every((group) => groupSatisfied.get(group) !== false),
     };
   });
 }

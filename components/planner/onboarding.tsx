@@ -680,7 +680,7 @@ export function Onboarding({
                       programIds={answers.programIds}
                       selectedId={answers.doubleDawgsPathwayId}
                       sharedCodes={answers.doubleDawgsSharedCodes}
-                      completedCodes={answers.alreadyTakenCourseCodes}
+                      completedCodes={[...answers.alreadyTakenCourseCodes, ...transcriptCodes(answers.transcript)]}
                       emphasisSelections={answers.emphasisSelections}
                       onSharedChange={(doubleDawgsSharedCodes) => setAnswers((current) => ({ ...current, doubleDawgsSharedCodes }))}
                       onChange={(doubleDawgsPathwayId) => setAnswers((current) => ({ ...current, doubleDawgsPathwayId, doubleDawgsSharedCodes: undefined }))}

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { loadUgaData, loadUgaProgram, type UgaData } from './uga-source';
 import {
-  doubleDawgsOptions,
+  doubleDawgsCourseList,
   selectSharedCourses,
   sharedCreditLimit,
 } from '@/lib/planner/double-dawgs';
@@ -34,6 +34,7 @@ export function DoubleDawgsPicker({
   const [guidance, setGuidance] = useState<UgaPlanningGuidance | null>(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  const [courseQuery, setCourseQuery] = useState('');
   const [data, setData] = useState<UgaData | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -54,7 +55,7 @@ export function DoubleDawgsPicker({
   const selected = pathways.find((pathway) => pathway.id === selectedId);
   // The adapter mutates only the isolated preview copy inside this memo.
   // oxlint-disable-next-line react/react-compiler
-  const options = useMemo(() => {
+  const listings = useMemo(() => {
     if (!data || !selected) return [];
     const ug = data.programs.find((program) =>
       selected.undergraduateProgramIds.includes(program.id),
@@ -81,20 +82,22 @@ export function DoubleDawgsPicker({
         creditRanges: new Map(data.context.creditRanges),
       },
     };
-    const undergraduate = loadUgaProgram(copy, ug, { emphasisSelections });
+    loadUgaProgram(copy, ug, { emphasisSelections });
     const graduate = loadUgaProgram(copy, gr, {
       resetRequirements: false,
       emphasisSelections,
     });
-    return doubleDawgsOptions(
+    return doubleDawgsCourseList(
       selected,
-      undergraduate,
       graduate,
       copy.byCode,
       copy.dualLevelCourses,
     );
   // oxlint-disable-next-line react/react-compiler
   }, [data, selected, emphasisSelections]);
+  const options = listings.flatMap((row) => row.option ?? []);
+  const courseWords = courseQuery.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const shownCourses = listings.filter((course) => courseWords.every((word) => `${course.code} ${course.title}`.toLowerCase().includes(word)));
   const shared = selected
     ? selectSharedCourses(selected, options, sharedCodes, completedCodes)
     : [];
@@ -194,18 +197,25 @@ export function DoubleDawgsPicker({
                   yet.
                 </p>
               )}
-              {onSharedChange && options.length > 0 && (
+              {onSharedChange && listings.length > 0 && (
                 <fieldset className="double-dawgs-shared">
                   <legend>
                     Proposed shared courses (
                     {shared.reduce((sum, course) => sum + course.credits, 0)}{' '}
                     cr)
                   </legend>
-                  {options.map((course) => {
+                  <input type="search" aria-label="Search shared graduate courses" placeholder="Search course codes or titles" value={courseQuery} onChange={(event) => setCourseQuery(event.target.value)} />
+                  <div className="double-dawgs-course-list">
+                  {shownCourses.map((listing) => {
+                    const course = listing.option;
+                    if (!course) return <div className="double-dawgs-course-review" key={listing.code}>
+                      <span>{listing.code} · {listing.title}</span>
+                      <small>{listing.reason}</small>
+                    </div>;
                     const checked = shared.some(
                       (row) => row.code === course.code,
                     );
-                    const held = completedCodes?.includes(
+                    const held = course.undergraduateCode !== course.code && completedCodes?.includes(
                       course.undergraduateCode,
                     );
                     const next = selectSharedCourses(
@@ -220,7 +230,7 @@ export function DoubleDawgsPicker({
                         title={
                           held
                             ? 'Already earned as undergraduate credit; it cannot be converted into graduate credit.'
-                            : `${course.code} replaces ${course.undergraduateCode}; pathway approval required.`
+                            : `${course.code}: pathway approval required.`
                         }
                       >
                         <input
@@ -241,15 +251,17 @@ export function DoubleDawgsPicker({
                           }
                         />
                         <span>
-                          {course.code}{' '}
+                          {course.code} · {listing.title}{' '}
                           <small>
-                            {course.credits} cr · replaces{' '}
-                            {course.undergraduateCode}
+                            {course.credits} cr · {course.undergraduateCode === course.code ? 'Shared upper-division credit' : `replaces ${course.undergraduateCode}`}
+                            {held ? ' · Already on your undergraduate record; cannot be converted' : !checked && !next.some((row) => row.code === course.code) ? ' · Shared-credit limit reached' : ''}
                           </small>
                         </span>
                       </label>
                     );
                   })}
+                  {shownCourses.length === 0 && <p>No matching graduate courses.</p>}
+                  </div>
                 </fieldset>
               )}
               {data &&

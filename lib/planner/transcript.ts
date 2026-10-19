@@ -26,7 +26,7 @@
  */
 
 import { genEdTagsFromText, guideSchool, iaiArea, proposeEquivalents, type CatalogLite, type EquivalentProposal, type TransferGenEdGuide } from './transfer-match';
-import type { GenEdCredit } from './autoplan';
+import type { GenEdCredit, PlanningContext } from './autoplan';
 import {
   ILLINOIS_GENED_TRANSFER,
   ILLINOIS_TRANSFER_POLICIES,
@@ -1017,16 +1017,65 @@ export function setLineCounts(
   };
 }
 
-/** The codes the planner should treat as already earned. */
+/** Courses to omit from future scheduling, including separately labelled in-progress work. */
 export function transcriptCodes(record: TranscriptRecord | null | undefined): string[] {
   if (!record) return [];
   const out = new Set<string>();
   for (const c of record.courses) {
     if (!c.use || c.counts !== 'course' || !c.matched) continue;
+    if ((c.equivalentCredits ?? c.credits) === 0) continue;
     out.add(c.matched);
     for (const extra of c.also ?? []) out.add(extra);
   }
   return [...out];
+}
+
+/** Placement/exemption clears a prerequisite, but earns no course or degree hours. */
+export function transcriptExemptCodes(record: TranscriptRecord | null | undefined): string[] {
+  return (record?.courses ?? []).flatMap((c) =>
+    c.use && c.matched && c.counts === 'course' && (c.equivalentCredits ?? c.credits) === 0
+      ? [c.matched, ...(c.also ?? [])] : [],
+  );
+}
+
+/** The record, not today's catalog, prices a student's UGA credit. */
+export function transcriptCourseCredits(record: TranscriptRecord | null | undefined): Map<string, number> {
+  const credits = new Map<string, number>();
+  if (record?.schoolId !== 'uga') return credits;
+  for (const c of record.courses) {
+    if (!c.use || c.counts !== 'course' || !c.matched) continue;
+    const hours = c.equivalentCredits ?? c.credits;
+    // A bundled equivalency has only one source total; settle it with the
+    // adjustment instead of assigning the full total to each of its courses.
+    if (hours == null || c.also?.length) continue;
+    credits.set(c.matched, /^PEDB\s/.test(c.matched) ? 0 : hours);
+  }
+  return credits;
+}
+
+export function withTranscriptCredits(context: PlanningContext, record: TranscriptRecord | null | undefined): PlanningContext {
+  const held = transcriptCourseCredits(record);
+  if (!held.size) return context;
+  const creditRanges = new Map(context.creditRanges);
+  const courses = context.courses.map((course) => {
+    const credits = held.get(course.code);
+    if (credits === undefined) return course;
+    creditRanges.set(course.code, { credits, min: credits, max: credits, variable: false, known: true });
+    return { ...course, credits };
+  });
+  return { ...context, courses, creditRanges };
+}
+
+export function transcriptCreditSummary(record: TranscriptRecord | null | undefined) {
+  let earned = 0, pending = 0, physicalEducation = 0;
+  for (const c of record?.courses ?? []) {
+    if (!c.use || c.counts === 'none') continue;
+    const hours = c.equivalentCredits ?? c.credits ?? c.assumedCredits ?? 0;
+    if (c.status === 'in_progress') pending += hours;
+    else earned += hours;
+    if (record?.schoolId === 'uga' && /^PEDB\s/.test(c.matched ?? c.code)) physicalEducation += hours;
+  }
+  return { earned, pending, physicalEducation, projected: earned + pending };
 }
 
 /** Hours the record earns toward the degree that no course code holds. */
@@ -1041,25 +1090,15 @@ export function transcriptHours(record: TranscriptRecord | null | undefined): nu
 }
 
 /**
- * The difference between the hours a counted line earned and the catalog
- * hours of the Illinois course it counts as, summed over the record.
- *
- * The plan totals held courses at their catalog hours. That is right for an
- * Illinois course and wrong for a course from elsewhere: Parkland's 5-hour
- * calculus becomes MATH 221 (4) plus an hour of elective credit, and a 3-hour
- * sociology becomes SOC 100 but earns 3. The line's own hours are what
- * transferred (or the Illinois hours the document prints beside it), so the
- * difference is added to the hours with no course, up or down.
+ * Reconcile actual transcript hours with the hours already counted by course.
+ * UGA uses transcript-adjusted course credits; bundled equivalents can still
+ * need an adjustment. Illinois retains its existing catalog-credit settlement.
  */
 export function transcriptCreditAdjustment(
   record: TranscriptRecord | null | undefined,
   /**
-   * The board's own hours for a course. UGA's upload step matches against
-   * public/uga-catalog.json, which lists every course at 3 hours, while the
-   * board counts BIOL 1107L at 1 and MATH 2250 at 4; for a transfer line
-   * on a UGA record the board's figure is the one to settle against, or a
-   * lab line is taken off twice. Illinois records keep the hours stored on
-   * the line.
+   * The board's actual hours, after applying transcript credit overrides.
+   * Do not reconcile UGA against the upload catalog's generic credit values.
    */
   creditsOf?: (code: string) => number | null,
 ): number {
@@ -1067,13 +1106,11 @@ export function transcriptCreditAdjustment(
   let delta = 0;
   for (const c of record.courses) {
     if (!c.use || c.counts !== 'course' || !c.matched) continue;
-    const earned = c.equivalentCredits ?? c.credits;
-    // Only for transfer lines: a UGA student's own courses keep the figure
-    // they had, so no plan without transfer credit moves (a 4-hour course on
-    // UGA's own record still adds an hour; reported, not changed here).
-    const board = record.schoolId === 'uga' && creditsOf && lineIsForeign(record, c) ? [c.matched, ...(c.also ?? [])].map((code) => creditsOf(code)) : null;
+    const earned = record.schoolId === 'uga' && /^PEDB\s/.test(c.matched) ? 0 : c.equivalentCredits ?? c.credits;
+    if ((c.equivalentCredits ?? c.credits) === 0) continue;
+    const board = record.schoolId === 'uga' && creditsOf ? [c.matched, ...(c.also ?? [])].map((code) => creditsOf(code)) : null;
     const catalog = board && board.every((n) => n !== null) ? board.reduce<number>((sum, n) => sum + (n ?? 0), 0) : c.illinoisCredits ?? null;
-    if (earned === null || earned === undefined || catalog === null || !(earned > 0)) continue;
+    if (earned === null || earned === undefined || catalog === null) continue;
     delta += earned - catalog;
   }
   return Math.round(delta * 100) / 100;
@@ -1120,7 +1157,7 @@ export function transcriptResidentHours(record: TranscriptRecord | null | undefi
     if (c.matchedBy === 'student') continue;
     const hours = c.credits ?? 0;
     total += hours;
-    if (/\b[34]\d\d[A-Z]?$/.test(c.matched ?? c.code)) upper += hours;
+    if ((record.schoolId === 'uga' ? /\b[345]\d{3}[A-Z]?$/ : /\b[34]\d\d[A-Z]?$/).test(c.matched ?? c.code)) upper += hours;
   }
   return { total, upper };
 }

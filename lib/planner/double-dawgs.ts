@@ -1,6 +1,7 @@
 import {
   generatePlan,
   planCreditRange,
+  qualityScorer,
   validatePlan,
   type AutoplanInput,
   type GeneratedPlan,
@@ -39,6 +40,59 @@ export interface SharedCourse {
   code: string;
   undergraduateCode: string;
   credits: number;
+}
+
+export interface SharedCourseListing {
+  code: string;
+  title: string;
+  credits: number;
+  option: SharedCourse | null;
+  reason: string | null;
+}
+
+/** Keep unavailable and advisor-review choices visible instead of silently dropping them. */
+export function doubleDawgsCourseList(
+  pathway: DoubleDawgsPathway,
+  graduate: CombinedDegreeSource,
+  courses: Map<string, Course>,
+  dualLevel: Map<string, string>,
+): SharedCourseListing[] {
+  // The AI handbook explicitly identifies LING 8021 as the former LING 6021.
+  // No number arithmetic or title-only equivalencies are inferred here.
+  const currentCode = (code: string) =>
+    pathway.graduateProgramIds.includes('19170') && code === 'LING 6021'
+      ? 'LING 8021'
+      : code;
+  const named = new Set((pathway.sharedCourseCodes ?? []).map(currentCode));
+  const gr = namedCodes(graduate.blocks);
+  const broad = pathway.id === '10080'; // Its page permits any named MS required/elective course at 6000+.
+  return [...new Set([...named, ...gr])].filter(graduateCode).map((code) => {
+    const course = courses.get(code);
+    const permitted =
+      named.has(code) ||
+      (broad && !['GRSC 7001', 'ARTI 7000', 'ARTI 7300'].includes(code));
+    const reason = !permitted
+      ? 'Graduate curriculum course, not listed for sharing by this pathway. Ask the pathway advisor about an exception; no shared credit is counted.'
+      : !gr.has(code)
+        ? 'The pathway lists this course, but its place in the current graduate curriculum needs advisor confirmation.'
+        : !course
+          ? 'Course details are missing from this catalog snapshot.'
+          : null;
+    return {
+      code,
+      title: course?.title ?? 'Title not available in the snapshot',
+      credits: course?.credits ?? 0,
+      option:
+        !reason && course && course.credits > 0
+          ? {
+              code,
+              undergraduateCode: dualLevel.get(code) ?? code,
+              credits: course.credits,
+            }
+          : null,
+      reason,
+    };
+  });
 }
 
 /** Department rules omitted by the Bulletin table, verified against the cited source. */
@@ -157,6 +211,9 @@ function graduateProgress(
 ) {
   const independent = (label: string) =>
     label === 'Graduate-only coursework (overlaps other areas)';
+  const creditsByCode = new Map(
+    context.courses.map((course) => [course.code, course.credits]),
+  );
   return [
     ...areaProgress(
       {
@@ -165,6 +222,7 @@ function graduateProgress(
       },
       have,
       context.equivalents,
+      { creditsByCode },
     ),
     ...areaProgress(
       {
@@ -173,6 +231,7 @@ function graduateProgress(
       },
       have,
       context.equivalents,
+      { creditsByCode },
     ),
   ];
 }
@@ -191,10 +250,21 @@ function graduatePreparation(
   graduate: CombinedDegreeSource,
 ): PlanRequirement[] {
   const available = new Set([
-    ...namedCodes(input.requirements),
+    ...input.requirements.flatMap((block) =>
+      block.rule.kind === 'all'
+        ? block.rule.choices.flatMap((choice) =>
+            choice.codes.length === 1 ? choice.codes : [],
+          )
+        : [],
+    ),
     ...input.prior.courseCodes,
     ...input.prior.exemptCodes,
   ]);
+  // Snapshot the actual preparation; do not transitively expand newly added aliases.
+  // oxlint-disable-next-line unicorn/no-useless-spread
+  for (const code of [...available])
+    for (const alias of input.context.equivalents?.get(code) ?? [])
+      available.add(alias);
   const byCode = new Map(
     input.context.courses.map((course) => [course.code, course]),
   );
@@ -246,22 +316,9 @@ export function doubleDawgsOptions(
   courses: Map<string, Course>,
   dualLevel: Map<string, string>,
 ): SharedCourse[] {
-  const ug = namedCodes(undergraduate.blocks);
-  const gr = namedCodes(graduate.blocks);
-  return (pathway.sharedCourseCodes ?? []).flatMap((code) => {
-    const course = courses.get(code);
-    const under = dualLevel.get(code);
-    if (
-      !course ||
-      !under ||
-      !ug.has(under) ||
-      !gr.has(code) ||
-      !graduateCode(code) ||
-      course.credits <= 0
-    )
-      return [];
-    return [{ code, undergraduateCode: under, credits: course.credits }];
-  });
+  return doubleDawgsCourseList(pathway, graduate, courses, dualLevel).flatMap(
+    (row) => row.option ?? [],
+  );
 }
 
 export function sharedCreditLimit(pathway: DoubleDawgsPathway): number {
@@ -291,7 +348,8 @@ export function selectSharedCourses(
     // Undergraduate credit never becomes graduate credit retrospectively.
     if (
       seen.has(course.code) ||
-      held.has(course.undergraduateCode) ||
+      (course.undergraduateCode !== course.code &&
+        held.has(course.undergraduateCode)) ||
       hours + course.credits > sharedCreditLimit(pathway)
     )
       return false;
@@ -335,7 +393,7 @@ export interface DoubleDawgsBuild {
   graduateFinish: DegreeStageTerm;
 }
 
-/** Cross-cutting graduate-only hours overlap curriculum pools, rather than adding a second set of classes. */
+/** Reconcile overlapping requirements, then remove genuinely surplus picks. */
 function trimGraduateOverlap(
   generated: GeneratedPlan,
   input: AutoplanInput,
@@ -357,8 +415,126 @@ function trimGraduateOverlap(
     return undergraduate
       ? areaProgress(program, have, input.context.equivalents, {
           allowCrossAreaOverlap: true,
+          creditsByCode: new Map(
+            input.context.courses.map((course) => [
+              course.code,
+              course.credits,
+            ]),
+          ),
         })
       : graduateProgress(program, have, input.context);
+  };
+  const bookedFor = { ...generated.bookedFor };
+  const byCode = new Map(
+    input.context.courses.map((course) => [course.code, course]),
+  );
+  const score = qualityScorer({
+    ...input,
+    priorities: input.preferences?.priorities,
+  });
+  const blocking = (board: PlanState) =>
+    validatePlan(board, input.context, {
+      minimumTermCredits: 0,
+      standingHours: input.standingHours,
+      priorCredits: generated.credits.prior,
+    }).filter(
+      (issue) =>
+        issue.severity === 'error' ||
+        issue.id.startsWith('ap-offering-') ||
+        /^ap-prereq-(?!check|text)/.test(issue.id),
+    );
+  // A course credited to an earlier row cannot fill a later row again. Repair
+  // those real shortfalls with an eligible, named course, never generic hours.
+  const repairMissing = (board: PlanState): PlanState => {
+    let plan = board;
+    for (let pass = 0; pass < 24; pass++) {
+      const before = progress(plan);
+      const missing = before.filter(
+        (row) =>
+          !row.satisfied &&
+          !/(?:^|: )(?:general|free) electives?\b/i.test(row.area.label),
+      );
+      if (!missing.length) break;
+      const have = new Set([
+        ...held,
+        ...plan.terms.flatMap((term) =>
+          term.courseIds.flatMap((id) => byId.get(id)?.code ?? []),
+        ),
+      ]);
+      const allowed = new Set(blocking(plan).map((issue) => issue.id));
+      const choices = [
+        ...new Set(
+          missing.flatMap((row) =>
+            row.area.groups.flatMap((group) =>
+              group.courses.flatMap((course) => [
+                course.code,
+                ...(course.alternatives ?? []).map((alt) => alt.code),
+              ]),
+            ),
+          ),
+        ),
+      ]
+        .flatMap((code) =>
+          !have.has(code) && byCode.has(code) ? [byCode.get(code)!] : [],
+        )
+        .sort(
+          (a, b) =>
+            score(b.code).score - score(a.code).score ||
+            a.credits - b.credits ||
+            a.code.localeCompare(b.code),
+        );
+      let repaired = false;
+      for (const course of choices) {
+        for (const term of plan.terms) {
+          const codes = [
+            ...term.courseIds.flatMap((id) => byId.get(id)?.code ?? []),
+            course.code,
+          ];
+          if (
+            planCreditRange(codes, input.context).min >
+            (term.season === 'Summer' ? 9 : 18)
+          )
+            continue;
+          const candidate = {
+            ...plan,
+            terms: plan.terms.map((row) =>
+              row.id === term.id
+                ? { ...row, courseIds: [...row.courseIds, course.id] }
+                : row,
+            ),
+          };
+          const after = progress(candidate);
+          if (
+            !after.some(
+              (row, index) =>
+                !before[index].satisfied &&
+                (row.satisfied || row.earned > before[index].earned),
+            ) ||
+            after.some(
+              (row, index) =>
+                (before[index].satisfied && !row.satisfied) ||
+                row.earned < before[index].earned,
+            ) ||
+            blocking(candidate).some((issue) => !allowed.has(issue.id))
+          )
+            continue;
+          plan = candidate;
+          const requirement = input.requirements.find(
+            (block) =>
+              'choices' in block.rule &&
+              block.rule.choices.some((choice) =>
+                choice.codes.includes(course.code),
+              ),
+          );
+          if (requirement) bookedFor[course.code] = requirement.id;
+          repaired = true;
+          break;
+        }
+        if (repaired) break;
+      }
+      if (!repaired) break;
+    }
+    return plan;
   };
   const original = progress(plan);
   const required = input.requirements.flatMap((block) =>
@@ -403,7 +579,8 @@ function trimGraduateOverlap(
         ),
       ];
       if (
-        planCreditRange(codes, input.context).min + input.prior.unmatchedCredits <
+        planCreditRange(codes, input.context).min +
+          input.prior.unmatchedCredits <
         (program.totalCredits ?? Infinity)
       )
         continue;
@@ -413,7 +590,8 @@ function trimGraduateOverlap(
           (row, index) =>
             (!undergraduate ||
               !/^(?:general|free) electives?\b/i.test(row.area.label)) &&
-            row.earned < original[index].earned,
+            (row.earned < original[index].earned ||
+              (original[index].satisfied && !row.satisfied)),
         )
       )
         continue;
@@ -434,13 +612,17 @@ function trimGraduateOverlap(
         continue;
       plan = candidate;
     }
+  // Removing surplus picks creates room for previously unplaceable requirements.
+  plan = repairMissing(plan);
   const invalid = (board: PlanState) =>
     validatePlan(board, input.context, {
       minimumTermCredits: 0,
       standingHours: input.standingHours,
     }).filter(
       (issue) =>
-        issue.severity === 'error' || issue.id.startsWith('ap-offering-'),
+        issue.severity === 'error' ||
+        issue.id.startsWith('ap-offering-') ||
+        /^ap-prereq-(?!check|text)/.test(issue.id),
     );
   const safe = new Set(invalid(plan).map((issue) => issue.id));
   const hours = (ids: string[]) =>
@@ -531,6 +713,7 @@ function trimGraduateOverlap(
   return {
     ...generated,
     plan,
+    bookedFor,
     terms: generated.terms.map((term) => {
       const codes = plan.terms
         .find((row) => row.id === term.id)!
@@ -706,11 +889,47 @@ export function generateDoubleDawgs(input: DoubleDawgsBuild): GeneratedPlan {
         rule.kind === 'unparsed' ||
         (rule.kind === 'hours' && rule.source === 'parser-gap'),
     );
+  const requiredGraduate = new Set(
+    graduate.blocks.flatMap((block) =>
+      block.rule.kind === 'all'
+        ? block.rule.choices.flatMap((choice) => choice.codes)
+        : [],
+    ),
+  );
+  const priorMaterial = new Set(
+    [...original.prior.courseCodes, ...ugCodes].flatMap((code) => [
+      code,
+      ...(original.context.equivalents?.get(code) ?? []),
+    ]),
+  );
+  const avoidRetaking = new Set(
+    [...graduateNames].filter((code) => {
+      const under = original.context.undergraduateCounterparts?.get(code);
+      return (
+        !requiredGraduate.has(code) &&
+        !graduatePrior.includes(code) &&
+        under &&
+        priorMaterial.has(under)
+      );
+    }),
+  );
   // Do not give the master's any bachelor's/AP/transfer/estimated hours. Those
   // courses may clear prerequisites, but never earn graduate degree credit.
   const graduateInput: AutoplanInput = {
     ...original,
-    requirements: graduate.blocks,
+    requirements: graduate.blocks.map((block) =>
+      block.rule.kind === 'pool'
+        ? {
+            ...block,
+            rule: {
+              ...block.rule,
+              choices: block.rule.choices.filter((choice) =>
+                choice.codes.some((code) => !avoidRetaking.has(code)),
+              ),
+            },
+          }
+        : block,
+    ),
     programId: graduate.program.id,
     programName: graduate.program.name,
     programCollege: graduate.program.college,
@@ -718,7 +937,8 @@ export function generateDoubleDawgs(input: DoubleDawgsBuild): GeneratedPlan {
       ...original.context,
       courses: original.context.courses.filter(
         (course) =>
-          !graduateCode(course.code) || graduateNames.has(course.code),
+          !graduateCode(course.code) ||
+          (graduateNames.has(course.code) && !avoidRetaking.has(course.code)),
       ),
     },
     horizon: {
@@ -790,9 +1010,7 @@ export function generateDoubleDawgs(input: DoubleDawgsBuild): GeneratedPlan {
   // aliases are not additional classes the student actually completed.
   const completedCourseIds = [
     ...new Set(
-      original.prior.courseCodes.flatMap(
-        (code) => byCode.get(code)?.id ?? [],
-      ),
+      original.prior.courseCodes.flatMap((code) => byCode.get(code)?.id ?? []),
     ),
   ];
   const planned = planCreditRange(
@@ -805,8 +1023,9 @@ export function generateDoubleDawgs(input: DoubleDawgsBuild): GeneratedPlan {
       ),
     original.context,
   );
-  const priorCredits = planCreditRange(original.prior.courseCodes, original.context).min
-    + original.prior.unmatchedCredits;
+  const priorCredits =
+    planCreditRange(original.prior.courseCodes, original.context).min +
+    original.prior.unmatchedCredits;
   const notes = [
     `Double Dawgs: ${pathway.name}. Bachelor's target: ${finish.season} ${finish.year}; master's target: ${graduateFinish.season} ${graduateFinish.year}.`,
     `${original.degreeTotal ?? 'Unconfirmed'} bachelor's credits + ${graduate.program.totalCredits ?? 'unconfirmed'} master's credits - ${sharedHours} shared credits = ${degreeTotal ?? 'an unconfirmed number of'} unique credits. Shared courses appear once on the schedule, at the graduate level.`,
@@ -1000,7 +1219,12 @@ export function doubleDawgsProgress(
       ug,
       new Set(ledger.undergraduateCodes),
       context.equivalents,
-      { allowCrossAreaOverlap: true },
+      {
+        allowCrossAreaOverlap: true,
+        creditsByCode: new Map(
+          context.courses.map((course) => [course.code, course.credits]),
+        ),
+      },
     )
       .filter((row) => !/^(?:general|free) electives?\b/i.test(row.area.label))
       .map((row) => ({

@@ -26,6 +26,7 @@ import {
   type PlanningContext,
 } from './autoplan';
 import { schoolPhrase } from './notices';
+import { degreeTermOrder } from './double-dawgs';
 import { restrictedToOthers, type PlanMark } from './repick';
 import { termRank, termsInWords } from './section-terms';
 import { transcriptOpenLines, type TranscriptRecord } from './transcript';
@@ -466,11 +467,12 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
     const courses = coursesOf(t.courseIds);
     const credits = termCredits(courses, input.context);
     const cap = t.season === 'Summer' ? SUMMER_MAX : TERM_MAX;
+    const minimum = input.school.id === 'uga' && board.doubleDawgs && degreeTermOrder(t) > degreeTermOrder(board.doubleDawgs.undergraduateFinish) ? 9 : 12;
     const load =
       credits.min > cap
         ? `Over ${cap} credits: ${t.season === 'Summer' ? 'past the summer maximum' : 'an overload your college has to approve'}.`
-        : t.season !== 'Summer' && courses.length > 0 && credits.max < 12
-          ? `Under 12 credits: part-time, which your college has to approve.`
+        : t.season !== 'Summer' && courses.length > 0 && credits.max < minimum
+          ? illinois ? 'Under 12 credits: part-time, which your college has to approve.' : `Under ${minimum} credits: below the usual full-time load. Confirm final-term enrollment and any aid or assistantship conditions with your advisor.`
           : undefined;
     const year = yearOf(t.label);
     return {
@@ -800,7 +802,9 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
   if (under.length > 0) {
     questions.push({
       topic: 'underload',
-      text: `${under.map((t) => `${t.label} (${t.credits})`).join(', ')} ${under.length === 1 ? 'is' : 'are'} under 12 credits, which is part-time. Would ${collegeWord} approve it, and does it change my financial aid, a scholarship or a visa?`,
+      text: illinois
+        ? `${under.map((t) => `${t.label} (${t.credits})`).join(', ')} ${under.length === 1 ? 'is' : 'are'} under 12 credits, which is part-time. Would ${collegeWord} approve it, and does it change my financial aid, a scholarship or a visa?`
+        : `${under.map((t) => `${t.label} (${t.credits})`).join(', ')}: what enrollment requirements apply to these lighter terms, including final-term, financial aid and assistantship conditions?`,
       who: `${collegeWord} advising, and the financial aid office`,
       source: illinois ? 'registrar.illinois.edu/registration/registration-process/max-min-enrollment-levels/' : undefined,
     });

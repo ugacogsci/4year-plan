@@ -43,6 +43,8 @@ export interface ExcellentSummary {
 export interface QualityCourse {
   code: string;
   title: string;
+  /** Optional catalog evidence; callers without it keep the title/subject scorer. */
+  description?: string;
   cluster: string;
   tags: string[];
   credits: number;
@@ -445,6 +447,20 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     else if (subjectHit) { v = 0.75; reasons.push('in a subject you said you want'); }
     else if (course.cluster === q.primarySubject) { v = 0.6; reasons.push('in your major'); }
     else if (q.degreeSubjects.has(course.cluster)) { v = 0.4; reasons.push("in one of your degree's subjects"); }
+    if (course.description && !courseHit) {
+      const topics = [...new Set([...free.filter((word) => !namesMajor(word)), ...curated])];
+      const description = course.description.toLowerCase();
+      const hits = topics.filter((word) => titleWord(stemOf(word), word.length < 5).test(`${title} ${description}`));
+      const meaningful = hits.some((word) => !LOW_INFORMATION.has(word)) || hits.length >= 2;
+      if (meaningful) {
+        // Coverage distinguishes a broad title match from a course addressing
+        // several parts of the student's goal, without claiming semantic certainty.
+        const coverage = hits.length / Math.max(1, topics.length);
+        v = Math.max(subjectHit ? 0.75 : 0.4, 0.5 + 0.5 * coverage);
+        reasons.push(`catalog topics match: ${hits.slice(0, 3).join(', ')}`);
+        interest = p.relevance;
+      }
+    }
     if (courseHit || titleHit || (subjectHit && course.cluster !== q.primarySubject)) interest = p.relevance;
     take(p.relevance, v, 'relevance');
   }

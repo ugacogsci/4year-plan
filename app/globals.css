@@ -6796,6 +6796,10 @@ button.unofficial-label:focus-visible,
 .double-dawgs-shared input { flex: 0 0 auto; margin-top: 3px; accent-color: var(--onb-text, var(--orion-text)); }
 .double-dawgs-shared small { display: block; font: inherit; color: var(--onb-mid, var(--orion-mid)); }
 .double-dawgs-shared label:has(input:disabled) { opacity: .55; }
+.double-dawgs-course-list { max-height: 340px; overflow-y: auto; overscroll-behavior: contain; padding-right: 6px; }
+.double-dawgs-course-list span { min-width: 0; overflow-wrap: anywhere; }
+.double-dawgs-course-review { padding: 8px 0; color: var(--onb-text, var(--orion-text)); }
+.double-dawgs-shared input[type="search"] { width: 100%; margin: 0 0 8px; padding: 10px 12px; border: 1px solid var(--onb-line, var(--orion-line)); border-radius: 4px; background: var(--onb-raised, var(--orion-bg)); color: var(--onb-text, var(--orion-text)); font: inherit; }
 .double-dawgs-timing { min-width: 0; margin: 20px 0; padding: 0; border: 0; }
 .double-dawgs-timing legend { font-family: var(--app-font-serif); font-size: 22px; margin-bottom: 8px; }
 .double-dawgs-timing > div { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

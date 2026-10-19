@@ -618,6 +618,19 @@ function adaptProgram(
   program: UgaProgram,
   byCode: Map<string, Course>,
 ): UgaLoadedProgram {
+  // Preferred core courses are recommendations inside the approved list,
+  // not extra mandatory courses. Preserve the complete list as one pool.
+  program = { ...program, areas: program.areas.map((area) => {
+    const preferred = area.groups.filter((group) => /preferred courses?/i.test(group.label));
+    const core = area.groups.filter((group) => /core courses?/i.test(group.label));
+    if (!preferred.length || !core.length) return area;
+    const rows = [...preferred, ...core].flatMap((group) => group.courses);
+    return { ...area, groups: [
+      ...area.groups.filter((group) => !preferred.includes(group) && !core.includes(group)),
+      { label: 'Approved core courses', choose: null, hours: area.hours,
+        courses: [...new Map(rows.map((row) => [row.code, row])).values()] },
+    ] };
+  }) };
   const blocks: RequirementBlock[] = [];
   const areas: RequirementArea[] = [];
   const fixedRequirementCodes = new Set<string>();
@@ -762,7 +775,7 @@ function adaptProgram(
             : [];
         rule = {
           kind: 'pool',
-          hours: group.choose === null ? poolHours : null,
+          hours: group.hours ?? (group.choose === null ? poolHours : null),
           n: group.choose,
           choices,
           lists: poolLists,
@@ -789,6 +802,9 @@ function adaptProgram(
       progressGroups.push({
         label: group.label,
         choose: group.choose,
+        required: rule.kind === 'all',
+        minimumCourses: group.choose ?? undefined,
+        minimumHours: isPool ? (group.hours ?? (group.choose === null ? poolHours : undefined)) : undefined,
         courses: choices.map((choice) => ({
           code: choice.codes[0] ?? '',
           title: choice.title,
@@ -802,8 +818,8 @@ function adaptProgram(
         })),
         cap: isPool
           ? {
-              hours: group.choose === null ? poolHours : null,
-              courses: group.choose,
+              hours: group.hours ?? (group.choose === null ? poolHours : null),
+              courses: group.hours != null ? null : group.choose,
             }
           : group.choose !== null
             ? { hours: null, courses: group.choose }
@@ -983,6 +999,7 @@ export function loadUgaData(): Promise<UgaData | null> {
       .sort((a, b) => a.name.localeCompare(b.name));
     const context: PlanningContext = {
       schoolId: 'uga',
+      undergraduateCounterparts: dualLevelCourses,
       courses,
       prereqs,
       equivalents,

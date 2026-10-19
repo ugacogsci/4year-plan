@@ -1,0 +1,421 @@
+import {
+  planCreditRange,
+  validatePlan,
+  type PlanRequirement,
+  type PlanningContext,
+  type PoolReport,
+  type ValidateOptions,
+} from '@/lib/planner/autoplan';
+import { areaProgress } from '@/lib/planner/scheduler';
+import {
+  degreeTermOrder,
+  doubleDawgsContext,
+  doubleDawgsIssues,
+  doubleDawgsLedger,
+  doubleDawgsProgress,
+  sharedUndergraduateRequirements,
+  type CombinedDegreeSource,
+  type SharedCourse,
+} from '@/lib/planner/double-dawgs';
+import {
+  lineIsForeign,
+  transcriptCreditSummary,
+  type TranscriptRecord,
+} from '@/lib/planner/transcript';
+import type { PlanIssue, PlanState } from '@/lib/planner/types';
+import { livePools, poolShortfalls } from './live-pools';
+
+export interface UgaAuditInput {
+  board: PlanState;
+  context: PlanningContext;
+  undergraduate: CombinedDegreeSource;
+  graduate?: CombinedDegreeSource;
+  priorCodes: string[];
+  extraCredits: number;
+  transcript?: TranscriptRecord | null;
+  dualLevel?: Map<string, string>;
+  validation?: ValidateOptions;
+  coreCredit?: Array<{ area: string; hours: number }>;
+}
+
+/** Rebuild pool membership from the curriculum, including repairs to older saved plans. */
+function poolsFor(
+  blocks: PlanRequirement[],
+  boardCodes: string[],
+  priorCodes: string[],
+  context: PlanningContext,
+  graduate: boolean,
+): PoolReport[] {
+  const catalog = new Set(context.courses.map((course) => course.code));
+  const base: PoolReport[] = blocks.flatMap((block) => {
+    if (block.rule.kind !== 'pool') return [];
+    const codes = [
+      ...new Set(block.rule.choices.flatMap((choice) => choice.codes)),
+    ];
+    return [
+      {
+        requirementId: block.id,
+        areaLabel: block.areaLabel,
+        label: block.label,
+        note: block.note,
+        hoursTarget: block.rule.hours,
+        countTarget: block.rule.n,
+        hours: 0,
+        count: 0,
+        picked: [],
+        fromPriorCredit: [],
+        alternatives: codes,
+        listed: codes.length,
+        available: codes.filter((code) => catalog.has(code)).length,
+        constraints: [],
+        url: block.url,
+      },
+    ];
+  });
+  return livePools({
+    base,
+    blocks,
+    boardCodes,
+    priorCodes,
+    context,
+    shareAcrossPrograms: !graduate,
+    reserveRequired: true,
+    independentIds: new Set(['double-dawgs:ai-graduate-only']),
+  });
+}
+
+/** One current-board audit for progress, assistant previews, replacements and export. */
+export function auditUgaBoard(input: UgaAuditInput) {
+  const {
+    board,
+    undergraduate,
+    graduate,
+    priorCodes,
+    extraCredits,
+    transcript,
+  } = input;
+  const context = doubleDawgsContext(board, input.context)!;
+  const byId = new Map(context.courses.map((course) => [course.id, course]));
+  const planned = board.terms.flatMap((term) =>
+    term.courseIds.flatMap((id) => byId.get(id)?.code ?? []),
+  );
+  const prior = new Set(priorCodes);
+  const have = new Set([...priorCodes, ...planned]);
+  const ledger = doubleDawgsLedger(board, context, priorCodes, extraCredits);
+  const total = planCreditRange([...have], context).min + extraCredits;
+  const target =
+    ledger?.requiredUniqueCredits ?? undergraduate.program.totalCredits;
+  const creditsByCode = new Map(
+    context.courses.map((course) => [course.code, course.credits]),
+  );
+  let areas =
+    ledger && graduate
+      ? doubleDawgsProgress(
+          board,
+          context,
+          undergraduate.program,
+          graduate.program,
+          priorCodes,
+          extraCredits,
+        )
+      : areaProgress(undergraduate.program, have, context.equivalents, {
+          allowCrossAreaOverlap: true,
+          creditsByCode,
+        });
+  // Free electives are residual degree hours, not another mandatory named list.
+  areas = areas.filter(
+    (row) => !/(?:^|: )(?:general|free) electives?\b/i.test(row.area.label),
+  );
+  areas = areas.map((row) => {
+    const added = (input.coreCredit ?? [])
+      .filter((credit) => row.area.label.endsWith(credit.area))
+      .reduce((sum, credit) => sum + credit.hours, 0);
+    if (!added) return row;
+    const earned = Math.min(row.area.hours, row.earned + added);
+    return {
+      ...row,
+      earned,
+      percent: Math.round((earned / row.area.hours) * 100),
+      satisfied: earned >= row.area.hours,
+    };
+  });
+  const shared = (board.doubleDawgs?.shared ?? []).filter(
+    (row): row is SharedCourse => Boolean(row.undergraduateCode),
+  );
+  const ugCodes = ledger?.undergraduateCodes ?? [...have];
+  const ugBlocks = sharedUndergraduateRequirements(
+    undergraduate.blocks,
+    shared,
+  );
+  const pools = [
+    ...poolsFor(
+      ugBlocks,
+      ugCodes.filter((code) => !prior.has(code)),
+      ugCodes.filter((code) => prior.has(code)),
+      context,
+      false,
+    ),
+    ...(ledger && graduate
+      ? poolsFor(
+          graduate.blocks,
+          ledger.graduateCodes.filter((code) => !prior.has(code)),
+          ledger.graduateCodes.filter((code) => prior.has(code)),
+          context,
+          true,
+        )
+      : []),
+  ];
+  const issues: PlanIssue[] = [
+    ...validatePlan(board, context, input.validation).filter(
+      (issue) =>
+        !issue.id.startsWith('ap-weighed-') &&
+        !(
+          board.doubleDawgs &&
+          issue.id.startsWith('ap-minimum-') &&
+          board.terms.some(
+            (term) =>
+              term.id === issue.termId &&
+              degreeTermOrder(term) >
+                degreeTermOrder(board.doubleDawgs!.undergraduateFinish),
+          )
+        ),
+    ),
+    ...doubleDawgsIssues(board, context, priorCodes, extraCredits),
+    ...areas
+      .filter((row) => !row.satisfied)
+      .map((row) => ({
+        id: `uga-area-${row.area.label}`,
+        severity: 'error' as const,
+        termId: '',
+        title: row.area.label,
+        message: `${row.area.label}: ${row.earned} of ${row.area.hours} credits. ${row.earned >= row.area.hours ? 'A required course or course-group selection is still missing.' : 'More eligible coursework is needed.'}`,
+      })),
+    ...poolShortfalls(pools).map((row) => ({
+      id: `uga-pool-${row.requirementId}-${row.reason}`,
+      severity: 'error' as const,
+      termId: '',
+      title: `${row.areaLabel}: ${row.label}`,
+      message: row.message,
+    })),
+  ];
+  if (target && total < target)
+    issues.push({
+      id: 'uga-total',
+      severity: 'error',
+      termId: '',
+      title: 'Degree credits are short',
+      message: `This draft has ${total} of ${target} required credits, including in-progress work that must be passed.`,
+    });
+  for (const block of [...ugBlocks, ...(graduate?.blocks ?? [])]) {
+    if (
+      block.rule.kind === 'unparsed' ||
+      (block.rule.kind === 'hours' && block.rule.source === 'parser-gap')
+    )
+      issues.push({
+        id: `uga-unverified-${block.id}`,
+        severity: 'warning',
+        termId: '',
+        title: 'Requirement needs advisor review',
+        message: `${block.areaLabel}: the snapshot does not identify all required courses. Credit totals alone cannot verify this requirement.`,
+      });
+  }
+  const summary = transcriptCreditSummary(transcript);
+  if (summary.pending)
+    issues.push({
+      id: 'uga-pending',
+      severity: 'warning',
+      termId: '',
+      title: 'In-progress credit is conditional',
+      message: `Your record shows ${summary.earned} earned credits and ${summary.pending} in progress. Progress assumes the in-progress courses are passed; they are not yet earned. Rebuild after updating final grades.`,
+    });
+  if (summary.physicalEducation)
+    issues.push({
+      id: 'uga-pe',
+      severity: 'info',
+      termId: '',
+      title: 'Physical education credit',
+      message: `${summary.physicalEducation} PEDB credit is recorded separately and is not included in the 120 academic hours required for a bachelor's degree.`,
+    });
+
+  // A prior undergraduate counterpart is not a graduate waiver or graduate credit.
+  for (const term of board.terms)
+    for (const id of term.courseIds) {
+      const code = byId.get(id)?.code;
+      const under = code ? input.dualLevel?.get(code) : undefined;
+      if (!code || !under || !prior.has(under)) continue;
+      issues.push({
+        id: `uga-counterpart-${id}`,
+        severity: 'warning',
+        termId: term.id,
+        courseId: id,
+        title: 'Prior undergraduate counterpart',
+        message: `${code} has undergraduate counterpart ${under} on your record. Ask the graduate advisor whether to take it, substitute another course, or obtain a formal waiver. Undergraduate credit is not automatically graduate credit.`,
+      });
+    }
+  const programs = new Set(undergraduate.program.id.split('+'));
+  if (programs.has('67412')) {
+    const members = new Set(
+      ugBlocks
+        .filter((block) => block.id.startsWith('67412::'))
+        .flatMap((block) =>
+          'choices' in block.rule
+            ? block.rule.choices.flatMap((choice) => choice.codes)
+            : [],
+        ),
+    );
+    const eligible = (code: string) =>
+      members.has(code) ||
+      context.equivalents?.get(code)?.some((alias) => members.has(alias));
+    const lines = (transcript?.courses ?? []).filter(
+      (line) => line.use && line.matched && eligible(line.matched),
+    );
+    const resident =
+      lines
+        .filter(
+          (line) =>
+            transcript &&
+            !lineIsForeign(transcript, line) &&
+            line.matchedBy !== 'student' &&
+            ['completed', 'in_progress'].includes(line.status),
+        )
+        .reduce(
+          (sum, line) => sum + (line.equivalentCredits ?? line.credits ?? 0),
+          0,
+        ) +
+      planCreditRange(
+        planned.filter((code) => eligible(code) && !prior.has(code)),
+        context,
+      ).min;
+    if (resident < 15)
+      issues.push({
+        id: 'uga-cs-minor-residency',
+        severity: 'warning',
+        termId: '',
+        title: 'CS minor residency needs review',
+        message: `${resident} of the CS minor's 15 required UGA-resident hours are documented or planned. Transfer and exam credit do not meet this rule. Courses used for Core Areas I-V cannot also count toward the minor; confirm the allocation with your advisor.`,
+      });
+  }
+  for (const [id, grade, minimum] of [
+    ['67412', 'C', 2],
+    ['28375', 'C-', 1.7],
+  ] as const) {
+    if (!programs.has(id)) continue;
+    const members = new Set(
+      ugBlocks
+        .filter((block) => block.id.startsWith(`${id}::`))
+        .flatMap((block) =>
+          'choices' in block.rule
+            ? block.rule.choices.flatMap((choice) => choice.codes)
+            : [],
+        ),
+    );
+    const points: Record<string, number> = {
+      A: 4,
+      'A-': 3.7,
+      'B+': 3.3,
+      B: 3,
+      'B-': 2.7,
+      'C+': 2.3,
+      C: 2,
+      'C-': 1.7,
+      D: 1,
+      F: 0,
+    };
+    const low = (transcript?.courses ?? []).filter(
+      (line) =>
+        line.use &&
+        line.matched &&
+        (members.has(line.matched) ||
+          context.equivalents
+            ?.get(line.matched)
+            ?.some((alias) => members.has(alias))) &&
+        line.status !== 'in_progress' &&
+        points[line.grade?.toUpperCase() ?? ''] < minimum,
+    );
+    if (low.length)
+      issues.push({
+        id: `uga-grade-${id}`,
+        severity: 'warning',
+        termId: '',
+        title: 'Program grade minimum needs review',
+        message: `${low.map((line) => `${line.matched} (${line.grade})`).join(', ')} is below ${grade}, the ${id === '67412' ? 'CS minor' : 'AI Computing certificate'} minimum. Do not treat these courses as satisfying that program without an approved exception or another eligible course.`,
+      });
+  }
+  if (
+    programs.has('28375') &&
+    /Data Science BS/.test(undergraduate.program.name) &&
+    !['CSCI 4530', 'CSCI 4560', 'CSCI 4800', 'CSCI 4600'].some(
+      (code) =>
+        ugCodes.includes(code) ||
+        shared.some(
+          (row) => row.undergraduateCode === code && ugCodes.includes(row.code),
+        ),
+    )
+  ) {
+    issues.push({
+      id: 'uga-ai-certificate-group-i',
+      severity: 'error',
+      termId: '',
+      title: 'AI certificate Group I elective',
+      message:
+        'Data Science BS students must complete at least one Group I AI certificate elective: CSCI 4530, CSCI 4560, CSCI 4800, or CSCI 4600.',
+    });
+  }
+  return {
+    areas,
+    pools,
+    issues: [...new Map(issues.map((issue) => [issue.id, issue])).values()],
+    ledger,
+    total,
+    target,
+  };
+}
+
+/** Reject a suggested replacement if it loses any current requirement progress. */
+export function ugaProgressLoss(
+  before: ReturnType<typeof auditUgaBoard>,
+  after: ReturnType<typeof auditUgaBoard>,
+): string | null {
+  for (const row of before.areas) {
+    const next = after.areas.find(
+      (candidate) => candidate.area.label === row.area.label,
+    );
+    if (
+      !next ||
+      next.earned < Math.min(row.earned, row.area.hours) ||
+      (row.satisfied && !next.satisfied)
+    )
+      return `This change loses progress toward ${row.area.label}.`;
+  }
+  for (const pool of before.pools) {
+    const next = after.pools.find(
+      (candidate) => candidate.requirementId === pool.requirementId,
+    );
+    if (
+      !next ||
+      (pool.hoursTarget !== null &&
+        next.hours < Math.min(pool.hours, pool.hoursTarget)) ||
+      (pool.countTarget !== null &&
+        next.count < Math.min(pool.count, pool.countTarget)) ||
+      pool.constraints.some(
+        (constraint, index) => constraint.met && !next.constraints[index]?.met,
+      )
+    )
+      return `This change loses progress toward ${pool.areaLabel}: ${pool.label}.`;
+  }
+  const previous = new Set(
+    before.issues
+      .filter((issue) => issue.severity !== 'info')
+      .map((issue) => `${issue.id}|${issue.message}`),
+  );
+  return (
+    after.issues.find(
+      (issue) =>
+        issue.severity !== 'info' &&
+        !previous.has(`${issue.id}|${issue.message}`) &&
+        /^(double-dawgs|uga-total|ap-prereq|ap-duplicate|ap-exclusion)/.test(
+          issue.id,
+        ),
+    )?.message ?? null
+  );
+}

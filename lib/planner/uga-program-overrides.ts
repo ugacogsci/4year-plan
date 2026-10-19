@@ -41,6 +41,67 @@ const courses = (
 ): UgaRequirementCourse[] =>
   rows.map(([code, title, credits]) => ({ code, title, credits }));
 
+// Verified 2026-10-19: ai.uga.edu/certificate-ai-computing and
+// bulletin.uga.edu/Program/Details/67412. The older scrape lost whole groups.
+const AI_CERTIFICATE_AREAS: UgaRequirementArea[] = [
+  {
+    label: 'Foundational AI Courses', hours: 9,
+    groups: [
+      { label: 'Artificial Intelligence', choose: null, courses: courses([
+        ['CSCI 4550', 'Artificial Intelligence', 3],
+      ]) },
+      { label: 'Computing or logic foundation', choose: 1, courses: courses([
+        ['CSCI 1360', 'Foundations for Informatics and Data Analytics', 4],
+        ['CSCI 2610', 'Discrete Mathematics for Computer Science', 4],
+        ['CSCI 2611', 'Discrete Mathematics for Engineers', 3],
+        ['PHIL 2500', 'Symbolic Logic', 3],
+      ]) },
+      { label: 'AI and society', choose: 1, courses: courses([
+        ['ARTI 2130', 'AI for Humans: Learning to Live with AI', 3],
+        ['ARTI 4340', 'Ethics and Artificial Intelligence', 3],
+      ]) },
+    ],
+  },
+  {
+    label: 'AI and Computer Science Electives', hours: 7,
+    groups: [{
+      label: 'At least two AI electives', choose: 2, hours: 7,
+      note: 'At least two courses and 7 hours. C- or better in all certificate courses. Data Science BS students also need at least one Group I elective.',
+      lists: [
+        { label: 'Group I', codes: ['CSCI 4530', 'CSCI 4560', 'CSCI 4800', 'CSCI 4600'] },
+        { label: 'Group II', codes: ['CSCI 3360', 'CSCI 4360', 'CSCI 4380', 'CSCI 4850'] },
+      ],
+      courses: courses([
+        ['CSCI 4530', 'Introduction to Robotics', 4],
+        ['CSCI 4560', 'Evolutionary Computation and Its Applications', 4],
+        ['CSCI 4800', 'Human-Computer Interaction', 4],
+        ['CSCI 4600', 'Reinforcement Learning', 3],
+        ['CSCI 3360', 'Data Science I', 4],
+        ['CSCI 4360', 'Data Science II', 4],
+        ['CSCI 4380', 'Data Mining', 4],
+        ['CSCI 4850', 'Biomedical Image Analysis', 4],
+      ]),
+    }],
+  },
+];
+
+const CS_MINOR_AREAS: UgaRequirementArea[] = [
+  { label: 'Required Courses', hours: 8, groups: [{
+    label: 'Required Courses', choose: null, courses: courses([
+      ['CSCI 1302', 'Software Development', 4],
+      ['CSCI 2610', 'Discrete Mathematics for Computer Science', 4],
+    ]),
+  }] },
+  { label: 'Upper-division Computer Science Electives', hours: 9, groups: [{
+    label: 'CSCI 3000/4000-level electives', choose: null, hours: 9,
+    note: 'C or better in each course; 15 minor hours must be taken at UGA. Courses used in Core Areas I-V cannot also count toward the minor.',
+    courses: courses([
+      ['CSCI 3XXX', '3000-level Computer Science', 3],
+      ['CSCI 4XXX', '4000-level Computer Science', 3],
+    ]),
+  }] },
+];
+
 // The Bulletin page for this program uses headings without the hour pattern
 // recognized by the general scraper. Keep its published curriculum explicit
 // until that parser can represent this page shape without risking other plans.
@@ -366,6 +427,8 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
   programs: T[],
 ): T[] {
   return programs.map((program) => {
+    if (program.id === '28375') return { ...program, areas: AI_CERTIFICATE_AREAS, totalCredits: 16, areaHours: 16 } as T;
+    if (program.id === '67412') return { ...program, areas: CS_MINOR_AREAS, totalCredits: 17, areaHours: 17 } as T;
     if (program.id === '19170') {
       return ({
           ...program,

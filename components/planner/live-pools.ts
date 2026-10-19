@@ -20,8 +20,8 @@
 
 import { plural } from './words';
 import { normaliseCode, planCreditRange } from '@/lib/planner/autoplan';
-import type { PlanningContext, PoolReport, UnsatisfiedRequirement } from '@/lib/planner/autoplan';
-import type { PoolConstraint, RequirementBlock } from '@/lib/planner/illinois-data';
+import type { PlanRequirement, PlanningContext, PoolReport, UnsatisfiedRequirement } from '@/lib/planner/autoplan';
+import type { PoolConstraint } from '@/lib/planner/illinois-data';
 
 /**
  * Which of a constraint's courses the board holds, and whether that is enough.
@@ -134,7 +134,7 @@ function constraintProgress(constraint: {
 }
 
 /** Every code a pool's catalog list names, whether or not the snapshot has it. */
-function membershipOf(pool: PoolReport, block: RequirementBlock | undefined): Set<string> {
+function membershipOf(pool: PoolReport, block: PlanRequirement | undefined): Set<string> {
   if (block && block.rule.kind === 'pool') {
     return new Set(block.rule.choices.flatMap((choice) => choice.codes.map(normaliseCode)));
   }
@@ -153,7 +153,7 @@ export interface LivePoolInput {
   /** The report generatePlan produced, for the pools' shape and their sentences. */
   base: PoolReport[];
   /** The degree's requirement blocks, for each pool's full catalog list. */
-  blocks: RequirementBlock[];
+  blocks: PlanRequirement[];
   /** Course codes on the board right now, in term order. */
   boardCodes: string[];
   /** Course codes the student marked as already taken. */
@@ -163,6 +163,8 @@ export interface LivePoolInput {
   independentIds?: ReadonlySet<string>;
   /** Graduate curricula cannot spend required/core courses again in elective pools. */
   reserveRequired?: boolean;
+  /** UGA shares across program/core areas, but not between requirements within one area. */
+  shareAcrossPrograms?: boolean;
 }
 
 /**
@@ -182,14 +184,31 @@ export function livePools({
   context,
   independentIds,
   reserveRequired,
+  shareAcrossPrograms,
 }: LivePoolInput): PoolReport[] {
   if (base.length === 0) return base;
+  if (shareAcrossPrograms) {
+    const programOf = (id: string) => {
+      const block = blocks.find((row) => row.id === id);
+      return `${id.split('::')[0]}::${block?.areaId ?? block?.areaLabel ?? ''}`;
+    };
+    return [...new Set(base.map((pool) => programOf(pool.requirementId)))].flatMap((id) =>
+      livePools({ base: base.filter((pool) => programOf(pool.requirementId) === id),
+        blocks: blocks.filter((block) => programOf(block.id) === id), boardCodes, priorCodes,
+        context, independentIds, reserveRequired }),
+    );
+  }
 
   const blockById = new Map(blocks.map((block) => [block.id, block]));
   const board = boardCodes.map(normaliseCode);
   const boardSet = new Set(board);
   const prior = new Set(priorCodes.map(normaliseCode));
-  const members = base.map((pool) => membershipOf(pool, blockById.get(pool.requirementId)));
+  const members = base.map((pool) => {
+    const listed = membershipOf(pool, blockById.get(pool.requirementId));
+    for (const code of [...board, ...prior])
+      if (context.equivalents?.get(code)?.some((alias) => listed.has(alias))) listed.add(code);
+    return listed;
+  });
 
   const claimed = new Set<string>();
   const mine: string[][] = base.map(() => []);
@@ -197,7 +216,7 @@ export function livePools({
     const have = new Set([...boardSet, ...prior]);
     for (const block of blocks) {
       if (block.rule.kind !== 'all' && block.rule.kind !== 'choose') continue;
-      const choices = block.rule.choices.flatMap((choice) => choice.codes.find((code) => have.has(normaliseCode(code))) ?? []);
+      const choices = block.rule.choices.flatMap((choice) => [...have].find((held) => choice.codes.some((code) => held === normaliseCode(code) || context.equivalents?.get(held)?.includes(normaliseCode(code)))) ?? []);
       for (const code of choices.slice(0, block.rule.kind === 'choose' ? block.rule.n : choices.length)) claimed.add(normaliseCode(code));
     }
   }
@@ -216,7 +235,7 @@ export function livePools({
 
   // Then whatever the student added, in board order so the panel lists a pool's
   // courses the way the plan reads left to right.
-  for (const code of board) {
+  for (const code of [...prior, ...board]) {
     if (claimed.has(code)) continue;
     const index = members.findIndex((set, i) => !independentIds?.has(base[i].requirementId) && set.has(code));
     if (index < 0) continue;
@@ -225,8 +244,9 @@ export function livePools({
   }
 
   return base.map((pool, index) => {
-    const picked = independentIds?.has(pool.requirementId) ? [...boardSet].filter((code) => members[index].has(code)) : mine[index];
-    const free = pool.fromPriorCredit.filter((code) => prior.has(normaliseCode(code)));
+    const assigned = independentIds?.has(pool.requirementId) ? [...new Set([...prior, ...boardSet])].filter((code) => members[index].has(code)) : mine[index];
+    const picked = assigned.filter((code) => !prior.has(code));
+    const free = assigned.filter((code) => prior.has(code));
     const held = [...free.map(normaliseCode), ...picked];
     const heldSet = new Set(held);
     const block = blockById.get(pool.requirementId);
