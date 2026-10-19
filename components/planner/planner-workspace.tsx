@@ -6424,7 +6424,7 @@ export function PlannerWorkspace({
           {isIllinois && suspendedNotice(programId) && (
             <span className="board-bar-note" role="note">{suspendedNotice(programId)}</span>
           )}
-          <Button variant="outline" onClick={buildPlan} disabled={programBusy}>
+          <Button className="rebuild-button" onClick={buildPlan} disabled={programBusy}>
             Rebuild
           </Button>
         </div>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Image from 'next/image';
-import { ArrowUp, Check, CircleAlert, Loader2, Undo2, X } from 'lucide-react';
+import { ArrowUp, Check, CircleAlert, Loader2, Square, Undo2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   isBoardNote,
@@ -695,8 +695,8 @@ export function BotPanel({
           }}
         />
         {busy ? (
-          <button type="button" onClick={stop}>
-            Stop
+          <button type="button" className="bot-send bot-stop" onClick={stop} aria-label="Stop response" title="Stop response">
+            <Square aria-hidden="true" fill="currentColor" />
           </button>
         ) : (
           <button type="submit" className="bot-send" disabled={!ready || !draft.trim()} aria-label="Send" title="Send">

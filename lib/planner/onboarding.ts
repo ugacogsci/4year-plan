@@ -5,11 +5,8 @@ import { normalizeUgaCollegeId, UGA_COLLEGE_BY_ID } from './uga-colleges';
 /**
  * What we learn before showing anyone a planner.
  *
- * Three open questions instead of a dozen dropdowns. A student describing
- * their own situation in their own words gives the model far more to work
- * with than a <select> ever does, and it is a much lower wall to climb on
- * first visit. The structured fields get inferred from the answers and stay
- * editable afterwards.
+ * One open response for the student's situation, interests and goals.
+ * Structured details are confirmed afterwards and remain editable.
  */
 
 /**
@@ -296,38 +293,16 @@ export const EMPTY_ANSWERS: OnboardingAnswers = {
   language: '',
 };
 
-export function questionsFor(school: School | undefined): Array<{
-  key: 'studying' | 'timeline' | 'after';
-  label: string;
-  hint: string;
-  placeholder: string;
-}> {
-  const s = school;
-  const college = s?.colleges.split(',')[0]?.trim() ?? 'your college';
-  return [
-    {
-      key: 'studying',
-      label: 'What else should the plan make room for?',
-      hint: 'Possible fields of study, interests, or subjects you want to explore. Additional programs and certificates are selected from the catalog with your degree.',
-      placeholder: s
-        ? `I am in ${college} and considering a computer science minor. I would also like room for psychology and linguistics.`
-        : 'A computer science minor, plus room to explore psychology.',
-    },
-    {
-      key: 'timeline',
-      label: 'When do you want to finish, and where are you now?',
-      hint: 'Your year, roughly how many credits you have, anything that has slowed you down.',
-      placeholder:
-        'Second year, about 45 credits. I want to graduate spring 2029. I failed calc once so I am a semester behind on the math sequence.',
-    },
-    {
-      key: 'after',
-      label: 'What do you want to be doing after you graduate?',
-      hint: 'A job, a field, grad school, or just what kind of work sounds good.',
-      placeholder:
-        'Something with data. I like problem solving more than writing. Maybe analytics at a company, maybe a masters if that is what it takes.',
-    },
-  ];
+/** Retain every earlier answer when reopening setups saved with three questions. */
+export function setupResponse(answers: Pick<OnboardingAnswers, 'studying' | 'timeline' | 'after'>): string {
+  if (!answers.studying && answers.timeline === answers.after) return answers.after;
+  return [...new Set([answers.studying, answers.timeline, answers.after].map((text) => text.trim()).filter(Boolean))].join('\n\n');
+}
+
+export function withSetupResponse(answers: OnboardingAnswers, response: string, at = new Date()): OnboardingAnswers {
+  // Timing readers and goal readers share the response. Leave studying empty
+  // so interest ranking does not count the same text twice.
+  return { ...answers, studying: '', timeline: response, timelineAt: at.toISOString(), after: response };
 }
 
 const ACADEMIC_YEAR_PATTERNS: Array<[Exclude<AcademicYear, ''>, RegExp]> = [

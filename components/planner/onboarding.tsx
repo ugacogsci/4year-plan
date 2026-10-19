@@ -27,7 +27,8 @@ import {
   inferAcademicYear,
   inferGraduationTarget,
   isGraduationTermPast,
-  questionsFor,
+  setupResponse,
+  withSetupResponse,
   readySchools,
   schoolById,
   saveAnswers,
@@ -64,7 +65,7 @@ import {
  * more programs, describe the situation, confirm inferred details, then add
  * prior credit.
  *
- * The middle screen is deliberately three open text boxes rather than a form.
+ * The middle screen is deliberately one open response rather than a form.
  * Someone who has failed calculus once and is deciding between two majors
  * cannot express that in dropdowns, and that context is exactly what makes
  * the resulting plan worth anything.
@@ -237,8 +238,7 @@ export function Onboarding({
   const today = useMemo(() => new Date(), []);
 
   const school = schoolById(answers.schoolId);
-  const questions = questionsFor(school);
-  const answered = questions.filter((q) => answers[q.key].trim().length > 0).length;
+  const response = setupResponse(answers);
   const emphasisRequirements = useMemo(
     () =>
       (catalog?.requirements ?? []).filter((requirement) =>
@@ -735,29 +735,29 @@ export function Onboarding({
 
         {step === 2 && (
           <section className="onb-step">
-            <h1>Tell us where you are{school ? ` at ${school.short}` : ''}.</h1>
-            <p className="onb-sub">
-              A few sentences help ORION shape the plan. You can revise them later.
+            <h1 id="onb-response-label">What else should your plan make room for?</h1>
+            <p id="onb-response-hint" className="onb-sub">
+              Tell us where you are now, what interests you, when you hope to finish, and what you would like to do afterwards.
             </p>
             <div className="onb-questions">
-              {questions.map((q) => (
-                <label key={q.key} className="onb-q">
-                  <span className="onb-q-label">{q.label}</span>
-                  <span className="onb-q-hint">{q.hint}</span>
-                  <textarea
-                    rows={3}
-                    value={answers[q.key]}
-                    placeholder={q.placeholder}
-                    onChange={(e) => setAnswers((a) => ({ ...a, [q.key]: e.target.value, ...(q.key === 'timeline' ? { timelineAt: new Date().toISOString() } : {}) }))}
-                  />
-                </label>
-              ))}
+              <div className="onb-q">
+                <textarea
+                  rows={7}
+                  value={response}
+                  aria-labelledby="onb-response-label"
+                  aria-describedby="onb-response-hint"
+                  placeholder={`I'm in my second year${school ? ` at ${school.short}` : ''} with about 45 credits. I'd like to finish in two years, explore psychology and linguistics, and work in data science. I also need time for a part-time job.`}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setAnswers((current) => withSetupResponse(current, value));
+                  }}
+                />
+              </div>
             </div>
             <div className="onb-actions">
               {/* No school step to go back to when there was no school to choose. */}
               <button className="onb-back" onClick={() => setStep(1)}>Back</button>
-              <span className="onb-count">{answered} of 3 answered</span>
-              <button className="onb-next" onClick={prepareDetails} disabled={answered === 0}>
+              <button className="onb-next" onClick={prepareDetails} disabled={!response.trim()}>
                 Next
               </button>
             </div>
@@ -957,9 +957,6 @@ export function Onboarding({
                 {initial ? 'Build my plan again' : 'Build my plan'}
               </button>
             </div>
-            <p className="onb-skip">
-              <button onClick={finish}>I am starting from zero</button>
-            </p>
           </section>
         )}
 

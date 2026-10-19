@@ -2379,7 +2379,7 @@ p.requirement-unnamed {
 .emphasis-picker.is-compact .emphasis-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
 .emphasis-picker.is-compact .emphasis-heading span { white-space: normal; }
 
-/* the three questions */
+/* the open-ended setup response */
 .onb-questions { display: grid; gap: 20px; }
 .onb-q { display: grid; gap: 5px; }
 .onb-q-label { font-size: 15px; font-weight: 600; color: #e4ebf5; }
@@ -4974,6 +4974,24 @@ p.requirement-unnamed {
 .planner-app .review-chip:hover,
 .planner-app .bot-launch:hover { background: var(--orion-soft); color: var(--orion-text); }
 
+.planner-app .board-bar .rebuild-button {
+  height: 30px;
+  min-height: 30px;
+  padding: 3px 14px;
+  border-radius: 4px;
+  background: var(--orion-user);
+  color: var(--orion-user-text);
+  font-family: var(--app-font-serif);
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0;
+}
+.planner-app .board-bar .rebuild-button:hover {
+  background: color-mix(in srgb, var(--orion-user) 85%, var(--orion-surface));
+  color: var(--orion-user-text);
+}
+
 .planner-app .review-chip { width: 30px; padding: 0; overflow: hidden; font-size: 0; }
 .planner-app .review-chip svg { width: 14px; height: 14px; }
 .planner-app .bot-launch { padding: 2px 7px 2px 3px; gap: 5px; }
@@ -5505,6 +5523,7 @@ p.requirement-unnamed {
 .onb .program-results button:hover { background: var(--onb-soft); color: var(--onb-text); }
 
 .onb-questions { gap: 24px; width: min(600px, 100%); margin: 0 auto; }
+.onb-questions + .onb-actions .onb-next { margin-left: auto; }
 .onb-q { gap: 4px; }
 .onb-q-hint { margin-bottom: 5px; color: var(--onb-dim); font-size: 9px; line-height: 1.5; }
 .onb-q textarea {
@@ -5755,6 +5774,7 @@ p.requirement-unnamed {
 }
 .planner-app .bot-compose[data-suggestion='true'] textarea::placeholder { color: transparent; }
 .planner-app .bot-compose .bot-send { position: relative; z-index: 3; }
+.planner-app .bot-compose .bot-stop svg { width: 12px; height: 12px; }
 
 /* The progress rail shares the same paper/ink palette as the planner instead
    of retaining the older navy component defaults. */
@@ -6003,8 +6023,10 @@ p.requirement-unnamed {
 .planner-app .bot-log {
   flex: 1 1 auto;
   gap: 9px;
-  padding: 2px 0 8px;
+  /* Let the final message scroll fully above the fade. */
+  padding: 2px 0 48px;
   overflow-y: auto;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
 }
 .planner-app .bot-empty {
   margin: 2px 0;
