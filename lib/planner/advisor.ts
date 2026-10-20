@@ -149,6 +149,33 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'add_summer',
+    description:
+      'Put an empty summer column on the board between its first and last terms ("Summer 2027"), the same as the board\'s Add a summer button. Nothing is rebuilt, moved or removed, and the summer stays through Rebuild and reload. Use it only when the student asks for a summer or says yes to one; then put in the classes they want there with add_course or move_course. The result lists the board\'s terms afterwards and any warning to pass on.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        term: { type: ['string', 'integer'], description: 'The summer, like "Summer 2027", or its year, like 2027.' },
+      },
+      required: ['term'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'remove_summer',
+    description:
+      "Take a summer column off the board, the same as the remove button on the column. Classes in it come off the plan with it, so when it holds any the tool first returns needs_confirmation naming them: tell the student which classes go, and call again with confirmed true only after they say yes. A summer taken off stays off through Rebuild and reload, even one the student's About you words asked for. The plan's first or last term cannot be taken off this way. The result lists the board's terms afterwards, the classes removed, and any requirement or prerequisite the removal leaves open.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        term: { type: ['string', 'integer'], description: 'The summer on the board, like "Summer 2027", or its year.' },
+        confirmed: { type: 'boolean', description: 'True only after the student said yes to removing the summer with the classes the tool named.' },
+      },
+      required: ['term'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'compare_courses',
     description:
       "Two to six courses side by side: credits, prerequisites, grade history, Teachers Ranked as Excellent record, which recent terms each has actually run in, general education categories, fit against the student's priorities with the reasons, and, when a term is given, whether each could go in that term and why not. Use it whenever the student is choosing between courses or asks which is better; then weigh the facts for them instead of listing them.",
@@ -403,6 +430,8 @@ export type AdvisorToolName =
   | 'remove_course'
   | 'replace_course'
   | 'move_course'
+  | 'add_summer'
+  | 'remove_summer'
   | 'compare_courses'
   | 'explain_choice'
   | 'what_if'
@@ -433,6 +462,9 @@ export type AdvisorToolName =
  * Left out until they are checked on a UGA board: set_priorities and
  * set_plan_shape (the overload rule they relay comes from Illinois's
  * colleges, and the summer choice from Illinois's offering history).
+ * add_summer and remove_summer are in since 2026-10-20: they put an empty
+ * summer column on the board or take one off and rebuild nothing, so they
+ * need no summer course list (UGA's is not loaded).
  */
 export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolName>([
   'search_courses',
@@ -444,6 +476,8 @@ export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolN
   'remove_course',
   'replace_course',
   'move_course',
+  'add_summer',
+  'remove_summer',
   'compare_courses',
   'explain_choice',
   'what_if',
@@ -480,6 +514,10 @@ const UGA_TOOL_TEXT: Partial<Record<AdvisorToolName, { description: string; prop
   term_summary: {
     description:
       "One term of the board: its courses with why each is there (required, from a list, elective slot, or added by the student), its credit hours, any workload evidence or weekly class-time check the university's data supports (for UGA neither is loaded, and the result says so), and any review issues on it.",
+  },
+  add_summer: {
+    description:
+      "Put an empty summer column on the board between its first and last terms (\"Summer 2027\"), the same as the board's Add a summer button. Nothing is rebuilt, moved or removed, and the summer stays through Rebuild and reload. The planner never fills it: UGA's summer course list is not loaded, so it cannot tell which classes run in summer. Use it only when the student asks for a summer or says yes to one; then add or move only the classes the student names. The result lists the board's terms afterwards and a warning to pass on.",
   },
   replace_course: {
     description:
@@ -714,6 +752,7 @@ ${SHARED_ADVISOR_RULES.reasonBoardIsTruth}
 - A course that has not run in any recent term is not a plan. Say so, and offer one that has.
 - The first year sets the pace. review_board's first_year_momentum flags a first-year fall or spring under 15 hours or a year one under 30 Illinois hours that the student's own hours setting or edits caused, the first math or statistics course after year one, and fewer than three courses in the major's subjects in year one. When a result carries momentum_fact_say_once, give that fact once in the conversation, in a sentence, then leave the choice to the student; do not repeat it or press.
 - Summers buy time. review_board's summer_suggestions name a summer, the courses Illinois has run in summer that could go there, and what it saves. Offer it; never add a summer unless the student says yes. Then try it with what_if (a summer between the board's terms can be named, like "Summer 2027"), and make it real with move_course into that summer or set_plan_shape summers.
+- add_summer puts an empty summer on the board without rebuilding or moving anything (fill it with add_course or move_course); set_plan_shape summers rebuilds the whole board around its summers. remove_summer takes a summer off; one that holds classes only after you name them and the student says yes.
 ${SHARED_ADVISOR_RULES.reasonHoursNothing}
 - An edit can break a rule no prerequisite check sees: Composition I moved past the first year, or (LAS and the iSchool) a fall or spring past 60 hours without a language course while the requirement is open. move_course, remove_course, replace_course and what_if return review_flags_caused when a change does that; tell the student.
 - Getting into a college is a separate application from earning the degree: when the student is not yet in the college their goal major belongs to (they say transfer, switch, ICT, undeclared, or "get into business"), call program_admission, check its courses against the board, and lay out the timeline plainly: what must be done by when, the hours needed, and that it is competitive. Give the route it chose and its reason; never give a student already at Illinois a college's transfer-admission requirements, and never offer a route into a major the tool says is closed. A registration restriction on a card ("restricted to Gies College of Business") is the same story from the other side.
@@ -800,7 +839,8 @@ const UGA_NOT_LOADED = [
   '- Class times, sections and the weekly clash check: not loaded for UGA. The plan picks courses for each term, not sections; days, times and instructors are chosen at registration. Never state a meeting time, and say that whether a term\'s courses fit in one week is not checked.',
   '- Grade history and teaching ratings: none are loaded for UGA, so you cannot rank courses by difficulty or by teaching, and a term cannot be called heavy or light by grades. Judge a term by what is in it (labs, upper-level major courses, credits) and say that is all you go on. Never cite RateMyProfessors or any outside site, and never call an instructor good or bad.',
   '- Getting into a competitive major or college, a second major, minors and certificates: the planner does not check these for UGA. Say so, answer from UGA\'s pages with university_answer, and send the student to the department.',
-  '- Credits per term, the finish date, summers and terms away: you cannot change these from the chat for UGA yet. Credits per term are set in Preferences ("Credits you want each term, about") and then Rebuild, which replaces the student\'s own edits to the board; for the rest, say plainly that it cannot be set from here yet.',
+  '- Credits per term, the finish date and terms away: you cannot change these from the chat for UGA yet. Credits per term are set in Preferences ("Credits you want each term, about") and then Rebuild, which replaces the student\'s own edits to the board; for the rest, say plainly that it cannot be set from here yet.',
+  "- Summers: add_summer puts an empty summer column on the board when the student asks for one, and remove_summer takes one off (one that holds classes only after you name them and the student says yes). UGA's summer course list is not loaded, so you cannot tell which UGA classes run in summer: say so, never say a class runs in summer, and let the student choose; add or move only the classes they name. Nothing here rebuilds the board around summers.",
 ].join('\n');
 
 /**
