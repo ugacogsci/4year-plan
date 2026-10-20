@@ -145,7 +145,7 @@ import {
   type UndoEntry,
 } from '@/lib/planner/saved-board';
 import { livePools, poolShortfalls } from './live-pools';
-import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersFor, summersToAdd, summerYearOf, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
+import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersFor, summersToAdd, summerYearOf, summersInRange, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
 import { CAREER_TRACKS, careerWordsAfter, INTEREST_TOPICS, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
 import { describeExcellent, interestWordsFrom, sectionTimes } from '@/lib/planner/quality';
@@ -5306,8 +5306,11 @@ export function PlannerWorkspace({
          * and "summers 2032" came back ok, the board rebuilt identical to the
          * default, and ALMA told the student it was done. The range is the
          * one the build will use: the finish (the new one, if this call sets
-         * it), moved past terms away when the student never dated it.
+         * it), moved past terms away when the student never dated it. Of the
+         * summers, only the ones this call names are refused; one already in
+         * the shape that a new finish leaves outside comes off (summersInRange).
          */
+        let summersOff: number[] = [];
         if (problems.length === 0 && (Array.isArray(input.away) || Array.isArray(input.summers) || input.finish !== undefined)) {
           const span = extendForAway(horizonFor(L.answers, new Date(), { ...nextShape, summers: [] }));
           const first = termOrd(span.startSeason, span.startYear);
@@ -5317,12 +5320,16 @@ export function PlannerWorkspace({
             const at = termOrd(a.season, a.year);
             if (at < first || at > last) problems.push(`${a.season} ${a.year} is outside this plan, which runs ${range}, so it cannot be a term away. Check the term with the student, or set finish as well if the plan should run past it.`);
           }
-          for (const y of nextShape.summers) {
-            const at = termOrd('Summer', y);
-            if (at <= first || at > last) problems.push(`Summer ${y} is outside this plan, which runs ${range}; a summer of classes has to come after the first term and no later than the finish.`);
-          }
+          const inRange = summersInRange(nextShape.summers, Array.isArray(input.summers), { season: span.startSeason, year: span.startYear }, { season: span.gradSeason, year: span.gradYear });
+          for (const y of inRange.refused) problems.push(`Summer ${y} is outside this plan, which runs ${range}; a summer of classes has to come after the first term and no later than the finish.`);
+          nextShape.summers = inRange.summers;
+          summersOff = inRange.off;
         }
         if (problems.length > 0) return { ok: false, reason: problems.join(' '), ...notes };
+        const offNote = summersOff.length > 0
+          ? `${summersOff.map(summerLabel).join(' and ')} ${summersOff.length === 1 ? 'is' : 'are'} outside the plan's new range, so ${summersOff.length === 1 ? 'it comes' : 'they come'} off the board with this change; tell the student.`
+          : null;
+        const off = summersOff.length > 0 ? { summers_off: summersOff.map(summerLabel) } : {};
         const changed =
           JSON.stringify(nextShape) !== JSON.stringify(planShapeRef.current) || nextMin !== L.minimumTermCredits || nextTarget !== (L.targetTermCredits ?? null);
         if (!changed) return { ok: true, note: 'Nothing changed; the board already has this shape.', ...notes };
@@ -5351,7 +5358,8 @@ export function PlannerWorkspace({
           return {
             ok: false,
             needs_confirmation: true,
-            reason: `${internship.map((y) => `Summer ${y} comes after year ${planYearBefore(y)} of this plan`).join('; ')}: the usual internship summer for a student with a goal like "${L.careerText.trim()}". Ask whether they want that summer for an internship or for classes${handEdited ? ', and tell them the rebuild replaces the edits they made by hand' : ''}; call again with confirmed true only after they choose classes.`,
+            reason: `${internship.map((y) => `Summer ${y} comes after year ${planYearBefore(y)} of this plan`).join('; ')}: the usual internship summer for a student with a goal like "${L.careerText.trim()}". Ask whether they want that summer for an internship or for classes${handEdited ? ', and tell them the rebuild replaces the edits they made by hand' : ''}; call again with confirmed true only after they choose classes.${offNote ? ` ${offNote}` : ''}`,
+            ...off,
             ...notes,
           };
         }
@@ -5359,7 +5367,8 @@ export function PlannerWorkspace({
           return {
             ok: false,
             needs_confirmation: true,
-            reason: 'Changing the load or the timeline rebuilds the board, which replaces the edits the student made by hand. Tell them and ask; call again with confirmed true only after they say yes.',
+            reason: `Changing the load or the timeline rebuilds the board, which replaces the edits the student made by hand. Tell them and ask; call again with confirmed true only after they say yes.${offNote ? ` ${offNote}` : ''}`,
+            ...off,
             ...notes,
           };
         }
@@ -5382,7 +5391,8 @@ export function PlannerWorkspace({
         return {
           ok: true,
           summary: shaped,
-          note: 'The board rebuilds now. Call review_board next and tell the student what changed: the terms, the credits per term, and any note the plan adds (a lighter load needs a later finish; a term away is left empty on the board, and a semester abroad counts its hours toward the total; a summer carries at most 9 credits; summers make falls and springs lighter, so if the student wanted to finish earlier instead, confirm it and set finish).',
+          note: `The board rebuilds now. Call review_board next and tell the student what changed: the terms, the credits per term, and any note the plan adds (a lighter load needs a later finish; a term away is left empty on the board, and a semester abroad counts its hours toward the total; a summer carries at most 9 credits; summers make falls and springs lighter, so if the student wanted to finish earlier instead, confirm it and set finish).${offNote ? ` ${offNote}` : ''}`,
+          ...off,
           ...notes,
         };
       }

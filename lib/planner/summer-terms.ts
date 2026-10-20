@@ -100,6 +100,26 @@ export function withAddedSummers(board: PlanState, shape: PlanShape): PlanState 
   return out;
 }
 
+/**
+ * set_plan_shape's summers against the range the build will use, its first
+ * term to its finish: a summer has to come after the first and no later than
+ * the finish. One the call names (`named`) outside it is refused. One already
+ * in the shape (the board's Add a summer, add_summer, an earlier call) that a
+ * new finish leaves outside comes off, for ALMA to tell the student: refusing
+ * it turned down "finish in Spring 2029" over a Summer 2029 added by hand, and
+ * the way past was a summers list that replaced every summer they had added.
+ */
+export function summersInRange(
+  summers: number[],
+  named: boolean,
+  first: { season: SemesterSeason; year: number },
+  last: { season: SemesterSeason; year: number },
+): { summers: number[]; refused: number[]; off: number[] } {
+  const outside = (y: number) => calendarOrd('Summer', y) <= calendarOrd(first.season, first.year) || calendarOrd('Summer', y) > calendarOrd(last.season, last.year);
+  const out = summers.filter(outside);
+  return named ? { summers, refused: out, off: [] } : { summers: summers.filter((y) => !outside(y)), refused: [], off: out };
+}
+
 /** A summer column a student can take off: not the plan's first or last term, which the start and the finish decide. */
 export function summerRemovable(board: PlanState, termId: string): boolean {
   const at = board.terms.findIndex((t) => t.id === termId);
