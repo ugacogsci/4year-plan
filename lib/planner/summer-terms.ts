@@ -78,6 +78,28 @@ export function summersToAdd(board: PlanState): number[] {
   return out;
 }
 
+/**
+ * The board a build made, with every summer the student added (the plan
+ * shape's summers, less the dropped) that it has no column for put back,
+ * empty, in calendar order. A build plans each summer inside its horizon, but
+ * a Double Dawgs board is two builds: the bachelor's, which ends at its last
+ * term with a class, and the master's from the fall or spring after its
+ * finish. Summer 2031 between a Spring 2031 finish and a Fall 2031 master's
+ * start was in neither (nor an empty Summer 2031 finish), so Rebuild dropped
+ * the summer the menu had offered and added while the shape still listed it.
+ * Only a summer the menu would offer goes back; the same board when none is
+ * missing, which is every board but those.
+ */
+export function withAddedSummers(board: PlanState, shape: PlanShape): PlanState {
+  let out = board;
+  for (const year of [...summersFor([], shape)].sort((a, b) => a - b)) {
+    if (!summersToAdd(out).includes(year)) continue;
+    const placed = withSummer(out, year);
+    if (placed) out = placed.board;
+  }
+  return out;
+}
+
 /** A summer column a student can take off: not the plan's first or last term, which the start and the finish decide. */
 export function summerRemovable(board: PlanState, termId: string): boolean {
   const at = board.terms.findIndex((t) => t.id === termId);

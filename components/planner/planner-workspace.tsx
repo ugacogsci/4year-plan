@@ -145,7 +145,7 @@ import {
   type UndoEntry,
 } from '@/lib/planner/saved-board';
 import { livePools, poolShortfalls } from './live-pools';
-import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersFor, summersToAdd, summerYearOf, type SummerChange } from '@/lib/planner/summer-terms';
+import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersFor, summersToAdd, summerYearOf, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
 import { CAREER_TRACKS, careerWordsAfter, INTEREST_TOPICS, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
 import { describeExcellent, interestWordsFrom, sectionTimes } from '@/lib/planner/quality';
@@ -1742,6 +1742,9 @@ export function PlannerWorkspace({
         satisfiedByPriorCredit: withoutMaybe(generated.satisfiedByPriorCredit, maybe.codes),
       };
     }
+    // A summer the student added stays through Rebuild where the build left no column for it (a Double Dawgs gap).
+    const keptSummers = withAddedSummers(generated.plan, planShape);
+    if (keptSummers !== generated.plan) generated = { ...generated, plan: keptSummers };
     // The student's instructor picks stay with every course still in the same term.
     const codeOfId = planRef.current?.instructors ? new Map([...byCode.values()].map((c) => [c.id, c.code])) : null;
     replaceActivePlan(codeOfId ? carryInstructors(planRef.current, generated.plan, (id) => codeOfId.get(id)) : generated.plan);
