@@ -34,9 +34,21 @@ import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { BotLauncher, BotPanel, type BotTurns } from './advisor';
 import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
@@ -118,6 +130,7 @@ import {
   NO_SHAPE,
   pushUndo,
   readSavedBoard,
+  readShape,
   repickInReport,
   reportOf,
   serializeBoard,
@@ -132,6 +145,7 @@ import {
   type UndoEntry,
 } from '@/lib/planner/saved-board';
 import { livePools, poolShortfalls } from './live-pools';
+import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersFor, summersToAdd, summerYearOf, type SummerChange } from '@/lib/planner/summer-terms';
 import { CAREER_TRACKS, careerWordsAfter, INTEREST_TOPICS, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
 import { describeExcellent, interestWordsFrom, sectionTimes } from '@/lib/planner/quality';
@@ -143,7 +157,7 @@ import {
   type Priorities,
 } from '@/lib/planner/priorities';
 import type { Alternative, ElectiveOf } from './course-card';
-import { plural } from './words';
+import { andList, plural } from './words';
 import { alignExamsToCollege, examCourses, examCreditNotes, examElectiveHours, examGenEdCredits, examSchedule, matchDocumentExams, useExamCredit } from './exam-credit';
 import { areaProgress, type ProgramRequirements } from '@/lib/planner/scheduler';
 import { transcriptCourseCredits, transcriptCreditSummary, transcriptExemptCodes, withTranscriptCredits } from '@/lib/planner/transcript';
@@ -629,6 +643,12 @@ function combinePrograms(sources: SourceProgram[]): LoadedBundle | null {
   };
 }
 
+/**
+ * An empty summer at UGA. UGA's catalog lists no summer offerings yet, so the
+ * planner never fills one there, and every class put in one is the student's.
+ */
+const UGA_SUMMER_NOTE = "ORION doesn't have UGA's summer course list yet, so it won't fill this summer. Add classes yourself.";
+
 /** The plan shape in a sentence for ALMA's board description. Empty when nothing is set. */
 function describeShape(shape: PlanShape): string {
   const parts = [
@@ -636,6 +656,7 @@ function describeShape(shape: PlanShape): string {
     shape.away.length > 0 ? `away ${shape.away.map(describeAway).join(', ')}` : null,
     shape.summers.length > 0 ? `summer classes in ${shape.summers.join(', ')}` : null,
     shape.spreadHard ? 'hard courses spread one a term where possible' : null,
+    (shape.droppedSummers ?? []).length > 0 ? `summers the student took off the board: ${shape.droppedSummers.join(', ')}` : null,
   ].filter(Boolean);
   return parts.length > 0 ? ` Shape set with the student: ${parts.join('; ')}.` : '';
 }
@@ -798,6 +819,8 @@ export function PlannerWorkspace({
   const [planNotes, setPlanNotes] = useState<string[]>([]);
   const [report, setReport] = useState<PlanReport | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  /** A summer with classes the student asked to remove, waiting for their yes. */
+  const [summerToRemove, setSummerToRemove] = useState<{ termId: string; label: string; codes: string[] } | null>(null);
   /** The card's "Someone else (type a name)": the map popup opens with the name field ready. */
   const [instructorTyping, setInstructorTyping] = useState<{ courseId: string; termId: string } | null>(null);
   const [mapFocusRequest, setMapFocusRequest] = useState<{ courseId: string; sequence: number } | null>(null);
@@ -834,6 +857,14 @@ export function PlannerWorkspace({
    * the board by a tool comes from here.
    */
   const planRef = useRef<PlanState | null>(null);
+  /** A column to scroll into view once the board holding it is on screen: a summer just added. */
+  const revealTermId = useRef<string | null>(null);
+  useEffect(() => {
+    const id = revealTermId.current;
+    if (!id) return;
+    revealTermId.current = null;
+    document.getElementById(`term-${id}`)?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [plan]);
   /**
    * Cards the student or ALMA put on the board since the plan was built. A
    * card is "added" only when it is in here; before, every card the planner
@@ -2028,6 +2059,9 @@ export function PlannerWorkspace({
     return { hours: h.assumedHours, terms: names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? '') };
   }, [isIllinois, loaded, answers, planShape]);
 
+  /** The summers the board bar offers to add (summer-terms.ts). */
+  const summerChoices = useMemo(() => (plan ? summersToAdd(plan) : []), [plan]);
+
   /** Every course code on the board, in term order. */
   const boardCodes = useMemo(() => {
     if (!plan) return [];
@@ -2871,13 +2905,15 @@ export function PlannerWorkspace({
    * its own. ALMA's edits while it answers one message share the step the
    * turn's first change pushed (almaChanged), so "Undo these changes" takes
    * back the whole answer: three history courses in, three elective slots out.
-   * `added` are cards that read "added" from now on.
+   * `added` are cards that read "added" from now on. `shapeBefore` is the
+   * plan shape a summer change replaces, for an undo step of its own (an
+   * ALMA turn already puts back the settings it changed).
    */
-  function commit(next: PlanState, options: { by?: 'student' | 'alma'; summary?: string; added?: string[]; alreadyTaken?: string[] } = {}) {
+  function commit(next: PlanState, options: { by?: 'student' | 'alma'; summary?: string; added?: string[]; alreadyTaken?: string[]; shapeBefore?: PlanShape } = {}) {
     const before = boardNow();
     if (!before) return;
     if (options.by === 'alma' && almaTurn.current) almaChanged(options.summary ?? null);
-    else setUndoStack((current) => pushUndo(current, { before, alreadyTakenCourseCodes: live.current.answers?.alreadyTakenCourseCodes ?? [] }));
+    else setUndoStack((current) => pushUndo(current, { before, alreadyTakenCourseCodes: live.current.answers?.alreadyTakenCourseCodes ?? [], ...(options.shapeBefore ? { planShape: options.shapeBefore } : {}) }));
     if (options.added?.length) studentAdded.current = new Set([...studentAdded.current, ...options.added]);
     planRef.current = next;
     replaceActivePlan(next);
@@ -3205,6 +3241,63 @@ export function PlannerWorkspace({
         ? `${course?.code ?? 'Course'} reordered within ${destination.label}.`
         : `${course?.code ?? 'Course'} moved to ${destination.label}.`,
     );
+  }
+
+  /**
+   * A summer added or taken off, by the student or ALMA: the board and the
+   * plan shape change together (summer-terms.ts), in one undo step.
+   */
+  function commitSummer(change: Extract<SummerChange, { ok: true }>, by: 'student' | 'alma', summary: string) {
+    commit(change.board, { by, summary, shapeBefore: planShapeRef.current });
+    planShapeRef.current = change.shape;
+    setPlanShape(change.shape);
+    if (selectedCourseId && change.removedCourseIds.includes(selectedCourseId)) setSelectedCourseId(null);
+  }
+
+  /** "Add a summer" on the board bar: an empty column, scrolled into view. Nothing is rebuilt or moved. */
+  function addSummerByHand(year: number) {
+    const board = planRef.current;
+    if (!board) return;
+    const change = addSummer(board, planShapeRef.current, year);
+    if (!change.ok) {
+      notify(change.reason, undefined, 'info');
+      return;
+    }
+    commitSummer(change, 'student', `${change.term.label} added`);
+    revealTermId.current = change.term.id;
+    setStatus(`${change.term.label} added to the board, empty.`);
+    notify(
+      `${change.term.label} added`,
+      isUga
+        ? UGA_SUMMER_NOTE
+        : 'It is empty. Add classes to it, or press Rebuild to let the planner fill it with courses Illinois has run in summer (Rebuild replaces your own edits to the board).',
+      'info',
+    );
+  }
+
+  /** The summer column's remove button: an empty summer goes at once, one with classes asks first and names them. */
+  function askRemoveSummer(termId: string) {
+    const term = planRef.current?.terms.find((t) => t.id === termId);
+    if (!term) return;
+    if (term.courseIds.length === 0) removeSummerByHand(termId);
+    else setSummerToRemove({ termId, label: term.label, codes: term.courseIds.map((id) => courseIndex.get(id)?.code ?? id) });
+  }
+
+  function removeSummerByHand(termId: string) {
+    setSummerToRemove(null);
+    const board = planRef.current;
+    const term = board?.terms.find((t) => t.id === termId);
+    const year = term ? summerYearOf(term.label) : null;
+    if (!board || !term || year === null) return;
+    const change = removeSummer(board, planShapeRef.current, year);
+    if (!change.ok) {
+      notify(change.reason, undefined, 'info');
+      return;
+    }
+    const codes = change.removedCourseIds.map((id) => courseIndex.get(id)?.code ?? id);
+    commitSummer(change, 'student', `${term.label} removed`);
+    setStatus(`${term.label} removed${codes.length > 0 ? ` with ${andList(codes)}` : ''}.`);
+    notify(`${term.label} removed`, codes.length > 0 ? `${andList(codes)} came off your plan with it. Undo puts ${codes.length === 1 ? 'it' : 'them'} back.` : undefined, 'info');
   }
 
   function selectPlanned(courseId: string, termId: string) {
@@ -4584,6 +4677,70 @@ export function PlannerWorkspace({
           ...caused,
         };
       }
+      /**
+       * The board bar's "Add a summer" and the column's remove button, for
+       * the chat (summer-terms.ts does both). Adding rebuilds nothing; the
+       * summer is in the plan shape too, so Rebuild and reload keep it.
+       */
+      case 'add_summer': {
+        const terms = board.terms.map((t) => t.label);
+        const year = summerYearOf(input.term);
+        const open = summersToAdd(board).map(summerLabel);
+        if (year === null) return { ok: false, reason: `Name the summer like "Summer 2027". ${open.length > 0 ? `The summers that can be added are ${open.join(', ')}.` : 'Every summer inside this plan is already on the board.'}`, terms };
+        const change = addSummer(board, planShapeRef.current, year);
+        if (!change.ok) return { ok: false, reason: `${change.reason}${open.length > 0 ? ` The summers that can be added are ${open.join(', ')}.` : ''}`, terms };
+        commitSummer(change, 'alma', `${change.term.label} added, empty`);
+        revealTermId.current = change.term.id;
+        setFocusTermId(change.term.id);
+        setStatus(`${change.term.label} added by ${botName}.`);
+        return {
+          ok: true,
+          summary: `${change.term.label} added to the board, empty`,
+          terms: change.board.terms.map((t) => t.label),
+          ...(isUga
+            ? { warning: `UGA's summer course list is not loaded, so the planner cannot tell which UGA classes run in summer and will not fill ${change.term.label}, on Rebuild either. Tell the student so and let them choose the classes; add or move only the ones they name. A class put there shows "Not offered this term" because the data lists no summer offerings, not because UGA does not run it in summer.` }
+            : { note: `Nothing was rebuilt or moved. To fill it, add or move courses Illinois has run in summer (course_details gives the terms each ran), or set_plan_shape summers rebuilds the board around its summers.` }),
+        };
+      }
+      case 'remove_summer': {
+        const terms = board.terms.map((t) => t.label);
+        const year = summerYearOf(input.term);
+        const on = board.terms.filter((t) => t.season === 'Summer').map((t) => t.label);
+        if (year === null) return { ok: false, reason: `Name the summer like "Summer 2027". ${on.length > 0 ? `The summers on the board are ${on.join(', ')}.` : 'The board has no summers.'}`, terms };
+        const term = summerOn(board, year);
+        if (term && term.courseIds.length > 0 && input.confirmed !== true && summerRemovable(board, term.id)) {
+          const held = term.courseIds.map((id) => {
+            const c = L.courseIndex.get(id);
+            const role = c ? roleOf(c) : null;
+            return `${c?.code ?? id}${role && role !== 'added' && role !== 'elective slot' ? ` (${role})` : ''}`;
+          });
+          return {
+            ok: false,
+            needs_confirmation: true,
+            reason: `${term.label} holds ${held.join(', ')}. Removing the summer takes ${held.length === 1 ? 'that class off the plan with it, and any requirement it meets is left open. Name it' : 'those classes off the plan with it, and any requirement they meet is left open. Name them'} to the student and ask; call again with confirmed true only after they say yes.`,
+            terms,
+          };
+        }
+        const change = removeSummer(board, planShapeRef.current, year);
+        if (!change.ok) return { ok: false, reason: change.reason, terms };
+        const codes = change.removedCourseIds.map((id) => L.courseIndex.get(id)?.code ?? id);
+        const knockOn = auditIssuesOn(change.board)
+          .filter((i) => i.severity === 'error' && /^ap-prereq-(?!check)/.test(i.id))
+          .map((i) => i.message);
+        const beforeIssues = new Set(auditIssuesOn(board).map((issue) => `${issue.id}|${issue.message}`));
+        const caused = causedBy(board, change.board);
+        commitSummer(change, 'alma', `${change.term.label} removed${codes.length > 0 ? ` with ${codes.join(', ')}` : ''}`);
+        setStatus(`${change.term.label} removed by ${botName}.`);
+        return {
+          ok: true,
+          summary: `${change.term.label} removed${codes.length > 0 ? `, with ${codes.join(', ')}` : ''}`,
+          terms: change.board.terms.map((t) => t.label),
+          removed_courses: codes,
+          now_missing_a_prerequisite: knockOn,
+          new_requirement_warnings: auditIssuesOn(change.board).filter((issue) => issue.severity !== 'info' && !beforeIssues.has(`${issue.id}|${issue.message}`)).map((issue) => issue.message),
+          ...caused,
+        };
+      }
       case 'compare_courses': {
         const raw = Array.isArray(input.codes) ? (input.codes as unknown[]).filter((x): x is string => typeof x === 'string') : [];
         const found = raw.map((x) => ({ asked: x, course: courseOf(x) }));
@@ -4812,7 +4969,7 @@ export function PlannerWorkspace({
             : {}),
           ...(summers.length > 0 ? { summer_suggestions: summers.map((s) => s.text) } : {}),
           suggestions,
-          note: `Give the student your own judgement from this: what is fine, what to change, and why. Not a list.${summers.length > 0 ? ' A summer is only a suggestion: add one only after the student says yes (move_course into "Summer 2027" adds it with the course, or set_plan_shape summers rebuilds around it); what_if can try it first.' : ''}`,
+          note: `Give the student your own judgement from this: what is fine, what to change, and why. Not a list.${summers.length > 0 ? ' A summer is only a suggestion: add one only after the student says yes (add_summer adds it empty, move_course into "Summer 2027" adds it with the course, or set_plan_shape summers rebuilds around it); what_if can try it first.' : ''}`,
         };
       }
       case 'program_admission': {
@@ -5118,8 +5275,11 @@ export function PlannerWorkspace({
         }
         if (Array.isArray(input.summers)) {
           const years = input.summers.map((v) => (typeof v === 'number' ? v : Number(String(v).replace(/^summer\s+/i, ''))));
-          if (years.every((y) => Number.isInteger(y) && y >= 2020 && y <= 2040)) nextShape.summers = years;
-          else problems.push('summers must be years like 2027 or terms like "Summer 2027".');
+          if (years.every((y) => Number.isInteger(y) && y >= 2020 && y <= 2040)) {
+            nextShape.summers = years;
+            // A summer named again is no longer one the student took off.
+            nextShape.droppedSummers = (nextShape.droppedSummers ?? []).filter((y) => !years.includes(y));
+          } else problems.push('summers must be years like 2027 or terms like "Summer 2027".');
         }
         if (input.spread_hard !== undefined) nextShape.spreadHard = input.spread_hard === true;
         /**
@@ -5594,6 +5754,10 @@ export function PlannerWorkspace({
     }
     setUndoStack((current) => current.slice(0, -1));
     applyBoard(entry.before);
+    if (entry.planShape) {
+      planShapeRef.current = entry.planShape;
+      setPlanShape(entry.planShape);
+    }
     const turn = entry.turn;
     if (turn) {
       if (turn.settings) {
@@ -5665,6 +5829,8 @@ export function PlannerWorkspace({
       ),
       planGroups,
       activePlanId,
+      // The summers added or taken off by hand live here as well as on the board, for a Rebuild after the file is opened.
+      planShape: planShapeRef.current,
     }, null, 2)], {
       type: 'application/json',
     });
@@ -5693,10 +5859,17 @@ export function PlannerWorkspace({
           plans?: unknown;
           planGroups?: unknown;
           activePlanId?: unknown;
+          planShape?: unknown;
         };
         if (isPlanState(parsed.plan)) {
           const before = boardNow();
-          if (before) setUndoStack((current) => pushUndo(current, { before }));
+          // A file from before the shape was written keeps the shape this board has.
+          const shape = parsed.planShape !== undefined ? readShape(parsed.planShape) : null;
+          if (before) setUndoStack((current) => pushUndo(current, { before, ...(shape ? { planShape: planShapeRef.current } : {}) }));
+          if (shape) {
+            planShapeRef.current = shape;
+            setPlanShape(shape);
+          }
           applyBoard({ plan: parsed.plan, report: null, notes: [], studentAdded: [], repickedFor: null, edited: true });
           setPlanTabs([{
             id: 'plan-1',
@@ -5735,6 +5908,7 @@ export function PlannerWorkspace({
       emphasisSelections: answers?.emphasisSelections ?? {},
       programId,
       plan,
+      planShape: planShapeRef.current,
     })));
     try {
       await navigator.clipboard.writeText(
@@ -6012,6 +6186,25 @@ export function PlannerWorkspace({
         {status_}
       </output>
       <Toaster />
+      {/* Removing a summer that holds classes takes them off too, so it asks first and names them. */}
+      <AlertDialog open={summerToRemove !== null} onOpenChange={(open) => { if (!open) setSummerToRemove(null); }}>
+        <AlertDialogContent className="summer-remove-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {summerToRemove?.label}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {summerToRemove
+                ? `${summerToRemove.label} holds ${andList(summerToRemove.codes)}. Removing the summer takes ${summerToRemove.codes.length === 1 ? 'that class' : 'those classes'} off your plan too. Undo puts it all back.`
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => summerToRemove && removeSummerByHand(summerToRemove.termId)}>
+              Remove summer and {summerToRemove?.codes.length === 1 ? 'its class' : 'its classes'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <header className="app-header">
         <a className="brand" href="#top" aria-label="ORION planner home">
@@ -6424,6 +6617,37 @@ export function PlannerWorkspace({
           {isIllinois && suspendedNotice(programId) && (
             <span className="board-bar-note" role="note">{suspendedNotice(programId)}</span>
           )}
+          {plan && (
+            /* The summers a student can add (summer-terms.ts): each one between
+               the board's first and last terms that is not on it yet. Adding
+               one rebuilds nothing; the column comes in empty. */
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    className="add-summer-button"
+                    aria-label="Add a summer"
+                    disabled={programBusy || summerChoices.length === 0}
+                    title={summerChoices.length === 0 ? 'Every summer inside this plan is already on the board' : 'Add an empty summer term to the plan'}
+                  />
+                }
+              >
+                <Plus aria-hidden="true" /> <span className="add-summer-wide">Add a </span>summer
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                {/* A label outside a Group throws in Base UI (see course-card.tsx). */}
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Add an empty summer</DropdownMenuLabel>
+                  {summerChoices.map((year) => (
+                    <DropdownMenuItem key={year} onClick={() => addSummerByHand(year)}>
+                      {summerLabel(year)}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Button className="rebuild-button" onClick={buildPlan} disabled={programBusy}>
             Rebuild
           </Button>
@@ -6521,6 +6745,8 @@ export function PlannerWorkspace({
                 instructors={instructorControl}
                 width={termWidths[term.id]}
                 onWidthChange={resizeTerm}
+                onRemoveSummer={summerRemovable(plan, term.id) ? askRemoveSummer : undefined}
+                note={isUga && term.season === 'Summer' && term.courseIds.length === 0 ? UGA_SUMMER_NOTE : null}
               />
             );
           })}
@@ -6886,7 +7112,8 @@ function horizonFor(
       return before && a.kind === undefined && a.credits === undefined ? { ...before, ...a } : a;
     }),
   ];
-  horizon.summers = [...new Set([...(horizon.summers ?? []), ...shape.summers])];
+  // A summer the student took off the board stays off, even one About you asked for.
+  horizon.summers = summersFor(horizon.summers ?? [], shape);
   if (busyNext) {
     const next = busyNext;
     horizon.startSeason = next.season;

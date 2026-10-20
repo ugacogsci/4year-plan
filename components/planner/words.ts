@@ -13,3 +13,8 @@
 export function plural(n: number, word: string, many?: string): string {
   return n === 1 ? word : (many ?? `${word}s`);
 }
+
+/** "CMN 336", "CMN 336 and ACE 240", "CMN 336, ACE 240 and PSYC 100". */
+export function andList(items: string[]): string {
+  return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
