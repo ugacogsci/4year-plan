@@ -5505,6 +5505,16 @@ p.requirement-unnamed {
 }
 .onb .program-search input:focus,
 .onb .prior-search:focus { outline: 0; border-color: var(--onb-text); box-shadow: none; }
+/* The high-school language row follows the setup theme; its base colors were dark-only. */
+.onb .onb-lang-row select,
+.onb .onb-lang-row input {
+  border-color: var(--onb-line);
+  background: var(--onb-raised);
+  color: var(--onb-text);
+}
+.onb .onb-lang-row input::placeholder { color: var(--onb-dim); }
+.onb .onb-lang-row select:focus,
+.onb .onb-lang-row input:focus { border-color: var(--onb-text); }
 .onb .program-results {
   max-height: 210px;
   border: 0;
