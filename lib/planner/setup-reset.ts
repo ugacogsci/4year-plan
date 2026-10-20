@@ -1,6 +1,6 @@
 /** The sequence must be deliberate, with no more than two seconds between keys. */
 export function createSetupResetSequence() {
-  const sequence = ['x', 'c', 'x'];
+  const sequence = ['x', 'c', 'x', 's', 'x'];
   let position = 0;
   let lastAt = 0;
 
