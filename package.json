@@ -20,7 +20,8 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "typecheck": "tsc --noEmit",
-    "test:map-interactions": "node --experimental-strip-types lib/planner/__map-interactions.check.mjs"
+    "test:map-interactions": "node --experimental-strip-types lib/planner/__map-interactions.check.mjs",
+    "test:setup-reset": "node --experimental-strip-types lib/planner/__setup-reset.check.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",

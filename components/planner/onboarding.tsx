@@ -40,6 +40,7 @@ import {
   type SchoolId,
 } from '@/lib/planner/onboarding';
 import { transcriptCodes, transcriptHours } from '@/lib/planner/transcript';
+import { clearPlannerStorage, createSetupResetSequence } from '@/lib/planner/setup-reset';
 import {
   findUgaCollege,
   normalizeUgaCollegeId,
@@ -223,6 +224,7 @@ export function Onboarding({
   const ready = readySchools();
   const onlySchool = ready.length === 1 ? ready[0] : null;
   const [step, setStep] = useState(onlySchool ? 1 : 0);
+  const [resetError, setResetError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ProgramCatalog | null>(null);
   const [theme, setTheme] = useState<PlannerTheme>(readStoredTheme);
   const [graduationEdited, setGraduationEdited] = useState(
@@ -324,6 +326,36 @@ export function Onboarding({
     document.documentElement.dataset.plannerTheme = theme;
     window.localStorage.setItem(PLANNER_THEME_STORAGE_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (step !== 0) return;
+    const nextKey = createSetupResetSequence();
+    const cancel = () => { nextKey(''); };
+    const onKeyDown = (event: KeyboardEvent) => {
+      const editing = event.target instanceof Element && event.target.closest(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"]',
+      );
+      if (editing || event.defaultPrevented || event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) {
+        cancel();
+        return;
+      }
+      if (!nextKey(event.key)) return;
+      event.preventDefault();
+      try {
+        clearPlannerStorage(window.localStorage);
+        clearPlannerStorage(window.sessionStorage);
+        window.location.reload();
+      } catch {
+        setResetError('Could not clear all saved data. Check this site\'s storage permissions and try again.');
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('blur', cancel);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('blur', cancel);
+    };
+  }, [step]);
 
   useEffect(() => {
     if (!answers.schoolId) return;
@@ -575,6 +607,7 @@ export function Onboarding({
           <section className="onb-step">
             <h1>Choose your university</h1>
             <p className="onb-sub">Course data, degree rules and recommendations follow this choice.</p>
+            {resetError && <p className="onb-feasibility" role="alert">{resetError}</p>}
             <div className="onb-university-picker">
               <label htmlFor="university">University</label>
               <select
