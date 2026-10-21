@@ -7177,7 +7177,7 @@ button.unofficial-label:focus-visible,
   font: inherit;
   cursor: pointer;
 }
-.planner-app .attention-chip-record { max-width: 460px; }
+.planner-app .attention-chip-record { max-width: min(760px, 62vw); }
 .planner-app .attention-chip:hover,
 .planner-app .attention-chip[aria-expanded='true'] { background: var(--orion-soft); }
 .planner-app .attention-chip-text {
