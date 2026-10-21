@@ -218,7 +218,12 @@ function readClause(raw: string, sentence: string): Read {
 
   // Where they are and when they finish, read with the goal phrases about finishing blanked.
   const masked = lower.replace(GOAL_CONTEXT, (m) => ' '.repeat(m.length));
-  const hits = STATUS.map(([kind, p]) => ({ kind, m: p.exec(masked) })).filter((h): h is { kind: StatusKind; m: RegExpExecArray } => h.m !== null);
+  // A year or a program after what the student wants is part of the goal ("I want to work with
+  // first-year students", "teach freshman composition"); a finish date after it is not.
+  const wants = ASPIRE.exec(masked)?.index ?? Infinity;
+  const hits = STATUS.map(([kind, p]) => ({ kind, m: p.exec(masked) }))
+    .filter((h): h is { kind: StatusKind; m: RegExpExecArray } => h.m !== null)
+    .filter((h) => !((h.kind === 'standing' || h.kind === 'major') && h.m.index > wants));
   if (hits.length > 0) {
     const first = hits.reduce((a, b) => (b.m.index < a.m.index ? b : a));
     const tail = tailFrom(text, first.m.index + first.m[0].length);
