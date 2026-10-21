@@ -1,8 +1,11 @@
-import { interestProfile } from './career-tracks';
+import { interestProfile, type InterestProfile } from './career-tracks';
+import { courseMatchesWord, interestWordsFrom } from './quality';
+import type { PlanMark } from './repick';
 import type { OnboardingAnswers } from './onboarding';
 
 /**
- * The goal words in the one setup box.
+ * The goal words in the one setup box, and the line that says a card was
+ * picked for them.
  *
  * Since 344bb4c, About you is one box ("What else should your plan make room
  * for?"), and the whole paragraph went into the goal slot (answers.after):
@@ -335,4 +338,71 @@ export function goalWordsOf(paragraph: string): SetupWords & { left: string[] } 
     if (kept.status.length) left.push(join(kept.status));
   }
   return { goals: goals.filter(Boolean).join(' '), studying: studying.filter(Boolean).join(' '), left: left.filter(Boolean) };
+}
+
+// ---------------------------------------------------------------------------
+// Why a card is on the plan
+// ---------------------------------------------------------------------------
+
+const profiles = new Map<string, InterestProfile>();
+function profileOf(text: string): InterestProfile {
+  const key = text.trim();
+  const hit = profiles.get(key);
+  if (hit) return hit;
+  const made = interestProfile(key);
+  if (profiles.size > 50) profiles.clear();
+  profiles.set(key, made);
+  return made;
+}
+
+const codeOf = (code: string) => code.replace(/\s+/g, ' ').trim().toUpperCase();
+const titleHas = (title: string, word: string) => new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}${word.length < 5 ? '\\b' : ''}`, 'i').test(title);
+
+/**
+ * The goal a course answers, in the student's terms: the career track whose
+ * list names it ("Pre-medicine (MD/DO)"), or the interest topic that names
+ * it, its subject or a word of its title ("data science/analytics"), in the
+ * order the student named them. Null when no goal the planner heard covers
+ * it.
+ */
+export function goalNamed(course: { code: string; title: string; cluster: string }, career: string): string | null {
+  const profile = profileOf(career);
+  const code = codeOf(course.code);
+  const track = profile.tracks.find((t) => t.courses.some((row) => row.codes.map(codeOf).includes(code)));
+  if (track) return track.name;
+  const topic =
+    profile.topics.find((t) => t.courses.map(codeOf).includes(code)) ??
+    profile.topics.find((t) => t.subjects.includes(course.cluster)) ??
+    profile.topics.find((t) => t.words.some((w) => titleHas(course.title, w)));
+  if (topic) return topic.label;
+  const byWords = profile.tracks.find((t) => t.words.some((w) => titleHas(course.title, w)));
+  return byWords?.name ?? null;
+}
+
+/**
+ * The short line a card, its popup, the printout and ALMA give for a course
+ * the planner picked for the student's goal, or null for any other card.
+ *
+ * Read from what the planner recorded when it picked the course
+ * (PlanMark.goal, set by planMarks): a course booked for a career track, an
+ * elective whose recorded reasons say it matches what the student said they
+ * want, a general education pick the goal ordered first. Required courses,
+ * lists, the language, prerequisites and the student's own additions keep
+ * their own labels and get none. The goal is named from the career words the
+ * planner reads now (goalNamed), or the student's own word that matched
+ * (`interests`), or said plainly when neither names it any more.
+ */
+export function goalReasonOf(
+  course: { code: string; title: string; cluster: string },
+  mark: PlanMark | undefined,
+  words: { career: string; interests: string },
+): string | null {
+  if (!mark?.goal) return null;
+  if (mark.kind === 'track') return `Picked for your goal: ${mark.track ?? mark.label}`;
+  const named = goalNamed(course, words.career);
+  if (named) return `Picked for your goal: ${named}`;
+  if (mark.kind === 'gened') return null;
+  const said = [...new Set(interestWordsFrom(words.interests))].filter((w) => courseMatchesWord(course, w)).slice(0, 2);
+  if (said.length > 0) return `Picked for your interest in ${said.join(' and ')}`;
+  return 'Picked for what you said you want';
 }

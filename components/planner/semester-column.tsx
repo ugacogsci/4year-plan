@@ -49,6 +49,8 @@ interface SemesterColumnProps {
   onSwapCourse?: (courseId: string, termId: string, replacementId: string) => void;
   /** Which elective pool a course is filling, by course id. Empty for most. */
   electiveOf: Map<string, ElectiveOf>;
+  /** "Picked for your goal: ...", by course id, for the planner's picks made for the student's goal. */
+  goalReasons?: ReadonlyMap<string, string>;
   /** Low end of the term's credit range, already summed by the caller. */
   credits: string;
   heavy: boolean;
@@ -95,6 +97,7 @@ export function SemesterColumn({
   alternativesFor,
   onSwapCourse,
   electiveOf,
+  goalReasons,
   credits,
   heavy,
   width,
@@ -323,6 +326,7 @@ export function SemesterColumn({
                 (issue) => issue.courseId === courseId && issue.termId === term.id,
               )}
               electiveOf={electiveOf.get(courseId)}
+              goalReason={goalReasons?.get(courseId) ?? null}
               onChoose={onChooseElective}
               alternativesFor={alternativesFor}
               onSwap={onSwapCourse}

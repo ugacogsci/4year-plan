@@ -1167,7 +1167,7 @@ export interface GeneratedPlan {
    * swap one for another course that carries the same categories; the board
    * used to label them "added", as if the student had put them there.
    */
-  genEdPicks?: Array<{ code: string; requirementId: string; label: string; tags: string[] }>;
+  genEdPicks?: Array<{ code: string; requirementId: string; label: string; tags: string[]; /** The student's goal ordered this category and the course is one it is about (goalGenEd). */ forGoal?: boolean }>;
   /**
    * The campus residency rule against this plan, or null when the school has
    * none. A transfer student can hold ninety hours and still owe Illinois
@@ -16141,7 +16141,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     bookedFor: Object.fromEntries([...chosen].map(([code, why]) => [code, why.requirementId])),
     genEdPicks: [...chosen].flatMap(([code, why]) => {
       const req = why.requirementId ? input.requirements.find((r) => r.id === why.requirementId) : undefined;
-      return req && req.rule.kind === 'gened' ? [{ code, requirementId: req.id, label: req.label || req.areaLabel, tags: req.rule.genEd }] : [];
+      // forGoal: the goal ordered this category's picks (goalCounts) and this course is one it is about,
+      // by the same test the order used (genEdOrder's goalGenEd), so the board can say so (goal-words.ts).
+      const forGoal = goalCounts && ((qualityAtPlacement(code).interest ?? 0) > 0 || opensGoal.has(code));
+      return req && req.rule.kind === 'gened' ? [{ code, requirementId: req.id, label: req.label || req.areaLabel, tags: req.rule.genEd, ...(forGoal ? { forGoal: true } : {}) }] : [];
     }),
     electives,
     language: null,

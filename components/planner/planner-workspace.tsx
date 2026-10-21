@@ -149,7 +149,7 @@ import {
 import { livePools, poolShortfalls } from './live-pools';
 import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersFor, summersToAdd, summerYearOf, summersInRange, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
 import { CAREER_TRACKS, careerWordsAfter, INTEREST_TOPICS, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
-import { careerWordsFor, restoredCareerWords, setupWords } from '@/lib/planner/goal-words';
+import { careerWordsFor, goalReasonOf, restoredCareerWords, setupWords } from '@/lib/planner/goal-words';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
 import { describeExcellent, interestWordsFrom, sectionTimes } from '@/lib/planner/quality';
 import {
@@ -3074,6 +3074,21 @@ export function PlannerWorkspace({
   // studying answer, or the programs a one-box setup weighs) add free words
   // and subjects here; goals are read from careerText alone.
   const interestsText = [setup.studying, careerText].join(' ');
+  /**
+   * The line a card, its popup and the printout give for a course the
+   * planner picked for the student's goal ("Picked for your goal: data
+   * science/analytics"), by course id; required courses and lists get none
+   * (goal-words.ts goalReasonOf).
+   */
+  const goalReasons = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const [id, mark] of electiveOf) {
+      const course = courseIndex.get(id);
+      const line = course ? goalReasonOf(course, mark, { career: careerText, interests: interestsText }) : null;
+      if (line) out.set(id, line);
+    }
+    return out;
+  }, [electiveOf, courseIndex, careerText, interestsText]);
 
   const chooserData = useMemo((): { label: string; options: Course[]; whys: Map<string, string> } | null => {
     if (!chooser || !plan || !context || !loaded) return null;
@@ -6782,6 +6797,7 @@ export function PlannerWorkspace({
                 alternativesFor={alternativesFor}
                 onSwapCourse={swapCourse}
                 electiveOf={electiveOf}
+                goalReasons={goalReasons}
                 instructors={instructorControl}
                 width={termWidths[term.id]}
                 onWidthChange={resizeTerm}
@@ -6834,6 +6850,7 @@ export function PlannerWorkspace({
         onRemoveCourse={removeCourse}
         highlightedCourseIds={replacementCourseIds}
         instructors={plan ? instructorControl : undefined}
+        goalReasons={plan ? goalReasons : undefined}
         instructorTyping={instructorTyping}
       />
 

@@ -7054,6 +7054,21 @@ button.unofficial-label:focus-visible,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* "Picked for your goal: ..." (lib/planner/goal-words.ts goalReasonOf): the same quiet
+   line on a card the planner picked for the student's goal, and a row in the map's popup. */
+.planner-app .course-card-goal {
+  display: block;
+  margin-top: 0;
+  overflow: hidden;
+  color: var(--orion-mid);
+  font-family: var(--app-font-mono);
+  font-size: 8px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.map-popup-goal { margin: 4px 0 0; color: #4b4b4b; font-size: 10px; line-height: 1.35; }
+.planner-app[data-theme='dark'] .map-popup-goal { color: #c6c6c6; }
 .course-instructor-menu .course-instructor-loading {
   margin: 4px 8px;
   color: var(--muted-foreground);
