@@ -941,6 +941,7 @@ export function CourseExplorer({
     <aside
       ref={finderRef}
       className="course-finder"
+      data-insight-feature="map"
       aria-label="Course map"
       data-resized={finderWidth === null ? undefined : 'true'}
       data-map-mode={mapMode}

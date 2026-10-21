@@ -53,7 +53,7 @@ export function privacySections(bot: string): PrivacySection[] {
     {
       title: 'What stays on your device',
       lines: [
-        'Your answers to the setup questions, your plan, your conversation with ' + bot + ' and a few display settings are saved in this browser (its local storage), on this device only. There are no accounts, and we keep no copy.',
+        'Your setup answers, plan, conversation with ' + bot + ' and display settings are saved in this browser. There are no accounts. Unless you separately opt in to research sharing, we do not keep copies of your setup answers or chat questions.',
         'Start over clears your answers and your plan; clearing this site’s data in your browser removes everything.',
         '"Download as JSON" saves a file on your device. "Copy a link" puts your plan inside the link itself, so anyone you send it to can read the plan.',
       ],
@@ -61,7 +61,7 @@ export function privacySections(bot: string): PrivacySection[] {
     {
       title: 'What is sent, and to whom',
       lines: [
-        `When you message ${bot}, your conversation so far and a text description of your plan go through our server to Anthropic’s Claude API, which writes the reply. Our server does not store or log them.`,
+        `When you message ${bot}, your conversation so far and a text description of your plan go through our server to Anthropic’s Claude API, which writes the reply. That request is not stored in our analytics. With separate research consent, a limited copy of the new question is sent to our research database.`,
         'When you upload a transcript or a screenshot, the files go through our server to the Claude API once so it can list the courses on them. Our server does not keep the files or log the courses; you review every line before anything counts.',
         `Questions about the university itself that ${bot} looks up (deadlines, policies, offices) go through our server to Anthropic’s Claude API, which searches only the university’s own official website and answers with links to the pages it used. For a follow-up, your previous question and that answer go with it; nothing about your plan does. Our server does not log these questions. It remembers the answer to a question for up to a day, with nothing about who asked, so the same question asked again is answered without a second search.`,
         'Anthropic handles what it receives under its commercial terms and privacy policy (anthropic.com/legal). Do not type passwords, your UIN, or other ID numbers into the chat.',
@@ -74,8 +74,20 @@ export function privacySections(bot: string): PrivacySection[] {
       ],
     },
     {
+      title: 'Optional analytics and research',
+      lines: [
+        'Analytics is off until you choose to enable it. If enabled and configured, ORION stores screen visits, named control clicks, feature visibility, active time, plan-edit counts, chat timing and coarse country/region in our Cloudflare database. A random browser identifier rotates after 30 days; it is pseudonymous, not a guarantee of anonymity. We do not store IP addresses, precise location, full URLs or keystrokes in analytics. We honor Do Not Track and Global Privacy Control.',
+        'A separate, unchecked choice lets us keep future submitted setup responses and chat questions for product research, up to 2,000 characters each. Basic redaction removes common emails, phone numbers and links but cannot remove every personal detail. Names or sensitive details you write may remain. We never automatically copy uploaded files, transcript records, grades, saved plans, assistant responses or older conversations into analytics.',
+        'Usage records are deleted after 90 days and research text after 30 days by a daily cleanup. Only authorized project operators can read them. Turn sharing off or delete this browser\'s analytics data above. Deletion does not remove local plans, feedback emails or records held by service providers. Clearing browser data removes the identifier needed for self-service deletion; contact orioncogsci@gmail.com for help. Data from older rotated identifiers expires on the same retention schedule.',
+      ],
+    },
+    {
+      title: 'Feedback and bug reports',
+      lines: ['Reports go to orioncogsci@gmail.com with the message, optional reply address, usefulness rating and any diagnostic details you choose to include. Without an email sender configured, ORION opens a draft in your email app and does not send it automatically. When automatic delivery is enabled, Resend delivers it to our Google inbox. Feedback emails are separate from analytics and remain in our inbox until removed; email us to request deletion.'],
+    },
+    {
       title: 'What we never do',
-      lines: ['We do not sell or share your information, show ads, or use trackers or analytics.'],
+      lines: ['We do not sell your information, use advertising trackers, record sessions, or track your activity on other websites. The planner works without optional analytics or research sharing.'],
     },
   ];
 }

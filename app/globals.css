@@ -7091,3 +7091,40 @@ button.unofficial-label:focus-visible,
 .planner-app .bot-msg.assistant strong { color: inherit; font-weight: 650; }
 .planner-app .bot-msg.assistant a { color: inherit; }
 .planner-app .bot-msg.assistant .bot-code { background: color-mix(in srgb, currentColor 12%, transparent); }
+
+/* Research and feedback share the existing notice/dialog typography. */
+.feedback-link { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.feedback-link svg { width: 13px; height: 13px; flex: 0 0 auto; }
+.planner-app .unofficial-link.feedback-link { display: inline-flex; }
+@media (max-width: 1000px) {
+  .planner-app .feedback-link > span { display: none; }
+  .planner-app .feedback-link { min-width: 28px; min-height: 32px; }
+}
+.insights-prompt { max-width: 560px; margin: 14px auto 0; text-align: center; font-family: var(--app-font-mono); font-size: 11px; line-height: 1.6; }
+.insights-prompt p { margin: 0 0 10px; }
+.insights-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.insights-prompt .insights-actions { justify-content: center; }
+.insights-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--foreground); font: inherit; cursor: pointer; }
+.insights-actions button:disabled { opacity: .5; cursor: default; }
+.insights-actions button:hover:not(:disabled) { background: var(--muted); }
+.insights-actions button:focus-visible, .feedback-form :is(input, textarea, select):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.insights-actions svg { width: 14px; height: 14px; }
+.insights-settings { display: grid; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.insights-settings > label, .feedback-check { display: flex; align-items: flex-start; gap: 10px; }
+.insights-settings input, .feedback-check input { flex: 0 0 auto; margin-top: 4px; accent-color: var(--foreground); }
+.insights-settings small { display: block; color: var(--muted-foreground); font-size: 11px; line-height: 1.6; margin-top: 4px; }
+.feedback-form { min-height: 0; display: grid; gap: 14px; overflow-y: auto; overscroll-behavior: contain; padding-right: 6px; }
+.privacy-dialog { width: calc(100vw - 32px); max-width: 512px; }
+.feedback-form > label:not(.feedback-check) { display: grid; gap: 5px; }
+.feedback-form :is(textarea, input[type='email'], select) { min-width: 0; width: 100%; padding: 9px 10px; color: var(--foreground); background: var(--background); border: 1px solid var(--border); border-radius: 4px; font: inherit; }
+.feedback-form textarea { resize: vertical; min-height: 110px; max-height: 300px; }
+.feedback-form p { margin: 0; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.feedback-form a { color: inherit; text-decoration: underline; overflow-wrap: anywhere; }
+.feedback-kind { display: flex; flex-wrap: wrap; gap: 20px; border: 0; padding: 0; }
+.feedback-kind label { display: inline-flex; align-items: center; gap: 7px; }
+.feedback-kind input { accent-color: var(--foreground); }
+.feedback-dialog .insights-actions button[type='submit'] { background: var(--foreground); color: var(--background); }
+@media (max-width: 600px) {
+  .feedback-dialog { padding: 20px; }
+  .insights-actions button { min-height: 40px; }
+}

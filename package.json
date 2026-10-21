@@ -21,7 +21,9 @@
     "format": "oxfmt",
     "typecheck": "tsc --noEmit",
     "test:map-interactions": "node --experimental-strip-types lib/planner/__map-interactions.check.mjs",
-    "test:setup-reset": "node --experimental-strip-types lib/planner/__setup-reset.check.mjs"
+    "test:setup-reset": "node --experimental-strip-types lib/planner/__setup-reset.check.mjs",
+    "test:insights": "node --experimental-strip-types lib/insights/__insights.check.mjs",
+    "test:dev-runtime": "node --experimental-strip-types scripts/dev/__vinext-scope-guard.check.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",

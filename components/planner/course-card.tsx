@@ -248,6 +248,7 @@ export function CourseCard({
         setMenuOpen(open);
       }}>
         <DropdownMenuTrigger
+          data-insight="course.options"
           aria-label={`Options for ${course.code}`}
           render={<Button variant="ghost" size="icon-sm" title={`Options for ${course.code}`} />}
         >
@@ -262,6 +263,7 @@ export function CourseCard({
             <DropdownMenuLabel>{course.code}</DropdownMenuLabel>
           </DropdownMenuGroup>
           <DropdownMenuItem
+            data-insight="course.replace"
             onClick={() => {
               replacement.onLoad();
               replacement.onShowAll();
@@ -317,6 +319,7 @@ export function CourseCard({
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
+            data-insight="course.remove"
             onClick={() => onRemove(course.id, term.id)}
           >
             <Trash2 /> Remove from plan

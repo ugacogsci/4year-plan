@@ -1,12 +1,22 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "orion",
-  "main": "vinext/server/fetch-handler",
+  "main": "worker.ts",
   "compatibility_date": "2026-09-07",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "preview_urls": false,
   "vars": {
     "NEXT_PUBLIC_SITE_URL": "https://orion.cogsci.workers.dev"
+  },
+  // Add the production INSIGHTS_DB binding after creating the D1 database.
+  // See README.md. No analytics is collected without that binding.
+  "triggers": { "crons": ["17 4 * * *"] },
+  "env": {
+    "insights_local": {
+      "name": "orion-insights-local",
+      "vars": { "NEXT_PUBLIC_SITE_URL": "http://localhost:3001" },
+      "d1_databases": [{ "binding": "INSIGHTS_DB", "database_name": "orion-insights-local", "database_id": "00000000-0000-0000-0000-000000000001", "migrations_dir": "migrations" }]
+    }
   }
 }

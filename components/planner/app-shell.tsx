@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Onboarding } from './onboarding';
 import { clearSavedPlan, PlannerWorkspace } from './planner-workspace';
 import { isReadySchool, loadAnswers, saveAnswers, type OnboardingAnswers } from '@/lib/planner/onboarding';
+import { InsightsRuntime } from './insights-controls';
 
 /**
  * The questions on every launch, the planner after them.
@@ -14,10 +15,8 @@ import { isReadySchool, loadAnswers, saveAnswers, type OnboardingAnswers } from 
  * what was said last time, and one link skips to the saved plan for anyone who
  * has nothing to change. New answers build a new plan.
  *
- * Answers live in localStorage. Nothing about a student leaves the device
- * until there is a backend and a FERPA review, which is the boundary the
- * project README draws. The one exception is a transcript the student chooses
- * to upload: it is sent once to /api/transcript to be read, and not kept.
+ * Plans stay in localStorage. Optional analytics and research sharing are
+ * separately consented; transcript uploads are never copied into analytics.
  */
 export function AppShell() {
   const [saved, setSaved] = useState<OnboardingAnswers | null>(null);
@@ -43,6 +42,7 @@ export function AppShell() {
   if (!answers) {
     return (
       <TooltipProvider>
+        <InsightsRuntime />
         <Onboarding
           initial={saved}
           onResume={saved ? () => setAnswers(saved) : undefined}
@@ -58,6 +58,7 @@ export function AppShell() {
   }
   return (
     <TooltipProvider>
+      <InsightsRuntime />
       <PlannerWorkspace
         answers={answers}
         onAnswersChange={(next) => {

@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { Info } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { privacySections, schoolPhrase, UNOFFICIAL_LABEL, unofficialNotice } from '@/lib/planner/notices';
+import { InsightsControls, InsightsPrompt } from './insights-controls';
+import { FeedbackButton } from './feedback';
 
 /**
  * The unofficial label and the privacy notice, on every screen.
@@ -24,6 +26,7 @@ export function PrivacyDialog({ open, onOpenChange, schoolName, bot }: { open: b
           <DialogDescription>{unofficialNotice(schoolName)}</DialogDescription>
         </DialogHeader>
         <div className="privacy-body">
+          <InsightsControls />
           {privacySections(bot).map((section) => (
             <section key={section.title}>
               <h3>{section.title}</h3>
@@ -75,6 +78,7 @@ export function UnofficialBadge({ schoolName, bot }: { schoolName: string | null
         Privacy
       </button>
       <PrivacyDialog open={open} onOpenChange={setOpen} schoolName={schoolName} bot={bot} />
+      <FeedbackButton />
     </div>
   );
 }
@@ -92,6 +96,8 @@ export function SiteFooter({ schoolName, bot }: { schoolName: string | null; bot
         Privacy: what this app stores and sends
       </button>
       <PrivacyDialog open={open} onOpenChange={setOpen} schoolName={schoolName} bot={bot} />
+      <FeedbackButton />
+      <InsightsPrompt />
     </footer>
   );
 }

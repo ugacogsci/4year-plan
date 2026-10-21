@@ -222,6 +222,7 @@ export function StudentProfilePanel({
     <aside
       id="planner-progress"
       className="rail"
+      data-insight-feature="progress"
       aria-label="Your profile and progress"
       data-school={schoolShort}
     >

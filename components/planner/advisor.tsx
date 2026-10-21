@@ -17,6 +17,7 @@ import type { Source } from '@/lib/planner/ask-router';
 import type { SchoolId } from '@/lib/planner/onboarding';
 import { chatLines, type ChatSpan } from '@/lib/planner/chat-markdown';
 import { CHAT_KEY } from '@/lib/planner/saved-board';
+import { track, trackContent } from '@/lib/insights/client';
 
 /**
  * The bot's panel: a column beside the board that holds a conversation which
@@ -477,6 +478,9 @@ export function BotPanel({
   async function send(text: string) {
     const userText = text.trim();
     if (!userText || busy || !ready) return;
+    const startedAt = performance.now();
+    track('chat_sent', { characters: userText.length });
+    trackContent('chat', userText);
     onOpen();
     setDraft('');
     setError(null);
@@ -518,8 +522,10 @@ export function BotPanel({
         },
       });
       remember(turn.messages);
+      track('chat_completed', { outcome: turn.refused ? 'refused' : 'ok', durationMs: performance.now() - startedAt });
       if (turn.refused) setError(turn.refused);
     } catch (caught) {
+      track('chat_completed', { outcome: controller.signal.aborted ? 'stopped' : 'error', durationMs: performance.now() - startedAt });
       if (controller.signal.aborted) {
         setError('Stopped.');
       } else {
@@ -567,6 +573,7 @@ export function BotPanel({
       <div
         id="planner-chat-history"
         className="bot-history"
+        data-insight-feature="assistant"
         data-open={open ? 'true' : 'false'}
       >
         <header className="bot-head">
@@ -670,7 +677,7 @@ export function BotPanel({
         </div>
       </div>
 
-      <div className="bot-prompt">
+      <div className="bot-prompt" data-insight-feature="assistant">
         <form
           className="bot-compose"
           data-suggestion={!draft && ready && !busy ? 'true' : undefined}

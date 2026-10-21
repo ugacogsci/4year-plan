@@ -1,4 +1,5 @@
 'use client';
+import { setInsightScreen, track } from '@/lib/insights/client';
 
 /**
  * The planner, in one screen.
@@ -705,6 +706,7 @@ export function PlannerWorkspace({
   onAnswersChange?: (next: OnboardingAnswers) => void;
 }) {
   const school = schoolById(answers?.schoolId ?? null);
+  useEffect(() => { setInsightScreen('planner', school?.id); }, [school?.id]);
   const isIllinois = school?.id === 'illinois';
   const isUga = school?.id === 'uga';
   const programLevel: ProgramLevel = answers?.programLevel ?? 'undergraduate';
@@ -1385,6 +1387,7 @@ export function PlannerWorkspace({
   // ---- the plan -------------------------------------------------------------
 
   const buildPlan = useCallback(() => {
+    const buildStartedAt = performance.now();
     if (!isCatalogSchool) {
       const sample = createSamplePlan();
       replaceActivePlan(sample);
@@ -1720,6 +1723,7 @@ export function PlannerWorkspace({
     setPlanNotes(generated.notes);
     // Only the parts of the report a board edit cannot change (reportOf).
     setReport(reportOf(generated));
+    track('plan_generated', { outcome: 'ok', terms: generated.plan.terms.length, durationMs: performance.now() - buildStartedAt });
     repickedFor.current = repickSignature(priorities, planInput.interests ?? '');
     studentAdded.current = new Set();
     setBoardEdited(false);
@@ -2873,9 +2877,10 @@ export function PlannerWorkspace({
    * back the whole answer: three history courses in, three elective slots out.
    * `added` are cards that read "added" from now on.
    */
-  function commit(next: PlanState, options: { by?: 'student' | 'alma'; summary?: string; added?: string[]; alreadyTaken?: string[] } = {}) {
+  function commit(next: PlanState, options: { by?: 'student' | 'alma'; summary?: string; added?: string[]; alreadyTaken?: string[]; operation?: 'add' | 'remove' | 'move' | 'reorder' | 'replace' } = {}) {
     const before = boardNow();
     if (!before) return;
+    track('plan_change', { operation: options.alreadyTaken ? 'completed' : options.operation ?? (options.added?.length ? 'add' : 'edit'), actor: options.by === 'alma' ? 'assistant' : 'student' });
     if (options.by === 'alma' && almaTurn.current) almaChanged(options.summary ?? null);
     else setUndoStack((current) => pushUndo(current, { before, alreadyTakenCourseCodes: live.current.answers?.alreadyTakenCourseCodes ?? [] }));
     if (options.added?.length) studentAdded.current = new Set([...studentAdded.current, ...options.added]);
@@ -3128,7 +3133,7 @@ export function PlannerWorkspace({
     };
     const problem = isUga ? checkPlacement(candidate, course, termId).blocking[0] ?? progressCheckOn(plan)?.(candidate) : null;
     if (problem) { notify('Replacement needs review', problem, 'info'); return; }
-    commit(candidate);
+    commit(candidate, { operation: 'replace' });
     // A true open-elective card remains an open-elective card after a swap.
     if (oldCourse && electiveOf.get(oldCourse.id)?.kind === 'elective') {
       noteElectiveSwap(oldCourse.code, course.code, 'You chose it for this elective slot.');
@@ -3157,7 +3162,7 @@ export function PlannerWorkspace({
           ? { ...term, courseIds: withoutOne(term.courseIds, courseId) }
           : term,
       ),
-    });
+    }, { operation: 'remove' });
     if (selectedCourseId === courseId) setSelectedCourseId(null);
     setStatus(`${course?.code ?? 'Course'} removed.`);
   }
@@ -3197,7 +3202,7 @@ export function PlannerWorkspace({
         }
         return term;
       }),
-    });
+    }, { operation: fromTermId === toTermId ? 'reorder' : 'move' });
     setSelectedCourseId(courseId);
     setFocusTermId(toTermId);
     setStatus(
@@ -3769,7 +3774,7 @@ export function PlannerWorkspace({
       terms: plan.terms.map((t) =>
         t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === courseId ? replacementId : id)) } : t,
       ),
-    });
+    }, { operation: 'replace' });
     setSelectedCourseId(replacementId);
     const mark = electiveOf.get(courseId);
     const list = mark?.label;
@@ -5647,6 +5652,7 @@ export function PlannerWorkspace({
   };
 
   function exportPlan() {
+    track('control_click', { control: 'plan.export' });
     if (!plan) return;
     // The file says what it is, for whoever opens it later. A reader (importPlan) ignores the notice field.
     const blob = new Blob([JSON.stringify({
@@ -5676,6 +5682,7 @@ export function PlannerWorkspace({
   }
 
   function importPlan() {
+    track('control_click', { control: 'plan.import' });
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json,.json';
@@ -5727,6 +5734,7 @@ export function PlannerWorkspace({
   }
 
   async function sharePlan() {
+    track('control_click', { control: 'plan.share' });
     if (!plan) return;
     const encoded = btoa(encodeURIComponent(JSON.stringify({
       programIds,
@@ -6241,9 +6249,10 @@ export function PlannerWorkspace({
         }
       />
 
-      <section className="board-region" aria-label="Your semesters">
+      <section className="board-region" aria-label="Your semesters" data-insight-feature="schedule">
         <div
           className="plan-tabs"
+          data-insight-feature="plans"
           role="tablist"
           tabIndex={-1}
           aria-label="Degree plan alternatives"
@@ -6563,7 +6572,7 @@ export function PlannerWorkspace({
         onOpenChange={setFinderOpen}
         onSearchChange={setSearchQuery}
         onTargetTermChange={setTargetTermId}
-        onSelectCourse={setSelectedCourseId}
+        onSelectCourse={(id) => { setSelectedCourseId(id); if (id) track('control_click', { control: 'map.select' }); }}
         onAddCourse={addCourse}
         onRemoveCourse={removeCourse}
         highlightedCourseIds={replacementCourseIds}

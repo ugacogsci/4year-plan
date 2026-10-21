@@ -1,5 +1,86 @@
 # ORION
 
+## Local preview stability
+
+The pinned Vinext beta retains inactive request stores during hot reloads.
+`scripts/dev/vinext-scope-guard.ts` skips those empty stores when exiting request
+scopes, avoiding a stack overflow after repeated reloads. This Vite transform is
+development-only, leaves dependency files and production builds unchanged, and
+fails explicitly if the upstream implementation changes. Run
+`npm run test:dev-runtime` when updating Vinext. Generated database/runtime/build
+files are excluded from the dev watcher; source files still hot reload.
+
+## Optional product analytics and feedback
+
+Analytics is opt-in and disabled when `INSIGHTS_DB` is not bound. Privacy on
+every screen exposes usage and separate research-text consent, withdrawal,
+and deletion for the current browser identifier. DNT and Global Privacy
+Control override opt-in. No session replay, keystroke capture, uploaded files,
+grades, student records, full URLs, plan names or assistant tool results are
+collected. Never add blanket DOM autocapture or server request-body logging.
+
+Named controls, setup screens, visible features, active time (foreground only,
+30-second idle cutoff), plan-edit counts, chat completion times/outcomes and
+coarse Cloudflare country/region are stored in D1. Identifiers rotate every
+30 days. Only future submitted free-text setup responses and chat questions
+are copied when the separate research checkbox is explicitly selected, with
+2,000-character limits and best-effort contact-detail redaction. This text may
+still contain personal information. Review the privacy notice and your
+institution's policies before inviting students to share research text.
+The metrics describe the opted-in cohort, not all visitors. Lack of a click
+does not establish disinterest; compare feature visibility and ask for feedback.
+
+Local database preview, separate from the ordinary no-tracking dev server:
+
+```sh
+npx wrangler d1 migrations apply orion-insights-local --env insights_local --local
+CLOUDFLARE_ENV=insights_local npm run dev -- --host 127.0.0.1 --port 3001
+npm run test:insights
+```
+
+Production setup (not enabled by this change):
+
+1. Sign in to Cloudflare with `npx wrangler login` if database access fails.
+2. Run `npx wrangler d1 create orion-insights`. Add its real ID to a top-level
+   `d1_databases` entry in `wrangler.jsonc`, with `binding: "INSIGHTS_DB"`,
+   `database_name: "orion-insights"`, and `migrations_dir: "migrations"`.
+   Never deploy the `insights_local` environment as production.
+3. Apply `npx wrangler d1 migrations apply orion-insights --remote`.
+4. Set `INSIGHTS_ADMIN_TOKEN` via `npx wrangler secret put INSIGHTS_ADMIN_TOKEN`
+   to a strong random secret (at least 32 characters); do not commit it.
+5. Build and deploy normally. The Worker preserves Vinext's fetch handler and
+   adds daily cleanup at 04:17 UTC: usage expires after 90 days, submitted text
+   after 30. Revocation tombstones prevent late batches restoring deleted data.
+   Check Cron execution in Cloudflare. D1 backup retention is managed separately
+   by Cloudflare; self-service deletion removes active rows, not provider backups.
+6. Read `/api/insights/report` with an `Authorization: Bearer ...` header from
+   a trusted server or terminal. It returns 30-day totals, screens, feature
+   exposure, active time, control usage, geography and outcomes. Add `?content=1`
+   only when reviewing opted-in research submissions (latest 100). Never put
+   the secret in a URL or ship it in frontend code. D1 Studio can query the
+   three `insight_*` tables too; restrict Cloudflare access to project operators.
+
+Requests have strict schemas, payload limits, parameterized queries, a
+per-subject daily cap, same-origin checks and per-isolate IP-hash burst limits.
+Before a large public launch, configure Cloudflare edge rate limiting for
+`/api/insights` and `/api/feedback`; in-memory limits do not coordinate across
+isolates and browser tokens are not authenticated accounts. No raw IP is
+persisted by this feature. Analytics failure never blocks the planner.
+
+Feedback/report-a-bug is available in setup and the planner. Reports target
+**orioncogsci@gmail.com** and may include a usefulness rating, optional reply
+email and explicit opt-in diagnostics (screen, university, window category).
+Today it opens an email draft, truthfully labeled as not sent. For automatic
+delivery, verify a sender domain with Resend, set `RESEND_API_KEY` and
+`FEEDBACK_FROM` as Cloudflare secrets, then redeploy. Resend accepts the report
+server-side with a fixed destination and an idempotency key; provider errors
+are not presented as success. Feedback email retention is separate from D1.
+Never use your Gmail password, and never expose the sending key to the browser.
+
+Reference: [Cloudflare D1 bindings](https://developers.cloudflare.com/d1/worker-api/d1-database/),
+[Cloudflare location fields](https://developers.cloudflare.com/workers/examples/geolocation-hello-world/),
+[Resend send API](https://resend.com/docs/api-reference/emails/send-email).
+
 ## UGA planning guidance
 
 `public/uga-planning-guidance.json` records official Bulletin sample plans and the
@@ -68,7 +149,7 @@ This integration is for local review and the `uga2` branch only. No production d
 
 What is here now is a working planner for the University of Illinois Urbana-Champaign, built on this skeleton: the real catalog (6,110 undergraduate courses), 308 degree pages, Fall 2026 sections and DAIR grade history, with the generator, the checks and the assistant below. The school roster in `lib/planner/onboarding.ts` lists Illinois and UGA, and onboarding offers both; the work and checks on this branch are for Illinois.
 
-- Onboarding runs on every launch: three questions, AP and IB scores priced against the registrar's table, and a transcript (PDF, image or text) read once by Claude into a checklist the student confirms. Nothing about a student is stored.
+- Onboarding runs on every launch: setup questions, AP and IB scores priced against the registrar's table, and a transcript (PDF, image or text) read once by Claude into a checklist the student confirms. Plans and credit review stay local; optional research sharing is described above.
 - Plans reach the degree's published total with balanced terms. The graduation date outranks the hours a student asks for. Elective slots fill what the degree page does not name; tapping one lists everything eligible in that term.
 - ALMA, named after the Alma Mater, sits in a column beside the board. It answers anything about Illinois through the planner's own lookup of the university's official pages (Claude with web search limited to illinois.edu, every answer linked to the pages it used), reads the board, and can add, remove, replace or move courses, always through the same prerequisite, standing and credit checks a drag goes through. Removing a required course needs the student's yes.
 

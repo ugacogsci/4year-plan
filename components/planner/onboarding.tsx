@@ -41,6 +41,8 @@ import {
 } from '@/lib/planner/onboarding';
 import { transcriptCodes, transcriptHours } from '@/lib/planner/transcript';
 import { clearPlannerStorage, createSetupResetSequence } from '@/lib/planner/setup-reset';
+import { setInsightScreen, track, trackContent } from '@/lib/insights/client';
+import { SCREENS } from '@/lib/insights/schema';
 import {
   findUgaCollege,
   normalizeUgaCollegeId,
@@ -241,6 +243,7 @@ export function Onboarding({
 
   const school = schoolById(answers.schoolId);
   const response = setupResponse(answers);
+  useEffect(() => { setInsightScreen(SCREENS[step] ?? 'university', answers.schoolId); }, [step, answers.schoolId]);
   const emphasisRequirements = useMemo(
     () =>
       (catalog?.requirements ?? []).filter((requirement) =>
@@ -519,6 +522,7 @@ export function Onboarding({
   }
 
   function prepareDetails() {
+    trackContent('setup', response);
     const mentionedGraduation = inferGraduationTarget(answers.timeline);
     const useMentionedGraduation = !graduationEdited &&
       Boolean(mentionedGraduation.season || mentionedGraduation.year) &&
@@ -564,6 +568,7 @@ export function Onboarding({
   }
 
   function finish() {
+    track('setup_submitted', { level: answers.programLevel, majors: answers.programIds.filter((id) => id !== UNDECIDED_PROGRAM_ID).length, minors: answers.minorIds.length, certificates: answers.certificateIds.length });
     setStep(5);
     saveAnswers(answers);
     window.setTimeout(() => onDone(answers), 1400);
