@@ -116,6 +116,8 @@ export interface PacketTerm {
   away?: string;
   /** A load a college has to approve, said on the term: "Over 18 credits: an overload." */
   load?: string;
+  /** The semester in progress (current-term.ts): the student's own classes, not the plan's. */
+  inProgress?: string;
 }
 
 export interface PacketBackup {
@@ -248,6 +250,12 @@ export interface PacketInput {
   /** Held codes that come from neither the record nor an exam: typed under Credit, or told to ALMA. */
   enteredCodes: string[];
   away: PacketAway[];
+  /**
+   * The semester in progress and the student's classes in it, when the board
+   * shows one (current-term.ts). Printed first, marked in progress, and never
+   * read as the plan's: "next term" stays the first planned one.
+   */
+  current?: { label: string; season: SemesterSeason; year: number; courses: Course[]; assumedHours: number } | null;
   residency: { ok: boolean; shortfall?: string | null } | null;
   admission: { name: string; path: string; requiredBy: string; source: string } | null;
   /** The review list, grouped the way the chip shows it (groupIssues). */
@@ -507,6 +515,22 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
         away: `${what}${a.credits > 0 ? `, ${a.credits} ${plural(a.credits, 'hour')} toward the total` : ', no courses here'}.${a.kind === 'study_abroad' ? ' Courses taken abroad count only once they are approved.' : ''}`,
       },
       ord: calendarOrd(a.season, a.year),
+    });
+  }
+  // The semester in progress, before the plan: the student's own classes.
+  const now = input.current;
+  if (now) {
+    const credits = termCredits(now.courses, input.context);
+    terms.push({
+      term: {
+        label: `${now.label}, in progress`,
+        credits: now.courses.length > 0 ? credits.label : 'no classes added',
+        courses: now.courses.map((c) => packetCourse(c, input)),
+        inProgress: now.courses.length > 0
+          ? `The classes you are taking now. They count once you pass them.${now.assumedHours > 0 ? ` The plan also counts about ${now.assumedHours} more credits for ${now.label} until the rest are added.` : ''}`
+          : `No classes added for ${now.label} yet.${now.assumedHours > 0 ? ` The plan counts it as about ${now.assumedHours} credits until they are.` : ''}`,
+      },
+      ord: calendarOrd(now.season, now.year),
     });
   }
   terms.sort((a, b) => a.ord - b.ord);

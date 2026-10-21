@@ -241,6 +241,13 @@ export interface TranscriptRecord {
   notes: string[];
   /** A completed IAI GECC (or an Illinois A.A./A.S. carrying it), when the document shows one. */
   gecc?: GeccCompletion | null;
+  /**
+   * The term ("Fall 2026") whose in-progress classes the student said are
+   * theirs, on the board's current-semester column (current-term.ts). Absent
+   * until they answer, and on every record from before the column; a new
+   * upload is a new record, so its classes are asked about again.
+   */
+  currentConfirmed?: string;
 }
 
 /** One file of the upload body. */

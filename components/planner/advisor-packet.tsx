@@ -107,6 +107,7 @@ export function AdvisorPacketSheet({ packet }: { packet: AdvisorPacket }) {
                 <span className="packet-term-credits">{term.credits}</span>
               </h3>
               {term.away && <p className="packet-away">{term.away}</p>}
+              {term.inProgress && <p className="packet-away">{term.inProgress}</p>}
               {term.load && <p className="packet-load">{term.load}</p>}
               {term.courses.length > 0 && (
                 <ul>

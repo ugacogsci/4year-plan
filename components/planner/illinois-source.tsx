@@ -1115,6 +1115,13 @@ export function readHorizon(
   gradPassed: { season: SemesterSeason; year: number } | null;
   /** Falls and springs away (a gap year) between `began` and the plan's first term: they earned nothing. */
   pastAway: Array<{ season: SemesterSeason; year: number }>;
+  /**
+   * The words say the student has not started college yet ("incoming
+   * freshman", "high school senior"), and no record shows a term in progress.
+   * True even when a graduation date keeps the plan from moving to the next
+   * fall: the board then shows no current-semester column (current-term.ts).
+   */
+  notStarted: boolean;
 } {
   const ordOf = (season: SemesterSeason, year: number) => year * 3 + (season === 'Spring' ? 0 : season === 'Summer' ? 1 : 2);
   const nowOrd = ordOf(startTerm.season, startTerm.year);
@@ -1457,7 +1464,7 @@ export function readHorizon(
   for (const f of found) if (f.cue === 'away' && f.season === 'Summer') summerSet.delete(f.year);
   const summers = [...summerSet].filter((y) => ordOf('Summer', y) > startOrd && ordOf('Summer', y) <= gradOrd).sort((a, b) => a - b);
 
-  return { startSeason, startYear, gradSeason, gradYear, stated, away, summers, began, beganFrom, datedStart, incoming, gradPassed, pastAway };
+  return { startSeason, startYear, gradSeason, gradYear, stated, away, summers, began, beganFrom, datedStart, incoming, gradPassed, pastAway, notStarted: notStarted && !known.enrolled && !began };
 }
 
 // ---------------------------------------------------------------------------

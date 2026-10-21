@@ -7513,3 +7513,89 @@ button.unofficial-label:focus-visible,
   .planner-app .attention-chip-text { white-space: normal; text-align: left; }
 }
 .planner-app .attention-more-now { color: var(--orion-text); }
+
+/* The semester in progress (components/planner/current-term-column.tsx): the
+   board's first column, holding the student's real classes, never the
+   planner's. A dashed edge, a tinted ground and an "In progress" mark set it
+   apart from the planned terms after it; its cards have no drag handle. */
+.current-term-column { background: color-mix(in srgb, var(--accent-blue, #62b9ea) 6%, transparent); }
+.planner-app .current-term-column {
+  border-right-style: dashed;
+  background: color-mix(in srgb, var(--orion-soft) 70%, transparent);
+}
+.current-term-badge {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--app-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.planner-app .current-term-badge { color: var(--orion-mid); }
+.current-term-ask {
+  padding: 7px 10px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.planner-app .current-term-ask { border-bottom-color: var(--orion-line); font-family: var(--app-font-mono); font-size: 11px; }
+.current-term-ask p { margin: 0 0 6px; }
+.planner-app .current-term-ask p { color: var(--orion-text); }
+.current-term-ask-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.current-term-ask-buttons button svg,
+.current-term-done svg { width: 13px; height: 13px; }
+.current-class-card { cursor: default; }
+.current-class-card:active { cursor: default; }
+.current-class-spacer { grid-column: 1; grid-row: 1 / 4; width: 22px; }
+.planner-app .current-class-spacer { width: 18px; }
+.current-class-from {
+  display: block;
+  margin-top: 1px;
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--ink-dim);
+}
+.planner-app .current-class-from { color: var(--orion-dim); font-family: var(--app-font-mono); font-size: 8px; }
+/* "Set my instructor" stays in sight on a class the student is taking now:
+   it is the reason to open one. */
+.planner-app .current-class-card .current-class-instructor,
+.planner-app .current-class-card .current-class-remove {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+.current-class-card .course-complete-button:disabled { opacity: 0.5; cursor: default; }
+.current-term-add { display: grid; gap: 4px; padding: 4px 0; }
+.current-term-add-row { display: flex; gap: 4px; align-items: center; }
+.current-term-add-row input { min-width: 0; height: 30px; font-size: 12px; }
+.current-term-hits { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.current-term-hits button {
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.current-term-hits button:hover,
+.current-term-hits button:focus-visible { background: var(--orion-soft, rgba(127, 127, 127, 0.12)); }
+.current-term-hits small { color: var(--orion-dim, var(--ink-dim)); }
+.planner-app .current-term-hits button { font-family: var(--app-font-mono); font-size: 10px; }
+.current-term-none { margin: 2px 4px; font-size: 11px; color: var(--orion-dim, var(--ink-dim)); }
+.current-term-done { justify-self: start; margin-top: 4px; }
+/* "Add a class you're taking now" is longer than "Add a course": it wraps inside the column. */
+.current-term-column .semester-add-button {
+  max-width: 100%;
+  height: auto;
+  min-height: 34px;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.3;
+}

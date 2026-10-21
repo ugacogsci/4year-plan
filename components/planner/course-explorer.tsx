@@ -69,6 +69,12 @@ interface CourseExplorerProps {
   instructorTyping?: { courseId: string; termId: string } | null;
   /** "Picked for your goal: ...", by course id, for a course on the board the planner picked for the student's goal. */
   goalReasons?: ReadonlyMap<string, string>;
+  /**
+   * The semester in progress, when the board shows one (current-term.ts):
+   * a class in it gets My instructor and that term's class times in the
+   * popup, as a planned card does. It is never offered as a term to add to.
+   */
+  currentTerm?: PlanTerm | null;
 }
 
 /**
@@ -117,6 +123,7 @@ export function CourseExplorer({
   instructors,
   instructorTyping = null,
   goalReasons,
+  currentTerm = null,
 }: CourseExplorerProps) {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [deptQuery, setDeptQuery] = useState('');
@@ -1221,7 +1228,8 @@ export function CourseExplorer({
               {selected.description && <p className="map-popup-description">{selected.description}</p>}
               {instructors && (() => {
                 // The term the card sits in: the one the board opened it from, else the first holding it.
-                const at = terms.find((t) => t.id === targetTermId && t.courseIds.includes(selected.id)) ?? terms.find((t) => t.courseIds.includes(selected.id));
+                const held = currentTerm ? [currentTerm, ...terms] : terms;
+                const at = held.find((t) => t.id === targetTermId && t.courseIds.includes(selected.id)) ?? held.find((t) => t.courseIds.includes(selected.id));
                 const typing = instructorTyping?.courseId === selected.id && instructorTyping.termId === at?.id;
                 return at ? (
                   <InstructorPicker
@@ -1245,7 +1253,7 @@ export function CourseExplorer({
                   // The column the course sits in decides which term's class
                   // times the card shows: a spring-column course shows Spring 2027.
                   planTerm={(() => {
-                    const at = terms.find((t) => t.courseIds.includes(selected.id));
+                    const at = (currentTerm ? [currentTerm, ...terms] : terms).find((t) => t.courseIds.includes(selected.id));
                     return at ? { id: at.id, label: at.label } : null;
                   })()}
                 />

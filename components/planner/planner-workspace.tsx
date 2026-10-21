@@ -80,9 +80,7 @@ import {
   plannableProgram,
   openProgram,
   suspendedNotice,
-  readHorizon,
   firstOpenTerm,
-  calendarTerm,
   readPriorCredit,
   readPrograms,
   useIllinoisCore,
@@ -150,7 +148,7 @@ import {
   type UndoEntry,
 } from '@/lib/planner/saved-board';
 import { livePools, poolShortfalls } from './live-pools';
-import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersFor, summersToAdd, summerYearOf, summersInRange, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
+import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersToAdd, summerYearOf, summersInRange, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
 import { CAREER_TRACKS, careerWordsAfter, INTEREST_TOPICS, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
 import { careerWordsFor, goalReasonOf, restoredCareerWords, setupWords } from '@/lib/planner/goal-words';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
@@ -184,7 +182,6 @@ import {
   UNDECIDED_PROGRAM_ID,
   clearAnswers,
   schoolById,
-  timelineForPlanning,
   type OnboardingAnswers,
   type ProgramLevel,
   type ExamCreditEntry,
@@ -197,9 +194,7 @@ import {
   type PlannerTheme,
 } from '@/lib/planner/theme';
 import {
-  lineIsForeign,
   normalizeCourseCode,
-  normalizeTerm,
   transcriptGenEdCredits,
   transcriptCodes,
   transcriptCreditAdjustment,
@@ -213,8 +208,10 @@ import {
 import { UGA_TRANSFER_PORTAL, loadUgaTransfer, ugaDesignation, ugaLookup, ugaSchoolEntry } from '@/lib/planner/transfer-official';
 import { withCoreCredit } from '@/lib/planner/transfer-core';
 import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
-import { assumedHours as assumedHoursOf, recordCoverage, uncoveredTerms } from '@/lib/planner/start-term';
-import { distinctHeld, heldTowardDegree, type GenEdCredit, type Horizon, type PlanRequirement, type PriorCredit } from '@/lib/planner/autoplan';
+import { horizonFor, stepRegular, termOrd } from '@/lib/planner/plan-start';
+import { currentClasses, currentPlanTerm, currentQuestion, termIdOf, withCurrentClass, withCurrentConfirmed, withInstructorsOfTerm, withoutCurrentClass } from '@/lib/planner/current-term';
+import { CurrentTermColumn } from './current-term-column';
+import { distinctHeld, heldTowardDegree, type GenEdCredit, type PlanRequirement, type PriorCredit } from '@/lib/planner/autoplan';
 import { boardChecker, genEdCandidates, genEdWhy, notRegistrable, planMarks, repickBoard, repickSignature, type RepickChange } from '@/lib/planner/repick';
 import { creditUse, editFlags, enteringAsFirstYear, flagsCaused, isEditFlag, momentumReview, priorCreditUse, summerSuggestions, withSummer } from '@/lib/planner/review';
 import { buildAdvisorPacket, cardRole, type AdvisorPacket, type CardRole } from '@/lib/planner/advisor-packet';
@@ -1772,7 +1769,9 @@ export function PlannerWorkspace({
     if (keptSummers !== generated.plan) generated = { ...generated, plan: keptSummers };
     // The student's instructor picks stay with every course still in the same term.
     const codeOfId = planRef.current?.instructors ? new Map([...byCode.values()].map((c) => [c.id, c.code])) : null;
-    replaceActivePlan(codeOfId ? carryInstructors(planRef.current, generated.plan, (id) => codeOfId.get(id)) : generated.plan);
+    const carried = codeOfId ? carryInstructors(planRef.current, generated.plan, (id) => codeOfId.get(id)) : generated.plan;
+    // And those set for the current semester's classes: that column is the student's record, not rebuilt.
+    replaceActivePlan(horizon.current ? withInstructorsOfTerm(planRef.current, carried, termIdOf(horizon.current)) : carried);
     setChooser(null);
     setChooserOnMap(false);
     setTargetTermId(generated.plan.terms[0]?.id ?? '');
@@ -1808,7 +1807,10 @@ export function PlannerWorkspace({
    * the bot recorded the credit at their request (the toast says the edits
    * were replaced). Otherwise the rail tells them to press Rebuild.
    */
-  const creditKey = creditKeyOf(answers);
+  // With the hours assumed for terms not entered yet: saying "those are all my
+  // classes" in the current-semester column changes what the plan counts for
+  // it, and the plan is rebuilt around that like any other credit change.
+  const creditKey = `${creditKeyOf(answers)};a${horizonFor(answers, new Date(), NO_SHAPE).assumedHours}`;
   const lastCreditKey = useRef<string | null>(null);
   const rebuildForCredit = useRef(false);
   /**
@@ -1928,9 +1930,10 @@ export function PlannerWorkspace({
       const first = saved.board.plan.terms.find((t) => t.season !== 'Summer');
       const open = firstOpenTerm(new Date());
       const firstYear = Number(first?.label.match(/\b(20\d\d)\b/)?.[1] ?? NaN);
-      if (isIllinois && first && Number.isFinite(firstYear) && termOrd(first.season, firstYear) < termOrd(open.season, open.year)) {
+      // Both schools: a UGA board started in this year's fall until 2026-10-20 (plan-start.ts).
+      if (isCatalogSchool && first && Number.isFinite(firstYear) && termOrd(first.season, firstYear) < termOrd(open.season, open.year)) {
         // Autosave writes the notes back, so an earlier copy of this note is replaced, not stacked.
-        const restoreNote = `This plan was saved when ${first.label} was still open. Adding ${first.label} classes has closed; press Rebuild to plan from ${open.season} ${open.year}, or keep this board if those are the classes you are taking.`;
+        const restoreNote = `This plan was saved when ${first.label} was still open. Adding ${first.label} classes has closed; press Rebuild to plan from ${open.season} ${open.year} and show ${first.label} as your semester in progress, holding your real classes, or keep this board if those are the classes you are taking.`;
         setPlanNotes([restoreNote, ...saved.board.notes.filter((n) => !n.startsWith('This plan was saved when '))]);
       }
       return;
@@ -2081,12 +2084,22 @@ export function PlannerWorkspace({
    * total and ALMA count them too, so a plan built to reach 120 with them
    * never reads as short.
    */
+  const boardTerms = plan?.terms;
   const assumedCredit = useMemo(() => {
-    if (!isIllinois || !loaded) return { hours: 0, terms: '' };
-    const h = horizonFor(answers, new Date(), planShape);
-    const names = h.assumedTerms.map((t) => `${t.season} ${t.year}`);
-    return { hours: h.assumedHours, terms: names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? '') };
-  }, [isIllinois, loaded, answers, planShape]);
+    // Both schools since the current-semester column (plan-start.ts): UGA's
+    // audit and headline add these hours too, so a Spring start never reads
+    // as a degree 15 credits short.
+    if (!loaded) return { hours: 0, terms: '' };
+    const h = horizonFor(answers, new Date(), planShape, boardTerms);
+    // A term the board itself holds (one saved while it was still open) is
+    // counted by its own column, not assumed on top of it.
+    const onBoard = new Set((boardTerms ?? []).map((t) => t.label));
+    const kept = h.assumedTerms.filter((t) => !onBoard.has(`${t.season} ${t.year}`));
+    const hours = kept.length === h.assumedTerms.length ? h.assumedHours : Math.max(0, h.assumedHours - (h.assumedTerms.length - kept.length) * 15);
+    const names = kept.map((t) => `${t.season} ${t.year}`);
+    return { hours, terms: names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? '') };
+  }, [loaded, answers, planShape, boardTerms]);
+
   /**
    * What the student says they hold against what the plan can see: hours on
    * the record (each class once, exams, transfer hours) and the terms the
@@ -2101,6 +2114,32 @@ export function PlannerWorkspace({
     assumed: assumedCredit.hours,
     assumedTerms: assumedCredit.terms,
   }), [answers, context, completedCodes, exams, examCredit, catalogCredits, assumedCredit]);
+
+  /**
+   * The semester in progress, as the board's first column: the student's
+   * real classes from their record, never the planner's (current-term.ts).
+   * Null when the board starts in the term under way, for a student who has
+   * not started here, and before a board exists.
+   */
+  const currentView = useMemo(() => {
+    if (!isCatalogSchool || !boardTerms) return null;
+    const h = horizonFor(answers, new Date(), planShape, boardTerms);
+    if (!h.current) return null;
+    const record = answers?.transcript ?? null;
+    const classes = currentClasses(record, h.current, (code) => byCode.get(normCode(code))?.id ?? null)
+      .map((c) => {
+        const course = c.courseId ? courseIndex.get(c.courseId) ?? null : null;
+        // The catalog's title, as every card on the board shows it; a transcript abbreviates ("PRIN MACROECON").
+        return { ...c, title: course?.title ?? c.title, course };
+      });
+    return {
+      ref: h.current,
+      term: currentPlanTerm(h.current, classes.flatMap((c) => (c.courseId ? [c.courseId] : []))),
+      classes,
+      question: currentQuestion(record, h.current),
+      assumedHours: h.currentAssumedHours,
+    };
+  }, [isCatalogSchool, boardTerms, answers, planShape, byCode, courseIndex]);
 
   /** The summers the board bar offers to add (summer-terms.ts). */
   const summerChoices = useMemo(() => (plan ? summersToAdd(plan) : []), [plan]);
@@ -2117,10 +2156,13 @@ export function PlannerWorkspace({
 
   const ugaAudit = useMemo(() => isUga && plan && context && loaded ? auditUgaBoard({
     board: plan, context, undergraduate: loaded, graduate: loaded.doubleDawgsGraduate,
-    priorCodes: [...completedCodes], extraCredits: priorCreditHours - planCreditRange([...completedCodes], context).min,
+    // The terms assumed until their classes are added (assumedCredit) count
+    // toward the degree total here as on Illinois's headline: the plan was
+    // built counting them, so leaving them out read as "credits are short".
+    priorCodes: [...completedCodes], extraCredits: priorCreditHours - planCreditRange([...completedCodes], context).min + assumedCredit.hours,
     transcript: transcriptRecord, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used,
     validation: { minimumTermCredits, priorCredits: priorCreditHours, standingHours: isGraduatePlan ? gradSettings.standingHours : undefined },
-  }) : null, [isUga, plan, context, loaded, completedCodes, priorCreditHours, transcriptRecord, uga, coreCredit, minimumTermCredits, isGraduatePlan, gradSettings.standingHours]);
+  }) : null, [isUga, plan, context, loaded, completedCodes, priorCreditHours, transcriptRecord, uga, coreCredit, minimumTermCredits, isGraduatePlan, gradSettings.standingHours, assumedCredit.hours]);
 
   /**
    * The pools, counted off the board rather than off the generation.
@@ -2420,7 +2462,7 @@ export function PlannerWorkspace({
         : null;
   const recordCredit = transcriptCreditSummary(transcriptRecord);
   const creditNote = isUga && (recordCredit.pending > 0 || recordCredit.physicalEducation > 0)
-    ? `${recordCredit.earned} earned credits on your record; ${recordCredit.pending} in progress, conditional on passing.${recordCredit.physicalEducation ? ` ${recordCredit.physicalEducation} PEDB credit is separate from academic degree hours.` : ''} ${combinedLedger ? stageCreditNote : `${credits.prior} projected academic credits from prior work; ${describeCreditTotal(credits.planned)} planned.`}`
+    ? `${recordCredit.earned} earned credits on your record; ${recordCredit.pending} in progress, conditional on passing.${recordCredit.physicalEducation ? ` ${recordCredit.physicalEducation} PEDB credit is separate from academic degree hours.` : ''} ${combinedLedger ? stageCreditNote : `${credits.prior} projected academic credits from prior work;${assumedCredit.hours > 0 ? ` about ${assumedCredit.hours} counted for ${assumedCredit.terms} until you add those classes;` : ''} ${describeCreditTotal(credits.planned)} planned.`}`
     : stageCreditNote;
 
   const areas: AreaRow[] = useMemo(() => {
@@ -3389,7 +3431,7 @@ export function PlannerWorkspace({
     if (!board || !course) return;
     replaceActivePlan(withInstructor(board, termId, course.code, name));
     setInstructorTyping(null);
-    const label = board.terms.find((t) => t.id === termId)?.label ?? 'that term';
+    const label = board.terms.find((t) => t.id === termId)?.label ?? (currentView?.term.id === termId ? currentView.term.label : 'that term');
     setStatus(name ? `${course.code}, ${label}: your instructor is ${name}.` : `${course.code}, ${label}: instructor not set.`);
   }
   const instructorControl: InstructorControl = {
@@ -3404,6 +3446,73 @@ export function PlannerWorkspace({
       setInstructorTyping({ courseId, termId });
     },
   };
+
+  // ---- the semester in progress ----------------------------------------------
+
+  /**
+   * The current-semester column's actions (current-term-column.tsx). Each
+   * writes the student's record (answers.transcript), where in-progress
+   * classes always lived, so the counts, the rebuild around new credit and
+   * the assistant all follow it. On a board the student has not edited, the
+   * credit change rebuilds it on its own (a class they are taking now comes
+   * off a later term); on one they have, the toast asks for Rebuild, and the
+   * board's held list is brought up to date now so its counts are right
+   * until then.
+   */
+  function setHeldNow(courseId: string, held: boolean) {
+    const board = planRef.current;
+    if (!board || !boardEdited) return;
+    if (board.completedCourseIds.includes(courseId) === held) return;
+    replaceActivePlan({ ...board, completedCourseIds: held ? [...board.completedCourseIds, courseId] : board.completedCourseIds.filter((id) => id !== courseId) });
+  }
+  function addCurrentClass(courseId: string) {
+    const view = currentView;
+    const course = courseIndex.get(courseId);
+    if (!view || !course || !answers || !onAnswersChange || !school) return;
+    const code = normCode(course.code);
+    if (view.classes.some((c) => c.code === code)) return;
+    if (completedCodes.has(code)) {
+      setStatus(`${course.code} is already counted as credit you hold, so it is not added to ${view.term.label}.`);
+      return;
+    }
+    const record = withCurrentClass(answers.transcript, course, view.ref, { id: school.id === 'uga' ? 'uga' : 'illinois', label: 'Added by you' });
+    onAnswersChange({ ...answers, transcript: record });
+    setHeldNow(courseId, true);
+    setStatus(`${course.code} added to your ${view.term.label} classes, in progress.`);
+  }
+  function removeCurrentClass(code: string) {
+    const view = currentView;
+    if (!view || !answers?.transcript || !onAnswersChange) return;
+    const record = withoutCurrentClass(answers.transcript, code, view.ref);
+    onAnswersChange({ ...answers, transcript: record });
+    const id = byCode.get(normCode(code))?.id;
+    if (id && !transcriptCodes(record).includes(normCode(code))) setHeldNow(id, false);
+    setStatus(`${code} taken off your ${view.term.label} classes.`);
+  }
+  function confirmCurrentClasses() {
+    const view = currentView;
+    if (!view || !answers?.transcript || !onAnswersChange) return;
+    onAnswersChange({ ...answers, transcript: withCurrentConfirmed(answers.transcript, view.ref, true) });
+    setStatus(`${view.term.label} shows your classes. ${botName} answers questions about this semester from them.`);
+  }
+  /** Catalog courses for the column's "Add a class you're taking now": code matches first, then titles and subjects. */
+  const searchCurrent = useCallback((query: string): Course[] => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) return [];
+    const compact = q.replace(/\s+/g, '');
+    const byCodeFirst = catalog.filter((c) => c.code.toLowerCase().replace(/\s+/g, '').startsWith(compact)).slice(0, 12);
+    if (byCodeFirst.length >= 12) return byCodeFirst;
+    const first = new Set(byCodeFirst);
+    const rest = catalog.filter((c) => !first.has(c) && matchesQuery(c, q)).slice(0, 12 - byCodeFirst.length);
+    return [...byCodeFirst, ...rest];
+  }, [catalog]);
+  /** A current class's popup: its details, and My instructor for this term. */
+  function selectCurrentClass(courseId: string) {
+    setChooser(null);
+    setChooserOnMap(false);
+    setSelectedCourseId(courseId);
+    setFinderOpen(true);
+  }
 
   function openFinderFor(termId: string) {
     setTargetTermId(termId);
@@ -3494,6 +3603,7 @@ export function PlannerWorkspace({
     careerInterests,
     careerCleared,
     areas,
+    currentView,
   });
   useEffect(() => {
     live.current = {
@@ -3532,6 +3642,7 @@ export function PlannerWorkspace({
       careerInterests,
       careerCleared,
       areas,
+      currentView,
     };
   });
 
@@ -3598,7 +3709,7 @@ export function PlannerWorkspace({
     if (!isUga || !L.context || !L.loaded) return null;
     return auditUgaBoard({ board, context: L.context, undergraduate: L.loaded,
       graduate: L.loaded.doubleDawgsGraduate, priorCodes: [...L.completedCodes],
-      extraCredits: L.priorCreditHours - planCreditRange([...L.completedCodes], L.context).min,
+      extraCredits: L.priorCreditHours - planCreditRange([...L.completedCodes], L.context).min + L.assumedCredit.hours,
       transcript: L.answers?.transcript, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used,
       validation: validateOptions() });
   }
@@ -4114,6 +4225,22 @@ export function PlannerWorkspace({
       lines.push(`Which route in, from how the student entered Illinois: ${describeAdmissionChoice(choice)}`);
     }
     lines.push(`Instructors: "(my instructor: X)" after a course is the instructor the student set for it in that term; a course without it is not set (the student sets it by clicking the course, then My instructor). The term in progress is ${currentTermLabel(new Date())}.`);
+    /**
+     * The semester in progress (current-term.ts), before the planned terms:
+     * "this semester" and "my current classes" are these, the student's real
+     * classes, never the first planned term.
+     */
+    const cur = L.currentView;
+    if (cur) {
+      const label = cur.term.label;
+      const listed = cur.classes.map((c) => {
+        const who = chosenInstructor(board, cur.term.id, c.code);
+        return `${c.code} ${c.credits} cr ${c.title} [${c.from === 'transcript' ? 'from their transcript' : 'added by the student'}]${who ? ` (my instructor: ${who})` : ''}`;
+      });
+      lines.push(cur.classes.length > 0
+        ? `${label}, THIS SEMESTER, in progress (the student's real classes, the board's first column, not planned): ${listed.join('; ')}.${cur.question === 'confirm' ? ' The student has not yet said these are their current classes; if an answer depends on it, check with them.' : ''}${cur.assumedHours > 0 ? ` The plan also counts about ${cur.assumedHours} more credits for ${label} until the student adds the rest.` : ''} "This semester", "this term", "now" and "my classes" mean these: call term_summary or term_syllabi with "${label}" or "this term", and course_syllabus for one of them (it returns the instructor the student set for it). They count as in progress: held, conditional on passing, never planned again, and no tool moves anything into or out of ${label}. The planned terms below start after it.`
+        : `${label}, THIS SEMESTER, in progress: no classes added yet${cur.assumedHours > 0 ? `; the plan counts it as about ${cur.assumedHours} credits until the student adds them` : ''}. For a question about this semester ("how's my attendance this semester", "who's my professor for ECON 2105"), ask which classes they are taking now: they can add them in the ${label} column ("Add a class you're taking now"), or you record each, once they name it, with record_prior_credit and in_progress true. The planned terms below start after it.`);
+    }
     for (const term of board.terms) {
       const courses = term.courseIds
         .map((id) => L.courseIndex.get(id))
@@ -4199,6 +4326,28 @@ export function PlannerWorkspace({
     const courseOf = (raw: string) => L.byCode.get(normalizeCourseCode(raw)) ?? null;
     const holding = (courseId: string) => board.terms.find((t) => t.courseIds.includes(courseId)) ?? null;
     /**
+     * The semester in progress (current-term.ts): the read tools see it as a
+     * term ("this term", "Fall 2026"), with the student's real classes; the
+     * edit tools never book into it. It takes the board's first year when
+     * the board starts in the same academic year (Fall 2026 before Spring
+     * 2027), so "my junior year" covers it too.
+     */
+    const cur = L.currentView;
+    const sameYear = (a: PlanTerm, b: PlanTerm | undefined) => Boolean(b && a.season === 'Fall' && b.season !== 'Fall' && calendarYearOf(b) === calendarYearOf(a) + 1);
+    const nowTerm: PlanTerm | null = cur ? { ...cur.term, year: sameYear(cur.term, board.terms[0]) ? board.terms[0].year : 0 } : null;
+    const viewTerms = nowTerm ? [nowTerm, ...board.terms] : board.terms;
+    const readTermOf = (label: string) => {
+      const want = label.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (nowTerm && (/\b(this|current) (term|semester)\b|^now$|^current$/.test(want) || want === nowTerm.label.toLowerCase())) return nowTerm;
+      return termOf(label);
+    };
+    const takingNow = (courseId: string) => (nowTerm?.courseIds.includes(courseId) ? nowTerm : null);
+    /** The edit tools' answer for the semester in progress. */
+    const nowRefusal = (label: string) =>
+      nowTerm && readTermOf(label) === nowTerm
+        ? { ok: false, reason: `${nowTerm.label} is the semester in progress: it holds the student's own classes, and nothing is planned into it. To record a class they are taking now, call record_prior_credit with in_progress true; it shows in the ${nowTerm.label} column. The planned terms are ${termList}.` }
+        : null;
+    /**
      * Class times by the term that matters for each course (section-terms.ts):
      * the column it sits in when that term's schedule is published, the
      * latest schedule of the same season for a later column, and the newest
@@ -4211,7 +4360,7 @@ export function PlannerWorkspace({
     const scheduleTerms = sectionTermsOf(L.core?.meta);
     const schedules = scheduleTerms.length > 1 ? await loadIllinoisSectionTerms().catch(() => null) : null;
     const scheduleOf = (c: Course, asked?: { id: string; label: string } | null) => {
-      const at = holding(c.id);
+      const at = holding(c.id) ?? takingNow(c.id);
       const pick = pickSectionTerm(scheduleTerms, at ? { id: at.id, label: at.label } : (asked ?? null));
       const coreId = L.core?.meta?.term?.id ?? null;
       const picked = !pick || pick.term.id === coreId ? (L.core?.sections ?? null) : (schedules?.get(pick.term.id) ?? null);
@@ -4270,6 +4419,7 @@ export function PlannerWorkspace({
         gen_ed: c.tags,
         difficulty_0_to_100: L.core?.grades?.get(normCode(c.code))?.difficulty ?? null,
         on_board_in: holding(c.id)?.label ?? null,
+        ...(takingNow(c.id) && nowTerm ? { taking_now_in: `${nowTerm.label} (the semester in progress)` } : {}),
         already_taken: L.completedCodes.has(normCode(c.code)),
         teaching: describeExcellent(
           L.core?.excellent?.get(normCode(c.code)) ?? null,
@@ -4448,6 +4598,8 @@ export function PlannerWorkspace({
         const q = str('query').toLowerCase();
         if (!q) return { ok: false, reason: 'Give a query.' };
         const limit = Math.min(Math.max(Number(input.limit) || 12, 1), 40);
+        const nowStop = str('term') ? nowRefusal(str('term')) : null;
+        if (nowStop) return nowStop;
         const term = str('term') ? termOf(str('term')) : null;
         if (str('term') && !term) return { ok: false, reason: `No term called "${str('term')}" is on the board. The terms are ${termList}.` };
         const subjects = new Set(
@@ -4520,8 +4672,9 @@ export function PlannerWorkspace({
         const c = courseOf(str('code'));
         const ugaBoard = L.context?.schoolId === 'uga';
         if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${ugaBoard ? 'UGA' : 'Illinois'} catalog.` };
-        // The student's own instructor for it, where they set one on the board.
-        const at = holding(c.id);
+        // The student's own instructor for it, where they set one on the board
+        // (a class they are taking now included: the current semester's column).
+        const at = holding(c.id) ?? takingNow(c.id);
         const chosen = at ? chosenInstructor(board, at.id, c.code) : null;
         const mine = at ? { on_board_in: at.label, chosen_instructor: chosen } : { on_board_in: null };
         const grouped = "by_instructor groups the syllabi by instructor, newest first; chosen marks the instructor the student set on the board (answer for that one alone), and an instructor with teaches_in teaches the course that term.";
@@ -4581,8 +4734,9 @@ export function PlannerWorkspace({
         // "Senior year" is the student's own: a senior's board starts in it.
         const saidAt = L.answers?.timelineAt ? new Date(L.answers.timelineAt) : today;
         const studyYearAtStart = studyYearAtBoardStart(L.answers?.academicYear, board.terms[0]?.label, Number.isNaN(saidAt.getTime()) ? today : saidAt);
-        const picked = resolveTerms(board.terms, askedTerms.length > 0 ? askedTerms : askedCodes.length > 0 ? ['all'] : ['this term'], today, { studyYearAtStart });
-        if (picked.terms.length === 0) return { ok: false, reason: `No term called ${askedTerms.join(', ') || 'that'} is on the board. ${picked.notes.join(' ')} The terms are ${termList}.`.replace(/\s+/g, ' '), terms_not_found: picked.unknown };
+        // The semester in progress is a term here, so "this term" is the student's real classes.
+        const picked = resolveTerms(viewTerms, askedTerms.length > 0 ? askedTerms : askedCodes.length > 0 ? ['all'] : ['this term'], today, { studyYearAtStart });
+        if (picked.terms.length === 0) return { ok: false, reason: `No term called ${askedTerms.join(', ') || 'that'} is on the board. ${picked.notes.join(' ')} The terms are ${nowTerm ? `${nowTerm.label} (in progress), ` : ''}${termList}.`.replace(/\s+/g, ' '), terms_not_found: picked.unknown };
         const rows: Array<{ c: Course; term: PlanTerm }> = [];
         for (const term of picked.terms) {
           for (const id of term.courseIds) {
@@ -4628,8 +4782,29 @@ export function PlannerWorkspace({
         };
       }
       case 'term_summary': {
-        const term = termOf(str('term'));
-        if (!term) return { ok: false, reason: `No term called "${str('term')}" is on the board. The terms are ${termList}.` };
+        const term = readTermOf(str('term'));
+        if (!term) return { ok: false, reason: `No term called "${str('term')}" is on the board. The terms are ${nowTerm ? `${nowTerm.label} (in progress), ` : ''}${termList}.` };
+        if (term === nowTerm && cur) {
+          // The semester in progress: the student's own classes, nothing planned.
+          const courses = cur.classes.flatMap((x) => (x.course ? [x.course] : []));
+          return {
+            ok: true,
+            term: term.label,
+            in_progress: true,
+            credits: describeCreditTotal(planCreditRange(cur.classes.map((x) => x.code), ctx)),
+            courses: cur.classes.map((x) => ({
+              ...(x.course ? describe(x.course) : { code: x.code, title: x.title, credits: `${x.credits} cr` }),
+              role: x.from === 'transcript' ? 'in progress, from their transcript' : 'in progress, added by the student',
+              my_instructor: chosenInstructor(board, term.id, x.code),
+            })),
+            weekly_schedule: weeklyOf({ ...term, courseIds: courses.map((x) => x.id) }),
+            ...(cur.question === 'confirm' ? { not_confirmed: 'The student has not yet said these are their current classes (the column asks them).' } : {}),
+            ...(cur.assumedHours > 0 ? { assumed_credits: `The plan counts about ${cur.assumedHours} more credits for ${term.label} until the student adds the rest of their classes.` } : {}),
+            note: cur.classes.length === 0
+              ? `No classes are recorded for ${term.label} yet. Ask which classes the student is taking now; they can add them in the ${term.label} column, or record each with record_prior_credit and in_progress true.`
+              : `These are the student's real classes this semester, in progress: held, conditional on passing, never planned again. Nothing on the board can be moved into or out of ${term.label}; a class they dropped comes off with drop_prior_credit.`,
+          };
+        }
         const courses = term.courseIds.map((id) => L.courseIndex.get(id)).filter((c): c is Course => Boolean(c));
         const credits = describeCreditTotal(planCreditRange(courses.map((c) => c.code), ctx));
         let load: string | null = null;
@@ -4651,6 +4826,9 @@ export function PlannerWorkspace({
       case 'add_course': {
         const c = courseOf(str('code'));
         if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
+        const nowStop = str('term') ? nowRefusal(str('term')) : null;
+        if (nowStop) return nowStop;
+        if (takingNow(c.id) && nowTerm) return { ok: false, reason: `${c.code} is one of the student's ${nowTerm.label} classes, in progress, so it is not planned again.` };
         const already = holding(c.id);
         const wanted = str('term') ? termOf(str('term')) : null;
         // A course the catalog lets a student repeat may go on again, in a term the catalog allows (repeats.ts).
@@ -4674,6 +4852,7 @@ export function PlannerWorkspace({
         const c = courseOf(str('code'));
         if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         const t = holding(c.id);
+        if (!t && takingNow(c.id) && nowTerm) return { ok: false, reason: `${c.code} is one of the student's ${nowTerm.label} classes, in progress, not a planned card. If they dropped it, call drop_prior_credit for ${c.code}; it comes off the ${nowTerm.label} column.` };
         if (!t) return { ok: false, reason: `${c.code} is not on the board.` };
         const stop = guard(c, 'removed');
         if (stop) return stop;
@@ -4696,6 +4875,7 @@ export function PlannerWorkspace({
         if (!oldC) return { ok: false, reason: `${str('remove') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         if (!newC) return { ok: false, reason: `${str('add') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         const t = holding(oldC.id);
+        if (!t && takingNow(oldC.id) && nowTerm) return { ok: false, reason: `${oldC.code} is one of the student's ${nowTerm.label} classes, in progress, not a planned card, so it cannot be replaced on the board.` };
         if (!t) return { ok: false, reason: `${oldC.code} is not on the board.` };
         const already = holding(newC.id);
         if (already) return { ok: false, reason: `${newC.code} is already on the board in ${already.label}.` };
@@ -4726,7 +4906,10 @@ export function PlannerWorkspace({
         const c = courseOf(str('code'));
         if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         const from = holding(c.id);
+        if (!from && takingNow(c.id) && nowTerm) return { ok: false, reason: `${c.code} is one of the student's ${nowTerm.label} classes, in progress, not a planned card, so it cannot be moved.` };
         if (!from) return { ok: false, reason: `${c.code} is not on the board.` };
+        const nowStop = nowRefusal(str('term'));
+        if (nowStop) return nowStop;
         // A summer the plan does not have yet ("Summer 2027") is added with
         // the course, for a summer the student said yes to.
         const target = termOn(board, str('term'));
@@ -4819,6 +5002,8 @@ export function PlannerWorkspace({
         const missing = found.filter((f) => !f.course).map((f) => f.asked);
         const courses = found.map((f) => f.course).filter((x): x is Course => Boolean(x));
         if (courses.length < 2) return { ok: false, reason: `Name at least two courses in the catalog.${missing.length ? ` Not in the catalog: ${missing.join(', ')}.` : ''}` };
+        const nowStop = str('term') ? nowRefusal(str('term')) : null;
+        if (nowStop) return nowStop;
         const term = str('term') ? termOf(str('term')) : null;
         if (str('term') && !term) return { ok: false, reason: `No term called "${str('term')}" is on the board. The terms are ${termList}.` };
         const rows = [];
@@ -4849,6 +5034,7 @@ export function PlannerWorkspace({
         const c = courseOf(str('code'));
         if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${isIllinois ? 'Illinois' : (school?.short ?? 'university')} catalog.` };
         const t = holding(c.id);
+        if (!t && takingNow(c.id) && nowTerm) return { ok: true, code: c.code, role: 'in progress', why: `${c.code} is a class the student is taking now, in ${nowTerm.label}, from their ${cur?.classes.find((x) => x.courseId === c.id)?.from === 'hand' ? 'own list' : 'transcript'}. The planner did not choose it; it counts as in progress toward the degree.` };
         if (!t) return { ok: false, reason: `${c.code} is not on the board.` };
         const role = roleOf(c);
         const key = normCode(c.code);
@@ -5630,7 +5816,7 @@ export function PlannerWorkspace({
           return { ok: true, changed: false, message: `${course.code} is already counted as taken.` };
         }
         const line: TranscriptCourseRecord = course
-          ? { code: course.code, title: title ?? course.title, credits: course.credits, grade: null, term: null, status: inProgress ? 'in_progress' : from && !(isIllinois ? /^(illinois|uiuc|urbana)/i : /^(uga|university of georgia)\b/i).test(from) ? 'transfer' : 'completed', from, equivalent: null, matched: normCode(course.code), matchedBy: 'student', use: true, counts: 'course', illinoisCredits: course.credits }
+          ? { code: course.code, title: title ?? course.title, credits: course.credits, grade: null, term: inProgress && L.currentView ? L.currentView.term.label : null, status: inProgress ? 'in_progress' : from && !(isIllinois ? /^(illinois|uiuc|urbana)/i : /^(uga|university of georgia)\b/i).test(from) ? 'transfer' : 'completed', from, equivalent: null, matched: normCode(course.code), matchedBy: 'student', use: true, counts: 'course', illinoisCredits: course.credits }
           : { code: title?.match(/^[A-Z]{2,5}\s?\d{3,4}[A-Z]?/i)?.[0].toUpperCase() ?? 'TRANSFER', title, credits: hours, grade: null, term: null, status: 'transfer', from, equivalent: null, matched: null, matchedBy: null, use: true, counts: 'hours' };
         const base: TranscriptRecord = record ?? { fileName: isIllinois ? 'Told to ALMA' : `Told to ${botName}`, readAt: new Date().toISOString(), institution: null, kind: 'course_list', home: true, files: [], courses: [], exams: [], notes: [] };
         rebuildForCredit.current = true;
@@ -5641,7 +5827,7 @@ export function PlannerWorkspace({
         return {
           ok: true,
           changed: true,
-          recorded: course ? `${course.code} ${course.title} (${course.credits} cr) as already taken${from ? `, from ${from}` : ''}${inProgress ? ', in progress' : ''}` : `${hours} hours toward the total${title ? ` for ${title}` : ''}${from ? ` from ${from}` : ''}`,
+          recorded: course ? `${course.code} ${course.title} (${course.credits} cr) as already taken${from ? `, from ${from}` : ''}${inProgress ? `, in progress${L.currentView ? `; it shows in the ${L.currentView.term.label} column, the semester in progress` : ''}` : ''}` : `${hours} hours toward the total${title ? ` for ${title}` : ''}${from ? ` from ${from}` : ''}`,
           message: 'Recorded. The plan is being rebuilt around it now; call review_board or term_summary in your next step to see the new board before describing it. Any edits the student made to the board by hand were replaced by the rebuild.',
         };
       }
@@ -5922,6 +6108,15 @@ export function PlannerWorkspace({
       ),
       planGroups,
       activePlanId,
+      // The semester in progress and the student's classes in it (current-term.ts): they live on the
+      // student's record, not the board, so the file carries them for whoever opens it.
+      ...(currentView ? {
+        currentTerm: {
+          term: currentView.term.label,
+          inProgress: true,
+          classes: currentView.classes.map((c) => ({ code: c.code, title: c.title, credits: c.credits, from: c.from, instructor: chosenInstructor(plan, currentView.term.id, c.code) })),
+        },
+      } : {}),
       // The summers added or taken off by hand live here as well as on the board, for a Rebuild after the file is opened.
       planShape: planShapeRef.current,
     }, null, 2)], {
@@ -5954,6 +6149,7 @@ export function PlannerWorkspace({
           planGroups?: unknown;
           activePlanId?: unknown;
           planShape?: unknown;
+          currentTerm?: unknown;
         };
         if (isPlanState(parsed.plan)) {
           const before = boardNow();
@@ -5974,6 +6170,8 @@ export function PlannerWorkspace({
           setPlanGroups([{ ...DEFAULT_PLAN_GROUP }]);
           setActivePlanId('plan-1');
           setStatus('Plan loaded from the file.');
+          // The file's classes in progress, when they are this semester's and not on the record yet.
+          restoreCurrentClasses(parsed.currentTerm);
         }
         if (Array.isArray(parsed.programIds) && parsed.programIds.every((id) => typeof id === 'string')) {
           setProgramIds(parsed.programIds);
@@ -5991,6 +6189,28 @@ export function PlannerWorkspace({
       }
     };
     input.click();
+  }
+
+  /**
+   * A downloaded plan's "this semester" classes, put back on the student's
+   * record as classes they added, when the file is for the semester now in
+   * progress and the record does not have them. Anything else is left alone.
+   */
+  function restoreCurrentClasses(raw: unknown) {
+    const view = currentView;
+    if (!view || !answers || !onAnswersChange || !school || !raw || typeof raw !== 'object') return;
+    const file = raw as { term?: unknown; classes?: unknown };
+    if (file.term !== view.term.label || !Array.isArray(file.classes)) return;
+    let record = answers.transcript ?? null;
+    const have = new Set(view.classes.map((c) => c.code));
+    for (const row of file.classes) {
+      const code = typeof (row as { code?: unknown })?.code === 'string' ? normCode((row as { code: string }).code) : '';
+      const course = code ? byCode.get(code) : undefined;
+      if (!course || have.has(code) || completedCodes.has(code)) continue;
+      record = withCurrentClass(record, course, view.ref, { id: school.id === 'uga' ? 'uga' : 'illinois', label: 'Added by you' });
+      have.add(code);
+    }
+    if (record && record !== (answers.transcript ?? null)) onAnswersChange({ ...answers, transcript: record });
   }
 
   async function sharePlan() {
@@ -6150,7 +6370,8 @@ export function PlannerWorkspace({
     ...(activeProgramTotal && plan ? overTotal(totalCredits, activeProgramTotal) : []),
     // Generation-time counts are not facts about an edited board. UGA's
     // current audit supplies shortfalls and assumptions instead.
-    ...(isUga ? [] : planNotes),
+    // The one note UGA keeps: a board saved while its first term was still open (the restore above).
+    ...(isUga ? planNotes.filter((n) => n.startsWith('This plan was saved when ')) : planNotes),
     ...(core?.meta?.notes ?? []).map(studentWording),
     ...(isUga
       ? [
@@ -6258,6 +6479,7 @@ export function PlannerWorkspace({
         exams: priced.map(({ name, grants }) => ({ name, grants })),
         enteredCodes: entered,
         away: report?.away ?? [],
+        current: currentView ? { label: currentView.term.label, season: currentView.ref.season, year: currentView.ref.year, courses: currentView.classes.flatMap((c) => (c.course ? [c.course] : [])), assumedHours: currentView.assumedHours } : null,
         residency: report?.residency ?? null,
         admission: report?.admission ?? null,
         flags: groupIssues(issues).map((g) => ({ severity: g.severity, title: g.title, message: g.message, count: g.count })),
@@ -6740,6 +6962,7 @@ export function PlannerWorkspace({
              while the columns move and the ruler names the wrong year. */
           <div className="year-ruler" aria-hidden="true" ref={rulerRef}>
             <div className="year-ruler-track">
+              {currentView && <span style={{ width: 'var(--col-w)' }}>Now</span>}
               {years.map((year) => {
                 const termsInYear = plan.terms.filter((t) => t.year === year);
                 const count = termsInYear.length;
@@ -6782,6 +7005,25 @@ export function PlannerWorkspace({
                 ? "This pathway's graduate curriculum is not linked yet. Open Programs to choose another pathway or a bachelor's-only plan."
                 : 'Building your plan.'}
             </p>
+          )}
+          {plan && currentView && (
+            /* The semester in progress: the student's real classes, never the
+               planner's (current-term.ts). The plan's own terms follow it. */
+            <CurrentTermColumn
+              term={currentView.term}
+              classes={currentView.classes}
+              question={currentView.question}
+              assumedHours={currentView.assumedHours}
+              botName={botName}
+              selectedCourseId={selectedCourseId}
+              search={searchCurrent}
+              onAdd={addCurrentClass}
+              onRemove={removeCurrentClass}
+              onConfirm={confirmCurrentClasses}
+              onSelect={selectCurrentClass}
+              instructors={instructorControl}
+              busy={programBusy}
+            />
           )}
           {plan?.terms.map((term) => {
             const credits = termCredits(term.courseIds);
@@ -6857,6 +7099,7 @@ export function PlannerWorkspace({
         core={core}
         schoolId={school?.id ?? null}
         terms={plan?.terms ?? []}
+        currentTerm={currentView?.term ?? null}
         plannedCourseIds={plannedCourseIds}
         completedCodes={completedCodes}
         selectedCourseId={selectedCourseId}
@@ -7091,210 +7334,6 @@ function priorHoursOf(
     transcriptHours(record) +
     transcriptCreditAdjustment(record, creditsOf)
   );
-}
-
-function termOrd(season: SemesterSeason, year: number): number {
-  return year * 3 + (season === 'Spring' ? 0 : season === 'Summer' ? 1 : 2);
-}
-
-/**
- * The horizon a build plans over: the student's own words, what they asked
- * ALMA for on top, and a start moved past a term they are taking now. One
- * function, so set_plan_shape checks a term against the range the build will
- * use rather than a copy of it.
- */
-type StartHorizon = Horizon & {
-  startNote: string | null;
-  began: { season: SemesterSeason; year: number } | null;
-  beganFrom: 'words' | 'record' | 'standing' | null;
-  /** Falls and springs since `began` that nothing on the record holds, each assumed to have earned about 15 credits. */
-  assumedTerms: Array<{ season: SemesterSeason; year: number }>;
-  /** The hours assumed for them, less classes on the record with no term. */
-  assumedHours: number;
-  /** A graduation here that is under way, past, or already on the record: the board is one term in case plans change. */
-  gradPassed: { season: SemesterSeason; year: number } | null;
-};
-
-function horizonFor(
-  answers: OnboardingAnswers | null | undefined,
-  today: Date,
-  shape: PlanShape,
-): StartHorizon {
-  // The plan starts at the first term a student can still add classes to on
-  // today's date, not the crawled term: in October that is Spring. "This
-  // fall" and "incoming" in the student's words are read as of the day they
-  // wrote them.
-  //
-  // UGA keeps the start Cameron's planner gives it: this year's fall, with
-  // four years counted from there. The first-open-term start, and the terms
-  // before it counted as about 15 credits each, are Illinois's: UGA's credit
-  // and requirement counts do not add those assumed credits, so a UGA plan
-  // that started in Spring read as 15 credits short of its degree.
-  const uga = answers?.schoolId === 'uga';
-  const open = uga ? { season: 'Fall' as const, year: today.getFullYear() } : firstOpenTerm(today);
-  const stamped = answers?.timelineAt ? new Date(answers.timelineAt) : null;
-  const written = stamped && !Number.isNaN(stamped.getTime()) ? stamped : today;
-  const now = calendarTerm(today);
-  /**
-   * A record with courses in progress in the plan's first term means the
-   * student is taking that term now: those courses are counted as done, so
-   * planning another full load in the same term books the term twice. The
-   * plan starts the term after the last one in progress. A term in progress
-   * now or later also means they are enrolled, not incoming.
-   */
-  const busy = latestInProgressTerm(answers?.transcript);
-  const readNow = readHorizon(
-    answers ? timelineForPlanning(answers) : '',
-    open,
-    uga ? null : calendarTerm(written),
-    {
-      firstTermOnRecord: firstIllinoisTerm(answers?.transcript),
-      enrolled: Boolean(busy && termOrd(busy.season, busy.year) >= termOrd(now.season, now.year)),
-      openWhenWritten: uga ? null : firstOpenTerm(written),
-    },
-  );
-  // At UGA a start the student only described (no record of it) is not
-  // counted from: those terms would need the assumed credits UGA does not add.
-  const ugaFromStart = uga && readNow.began && readNow.beganFrom !== 'record';
-  const ugaEnd = ugaFromStart && !readNow.stated ? stepRegular({ season: readNow.startSeason, year: readNow.startYear }, 7) : null;
-  const { began, beganFrom, datedStart, incoming, gradPassed: passedInWords, pastAway, ...read } = ugaFromStart
-    ? { ...readNow, began: null, beganFrom: null, pastAway: [], ...(ugaEnd ? { gradSeason: ugaEnd.season, gradYear: ugaEnd.year } : {}) }
-    : readNow;
-  const startOrd = termOrd(read.startSeason, read.startYear);
-  const horizon: StartHorizon = { ...read, startNote: null, began, beganFrom, assumedTerms: [], assumedHours: 0, gradPassed: passedInWords };
-  // A graduation term picked in onboarding stands, when it is not before the plan's start.
-  if (answers?.graduationSeason && answers.graduationYear &&
-      termOrd(answers.graduationSeason, answers.graduationYear) >= startOrd) {
-    horizon.gradSeason = answers.graduationSeason;
-    horizon.gradYear = answers.graduationYear;
-    horizon.stated = true;
-  }
-  // What the student asked ALMA for wins over what the About-you words said,
-  // unless that term is before the plan's first (set_plan_shape refuses one
-  // now; a board saved earlier may still carry it).
-  const busyNext = busy && termOrd(busy.season, busy.year) >= startOrd
-    ? (busy.season === 'Fall' ? { season: 'Spring' as const, year: busy.year + 1 } : { season: 'Fall' as const, year: busy.year })
-    : null;
-  const firstOrd = busyNext ? termOrd(busyNext.season, busyNext.year) : startOrd;
-  const finishPassed = Boolean(shape.finish && termOrd(shape.finish.season, shape.finish.year) < firstOrd);
-  if (shape.finish && !finishPassed) {
-    horizon.gradSeason = shape.finish.season;
-    horizon.gradYear = shape.finish.year;
-    horizon.stated = true;
-    horizon.gradPassed = null;
-  }
-  // A term ALMA was told about replaces what About you said of the same term
-  // ("it's a co-op, not abroad" changes what the term earns), and a plain
-  // "Spring 2029" from ALMA keeps what About you said it was.
-  const sameTerm = (a: { season: SemesterSeason; year: number }, b: { season: SemesterSeason; year: number }) => a.season === b.season && a.year === b.year;
-  const said = horizon.away ?? [];
-  horizon.away = [
-    ...said.filter((a) => !shape.away.some((b) => sameTerm(a, b))),
-    ...shape.away.map((a) => {
-      const before = said.find((b) => sameTerm(a, b));
-      return before && a.kind === undefined && a.credits === undefined ? { ...before, ...a } : a;
-    }),
-  ];
-  // A summer the student took off the board stays off, even one About you asked for.
-  horizon.summers = summersFor(horizon.summers ?? [], shape);
-  if (busyNext) {
-    const next = busyNext;
-    horizon.startSeason = next.season;
-    horizon.startYear = next.year;
-    const nextOrd = termOrd(next.season, next.year);
-    const gradOrd = termOrd(horizon.gradSeason, horizon.gradYear);
-    if (gradOrd < nextOrd && horizon.stated) {
-      // A finish they gave whose term is already on the record ("Senior,
-      // graduating May 2027" with Spring 2027 registered): nothing is left to
-      // plan, not a fresh four years.
-      horizon.gradPassed ??= { season: horizon.gradSeason, year: horizon.gradYear };
-      horizon.gradSeason = next.season;
-      horizon.gradYear = next.year;
-    } else if (gradOrd < nextOrd || (gradOrd === nextOrd && !horizon.stated)) {
-      // A stated last term equal to the new first one stands (a senior's last semester).
-      const from = began ?? next;
-      let end = stepRegular(from, 7 + pastAway.length);
-      if (termOrd(end.season, end.year) < nextOrd) end = stepRegular(next, 7);
-      horizon.gradSeason = end.season;
-      horizon.gradYear = end.year;
-      horizon.stated = false;
-    }
-  }
-  const label = (t: { season: SemesterSeason; year: number }) => `${t.season} ${t.year}`;
-  const start = { season: horizon.startSeason, year: horizon.startYear };
-  // Terms since they began that nothing on the record holds: about 15 credits
-  // each, so the terms left are not loaded to 18. Not for a record's own
-  // start (a term missing from a full record is a term off), and not for the
-  // terms away they named.
-  if (began && beganFrom !== 'record' && !horizon.gradPassed) {
-    const coverage = recordCoverage(answers?.transcript);
-    horizon.assumedTerms = uncoveredTerms(began, start, coverage.terms, pastAway);
-    horizon.assumedHours = assumedHoursOf(horizon.assumedTerms, coverage.unplacedHours);
-  }
-  const assumedNames = horizon.assumedTerms.length === 1 ? label(horizon.assumedTerms[0]) : `${horizon.assumedTerms.slice(0, -1).map(label).join(', ')} and ${label(horizon.assumedTerms[horizon.assumedTerms.length - 1] ?? start)}`;
-  const assumed = horizon.assumedHours <= 0 ? ''
-    : horizon.assumedHours < horizon.assumedTerms.length * 15
-      ? ` Until you do, this plan counts about ${horizon.assumedHours} more credits for ${assumedNames}, beyond the classes you have added.`
-      : ` Until you do, this plan counts ${assumedNames} as about ${horizon.assumedHours} credits${horizon.assumedTerms.length > 1 ? ' in all' : ''}, the usual full load.`;
-  // What the student is told about the first term, from the term the board starts in.
-  const nowUnderWay = now.season !== 'Summer' && termOrd(now.season, now.year) < termOrd(start.season, start.year);
-  if (horizon.gradPassed) {
-    const p = horizon.gradPassed;
-    const when = busy && termOrd(p.season, p.year) <= termOrd(busy.season, busy.year) && termOrd(p.season, p.year) > termOrd(now.season, now.year)
-      ? 'and those classes are already on your record'
-      : termOrd(p.season, p.year) >= termOrd(now.season, now.year) ? 'which is under way' : 'which has passed';
-    horizon.startNote = `You said you finish in ${label(p)}, ${when}, so there is nothing left to plan before it. This board shows ${label(start)} only in case your plans change; tell ALMA a later finish if you need one.`;
-  } else if (finishPassed && shape.finish) {
-    horizon.startNote = `The finish set earlier, ${label(shape.finish)}, has passed, so this plan uses the finish from About you instead.`;
-  } else if (beganFrom === 'record') {
-    horizon.startNote = null;
-  } else if (busyNext) {
-    horizon.startNote = assumed ? `Your record does not show your classes from ${assumedNames} yet. Add them (upload your transcript or tell ALMA) so they count.${assumed}` : null;
-  } else if (began) {
-    horizon.startNote = nowUnderWay && termOrd(now.season, now.year) >= termOrd(began.season, began.year)
-      ? `${label(now)} is under way and adding classes has closed, so this plan starts in ${label(start)}${sameTerm(now, began) ? '' : ` and counts your finish from ${label(began)}, when you started`}. Add the classes you are taking now (upload your schedule or tell ALMA) so they count.${assumed}`
-      : `You started in ${label(began)}, so this plan starts in ${label(start)}, the next term you can sign up for, and counts your finish from ${label(began)}. Add the classes you have taken (upload a transcript or tell ALMA) so they count.${assumed}`;
-  } else if (incoming) {
-    horizon.startNote = `Students who have not started college yet begin in the fall, so this plan starts in ${label(start)}. If you start in ${label(open)} instead, say so in About you.`;
-  } else if (!datedStart && nowUnderWay && sameTerm(start, open)) {
-    horizon.startNote = `Adding ${label(now)} classes has closed, so this plan starts in ${label(start)}, the next term you can sign up for. If that is not right for you, change About you.`;
-  }
-  return horizon;
-}
-
-/** Eight falls and springs from a term is `n = 7` steps; summers are skipped. */
-function stepRegular(t: { season: SemesterSeason; year: number }, n: number): { season: SemesterSeason; year: number } {
-  const k = t.year * 2 + (t.season === 'Spring' ? 0 : 1) + n;
-  return { season: k % 2 ? 'Fall' : 'Spring', year: Math.floor(k / 2) };
-}
-
-/** The first Illinois term on the student's record (a home record only), or null. */
-function firstIllinoisTerm(record: TranscriptRecord | null | undefined): { season: SemesterSeason; year: number } | null {
-  if (!record || record.home === false || record.kind === 'transfer_report') return null;
-  let best: { season: SemesterSeason; year: number } | null = null;
-  for (const c of record.courses ?? []) {
-    // Taught at Illinois: not a transfer block, dual credit or exam line, nor a line the student typed.
-    if (!c.use || (c.status !== 'completed' && c.status !== 'in_progress')) continue;
-    if (lineIsForeign(record, c) || c.matchedBy === 'student') continue;
-    const m = (normalizeTerm(c.term) ?? '').match(/^(Fall|Spring|Summer) (\d{4})$/);
-    if (!m) continue;
-    const t = { season: m[1] as SemesterSeason, year: Number(m[2]) };
-    if (!best || termOrd(t.season, t.year) < termOrd(best.season, best.year)) best = t;
-  }
-  return best;
-}
-
-/** The latest term with a course the student is taking now, from their record. */
-function latestInProgressTerm(record: TranscriptRecord | null | undefined): { season: SemesterSeason; year: number } | null {
-  let best: { season: SemesterSeason; year: number } | null = null;
-  for (const c of record?.courses ?? []) {
-    if (!c.use || c.status !== 'in_progress') continue;
-    const m = (normalizeTerm(c.term) ?? '').match(/^(Fall|Spring|Summer) (\d{4})$/);
-    if (!m) continue;
-    const t = { season: m[1] as SemesterSeason, year: Number(m[2]) };
-    if (!best || termOrd(t.season, t.year) > termOrd(best.season, best.year)) best = t;
-  }
-  return best;
 }
 
 /** Gen-ed categories met by held credit that holds no Illinois course: transfer lines and exams. */
