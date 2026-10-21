@@ -53,8 +53,10 @@ import { BotLauncher, BotPanel, type BotTurns } from './advisor';
 import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
 import { IssueBadge } from './issue-badge';
-import { groupIssues, isTermIssue, reviewTitle } from './plan-health';
-import { attentionItems, attentionLine, earlyFinishNote } from '@/lib/planner/attention';
+import { groupIssues, reviewTitle } from './plan-health';
+import { earlyFinishNote } from '@/lib/planner/attention';
+import { statedHours, triageIssues, type CreditGap } from '@/lib/planner/warnings-triage';
+import { AttentionBar } from './attention-bar';
 
 import { toast, Toaster } from '@/components/ui/toast';
 import { AdvisorPacketDialog } from './advisor-packet';
@@ -2061,6 +2063,20 @@ export function PlannerWorkspace({
     const names = h.assumedTerms.map((t) => `${t.season} ${t.year}`);
     return { hours: h.assumedHours, terms: names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? '') };
   }, [isIllinois, loaded, answers, planShape]);
+  /**
+   * What the student says they hold against what the plan can see: hours on
+   * the record (each class once, exams, transfer hours) and the terms the
+   * build assumed credit for. The "You said about 70 credits" row and the
+   * board bar's one prompt to add the record both read it (warnings-triage.ts).
+   */
+  const creditGap = useMemo((): CreditGap => ({
+    said: statedHours(answers?.timeline ?? ''),
+    recorded:
+      (context ? planCreditRange(distinctHeld([...completedCodes], context).codes, context).min : 0) +
+      priorHoursOf(answers, exams, examCredit.entries, catalogCredits),
+    assumed: assumedCredit.hours,
+    assumedTerms: assumedCredit.terms,
+  }), [answers, context, completedCodes, exams, examCredit, catalogCredits, assumedCredit]);
 
   /** The summers the board bar offers to add (summer-terms.ts). */
   const summerChoices = useMemo(() => (plan ? summersToAdd(plan) : []), [plan]);
@@ -2172,13 +2188,10 @@ export function PlannerWorkspace({
       // plan built as if they were starting from zero is wrong from the first
       // term, and the fix is one upload away.
       ...(() => {
-        const said = statedHours(answers?.timeline ?? '');
+        const { said, recorded } = creditGap;
         if (said === null) return [];
-        const recorded =
-          (context ? planCreditRange(distinctHeld([...completedCodes], context).codes, context).min : 0) +
-          priorHoursOf(answers, exams, examCredit.entries, catalogCredits);
         // Terms assumed until the student adds them (assumedCredit) count toward what they said.
-        if (recorded + assumedCredit.hours >= said - 6) return [];
+        if (recorded + creditGap.assumed >= said - 6) return [];
         return [
           {
             id: 'stated-hours',
@@ -2242,7 +2255,7 @@ export function PlannerWorkspace({
         termId: firstTerm,
       })),
     ];
-  }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits, admissionChoice, plan?.maybeCourseIds, courseIndex, isUga]);
+  }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits, admissionChoice, plan?.maybeCourseIds, courseIndex, isUga, creditGap]);
 
   /**
    * Illinois's published class schedules by term id (Fall 2026, Spring 2027),
@@ -2598,26 +2611,27 @@ export function PlannerWorkspace({
     isIllinois, isGraduatePlan, loaded, priorCreditHours, report, answers, weeklyFits, completedCodes, boardContext, ugaAudit,
   ]);
 
-  const planWideIssues = useMemo(
-    () => groupIssues(issues.filter((issue) => !issue.courseId && !isTermIssue(issue))),
-    [issues],
-  );
   /**
-   * What needs attention on this board, in words on screen rather than only
-   * behind the dots, and the all-clear only when every check passes
-   * (attention.ts). A build announces it once its board's issues are in.
+   * What the board bar says (warnings-triage.ts): at most three things that
+   * matter now in plain words, the rest behind "Show N more", one prompt to
+   * add the record when the student holds credit the plan cannot see, and
+   * "Nothing needs attention" whenever nothing matters now. A build announces
+   * it once its board's issues are in.
    */
-  const attention = useMemo(() => attentionItems(issues), [issues]);
-  const attentionText = attentionLine(attention);
+  const triage = useMemo(() => triageIssues(issues, { credit: creditGap, bot: school?.bot }), [issues, creditGap, school?.bot]);
   const earlyText = earlyFinishNote(planNotes);
   useEffect(() => {
     if (!announceBuild.current || !plan) return;
     announceBuild.current = false;
-    const built = attention.length > 0 ? `Draft built. ${attentionText}` : 'Plan built. Nothing needs attention.';
+    const built = triage.allClear ? 'Plan built. Nothing needs attention.' : `Draft built. ${triage.line}`;
     setStatus(earlyText ? `${built} ${earlyText}` : built);
-  }, [attention, attentionText, earlyText, plan]);
-  const planWideSeverity = planWideIssues[0]?.severity ?? null;
-  const planWideSummary = planWideIssues.map((group) => `${group.title}: ${group.message}`).join('\n\n');
+  }, [triage, earlyText, plan]);
+  /** The plan tab's dot: only for something that matters now, with what the bar shows. */
+  const planWideSeverity = triage.prominent[0]?.severity ?? null;
+  const planWideSummary = [
+    ...triage.prominent.map((kind) => `${kind.label}: ${kind.issue.message}`),
+    ...(triage.more.length > 0 ? [`${triage.more.length} more under Show more.`] : []),
+  ].join('\n\n');
   const tabIssueSeverity = (candidate: PlanTab) =>
     candidate.id === activePlanId ? planWideSeverity : (candidate.issueSeverity ?? null);
   const tabIssueSummary = (candidate: PlanTab) => candidate.id === activePlanId
@@ -3431,6 +3445,7 @@ export function PlannerWorkspace({
     examTable: examCredit.entries,
     priorCreditHours,
     assumedCredit,
+    creditGap,
     planNotes,
     boardEdited,
     careerInterests,
@@ -3467,6 +3482,7 @@ export function PlannerWorkspace({
       examTable: examCredit.entries,
       priorCreditHours,
       assumedCredit,
+      creditGap,
       planNotes,
       boardEdited,
       careerInterests,
@@ -6539,7 +6555,7 @@ export function PlannerWorkspace({
                       <input
                         role="tab"
                         aria-selected={candidate.id === activePlanId}
-                        aria-label={`Rename ${candidate.name}${tabIssueSeverity(candidate) ? `, has a ${tabIssueSeverity(candidate)} plan-wide note` : ''}`}
+                        aria-label={`Rename ${candidate.name}${tabIssueSeverity(candidate) ? ', something on it needs attention' : ''}`}
                         className="plan-tab-button"
                         value={candidate.name}
                         onFocus={() => switchPlanTab(candidate.id)}
@@ -6552,7 +6568,7 @@ export function PlannerWorkspace({
                       {tabIssueSeverity(candidate) && (
                         <IssueBadge
                           variant="dot"
-                          title={`${candidate.name}: plan-wide notes`}
+                          title={`${candidate.name}: needs attention`}
                           message={tabIssueSummary(candidate)}
                           severity={tabIssueSeverity(candidate)!}
                           onClick={() => switchPlanTab(candidate.id)}
@@ -6601,31 +6617,11 @@ export function PlannerWorkspace({
           </button>
         </div>
         <div className="board-bar">
-          {planWideIssues.length > 0 && (
-            <div className="plan-wide-issues" aria-label="Plan-wide notes">
-              {planWideIssues.map((group) => (
-                <IssueBadge
-                  key={group.key}
-                  title={
-                    group.count > 1
-                      ? `${group.title} and ${group.count - 1} more like it`
-                      : group.title
-                  }
-                  message={group.message}
-                  severity={group.severity}
-                  side="bottom"
-                  onClick={() => selectIssue(group.issue)}
-                  coursesByCode={byCode}
-                  onShowCourse={showWarningCourse}
-                />
-              ))}
-            </div>
+          {plan && (
+            <AttentionBar triage={triage} onSelectIssue={selectIssue} coursesByCode={byCode} onShowCourse={showWarningCourse} />
           )}
-
-          {plan && (attentionText || earlyText) && (
-            <span className="board-bar-note" role="note">
-              {[attentionText, earlyText].filter(Boolean).join(' ')}
-            </span>
+          {plan && earlyText && (
+            <span className="board-bar-note" role="note">{earlyText}</span>
           )}
           {isIllinois && suspendedNotice(programId) && (
             <span className="board-bar-note" role="note">{suspendedNotice(programId)}</span>
@@ -7225,14 +7221,6 @@ function latestInProgressTerm(record: TranscriptRecord | null | undefined): { se
     if (!best || termOrd(t.season, t.year) > termOrd(best.season, best.year)) best = t;
   }
   return best;
-}
-
-/** "About 45 credits", "I have 60 hours", "30 credit hours": what the student says they hold, or null. */
-function statedHours(text: string): number | null {
-  const m = text.match(/\b(\d{1,3})\s*(?:\+\s*)?(?:credit hours|credits|hours|hrs|cr)\b/i);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return n >= 6 && n <= 150 ? n : null;
 }
 
 /** Gen-ed categories met by held credit that holds no Illinois course: transfer lines and exams. */
