@@ -23,7 +23,7 @@
  * Nothing here touches the planned terms: the plan's own columns are built
  * exactly as before (plan-start.ts decides where they start).
  */
-import { normalizeCourseCode, normalizeTerm, type TranscriptCourseRecord, type TranscriptRecord } from './transcript';
+import { lineIsForeign, normalizeCourseCode, normalizeTerm, type TranscriptCourseRecord, type TranscriptRecord } from './transcript';
 import type { PlanState, PlanTerm, SemesterSeason } from './types';
 
 export type TermRef = { season: SemesterSeason; year: number };
@@ -55,15 +55,17 @@ export function termOfLine(line: Pick<TranscriptCourseRecord, 'term'>): TermRef 
 }
 
 /**
- * The lines of the record the student is taking in `term`: in progress,
- * counted, and either dated that term or dated no term at all (a class told
- * to ALMA "in progress" before lines carried the term, which can only be
- * this one). A line from another school counts too: a class taken at
- * Parkland this fall is still a class this semester.
+ * The lines of the record the student is taking at this school in `term`:
+ * in progress, counted, and either dated that term or dated no term at all
+ * (a class told to ALMA "in progress" before lines carried the term, which
+ * can only be this one). Not another school's line: a class at Parkland
+ * this fall is held as transfer credit, and its card here would carry this
+ * school's instructors and syllabi for the course it may count as.
  */
 export function currentLines(record: TranscriptRecord | null | undefined, term: TermRef): TranscriptCourseRecord[] {
   return (record?.courses ?? []).filter((c) => {
     if (!c.use || c.status !== 'in_progress' || c.counts === 'none') return false;
+    if (record && lineIsForeign(record, c)) return false;
     const at = termOfLine(c);
     return at === null || sameTerm(at, term);
   });
