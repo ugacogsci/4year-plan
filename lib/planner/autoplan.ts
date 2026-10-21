@@ -15763,6 +15763,20 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    */
   const degreeFirst = (track: CareerTrack, missed: string[], lateCodes: string[]): string => {
     const off = [...new Set(missed)].filter((code) => termOfCode(code) < 0);
+    // A dated row with none of its courses on the board or held is off it
+    // too, booked by the fill on an earlier build or never: a pre-med Systems
+    // Engineering board with the senior design pair seated lost PSYC 100, due
+    // before the MCAT, and the note did not say so.
+    if (applicationDue !== null) {
+      for (const row of track.courses) {
+        if (!dueOf(row)) continue;
+        const codes = row.codes.map(normaliseCode);
+        if (codes.some((c) => satisfiedForPrereq.has(c) || termOfCode(c) >= 0 || off.includes(c))) continue;
+        // Not a row the credit rule shut (trackShut): no summer opens that.
+        const open = codes.find((c) => byCode.has(c) && conflictFor(c) === null && !trackShut.includes(c));
+        if (open !== undefined) off.push(open);
+      }
+    }
     const list = (codes: string[]) => (codes.length <= 1 ? codes.join('') : `${codes.slice(0, -1).join(', ')} and ${codes[codes.length - 1]}`);
     const parts: string[] = [];
     if (off.length > 0) parts.push(`${list(off)} ${off.length === 1 ? 'needs' : 'need'} a summer session or an extra term`);
@@ -15771,6 +15785,25 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   };
   for (const { track, at, head, missed } of trackNotes) {
     const lateRows = applicationDue === null ? [] : [...trackRowOf].filter(([code, r]) => r.track === track && dueOf(r.row) && termOfCode(code) > applicationDue);
+    /*
+     * And a dated row the elective fill booked, which trackRowOf never
+     * holds: a pre-med Systems Engineering board's PSYC 100, due before the
+     * MCAT, landed in Spring 2030 as one of the fill's electives, and the
+     * note named MCB 150 and MCB 151 after their date but not it. Said from
+     * the track's own rows, where the earliest of a row's courses sits.
+     */
+    if (applicationDue !== null) {
+      const named = new Set(lateRows.map(([code]) => code));
+      for (const row of track.courses) {
+        if (!dueOf(row)) continue;
+        const codes = row.codes.map(normaliseCode);
+        if (codes.some((c) => satisfiedForPrereq.has(c))) continue;
+        const first = codes.map((c) => ({ code: c, at: termOfCode(c) })).filter((x) => x.at >= 0).sort((a, b) => a.at - b.at)[0];
+        if (!first || first.at <= applicationDue || named.has(first.code) || trackRowOf.has(first.code)) continue;
+        lateRows.push([first.code, { track, row }]);
+        named.add(first.code);
+      }
+    }
     const late = lateRows.map(([code, r]) => {
       const due = dueOf(r.row) === 'exam' && track.exam ? `before the ${track.exam.name}` : 'before applications go out';
       return `${code} lands in ${terms[termOfCode(code)].label}, after ${terms[applicationDue as number].label}, the last term ${due}: ${lateWhy(code, applicationDue as number)}`;
