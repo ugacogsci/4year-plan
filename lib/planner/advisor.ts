@@ -231,7 +231,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'review_board',
     description:
-      "The planner's own read of the whole board: each term's credits and how heavy it reads against Illinois grade history, terms that stack several hardest-band courses, courses that have not run in any recent term, courses placed in a season they have not run in, each published term's weekly class-time check (weekly_schedule), requirements still open, the review flags, the first year's pace, hours that count toward nothing, and a summer where one would buy time (a suggestion only). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
+      "The planner's own read of the whole board: each term's credits and how heavy it reads against Illinois grade history, terms that stack several hardest-band courses, courses that have not run in any recent term, courses placed in a season they have not run in, each published term's weekly class-time check (weekly_schedule), requirements still open, every review flag ranked as the board ranks it (what matters now first, then what is good to know; the board itself shows at most three and folds the rest), the first year's pace, hours that count toward nothing, and a summer where one would buy time (a suggestion only). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -533,7 +533,7 @@ const UGA_TOOL_TEXT: Partial<Record<AdvisorToolName, { description: string; prop
   },
   review_board: {
     description:
-      "The planner's own read of the whole board: each term's credits, requirements still open, the review flags, hours that count toward nothing, and any load, offering-history or class-time reading the university's data supports (for UGA none is loaded, and the result says so rather than guessing). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
+      "The planner's own read of the whole board: each term's credits, requirements still open, every review flag ranked as the board ranks it (what matters now first, then what is good to know; the board itself shows at most three and folds the rest), hours that count toward nothing, and any load, offering-history or class-time reading the university's data supports (for UGA none is loaded, and the result says so rather than guessing). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
   },
   exam_credit: {
     description:

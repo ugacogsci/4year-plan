@@ -359,15 +359,17 @@ function lineOf(prompt: AttentionKind | null, now: AttentionKind[]): string {
 export function rankedFlags(triage: Triage, limit = 40, chars = 200): string[] {
   const prominent = new Set(triage.prominent.flatMap((k) => k.rows));
   const lines: string[] = [];
-  if (triage.prompt) lines.push(`matters now, on the board: ${triage.prompt.label} ${triage.prompt.issue.message}`.slice(0, chars + 120));
+  if (triage.prompt) lines.push(`now, on the board: ${triage.prompt.label} ${triage.prompt.issue.message}`.slice(0, chars + 120));
   const rows = [...triage.now.flatMap((k) => k.rows), ...triage.folded, ...triage.later];
   for (const row of rows) {
     const where = row.folded
-      ? 'matters once the record is complete (folded under the record prompt)'
+      ? 'once the record is in'
       : row.kind.tier === 'now'
-        ? prominent.has(row) ? 'matters now, on the board' : 'matters now, under Show more'
+        ? prominent.has(row) ? 'now, on the board' : 'now, under Show more'
         : 'good to know';
-    lines.push(`${where}: ${row.issue.severity}: ${row.issue.title}${row.count > 1 ? ` (x${row.count})` : ''}: ${row.issue.message.slice(0, chars)}`);
+    // Information is read less often: a shorter message keeps the list affordable on every review.
+    const width = row.kind.tier === 'now' ? chars : Math.min(chars, 120);
+    lines.push(`${where}: ${row.issue.severity}: ${row.issue.title}${row.count > 1 ? ` (x${row.count})` : ''}: ${row.issue.message.slice(0, width)}`);
   }
   if (lines.length <= limit) return lines;
   return [...lines.slice(0, limit), `and ${lines.length - limit} more rows of the same kinds`];

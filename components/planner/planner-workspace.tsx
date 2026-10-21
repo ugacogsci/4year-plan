@@ -55,7 +55,7 @@ import { ElectivePools } from './elective-pools';
 import { IssueBadge } from './issue-badge';
 import { groupIssues, reviewTitle } from './plan-health';
 import { earlyFinishNote } from '@/lib/planner/attention';
-import { statedHours, triageIssues, type CreditGap } from '@/lib/planner/warnings-triage';
+import { rankedFlags, statedHours, triageIssues, type CreditGap } from '@/lib/planner/warnings-triage';
 import { AttentionBar } from './attention-bar';
 
 import { toast, Toaster } from '@/components/ui/toast';
@@ -4084,13 +4084,11 @@ export function PlannerWorkspace({
         }`,
       );
     }
-    const groups = groupIssues(currentAudit?.issues ?? L.issues);
-    const toReview = groups.filter((g) => g.severity !== 'info');
-    const notes = groups.length - toReview.length;
-    lines.push(`Review list: ${toReview.length} to review, ${notes} notes.`);
-    for (const g of groups.slice(0, 10)) {
-      lines.push(`- [${g.severity}] ${g.title}: ${g.message.slice(0, 160)}`);
-    }
+    // Ranked as the board bar ranks it (warnings-triage.ts): what matters now first, then the rest.
+    const triaged = triageIssues(currentAudit?.issues ?? L.issues, { credit: L.creditGap, bot: botName });
+    const nowCount = triaged.now.reduce((n, kind) => n + kind.rows.length, 0) + (triaged.prompt ? 1 : 0);
+    lines.push(`Review list: ${nowCount} ${nowCount === 1 ? 'matters' : 'matter'} now (the board shows ${triaged.allClear ? '"Nothing needs attention"' : `at most ${triaged.prominent.length}`}), ${triaged.folded.length} waiting for the student's record, ${triaged.later.length} good to know.`);
+    for (const flag of rankedFlags(triaged, 10, 160)) lines.push(`- ${flag}`);
     return lines.join('\n');
   }
 
@@ -4916,7 +4914,14 @@ export function PlannerWorkspace({
           .sort((a, b) => (b.average_difficulty_0_to_100 ?? 0) - (a.average_difficulty_0_to_100 ?? 0))[0]?.term ?? null;
         const currentAudit = ugaAuditOn(board);
         const currentIssues = currentAudit?.issues ?? L.issues;
-        const groups = groupIssues(currentIssues).filter((g) => g.severity !== 'info');
+        /**
+         * Every row, ranked and marked the way the board bar shows it
+         * (warnings-triage.ts): the bar shows at most three things that matter
+         * now and folds the rest, so the student may ask about a row they
+         * have not seen. Information rows used to be left out of the review
+         * flags; they are here now, marked good to know.
+         */
+        const triaged = triageIssues(currentIssues, { credit: L.creditGap, bot: botName });
         const open = currentIssues.filter((i) => /^(unsatisfied|pool|ap-missing|uga-(area|pool|total)|double-dawgs-)/.test(i.id) || /not (yet )?(met|satisfied)|still needs|short/i.test(i.title)).map((i) => i.message.slice(0, 200));
         const dormant = terms.flatMap((t) => (Array.isArray(t.not_run_recently) ? t.not_run_recently : []).map((code) => `${code} in ${t.term}`));
         const stacked = terms.filter((t) => t.hardest_band_courses.length >= 2).map((t) => `${t.term}: ${t.hardest_band_courses.join(', ')}`);
@@ -4978,7 +4983,8 @@ export function PlannerWorkspace({
           terms_stacking_hard_courses: stacked,
           not_run_recently: ctx.offeringTerms?.length ? dormant : 'not known: no offering history is loaded, so do not claim every course is offered',
           open_requirements: open.slice(0, 12),
-          review_flags: groups.slice(0, 12).map((g) => `${g.severity}: ${g.title}: ${g.message.slice(0, 200)}`),
+          review_flags: rankedFlags(triaged),
+          review_flags_note: `Ranked as the board shows them. ${triaged.allClear ? 'Nothing matters now, so the board says "Nothing needs attention".' : `The board shows ${triaged.prominent.length === 1 ? 'one item' : `${triaged.prominent.length} items`} that matter now and folds the rest behind "Show ${triaged.more.length} more".`} Lead with the "now" rows; "good to know" rows are information, not problems: mention them when the student asks or when one bears on the question.${triaged.prompt ? ' The student holds credit the plan cannot see: ask for their classes or transcript first; the rows marked "once the record is in" may be settled by it.' : ''}`,
           ...(review.momentum.length > 0 ? { first_year_momentum: review.momentum.map((f) => f.message) } : {}),
           ...(review.fact ? { momentum_fact_say_once: review.fact } : {}),
           ...(use.beyondTotal > 0 ? { credits_beyond_total: `${use.beyondTotal} credits above the ${degreeTotalNow()} minimum. These may still be needed for particular requirements; excess hours alone do not identify courses to remove.` } : {}),
