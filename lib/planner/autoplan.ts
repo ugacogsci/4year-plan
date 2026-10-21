@@ -1149,7 +1149,21 @@ export interface GeneratedPlan {
    * the track's name: Aaliyah's MCB 150 is "For Pre-physical therapy (DPT)",
    * and a re-pick for easier electives must not trade it for an HK course.
    */
-  electives: Array<{ code: string; why: string; reasons: string[]; track?: string }>;
+  electives: Array<{
+    code: string;
+    why: string;
+    reasons: string[];
+    track?: string;
+    /**
+     * Picked for what the student said they want: the relevance measure
+     * counted it as matching their words (QualityResult.interest), which is
+     * what earns an elective its goal points in scoreElective. A course in the
+     * student's own major that only shares a subject with their goal is not.
+     * Absent on picks made by other rules (a minimum, a standing) and on
+     * boards saved before it existed.
+     */
+    forGoal?: boolean;
+  }>;
   /**
    * The language sequence this plan books for the language requirement, or
    * null when the degree has none or the student already meets it.
@@ -12072,7 +12086,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const subject = byCode.get(pick)?.cluster ?? '';
           perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
           const levelWhy = spendLevel(pick);
-          electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : {}) });
+          electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : { forGoal: (scoring.quality(pick).interest ?? 0) > 0 }) });
           if (creditsOf(pick) < 3 && !trackWanted.has(pick) && !levelWhy) landers.push({ code: pick, termId: term.id });
           followLab(pick, term, here);
           progress = true;
@@ -12282,7 +12296,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const subject = byCode.get(pick)?.cluster ?? '';
         perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
         const levelWhy = spendLevel(pick);
-        electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : {}) });
+        electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : { forGoal: (scoring.quality(pick).interest ?? 0) > 0 }) });
         if (!trackWanted.has(pick) && !levelWhy) padding.set(pick, overTotal() - overBefore);
         followLab(pick, term, here);
         topped = true;

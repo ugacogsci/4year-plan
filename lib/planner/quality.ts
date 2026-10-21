@@ -235,9 +235,16 @@ export const RELEVANCE_REASONS = {
   topics: 'catalog topics match: ',
 } as const;
 
-/** Whether a recorded reason says the pick matches what the student said they want (RELEVANCE_REASONS). */
+/**
+ * Whether a recorded reason says the pick matches what the student said they
+ * want (RELEVANCE_REASONS), for a pick with nothing better recorded (a
+ * re-pick, a board saved before GeneratedPlan electives carried forGoal). "In a subject you said
+ * you want" alone does not count: written for a course in the student's own
+ * major too (a Psychology student who wants counseling, on a PSYC course), it
+ * earns no goal points there, so it says nothing about the goal.
+ */
 export function saysGoalMatch(why: string): boolean {
-  return Object.values(RELEVANCE_REASONS).some((reason) => why.includes(reason));
+  return [RELEVANCE_REASONS.named, RELEVANCE_REASONS.titleAndSubject, RELEVANCE_REASONS.title, RELEVANCE_REASONS.topics].some((reason) => why.includes(reason));
 }
 
 /**

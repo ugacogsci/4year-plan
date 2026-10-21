@@ -91,7 +91,7 @@ export interface PlanPicks {
   /** The pools as counted off the board now, not as generated. */
   pools: PoolReport[];
   language: LanguagePlan | null;
-  electives: Array<{ code: string; why: string; reasons?: string[]; track?: string }>;
+  electives: Array<{ code: string; why: string; reasons?: string[]; track?: string; forGoal?: boolean }>;
   genEdPicks: Array<{ code: string; label: string; forGoal?: boolean }>;
   addedPrerequisites: Array<{ code: string; requiredBy: string }>;
 }
@@ -167,8 +167,9 @@ export function planMarks(picks: PlanPicks, byCode: Map<string, Course>): Map<st
     const course = find(pick.code);
     if (!course) continue;
     const mark = map.get(course.id);
-    // Picked for the goal: booked for a track, or chosen for a reason that says it matches what the student wants.
-    const forGoal = Boolean(pick.track) || saysGoalMatch([pick.why, ...(pick.reasons ?? [])].join(' '));
+    // Picked for the goal: booked for a track, or what the planner recorded when it picked it
+    // (forGoal); a re-pick, and a board saved before forGoal existed, by the reason it wrote.
+    const forGoal = Boolean(pick.track) || (pick.forGoal ?? saysGoalMatch([pick.why, ...(pick.reasons ?? [])].join(' ')));
     const own: PlanMark = pick.track
       ? { label: pick.track, detail: pick.why, kind: 'track', track: pick.track, goal: true }
       : { label: 'Elective', detail: pick.why, kind: 'elective', ...(forGoal ? { goal: true } : {}) };
