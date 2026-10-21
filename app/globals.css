@@ -6838,6 +6838,10 @@ button.unofficial-label:focus-visible,
   color: var(--orion-dim);
 }
 
+.planner-app .plan-tab-close {
+  transform: translateX(-4px);
+}
+
 .planner-app .plan-tab-close:hover:not(:disabled),
 .planner-app .plan-tab-add:hover:not(:disabled),
 .planner-app .plan-group-add:hover:not(:disabled) {
@@ -7256,6 +7260,7 @@ button.unofficial-label:focus-visible,
 .orion-dialog .insights-settings { margin: 0; }
 .orion-dialog .insights-settings small { color: var(--onb-mid); }
 .orion-dialog .insights-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.orion-dialog.insights-dialog .insights-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; }
 .orion-dialog .insights-actions button, .account-actions button, .account-confirm button {
   border: 1px solid var(--onb-line); border-radius: 4px; padding: 9px 12px; min-height: 40px; color: var(--onb-text); background: var(--onb-bg);
 }
@@ -7281,6 +7286,7 @@ button.unofficial-label:focus-visible,
 @media (max-width: 600px) {
   .orion-dialog { padding: 18px; font-size: 11px; }
   .orion-dialog .insights-actions { flex-direction: column; }
+  .orion-dialog.insights-dialog .insights-actions { grid-template-columns: minmax(0, 1fr); }
   .onb-header > .onb-back { font-size: 10px; max-width: 130px; }
   .guided-message { max-width: 95%; padding: 12px; }
 }
@@ -7290,6 +7296,7 @@ button.unofficial-label:focus-visible,
 .insights-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--foreground); font: inherit; cursor: pointer; }
 .insights-actions button:disabled { opacity: .5; cursor: default; }
 .insights-actions button:hover:not(:disabled) { background: var(--muted); }
+.orion-dialog .insights-actions button.insights-accept-all { background: var(--onb-text); color: var(--onb-bg); border-color: var(--onb-text); }
 .insights-actions button:focus-visible, .feedback-form :is(input, textarea, select):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .insights-actions svg { width: 14px; height: 14px; }
 .insights-settings { display: grid; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }

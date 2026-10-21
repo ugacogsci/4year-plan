@@ -44,6 +44,7 @@ export function InsightsGate() {
       <div className="insights-actions">
         <button onClick={() => setConsent({ version: 2, ...NONE })}>Continue without sharing</button>
         <button onClick={() => setConsent({ version: 2, ...choices })}>Continue with my choices</button>
+        <button className="insights-accept-all" disabled={state.blocked} onClick={() => setConsent({ version: 2, usage: true, content: true, transcript: true })}>Continue with all</button>
       </div>
     </DialogContent>
   </Dialog>;
