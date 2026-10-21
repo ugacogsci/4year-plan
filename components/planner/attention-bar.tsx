@@ -140,7 +140,7 @@ export function AttentionBar({
   const nowMore = triage.now.flatMap((kind) => kind.rows).filter((row) => !prominent.has(row));
   const links = { coursesByCode, onShowCourse };
   return (
-    <div className="attention-bar" aria-label="What needs attention">
+    <div className="attention-bar" role="group" aria-label="What needs attention">
       {triage.allClear ? (
         <span className="attention-clear">Nothing needs attention.</span>
       ) : (

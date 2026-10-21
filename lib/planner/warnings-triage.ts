@@ -118,6 +118,9 @@ export interface IssueKind {
   record: boolean;
 }
 
+/** The kind a requirement the planner could not fully read gets (KIND_RULES 'unread'). */
+const UNREAD_KIND: IssueKind = { key: 'unread', text: 'Requirement to check with your advisor', tier: 'later', rank: 100, record: false };
+
 /** The kind, tier and rank of one issue. */
 export function issueKind(issue: IssueLike): IssueKind {
   const rule = KIND_RULES.find((r) => r.match.test(issue.id));
@@ -285,6 +288,7 @@ export function triageIssues(
   }
   const rows = [...grouped.values()];
   explainedByForfeit(rows);
+  explainedByUnreadAreas(rows);
   const promptText = recordPrompt(options.credit);
   const stated = rows.filter((r) => r.kind.key === 'record');
   let prompt: AttentionKind | null = null;
@@ -333,6 +337,41 @@ function explainedByForfeit(rows: TriageRow[]): void {
       row.kind = { ...row.kind, tier: 'later', rank: 122 };
     }
   }
+}
+
+/**
+ * A UGA area whose requirement the catalog snapshot cannot fully read ("VI.
+ * Courses Related to the Major: the snapshot does not identify all required
+ * courses") is short on a plan the planner built itself, because the planner
+ * cannot name what fills it: Economics AB's first-year board read "13 of 18
+ * credits" and "9 of 30 credits" there with nothing a student could fix.
+ * While the plan still reaches the degree's credit total (no "Degree credits
+ * are short" row), that area's shortfall is for an advisor to check, like the
+ * unread requirement itself. So is the board's "does not fulfill the degree
+ * yet" row when those areas are all it names and no credits are short. A
+ * short area with nothing unread in it, a named list that is short, or a
+ * plan under the credit total still matters now.
+ */
+function explainedByUnreadAreas(rows: TriageRow[]): void {
+  if (rows.some((r) => r.issue.id === 'uga-total')) return;
+  const unread = new Set(
+    rows
+      .filter((r) => r.issue.id.startsWith('uga-unverified-'))
+      .map((r) => r.issue.message.match(/^(.+?): the snapshot does not identify\b/)?.[1]?.trim())
+      .filter((label): label is string => Boolean(label)),
+  );
+  if (unread.size === 0) return;
+  let moved = 0;
+  for (const row of rows) {
+    if (row.kind.key !== 'degree' || !row.issue.id.startsWith('uga-area-')) continue;
+    if (!unread.has(row.issue.id.slice('uga-area-'.length).trim())) continue;
+    row.kind = { ...UNREAD_KIND };
+    moved += 1;
+  }
+  if (moved === 0) return;
+  const stillShort = rows.some((r) => r.kind.key === 'degree' && r.issue.id !== 'degree-incomplete');
+  const summary = rows.find((r) => r.issue.id === 'degree-incomplete');
+  if (summary && !stillShort && !/\bThis draft has \d+ of the \d+ credits\b/.test(summary.issue.message)) summary.kind = { ...UNREAD_KIND };
 }
 
 function normal(code: string): string {
