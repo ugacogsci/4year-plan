@@ -132,6 +132,12 @@ function toolLabel(name: AdvisorToolName, input: Record<string, unknown>): strin
       return `Replacing ${s('remove')} with ${s('add')}`;
     case 'move_course':
       return `Moving ${s('code')} to ${s('term')}`;
+    case 'add_summer':
+    case 'remove_summer': {
+      const raw = input.term;
+      const summer = typeof raw === 'number' ? `Summer ${raw}` : typeof raw === 'string' && raw.trim() ? (/^\d{4}$/.test(raw.trim()) ? `Summer ${raw.trim()}` : raw.trim()) : 'a summer';
+      return name === 'add_summer' ? `Adding ${summer} to the board` : `Removing ${summer} from the board`;
+    }
     case 'planner_answer':
       return 'Checking the board';
     case 'university_answer':

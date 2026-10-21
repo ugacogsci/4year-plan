@@ -2,7 +2,7 @@
 import type { Alternative } from './course-card';
 
 import { useEffect, useRef, useState } from 'react';
-import { CircleAlert, Plus } from 'lucide-react';
+import { CircleAlert, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { Course, PlanIssue, PlanTerm } from '@/lib/planner/types';
@@ -61,6 +61,14 @@ interface SemesterColumnProps {
   weekly?: { status: 'fits' | 'clash' | 'unknown'; line: string | null } | null;
   /** "My instructor" on each card's menu. */
   instructors?: InstructorControl;
+  /**
+   * Takes this summer off the plan (the workspace asks first when it holds
+   * classes). Given only for a summer that is neither the plan's first term
+   * nor its last.
+   */
+  onRemoveSummer?: (termId: string) => void;
+  /** One plain line above the courses: what the planner cannot do for this term (an empty UGA summer). */
+  note?: string | null;
 }
 
 export function SemesterColumn({
@@ -93,6 +101,8 @@ export function SemesterColumn({
   onWidthChange,
   weekly,
   instructors,
+  onRemoveSummer,
+  note,
 }: SemesterColumnProps) {
   const columnRef = useRef<HTMLElement | null>(null);
   const coursesRef = useRef<HTMLDivElement | null>(null);
@@ -255,7 +265,21 @@ export function SemesterColumn({
         <p className={cn('semester-credit-count', heavy && 'text-warning')}>
           {credits}
         </p>
+        {onRemoveSummer && term.season === 'Summer' && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="semester-remove-button"
+            aria-label={`Remove ${term.label} from the plan`}
+            title={`Remove ${term.label} from the plan`}
+            onClick={() => onRemoveSummer(term.id)}
+          >
+            <X aria-hidden="true" />
+          </Button>
+        )}
       </header>
+      {note && <p className="semester-note" role="note">{note}</p>}
       {weekly?.line && (
         <p
           className="semester-weekly"

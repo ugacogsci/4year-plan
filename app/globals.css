@@ -5505,6 +5505,16 @@ p.requirement-unnamed {
 }
 .onb .program-search input:focus,
 .onb .prior-search:focus { outline: 0; border-color: var(--onb-text); box-shadow: none; }
+/* The high-school language row follows the setup theme; its base colors were dark-only. */
+.onb .onb-lang-row select,
+.onb .onb-lang-row input {
+  border-color: var(--onb-line);
+  background: var(--onb-raised);
+  color: var(--onb-text);
+}
+.onb .onb-lang-row input::placeholder { color: var(--onb-dim); }
+.onb .onb-lang-row select:focus,
+.onb .onb-lang-row input:focus { border-color: var(--onb-text); }
 .onb .program-results {
   max-height: 210px;
   border: 0;
@@ -7127,4 +7137,45 @@ button.unofficial-label:focus-visible,
 @media (max-width: 600px) {
   .feedback-dialog { padding: 20px; }
   .insights-actions button { min-height: 40px; }
+}
+
+/* Summers added and taken off by hand (lib/planner/summer-terms.ts). The
+   remove button sits beside the credit count, and the note is one plain line
+   for what the planner cannot do in that term (an empty UGA summer). */
+.semester-note {
+  margin: 0;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: var(--fs-micro);
+  line-height: 1.4;
+  color: var(--ink-dim);
+}
+.planner-app .semester-note { border-bottom-color: var(--orion-line); color: var(--orion-mid); font-size: 10px; }
+.semester-heading:has(.semester-remove-button) .semester-heading-title { margin-right: auto; }
+.semester-remove-button { flex: none; align-self: center; margin-right: -4px; }
+.planner-app .semester-remove-button { color: var(--orion-dim); }
+.planner-app .semester-remove-button:hover { color: var(--orion-text); }
+/* The remove-summer question sits above the sticky app header (z-index 60), as the privacy dialog does. */
+.summer-remove-dialog { z-index: 80; font-family: var(--app-font-mono); font-size: 12px; line-height: 1.55; }
+[data-slot='alert-dialog-overlay']:has(~ .summer-remove-dialog) { z-index: 79; }
+/* "Add a summer" beside Rebuild: a quiet outlined button, so Rebuild stays the one filled button in the bar. */
+.planner-app .board-bar .add-summer-button {
+  height: 30px;
+  min-height: 30px;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--orion-line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--orion-mid);
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  font-weight: 400;
+}
+.planner-app .board-bar .add-summer-button:hover,
+.planner-app .board-bar .add-summer-button[aria-expanded='true'] { background: var(--orion-soft); color: var(--orion-text); }
+.planner-app .board-bar .add-summer-button svg { width: 13px; height: 13px; }
+/* A phone keeps "+ summer" so the plan-wide note beside it still has room to read. */
+@media (max-width: 680px) {
+  .planner-app .board-bar .add-summer-wide { display: none; }
 }

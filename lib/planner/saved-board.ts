@@ -99,9 +99,16 @@ export interface PlanShape {
   away: AwayTerm[];
   summers: number[];
   spreadHard: boolean;
+  /**
+   * Summers the student took off the board (Remove summer on the column, or
+   * remove_summer in the chat). A summer the About-you words asked for stays
+   * off through Rebuild and reload; adding it again takes it off this list.
+   * Saves from before the field read as none.
+   */
+  droppedSummers: number[];
 }
 
-export const NO_SHAPE: PlanShape = { finish: null, away: [], summers: [], spreadHard: false };
+export const NO_SHAPE: PlanShape = { finish: null, away: [], summers: [], spreadHard: false, droppedSummers: [] };
 
 const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
 
@@ -254,6 +261,7 @@ export function readShape(value: unknown): PlanShape {
     away: Array.isArray(value.away) ? (value.away.filter(isTerm) as AwayTerm[]) : [],
     summers: Array.isArray(value.summers) ? value.summers.filter((y): y is number => Number.isInteger(y)) : [],
     spreadHard: value.spreadHard === true,
+    droppedSummers: Array.isArray(value.droppedSummers) ? value.droppedSummers.filter((y): y is number => Number.isInteger(y)) : [],
   };
 }
 
@@ -479,6 +487,12 @@ export const UNDO_LIMIT = 20;
 export interface UndoEntry {
   alreadyTakenCourseCodes?: string[];
   before: BoardState;
+  /**
+   * The plan shape before a summer the student added or removed by hand. The
+   * summer is in the shape as well as on the board, so undoing the board
+   * alone would leave Rebuild bringing the summer back (or keeping it off).
+   */
+  planShape?: PlanShape;
   /** Set when the step is one ALMA turn. */
   turn?: {
     id: string;
