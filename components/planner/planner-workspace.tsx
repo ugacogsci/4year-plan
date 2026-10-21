@@ -149,6 +149,7 @@ import {
 import { livePools, poolShortfalls } from './live-pools';
 import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersFor, summersToAdd, summerYearOf, summersInRange, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
 import { CAREER_TRACKS, careerWordsAfter, INTEREST_TOPICS, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
+import { careerWordsFor, restoredCareerWords, setupWords } from '@/lib/planner/goal-words';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
 import { describeExcellent, interestWordsFrom, sectionTimes } from '@/lib/planner/quality';
 import {
@@ -918,16 +919,33 @@ export function PlannerWorkspace({
     defaultTargetTermCredits,
   );
   const [priorities, setPriorities] = useState<Priorities>({ ...DEFAULT_PRIORITIES });
-  const [careerInterests, setCareerInterests] = useState(answers?.after ?? '');
   /**
-   * The student dropped their goal through ALMA. careerInterests starts as the
-   * About-you "after" answer and an empty one falls back to it, so without
-   * this a student who said "I'm not pre-med anymore" saw the rail cleared
-   * while the planner went on reading "pre-med" from About you.
+   * The setup's words for the planner (goal-words.ts setupWords): the three
+   * old boxes as written, or the one About-you box read for its goals alone.
+   * The paragraph also says the student's year, credits and finish, and read
+   * whole as goals it gave a sophomore in computer science a software
+   * engineering goal and an ex-pre-med the pre-med track; every timeline
+   * reader still reads the whole of it from answers.timeline.
+   */
+  const setup = useMemo(() => setupWords(answers), [answers]);
+  /** The rail's goal box: the setup's goals until the student types their own, which then win (careerWordsFor). */
+  const [careerInterests, setCareerInterests] = useState(() => setupWords(answers).goals);
+  /**
+   * The student dropped their goal, through ALMA or by emptying the rail's
+   * box. careerInterests starts as the setup's goals and an empty one falls
+   * back to them, so without this a student who said "I'm not pre-med
+   * anymore" saw the rail cleared while the planner went on reading "pre-med"
+   * from About you.
    */
   const [careerCleared, setCareerCleared] = useState(false);
+  /**
+   * The rail box's words. A board saved while the one box filled the goal
+   * slot holds the whole setup paragraph there, untouched by the student; it
+   * reads as the setup's goals (restoredCareerWords).
+   */
+  const careerTyped = useMemo(() => restoredCareerWords(careerInterests, answers), [careerInterests, answers]);
   /** What the student said they want to do: the only words career tracks and topics are read from. */
-  const careerText = careerInterests || (careerCleared ? '' : answers?.after || '');
+  const careerText = careerWordsFor(setup, careerTyped, careerCleared);
   const [planShape, setPlanShape] = useState<PlanShape>(NO_SHAPE);
   /** Set by ALMA's set_plan_shape so the next shape change rebuilds the board. */
   const rebuildForShape = useRef(false);
@@ -1547,7 +1565,7 @@ export function PlannerWorkspace({
       // A published total of 0 is a page the crawl could not read a total from,
       // not a degree of no credits: English BALAS planned 2 terms and 28 hours.
       degreeTotal: publishedTotal || (isIllinois && !isGraduatePlan ? 120 : null),
-      interests: [answers?.studying ?? '', careerText].join(' '),
+      interests: [setup.studying, careerText].join(' '),
       // Goals come from what the student wants to do, never from the major's
       // name: "Psychology" alone was booking psychopathology as their goal.
       career: careerText,
@@ -1771,7 +1789,7 @@ export function PlannerWorkspace({
     // computed for it (the effect after `issues`): the all-clear follows
     // every check the board shows, not only unplaced courses.
     announceBuild.current = true;
-  }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga]);
+  }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, setup, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga]);
 
   /**
    * Credit that changes after the board exists rebuilds the board.
@@ -3051,10 +3069,11 @@ export function PlannerWorkspace({
       ), answers, exams, examCredit.entries, catalogCredits),
     [answers, byCode, examCredit, exams, catalogCredits],
   );
-  // careerInterests starts as the 'after' answer and replaces it once edited;
-  // joining both counted the same words twice. The studying answer adds free
-  // words and subjects here; goals are read from careerText alone.
-  const interestsText = [answers?.studying ?? '', careerText].join(' ');
+  // careerInterests starts as the setup's goals and replaces them once edited;
+  // joining both counted the same words twice. The studying words (the old
+  // studying answer, or the programs a one-box setup weighs) add free words
+  // and subjects here; goals are read from careerText alone.
+  const interestsText = [setup.studying, careerText].join(' ');
 
   const chooserData = useMemo((): { label: string; options: Course[]; whys: Map<string, string> } | null => {
     if (!chooser || !plan || !context || !loaded) return null;
@@ -3096,7 +3115,7 @@ export function PlannerWorkspace({
       // Replacements are constrained by the requirement and term. Career text
       // influences the next generated plan, but should not rescore an already
       // open chooser while the student is editing that text.
-      interests: [answers?.studying ?? '', answers?.after ?? ''].join(' '),
+      interests: [setup.studying, setup.goals].join(' '),
       programName: source.program.name,
       programCollege: isIllinois && !isGraduatePlan ? loaded.program.college : undefined,
       priorities,
@@ -3125,7 +3144,7 @@ export function PlannerWorkspace({
     pools,
     electiveOf,
     catalog,
-    answers,
+    setup,
     byCode,
     isGraduatePlan, isIllinois, priorities, priorForOptions, boardContext,
   ]);
@@ -3435,6 +3454,7 @@ export function PlannerWorkspace({
     priorForOptions,
     interestsText,
     careerText,
+    setupStudying: setup.studying,
     pools,
     language: report?.language ?? null,
     admission: report?.admission ?? null,
@@ -3472,6 +3492,7 @@ export function PlannerWorkspace({
       priorForOptions,
       interestsText,
       careerText,
+      setupStudying: setup.studying,
       pools,
       language: report?.language ?? null,
       admission: report?.admission ?? null,
@@ -4043,7 +4064,7 @@ export function PlannerWorkspace({
     lines.push(
       `Credit load: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'an even share of what is left'}, never above 18.${describeShape(planShapeRef.current)} ${scheduleSentence(sectionTermsOf(L.core?.meta), L.core?.meta?.term?.label ?? null)}`,
     );
-    lines.push(isIllinois ? describeGoals(L.answers?.studying ?? '', L.careerText) : `Interests and goals: ${L.careerText || 'none recorded'}. No university-specific career track course list is loaded for UGA.`);
+    lines.push(isIllinois ? describeGoals(L.setupStudying, L.careerText) : `Interests and goals: ${L.careerText || 'none recorded'}. No university-specific career track course list is loaded for UGA.`);
     // The rail's clubs, once the file has loaded, so ALMA and the rail name the same ones.
     const clubs = isIllinois && clubFile.current ? runFindClubs({}, clubStudentFor(L.careerText, L.loaded, L.answers), clubFile.current) : null;
     if (clubs?.ok && clubs.clubs.length > 0) {
@@ -5141,7 +5162,7 @@ export function PlannerWorkspace({
           setCareerInterests(stored);
           setCareerCleared(stored === '');
           careerTextRef.current = stored;
-          live.current = { ...live.current, interestsText: [L.answers?.studying ?? '', stored].join(' '), careerText: stored };
+          live.current = { ...live.current, interestsText: [L.setupStudying, stored].join(' '), careerText: stored };
           if (said) heard = heardInterests(stored);
         }
         const outcome = input.repick === false ? { changes: [], unchanged: false } : repickElectives(next, 'alma');
@@ -6413,8 +6434,12 @@ export function PlannerWorkspace({
         onMinimumChange={setMinimumTermCredits}
         targetTermCredits={targetTermCredits}
         onTargetChange={setTargetTermCredits}
-        careerInterests={careerInterests}
-        onCareerChange={setCareerInterests}
+        careerInterests={careerTyped}
+        onCareerChange={(value) => {
+          // The box is the student's own goal now; emptied, it is no goal, not the setup's again.
+          setCareerInterests(value);
+          setCareerCleared(value.trim() === '');
+        }}
         priorities={priorities}
         onPrioritiesChange={setPriorities}
         onRepick={() => {
