@@ -206,6 +206,14 @@ export function auditUgaBoard(input: UgaAuditInput) {
       title: 'Degree credits are short',
       message: `This draft has ${total} of ${target} required credits, including in-progress work that must be passed.`,
     });
+  // Two rows below are information, not problems (owner, 2026-10-20, "fewer
+  // pointless warnings"): a requirement the snapshot cannot fully read is for
+  // an advisor to check, as Illinois's unread requirements already were, and
+  // in-progress credit is true of nearly every continuing student. As
+  // warnings they kept UGA boards from ever saying "Nothing needs attention"
+  // (88 of 161 bachelor's programs have at least one unread requirement). The
+  // rows and their words are unchanged; the board folds them under "Good to
+  // know" (lib/planner/warnings-triage.ts).
   for (const block of [...ugBlocks, ...(graduate?.blocks ?? [])]) {
     if (
       block.rule.kind === 'unparsed' ||
@@ -213,7 +221,7 @@ export function auditUgaBoard(input: UgaAuditInput) {
     )
       issues.push({
         id: `uga-unverified-${block.id}`,
-        severity: 'warning',
+        severity: 'info',
         termId: '',
         title: 'Requirement needs advisor review',
         message: `${block.areaLabel}: the snapshot does not identify all required courses. Credit totals alone cannot verify this requirement.`,
@@ -223,7 +231,7 @@ export function auditUgaBoard(input: UgaAuditInput) {
   if (summary.pending)
     issues.push({
       id: 'uga-pending',
-      severity: 'warning',
+      severity: 'info',
       termId: '',
       title: 'In-progress credit is conditional',
       message: `Your record shows ${summary.earned} earned credits and ${summary.pending} in progress. Progress assumes the in-progress courses are passed; they are not yet earned. Rebuild after updating final grades.`,
