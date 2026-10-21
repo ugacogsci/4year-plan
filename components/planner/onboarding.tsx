@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { AlertTriangle, Moon, Sun } from 'lucide-react';
+import { NativeSelect } from '@/components/ui/native-select';
 import { ProgramPicker, type ProgramOption } from './program-picker';
 import { PriorCredit } from './prior-credit';
 import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
@@ -41,7 +42,7 @@ import {
 } from '@/lib/planner/onboarding';
 import { transcriptCodes, transcriptHours } from '@/lib/planner/transcript';
 import { clearPlannerStorage, createSetupResetSequence } from '@/lib/planner/setup-reset';
-import { setInsightScreen, track, trackContent } from '@/lib/insights/client';
+import { setInsightScreen, track, trackContent, trackTranscript } from '@/lib/insights/client';
 import { SCREENS } from '@/lib/insights/schema';
 import {
   findUgaCollege,
@@ -56,6 +57,8 @@ import {
 } from '@/lib/planner/graduation-fit';
 import { useExamCredit } from './exam-credit';
 import { DoubleDawgsPicker } from './double-dawgs-picker';
+import { GuidedSetup } from './guided-setup';
+import { openAccount } from './account-controls';
 import { DoubleDawgsTiming, doubleDawgsTimingValid } from './double-dawgs-timing';
 import {
   PLANNER_THEME_STORAGE_KEY,
@@ -226,6 +229,7 @@ export function Onboarding({
   const ready = readySchools();
   const onlySchool = ready.length === 1 ? ready[0] : null;
   const [step, setStep] = useState(onlySchool ? 1 : 0);
+  const [guided, setGuided] = useState(true);
   const [resetError, setResetError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ProgramCatalog | null>(null);
   const [theme, setTheme] = useState<PlannerTheme>(readStoredTheme);
@@ -473,6 +477,8 @@ export function Onboarding({
     setAnswers((a) => ({
       ...a,
       schoolId: id,
+      setupConversation: a.schoolId === id ? a.setupConversation : undefined,
+      setupConfirmations: a.schoolId === id ? a.setupConfirmations : undefined,
       doubleDawgsPathwayId: a.schoolId === id ? a.doubleDawgsPathwayId : null,
       programLevel: id === 'uga' || id === 'illinois' ? a.programLevel : 'undergraduate',
       programIds: a.schoolId === id ? a.programIds : [UNDECIDED_PROGRAM_ID],
@@ -567,11 +573,12 @@ export function Onboarding({
     setStep(3);
   }
 
-  function finish() {
-    track('setup_submitted', { level: answers.programLevel, majors: answers.programIds.filter((id) => id !== UNDECIDED_PROGRAM_ID).length, minors: answers.minorIds.length, certificates: answers.certificateIds.length });
+  function finish(next = answers) {
+    if (next.transcript) trackTranscript(next.transcript);
+    track('setup_submitted', { level: next.programLevel, majors: next.programIds.filter((id) => id !== UNDECIDED_PROGRAM_ID).length, minors: next.minorIds.length, certificates: next.certificateIds.length });
     setStep(5);
-    saveAnswers(answers);
-    window.setTimeout(() => onDone(answers), 1400);
+    saveAnswers(next);
+    window.setTimeout(() => onDone(next), 1400);
   }
 
   return (
@@ -581,6 +588,7 @@ export function Onboarding({
           <Image src="/orion-logo.png" alt="" width={48} height={48} priority />
           <span>ORION</span>
         </div>
+        <button className="onb-back onb-account" onClick={openAccount}>Sign in / saved plans</button>
         <button
           type="button"
           className="onb-theme"
@@ -593,11 +601,19 @@ export function Onboarding({
       </header>
       <div className="onb-inner">
         <div className="onb-progress" aria-label={`Setup step ${step + 1} of ${SETUP_STEPS.length}: ${SETUP_STEPS[step]}`}>
-          <span>{SETUP_STEPS[step]}</span>
-          <small>{step + 1} / {SETUP_STEPS.length}</small>
+          <span>{guided && step === 1 ? 'About you' : SETUP_STEPS[step]}</span>
+          {!guided && <small>{step + 1} / {SETUP_STEPS.length}</small>}
           <i aria-hidden="true"><b style={{ width: `${((step + 1) / SETUP_STEPS.length) * 100}%` }} /></i>
         </div>
 
+        {!guided && step > 0 && step < 5 && <div className="guided-actions"><button className="setup-mode-link" onClick={() => {
+          setAnswers((current) => ({ ...current, setupConfirmations: {
+            programConfirmed: Boolean(current.setupConfirmations?.programConfirmed || step > 1 || current.programIds.some((id) => id !== UNDECIDED_PROGRAM_ID)),
+            graduationConfirmed: Boolean(current.setupConfirmations?.graduationConfirmed || graduationEdited || step > 3),
+            creditReviewed: Boolean(current.setupConfirmations?.creditReviewed || current.transcript || current.exams.length || current.alreadyTakenCourseCodes.length || current.transferText.trim()),
+          } }));
+          setGuided(true); setStep(1);
+        }}>Use the setup assistant</button></div>}
         {onResume && programChoicesReady && detailsComplete && step < 5 && (
           <p className="onb-resume">
             Your answers from last time are filled in below.{' '}
@@ -615,7 +631,8 @@ export function Onboarding({
             {resetError && <p className="onb-feasibility" role="alert">{resetError}</p>}
             <div className="onb-university-picker">
               <label htmlFor="university">University</label>
-              <select
+              <NativeSelect
+                className="onb-university-select"
                 id="university"
                 value={answers.schoolId ?? ''}
                 onChange={(event) => pick(event.target.value as SchoolId)}
@@ -626,7 +643,7 @@ export function Onboarding({
                     {candidate.name}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
               {school && (
                 <p>
                   {school.short} data comes from its published course catalog, degree requirements,
@@ -636,14 +653,17 @@ export function Onboarding({
             </div>
             <div className="onb-actions onb-university-actions">
               <span />
-              <button className="onb-next" onClick={() => setStep(1)} disabled={!answers.schoolId}>
-                Choose programs
+              <button className="onb-next" onClick={() => { setGuided(true); setStep(1); }} disabled={!answers.schoolId}>
+                Continue
               </button>
             </div>
           </section>
         )}
 
-        {step === 1 && (
+        {step === 1 && guided && <GuidedSetup key={answers.schoolId} answers={answers} catalog={catalog} onChange={setAnswers}
+          onManual={() => { setGraduationEdited(Boolean(answers.graduationYear)); setGuided(false); }} onBack={() => setStep(0)} onFinish={finish} />}
+
+        {step === 1 && !guided && (
           <section className="onb-step">
             <h1>What are you studying?</h1>
             <p className="onb-sub">
@@ -762,7 +782,7 @@ export function Onboarding({
               </span>
               <button
                 className="onb-next"
-                onClick={() => setStep(2)}
+                onClick={() => response.trim() ? prepareDetails() : setStep(2)}
                 disabled={!programChoicesReady}
               >
                 Continue
@@ -991,7 +1011,7 @@ export function Onboarding({
             <div className="onb-actions">
               <button className="onb-back" onClick={() => setStep(3)}>Back</button>
               <span className="onb-count">{priorSummary(answers)}</span>
-              <button className="onb-next" onClick={finish}>
+              <button className="onb-next" onClick={() => finish()}>
                 {initial ? 'Build my plan again' : 'Build my plan'}
               </button>
             </div>

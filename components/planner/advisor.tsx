@@ -53,6 +53,7 @@ import { track, trackContent } from '@/lib/insights/client';
  * planner's own lookup (/api/ask), which reads the school's official pages.
  */
 export interface BotPanelProps {
+  setupHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** ALMA, ARCH: the school's own bot name. */
   botName: string;
   schoolId: SchoolId | null;
@@ -403,6 +404,7 @@ function Typing() {
 }
 
 export function BotPanel({
+  setupHistory,
   turns,
   botName,
   schoolId,
@@ -433,11 +435,11 @@ export function BotPanel({
       const raw = window.localStorage.getItem(CHAT_KEY);
       const saved = raw ? (JSON.parse(raw) as { programId: string | null; messages: AdvisorMessage[] }) : null;
       // oxlint-disable-next-line react/react-compiler
-      setMessages(saved && saved.programId === programId && Array.isArray(saved.messages) ? saved.messages : []);
+      setMessages(saved && saved.programId === programId && Array.isArray(saved.messages) ? saved.messages : setupHistory ?? []);
     } catch {
       setMessages([]);
     }
-  }, [programId]);
+  }, [programId, setupHistory]);
 
   const remember = useCallback(
     (next: AdvisorMessage[]) => {
@@ -528,6 +530,7 @@ export function BotPanel({
         },
       });
       remember(turn.messages);
+      trackContent('assistant', lastAssistantText(turn.messages));
       track('chat_completed', { outcome: turn.refused ? 'refused' : 'ok', durationMs: performance.now() - startedAt });
       if (turn.refused) setError(turn.refused);
     } catch (caught) {

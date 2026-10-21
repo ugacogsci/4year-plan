@@ -1,7 +1,9 @@
 'use client';
 
+import { IssueBadge } from './issue-badge';
+
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
-import { Check, Maximize2, Minimize2, Minus, Move, Plus, RotateCcw, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { ArrowLeft, Check, Maximize2, Minimize2, Minus, Move, Plus, RotateCcw, Search, Shuffle, SlidersHorizontal, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
@@ -934,8 +936,12 @@ export function CourseExplorer({
     ? chooser.options.filter((course) => !normalizedQuery || courseMatches(course, normalizedQuery))
     : [];
   const listRows = chooser ? chooserMatches.slice(0, 100) : results;
-  const showList = chooser ? listRows.length > 0 : Boolean(normalizedQuery) && results.length > 0;
-  const add = (courseId: string) => (chooser ? chooser.onPick(courseId) : onAddCourse(courseId, targetTermId));
+  const showList = chooser ? !selectedCourseId : Boolean(normalizedQuery) && results.length > 0;
+  const replacementAllowed = (courseId: string) => !chooser || chooser.options.some((course) => course.id === courseId);
+  const add = (courseId: string) => {
+    if (chooser) { if (replacementAllowed(courseId)) chooser.onPick(courseId); }
+    else onAddCourse(courseId, targetTermId);
+  };
   const addLabel = chooser ? `into ${chooser.termLabel}` : `to ${targetLabel}`;
   /** May this course go on the board once more, in the term the student is adding to (repeats.ts)? Never from the elective chooser. */
   const addsAgain = (course: Course) => !chooser && targetTermId !== 'completed' && mayBookAgain(course, { completedCourseIds: [], terms }, course.id, targetTermId);
@@ -951,24 +957,12 @@ export function CourseExplorer({
       style={finderWidth === null ? undefined : { width: finderWidth, marginLeft: finderLeft }}
     >
 
-      {chooser && (
-        <div className="finder-chooser">
-          <p>
-            Replacing <strong>{chooser.replacing}</strong> in <strong>{chooser.termLabel}</strong>.
-            Every choice below fits the same requirement and the selected term.
-          </p>
-          <button type="button" onClick={chooser.onCancel}>
-            Keep {chooser.replacing}
-          </button>
-        </div>
-      )}
-
       <div className="finder-search">
         <input
           aria-label="Search courses"
           value={searchQuery}
           placeholder={chooser ? 'Search replacements' : 'Search courses'}
-          onChange={(event) => onSearchChange(event.target.value)}
+          onChange={(event) => { if (chooser) onSelectCourse(null); onSearchChange(event.target.value); }}
         />
       </div>
 
@@ -1220,11 +1214,11 @@ export function CourseExplorer({
               <div className="map-popup-heading">
                 <span className="inspector-dot" style={{ backgroundColor: clusterColor(selected.cluster) }} />
                 <strong>{selected.code}</strong>
+                {goalReasons?.get(selected.id) && <IssueBadge title="Why this course was picked" message={goalReasons.get(selected.id)!} severity="info" variant="dot" className="goal-reason-badge" />}
                 <span>{creditLabel(selected)}</span>
               </div>
               <h3>{selected.title}</h3>
               {selected.description && <p className="map-popup-description">{selected.description}</p>}
-              {goalReasons?.get(selected.id) && <p className="map-popup-goal">{goalReasons.get(selected.id)}</p>}
               {instructors && (() => {
                 // The term the card sits in: the one the board opened it from, else the first holding it.
                 const at = terms.find((t) => t.id === targetTermId && t.courseIds.includes(selected.id)) ?? terms.find((t) => t.courseIds.includes(selected.id));
@@ -1259,6 +1253,7 @@ export function CourseExplorer({
               <div className="inspector-add">
                 <NativeSelect
                   aria-label="Which term to add to"
+                  disabled={Boolean(chooser)}
                   value={targetTermId}
                   onChange={(event) => onTargetTermChange(event.target.value)}
                 >
@@ -1271,12 +1266,13 @@ export function CourseExplorer({
                 </NativeSelect>
                 <Button
                   className="inspector-add-button"
-                  disabled={plannedCourseIds.has(selected.id) && !addsAgain(selected)}
+                  disabled={!replacementAllowed(selected.id) || (plannedCourseIds.has(selected.id) && !addsAgain(selected)) || (Boolean(chooser) && completedCodes.has(selected.code.toUpperCase()))}
                   onClick={() => add(selected.id)}
                 >
-                  {plannedCourseIds.has(selected.id) && !addsAgain(selected) ? <Check /> : <Plus />}
-                  {plannedCourseIds.has(selected.id) && !addsAgain(selected)
+                  {plannedCourseIds.has(selected.id) && !addsAgain(selected) ? <Check /> : chooser ? <Shuffle /> : <Plus />}
+                  {!replacementAllowed(selected.id) ? 'Not eligible' : plannedCourseIds.has(selected.id) && !addsAgain(selected)
                     ? 'In plan'
+                    : chooser ? 'Replace'
                     : plannedCourseIds.has(selected.id)
                       ? 'Add again'
                       : 'Add'}
@@ -1287,17 +1283,25 @@ export function CourseExplorer({
         })()}
       </div>
 
+      {chooser && selectedCourseId && <button className="finder-preview-back" onClick={() => onSelectCourse(null)}><ArrowLeft aria-hidden="true" /> Back to replacements</button>}
       {showList && (
         <div className="finder-results" aria-label={chooser ? 'Courses for this slot' : 'Matching courses'}>
+          {chooser && (
+            <div className="finder-chooser">
+              <div><strong>Replace {chooser.replacing}</strong><span>{chooser.termLabel}</span></div>
+              <button type="button" onClick={chooser.onCancel} aria-label={`Cancel replacing ${chooser.replacing}`} title={`Keep ${chooser.replacing}`}><X aria-hidden="true" /></button>
+            </div>
+          )}
           <p className="finder-results-head">
             {chooser && !normalizedQuery
-              ? `${chooserMatches.length.toLocaleString()} eligible replacements, best fit first`
+              ? `${chooserMatches.length.toLocaleString()} options · Best fit first`
               : chooser
                 ? `${chooserMatches.length.toLocaleString()} matching replacements`
               : searchHits === null || searchHits <= results.length
                 ? `${results.length} ${results.length === 1 ? 'match' : 'matches'}`
                 : `First ${results.length} of ${searchHits.toLocaleString()} matches`}
           </p>
+          {listRows.length === 0 && <p className="finder-empty">No replacements match your search.</p>}
           <ul>
             {listRows.map((course) => {
               // A course the catalog lets a student repeat can go on again (THEA 359 for Stage Management's 8 hours).
@@ -1310,19 +1314,17 @@ export function CourseExplorer({
                     <span className="finder-result-code">{course.code}</span>
                     <span className="finder-result-title">{course.title}</span>
                     <span className="finder-result-meta">{creditLabel(course)}</span>
-                    {chooser?.whys?.get(course.id) && (
-                      <span className="finder-result-why">{chooser.whys.get(course.id)}</span>
-                    )}
                   </button>
+                  {chooser?.whys?.get(course.id) && <IssueBadge title="Why this course is suggested" message={chooser.whys.get(course.id)!} severity="info" variant="dot" className="goal-reason-badge" side="left" />}
                   <button
                     type="button"
                     className="finder-result-add"
                     disabled={inPlan || taken}
-                    aria-label={inPlan ? `${course.code} is in the plan` : taken ? `${course.code} is already taken` : `Add ${course.code} ${addLabel}`}
-                    title={inPlan ? 'In the plan' : taken ? 'Already taken' : `Add ${addLabel}`}
+                    aria-label={inPlan ? `${course.code} is in the plan` : taken ? `${course.code} is already taken` : chooser ? `Replace ${chooser.replacing} with ${course.code}` : `Add ${course.code} ${addLabel}`}
+                    title={inPlan ? 'In the plan' : taken ? 'Already taken' : chooser ? `Replace with ${course.code}` : `Add ${addLabel}`}
                     onClick={() => add(course.id)}
                   >
-                    {inPlan || taken ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
+                    {inPlan || taken ? <Check aria-hidden="true" /> : chooser ? <Shuffle aria-hidden="true" /> : <Plus aria-hidden="true" />}
                   </button>
                 </li>
               );

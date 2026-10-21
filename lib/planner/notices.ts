@@ -53,16 +53,24 @@ export function privacySections(bot: string): PrivacySection[] {
     {
       title: 'What stays on your device',
       lines: [
-        'Your setup answers, plan, conversation with ' + bot + ' and display settings are saved in this browser. There are no accounts. Unless you separately opt in to research sharing, we do not keep copies of your setup answers or chat questions.',
+        'Your setup answers, plan, conversation with ' + bot + ' and display settings are saved in this browser. An optional Google account lets you save your workspace across devices. Signing in alone does not upload or replace a plan.',
         'Start over clears your answers and your plan; clearing this site’s data in your browser removes everything.',
         '"Download as JSON" saves a file on your device. "Copy a link" puts your plan inside the link itself, so anyone you send it to can read the plan.',
       ],
     },
     {
+      title: 'Optional Google sign-in and private plans',
+      lines: [
+        'Google handles authentication; ORION never receives your Google password. We keep your Google account identifier, verified email and secure sign-in sessions in a separate Cloudflare account database. We do not request access to Gmail or Google Drive.',
+        'When you choose Save this device\'s plan, your plan tabs, setup answers, reviewed credit record and conversation are saved privately to your account. Subsequent edits save automatically. Uploaded PDF/image files are not included. Only your signed-in account can load or change that workspace; authorized project operators administer the database. Account data is separate from optional research sharing.',
+        'You can delete your cloud copy or account from Account and cloud saves. Account deletion removes its plans and sessions. Sign out clears the local planning records on this device. Research records are separate and can be deleted in Privacy. Cloudflare may retain backups according to its recovery policies.',
+      ],
+    },
+    {
       title: 'What is sent, and to whom',
       lines: [
-        `When you message ${bot}, your conversation so far and a text description of your plan go through our server to Anthropic’s Claude API, which writes the reply. That request is not stored in our analytics. With separate research consent, a limited copy of the new question is sent to our research database.`,
-        'When you upload a transcript or a screenshot, the files go through our server to the Claude API once so it can list the courses on them. Our server does not keep the files or log the courses; you review every line before anything counts.',
+        `When you use guided setup or message ${bot}, your conversation and relevant planning context go through our server to Anthropic’s Claude API, which writes the reply. Manual setup is available without this conversation. With separate research consent, limited copies of newly submitted answers, questions and assistant replies are sent to our research database.`,
+        'When you upload a transcript or screenshot, the files go through our server to the Claude API once to list the courses. We do not keep the files; you review the extracted record before it counts. A private account save can include that reviewed record. A separate research choice can share only course codes and credits from it.',
         `Questions about the university itself that ${bot} looks up (deadlines, policies, offices) go through our server to Anthropic’s Claude API, which searches only the university’s own official website and answers with links to the pages it used. For a follow-up, your previous question and that answer go with it; nothing about your plan does. Our server does not log these questions. It remembers the answer to a question for up to a day, with nothing about who asked, so the same question asked again is answered without a second search.`,
         'Anthropic handles what it receives under its commercial terms and privacy policy (anthropic.com/legal). Do not type passwords, your UIN, or other ID numbers into the chat.',
       ],
@@ -77,7 +85,7 @@ export function privacySections(bot: string): PrivacySection[] {
       title: 'Optional analytics and research',
       lines: [
         'Analytics is off until you choose to enable it. If enabled and configured, ORION stores screen visits, named control clicks, feature visibility, active time, plan-edit counts, chat timing and coarse country/region in our Cloudflare database. A random browser identifier rotates after 30 days; it is pseudonymous, not a guarantee of anonymity. We do not store IP addresses, precise location, full URLs or keystrokes in analytics. We honor Do Not Track and Global Privacy Control.',
-        'A separate, unchecked choice lets us keep future submitted setup responses and chat questions for product research, up to 2,000 characters each. Basic redaction removes common emails, phone numbers and links but cannot remove every personal detail. Names or sensitive details you write may remain. We never automatically copy uploaded files, transcript records, grades, saved plans, assistant responses or older conversations into analytics.',
+        'Separate, unchecked choices let us keep future submitted setup responses, chat questions and assistant replies (up to 2,000 characters each), and course codes/credit hours from reviewed transcripts (up to 150 courses). We do not copy files, grades, student IDs, names printed on records, institutions or transcript dates. Basic text redaction removes common contact details but cannot remove every name or sensitive detail you type. Course combinations can also be distinctive. This is pseudonymous research, not guaranteed anonymity. Research identifiers are never linked to Google accounts.',
         'Usage records are deleted after 90 days and research text after 30 days by a daily cleanup. Only authorized project operators can read them. Turn sharing off or delete this browser\'s analytics data above. Deletion does not remove local plans, feedback emails or records held by service providers. Clearing browser data removes the identifier needed for self-service deletion; contact orioncogsci@gmail.com for help. Data from older rotated identifiers expires on the same retention schedule.',
       ],
     },

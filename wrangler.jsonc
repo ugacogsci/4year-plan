@@ -14,6 +14,11 @@
     "database_name": "orion-insights",
     "database_id": "6b65ee99-644a-48a9-9fd1-079ed57df3b7",
     "migrations_dir": "migrations"
+  }, {
+    "binding": "ACCOUNTS_DB",
+    "database_name": "orion-accounts",
+    "database_id": "e196fccd-9d44-40f9-a81d-578b24989b4c",
+    "migrations_dir": "account-migrations"
   }],
   "triggers": { "crons": ["17 4 * * *"] },
   "env": {

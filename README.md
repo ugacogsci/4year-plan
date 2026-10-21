@@ -1,5 +1,43 @@
 # ORION
 
+## Guided setup and private account saves
+
+University selection now leads to **Describe yourself**. `/api/setup` uses the
+existing server-only Anthropic key and spend guard to extract catalog-backed
+choices and ask for missing details. Catalog IDs, required emphasis selections
+and dates are checked by the UI before generation. Manual setup is always
+available; it keeps any facts already entered. The setup conversation becomes
+the planner assistant's starting history. Mock the endpoint in browser tests;
+never use real student records as fixtures.
+
+Google sign-in uses server-side authorization code + PKCE, state, nonce, verified
+ID tokens and HttpOnly/Secure/SameSite cookies. Only `openid email` is requested.
+Google credentials belong in Cloudflare secrets or ignored developer env files:
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. The production callback is
+`https://orion.cogsci.workers.dev/api/auth/callback/google`. Each developer should
+use their own client and registered localhost callback; production credentials
+are not copied to local environments. `NEXT_PUBLIC_SITE_URL` must match the
+deployment's origin. Missing credentials leave guest planning available.
+
+`ACCOUNTS_DB` is a separate D1 database, with migrations in `account-migrations`.
+Apply `npx wrangler d1 migrations apply ACCOUNTS_DB --remote --env ""` before
+deploying. Account access always derives ownership from the session, never a
+client-supplied account ID. Each account stores one workspace containing all
+plan tabs, setup answers, reviewed credit record and chat, capped at 950 KB.
+The first save/load is explicit; subsequent changes autosave. Revision checks
+reject concurrent overwrites. Account deletion cascades to sessions and plans.
+Daily cleanup removes expired sign-in attempts and sessions. Google tokens and
+raw transcript documents are not stored. Authorized operators still administer
+the database; this is not end-to-end encrypted storage.
+
+Browsers permit only their standard close-tab warning, not a custom OAuth
+dialog. The app offers sign-in after setup and in the profile menu, and warns
+before leaving when the current workspace is not backed up to an account.
+
+Regression checks:
+`node --experimental-strip-types lib/accounts/__accounts.check.mjs` and
+`node --experimental-strip-types lib/planner/__setup-agent.check.mjs`.
+
 ## Local preview stability
 
 The pinned Vinext beta retains inactive request stores during hot reloads.
@@ -12,23 +50,28 @@ files are excluded from the dev watcher; source files still hot reload.
 
 ## Optional product analytics and feedback
 
-Analytics is opt-in and disabled when `INSIGHTS_DB` is not bound. Privacy on
-every screen exposes usage and separate research-text consent, withdrawal,
+Analytics is opt-in and disabled when `INSIGHTS_DB` is not bound. An upfront
+dialog requires a choice before setup, including an equally accessible decline.
+Consent version 2 asks existing users again. Privacy on every screen exposes
+usage, separate research-text and transcript-course consent, withdrawal,
 and deletion for the current browser identifier. DNT and Global Privacy
 Control override opt-in. No session replay, keystroke capture, uploaded files,
-grades, student records, full URLs, plan names or assistant tool results are
+grades, raw student documents, full URLs, plan names or assistant tool results are
 collected. Never add blanket DOM autocapture or server request-body logging.
 
 Named controls, setup screens, visible features, active time (foreground only,
 30-second idle cutoff), plan-edit counts, chat completion times/outcomes and
 coarse Cloudflare country/region are stored in D1. Identifiers rotate every
-30 days. Only future submitted free-text setup responses and chat questions
+30 days. Only future submitted free-text setup responses, chat questions and assistant replies
 are copied when the separate research checkbox is explicitly selected, with
 2,000-character limits and best-effort contact-detail redaction. This text may
 still contain personal information. Review the privacy notice and your
 institution's policies before inviting students to share research text.
 The metrics describe the opted-in cohort, not all visitors. Lack of a click
 does not establish disinterest; compare feature visibility and ask for feedback.
+Separate transcript consent shares only codes and credit hours from reviewed
+records, at most 150 courses. The server rejects arbitrary transcript text.
+Research uses independent browser identifiers and never Google account IDs.
 
 Local database preview, separate from the ordinary no-tracking dev server:
 
@@ -147,9 +190,11 @@ Newly integrated capabilities include:
 
 Illinois-specific policy, transfer-equivalence and advising tools stay scoped to Illinois. UGA retains its own catalog, degree rules and assistant guidance; missing UGA evidence is not replaced with Illinois data. Catalog snapshots and parser gaps still require advisor review. This is an unofficial planning prototype, not a degree audit or registration system.
 
-Plans, setup answers, transcript review results and chat history are saved in this browser's local storage, not an account database. Assistant requests send relevant context to the configured service. Uploaded transcripts are sent to the transcript API only when the student uploads them; review every extracted match before using it.
+Plans, setup answers, transcript review results and chat history are saved in this browser's local storage. Students can optionally sign in and save a private account copy across devices. Assistant requests send relevant context to the configured service. Uploaded transcript files are sent for extraction only when the student uploads them and are not saved in the account; review every extracted match before using it. Research sharing is a separate, optional choice presented before setup.
 
-This integration is for local review and the `uga2` branch only. No production deployment is part of this merge.
+The original `uga2` integration was reviewed locally. The combined `uga-illinois`
+release also includes the subsequent `uga-illinois-2` features and is deployed
+to the ORION Cloudflare worker.
 
 ### Illinois
 

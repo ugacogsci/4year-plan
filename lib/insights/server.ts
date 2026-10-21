@@ -88,7 +88,7 @@ export async function ingest(req: Request, db: D1Database): Promise<Response> {
       (id, subject_id, session_id, received_at, name, screen, school, properties, country, region, consent_version)
       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM insight_subjects WHERE id = ? AND revoked_at IS NULL)`)
       .bind(event.id, subject, body.session, now, event.name, event.screen, event.school, JSON.stringify(properties), country, region, consent.version, subject));
-    if (event.name === 'content' && consent.content && typeof text === 'string') statements.push(db.prepare(`INSERT OR IGNORE INTO insight_content
+    if (event.name === 'content' && typeof text === 'string') statements.push(db.prepare(`INSERT OR IGNORE INTO insight_content
       (id, subject_id, received_at, kind, text) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM insight_subjects WHERE id = ? AND revoked_at IS NULL)`)
       .bind(event.id, subject, now, event.properties.kind, text, subject));
   }

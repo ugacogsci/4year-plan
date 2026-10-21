@@ -1,4 +1,6 @@
 'use client';
+
+import { openAccount } from './account-controls';
 import { setInsightScreen, track } from '@/lib/insights/client';
 
 /**
@@ -2648,7 +2650,7 @@ export function PlannerWorkspace({
     const built = triage.allClear ? 'Plan built. Nothing needs attention.' : `Draft built. ${triage.line}`;
     setStatus(earlyText ? `${built} ${earlyText}` : built);
   }, [triage, earlyText, plan]);
-  /** The plan tab's dot: only for something that matters now, with what the bar shows. */
+  /** Highlight tabs only for something that matters now, with what the bar shows. */
   const planWideSeverity = triage.prominent[0]?.severity ?? null;
   const planWideSummary = [
     ...triage.prominent.map((kind) => `${kind.label}: ${kind.issue.message}`),
@@ -3177,14 +3179,10 @@ export function PlannerWorkspace({
 
   function prepareReplacement(courseId: string, termId: string) {
     setChooser({ termId, courseId });
+    setSelectedCourseId(null);
+    setTargetTermId(termId);
+    setMapFocusRequest((current) => ({ courseId, sequence: (current?.sequence ?? 0) + 1 }));
     setChooserOnMap(false);
-  }
-
-  function openChooser(courseId: string, termId: string) {
-    prepareReplacement(courseId, termId);
-    setSearchQuery('');
-    setChooserOnMap(true);
-    setFinderOpen(true);
   }
 
   function showReplacementCourse(courseId: string) {
@@ -3197,6 +3195,7 @@ export function PlannerWorkspace({
   }
 
   function showReplacements() {
+    setSelectedCourseId(null);
     setSearchQuery('');
     setChooserOnMap(true);
     setFinderOpen(true);
@@ -3357,7 +3356,11 @@ export function PlannerWorkspace({
   }
 
   function selectPlanned(courseId: string, termId: string) {
+    setChooser(null);
+    setChooserOnMap(false);
+    setSearchQuery('');
     setSelectedCourseId(courseId);
+    setMapFocusRequest((current) => ({ courseId, sequence: (current?.sequence ?? 0) + 1 }));
     setFocusTermId(termId);
     setTargetTermId(termId);
     setFinderOpen(true);
@@ -6356,6 +6359,7 @@ export function PlannerWorkspace({
               <User />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 profile-menu">
+              <DropdownMenuItem onClick={openAccount}><User /> Account and cloud saves</DropdownMenuItem>
               <DropdownMenuItem onClick={() => void openPacket()} disabled={!plan}><Printer /> Print for my advisor</DropdownMenuItem>
               <DropdownMenuItem disabled>{saveState === 'failed' ? 'Not saved on this device' : saveState === 'saved' ? 'Saved on this device' : 'Saves on this device as you go'}</DropdownMenuItem>
               <DropdownMenuItem disabled={undoStack.length === 0} onClick={undo}>
@@ -6594,6 +6598,7 @@ export function PlannerWorkspace({
                     key={candidate.id}
                     className="plan-tab-shell"
                     data-active={candidate.id === activePlanId ? 'true' : undefined}
+                    data-warning={tabIssueSeverity(candidate) ? 'true' : undefined}
                     data-dragging={candidate.id === draggingPlanTabId ? 'true' : undefined}
                   >
                     <button
@@ -6621,33 +6626,31 @@ export function PlannerWorkspace({
                       <GripVertical aria-hidden="true" />
                     </button>
                     <div className="plan-tab-label">
-                      <input
-                        role="tab"
-                        aria-selected={candidate.id === activePlanId}
-                        aria-label={`Rename ${candidate.name}${tabIssueSeverity(candidate) ? ', something on it needs attention' : ''}`}
-                        className="plan-tab-button"
-                        value={candidate.name}
-                        onFocus={() => switchPlanTab(candidate.id)}
-                        onChange={(event) => renamePlanTab(candidate.id, event.target.value)}
-                        onBlur={(event) => renamePlanTab(candidate.id, event.target.value.trim() || 'Untitled plan')}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') event.currentTarget.blur();
+                      <IssueBadge
+                        title={`${candidate.name}: needs attention`}
+                        message={tabIssueSummary(candidate)}
+                        severity={tabIssueSeverity(candidate)}
+                        coursesByCode={byCode}
+                        onShowCourse={(courseId) => {
+                          switchPlanTab(candidate.id);
+                          showWarningCourse(courseId);
                         }}
+                        trigger={
+                          <input
+                            role="tab"
+                            aria-selected={candidate.id === activePlanId}
+                            aria-label={`Rename ${candidate.name}${tabIssueSeverity(candidate) ? ', something on it needs attention' : ''}`}
+                            className="plan-tab-button"
+                            value={candidate.name}
+                            onFocus={() => switchPlanTab(candidate.id)}
+                            onChange={(event) => renamePlanTab(candidate.id, event.target.value)}
+                            onBlur={(event) => renamePlanTab(candidate.id, event.target.value.trim() || 'Untitled plan')}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') event.currentTarget.blur();
+                            }}
+                          />
+                        }
                       />
-                      {tabIssueSeverity(candidate) && (
-                        <IssueBadge
-                          variant="dot"
-                          title={`${candidate.name}: needs attention`}
-                          message={tabIssueSummary(candidate)}
-                          severity={tabIssueSeverity(candidate)!}
-                          onClick={() => switchPlanTab(candidate.id)}
-                          coursesByCode={byCode}
-                          onShowCourse={(courseId) => {
-                            switchPlanTab(candidate.id);
-                            showWarningCourse(courseId);
-                          }}
-                        />
-                      )}
                     </div>
                     <button
                       type="button"
@@ -6713,7 +6716,7 @@ export function PlannerWorkspace({
               >
                 <Plus aria-hidden="true" /> <span className="add-summer-wide">Add a </span>summer
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuContent align="end" className="planner-action-menu w-44">
                 {/* A label outside a Group throws in Base UI (see course-card.tsx). */}
                 <DropdownMenuGroup>
                   <DropdownMenuLabel>Add an empty summer</DropdownMenuLabel>
@@ -6816,7 +6819,6 @@ export function PlannerWorkspace({
                 onReplaceCourse={chooseElective}
                 onShowReplacementCourse={showReplacementCourse}
                 onShowReplacements={showReplacements}
-                onChooseElective={openChooser}
                 alternativesFor={alternativesFor}
                 onSwapCourse={swapCourse}
                 electiveOf={electiveOf}
@@ -6891,6 +6893,7 @@ export function PlannerWorkspace({
         */}
       {isCatalogSchool && (
         <BotPanel
+          setupHistory={answers?.setupConversation}
           key={programKey || 'no-degree'}
           botName={botName}
           schoolId={school?.id ?? null}

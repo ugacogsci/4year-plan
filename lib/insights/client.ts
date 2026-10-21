@@ -1,6 +1,7 @@
 'use client';
 
 import { cleanEvent, consentOf, type Consent, type EventName, type Properties, type Screen, type Feature, type InsightEvent } from './schema';
+import type { TranscriptRecord } from '@/lib/planner/transcript';
 
 export const CONSENT_KEY = 'fourYear.insights.consent.v1';
 const ID_KEY = 'fourYear.insights.identity.v1';
@@ -35,7 +36,7 @@ function readLocal() {
 function stopPending() { epoch += 1; queue = []; pendingMs = 0; sending?.abort(); sending = null; }
 export function setConsent(next: Consent) {
   stopPending();
-  consent = privacySignal() ? { version: 1, usage: false, content: false } : consentOf(next);
+  consent = privacySignal() ? { version: 2, usage: false, content: false } : consentOf(next);
   try { localStorage.setItem(CONSENT_KEY, JSON.stringify(consent)); } catch { /* Session-only choice. */ }
   announce();
   if (consent?.usage) track('screen_view', { device: contextNow().device });
@@ -46,8 +47,14 @@ export function track(name: EventName, properties: Properties = {}) {
   if (event && queue.length < 50) queue.push(event);
   if (queue.length >= 20) void flush();
 }
-export function trackContent(kind: 'setup' | 'chat', text: string) {
+export function trackContent(kind: 'setup' | 'chat' | 'assistant', text: string) {
   if (consent?.content && text.trim()) track('content', { kind, text });
+}
+export function trackTranscript(record: TranscriptRecord) {
+  if (!consent?.transcript) return;
+  const text = record.courses.filter((course) => /^[A-Z]{2,6} \d{3,5}[A-Z]?$/.test(course.code)).slice(0, 150)
+    .map((course) => `${course.code} | ${typeof course.credits === 'number' && course.credits >= 0 && course.credits < 100 ? Math.round(course.credits * 100) / 100 : 'unknown'} cr`).join('\n');
+  if (text) track('content', { kind: 'transcript', text });
 }
 export function setInsightScreen(next: Screen, university?: string | null) {
   if (screen !== next) { recordTime(); feature = undefined; }
@@ -91,7 +98,7 @@ async function flush(keepalive = false) {
   finally { clearTimeout(timeout); if (sending === controller) sending = null; }
 }
 export async function deleteInsights() {
-  setConsent({ version: 1, usage: false, content: false });
+  setConsent({ version: 2, usage: false, content: false });
   if (!identity) return;
   const response = await fetch('/api/insights', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: identity.token }) });
   if (!response.ok) throw new Error('Could not delete the saved research data. Try again later; collection is now off.');

@@ -43,7 +43,6 @@ interface SemesterColumnProps {
   onShowReplacementCourse: (courseId: string) => void;
   onShowReplacements: () => void;
   /** Opens the chooser for an elective slot. */
-  onChooseElective?: (courseId: string, termId: string) => void;
   /** The card dropdown: what else could sit here, and the swap when one is picked. */
   alternativesFor?: (courseId: string, termId: string) => Alternative[];
   onSwapCourse?: (courseId: string, termId: string, replacementId: string) => void;
@@ -93,7 +92,6 @@ export function SemesterColumn({
   onReplaceCourse,
   onShowReplacementCourse,
   onShowReplacements,
-  onChooseElective,
   alternativesFor,
   onSwapCourse,
   electiveOf,
@@ -327,7 +325,6 @@ export function SemesterColumn({
               )}
               electiveOf={electiveOf.get(courseId)}
               goalReason={goalReasons?.get(courseId) ?? null}
-              onChoose={onChooseElective}
               alternativesFor={alternativesFor}
               onSwap={onSwapCourse}
               instructors={instructors}

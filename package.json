@@ -23,6 +23,8 @@
     "test:map-interactions": "node --experimental-strip-types lib/planner/__map-interactions.check.mjs",
     "test:setup-reset": "node --experimental-strip-types lib/planner/__setup-reset.check.mjs",
     "test:insights": "node --experimental-strip-types lib/insights/__insights.check.mjs",
+    "test:accounts": "node --experimental-strip-types lib/accounts/__accounts.check.mjs",
+    "test:setup-agent": "node --experimental-strip-types lib/planner/__setup-agent.check.mjs",
     "test:dev-runtime": "node --experimental-strip-types scripts/dev/__vinext-scope-guard.check.mjs"
   },
   "dependencies": {
@@ -36,7 +38,9 @@
     "date-fns": "4.1.0",
     "embla-carousel-react": "8.5.2",
     "input-otp": "1.4.2",
+    "jose": "^6.2.13",
     "lucide-react": "1.31.0",
+    "oauth4webapi": "^3.8.8",
     "react": "19.2.8",
     "react-day-picker": "9.8.1",
     "react-dom": "19.2.8",

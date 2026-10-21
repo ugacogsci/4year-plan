@@ -5,7 +5,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Onboarding } from './onboarding';
 import { clearSavedPlan, PlannerWorkspace } from './planner-workspace';
 import { isReadySchool, loadAnswers, saveAnswers, type OnboardingAnswers } from '@/lib/planner/onboarding';
-import { InsightsRuntime } from './insights-controls';
+import { InsightsRuntime, InsightsGate } from './insights-controls';
+import { AccountControls } from './account-controls';
 
 /**
  * The questions on every launch, the planner after them.
@@ -15,8 +16,8 @@ import { InsightsRuntime } from './insights-controls';
  * what was said last time, and one link skips to the saved plan for anyone who
  * has nothing to change. New answers build a new plan.
  *
- * Plans stay in localStorage. Optional analytics and research sharing are
- * separately consented; transcript uploads are never copied into analytics.
+ * Plans start in localStorage. Account backups and research sharing require
+ * separate choices; raw transcript uploads are never copied into either.
  */
 export function AppShell() {
   const [saved, setSaved] = useState<OnboardingAnswers | null>(null);
@@ -43,6 +44,8 @@ export function AppShell() {
     return (
       <TooltipProvider>
         <InsightsRuntime />
+        <InsightsGate />
+        <AccountControls inPlanner={false} />
         <Onboarding
           initial={saved}
           onResume={saved ? () => setAnswers(saved) : undefined}
@@ -59,6 +62,8 @@ export function AppShell() {
   return (
     <TooltipProvider>
       <InsightsRuntime />
+      <InsightsGate />
+      <AccountControls inPlanner />
       <PlannerWorkspace
         answers={answers}
         onAnswersChange={(next) => {

@@ -1,4 +1,4 @@
-export const CONSENT_VERSION = 1;
+export const CONSENT_VERSION = 2;
 export const FEEDBACK_EMAIL = 'orioncogsci@gmail.com';
 export const SCREENS = ['university', 'programs', 'goals', 'details', 'credit', 'generating', 'planner'] as const;
 export const FEATURES = ['map', 'schedule', 'progress', 'assistant', 'plans'] as const;
@@ -15,7 +15,7 @@ export const EVENTS = ['screen_view', 'active_time', 'feature_view', 'control_cl
 export type Screen = typeof SCREENS[number];
 export type Feature = typeof FEATURES[number];
 export type EventName = typeof EVENTS[number];
-export type Consent = { version: 1; usage: boolean; content: boolean };
+export type Consent = { version: 2; usage: boolean; content: boolean; transcript?: boolean };
 export type Properties = Record<string, string | number | boolean>;
 export interface InsightEvent { id: string; name: EventName; screen: Screen; school: 'uga' | 'illinois' | ''; properties: Properties }
 export const isToken = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -24,7 +24,7 @@ export function consentOf(raw: unknown): Consent | null {
   if (!raw || typeof raw !== 'object') return null;
   const c = raw as Record<string, unknown>;
   if (c.version !== CONSENT_VERSION || typeof c.usage !== 'boolean' || typeof c.content !== 'boolean') return null;
-  return { version: CONSENT_VERSION, usage: c.usage, content: c.usage && c.content };
+  return { version: CONSENT_VERSION, usage: c.usage, content: c.usage && c.content, transcript: c.usage && c.transcript === true };
 }
 const includes = (list: readonly string[], value: unknown): value is string => typeof value === 'string' && list.includes(value);
 
@@ -42,12 +42,11 @@ export function cleanEvent(raw: unknown, consent: Consent): InsightEvent | null 
   if (!consent.usage || !raw || typeof raw !== 'object') return null;
   const e = raw as Record<string, unknown>;
   if (!isId(e.id) || !includes(EVENTS, e.name) || !includes(SCREENS, e.screen)) return null;
-  if (e.name === 'content' && !consent.content) return null;
   const p = e.properties && typeof e.properties === 'object' ? e.properties as Record<string, unknown> : {};
   const result: Properties = {};
   const enums: Record<string, readonly string[]> = {
     control: CONTROLS, feature: FEATURES, operation: ['add', 'remove', 'move', 'reorder', 'replace', 'completed', 'edit'],
-    outcome: ['ok', 'error', 'stopped', 'refused'], kind: ['setup', 'chat'],
+    outcome: ['ok', 'error', 'stopped', 'refused'], kind: ['setup', 'chat', 'assistant', 'transcript'],
     level: ['undergraduate', 'graduate'], actor: ['student', 'assistant'],
     device: ['small', 'medium', 'large'], error: ['script', 'unhandled_promise'],
   };
@@ -55,7 +54,12 @@ export function cleanEvent(raw: unknown, consent: Consent): InsightEvent | null 
   for (const key of ['durationMs', 'count', 'majors', 'minors', 'certificates', 'terms', 'characters']) {
     if (typeof p[key] === 'number' && Number.isFinite(p[key])) result[key] = Math.round(Math.max(0, Math.min(key === 'durationMs' ? 300000 : 10000, p[key])));
   }
-  if (e.name === 'content' && includes(['setup', 'chat'], p.kind) && typeof p.text === 'string') result.text = redactContent(p.text);
+  if (e.name === 'content' && includes(['setup', 'chat', 'assistant'], p.kind) && consent.content && typeof p.text === 'string') result.text = redactContent(p.text);
+  // Transcript research is a narrow course list, never raw documents or free-form records.
+  if (e.name === 'content' && p.kind === 'transcript' && consent.transcript && typeof p.text === 'string') {
+    const lines = p.text.split('\n').slice(0, 150);
+    if (lines.every((line) => /^[A-Z]{2,6} \d{3,5}[A-Z]? \| (?:\d{1,2}(?:\.\d{1,2})?|unknown) cr$/.test(line))) result.text = lines.join('\n');
+  }
   if (e.name === 'content' && !result.text) return null;
   return { id: e.id, name: e.name as EventName, screen: e.screen as Screen, school: includes(['uga', 'illinois'], e.school) ? e.school as 'uga' | 'illinois' : '', properties: result };
 }

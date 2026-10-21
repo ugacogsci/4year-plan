@@ -69,8 +69,6 @@ interface CourseCardProps {
    * course keeps its lock and nothing more (goal-words.ts goalReasonOf).
    */
   goalReason?: string | null;
-  /** Opens the chooser for an elective slot. The card body does this in place of selecting. */
-  onChoose?: (courseId: string, termId: string) => void;
   /**
    * What else could fill this slot or list, best first. Called when the
    * dropdown opens rather than on render, because it ranks the catalog.
@@ -115,7 +113,6 @@ export function CourseCard({
   onShowCourse,
   electiveOf,
   goalReason = null,
-  onChoose,
   alternativesFor,
   onSwap,
   onSelect,
@@ -174,11 +171,12 @@ export function CourseCard({
         className="course-cluster-dot"
         style={{ backgroundColor: clusterColor(course.cluster) }}
       />
-      {issues.length > 0 && (
+      {(issues.length > 0 || goalReason) && (
         <span
           className="course-card-issues"
-          aria-label={`${issues.length} course ${issues.length === 1 ? 'note' : 'notes'}`}
+          aria-label="Course notes"
         >
+          {goalReason && <IssueBadge title="Why this course was picked" message={goalReason} severity="info" variant="dot" className="goal-reason-badge" side="left" />}
           {issues.map((issue) => (
             <IssueBadge
               key={issue.id}
@@ -195,11 +193,7 @@ export function CourseCard({
       <button
         type="button"
         className="course-card-body focus-visible:outline-none"
-        onClick={() =>
-          electiveOf?.kind === 'elective' && onChoose
-            ? onChoose(course.id, term.id)
-            : onSelect(course.id, term.id)
-        }
+        onClick={() => onSelect(course.id, term.id)}
       >
         <span className="course-card-code-row">
           <span className="course-card-code">{course.code}</span>
@@ -222,7 +216,7 @@ export function CourseCard({
               className={cn('course-elective', electiveOf.kind === 'elective' && 'is-slot', electiveOf.kind === 'language' && 'is-language')}
               title={
                 electiveOf.kind === 'elective'
-                  ? `${electiveOf.detail} Tap the card to choose a different course for this slot.`
+                  ? `${electiveOf.detail} Open Options to choose a different course for this slot.`
                   : electiveOf.kind === 'language'
                     ? `${electiveOf.detail} Open Options to switch languages.`
                     : electiveOf.kind === 'track'
@@ -237,7 +231,6 @@ export function CourseCard({
           )}
         </span>
         <span className="course-card-title">{course.title}</span>
-        {goalReason && <span className="course-card-goal" title={goalReason}>{goalReason}</span>}
         {instructor && (
           <span className="course-card-instructor" title={`Your instructor in ${term.label}: ${instructor}`}>
             {instructorShort(instructor)}
@@ -263,7 +256,7 @@ export function CourseCard({
         >
           <MoreHorizontal />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuContent align="end" className="course-options-menu w-48">
           {/* The label has to sit inside a Group. DropdownMenuLabel is Base
               UI's Menu.GroupLabel, which throws "MenuGroupContext is missing"
               with no Group ancestor, and a throw in a menu unmounts the whole
@@ -283,12 +276,13 @@ export function CourseCard({
           {alternatives.length > 0 && onSwap && (
             <DropdownMenuSub>
               <DropdownMenuSubTrigger><Shuffle /> Suggested replacements</DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="course-alternatives-menu">
+              <DropdownMenuSubContent className="course-options-menu course-alternatives-menu">
                 {alternatives.map((alternative) => (
                   <DropdownMenuItem key={alternative.course.id}
                     onClick={() => onSwap(course.id, term.id, alternative.course.id)}>
-                    <span>
-                      <strong>{alternative.course.code}</strong> {alternative.course.title}
+                    <span className="course-alternative-label">
+                      <strong>{alternative.course.code}</strong>
+                      <span>{alternative.course.title}</span>
                       <small>{alternative.why}</small>
                     </span>
                   </DropdownMenuItem>
@@ -312,7 +306,7 @@ export function CourseCard({
             </DropdownMenuSubTrigger>
             {/* The path for a long move. Dragging Year 1 to Year 4 means
                 scrolling the board mid-drag, so the menu stays primary for those. */}
-            <DropdownMenuSubContent className="w-40">
+            <DropdownMenuSubContent className="course-options-menu w-40">
               {allTerms
                 .filter((candidate) => candidate.id !== term.id)
                 .map((candidate) => (

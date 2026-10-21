@@ -208,6 +208,8 @@ export function suggestGraduationTarget(
 }
 
 export interface OnboardingAnswers {
+  setupConversation?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  setupConfirmations?: { programConfirmed: boolean; creditReviewed: boolean; graduationConfirmed: boolean };
   schoolId: SchoolId | null;
   /** Undergraduate or graduate/professional catalog and planning defaults. */
   programLevel: ProgramLevel;

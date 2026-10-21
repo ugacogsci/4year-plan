@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Info } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { privacySections, schoolPhrase, UNOFFICIAL_LABEL, unofficialNotice } from '@/lib/planner/notices';
-import { InsightsControls, InsightsPrompt } from './insights-controls';
+import { InsightsControls } from './insights-controls';
 import { FeedbackButton } from './feedback';
 
 /**
@@ -97,7 +97,6 @@ export function SiteFooter({ schoolName, bot }: { schoolName: string | null; bot
       </button>
       <PrivacyDialog open={open} onOpenChange={setOpen} schoolName={schoolName} bot={bot} />
       <FeedbackButton />
-      <InsightsPrompt />
     </footer>
   );
 }

@@ -110,7 +110,7 @@ export function CardInstructorMenu({
       <DropdownMenuSubTrigger>
         <UserRound /> My instructor
       </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className="course-alternatives-menu course-instructor-menu" aria-label={`Your ${courseCode} instructor in ${termLabel}`}>
+      <DropdownMenuSubContent className="course-options-menu course-alternatives-menu course-instructor-menu" aria-label={`Your ${courseCode} instructor in ${termLabel}`}>
         <DropdownMenuRadioGroup
           value={chosen ?? NOT_SURE}
           onValueChange={(value) => control.set(courseId, termId, value === NOT_SURE ? null : String(value))}
