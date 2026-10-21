@@ -1,7 +1,7 @@
 import tailwindcss from '@tailwindcss/postcss';
 import vinext from 'vinext';
 import { defineConfig } from 'vite';
-import { vinextScopeGuard } from './scripts/dev/vinext-scope-guard';
+import { vinextScopeGuard } from './scripts/dev/vinext-scope-guard.ts';
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';

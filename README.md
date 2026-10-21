@@ -38,7 +38,8 @@ CLOUDFLARE_ENV=insights_local npm run dev -- --host 127.0.0.1 --port 3001
 npm run test:insights
 ```
 
-Production setup (not enabled by this change):
+Production uses the `orion-insights` D1 binding in `wrangler.jsonc`.
+Collection still requires each visitor's opt-in. Setup for a new deployment:
 
 1. Sign in to Cloudflare with `npx wrangler login` if database access fails.
 2. Run `npx wrangler d1 create orion-insights`. Add its real ID to a top-level
@@ -59,6 +60,11 @@ Production setup (not enabled by this change):
    only when reviewing opted-in research submissions (latest 100). Never put
    the secret in a URL or ship it in frontend code. D1 Studio can query the
    three `insight_*` tables too; restrict Cloudflare access to project operators.
+
+On the deployment operator's machine, `.env.insights-admin` holds the private
+report token (ignored by Git, never bundled). It is not required for ordinary
+development. Collaborators should configure their own secrets for their own
+deployments; do not copy production credentials into a shared checkout.
 
 Requests have strict schemas, payload limits, parameterized queries, a
 per-subject daily cap, same-origin checks and per-isolate IP-hash burst limits.
