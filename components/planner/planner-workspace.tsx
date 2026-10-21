@@ -54,8 +54,10 @@ import { BotLauncher, BotPanel, type BotTurns } from './advisor';
 import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
 import { IssueBadge } from './issue-badge';
-import { groupIssues, isTermIssue, reviewTitle } from './plan-health';
-import { attentionItems, attentionLine, earlyFinishNote } from '@/lib/planner/attention';
+import { groupIssues, reviewTitle } from './plan-health';
+import { earlyFinishNote } from '@/lib/planner/attention';
+import { rankedFlags, statedHours, triageIssues, type CreditGap } from '@/lib/planner/warnings-triage';
+import { AttentionBar } from './attention-bar';
 
 import { toast, Toaster } from '@/components/ui/toast';
 import { AdvisorPacketDialog } from './advisor-packet';
@@ -148,6 +150,7 @@ import {
 import { livePools, poolShortfalls } from './live-pools';
 import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersFor, summersToAdd, summerYearOf, summersInRange, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
 import { CAREER_TRACKS, careerWordsAfter, INTEREST_TOPICS, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
+import { careerWordsFor, goalReasonOf, restoredCareerWords, setupWords } from '@/lib/planner/goal-words';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
 import { describeExcellent, interestWordsFrom, sectionTimes } from '@/lib/planner/quality';
 import {
@@ -918,16 +921,33 @@ export function PlannerWorkspace({
     defaultTargetTermCredits,
   );
   const [priorities, setPriorities] = useState<Priorities>({ ...DEFAULT_PRIORITIES });
-  const [careerInterests, setCareerInterests] = useState(answers?.after ?? '');
   /**
-   * The student dropped their goal through ALMA. careerInterests starts as the
-   * About-you "after" answer and an empty one falls back to it, so without
-   * this a student who said "I'm not pre-med anymore" saw the rail cleared
-   * while the planner went on reading "pre-med" from About you.
+   * The setup's words for the planner (goal-words.ts setupWords): the three
+   * old boxes as written, or the one About-you box read for its goals alone.
+   * The paragraph also says the student's year, credits and finish, and read
+   * whole as goals it gave a sophomore in computer science a software
+   * engineering goal and an ex-pre-med the pre-med track; every timeline
+   * reader still reads the whole of it from answers.timeline.
+   */
+  const setup = useMemo(() => setupWords(answers), [answers]);
+  /** The rail's goal box: the setup's goals until the student types their own, which then win (careerWordsFor). */
+  const [careerInterests, setCareerInterests] = useState(() => setupWords(answers).goals);
+  /**
+   * The student dropped their goal, through ALMA or by emptying the rail's
+   * box. careerInterests starts as the setup's goals and an empty one falls
+   * back to them, so without this a student who said "I'm not pre-med
+   * anymore" saw the rail cleared while the planner went on reading "pre-med"
+   * from About you.
    */
   const [careerCleared, setCareerCleared] = useState(false);
+  /**
+   * The rail box's words. A board saved while the one box filled the goal
+   * slot holds the whole setup paragraph there, untouched by the student; it
+   * reads as the setup's goals (restoredCareerWords).
+   */
+  const careerTyped = useMemo(() => restoredCareerWords(careerInterests, answers), [careerInterests, answers]);
   /** What the student said they want to do: the only words career tracks and topics are read from. */
-  const careerText = careerInterests || (careerCleared ? '' : answers?.after || '');
+  const careerText = careerWordsFor(setup, careerTyped, careerCleared);
   const [planShape, setPlanShape] = useState<PlanShape>(NO_SHAPE);
   /** Set by ALMA's set_plan_shape so the next shape change rebuilds the board. */
   const rebuildForShape = useRef(false);
@@ -1548,7 +1568,7 @@ export function PlannerWorkspace({
       // A published total of 0 is a page the crawl could not read a total from,
       // not a degree of no credits: English BALAS planned 2 terms and 28 hours.
       degreeTotal: publishedTotal || (isIllinois && !isGraduatePlan ? 120 : null),
-      interests: [answers?.studying ?? '', careerText].join(' '),
+      interests: [setup.studying, careerText].join(' '),
       // Goals come from what the student wants to do, never from the major's
       // name: "Psychology" alone was booking psychopathology as their goal.
       career: careerText,
@@ -1773,7 +1793,7 @@ export function PlannerWorkspace({
     // computed for it (the effect after `issues`): the all-clear follows
     // every check the board shows, not only unplaced courses.
     announceBuild.current = true;
-  }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga]);
+  }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, setup, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga]);
 
   /**
    * Credit that changes after the board exists rebuilds the board.
@@ -2065,6 +2085,20 @@ export function PlannerWorkspace({
     const names = h.assumedTerms.map((t) => `${t.season} ${t.year}`);
     return { hours: h.assumedHours, terms: names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? '') };
   }, [isIllinois, loaded, answers, planShape]);
+  /**
+   * What the student says they hold against what the plan can see: hours on
+   * the record (each class once, exams, transfer hours) and the terms the
+   * build assumed credit for. The "You said about 70 credits" row and the
+   * board bar's one prompt to add the record both read it (warnings-triage.ts).
+   */
+  const creditGap = useMemo((): CreditGap => ({
+    said: statedHours(answers?.timeline ?? ''),
+    recorded:
+      (context ? planCreditRange(distinctHeld([...completedCodes], context).codes, context).min : 0) +
+      priorHoursOf(answers, exams, examCredit.entries, catalogCredits),
+    assumed: assumedCredit.hours,
+    assumedTerms: assumedCredit.terms,
+  }), [answers, context, completedCodes, exams, examCredit, catalogCredits, assumedCredit]);
 
   /** The summers the board bar offers to add (summer-terms.ts). */
   const summerChoices = useMemo(() => (plan ? summersToAdd(plan) : []), [plan]);
@@ -2176,13 +2210,10 @@ export function PlannerWorkspace({
       // plan built as if they were starting from zero is wrong from the first
       // term, and the fix is one upload away.
       ...(() => {
-        const said = statedHours(answers?.timeline ?? '');
+        const { said, recorded } = creditGap;
         if (said === null) return [];
-        const recorded =
-          (context ? planCreditRange(distinctHeld([...completedCodes], context).codes, context).min : 0) +
-          priorHoursOf(answers, exams, examCredit.entries, catalogCredits);
         // Terms assumed until the student adds them (assumedCredit) count toward what they said.
-        if (recorded + assumedCredit.hours >= said - 6) return [];
+        if (recorded + creditGap.assumed >= said - 6) return [];
         return [
           {
             id: 'stated-hours',
@@ -2246,7 +2277,7 @@ export function PlannerWorkspace({
         termId: firstTerm,
       })),
     ];
-  }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits, admissionChoice, plan?.maybeCourseIds, courseIndex, isUga]);
+  }, [report, pools, answers, examCredit, completedCodes, context, school, exams, catalogCredits, admissionChoice, plan?.maybeCourseIds, courseIndex, isUga, creditGap]);
 
   /**
    * Illinois's published class schedules by term id (Fall 2026, Spring 2027),
@@ -2602,26 +2633,27 @@ export function PlannerWorkspace({
     isIllinois, isGraduatePlan, loaded, priorCreditHours, report, answers, weeklyFits, completedCodes, boardContext, ugaAudit,
   ]);
 
-  const planWideIssues = useMemo(
-    () => groupIssues(issues.filter((issue) => !issue.courseId && !isTermIssue(issue))),
-    [issues],
-  );
   /**
-   * What needs attention on this board, in words on screen rather than only
-   * behind the dots, and the all-clear only when every check passes
-   * (attention.ts). A build announces it once its board's issues are in.
+   * What the board bar says (warnings-triage.ts): at most three things that
+   * matter now in plain words, the rest behind "Show N more", one prompt to
+   * add the record when the student holds credit the plan cannot see, and
+   * "Nothing needs attention" whenever nothing matters now. A build announces
+   * it once its board's issues are in.
    */
-  const attention = useMemo(() => attentionItems(issues), [issues]);
-  const attentionText = attentionLine(attention);
+  const triage = useMemo(() => triageIssues(issues, { credit: creditGap, bot: school?.bot }), [issues, creditGap, school?.bot]);
   const earlyText = earlyFinishNote(planNotes);
   useEffect(() => {
     if (!announceBuild.current || !plan) return;
     announceBuild.current = false;
-    const built = attention.length > 0 ? `Draft built. ${attentionText}` : 'Plan built. Nothing needs attention.';
+    const built = triage.allClear ? 'Plan built. Nothing needs attention.' : `Draft built. ${triage.line}`;
     setStatus(earlyText ? `${built} ${earlyText}` : built);
-  }, [attention, attentionText, earlyText, plan]);
-  const planWideSeverity = planWideIssues[0]?.severity ?? null;
-  const planWideSummary = planWideIssues.map((group) => `${group.title}: ${group.message}`).join('\n\n');
+  }, [triage, earlyText, plan]);
+  /** The plan tab's dot: only for something that matters now, with what the bar shows. */
+  const planWideSeverity = triage.prominent[0]?.severity ?? null;
+  const planWideSummary = [
+    ...triage.prominent.map((kind) => `${kind.label}: ${kind.issue.message}`),
+    ...(triage.more.length > 0 ? [`${triage.more.length} more under Show more.`] : []),
+  ].join('\n\n');
   const tabIssueSeverity = (candidate: PlanTab) =>
     candidate.id === activePlanId ? planWideSeverity : (candidate.issueSeverity ?? null);
   const tabIssueSummary = (candidate: PlanTab) => candidate.id === activePlanId
@@ -3042,10 +3074,26 @@ export function PlannerWorkspace({
       ), answers, exams, examCredit.entries, catalogCredits),
     [answers, byCode, examCredit, exams, catalogCredits],
   );
-  // careerInterests starts as the 'after' answer and replaces it once edited;
-  // joining both counted the same words twice. The studying answer adds free
-  // words and subjects here; goals are read from careerText alone.
-  const interestsText = [answers?.studying ?? '', careerText].join(' ');
+  // careerInterests starts as the setup's goals and replaces them once edited;
+  // joining both counted the same words twice. The studying words (the old
+  // studying answer, or the programs a one-box setup weighs) add free words
+  // and subjects here; goals are read from careerText alone.
+  const interestsText = [setup.studying, careerText].join(' ');
+  /**
+   * The line a card, its popup and the printout give for a course the
+   * planner picked for the student's goal ("Picked for your goal: data
+   * science/analytics"), by course id; required courses and lists get none
+   * (goal-words.ts goalReasonOf).
+   */
+  const goalReasons = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const [id, mark] of electiveOf) {
+      const course = courseIndex.get(id);
+      const line = course ? goalReasonOf(course, mark, { career: careerText, interests: interestsText }) : null;
+      if (line) out.set(id, line);
+    }
+    return out;
+  }, [electiveOf, courseIndex, careerText, interestsText]);
 
   const chooserData = useMemo((): { label: string; options: Course[]; whys: Map<string, string> } | null => {
     if (!chooser || !plan || !context || !loaded) return null;
@@ -3087,7 +3135,7 @@ export function PlannerWorkspace({
       // Replacements are constrained by the requirement and term. Career text
       // influences the next generated plan, but should not rescore an already
       // open chooser while the student is editing that text.
-      interests: [answers?.studying ?? '', answers?.after ?? ''].join(' '),
+      interests: [setup.studying, setup.goals].join(' '),
       programName: source.program.name,
       programCollege: isIllinois && !isGraduatePlan ? loaded.program.college : undefined,
       priorities,
@@ -3116,7 +3164,7 @@ export function PlannerWorkspace({
     pools,
     electiveOf,
     catalog,
-    answers,
+    setup,
     byCode,
     isGraduatePlan, isIllinois, priorities, priorForOptions, boardContext,
   ]);
@@ -3426,6 +3474,7 @@ export function PlannerWorkspace({
     priorForOptions,
     interestsText,
     careerText,
+    setupStudying: setup.studying,
     pools,
     language: report?.language ?? null,
     admission: report?.admission ?? null,
@@ -3436,6 +3485,7 @@ export function PlannerWorkspace({
     examTable: examCredit.entries,
     priorCreditHours,
     assumedCredit,
+    creditGap,
     planNotes,
     boardEdited,
     careerInterests,
@@ -3462,6 +3512,7 @@ export function PlannerWorkspace({
       priorForOptions,
       interestsText,
       careerText,
+      setupStudying: setup.studying,
       pools,
       language: report?.language ?? null,
       admission: report?.admission ?? null,
@@ -3472,6 +3523,7 @@ export function PlannerWorkspace({
       examTable: examCredit.entries,
       priorCreditHours,
       assumedCredit,
+      creditGap,
       planNotes,
       boardEdited,
       careerInterests,
@@ -3943,7 +3995,18 @@ export function PlannerWorkspace({
     const L = live.current;
     return cardRole(course, { marks: L.electiveOf, bookedFor: L.report?.bookedFor, blocks: L.loaded?.blocks, studentAdded: studentAdded.current });
   }
+  /** The card's goal line for a course on the board, from the latest render's words (goal-words.ts goalReasonOf). */
+  function goalLineOf(course: Course): string | null {
+    const L = live.current;
+    return goalReasonOf(course, L.electiveOf.get(course.id), { career: L.careerText, interests: L.interestsText });
+  }
   function markOf(course: Course): string {
+    const mark = roleMarkOf(course);
+    const goal = goalLineOf(course);
+    // A career track card already names its track; the others say which goal they were picked for.
+    return goal && !mark.startsWith('career track') ? `${mark}; ${goal.charAt(0).toLowerCase()}${goal.slice(1)}` : mark;
+  }
+  function roleMarkOf(course: Course): string {
     const role = roleOf(course);
     // A course booked for an Illinois minor's row says whose it is, whatever its card shows.
     const bookedFor = isIllinois ? live.current.report?.bookedFor?.[normCode(course.code)] : null;
@@ -4014,7 +4077,7 @@ export function PlannerWorkspace({
       }
     } else lines.push(`College: ${L.loaded.program.college}. Check current UGA policies with the college's advising office.`);
     lines.push(
-      'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [career track: X] a course the student\'s career track X requires; keep it unless they drop the goal, and ask before removing or replacing it. [language] part of the language sequence for the language requirement; the language is the student\'s choice, the level is not. [gen ed pick] the planner chose it for a general education category; swap it for another course that carries the same categories. [prerequisite] the planner booked it because a later course needs it. [added] the student or you put it there.',
+      'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [career track: X] a course the student\'s career track X requires; keep it unless they drop the goal, and ask before removing or replacing it. [language] part of the language sequence for the language requirement; the language is the student\'s choice, the level is not. [gen ed pick] the planner chose it for a general education category; swap it for another course that carries the same categories. [prerequisite] the planner booked it because a later course needs it. [added] the student or you put it there. "; picked for your goal: X" after a mark: the planner picked that elective or gen ed course for the student\'s goal X, and the board shows the same line on its card; when the student asks why it is there, say so in those words, and a swap for something unrelated gives up that goal.',
     );
     if (isIllinois && L.loaded.minors?.some((minor) => minor.checked)) lines.push('[minor: X] the planner booked it for the minor X; ask before removing it, since the minor then falls short.');
     const plannedIds = new Set(board.terms.flatMap((term) => term.courseIds));
@@ -4032,7 +4095,7 @@ export function PlannerWorkspace({
     lines.push(
       `Credit load: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'an even share of what is left'}, never above 18.${describeShape(planShapeRef.current)} ${scheduleSentence(sectionTermsOf(L.core?.meta), L.core?.meta?.term?.label ?? null)}`,
     );
-    lines.push(isIllinois ? describeGoals(L.answers?.studying ?? '', L.careerText) : `Interests and goals: ${L.careerText || 'none recorded'}. No university-specific career track course list is loaded for UGA.`);
+    lines.push(isIllinois ? describeGoals(L.setupStudying, L.careerText) : `Interests and goals: ${L.careerText || 'none recorded'}. No university-specific career track course list is loaded for UGA.`);
     // The rail's clubs, once the file has loaded, so ALMA and the rail name the same ones.
     const clubs = isIllinois && clubFile.current ? runFindClubs({}, clubStudentFor(L.careerText, L.loaded, L.answers), clubFile.current) : null;
     if (clubs?.ok && clubs.clubs.length > 0) {
@@ -4073,13 +4136,11 @@ export function PlannerWorkspace({
         }`,
       );
     }
-    const groups = groupIssues(currentAudit?.issues ?? L.issues);
-    const toReview = groups.filter((g) => g.severity !== 'info');
-    const notes = groups.length - toReview.length;
-    lines.push(`Review list: ${toReview.length} to review, ${notes} notes.`);
-    for (const g of groups.slice(0, 10)) {
-      lines.push(`- [${g.severity}] ${g.title}: ${g.message.slice(0, 160)}`);
-    }
+    // Ranked as the board bar ranks it (warnings-triage.ts): what matters now first, then the rest.
+    const triaged = triageIssues(currentAudit?.issues ?? L.issues, { credit: L.creditGap, bot: botName });
+    const nowCount = triaged.now.reduce((n, kind) => n + kind.rows.length, 0) + (triaged.prompt ? 1 : 0);
+    lines.push(`Review list: ${nowCount} ${nowCount === 1 ? 'matters' : 'matter'} now (the board shows ${triaged.allClear ? '"Nothing needs attention"' : `at most ${triaged.prominent.length}`}), ${triaged.folded.length} waiting for the student's record, ${triaged.later.length} good to know.`);
+    for (const flag of rankedFlags(triaged, 10, 160)) lines.push(`- ${flag}`);
     return lines.join('\n');
   }
 
@@ -4798,7 +4859,9 @@ export function PlannerWorkspace({
             if (groups.some((g) => g.any.map(normCode).includes(key))) unlocks.push(`${other.code} in ${later.label}`);
           }
         }
-        const base = { ok: true, ...describe(c), term: t.label, role, unlocks_later_on_the_board: unlocks };
+        // The card's own goal line, when the planner picked it for the student's goal: the reason to give first.
+        const goalLine = goalLineOf(c);
+        const base = { ok: true, ...describe(c), term: t.label, role, ...(goalLine ? { picked_for_goal: goalLine } : {}), unlocks_later_on_the_board: unlocks };
         if (role === 'required') {
           const names = L.loaded.blocks
             .filter((b) => (b.rule.kind === 'all' || b.rule.kind === 'choose' || b.rule.kind === 'pool') && b.rule.choices.some((ch) => ch.codes.map(normCode).includes(key)))
@@ -4905,7 +4968,14 @@ export function PlannerWorkspace({
           .sort((a, b) => (b.average_difficulty_0_to_100 ?? 0) - (a.average_difficulty_0_to_100 ?? 0))[0]?.term ?? null;
         const currentAudit = ugaAuditOn(board);
         const currentIssues = currentAudit?.issues ?? L.issues;
-        const groups = groupIssues(currentIssues).filter((g) => g.severity !== 'info');
+        /**
+         * Every row, ranked and marked the way the board bar shows it
+         * (warnings-triage.ts): the bar shows at most three things that matter
+         * now and folds the rest, so the student may ask about a row they
+         * have not seen. Information rows used to be left out of the review
+         * flags; they are here now, marked good to know.
+         */
+        const triaged = triageIssues(currentIssues, { credit: L.creditGap, bot: botName });
         const open = currentIssues.filter((i) => /^(unsatisfied|pool|ap-missing|uga-(area|pool|total)|double-dawgs-)/.test(i.id) || /not (yet )?(met|satisfied)|still needs|short/i.test(i.title)).map((i) => i.message.slice(0, 200));
         const dormant = terms.flatMap((t) => (Array.isArray(t.not_run_recently) ? t.not_run_recently : []).map((code) => `${code} in ${t.term}`));
         const stacked = terms.filter((t) => t.hardest_band_courses.length >= 2).map((t) => `${t.term}: ${t.hardest_band_courses.join(', ')}`);
@@ -4967,7 +5037,8 @@ export function PlannerWorkspace({
           terms_stacking_hard_courses: stacked,
           not_run_recently: ctx.offeringTerms?.length ? dormant : 'not known: no offering history is loaded, so do not claim every course is offered',
           open_requirements: open.slice(0, 12),
-          review_flags: groups.slice(0, 12).map((g) => `${g.severity}: ${g.title}: ${g.message.slice(0, 200)}`),
+          review_flags: rankedFlags(triaged),
+          review_flags_note: `Ranked as the board shows them. ${triaged.allClear ? 'Nothing matters now, so the board says "Nothing needs attention".' : `The board shows ${triaged.prominent.length === 1 ? 'one item' : `${triaged.prominent.length} items`} that matter now and folds the rest behind "Show ${triaged.more.length} more".`} Lead with the "now" rows; "good to know" rows are information, not problems: mention them when the student asks or when one bears on the question.${triaged.prompt ? ' The student holds credit the plan cannot see: ask for their classes or transcript first; the rows marked "once the record is in" may be settled by it.' : ''}`,
           ...(review.momentum.length > 0 ? { first_year_momentum: review.momentum.map((f) => f.message) } : {}),
           ...(review.fact ? { momentum_fact_say_once: review.fact } : {}),
           ...(use.beyondTotal > 0 ? { credits_beyond_total: `${use.beyondTotal} credits above the ${degreeTotalNow()} minimum. These may still be needed for particular requirements; excess hours alone do not identify courses to remove.` } : {}),
@@ -5124,7 +5195,7 @@ export function PlannerWorkspace({
           setCareerInterests(stored);
           setCareerCleared(stored === '');
           careerTextRef.current = stored;
-          live.current = { ...live.current, interestsText: [L.answers?.studying ?? '', stored].join(' '), careerText: stored };
+          live.current = { ...live.current, interestsText: [L.setupStudying, stored].join(' '), careerText: stored };
           if (said) heard = heardInterests(stored);
         }
         const outcome = input.repick === false ? { changes: [], unchanged: false } : repickElectives(next, 'alma');
@@ -6177,6 +6248,7 @@ export function PlannerWorkspace({
         creditsLine: creditNote ?? (context ? describeCreditProgress(credits, activeProgramTotal) : totalCredits),
         hoursWithoutCourse: priorHoursOf(answers, exams, examCredit.entries, catalogCredits),
         goal: careerText,
+        goalReasons,
         language: report?.language ?? null,
         languageYears: answers?.languageYears ?? null,
         transcript: record,
@@ -6399,8 +6471,12 @@ export function PlannerWorkspace({
         onMinimumChange={setMinimumTermCredits}
         targetTermCredits={targetTermCredits}
         onTargetChange={setTargetTermCredits}
-        careerInterests={careerInterests}
-        onCareerChange={setCareerInterests}
+        careerInterests={careerTyped}
+        onCareerChange={(value) => {
+          // The box is the student's own goal now; emptied, it is no goal, not the setup's again.
+          setCareerInterests(value);
+          setCareerCleared(value.trim() === '');
+        }}
         priorities={priorities}
         onPrioritiesChange={setPriorities}
         onRepick={() => {
@@ -6548,7 +6624,7 @@ export function PlannerWorkspace({
                       <input
                         role="tab"
                         aria-selected={candidate.id === activePlanId}
-                        aria-label={`Rename ${candidate.name}${tabIssueSeverity(candidate) ? `, has a ${tabIssueSeverity(candidate)} plan-wide note` : ''}`}
+                        aria-label={`Rename ${candidate.name}${tabIssueSeverity(candidate) ? ', something on it needs attention' : ''}`}
                         className="plan-tab-button"
                         value={candidate.name}
                         onFocus={() => switchPlanTab(candidate.id)}
@@ -6561,7 +6637,7 @@ export function PlannerWorkspace({
                       {tabIssueSeverity(candidate) && (
                         <IssueBadge
                           variant="dot"
-                          title={`${candidate.name}: plan-wide notes`}
+                          title={`${candidate.name}: needs attention`}
                           message={tabIssueSummary(candidate)}
                           severity={tabIssueSeverity(candidate)!}
                           onClick={() => switchPlanTab(candidate.id)}
@@ -6610,31 +6686,11 @@ export function PlannerWorkspace({
           </button>
         </div>
         <div className="board-bar">
-          {planWideIssues.length > 0 && (
-            <div className="plan-wide-issues" aria-label="Plan-wide notes">
-              {planWideIssues.map((group) => (
-                <IssueBadge
-                  key={group.key}
-                  title={
-                    group.count > 1
-                      ? `${group.title} and ${group.count - 1} more like it`
-                      : group.title
-                  }
-                  message={group.message}
-                  severity={group.severity}
-                  side="bottom"
-                  onClick={() => selectIssue(group.issue)}
-                  coursesByCode={byCode}
-                  onShowCourse={showWarningCourse}
-                />
-              ))}
-            </div>
+          {plan && (
+            <AttentionBar triage={triage} onSelectIssue={selectIssue} coursesByCode={byCode} onShowCourse={showWarningCourse} />
           )}
-
-          {plan && (attentionText || earlyText) && (
-            <span className="board-bar-note" role="note">
-              {[attentionText, earlyText].filter(Boolean).join(' ')}
-            </span>
+          {plan && earlyText && (
+            <span className="board-bar-note" role="note">{earlyText}</span>
           )}
           {isIllinois && suspendedNotice(programId) && (
             <span className="board-bar-note" role="note">{suspendedNotice(programId)}</span>
@@ -6764,6 +6820,7 @@ export function PlannerWorkspace({
                 alternativesFor={alternativesFor}
                 onSwapCourse={swapCourse}
                 electiveOf={electiveOf}
+                goalReasons={goalReasons}
                 instructors={instructorControl}
                 width={termWidths[term.id]}
                 onWidthChange={resizeTerm}
@@ -6816,6 +6873,7 @@ export function PlannerWorkspace({
         onRemoveCourse={removeCourse}
         highlightedCourseIds={replacementCourseIds}
         instructors={plan ? instructorControl : undefined}
+        goalReasons={plan ? goalReasons : undefined}
         instructorTyping={instructorTyping}
       />
 
@@ -7234,14 +7292,6 @@ function latestInProgressTerm(record: TranscriptRecord | null | undefined): { se
     if (!best || termOrd(t.season, t.year) > termOrd(best.season, best.year)) best = t;
   }
   return best;
-}
-
-/** "About 45 credits", "I have 60 hours", "30 credit hours": what the student says they hold, or null. */
-function statedHours(text: string): number | null {
-  const m = text.match(/\b(\d{1,3})\s*(?:\+\s*)?(?:credit hours|credits|hours|hrs|cr)\b/i);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return n >= 6 && n <= 150 ? n : null;
 }
 
 /** Gen-ed categories met by held credit that holds no Illinois course: transfer lines and exams. */

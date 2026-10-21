@@ -116,7 +116,7 @@ export function AdvisorPacketSheet({ packet }: { packet: AdvisorPacket }) {
                       <span className="packet-course-title">{c.title}</span>
                       <span className="packet-cr">{c.credits}</span>
                       <span className="packet-fills">
-                        <RoleChip kind={c.role} /> {c.fills}
+                        <RoleChip kind={c.role} /> {c.fills}{c.goal ? ` · ${c.goal}` : ''}
                       </span>
                     </li>
                   ))}
@@ -147,7 +147,7 @@ export function AdvisorPacketSheet({ packet }: { packet: AdvisorPacket }) {
                     <span className="packet-code">{c.code}</span> {c.title} <span className="packet-cr">{c.credits}</span>
                   </td>
                   <td>
-                    <RoleChip kind={c.role} /> {c.fills}
+                    <RoleChip kind={c.role} /> {c.fills}{c.goal ? ` · ${c.goal}` : ''}
                   </td>
                   <td>
                     {c.backup ? (

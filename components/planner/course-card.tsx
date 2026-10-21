@@ -62,6 +62,13 @@ interface CourseCardProps {
   coursesByCode: ReadonlyMap<string, Course>;
   onShowCourse: (courseId: string) => void;
   electiveOf?: ElectiveOf;
+  /**
+   * Why the planner put it here for the student's goal ("Picked for your
+   * goal: data science/analytics", "Picked for your goal: Pre-medicine
+   * (MD/DO)"), or null. Only the planner's own picks carry one; a required
+   * course keeps its lock and nothing more (goal-words.ts goalReasonOf).
+   */
+  goalReason?: string | null;
   /** Opens the chooser for an elective slot. The card body does this in place of selecting. */
   onChoose?: (courseId: string, termId: string) => void;
   /**
@@ -107,6 +114,7 @@ export function CourseCard({
   coursesByCode,
   onShowCourse,
   electiveOf,
+  goalReason = null,
   onChoose,
   alternativesFor,
   onSwap,
@@ -229,6 +237,7 @@ export function CourseCard({
           )}
         </span>
         <span className="course-card-title">{course.title}</span>
+        {goalReason && <span className="course-card-goal" title={goalReason}>{goalReason}</span>}
         {instructor && (
           <span className="course-card-instructor" title={`Your instructor in ${term.label}: ${instructor}`}>
             {instructorShort(instructor)}

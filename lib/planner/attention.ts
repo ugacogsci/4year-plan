@@ -1,4 +1,5 @@
 import type { PlanIssue } from './types';
+import { issueTier, triageIssues } from './warnings-triage';
 
 /**
  * Whether the board may say "Nothing needs attention", and what it says when
@@ -17,22 +18,15 @@ import type { PlanIssue } from './types';
  */
 
 /**
- * Info on the board that is still a problem: credit the student holds that
- * will not count toward the degree, and a requirement the planner could not
- * read (a person has to check it against the degree page).
+ * Since 2026-10-20 the tiers come from lib/planner/warnings-triage.ts: an
+ * issue needs attention when it matters now (the plan is wrong or cannot be
+ * registered). A requirement the planner could not fully read and credit that
+ * will not count, which this file used to lift into the count, are now good
+ * to know: the board folds them behind "Show N more" and still lists them.
  */
-const ALSO_A_PROBLEM = /^(?:ap-forfeit-|ap-exclusion-)|^unmet-.*-not-parsed$/;
-
-/** Whether one issue on the board stands between the plan and the all-clear. */
-export function needsAttention(issue: Pick<PlanIssue, 'id' | 'severity'>): boolean {
-  return issue.severity === 'error' || issue.severity === 'warning' || ALSO_A_PROBLEM.test(issue.id);
+export function needsAttention(issue: Pick<PlanIssue, 'id' | 'severity' | 'title'> & Partial<Pick<PlanIssue, 'message'>>): boolean {
+  return issueTier({ message: '', ...issue }) === 'now';
 }
-
-/** Course-card titles that only make sense beside their course, said on their own. */
-const ON_ITS_OWN: Record<string, string> = {
-  'Check this one': 'Prerequisite to confirm',
-  'Only you can answer this one': 'Prerequisite only you can confirm',
-};
 
 export interface AttentionItem {
   text: string;
@@ -41,32 +35,17 @@ export interface AttentionItem {
 }
 
 /**
- * What needs attention, one item per kind of problem, errors first, each with
- * how many times the board shows it. A requirement row is titled with the
- * requirement's own name, so those are counted together as one kind.
+ * What needs attention, one item per kind of problem in the triage's order
+ * (warnings-triage.ts), each with how many times the board shows it. The
+ * board bar itself reads triageIssues; this stays for the sentence below.
  */
-export function attentionItems(issues: ReadonlyArray<Pick<PlanIssue, 'id' | 'severity' | 'title'>>): AttentionItem[] {
-  const items = new Map<string, AttentionItem>();
-  for (const issue of issues) {
-    if (!needsAttention(issue)) continue;
-    const text = issue.id.startsWith('unmet-')
-      ? issue.id.endsWith('-not-parsed')
-        ? 'Requirement the planner could not read'
-        : 'Requirement not met'
-      : ON_ITS_OWN[issue.title] ?? issue.title;
-    const hit = items.get(text);
-    if (hit) {
-      hit.count += 1;
-      if (rank(issue.severity) < rank(hit.severity)) hit.severity = issue.severity;
-    } else {
-      items.set(text, { text, count: 1, severity: issue.severity });
-    }
-  }
-  return [...items.values()].sort((a, b) => rank(a.severity) - rank(b.severity));
-}
-
-function rank(severity: PlanIssue['severity']): number {
-  return severity === 'error' ? 0 : severity === 'warning' ? 1 : 2;
+export function attentionItems(issues: ReadonlyArray<Pick<PlanIssue, 'id' | 'severity' | 'title'> & Partial<Pick<PlanIssue, 'message' | 'termId' | 'courseId'>>>): AttentionItem[] {
+  const full = issues.map((issue) => ({ message: '', termId: '', ...issue }));
+  return triageIssues(full).now.map((kind) => ({
+    text: kind.rows[0].kind.text,
+    count: kind.rows.reduce((sum, row) => sum + row.count, 0),
+    severity: kind.severity,
+  }));
 }
 
 /**

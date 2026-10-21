@@ -52,7 +52,7 @@ import {
   type PriorCredit,
 } from './autoplan';
 import { normalizePriorities, type Priorities } from './priorities';
-import type { QualityResult } from './quality';
+import { saysGoalMatch, type QualityResult } from './quality';
 import type { Course, PlanIssue, PlanState, PlanTerm } from './types';
 
 // ---------------------------------------------------------------------------
@@ -76,6 +76,14 @@ export interface PlanMark {
   kind?: PlanMarkKind;
   /** The career track a 'track' card is booked for: "Pre-physical therapy (DPT)". */
   track?: string;
+  /**
+   * The planner picked it for the student's goal: a career track's course, an
+   * elective whose recorded reason says it matches what the student said they
+   * want (saysGoalMatch), or a general education pick the goal ordered first
+   * (GeneratedPlan.genEdPicks forGoal). The card, its popup, the printout and
+   * ALMA name the goal from it (goal-words.ts goalReasonOf).
+   */
+  goal?: boolean;
 }
 
 /** The parts of a generated report that say which cards are the planner's own. */
@@ -83,8 +91,8 @@ export interface PlanPicks {
   /** The pools as counted off the board now, not as generated. */
   pools: PoolReport[];
   language: LanguagePlan | null;
-  electives: Array<{ code: string; why: string; track?: string }>;
-  genEdPicks: Array<{ code: string; label: string }>;
+  electives: Array<{ code: string; why: string; reasons?: string[]; track?: string; forGoal?: boolean }>;
+  genEdPicks: Array<{ code: string; label: string; forGoal?: boolean }>;
   addedPrerequisites: Array<{ code: string; requiredBy: string }>;
 }
 
@@ -159,11 +167,14 @@ export function planMarks(picks: PlanPicks, byCode: Map<string, Course>): Map<st
     const course = find(pick.code);
     if (!course) continue;
     const mark = map.get(course.id);
+    // Picked for the goal: booked for a track, or what the planner recorded when it picked it
+    // (forGoal); a re-pick, and a board saved before forGoal existed, by the reason it wrote.
+    const forGoal = Boolean(pick.track) || (pick.forGoal ?? saysGoalMatch([pick.why, ...(pick.reasons ?? [])].join(' ')));
     const own: PlanMark = pick.track
-      ? { label: pick.track, detail: pick.why, kind: 'track', track: pick.track }
-      : { label: 'Elective', detail: pick.why, kind: 'elective' };
+      ? { label: pick.track, detail: pick.why, kind: 'track', track: pick.track, goal: true }
+      : { label: 'Elective', detail: pick.why, kind: 'elective', ...(forGoal ? { goal: true } : {}) };
     if (!mark) map.set(course.id, own);
-    else if (mark.kind === 'elective' && mark.label === 'Elective') map.set(course.id, pick.track ? own : { ...mark, detail: pick.why });
+    else if (mark.kind === 'elective' && mark.label === 'Elective') map.set(course.id, pick.track ? own : { ...mark, detail: pick.why, ...(forGoal ? { goal: true } : {}) });
   }
   /**
    * The planner's gen-ed picks and the prerequisites it booked. Both are its
@@ -178,6 +189,7 @@ export function planMarks(picks: PlanPicks, byCode: Map<string, Course>): Map<st
       label: pick.label,
       detail: `The planner's pick for ${pick.label}. Any course that carries the same categories can take its place.`,
       kind: 'gened',
+      ...(pick.forGoal ? { goal: true } : {}),
     });
   }
   for (const added of picks.addedPrerequisites) {

@@ -219,6 +219,51 @@ function namesSubject(cluster: string, word: string): boolean {
 }
 
 /**
+ * The relevance reasons that say a course matches what the student said they
+ * want, word for word as scoreQuality writes them. An elective's recorded
+ * reason ("Chosen for: ...", or "Picked for your priorities: ..." after a
+ * re-pick) carries them, and planMarks reads them back to tell a pick made
+ * for the student's goal from one made for the major or for a light term
+ * (goal-words.ts goalReasonOf). "in your major" and "in one of your degree's
+ * subjects" are not among them: a major is not a goal.
+ */
+export const RELEVANCE_REASONS = {
+  named: 'named for the goal you gave',
+  titleAndSubject: 'its title and subject match what you said you want',
+  title: 'its title matches what you said you want',
+  subject: 'in a subject you said you want',
+  topics: 'catalog topics match: ',
+} as const;
+
+/**
+ * Whether a recorded reason says the pick matches what the student said they
+ * want (RELEVANCE_REASONS), for a pick with nothing better recorded (a
+ * re-pick, a board saved before GeneratedPlan electives carried forGoal). "In a subject you said
+ * you want" alone does not count: written for a course in the student's own
+ * major too (a Psychology student who wants counseling, on a PSYC course), it
+ * earns no goal points there, so it says nothing about the goal.
+ */
+export function saysGoalMatch(why: string): boolean {
+  return [RELEVANCE_REASONS.named, RELEVANCE_REASONS.titleAndSubject, RELEVANCE_REASONS.title, RELEVANCE_REASONS.topics].some((reason) => why.includes(reason));
+}
+
+/**
+ * Whether one word the student wrote matches a course the way the relevance
+ * measure reads a free word: at the start of a word of the title, whole or by
+ * its stem, or naming the course's subject. For the line that names what a
+ * pick was for ("Picked for your interest in linguistics"), so the word
+ * named is one the scorer would have matched.
+ */
+export function courseMatchesWord(course: { title: string; cluster: string }, word: string): boolean {
+  const w = word.toLowerCase();
+  if (w.length < 5 || INTEREST_STOPWORDS.has(w)) return false;
+  const title = course.title.toLowerCase();
+  const stem = stemOf(w);
+  const inTitle = titleWord(w, false).test(title) || (stem !== w && titleWord(stem, false).test(title));
+  return (inTitle && !LOW_INFORMATION.has(w)) || namesSubject(course.cluster, w);
+}
+
+/**
  * Whether one registration fits a student's time window. The rule lives in
  * meeting-fit.ts so this scorer, ALMA's course details and the build's
  * lateOption give one answer: CHEM 102's online path is its "Online" section,
@@ -441,10 +486,10 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
       Boolean(q.interestSubjects?.has(course.cluster)) ||
       free.some((w) => !namesMajor(w) && namesSubject(course.cluster, w));
     const courseHit = Boolean(q.interestCourses?.has(code));
-    if (courseHit) { v = 1; reasons.push('named for the goal you gave'); }
-    else if (titleHit && subjectHit) { v = 1; reasons.push('its title and subject match what you said you want'); }
-    else if (titleHit) { v = 0.9; reasons.push('its title matches what you said you want'); }
-    else if (subjectHit) { v = 0.75; reasons.push('in a subject you said you want'); }
+    if (courseHit) { v = 1; reasons.push(RELEVANCE_REASONS.named); }
+    else if (titleHit && subjectHit) { v = 1; reasons.push(RELEVANCE_REASONS.titleAndSubject); }
+    else if (titleHit) { v = 0.9; reasons.push(RELEVANCE_REASONS.title); }
+    else if (subjectHit) { v = 0.75; reasons.push(RELEVANCE_REASONS.subject); }
     else if (course.cluster === q.primarySubject) { v = 0.6; reasons.push('in your major'); }
     else if (q.degreeSubjects.has(course.cluster)) { v = 0.4; reasons.push("in one of your degree's subjects"); }
     if (course.description && !courseHit) {
@@ -457,7 +502,7 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
         // several parts of the student's goal, without claiming semantic certainty.
         const coverage = hits.length / Math.max(1, topics.length);
         v = Math.max(subjectHit ? 0.75 : 0.4, 0.5 + 0.5 * coverage);
-        reasons.push(`catalog topics match: ${hits.slice(0, 3).join(', ')}`);
+        reasons.push(`${RELEVANCE_REASONS.topics}${hits.slice(0, 3).join(', ')}`);
         interest = p.relevance;
       }
     }

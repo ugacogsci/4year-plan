@@ -98,6 +98,13 @@ export interface PacketCourse {
   role: CardRole;
   /** What it counts for, in the board's words: "Psychology Core: Foundation", "Humanities - Lit & Arts". */
   fills: string;
+  /**
+   * The card's goal line, for a course the planner picked for the student's
+   * goal: "Picked for your goal: data science/analytics". Absent for required
+   * courses and lists, and for a career track card, whose `fills` already
+   * names the track.
+   */
+  goal?: string;
 }
 
 export interface PacketTerm {
@@ -247,6 +254,8 @@ export interface PacketInput {
   flags: PacketFlag[];
   /** What the rail prints under "What is estimated?". */
   caveats: string[];
+  /** The board's goal lines by course id (goal-words.ts goalReasonOf), so the printout says what the card says. */
+  goalReasons?: ReadonlyMap<string, string>;
   /**
    * The runners-up for a card, best first: the card's own dropdown and
    * ALMA's explain_choice read the same list (alternativesFor).
@@ -433,7 +442,8 @@ function fillsOf(course: Course, role: CardRole, input: PacketInput): string {
 
 function packetCourse(course: Course, input: PacketInput): PacketCourse {
   const role = cardRole(course, { marks: input.marks, bookedFor: input.bookedFor, blocks: input.blocks, studentAdded: input.studentAdded });
-  return { code: course.code, title: course.title, credits: creditLabel(course), role, fills: fillsOf(course, role, input) };
+  const goal = role === 'career track' || role === 'required' ? undefined : input.goalReasons?.get(course.id);
+  return { code: course.code, title: course.title, credits: creditLabel(course), role, fills: fillsOf(course, role, input), ...(goal ? { goal } : {}) };
 }
 
 /** A term's credits the way the board's column header counts them. */

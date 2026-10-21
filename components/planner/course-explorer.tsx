@@ -65,6 +65,8 @@ interface CourseExplorerProps {
   instructors?: InstructorControl;
   /** The card's "Someone else" asked for the name field on this course in this term. */
   instructorTyping?: { courseId: string; termId: string } | null;
+  /** "Picked for your goal: ...", by course id, for a course on the board the planner picked for the student's goal. */
+  goalReasons?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -112,6 +114,7 @@ export function CourseExplorer({
   onRemoveCourse,
   instructors,
   instructorTyping = null,
+  goalReasons,
 }: CourseExplorerProps) {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [deptQuery, setDeptQuery] = useState('');
@@ -1221,6 +1224,7 @@ export function CourseExplorer({
               </div>
               <h3>{selected.title}</h3>
               {selected.description && <p className="map-popup-description">{selected.description}</p>}
+              {goalReasons?.get(selected.id) && <p className="map-popup-goal">{goalReasons.get(selected.id)}</p>}
               {instructors && (() => {
                 // The term the card sits in: the one the board opened it from, else the first holding it.
                 const at = terms.find((t) => t.id === targetTermId && t.courseIds.includes(selected.id)) ?? terms.find((t) => t.courseIds.includes(selected.id));

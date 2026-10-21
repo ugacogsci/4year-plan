@@ -1,3 +1,4 @@
+import { isOneBoxSetup } from './goal-words';
 import { readSavedBoard } from './saved-board';
 import type { TranscriptRecord } from './transcript';
 import { normalizeUgaCollegeId, UGA_COLLEGE_BY_ID } from './uga-colleges';
@@ -295,13 +296,15 @@ export const EMPTY_ANSWERS: OnboardingAnswers = {
 
 /** Retain every earlier answer when reopening setups saved with three questions. */
 export function setupResponse(answers: Pick<OnboardingAnswers, 'studying' | 'timeline' | 'after'>): string {
-  if (!answers.studying && answers.timeline === answers.after) return answers.after;
+  if (isOneBoxSetup(answers)) return answers.after;
   return [...new Set([answers.studying, answers.timeline, answers.after].map((text) => text.trim()).filter(Boolean))].join('\n\n');
 }
 
 export function withSetupResponse(answers: OnboardingAnswers, response: string, at = new Date()): OnboardingAnswers {
   // Timing readers and goal readers share the response. Leave studying empty
-  // so interest ranking does not count the same text twice.
+  // so interest ranking does not count the same text twice. The goal readers
+  // take only the goals from it (goal-words.ts setupWords): the year, the
+  // credits and the finish date are timeline, not goals.
   return { ...answers, studying: '', timeline: response, timelineAt: at.toISOString(), after: response };
 }
 

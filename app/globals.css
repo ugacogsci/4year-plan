@@ -7054,6 +7054,21 @@ button.unofficial-label:focus-visible,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* "Picked for your goal: ..." (lib/planner/goal-words.ts goalReasonOf): the same quiet
+   line on a card the planner picked for the student's goal, and a row in the map's popup. */
+.planner-app .course-card-goal {
+  display: block;
+  margin-top: 0;
+  overflow: hidden;
+  color: var(--orion-mid);
+  font-family: var(--app-font-mono);
+  font-size: 8px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.map-popup-goal { margin: 4px 0 0; color: #4b4b4b; font-size: 10px; line-height: 1.35; }
+.planner-app[data-theme='dark'] .map-popup-goal { color: #c6c6c6; }
 .course-instructor-menu .course-instructor-loading {
   margin: 4px 8px;
   color: var(--muted-foreground);
@@ -7179,3 +7194,157 @@ button.unofficial-label:focus-visible,
 @media (max-width: 680px) {
   .planner-app .board-bar .add-summer-wide { display: none; }
 }
+
+/* --------------------------------------------------------------------------
+   What needs attention, on the board bar (attention-bar.tsx,
+   lib/planner/warnings-triage.ts): at most three plain-word chips for what
+   matters now, "Nothing needs attention" when nothing does, and "Show N more"
+   for everything else. The popovers are portaled outside the planner, so
+   they use the root theme tokens.
+   -------------------------------------------------------------------------- */
+.planner-app .attention-bar {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--app-font-mono);
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+.planner-app .attention-chip {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 260px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--orion-line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--orion-text);
+  font: inherit;
+  cursor: pointer;
+}
+.planner-app .attention-chip-record { max-width: min(760px, 62vw); }
+.planner-app .attention-chip:hover,
+.planner-app .attention-chip[aria-expanded='true'] { background: var(--orion-soft); }
+.planner-app .attention-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.planner-app .attention-clear { color: var(--orion-mid); white-space: nowrap; }
+.planner-app .attention-more {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--orion-mid);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.planner-app .attention-more:hover,
+.planner-app .attention-more[aria-expanded='true'] { color: var(--orion-text); }
+.planner-app .attention-chip:focus-visible,
+.planner-app .attention-more:focus-visible { outline: 1px solid var(--ring); outline-offset: 2px; }
+.attention-dot {
+  display: block;
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+  opacity: 0.6;
+}
+.attention-dot.is-warning { background: #d9b438; opacity: 1; }
+.attention-dot.is-error { background: #d64848; opacity: 1; }
+.attention-positioner { z-index: 70; }
+.attention-popover {
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(460px, calc(100dvh - 32px), var(--available-height, 460px));
+  gap: 10px;
+  overflow: hidden;
+  padding: 14px;
+  border-radius: 6px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+.attention-popover [data-slot='popover-title'] {
+  margin: 0;
+  font-family: var(--app-font-serif);
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+.attention-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding-right: 6px;
+  overflow-wrap: anywhere;
+}
+.attention-body p { margin: 0 0 8px; color: var(--muted-foreground); }
+.attention-body ul { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.attention-section + .attention-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.attention-section h3 {
+  margin: 0 0 6px;
+  font-family: var(--app-font-serif);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+.attention-row { display: grid; grid-template-columns: 7px minmax(0, 1fr); gap: 8px; align-items: start; }
+.attention-row .attention-dot { margin-top: 5px; }
+.attention-row-text { display: grid; gap: 1px; min-width: 0; }
+.attention-row-text > span { color: var(--muted-foreground); white-space: pre-line; }
+.attention-row-title {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+.attention-row-later .attention-row-title { font-weight: 500; }
+.attention-row-title:hover { text-decoration: underline; text-underline-offset: 2px; }
+.attention-row-title:focus-visible { outline: 1px solid var(--ring); outline-offset: 2px; }
+
+/* A phone: the buttons keep the first line and what needs attention takes a
+   full line of its own beneath them, wrapping rather than squeezing. */
+@media (max-width: 680px) {
+  .planner-app .board-bar {
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    min-height: 38px;
+    row-gap: 4px;
+    padding: 4px 10px;
+  }
+  .planner-app .attention-bar,
+  .planner-app .board-bar-note {
+    order: 5;
+    flex: 1 0 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    overflow: visible;
+  }
+  .planner-app .attention-chip,
+  .planner-app .attention-chip-record { max-width: 100%; height: auto; min-height: 26px; padding: 4px 8px; }
+  .planner-app .attention-chip-text { white-space: normal; text-align: left; }
+}
+.planner-app .attention-more-now { color: var(--orion-text); }
