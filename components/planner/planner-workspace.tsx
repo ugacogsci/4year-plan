@@ -3990,7 +3990,18 @@ export function PlannerWorkspace({
     const L = live.current;
     return cardRole(course, { marks: L.electiveOf, bookedFor: L.report?.bookedFor, blocks: L.loaded?.blocks, studentAdded: studentAdded.current });
   }
+  /** The card's goal line for a course on the board, from the latest render's words (goal-words.ts goalReasonOf). */
+  function goalLineOf(course: Course): string | null {
+    const L = live.current;
+    return goalReasonOf(course, L.electiveOf.get(course.id), { career: L.careerText, interests: L.interestsText });
+  }
   function markOf(course: Course): string {
+    const mark = roleMarkOf(course);
+    const goal = goalLineOf(course);
+    // A career track card already names its track; the others say which goal they were picked for.
+    return goal && !mark.startsWith('career track') ? `${mark}; ${goal.charAt(0).toLowerCase()}${goal.slice(1)}` : mark;
+  }
+  function roleMarkOf(course: Course): string {
     const role = roleOf(course);
     // A course booked for an Illinois minor's row says whose it is, whatever its card shows.
     const bookedFor = isIllinois ? live.current.report?.bookedFor?.[normCode(course.code)] : null;
@@ -4061,7 +4072,7 @@ export function PlannerWorkspace({
       }
     } else lines.push(`College: ${L.loaded.program.college}. Check current UGA policies with the college's advising office.`);
     lines.push(
-      'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [career track: X] a course the student\'s career track X requires; keep it unless they drop the goal, and ask before removing or replacing it. [language] part of the language sequence for the language requirement; the language is the student\'s choice, the level is not. [gen ed pick] the planner chose it for a general education category; swap it for another course that carries the same categories. [prerequisite] the planner booked it because a later course needs it. [added] the student or you put it there.',
+      'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [career track: X] a course the student\'s career track X requires; keep it unless they drop the goal, and ask before removing or replacing it. [language] part of the language sequence for the language requirement; the language is the student\'s choice, the level is not. [gen ed pick] the planner chose it for a general education category; swap it for another course that carries the same categories. [prerequisite] the planner booked it because a later course needs it. [added] the student or you put it there. "; picked for your goal: X" after a mark: the planner picked that elective or gen ed course for the student\'s goal X, and the board shows the same line on its card; when the student asks why it is there, say so in those words, and a swap for something unrelated gives up that goal.',
     );
     if (isIllinois && L.loaded.minors?.some((minor) => minor.checked)) lines.push('[minor: X] the planner booked it for the minor X; ask before removing it, since the minor then falls short.');
     const plannedIds = new Set(board.terms.flatMap((term) => term.courseIds));
@@ -4843,7 +4854,9 @@ export function PlannerWorkspace({
             if (groups.some((g) => g.any.map(normCode).includes(key))) unlocks.push(`${other.code} in ${later.label}`);
           }
         }
-        const base = { ok: true, ...describe(c), term: t.label, role, unlocks_later_on_the_board: unlocks };
+        // The card's own goal line, when the planner picked it for the student's goal: the reason to give first.
+        const goalLine = goalLineOf(c);
+        const base = { ok: true, ...describe(c), term: t.label, role, ...(goalLine ? { picked_for_goal: goalLine } : {}), unlocks_later_on_the_board: unlocks };
         if (role === 'required') {
           const names = L.loaded.blocks
             .filter((b) => (b.rule.kind === 'all' || b.rule.kind === 'choose' || b.rule.kind === 'pool') && b.rule.choices.some((ch) => ch.codes.map(normCode).includes(key)))
@@ -6227,6 +6240,7 @@ export function PlannerWorkspace({
         creditsLine: creditNote ?? (context ? describeCreditProgress(credits, activeProgramTotal) : totalCredits),
         hoursWithoutCourse: priorHoursOf(answers, exams, examCredit.entries, catalogCredits),
         goal: careerText,
+        goalReasons,
         language: report?.language ?? null,
         languageYears: answers?.languageYears ?? null,
         transcript: record,
