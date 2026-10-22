@@ -4586,8 +4586,15 @@ const EDUCATION_COHORT = /\b(teacher ed student|yr \d+ group \d+)\b/i;
  * IB honors biology option" (IB 270), "Restricted to students of Living
  * Learning Communities and minors in Art + Design." (ART 152). Not "honors in
  * the junior year, or consent of instructor" (ECON 397), which is a grade.
+ * And a program a student enrols in apart from any degree (2026-10-22): CS
+ * 400 to 403, "Current enrollment in the Illinois Computing Accelerator for
+ * Non-specialists (iCAN) program or consent of instructor. Restricted to
+ * post-baccalaureate students with a non-computing background.", which a
+ * Computer Science BS board booked as an elective in its own subject (CS
+ * 401, Fall 2028); HDFS 102, 202 and 204, "restricted to students enrolled
+ * in the Illinois Neurodiversity Initiative (INI) Program".
  */
-const MEMBERSHIP_TEXT = /\b(campus honors program|james scholars?|chancellor'?s scholars?|scholars? program|honors (?:[a-z]+ )?(?:option|program)|living[- ]learning communit(?:y|ies)|learning communit(?:y|ies)|llc|fellows program)\b/i;
+const MEMBERSHIP_TEXT = /\b(campus honors program|james scholars?|chancellor'?s scholars?|scholars? program|honors (?:[a-z]+ )?(?:option|program)|living[- ]learning communit(?:y|ies)|learning communit(?:y|ies)|llc|fellows program|current enrollment in the [^.;]*? program|students enrolled in the [^.;]*? program|post-? ?baccalaureate students)\b/i;
 /** Every crawled section held for first-time freshmen or first-time transfers: ACE 123, FAA 101, MDIA 100, LAS 101, LAS 102. */
 function heldForNewStudents(ctx: Pick<PlanningContext, 'sections'>, code: string): boolean {
   const restrictions = ctx.sections?.get(code)?.restrictions ?? [];
