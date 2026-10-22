@@ -594,6 +594,8 @@ export type RequirementRule =
        * or as rows to take, and picked from as a pool picks.
        */
       list?: boolean;
+      /** UGA only: the row no longer offers a course its own area requires (autoplan.ts PlanRule sharedFirst). */
+      sharedFirst?: boolean;
     }
   /**
    * "Take N hours, or N courses, from this list."

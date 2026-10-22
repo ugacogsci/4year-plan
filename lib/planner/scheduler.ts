@@ -190,13 +190,13 @@ export function areaProgress(
    * and can never overstate it, which is the only safe direction when the
    * number is read as how close somebody is to graduating.
    */
-  const earnOf = (group: RequirementGroup, spent: Set<string>): number => {
+  const earnOf = (group: RequirementGroup, spent: Set<string>, largestFirst = false, satisfied = groupSatisfied): number => {
     const hits: Array<{ code: string; credits: number }> = [];
     for (const row of group.courses) {
       const hit = rowMatch(row, spent);
       if (hit) hits.push(hit);
     }
-    hits.sort((a, b) => a.credits - b.credits || a.code.localeCompare(b.code));
+    hits.sort((a, b) => (largestFirst ? b.credits - a.credits : a.credits - b.credits) || a.code.localeCompare(b.code));
 
     const hoursCap = group.cap?.hours ?? null;
     const countCap = group.cap?.courses ?? null;
@@ -212,7 +212,7 @@ export function areaProgress(
       earned += hit.credits;
       taken += 1;
     }
-    groupSatisfied.set(group, taken >= (group.required ? group.courses.length : group.minimumCourses ?? 0)
+    satisfied.set(group, taken >= (group.required ? group.courses.length : group.minimumCourses ?? 0)
       && earned >= (group.minimumHours ?? 0));
     return hoursCap === null ? earned : Math.min(earned, hoursCap);
   };
@@ -221,13 +221,35 @@ export function areaProgress(
   // for the course this ordering stops the gen-ed area from taking.
   if (options?.allowCrossAreaOverlap) {
     program.areas.forEach((area, index) => {
-      const spent = new Set<string>();
-      for (const broadPass of [false, true]) {
-        for (const group of area.groups) {
-          if ((group.broad ?? false) !== broadPass) continue;
-          earnedBy[index] += earnOf(group, spent);
+      const run = (largestFirst: boolean) => {
+        const spent = new Set<string>();
+        const satisfied = new Map<RequirementGroup, boolean>();
+        let earned = 0;
+        for (const broadPass of [false, true]) {
+          for (const group of area.groups) {
+            if ((group.broad ?? false) !== broadPass) continue;
+            earned += earnOf(group, spent, largestFirst, satisfied);
+          }
         }
+        const met = area.hours > 0 && Math.min(earned, area.hours) >= area.hours && area.groups.every((group) => satisfied.get(group) !== false);
+        return { earned, satisfied, met };
+      };
+      /*
+       * Cheapest match first, and where that leaves the area short, the
+       * largest first, kept only where it does better. A row capped at one
+       * course counted the 3-hour WILD 3580 an Ecology board booked as an
+       * elective over the 4-hour ANTH 4210L it booked for "Natural History",
+       * which then read 3 of 4: holding one more course made a met
+       * requirement read unmet (2026-10-22). Never fewer than cheapest-first
+       * counts, so a row it met stays met.
+       */
+      let best = run(false);
+      if (!best.met && area.groups.some((group) => group.cap?.courses != null)) {
+        const other = run(true);
+        if (other.met || Math.min(other.earned, area.hours || other.earned) > Math.min(best.earned, area.hours || best.earned)) best = other;
       }
+      earnedBy[index] = best.earned;
+      for (const [group, ok] of best.satisfied) groupSatisfied.set(group, ok);
     });
   } else {
     const spent = new Set<string>();

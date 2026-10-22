@@ -669,6 +669,8 @@ function adaptProgram(
   program.areas.forEach((area, areaIndex) => {
     const areaId = `${program.id}::${areaIndex}`;
     const progressGroups: RequirementGroup[] = [];
+    /** Codes an earlier take-every-course row of this area names (for its choose rows, below). */
+    const fixedInArea = new Set<string>();
     area.groups.forEach((group, groupIndex) => {
       if (group.courses.length === 0) return;
       const wildcardAlreadyFillsArea = area.groups
@@ -719,12 +721,33 @@ function adaptProgram(
           ),
         );
       }
+      /*
+       * The same for a choose row: a course an earlier row of this area
+       * requires cannot also be one of its picks. The audit counts a course
+       * once within an area (areaProgress spends it on the first row, in
+       * printed order), so the planner counting it twice left a board it
+       * called complete short by one course: Marketing and International
+       * Business lists MARK 4700 among its required Marketing courses and
+       * again among "choose 2", and the pre-med freshman's board took it as
+       * one of the two (Field of Study Curriculum 18 of 21, 2026-10-22). Only
+       * within the area: UGA lets a course count in a Core area and a major
+       * area both. Kept as printed where too few picks would remain.
+       */
+      let trimmed = false;
+      if (group.choose !== null && !isPool && fixedInArea.size > 0) {
+        const open = choices.filter((choice) => choice.codes.every((code) => !fixedInArea.has(code)));
+        if (open.length < choices.length && open.length >= group.choose) {
+          choices = open;
+          trimmed = true;
+        }
+      }
       const poolHours =
         group.hours ?? Math.max(1, area.hours - representedBefore);
       let rule: RequirementRule;
 
       if (group.choose !== null && !isPool) {
-        rule = { kind: 'choose', n: Math.min(group.choose, choices.length), choices };
+        // A trimmed row picks another area's required course first (autoplan.ts PlanSlot.sharedFirst).
+        rule = { kind: 'choose', n: Math.min(group.choose, choices.length), choices, ...(trimmed ? { sharedFirst: true } : {}) };
       } else if (isPool) {
         const allowed = new Set(choices.flatMap((choice) => choice.codes));
         const lists = (group.lists ?? [])
@@ -844,7 +867,10 @@ function adaptProgram(
       // Quantitative Reasoning pool incorrectly had zero courses).
       if (!isPool && group.choose === null) {
         for (const choice of choices) {
-          for (const code of choice.codes) fixedRequirementCodes.add(code);
+          for (const code of choice.codes) {
+            fixedRequirementCodes.add(code);
+            fixedInArea.add(code);
+          }
         }
       }
     });

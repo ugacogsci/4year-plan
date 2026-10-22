@@ -110,6 +110,13 @@ export type PlanRule =
       choices: PlanCourseChoice[];
       /** A list the page sets among required rows, split out of its table (illinois-data optionListsIn); picked from as a pool picks (PlanSlot.asList). */
       list?: boolean;
+      /**
+       * UGA: the row no longer offers a course its own area requires
+       * (uga-source.tsx adaptProgram), so among its options the one another
+       * area's take-every-course row requires, already on the board, goes
+       * first (PlanSlot.sharedFirst).
+       */
+      sharedFirst?: boolean;
     }
   /**
    * "Take N hours, or N courses, from this list." Both numbers are optional
@@ -2548,6 +2555,8 @@ interface PlanSlot {
    * (poolOrderFor), by what each costs in courses the board does not hold.
    */
   asList?: boolean;
+  /** A UGA choose row trimmed of its own area's required courses (PlanRule sharedFirst): options another area requires go first. */
+  sharedFirst?: boolean;
   url: string;
 }
 
@@ -2620,6 +2629,7 @@ function slotsFor(requirement: PlanRequirement, ctx: PlanningContext, who: Audie
       hoursTarget: null,
       together: pairsOf(rule.choices),
       ...(rule.list === true ? { asList: true } : {}),
+      ...(rule.sharedFirst === true ? { sharedFirst: true } : {}),
     }];
   }
 
@@ -2919,6 +2929,12 @@ interface PoolContext {
    */
   conflict: (code: string, insidePool: Set<string>) => string | null;
   /**
+   * The catalog's versions of one class (expandEquivalents): ANTH 1102,
+   * ANTH 1102E and the honors ANTH 2120H. Held credit counts once however
+   * many of its versions the list names (fillPool).
+   */
+  versionsOf?: (code: string) => string[];
+  /**
    * Courses the rows nested inside this one have already counted. "Technical
    * Electives, 30 hours, to include: at least 3 Advanced Computing Electives"
    * makes those three part of the thirty, not three more on top of it.
@@ -2963,12 +2979,28 @@ function fillPool(slot: PlanSlot, pool: PoolContext): PoolFill {
   const candidates: string[] = [];
   let available = 0;
 
+  /** Every version of the classes counted free so far. */
+  const heldClasses = new Set<string>();
   for (const option of slot.options) {
     // One option is one catalog row: "CS 210 or CS 211" is a single slot in the
     // list with two ways to fill it, not two courses towards the count.
     const already = option.find((code) => pool.earned.has(code));
+    /*
+     * A row naming another version of a class already counted is the same
+     * credit, not more of it. Held ANTH 1102 put the list's ANTH 1102 row and
+     * its honors ANTH 2120H row both in the "already have" column, so an
+     * Anthropology freshman's World Languages and Global Culture read 9 of 9
+     * hours with 6 held, the plan booked no third course, and UGA's audit, which
+     * spends a class once, said 6 of 9 (2026-10-22). Neither counted nor
+     * booked: the student has it.
+     */
+    if (already && heldClasses.has(already)) {
+      available += 1;
+      continue;
+    }
     if (already) {
       free.push(already);
+      for (const version of pool.versionsOf?.(already) ?? [already]) heldClasses.add(version);
       available += 1;
       continue;
     }
@@ -8256,6 +8288,39 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * which PSYC 235 or STAT 100 meets, went off the board.
    */
   const servesTrack = (code: string): number => (pickServe && tracks.length > 0 && trackPreferred([code]) === code ? 0 : 1);
+  /*
+   * 0 for an option of a trimmed UGA choose row (PlanSlot.sharedFirst) that
+   * another area's take-every-course row requires (it goes on the board
+   * anyway), 1 for any other. UGA's audit lets a course count in two areas
+   * but only once inside one (areaProgress), so a choose row no longer counts
+   * a course its own area requires (uga-source.tsx adaptProgram,
+   * 2026-10-22), and it had picked a fresh course where another area's
+   * required one would do: Art BFA - Ceramics' "VI. Courses Related to the
+   * Major" took one more studio course on top of the ARST 2xxx courses its
+   * Required Courses book, and an incoming student's six terms then left a
+   * World Languages course off. Only on the rows that lost a course that
+   * way: on every UGA choice it reshuffled incoming Dance and Regenerative
+   * Bioscience boards for the worse. Illinois's choices are read as always.
+   */
+  const requiredByArea = new Map<string, Set<string>>();
+  if (ctx.schoolId === 'uga') {
+    for (const r of input.requirements) {
+      if (r.rule.kind !== 'all') continue;
+      for (const choice of r.rule.choices) {
+        if (choice.codes.length !== 1) continue;
+        const code = normaliseCode(choice.codes[0]);
+        const areas = requiredByArea.get(code) ?? new Set<string>();
+        areas.add(r.areaId);
+        requiredByArea.set(code, areas);
+      }
+    }
+  }
+  const requiredElsewhere = (code: string, areaId: string): number => ([...(requiredByArea.get(code) ?? [])].some((a) => a !== areaId) ? 0 : 1);
+  /** The area of the requirement a chosen course was booked for: a trimmed row shares only another area's course. */
+  const areaOfRequirement = new Map(input.requirements.map((r) => [r.id, r.areaId]));
+  /** Whether any of the degree's rows names the course (or a version of it): such a course is never only a prerequisite. */
+  const namedRows = new Set(input.requirements.flatMap((r) => (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool' ? r.rule.choices.flatMap((c) => c.codes.map(normaliseCode)) : [])));
+  const degreeNames = (code: string): boolean => expandEquivalents(code, equivalents).some((c) => namedRows.has(c));
   /**
    * Courses already spent inside one exclusive gen-ed group.
    *
@@ -8829,8 +8894,19 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     ...genEdRequirements.filter((r) => r.rule.kind === 'gened' && r.rule.exclusiveGroup === 'cultural-studies'),
     ...genEdRequirements.filter((r) => !(r.rule.kind === 'gened' && r.rule.exclusiveGroup === 'cultural-studies')),
   ];
+  /*
+   * A UGA choose row trimmed of its own area's required courses
+   * (PlanRule sharedFirst) after every other row of the degree: a course
+   * another area books can count for it too (UGA's audit counts a course in
+   * two areas), and it can only share one already chosen. Taken in page
+   * order, Art BFA - Sculpture and Technology's "VI. Courses Related to the
+   * Major" booked one more ARST studio course than its other areas' studio
+   * courses left it needing, and an incoming student's six terms lost HIST 2301.
+   */
+  const sharedLast = input.requirements.filter((r) => r.rule.kind === 'choose' && r.rule.sharedFirst === true);
   const orderedRequirements = nestedLast([
-    ...input.requirements.filter((r) => r.rule.kind !== 'gened'),
+    ...input.requirements.filter((r) => r.rule.kind !== 'gened' && !sharedLast.includes(r)),
+    ...sharedLast,
     ...culturalFirst,
   ], nestedParent);
   /** Gen-ed requirements already filled, so a category knows which others are still waiting. */
@@ -8949,6 +9025,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           order: ((inOrder) => (a: string, b: string) => seasonless(a) - seasonless(b) || inOrder(a, b))(poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()]), slot.together, sequence)),
           reachable: (code) => (rankDepth.get(code) ?? 0) < terms.length,
           conflict: (code, insidePool) => conflictFor(code, insidePool),
+          versionsOf: (code) => expandEquivalents(code, equivalents),
           nested: nestedCounted.get(requirement.id),
         });
         poolFills.push({ slot, fill });
@@ -9038,8 +9115,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (met()) break;
           const code = option[0];
           if (spent.has(code)) continue;
-          if (earned.has(code)) countIt(code, 'free');
-          else if (chosen.has(code)) countIt(code, 'shared');
+          // Held credit counts once, under whichever version the list names first (fillPool).
+          if (earned.has(code)) {
+            if (!expandEquivalents(code, equivalents).some((version) => version !== code && held.has(version))) countIt(code, 'free');
+          } else if (chosen.has(code)) countIt(code, 'shared');
         }
 
         if (!met()) {
@@ -9261,6 +9340,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const course = byCode.get(code);
           if (!course) continue;
           if (earned.has(code)) {
+            // Held credit counts once, under whichever version the list names first (fillPool).
+            if (expandEquivalents(code, equivalents).some((version) => version !== code && heldHere.has(version))) continue;
             free.push(code);
             heldHere.add(code);
             have += course.credits;
@@ -9326,7 +9407,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           .map((option) => pickFromOption(option))
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) =>
-            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || servesTrack(a.code) - servesTrack(b.code) : 0) ||
+            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) : 0) ||
             (listOrder ? listOrder(a.code, b.code) : 0) ||
             (have ? (rank(a.code)[0] ?? 0) - (rank(b.code)[0] ?? 0) || extraOf(a.code) - extraOf(b.code) : 0) ||
             (choosing ? compareRank(rankChoose(a.code), rankChoose(b.code), a.code, b.code, ctx.samplePlanCourses) : compareRank(rank(a.code), rank(b.code), a.code, b.code, ctx.samplePlanCourses)));
@@ -9345,6 +9426,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         for (const entry of scored) {
           if (!earned.has(entry.code)) continue;
           if (filled >= want) break;
+          // Held credit counts once, under whichever version the rows name first (fillPool).
+          if (expandEquivalents(entry.code, equivalents).some((version) => version !== entry.code && heldHere.has(version))) continue;
           free.push(entry.code);
           heldHere.add(entry.code);
           filled += 1;
@@ -9358,6 +9441,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             continue;
           }
           if (entry.shared) {
+            // A trimmed UGA row does not count a course its own area booked: the audit spends it there once.
+            if (slot.sharedFirst && areaOfRequirement.get(chosen.get(entry.code)?.requirementId ?? '') === requirement.areaId) continue;
             sharedListings += 1;
             heldHere.add(entry.code);
             filled += 1;
@@ -15776,6 +15861,20 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     };
     const lastUsed = Math.max(-1, ...terms.filter((t) => (placed.get(t.id) ?? []).length > 0).map((t) => t.index));
     const fillPick = (code: string) => chosen.get(code)?.label === 'Elective' && (chosen.get(code)?.requirementId ?? null) === null && !pinned.has(code) && !genEdPick.has(code) && !forTrack(code) && !trackRowOf.has(code) && !addedPrerequisites.some((a) => a.code === code) && !labOf.has(code) && !lectureLab.has(code);
+    /*
+     * At UGA, a prerequisite booked only for courses the board then left off
+     * gives its seat the same way: an incoming Marketing and International
+     * Business student's last fall held FINA 4310, booked for FINA 4340,
+     * which did not fit, while MGMT 5560, required, was left off
+     * (2026-10-22). Not one a placed course still needs: the board's faults
+     * may not grow (below).
+     */
+    const onBoardNow = (code: string) => terms.some((t) => (placed.get(t.id) ?? []).includes(normaliseCode(code)));
+    const deadPrereq = (code: string) => {
+      if (ctx.schoolId !== 'uga') return false;
+      const forWhom = addedPrerequisites.filter((a) => a.code === code);
+      return forWhom.length > 0 && forWhom.every((a) => !onBoardNow(a.requiredBy)) && !degreeNames(code) && (chosen.get(code)?.requirementId ?? null) === null && !pinned.has(code) && !genEdPick.has(code) && !forTrack(code) && !trackRowOf.has(code) && !labOf.has(code) && !lectureLab.has(code);
+    };
     const leftOff = notPlaced
       .filter((n) => n.requirementId !== null && (n.reason === 'no-room' || n.reason === 'standing-unmet') && byCode.has(normaliseCode(n.code)) && !labOf.has(normaliseCode(n.code)) && !lectureLab.has(normaliseCode(n.code)))
       .map((n) => normaliseCode(n.code))
@@ -15813,8 +15912,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         if (done || term.index > lastUsed) break;
         if (isSummer(term) || outOfSeason(course, term, published.has(code))) continue;
         const here = placed.get(term.id) ?? [];
+        // A dead prerequisite's seat never takes a class the Bulletin lists for summer only (summerOnlyListed).
         const outs: Array<string | null> = [
-          ...here.filter(fillPick).sort((a, b) => Math.abs(creditsOf(a) - creditsOf(code)) - Math.abs(creditsOf(b) - creditsOf(code)) || a.localeCompare(b)),
+          ...here.filter((c) => fillPick(c) || (deadPrereq(c) && !summerOnlyListed(course))).sort((a, b) => Math.abs(creditsOf(a) - creditsOf(code)) - Math.abs(creditsOf(b) - creditsOf(code)) || a.localeCompare(b)),
           null,
           ...(lacking === null ? [] : here.filter((c) => shortPick(c, lacking) && creditsOf(c) >= creditsOf(code)).sort((a, b) => creditsOf(a) - creditsOf(b) || a.localeCompare(b))),
         ];
@@ -15836,12 +15936,17 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             // The requirement it was all that was lacking is met: none of its courses gives a seat up again.
             if (lacking !== null) shortLists.delete(lacking);
             if (out !== null && (chosen.get(out)?.requirementId ?? null) !== null && shortLists.has(chosen.get(out)?.requirementId ?? '')) {
-              // Still booked for its list, which the board leaves short: off the board, and said so.
-              notPlaced.push({ code: out, title: byCode.get(out)?.title ?? out, reason: 'no-room', message: `${out} gave its seat to ${code}, the one course its requirement lacked.`, requirementId: chosen.get(out)?.requirementId ?? null });
+              // Still booked for its list, which the board leaves short: off the board, and said so,
+              // once (a course listed as not fitting earlier and placed since is listed again otherwise).
+              const gaveSeat: NotPlaced = { code: out, title: byCode.get(out)?.title ?? out, reason: 'no-room', message: `${out} gave its seat to ${code}, the one course its requirement lacked.`, requirementId: chosen.get(out)?.requirementId ?? null };
+              const listed = notPlaced.findIndex((n) => normaliseCode(n.code) === out);
+              if (listed >= 0) notPlaced[listed] = gaveSeat;
+              else notPlaced.push(gaveSeat);
             } else if (out !== null) {
               chosen.delete(out);
               const at = electives.findIndex((e) => e.code === out);
               if (at >= 0) electives.splice(at, 1);
+              for (let i = addedPrerequisites.length - 1; i >= 0; i -= 1) if (addedPrerequisites[i].code === out) addedPrerequisites.splice(i, 1);
             }
             if (debugCode && normaliseCode(debugCode) === code) console.error(`  [PLAN_DEBUG] seated after the fill: ${code} in ${term.label}${out ? ` for ${out}` : ''}`);
             seatedLate = true;
