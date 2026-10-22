@@ -1049,6 +1049,49 @@ const rowHoursCache = new WeakMap<UgaData, Map<string, number>>();
 const degreeHours = new WeakMap<UgaData, Set<string>>();
 /** What setUgaTrackHours changed, to put back when the goal no longer asks for it. */
 const trackHoursBefore = new WeakMap<UgaData, Map<string, { credits: number; creditsMax?: number; range?: PlanCreditRange }>>();
+/** The codes the student's goal last asked hours for (setUgaTrackHours), to give them again after a new degree loads. */
+const trackWanted = new WeakMap<UgaData, Set<string>>();
+type HoursWere = { credits: number; creditsMax?: number; range?: PlanCreditRange };
+/**
+ * The catalog's own hours for every course a degree table or a goal has
+ * changed since the data loaded, taken the first time either changes it.
+ *
+ * Without it a board depended on which degrees were built before it in the
+ * same session: loadUgaProgram wrote each degree's table hours into the one
+ * shared catalog and never put them back, so a course the next degree does
+ * not name kept the last degree's hours (1 credit up or down on 8 of 10
+ * pre-health boards and 9 of 20 no-goal boards of five programs built alone
+ * against the same programs built after every other, and Music Performance
+ * BMus left 2 to 4 more required courses unplaced), and degreeHours kept
+ * every degree's codes, so a goal's hours skipped courses only an earlier
+ * degree named. A new degree now starts from the catalog (restoreCatalogHours).
+ */
+const catalogHoursOf = new WeakMap<UgaData, Map<string, HoursWere>>();
+
+function rememberCatalogHours(data: UgaData, code: string, course: Course): void {
+  const kept = catalogHoursOf.get(data) ?? new Map<string, HoursWere>();
+  catalogHoursOf.set(data, kept);
+  if (!kept.has(code)) kept.set(code, { credits: course.credits, creditsMax: course.creditsMax, range: data.context.creditRanges?.get(code) });
+}
+
+function putHoursBack(data: UgaData, code: string, was: HoursWere): void {
+  const course = data.byCode.get(code);
+  if (course) {
+    course.credits = was.credits;
+    if (was.creditsMax === undefined) delete course.creditsMax;
+    else course.creditsMax = was.creditsMax;
+  }
+  if (was.range) data.context.creditRanges?.set(code, was.range);
+  else data.context.creditRanges?.delete(code);
+}
+
+/** Every course a degree or a goal changed, back at the catalog's hours, with nothing remembered as a degree's or a goal's. */
+function restoreCatalogHours(data: UgaData): void {
+  for (const [code, was] of catalogHoursOf.get(data) ?? []) putHoursBack(data, code, was);
+  catalogHoursOf.get(data)?.clear();
+  degreeHours.delete(data);
+  trackHoursBefore.delete(data);
+}
 
 /** The hours most rows of UGA's program tables print for each course. */
 export function ugaRowHours(data: UgaData): Map<string, number> {
@@ -1087,15 +1130,10 @@ export function setUgaTrackHours(data: UgaData, codes: Iterable<string>): string
   const want = new Set([...codes].map(normCode));
   const before = trackHoursBefore.get(data) ?? new Map<string, { credits: number; creditsMax?: number; range?: PlanCreditRange }>();
   trackHoursBefore.set(data, before);
+  trackWanted.set(data, want);
   for (const [code, was] of [...before]) {
     if (want.has(code)) continue;
-    const course = data.byCode.get(code);
-    if (course) {
-      course.credits = was.credits;
-      course.creditsMax = was.creditsMax;
-    }
-    if (was.range) data.context.creditRanges?.set(code, was.range);
-    else data.context.creditRanges?.delete(code);
+    putHoursBack(data, code, was);
     before.delete(code);
   }
   if (want.size === 0) return [];
@@ -1110,6 +1148,7 @@ export function setUgaTrackHours(data: UgaData, codes: Iterable<string>): string
       none.push(code);
       continue;
     }
+    rememberCatalogHours(data, code, course);
     before.set(code, { credits: course.credits, creditsMax: course.creditsMax, range: data.context.creditRanges?.get(code) });
     course.credits = real;
     course.creditsMax = real;
@@ -1279,11 +1318,14 @@ export function loadUgaProgram(
   // leave a course labelled required because the previous degree required it.
   // A double-major load resets once before the first program, then accumulates
   // the second program's marks on the same catalog.
-  if (options.resetRequirements !== false) {
+  const reset = options.resetRequirements !== false;
+  if (reset) {
     for (const course of data.courses) {
       course.requirementIds = [];
       course.pathwayRole = undefined;
     }
+    // Hours too: the degree before this one leaves none of its own behind (catalogHoursOf).
+    restoreCatalogHours(data);
   }
   // The degree table publishes authoritative hours for every course it names.
   // Apply those rows to the map catalog before planning. This also repairs old
@@ -1296,6 +1338,7 @@ export function loadUgaProgram(
         const code = canonicalUgaCode(row.code);
         const course = data.byCode.get(code);
         if (!course || !Number.isFinite(row.credits)) continue;
+        rememberCatalogHours(data, code, course);
         course.credits = row.credits;
         course.creditsMax = row.credits;
         // The degree's own hours stand, and are not put back when a track's goal is dropped (setUgaTrackHours).
@@ -1313,6 +1356,11 @@ export function loadUgaProgram(
       }
     }
   }
+  // The goal's hours again, for its courses this degree does not name: the
+  // reset above put them back to the catalog's, and a build may run before
+  // the workspace next calls setUgaTrackHours.
+  const wanted = trackWanted.get(data);
+  if (reset && wanted && wanted.size > 0) setUgaTrackHours(data, wanted);
   return adaptProgram(selectedProgram, data.byCode);
 }
 
