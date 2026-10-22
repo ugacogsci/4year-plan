@@ -51,7 +51,7 @@ import {
   type PoolReport,
   type PriorCredit,
 } from './autoplan';
-import { forSchool } from './career-tracks';
+import { forSchool, labPartners, withHeldVariants, type CareerTrack } from './career-tracks';
 import { normalizePriorities, type Priorities } from './priorities';
 import { calendarYearOf, runsInSummer } from './summer-offering';
 import { saysGoalMatch, type QualityResult } from './quality';
@@ -826,46 +826,171 @@ export function repickBoard(input: RepickInput): RepickResult {
   // UGA's own lists (uga-career-tracks.ts), never on a graduate board (electives at the 6000 level and up).
   const graduateBoard = (input.electiveLevelRange?.min ?? 0) >= 500;
   const heard = interestProfileOf(input.career ?? input.interests);
-  for (const track of (ctx.schoolId === 'uga' ? (graduateBoard ? [] : forSchool(heard, 'uga').tracks) : heard.tracks)) {
-    for (const need of track.courses) {
-      if (need.need !== 'required') continue;
-      const codes = need.codes.map(normaliseCode);
-      codes.forEach((code) => trackCodes.add(code));
-      const have = new Set([...held, ...working.terms.flatMap((t) => t.courseIds).map(codeOf)]);
-      if (codes.some((code) => have.has(code))) continue;
-      const course = codes.map((code) => byCode.get(code)).find((c): c is Course => c !== undefined && c.credits > 0);
-      if (!course) continue;
-      const why = `For ${track.name}: ${need.why}`;
-      // The earliest term the course runs in and passes the checks, so a
-      // sequence's first half lands before its second.
-      for (const term of working.terms) {
-        if (term.season === 'Summer' ? !runsInSummer(course, calendarYearOf(term)) : course.offeringKnown && course.offeredIn.length > 0 && !course.offeredIn.includes(term.season)) continue;
-        // A lab goes in beside its lecture when the term has room, so the
-        // plan does not lose the hours of the elective it would replace.
-        if (course.credits <= 2) {
-          const withIt: PlanState = { ...working, terms: working.terms.map((t) => (t.id === term.id ? { ...t, courseIds: [...t.courseIds, course.id] } : t)) };
-          if (check(withIt, working, term.id, course, null) === null) {
-            working = withIt;
-            settled.add(course.id);
-            counted.add(course.id);
-            changes.push({ term: term.label, termId: term.id, from: '', to: course.code, why, kind: 'track', track: track.name });
+  if (ctx.schoolId === 'uga') {
+    bookUgaTracks(graduateBoard ? [] : withHeldVariants(forSchool(heard, 'uga'), held).tracks);
+  } else {
+    for (const track of heard.tracks) {
+      for (const need of track.courses) {
+        if (need.need !== 'required') continue;
+        const codes = need.codes.map(normaliseCode);
+        codes.forEach((code) => trackCodes.add(code));
+        const have = new Set([...held, ...working.terms.flatMap((t) => t.courseIds).map(codeOf)]);
+        if (codes.some((code) => have.has(code))) continue;
+        const course = codes.map((code) => byCode.get(code)).find((c): c is Course => c !== undefined && c.credits > 0);
+        if (!course) continue;
+        const why = `For ${track.name}: ${need.why}`;
+        // The earliest term the course runs in and passes the checks, so a
+        // sequence's first half lands before its second.
+        for (const term of working.terms) {
+          if (term.season === 'Summer' ? !runsInSummer(course, calendarYearOf(term)) : course.offeringKnown && course.offeredIn.length > 0 && !course.offeredIn.includes(term.season)) continue;
+          // A lab goes in beside its lecture when the term has room, so the
+          // plan does not lose the hours of the elective it would replace.
+          if (course.credits <= 2) {
+            const withIt: PlanState = { ...working, terms: working.terms.map((t) => (t.id === term.id ? { ...t, courseIds: [...t.courseIds, course.id] } : t)) };
+            if (check(withIt, working, term.id, course, null) === null) {
+              working = withIt;
+              settled.add(course.id);
+              counted.add(course.id);
+              changes.push({ term: term.label, termId: term.id, from: '', to: course.code, why, kind: 'track', track: track.name });
+              break;
+            }
+          }
+          const slots = term.courseIds
+            .filter((id) => input.marks.get(id)?.kind === 'elective' && !settled.has(id) && !trackIds.has(id))
+            .map((id) => byId.get(id))
+            .filter((c): c is Course => c !== undefined && !trackCodes.has(normaliseCode(c.code)))
+            .sort((a, b) => Math.abs(credits(a) - credits(course)) - Math.abs(credits(b) - credits(course)));
+          const slot = slots.find((s) => check(swapIn(term.id, s.id, course.id), working, term.id, course, s) === null);
+          if (!slot) continue;
+          working = swapIn(term.id, slot.id, course.id);
+          settled.add(slot.id);
+          settled.add(course.id);
+          counted.delete(slot.id);
+          counted.add(course.id);
+          changes.push({ term: term.label, termId: term.id, from: slot.code, to: course.code, why, kind: 'track', track: track.name });
+          break;
+        }
+      }
+    }
+  }
+
+  /**
+   * UGA's pre-health rows, booked the way generatePlan books them, not the
+   * way Illinois's re-pick always has. Since UGA's tracks came to the re-pick
+   * (2026-10-22) it split labs from their lectures and booked a lab whose
+   * lecture was nowhere on the board: of 41 UGA pre-med boards, the build
+   * left a lab apart on 2 and one re-pick for easier classes on 22 more
+   * (Accounting and International Business BBA: BIOL 1108L in Spring 2029 and
+   * no BIOL 1108; Art History AB: CHEM 1211L in Fall 2029, CHEM 1211 in
+   * Spring 2029; a Finance BBA board the build found no elective room on
+   * gained three lone labs). And it booked CHEM 1211 again for a student
+   * holding CHEM 1311H, UGA's honors version. So, at UGA:
+   *
+   *   - a row an honors version the student holds meets is met (the
+   *     variants, career-tracks.ts withHeldVariants, as the build reads them);
+   *   - a lab goes only into its lecture's term, beside it or in an elective
+   *     slot there, or anywhere once the lecture is held; a lab whose lecture
+   *     is neither held nor on the board is not booked;
+   *   - a lecture whose lab is a row of the track goes in only where its lab
+   *     fits in the same term, both or neither.
+   *
+   * Every placement still passes the whole-board check, which at UGA
+   * includes the audit (progressCheck: no requirement loses progress), so a
+   * track course only ever takes an elective slot of the planner's own and
+   * never a degree course's place: the degree comes first.
+   */
+  function bookUgaTracks(tracks: CareerTrack[]): void {
+    const labOf = labPartners(tracks);
+    const rowsOf = new Map<string, string[]>();
+    for (const track of tracks) for (const row of track.courses) for (const code of row.codes) rowsOf.set(normaliseCode(code), row.codes.map(normaliseCode));
+    const labFor = new Map<string, string>();
+    for (const [lab, lecture] of labOf) if (!labFor.has(lecture)) labFor.set(lecture, lab);
+    const onBoard = (b: PlanState) => new Map(b.terms.flatMap((t) => t.courseIds.map((id) => [codeOf(id), t.id] as [string, string])));
+    /** Whether a row is met, by the code or by an honors version the student holds (the row's codes carry it). */
+    const rowMet = (code: string, b: PlanState) => {
+      const where = onBoard(b);
+      return (rowsOf.get(code) ?? [code]).some((c) => held.has(c) || where.has(c));
+    };
+    const runs = (course: Course, term: PlanTerm) =>
+      term.season === 'Summer' ? runsInSummer(course, calendarYearOf(term)) : !(course.offeringKnown && course.offeredIn.length > 0 && !course.offeredIn.includes(term.season));
+    /** Ways to put `course` in `term` of `from`, each passing the whole-board check: beside (two credits or less), then an elective slot. */
+    const placements = (from: PlanState, termId: string, course: Course): Array<{ next: PlanState; slot: Course | null }> => {
+      const term = from.terms.find((t) => t.id === termId);
+      if (!term || !runs(course, term)) return [];
+      const out: Array<{ next: PlanState; slot: Course | null }> = [];
+      if (credits(course) <= 2) {
+        const withIt: PlanState = { ...from, terms: from.terms.map((t) => (t.id === termId ? { ...t, courseIds: [...t.courseIds, course.id] } : t)) };
+        if (check(withIt, from, termId, course, null) === null) out.push({ next: withIt, slot: null });
+      }
+      const slots = term.courseIds
+        .filter((id) => input.marks.get(id)?.kind === 'elective' && !settled.has(id) && !trackIds.has(id) && atStart.has(id))
+        .map((id) => byId.get(id))
+        .filter((c): c is Course => c !== undefined && !trackCodes.has(normaliseCode(c.code)))
+        .sort((a, b) => Math.abs(credits(a) - credits(course)) - Math.abs(credits(b) - credits(course)));
+      for (const slot of slots) {
+        const next: PlanState = { ...from, terms: from.terms.map((t) => (t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === slot.id ? course.id : id)) } : t)) };
+        if (check(next, from, termId, course, slot) === null) out.push({ next, slot });
+      }
+      return out;
+    };
+    const commitPlacement = (termId: string, course: Course, slot: Course | null, why: string, trackName: string) => {
+      const term = working.terms.find((t) => t.id === termId);
+      if (slot) {
+        settled.add(slot.id);
+        counted.delete(slot.id);
+      }
+      settled.add(course.id);
+      counted.add(course.id);
+      changes.push({ term: term?.label ?? termId, termId, from: slot?.code ?? '', to: course.code, why, kind: 'track', track: trackName });
+    };
+    for (const track of tracks) for (const row of track.courses) for (const code of row.codes) trackCodes.add(normaliseCode(code));
+    for (const track of tracks) {
+      for (const need of track.courses) {
+        if (need.need !== 'required') continue;
+        const codes = need.codes.map(normaliseCode);
+        if (codes.some((code) => rowMet(code, working))) continue;
+        const course = codes.map((code) => byCode.get(code)).find((c): c is Course => c !== undefined && c.credits > 0);
+        if (!course) continue;
+        const code = normaliseCode(course.code);
+        const why = `For ${track.name}: ${need.why}`;
+        const lecture = labOf.get(code);
+        if (lecture !== undefined) {
+          // A lab: in its lecture's term, or anywhere once the lecture is held; never alone.
+          const lectureHeld = (rowsOf.get(lecture) ?? [lecture]).some((c) => held.has(c));
+          const lectureTerm = (rowsOf.get(lecture) ?? [lecture]).map((c) => onBoard(working).get(c)).find((t): t is string => t !== undefined);
+          const terms = lectureHeld ? working.terms.map((t) => t.id) : lectureTerm ? [lectureTerm] : [];
+          for (const termId of terms) {
+            const fit = placements(working, termId, course)[0];
+            if (!fit) continue;
+            working = fit.next;
+            commitPlacement(termId, course, fit.slot, why, track.name);
             break;
           }
+          continue;
         }
-        const slots = term.courseIds
-          .filter((id) => input.marks.get(id)?.kind === 'elective' && !settled.has(id) && !trackIds.has(id))
-          .map((id) => byId.get(id))
-          .filter((c): c is Course => c !== undefined && !trackCodes.has(normaliseCode(c.code)))
-          .sort((a, b) => Math.abs(credits(a) - credits(course)) - Math.abs(credits(b) - credits(course)));
-        const slot = slots.find((s) => check(swapIn(term.id, s.id, course.id), working, term.id, course, s) === null);
-        if (!slot) continue;
-        working = swapIn(term.id, slot.id, course.id);
-        settled.add(slot.id);
-        settled.add(course.id);
-        counted.delete(slot.id);
-        counted.add(course.id);
-        changes.push({ term: term.label, termId: term.id, from: slot.code, to: course.code, why, kind: 'track', track: track.name });
-        break;
+        // A lecture whose lab is a row too: both in one term, or neither.
+        const labCode = labFor.get(code);
+        const lab = labCode !== undefined && !rowMet(labCode, working) ? byCode.get(labCode) : undefined;
+        for (const term of working.terms) {
+          let booked = false;
+          for (const first of placements(working, term.id, course)) {
+            if (!lab) {
+              working = first.next;
+              commitPlacement(term.id, course, first.slot, why, track.name);
+              booked = true;
+              break;
+            }
+            const second = placements(first.next, term.id, lab).find((p) => p.slot === null || p.slot.id !== first.slot?.id);
+            if (!second) continue;
+            working = second.next;
+            commitPlacement(term.id, course, first.slot, why, track.name);
+            const labRow = track.courses.find((r) => r.codes.map(normaliseCode).includes(labCode as string));
+            commitPlacement(term.id, lab, second.slot, `For ${track.name}: ${labRow?.why ?? `The lab taken with ${course.code}.`}`, track.name);
+            booked = true;
+            break;
+          }
+          if (booked) break;
+        }
       }
     }
   }
