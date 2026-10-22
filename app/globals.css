@@ -7578,7 +7578,30 @@ button.unofficial-label:focus-visible,
   visibility: visible;
   transform: none;
 }
-.current-class-card .course-complete-button:disabled { opacity: 0.5; cursor: default; }
+/* "Set my instructor" and "Not taking it": styled as a planned card's "Already
+   taken", under their own class, so the opt-in usage counts never read them
+   as that control (lib/insights/client.ts counts .course-complete-button). */
+.current-class-action {
+  grid-column: 3;
+  grid-row: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  min-height: 24px;
+  padding: 1px 4px;
+  border: 0;
+  background: none;
+  color: #70849b;
+  font-size: 12px;
+  font-weight: 450;
+  cursor: pointer;
+}
+.current-class-action:hover,
+.current-class-action:focus-visible { color: #b9d8c8; }
+.current-class-action svg { width: 12px; height: 12px; }
+.planner-app .current-class-action { grid-row: 2; color: var(--orion-dim); font-size: 9px; }
+.current-class-action:disabled { opacity: 0.5; cursor: default; }
 .current-term-add { display: grid; gap: 4px; padding: 4px 0; }
 .current-term-add-row { display: flex; gap: 4px; align-items: center; }
 .current-term-add-row input { min-width: 0; height: 30px; font-size: 12px; }

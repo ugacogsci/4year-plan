@@ -195,7 +195,7 @@ export function CurrentTermColumn({
               {editing ? (
                 <button
                   type="button"
-                  className="course-complete-button current-class-remove"
+                  className="current-class-action current-class-remove"
                   onClick={() => onRemove(c.code)}
                   title={`Take ${c.code} off your ${term.label} classes`}
                 >
@@ -204,7 +204,7 @@ export function CurrentTermColumn({
               ) : (
                 <button
                   type="button"
-                  className="course-complete-button current-class-instructor"
+                  className="current-class-action current-class-instructor"
                   disabled={!c.courseId}
                   onClick={() => c.courseId && onSelect(c.courseId)}
                   title={chosen ? `Your instructor in ${term.label}: ${chosen}. Answers about this class are for them.` : `Who teaches your ${c.code} section: answers about this class follow it`}
