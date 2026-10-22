@@ -96,6 +96,7 @@ import {
   isUgaGraduateDegree,
   isUgaUndergraduateDegree,
   loadUgaProgram,
+  setUgaTrackHours,
   ugaSelectionRequirements,
   useUgaData,
   type UgaLoadedProgram,
@@ -151,7 +152,7 @@ import { livePools, poolShortfalls } from './live-pools';
 import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersToAdd, summerYearOf, summersInRange, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
 import { runsInSummer, ugaOfferingLine } from '@/lib/planner/summer-offering';
 import { ugaOverloadAnswer, ugaUnderloadNote } from '@/lib/planner/uga-load-rules';
-import { CAREER_TRACKS, careerWordsAfter, INTEREST_TOPICS, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
+import { CAREER_TRACKS, careerWordsAfter, forSchool, INTEREST_TOPICS, trackRequiredStatus, ugaTrackCodes, type InterestsMode } from '@/lib/planner/career-tracks';
 import { careerWordsFor, goalReasonOf, restoredCareerWords, setupWords } from '@/lib/planner/goal-words';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
 import { describeExcellent, interestWordsFrom, sectionTimes } from '@/lib/planner/quality';
@@ -691,14 +692,16 @@ function arrivalOf(answers: OnboardingAnswers | null | undefined): Arrival {
  * could not see that "pre-med" was still stored after the student moved on to
  * UX research, and the pre-medicine track kept first claim on the electives.
  */
-function describeGoals(studying: string, career: string): string {
-  const profile = interestProfileOf(career);
+function describeGoals(studying: string, career: string, schoolId: 'illinois' | 'uga' = 'illinois'): string {
+  const profile = forSchool(interestProfileOf(career), schoolId);
   const tracks = profile.tracks.map((track) => track.name);
   const topics = profile.topics.map((topic) => topic.label);
   // "Investment banking" is also a program Marcus applies to as a sophomore
-  // (FIN 391), which no elective slot will ever book for him.
-  const apply = describeApplicationPrograms(career);
-  return `What the student said they study: ${studying.trim() || 'nothing yet'}. Career words the planner reads goals from: ${career.trim() ? `"${career.trim()}"` : 'none'}. Career tracks active: ${tracks.join(', ') || 'none'}. Interest topics active: ${topics.join(', ') || 'none'}.${apply ? ` ${apply}` : ''}`;
+  // (FIN 391), which no elective slot will ever book for him. Those are Gies's.
+  const apply = schoolId === 'illinois' ? describeApplicationPrograms(career) : null;
+  // UGA's lists (uga-career-tracks.ts): its Pre-Professional Advising Office's, and the College of Pharmacy's for pre-pharmacy.
+  const own = schoolId === 'uga' ? " At UGA the career tracks are the Pre-Professional Advising Office's pre-health lists (pre-pharmacy's is the College of Pharmacy's); a pre-law goal books no courses." : '';
+  return `What the student said they study: ${studying.trim() || 'nothing yet'}. Career words the planner reads goals from: ${career.trim() ? `"${career.trim()}"` : 'none'}. Career tracks active: ${tracks.join(', ') || 'none'}. Interest topics active: ${topics.join(', ') || 'none'}.${apply ? ` ${apply}` : ''}${own}`;
 }
 
 /** Goal names, for a club's why line about a goal the student did not name (a family's parent). */
@@ -1392,18 +1395,32 @@ export function PlannerWorkspace({
     ? pathwaysFor(uga?.guidance ?? null, programIds).find((pathway) => pathway.id === answers?.doubleDawgsPathwayId)
     : undefined;
 
+  /**
+   * The courses a UGA student's pre-health goal may book, by code (career-tracks.ts
+   * ugaTrackCodes): they need the hours UGA's program tables print, not the
+   * catalog's 3 (uga-source.tsx setUgaTrackHours). Empty with no such goal, and
+   * on a graduate plan, which books no track.
+   */
+  const ugaTrackKey = useMemo(
+    () => (isUga && !isGraduatePlan ? ugaTrackCodes(interestProfileOf(careerText)).join('|') : ''),
+    [isUga, isGraduatePlan, careerText],
+  );
   const context: PlanningContext | null = useMemo(() => {
     if (isIllinois && planCore) return buildContext(planCore, loaded?.blocks ?? [], null).context;
-    if (isUga && uga) return {
-      ...withTranscriptCredits(uga.context, transcriptRecord),
-      samplePlanCourses: sampleCoursesFor(ugaSamplePlans, Object.fromEntries(programIds.map((id) => [id,
-        emphasisRequirements.filter((requirement) => requirement.programId === id).flatMap((requirement) =>
-          requirement.options.filter((option) => answers?.emphasisSelections[requirement.id]?.includes(option.id)).map((option) => option.label),
-        ),
-      ]))),
-    };
+    if (isUga && uga) {
+      // Before the transcript's own hours, which win for a course already taken. A degree's table keeps its hours.
+      setUgaTrackHours(uga, ugaTrackKey ? ugaTrackKey.split('|') : []);
+      return {
+        ...withTranscriptCredits(uga.context, transcriptRecord),
+        samplePlanCourses: sampleCoursesFor(ugaSamplePlans, Object.fromEntries(programIds.map((id) => [id,
+          emphasisRequirements.filter((requirement) => requirement.programId === id).flatMap((requirement) =>
+            requirement.options.filter((option) => answers?.emphasisSelections[requirement.id]?.includes(option.id)).map((option) => option.label),
+          ),
+        ]))),
+      };
+    }
     return null;
-  }, [isIllinois, isUga, planCore, uga, loaded, ugaSamplePlans, programIds, emphasisRequirements, answers?.emphasisSelections, transcriptRecord]);
+  }, [isIllinois, isUga, planCore, uga, loaded, ugaSamplePlans, programIds, emphasisRequirements, answers?.emphasisSelections, transcriptRecord, ugaTrackKey]);
   const boardContext = useMemo(() => doubleDawgsContext(plan, context), [plan?.doubleDawgs, context]);
 
   // ---- clubs ----------------------------------------------------------------
@@ -4169,7 +4186,7 @@ export function PlannerWorkspace({
    * student names asks for it.
    */
   function trackRowOf(code: string, trackName: string | undefined): string[] | null {
-    const track = interestProfileOf(live.current.careerText).tracks.find((t) => t.name === trackName);
+    const track = forSchool(interestProfileOf(live.current.careerText), isUga ? 'uga' : 'illinois').tracks.find((t) => t.name === trackName);
     const row = track?.courses.find((c) => c.codes.some((x) => normCode(x) === normCode(code)));
     return row ? row.codes.map(normCode) : null;
   }
@@ -4240,7 +4257,7 @@ export function PlannerWorkspace({
     lines.push(
       `Credit load: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'an even share of what is left'}, never above 18.${describeShape(planShapeRef.current)} ${scheduleSentence(sectionTermsOf(L.core?.meta), L.core?.meta?.term?.label ?? null)}`,
     );
-    lines.push(isIllinois ? describeGoals(L.setupStudying, L.careerText) : `Interests and goals: ${L.careerText || 'none recorded'}. No university-specific career track course list is loaded for UGA.`);
+    lines.push(isIllinois ? describeGoals(L.setupStudying, L.careerText) : isUga ? describeGoals(L.setupStudying, L.careerText, 'uga') : `Interests and goals: ${L.careerText || 'none recorded'}.`);
     // The rail's clubs, once the file has loaded, so ALMA and the rail name the same ones.
     const clubs = isIllinois && clubFile.current ? runFindClubs({}, clubStudentFor(L.careerText, L.loaded, L.answers), clubFile.current) : null;
     if (clubs?.ok && clubs.clubs.length > 0) {

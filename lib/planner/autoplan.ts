@@ -1,7 +1,7 @@
 import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from './types';
 import { termLoad, type GradeRow } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
-import { interestProfile, labPartners, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
+import { forSchool, interestProfile, labPartners, withHeldVariants, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
 import type { Priorities } from './priorities';
 import { interestWordsFrom, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
 import { DEFAULT_PRIORITIES } from './priorities';
@@ -434,6 +434,14 @@ export interface PlanningContext {
   /** The provenance line the grade panel prints, carried through so the report can repeat it. */
   gradeFootnote?: string | null;
   prereqCheck?: PrereqMatcher;
+  /**
+   * Lab to lecture for the career tracks the student named that LAB_OF does
+   * not hold (UGA's: BIOL 1107L with BIOL 1107), set by generatePlan
+   * (withTrackLabs) and read wherever LAB_OF is. Absent, the pairs are
+   * LAB_OF's alone, so a UGA board with no pre-health goal is placed as
+   * before.
+   */
+  trackLabs?: Map<string, string>;
 }
 
 /**
@@ -679,6 +687,11 @@ export interface AutoplanInput {
    * careerProfileOf.
    */
   career?: string;
+  /**
+   * Built without the student's career tracks: generatePlan's degree-first
+   * check for a UGA pre-health board (ugaDegreeFirst). Never set by a caller.
+   */
+  tracksOff?: boolean;
   /** The degree's name, "Psychology, BSLAS", which names the major better than a thin page does. */
   programName?: string;
   /** Course-number range eligible for generated elective slots. */
@@ -4174,10 +4187,18 @@ export function interestProfileOf(text: string | undefined): InterestProfile {
  * student a software engineering one; 106 of 308 program names named a topic
  * on their own. Callers that pass no `career` are read the old way.
  */
-function careerProfileOf(input: { interests?: string; career?: string; context?: PlanningContext; prior?: PriorCredit }): InterestProfile {
+function careerProfileOf(input: { interests?: string; career?: string; context?: PlanningContext; prior?: PriorCredit; electiveLevelRange?: { min: number }; tracksOff?: boolean }): InterestProfile {
   const profile = interestProfileOf(input.career ?? input.interests);
-  // Published track course codes are Illinois-specific; UGA still uses topic relevance.
-  return input.context?.schoolId === 'uga' ? { ...profile, tracks: [] } : withHeldSameMaterial(profile, input);
+  if (input.context?.schoolId === 'uga') {
+    // UGA's own pre-health lists (uga-career-tracks.ts); with none heard, the
+    // topics alone, as before. A graduate plan (its electives at the 6000
+    // level and up) books no undergraduate prerequisites for a goal, and the
+    // degree-first check's own build none at all (ugaDegreeFirst).
+    if (input.tracksOff === true || (input.electiveLevelRange?.min ?? 0) >= 500) return { ...profile, tracks: [] };
+    const own = forSchool(profile, 'uga');
+    return own.tracks.length > 0 ? withHeldVariants(own, new Set((input.prior?.courseCodes ?? []).map(normaliseCode))) : own;
+  }
+  return withHeldSameMaterial(profile, input);
 }
 
 /**
@@ -5918,6 +5939,44 @@ function orderShape(termCodes: Array<{ codes: string[]; regular: boolean }>, ctx
   return { loose, split, apart };
 }
 const LAB_OF = labPartners();
+/**
+ * `base` with the context's track pairs (PlanningContext.trackLabs) added,
+ * made once per pair of maps. Without track pairs, `base` itself.
+ */
+const withTrackLabsCache = new WeakMap<Map<string, string>, WeakMap<Map<string, string>, Map<string, string>>>();
+function plusTrackLabs(base: Map<string, string>, ctx: Pick<PlanningContext, 'trackLabs'>): Map<string, string> {
+  const extra = ctx.trackLabs;
+  if (!extra || extra.size === 0) return base;
+  const byBase = withTrackLabsCache.get(base) ?? new WeakMap<Map<string, string>, Map<string, string>>();
+  withTrackLabsCache.set(base, byBase);
+  const known = byBase.get(extra);
+  if (known) return known;
+  const out = new Map(base);
+  for (const [lab, lecture] of extra) if (!out.has(lab)) out.set(lab, lecture);
+  byBase.set(extra, out);
+  return out;
+}
+/**
+ * The context with the lab pairs of the tracks the student named that LAB_OF
+ * does not hold (UGA's), so the placer keeps BIOL 1107L beside BIOL 1107 for
+ * a UGA pre-med the way it keeps CHEM 103 beside CHEM 102 at Illinois. Only
+ * a UGA board with a track heard changes; any other context is returned as
+ * it is. One context per base context and set of tracks.
+ */
+const trackLabsCache = new WeakMap<PlanningContext, Map<string, PlanningContext>>();
+function withTrackLabs(ctx: PlanningContext, profile: InterestProfile): PlanningContext {
+  if (ctx.schoolId !== 'uga' || profile.tracks.length === 0) return ctx;
+  const pairs = new Map([...labPartners(profile.tracks)].filter(([lab]) => !LAB_OF.has(lab)));
+  if (pairs.size === 0) return ctx;
+  const key = profile.tracks.map((t) => t.id).join(',');
+  const byKey = trackLabsCache.get(ctx) ?? new Map<string, PlanningContext>();
+  trackLabsCache.set(ctx, byKey);
+  const known = byKey.get(key);
+  if (known) return known;
+  const made = { ...ctx, trackLabs: pairs };
+  byKey.set(key, made);
+  return made;
+}
 /*
  * Courses whose low-confidence prerequisite groups name a course, by the
  * course named, with the group. Those are the groups validatePlan reads as
@@ -5967,11 +6026,11 @@ const namedLabCache = new WeakMap<object, Map<string, string>>();
  * they are measured (measuredLabs): no move after the fill parts them where
  * they sit together.
  */
-function labsOf(ctx: Pick<PlanningContext, 'prereqs' | 'courses'>, inferred: boolean): Map<string, string> {
-  if (!ctx.prereqs) return LAB_OF;
+function labsOf(ctx: Pick<PlanningContext, 'prereqs' | 'courses' | 'trackLabs'>, inferred: boolean): Map<string, string> {
+  if (!ctx.prereqs) return plusTrackLabs(LAB_OF, ctx);
   const cache = inferred ? labCache : namedLabCache;
   const cached = cache.get(ctx.prereqs);
-  if (cached) return cached;
+  if (cached) return plusTrackLabs(cached, ctx);
   const out = new Map(LAB_OF);
   const byCode = catalogByCode(ctx.courses);
   for (const [raw, spec] of ctx.prereqs) {
@@ -5993,7 +6052,7 @@ function labsOf(ctx: Pick<PlanningContext, 'prereqs' | 'courses'>, inferred: boo
     out.set(code, lecture);
   }
   cache.set(ctx.prereqs, out);
-  return out;
+  return plusTrackLabs(out, ctx);
 }
 /** `now` no worse than `before` by orderShape: no more loose groups or labs apart, and no sequence split that was not. */
 function orderHolds(now: ReturnType<typeof orderShape>, before: ReturnType<typeof orderShape>): boolean {
@@ -6167,10 +6226,10 @@ function trialStands(paced: GeneratedPlan, plain: GeneratedPlan, input: Autoplan
  * improved one.
  */
 const measuredLabCache = new WeakMap<object, Map<string, string>>();
-function measuredLabs(ctx: Pick<PlanningContext, 'prereqs' | 'courses'>): Map<string, string> {
-  if (!ctx.prereqs) return LAB_OF;
+function measuredLabs(ctx: Pick<PlanningContext, 'prereqs' | 'courses' | 'trackLabs'>): Map<string, string> {
+  if (!ctx.prereqs) return plusTrackLabs(LAB_OF, ctx);
   const cached = measuredLabCache.get(ctx.prereqs);
-  if (cached) return cached;
+  if (cached) return plusTrackLabs(cached, ctx);
   const out = new Map(LAB_OF);
   const byCode = catalogByCode(ctx.courses);
   for (const [raw, spec] of ctx.prereqs) {
@@ -6186,7 +6245,7 @@ function measuredLabs(ctx: Pick<PlanningContext, 'prereqs' | 'courses'>): Map<st
     out.set(code, lecture);
   }
   measuredLabCache.set(ctx.prereqs, out);
-  return out;
+  return plusTrackLabs(out, ctx);
 }
 
 type GateMeasure = ReturnType<typeof gateMeasure>;
@@ -6554,13 +6613,60 @@ function ranksAbove(a: number[], b: number[]): boolean {
 }
 
 export function generatePlan(given: AutoplanInput): GeneratedPlan {
+  const built = generatePlanBuilt(given);
+  return given.context?.schoolId === 'uga' && given.plainEngine !== true && given.tracksOff !== true ? ugaDegreeFirst(built, given) : built;
+}
+
+/**
+ * The degree beats pre-med, at UGA without exception (the owner's rule of
+ * 2026-10-06). The engine books a track's courses into the room the degree
+ * leaves, but the picks made to serve the track (a list's physics, a gen ed
+ * social science) can still cost the degree: on the UGA harness of
+ * 2026-10-22, 5 of 161 pre-med boards (Spring 2027 start) met one fewer
+ * requirement row or left a degree course off that the same student's board
+ * without the track placed, Interdisciplinary Art AB's ARST 3840 among them.
+ * So a UGA board with a track is built a second time without it, and where
+ * the track's board leaves a requirement unmet or a degree course off that
+ * the other does not, the student gets the degree's board, and the track's
+ * note names every course of its list the board does not hold as needing a
+ * summer session or an extra term. Elsewhere the track's board stands.
+ */
+function ugaDegreeFirst(built: GeneratedPlan, given: AutoplanInput): GeneratedPlan {
+  const tracks = careerProfileOf(given).tracks;
+  if (tracks.length === 0) return built;
+  const bare = generatePlanBuilt({ ...given, tracksOff: true });
+  const unmetBare = new Set(bare.unsatisfied.map((u) => u.requirementId));
+  const offBare = new Set(bare.notPlaced.map((n) => normaliseCode(n.code)));
+  const lost =
+    built.unsatisfied.some((u) => !unmetBare.has(u.requirementId)) ||
+    built.notPlaced.some((n) => !offBare.has(normaliseCode(n.code)));
+  if (!lost) return built;
+  const onBoard = new Set(bare.terms.flatMap((t) => t.codes.map(normaliseCode)));
+  const held = new Set((given.prior?.courseCodes ?? []).map(normaliseCode));
+  const list = (codes: string[]) => (codes.length <= 1 ? codes.join('') : `${codes.slice(0, -1).join(', ')} and ${codes[codes.length - 1]}`);
+  const notes = tracks.map((track) => {
+    const rows = track.courses.filter((row) => row.need !== 'suggested');
+    // A row is held or on the board in any of its versions: an honors variant, or a catalog equivalent (ENGL 1102E).
+    const versions = (row: TrackCourse) => [...row.codes, ...(row.variants ?? [])].flatMap((c) => expandEquivalents(normaliseCode(c), given.context.equivalents ?? new Map()));
+    const has = (row: TrackCourse) => versions(row).some((c) => onBoard.has(c) || held.has(c));
+    const missing = rows.filter((row) => !has(row)).map((row) => normaliseCode(row.codes[0]));
+    const already = rows.filter(has).flatMap((row) => versions(row).filter((c) => onBoard.has(c) || held.has(c)).slice(0, 1));
+    const need = missing.length > 0 ? ` ${list(missing)} ${missing.length === 1 ? 'needs' : 'need'} a summer session or an extra term, so plan ${missing.length === 1 ? 'it' : 'them'} with your advisor.` : '';
+    return `${track.name}: the degree's own courses come first. Booking the courses from ${track.source.title} (${track.source.url}) beside them would have left one of this degree's requirements or courses off the board, so this plan books none of them as electives${already.length > 0 ? `; it already has ${list(already)}` : ''}.${need} ${track.note}`;
+  });
+  bare.notes.push(...notes);
+  return bare;
+}
+
+function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
   // A degree held at the release (held-degrees.ts PLANNED_AS_RELEASED) is planned by the release's engine.
   if (given.programId && PLANNED_AS_RELEASED.has(given.programId)) {
     const released = generateReleasedPlan(given as unknown as ReleasedInput) as unknown as GeneratedPlan;
     if (given.plainEngine !== true) spreadExamTerm(released, given, released.language ?? null);
     return released;
   }
-  const context = withTitleStanding(given.context);
+  // A UGA pre-health student's lab pairs (withTrackLabs); any other context as it is.
+  const context = withTrackLabs(withTitleStanding(given.context), careerProfileOf(given));
   const requirements = resolveBundles(given.requirements, given.prior, context);
   const college = collegeCreditRule(given.programCollege, requirements);
   const counted = college ? countTowardDegree(given.prior, college) : null;
@@ -9539,7 +9645,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the fill, which takes only the planner's own lesser picks; a recommended
    * one is left to the fill.
    */
-  const labOf = plainEngine ? LAB_OF : labsOf(ctx, input.pairings !== false);
+  const labOf = plainEngine ? plusTrackLabs(LAB_OF, ctx) : labsOf(ctx, input.pairings !== false);
   const lectureLab = new Map<string, string>();
   for (const [lab, lecture] of labOf) if (!lectureLab.has(lecture)) lectureLab.set(lecture, lab);
   /** Track rows this plan books itself, with the tier the placer orders them by: 1 required, 2 recommended. */

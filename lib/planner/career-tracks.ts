@@ -19,7 +19,9 @@
  *   CAREER_TRACKS    pre-professional goals (medicine, dental, PA, PT, OT, vet,
  *                    pharmacy, optometry, law) with the Illinois courses the
  *                    Illinois advising office lists for each, and the page it
- *                    is listed on.
+ *                    is listed on. UGA_CAREER_TRACKS holds the same pre-health
+ *                    goals with UGA's lists (uga-career-tracks.ts), and
+ *                    forSchool gives a student the tracks of their school.
  *   INTEREST_TOPICS  career and interest phrases (AI, UX, finance, climate ...)
  *                    with title words that really occur in Illinois course
  *                    titles, the subject prefixes that are about the topic,
@@ -30,6 +32,8 @@
  * public/illinois/index.json and every title word hits at least one title
  * there (checked on 2026-09-24; the check script lives outside the repo).
  */
+
+import { UGA_PAIR_FIRST, UGA_TRACKS } from './uga-career-tracks.ts';
 
 /** A page a list was taken from, and the day it was read. */
 export interface TrackSource {
@@ -67,11 +71,17 @@ export type TrackNeed = 'required' | 'recommended' | 'suggested';
 export type TrackDue = 'application' | 'exam';
 
 export interface TrackCourse {
-  /** Illinois alternatives, the one the source prefers first. One slot, not a sequence. */
+  /** The school's alternatives, the one the source prefers first. One slot, not a sequence. */
   codes: string[];
   need: TrackNeed;
   why: string;
   due?: TrackDue;
+  /**
+   * Other versions of the course the school treats as the same requirement
+   * (UGA's honors sections, uga-career-tracks.ts). Never booked; one the
+   * student holds meets the row (withHeldVariants).
+   */
+  variants?: string[];
 }
 
 export interface CareerTrack {
@@ -629,10 +639,28 @@ export const CAREER_TRACKS: CareerTrack[] = [
 ];
 
 /**
+ * UGA's pre-health tracks (uga-career-tracks.ts): the same ids, names and
+ * detect words as the Illinois tracks above, with UGA's own course lists.
+ * Pre-law has no UGA list, so a UGA student's pre-law goal books nothing.
+ */
+export const UGA_CAREER_TRACKS: CareerTrack[] = UGA_TRACKS.map((track) => {
+  const own = CAREER_TRACKS.find((t) => t.id === track.id);
+  if (!own) throw new Error(`uga-career-tracks.ts: ${track.id} is not a CAREER_TRACKS id`);
+  return { ...track, detect: own.detect, ...(own.unless ? { unless: own.unless } : {}) };
+});
+
+const UGA_BY_ID = new Map(UGA_CAREER_TRACKS.map((t) => [t.id, t]));
+
+/**
  * Lecture and lab pairs, lab to lecture, read from the rows above whose why
  * says "The lab taken with X": CHEM 103 with CHEM 102, CHEM 105 with CHEM 104,
  * MCB 151 with MCB 150, IB 151 with IB 150, MCB 245 with MCB 244, MCB 247
- * with MCB 246, CHEM 233 with CHEM 232, MCB 251 with MCB 250.
+ * with MCB 246, CHEM 233 with CHEM 232, MCB 251 with MCB 250. UGA's codes
+ * have four digits and its labs an L (BIOL 1107L with BIOL 1107, CHEM 1211L
+ * with CHEM 1211); the default is Illinois's tracks alone, since the engine
+ * holds those pairs on every Illinois board, and a UGA board gets its
+ * tracks' pairs only when the student names the goal (autoplan.ts
+ * withTrackLabs), so a UGA board with no pre-health goal is placed as before.
  *
  * The guides say "with its lab", and the lab's own catalog line only says
  * "credit or concurrent registration", which a plan meets just as well with
@@ -645,7 +673,7 @@ export function labPartners(tracks: CareerTrack[] = CAREER_TRACKS): Map<string, 
   const out = new Map<string, string>();
   for (const track of tracks) {
     for (const row of track.courses) {
-      const lecture = /^The lab taken with ([A-Z]{2,5} \d{3})\b/.exec(row.why)?.[1];
+      const lecture = /^The lab taken with ([A-Z]{2,5} \d{3,4}[A-Z]?)\b/.exec(row.why)?.[1];
       if (!lecture) continue;
       for (const lab of row.codes) if (!out.has(lab)) out.set(lab, lecture);
     }
@@ -1732,4 +1760,94 @@ export function trackRequiredStatus(
     else out.missing.push(need.codes.join(' or '));
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// The student's school
+// ---------------------------------------------------------------------------
+
+/**
+ * The tracks of the school a profile is planned at. interestProfile hears the
+ * goal (the words do not depend on the school) and names the Illinois track;
+ * a UGA student gets the UGA track of the same id instead, and a goal with no
+ * UGA list (pre-law) books nothing at UGA, as before.
+ *
+ * Only the tracks change, and what they bring: their title words and course
+ * codes in `words` and `courses`. With no UGA track heard the profile is
+ * returned exactly as it was, so a UGA board with no pre-health goal is built
+ * as before. Illinois (or no school) gets the profile untouched.
+ */
+const forUga = new WeakMap<InterestProfile, InterestProfile>();
+export function forSchool(profile: InterestProfile, schoolId: string | null | undefined): InterestProfile {
+  if (schoolId !== 'uga') return profile;
+  const known = forUga.get(profile);
+  if (known) return known;
+  const tracks = profile.tracks.map((t) => UGA_BY_ID.get(t.id)).filter((t): t is CareerTrack => t !== undefined);
+  let made: InterestProfile;
+  if (tracks.length === 0) {
+    made = { ...profile, tracks: [] };
+  } else {
+    // The same order interestProfile adds them in: each track's words and codes, then the topics'.
+    const own = profile.tracks.map((t) => UGA_BY_ID.get(t.id) ?? t);
+    const words: string[] = [];
+    const courses: string[] = [];
+    const seenWords = new Set<string>();
+    const seenCourses = new Set<string>();
+    for (const tr of own) {
+      pushAll(words, seenWords, tr.words);
+      pushAll(courses, seenCourses, tr.courses.flatMap((x) => x.codes));
+    }
+    for (const topic of profile.topics) {
+      pushAll(words, seenWords, topic.words);
+      pushAll(courses, seenCourses, topic.courses);
+    }
+    made = { ...profile, tracks, words, courses };
+  }
+  forUga.set(profile, made);
+  return made;
+}
+
+/**
+ * Every course code a UGA student's tracks may book or name for the
+ * admission test, for the hours their rows need (uga-source.tsx
+ * setUgaTrackHours): the catalog has 3 credits on every UGA row, CHEM 1211L
+ * included. Empty with no UGA track heard.
+ */
+export function ugaTrackCodes(profile: InterestProfile): string[] {
+  const out = new Set<string>();
+  for (const track of forSchool(profile, 'uga').tracks) {
+    for (const row of track.courses) for (const code of row.codes) out.add(code);
+    for (const code of track.exam?.content ?? []) out.add(code);
+  }
+  for (const code of [...out]) if (UGA_PAIR_FIRST[code]) out.add(UGA_PAIR_FIRST[code]);
+  return [...out].sort();
+}
+
+/**
+ * A row met by an honors version the student holds (TrackCourse.variants):
+ * the variant joins the row's codes for this student only, so the row reads
+ * as held and books nothing. Nothing is ever booked from a variant. With no
+ * variant held the profile is returned as it is.
+ */
+const heldVariantsMemo = new WeakMap<InterestProfile, Map<string, InterestProfile>>();
+export function withHeldVariants(profile: InterestProfile, held: ReadonlySet<string>): InterestProfile {
+  if (held.size === 0 || profile.tracks.length === 0) return profile;
+  const added = profile.tracks.map((track) =>
+    track.courses.map((row) => (row.codes.some((c) => held.has(c)) ? [] : (row.variants ?? []).filter((v) => held.has(v)))),
+  );
+  if (added.every((rows) => rows.every((codes) => codes.length === 0))) return profile;
+  const key = JSON.stringify(added);
+  const memo = heldVariantsMemo.get(profile) ?? new Map<string, InterestProfile>();
+  heldVariantsMemo.set(profile, memo);
+  const hit = memo.get(key);
+  if (hit) return hit;
+  const made: InterestProfile = {
+    ...profile,
+    tracks: profile.tracks.map((track, t) => ({
+      ...track,
+      courses: track.courses.map((row, r) => (added[t][r].length > 0 ? { ...row, codes: [...row.codes, ...added[t][r]] } : row)),
+    })),
+  };
+  memo.set(key, made);
+  return made;
 }

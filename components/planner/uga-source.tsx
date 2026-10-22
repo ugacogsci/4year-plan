@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type {
+  PlanCreditRange,
   PlanPrereq,
   PlanPrereqGroup,
   PlanningContext,
@@ -1011,7 +1012,7 @@ export function loadUgaData(): Promise<UgaData | null> {
       snapshotTerm: null,
       gradeFootnote: null,
     };
-    return {
+    const data: UgaData = {
       courses,
       byCode,
       programs,
@@ -1022,8 +1023,99 @@ export function loadUgaData(): Promise<UgaData | null> {
       fetchedAt: programFile.fetchedAt,
       dualLevelCourses,
     };
+    rawProgramsOf.set(data, programFile.programs);
+    return data;
   })();
   return ugaPromise;
+}
+
+/*
+ * Real hours for a pre-health student's track courses.
+ *
+ * The catalog file has 3 credits on every UGA row (CHEM 1211L and PHYS
+ * 1111-1111L included); a degree's own table repairs the hours of the courses
+ * it names (loadUgaProgram). A track course outside the degree has only the
+ * placeholder, so setUgaTrackHours gives it the hours UGA's program tables
+ * print for it (public/uga-programs.json, the value most of its rows give:
+ * CHEM 1211L 1 hour in 221 rows, PHYS 1111 4 hours in 307 rows and 3 in an
+ * older 50). Only while the student's goal names the track: a UGA student
+ * with no pre-health goal is planned on the catalog's hours as before, and
+ * a goal taken back puts them back. A course the degree's own table named
+ * keeps the degree's hours.
+ */
+const rawProgramsOf = new WeakMap<UgaData, UgaProgram[]>();
+const rowHoursCache = new WeakMap<UgaData, Map<string, number>>();
+/** Codes whose hours a loaded degree's table set (loadUgaProgram): they keep them. */
+const degreeHours = new WeakMap<UgaData, Set<string>>();
+/** What setUgaTrackHours changed, to put back when the goal no longer asks for it. */
+const trackHoursBefore = new WeakMap<UgaData, Map<string, { credits: number; creditsMax?: number; range?: PlanCreditRange }>>();
+
+/** The hours most rows of UGA's program tables print for each course. */
+export function ugaRowHours(data: UgaData): Map<string, number> {
+  const known = rowHoursCache.get(data);
+  if (known) return known;
+  const counts = new Map<string, Map<number, number>>();
+  for (const program of rawProgramsOf.get(data) ?? data.programs) {
+    for (const area of program.areas) {
+      for (const group of area.groups) {
+        for (const row of group.courses) {
+          if (!Number.isFinite(row.credits) || /\b[1-9]XXX\b/.test(row.code)) continue;
+          const code = canonicalUgaCode(row.code);
+          const byHours = counts.get(code) ?? new Map<number, number>();
+          byHours.set(row.credits, (byHours.get(row.credits) ?? 0) + 1);
+          counts.set(code, byHours);
+        }
+      }
+    }
+  }
+  const out = new Map<string, number>();
+  for (const [code, byHours] of counts) {
+    const [hours] = [...byHours].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0];
+    out.set(code, hours);
+  }
+  rowHoursCache.set(data, out);
+  return out;
+}
+
+/**
+ * Give `codes` (career-tracks.ts ugaTrackCodes for the student's goal) the
+ * hours UGA's program tables print, and put back the catalog's hours for any
+ * course an earlier goal changed and this one does not name. Returns the
+ * codes it found no hours for (they keep the catalog's 3).
+ */
+export function setUgaTrackHours(data: UgaData, codes: Iterable<string>): string[] {
+  const want = new Set([...codes].map(normCode));
+  const before = trackHoursBefore.get(data) ?? new Map<string, { credits: number; creditsMax?: number; range?: PlanCreditRange }>();
+  trackHoursBefore.set(data, before);
+  for (const [code, was] of [...before]) {
+    if (want.has(code)) continue;
+    const course = data.byCode.get(code);
+    if (course) {
+      course.credits = was.credits;
+      course.creditsMax = was.creditsMax;
+    }
+    if (was.range) data.context.creditRanges?.set(code, was.range);
+    else data.context.creditRanges?.delete(code);
+    before.delete(code);
+  }
+  if (want.size === 0) return [];
+  const hours = ugaRowHours(data);
+  const fromDegree = degreeHours.get(data);
+  const none: string[] = [];
+  for (const code of want) {
+    const course = data.byCode.get(code);
+    if (!course || before.has(code) || fromDegree?.has(code)) continue;
+    const real = hours.get(code);
+    if (real === undefined) {
+      none.push(code);
+      continue;
+    }
+    before.set(code, { credits: course.credits, creditsMax: course.creditsMax, range: data.context.creditRanges?.get(code) });
+    course.credits = real;
+    course.creditsMax = real;
+    data.context.creditRanges?.set(code, { credits: real, min: real, max: real, variable: false, known: true });
+  }
+  return none.sort();
 }
 
 export function useUgaData(enabled: boolean): UgaState {
@@ -1206,6 +1298,11 @@ export function loadUgaProgram(
         if (!course || !Number.isFinite(row.credits)) continue;
         course.credits = row.credits;
         course.creditsMax = row.credits;
+        // The degree's own hours stand, and are not put back when a track's goal is dropped (setUgaTrackHours).
+        const set = degreeHours.get(data) ?? new Set<string>();
+        set.add(code);
+        degreeHours.set(data, set);
+        trackHoursBefore.get(data)?.delete(code);
         data.context.creditRanges?.set(code, {
           credits: row.credits,
           min: row.credits,

@@ -51,6 +51,7 @@ import {
   type PoolReport,
   type PriorCredit,
 } from './autoplan';
+import { forSchool } from './career-tracks';
 import { normalizePriorities, type Priorities } from './priorities';
 import { calendarYearOf, runsInSummer } from './summer-offering';
 import { saysGoalMatch, type QualityResult } from './quality';
@@ -822,7 +823,10 @@ export function repickBoard(input: RepickInput): RepickResult {
 
   // --- a named career track first ------------------------------------------
   const trackCodes = new Set<string>();
-  for (const track of (ctx.schoolId === 'uga' ? [] : interestProfileOf(input.career ?? input.interests).tracks)) {
+  // UGA's own lists (uga-career-tracks.ts), never on a graduate board (electives at the 6000 level and up).
+  const graduateBoard = (input.electiveLevelRange?.min ?? 0) >= 500;
+  const heard = interestProfileOf(input.career ?? input.interests);
+  for (const track of (ctx.schoolId === 'uga' ? (graduateBoard ? [] : forSchool(heard, 'uga').tracks) : heard.tracks)) {
     for (const need of track.courses) {
       if (need.need !== 'required') continue;
       const codes = need.codes.map(normaliseCode);
