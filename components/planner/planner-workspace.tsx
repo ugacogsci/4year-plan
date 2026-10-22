@@ -5429,15 +5429,18 @@ export function PlannerWorkspace({
         const mode: InterestsMode = input.interests_mode === 'replace' || input.interests_mode === 'clear' ? input.interests_mode : 'add';
         const said = typeof input.interests === 'string' ? input.interests.trim() : '';
         /**
-         * The goals the planner reads from the career words. At UGA, interest
-         * topics only: the career tracks' course lists and the programs
-         * entered by application are Illinois's (repick.ts and autoplan.ts
-         * leave the tracks out for UGA the same way), so ARCH is never handed
-         * them as the student's.
+         * The goals the planner reads from the career words. At UGA, the
+         * interest topics and UGA's own pre-health tracks (uga-career-tracks.ts,
+         * through forSchool, the lists repick.ts and autoplan.ts book for UGA;
+         * none on a graduate plan, which books none). Illinois's tracks and the
+         * programs entered by application are Illinois's, so ARCH is never
+         * handed them as the student's.
          */
         const goalsOf = (text: string) => {
           const read = interestProfileOf(text);
-          return isUga ? { ...read, tracks: [], apply: [], heard: read.heard.filter((h) => !read.tracks.some((track) => track.id === h)) } : read;
+          if (!isUga) return read;
+          const own = isGraduatePlan ? { ...read, tracks: [] } : forSchool(read, 'uga');
+          return { ...own, apply: [], heard: read.heard.filter((h) => !read.tracks.some((track) => track.id === h) || own.tracks.some((track) => track.id === h)) };
         };
         const tracksBefore = goalsOf(careerTextRef.current).tracks;
         let heard: string[] | null = null;
