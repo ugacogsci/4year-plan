@@ -416,7 +416,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
       additionalProperties: false,
     },
   },
-  // Illinois only, like course_syllabus: the club directory is Illinois's. Defined in clubs-tool.ts.
+  // Defined in clubs-tool.ts. ARCH's own wording is in UGA_TOOL_TEXT: UGA's list is partial.
   FIND_CLUBS_TOOL,
 ];
 
@@ -455,8 +455,10 @@ export type AdvisorToolName =
 
 /**
  * The tools ARCH (UGA) gets, in ALMA's order. Left out because the planner
- * holds their data for Illinois only: program_admission, compare_programs and
- * find_clubs (ARCH's prompt says what to say instead). course_syllabus reads
+ * holds their data for Illinois only: program_admission and compare_programs
+ * (ARCH's prompt says what to say instead). find_clubs is in since
+ * 2026-10-22, over UGA's partial list (public/uga/clubs.json, the clubs
+ * official UGA pages name). course_syllabus reads
  * UGA's own shards (public/uga/syllabi) since 2026-10-15, and term_syllabi
  * (many courses at once, by instructor) the same shards since 2026-10-18.
  * add_summer and remove_summer are in since 2026-10-20: they put an empty
@@ -493,6 +495,7 @@ export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolN
   'drop_prior_credit',
   'planner_answer',
   'university_answer',
+  'find_clubs',
 ]);
 
 /**
@@ -501,6 +504,13 @@ export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolN
  * where a field's own description names Illinois. ALMA's list is untouched.
  */
 const UGA_TOOL_TEXT: Partial<Record<AdvisorToolName, { description: string; properties?: Record<string, { description: string }> }>> = {
+  find_clubs: {
+    description:
+      "Student organizations at UGA (pre-professional and academic clubs, professional societies, competition teams, club sports, chapters) from the planner's partial UGA list: the clubs official UGA pages name (advising offices, colleges, Recreational Sports, Fraternity & Sorority Life), as of source.checked. UGA's own directory is not read, so more clubs exist than it returns; its note says how many it holds. " +
+      "With no query: the clubs matched to the student's goals and major, the same list the rail's 'Clubs for your goals' " +
+      'section shows. With a query: clubs for that goal, field or kind of club, in the student\'s words. Use it for every ' +
+      'question about which clubs, societies, organizations or teams to join; never name a club it did not return.',
+  },
   course_syllabus: {
     description:
       "What a course's own published syllabi say: the grade breakdown (each graded item and its percent or points), exams and their dates, the final, required materials, and the attendance, late-work, make-up and other course policies, each syllabus with its term, the instructor who uploaded it and a link to the file on UGA's Bulletin. Newest term first. Where the Bulletin publishes the course's master outline, an entry with objectives and topics and no grading follows, for \"what does this course cover\". Use it for any question about how a course is graded or run (\"what percent is the project\", \"is attendance graded\", \"which textbook\", \"how many exams\") or what it covers. An empty list means no instructor has uploaded a syllabus for the course and the Bulletin has no outline for it, not that the course has none. The result also groups the syllabi by instructor (by_instructor, each instructor's newest first, with its term and link) and marks the instructor the student set for the course on the board (chosen).",
@@ -867,7 +877,7 @@ const UGA_LOAD_RULE =
  * say instead, so it could answer from memory).
  */
 const UGA_NOT_LOADED = [
-  '- Clubs: the planner has no UGA student-organization list. Say so, and use university_answer for how to find organizations at UGA; never name a club from memory.',
+  "- Clubs: find_clubs reads a partial UGA list, the clubs official UGA pages name; UGA's own directory, the Involvement Network, is not read. Call it for any question about which clubs to join, name at most 4 of the clubs it returns by their exact names, say once that the list is partial and give its source.url for the rest, and use university_answer for how to join or start an organization. Never name a club from memory, and never give officer names or emails.",
   '- Class times, sections and the weekly clash check: not loaded for UGA. The plan picks courses for each term, not sections; days, times and instructors are chosen at registration. Never state a meeting time, and say that whether a term\'s courses fit in one week is not checked.',
   '- Grade history and teaching ratings: none are loaded for UGA, so you cannot rank courses by difficulty or by teaching, and a term cannot be called heavy or light by grades. Judge a term by what is in it (labs, upper-level major courses, credits) and say that is all you go on. Never cite RateMyProfessors or any outside site, and never call an instructor good or bad.',
   '- Getting into a competitive major or college, a second major, minors and certificates: the planner does not check these for UGA. Say so, answer from UGA\'s pages with university_answer, and send the student to the department.',

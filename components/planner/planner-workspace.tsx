@@ -239,7 +239,7 @@ import type { AdvisorExecutor } from '@/lib/planner/advisor';
 import type { RequirementBlock } from '@/lib/planner/illinois-data';
 import { ClubPicks } from './club-picks';
 import { clubStudentOf, type ClubStudent, type IllinoisClubsFile } from '@/lib/planner/clubs';
-import { loadIllinoisClubs } from '@/lib/planner/clubs-load';
+import { loadClubs } from '@/lib/planner/clubs-load';
 import { runFindClubs } from '@/lib/planner/clubs-tool';
 import { mayBookAgain } from '@/lib/planner/repeats';
 import { UnofficialBadge } from './site-notice';
@@ -1431,20 +1431,22 @@ export function PlannerWorkspace({
    * words without re-ranking on each letter. Nothing here touches the board.
    */
   const deferredCareer = useDeferredValue(careerText);
+  const clubSchool = isIllinois ? 'illinois' : isUga ? 'uga' : null;
   const clubStudent = useMemo(
-    () => (isIllinois ? clubStudentFor(deferredCareer, loaded, answers) : null),
-    [isIllinois, deferredCareer, loaded, answers],
+    () => (clubSchool ? clubStudentFor(deferredCareer, loaded, answers) : null),
+    [clubSchool, deferredCareer, loaded, answers],
   );
   /** The first goal the student named: ALMA's clubs opener asks about it in place of tuition. */
   const clubGoal = clubStudent ? (clubStudent.profile.tracks[0]?.name ?? clubStudent.profile.topics.find((t) => clubStudent.profile.heard.includes(t.label))?.label ?? null) : null;
   /** The club file once it has loaded, for describeBoard. The rail and find_clubs share its one fetch. */
   const clubFile = useRef<IllinoisClubsFile | null>(null);
   useEffect(() => {
-    if (!isIllinois) return;
-    void loadIllinoisClubs().then((r) => {
+    clubFile.current = null;
+    if (!clubSchool) return;
+    void loadClubs(clubSchool).then((r) => {
       if (r.ok) clubFile.current = r.value;
     });
-  }, [isIllinois]);
+  }, [clubSchool]);
   /** The clubs card's "Change my goals": the rail open, Preferences open, the cursor in the goals box. */
   function editGoals() {
     setRailOpen(true);
@@ -4258,8 +4260,8 @@ export function PlannerWorkspace({
       `Credit load: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'an even share of what is left'}, never above 18.${describeShape(planShapeRef.current)} ${scheduleSentence(sectionTermsOf(L.core?.meta), L.core?.meta?.term?.label ?? null)}`,
     );
     lines.push(isIllinois ? describeGoals(L.setupStudying, L.careerText) : isUga ? describeGoals(L.setupStudying, L.careerText, 'uga') : `Interests and goals: ${L.careerText || 'none recorded'}.`);
-    // The rail's clubs, once the file has loaded, so ALMA and the rail name the same ones.
-    const clubs = isIllinois && clubFile.current ? runFindClubs({}, clubStudentFor(L.careerText, L.loaded, L.answers), clubFile.current) : null;
+    // The rail's clubs, once the file has loaded, so the assistant and the rail name the same ones.
+    const clubs = clubSchool && clubFile.current ? runFindClubs({}, clubStudentFor(L.careerText, L.loaded, L.answers), clubFile.current) : null;
     if (clubs?.ok && clubs.clubs.length > 0) {
       lines.push(`Clubs for your goals (rail): ${clubs.clubs.slice(0, 3).map((c) => c.name).join('; ')} for ${clubs.goals_used.map((g) => g.label).join(', ') || clubs.clubs[0].for_goal}, from ${clubs.source.name} checked ${clubs.source.checked}; find_clubs returns the same list.`);
     }
@@ -6079,8 +6081,8 @@ export function PlannerWorkspace({
       case 'find_clubs': {
         // Read-only: no undo step, no confirmation. Ranked for the words as they are now, so a goal
         // set_priorities stored earlier in this turn counts. Its sources link each club under the reply.
-        if (!isIllinois) return { ok: false, reason: 'The club directory is Illinois\'s; this school has none here.', sources: [] };
-        const clubs = await loadIllinoisClubs();
+        if (!clubSchool) return { ok: false, reason: 'The planner has no club list for this school.', sources: [] };
+        const clubs = await loadClubs(clubSchool);
         if (clubs.ok) clubFile.current = clubs.value;
         return runFindClubs(input, clubStudentFor(L.careerText, L.loaded, L.answers), clubs.ok ? clubs.value : null);
       }
@@ -6813,8 +6815,9 @@ export function PlannerWorkspace({
           />
         }
         clubs={
-          isIllinois ? (
+          clubSchool ? (
             <ClubPicks
+              school={clubSchool}
               student={clubStudent}
               botName={botName}
               onEditGoals={editGoals}

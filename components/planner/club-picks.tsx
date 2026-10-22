@@ -8,7 +8,9 @@
  * `transcript` arrive: the rail owns where it sits, not what it says.
  *
  * It shows the same list ALMA's find_clubs returns with no query: one
- * recommendClubs over public/illinois/clubs.json, for the ClubStudent the
+ * recommendClubs over public/illinois/clubs.json (or, for a UGA student,
+ * public/uga/clubs.json, which says under its list that it is partial),
+ * for the ClubStudent the
  * workspace builds from the student's own goal words (deferred, so typing in
  * the goal box does not re-rank on every letter), their degree and college.
  * It never touches the board, so nothing here needs Rebuild or Undo.
@@ -45,7 +47,7 @@ import {
   type ClubStudent,
   type IllinoisClubsFile,
 } from '@/lib/planner/clubs';
-import { loadIllinoisClubs } from '@/lib/planner/clubs-load';
+import { loadClubs, type ClubSchool } from '@/lib/planner/clubs-load';
 import './club-picks.css';
 
 type Load =
@@ -73,9 +75,11 @@ export interface ClubPicksProps {
   botName?: string;
   /** The day to judge freshness and event dates by. The rail leaves it out. */
   today?: Date | string;
+  /** Whose club file: Illinois's (OneIllinois) or UGA's (official UGA pages, partial). */
+  school?: ClubSchool;
 }
 
-export function ClubPicks({ student, onEditGoals, onOpenAlma, botName = 'ALMA', today }: ClubPicksProps) {
+export function ClubPicks({ student, onEditGoals, onOpenAlma, botName = 'ALMA', today, school = 'illinois' }: ClubPicksProps) {
   const [load, setLoad] = useState<Load>({ state: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [more, setMore] = useState(false);
@@ -86,7 +90,7 @@ export function ClubPicks({ student, onEditGoals, onOpenAlma, botName = 'ALMA', 
     let live = true;
     // oxlint-disable-next-line react/react-compiler
     setLoad({ state: 'loading' });
-    void loadIllinoisClubs().then((r) => {
+    void loadClubs(school).then((r) => {
       if (!live) return;
       if (r.ok) setLoad({ state: 'ready', data: r.value });
       else setLoad(r.reason === 'error' ? { state: 'failed' } : { state: 'missing' });
@@ -94,7 +98,7 @@ export function ClubPicks({ student, onEditGoals, onOpenAlma, botName = 'ALMA', 
     return () => {
       live = false;
     };
-  }, [attempt]);
+  }, [attempt, school]);
 
   // Open on a first visit; a student who folds it keeps it folded on this device. Read after
   // mount, not during render, so the server's HTML and the first client render agree.
@@ -340,7 +344,10 @@ function Footer({ data, today, onEditGoals }: { data: IllinoisClubsFile; today?:
       <p>
         {fresh.stale
           ? `This list is from ${fresh.label} (${days} ago) and may be out of date. `
-          : `From ${data.source.name}, the university's club directory, checked ${fresh.label}. `}
+          : data.partial
+            ? `${data.partial.line} Checked ${fresh.label}. `
+            : `From ${data.source.name}, the university's club directory, checked ${fresh.label}. `}
+        {fresh.stale && data.partial ? `${data.partial.line} ` : null}
         Clubs change every year; each club&apos;s page has the latest.
       </p>
       <p className="club-actions">

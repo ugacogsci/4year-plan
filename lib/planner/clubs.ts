@@ -55,6 +55,13 @@ export interface IllinoisClubsFile {
     unlisted: number;
   };
   clubs: Club[];
+  /**
+   * Set by the loader (clubs-load.ts), never in the file: the file holds only
+   * part of the school's directory (UGA's: the clubs official UGA pages list).
+   * `line` says what it covers; the rail shows it under the list, find_clubs
+   * passes it on, and a thin goal is "in this list", not "in the directory".
+   */
+  partial?: { line: string };
 }
 
 export interface ClubList {
@@ -71,6 +78,12 @@ export interface ClubList {
   weight?: number;
   college?: string;
   subject?: string;
+  /**
+   * Or a whole family of goals: UGA's Pre-Professional Advising Office's
+   * list of pre-health clubs is for every health track (clubs-load.ts). Being
+   * on it counts for each, at `weight`, after the clubs named for the goal.
+   */
+  goals?: string[];
 }
 
 export type ClubKind =
@@ -228,10 +241,16 @@ export function clubStudentOf(input: {
   };
 }
 
-/** "Political Science: General Political Science, BALAS" -> "Political Science". */
+/**
+ * "Political Science: General Political Science, BALAS" -> "Political Science";
+ * UGA's "Computer Science BS" -> "Computer Science" (UGA's names carry the
+ * degree after a space, with no comma; no Illinois name without a comma ends
+ * in one).
+ */
 export function majorNameOf(programName: string | null): string | null {
   if (!programName) return null;
-  const name = programName.replace(/,\s*[A-Z][A-Za-z]{1,8}$/, '').split(':')[0].trim();
+  let name = programName.replace(/,\s*[A-Z][A-Za-z]{1,8}$/, '').split(':')[0].trim();
+  if (!programName.includes(',')) name = name.replace(/\s+(AB|B[A-Z]{1,7})$/, '').trim() || name;
   return name || null;
 }
 
@@ -964,14 +983,16 @@ export function whyLine(pick: Pick<ClubPick, 'why'>): string {
  * 4.1): how many matched, and the directory to browse instead of a padded
  * list. "Only 2 clubs in OneIllinois matched pre-optometry." [Browse them all]
  */
-export function thinNote(data: Pick<IllinoisClubsFile, 'source'>, label: string, matched: number, inCommunities = 0): { text: string; link: string; href: string } {
+export function thinNote(data: Pick<IllinoisClubsFile, 'source' | 'partial'>, label: string, matched: number, inCommunities = 0): { text: string; link: string; href: string } {
   // Clubs for the goal that are centered on one community sit in the folded row; the count says so, so a
   // student who opens it is not told "only 2" and then finds 4 (spot check, round 2).
   // With none of its own, "No club ... yet, plus 2" would contradict itself: "except 2" (review, round 3).
   const plus = inCommunities > 0 ? `, ${matched === 0 ? 'except' : 'plus'} ${inCommunities} in “${COMMUNITIES_HEADING}” below` : '';
+  // A partial list (UGA's) is not the directory: its count says nothing about the directory's.
+  const where = data.partial ? 'this list' : data.source.name;
   const text = matched === 0
-    ? `No club in ${data.source.name} matched ${label} yet${plus}.`
-    : `Only ${matched} ${matched === 1 ? 'club' : 'clubs'} in ${data.source.name} matched ${label}${plus}.`;
+    ? `No club in ${where} matched ${label} yet${plus}.`
+    : `Only ${matched} ${matched === 1 ? 'club' : 'clubs'} in ${where} matched ${label}${plus}.`;
   return { text, link: matched === 0 ? 'Browse every club' : 'Browse them all', href: data.source.url };
 }
 
@@ -1112,6 +1133,15 @@ function goalEvidenceOf(club: Club, named: Set<string>, read: Set<string>, ctx: 
       specific: named.size <= 2,
       why: isTrack ? `For your goal: ${label(g)}` : `About ${label(g)}, which you said you want`,
     };
+  }
+  // A list for a whole family of goals (ClubList.goals): after the clubs named for the goal, and only for a
+  // club with no goal of its own (the Pre-Dental Society on PPAO's pre-health list is not a pre-med club).
+  for (const g of named.size + read.size === 0 ? goals : []) {
+    const i = (club.lists ?? []).find((k) => lists[k]?.goals?.includes(g));
+    if (i !== undefined) {
+      const l = lists[i];
+      return { v: EVIDENCE.list * (l.weight ?? 1), kind: 'goal', basis: 'list', goal: g, why: `On ${l.short || l.title}` };
+    }
   }
   // The wider field says what the club is and that it is close, never that one field "is part of" the other:
   // a data science club is not part of software engineering (spot check, round 2).
