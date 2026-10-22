@@ -150,7 +150,7 @@ import {
 } from '@/lib/planner/saved-board';
 import { livePools, poolShortfalls } from './live-pools';
 import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersToAdd, summerYearOf, summersInRange, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
-import { runsInSummer, ugaOfferingLine } from '@/lib/planner/summer-offering';
+import { runsInSummer, summerOnlyListed, ugaOfferingLine } from '@/lib/planner/summer-offering';
 import { UGA_GRADUATE_FULL_TIME_HOURS, ugaGraduateOverloadAnswer, ugaGraduateUnderloadNote, ugaOverloadAnswer, ugaUnderloadNote } from '@/lib/planner/uga-load-rules';
 import { CAREER_TRACKS, careerWordsAfter, forSchool, INTEREST_TOPICS, trackRequiredStatus, ugaTrackCodes, type InterestsMode } from '@/lib/planner/career-tracks';
 import { careerWordsFor, goalReasonOf, restoredCareerWords, setupWords } from '@/lib/planner/goal-words';
@@ -4530,8 +4530,8 @@ export function PlannerWorkspace({
         : null;
       const dormant = courses.filter((x) => ctx.offeringTerms?.length && (ctx.offerings?.get(normCode(x.code)) ?? []).length === 0).map((x) => x.code);
       const wrongSeason = courses
-        .filter((x) => x.offeringKnown && x.offeredIn.length > 0 && (t.season === 'Summer' ? !runsInSummer(x, calendarYearOf(t)) : !x.offeredIn.includes(t.season)))
-        .map((x) => `${x.code} (has run in ${x.offeredIn.join(' and ')} only)`);
+        .filter((x) => (x.offeringKnown && x.offeredIn.length > 0 && (t.season === 'Summer' ? !runsInSummer(x, calendarYearOf(t)) : !x.offeredIn.includes(t.season))) || (t.season !== 'Summer' && summerOnlyListed(x)))
+        .map((x) => (t.season !== 'Summer' && summerOnlyListed(x) ? `${x.code} (the UGA Bulletin lists it for summer only)` : `${x.code} (has run in ${x.offeredIn.join(' and ')} only)`));
       const load =
         hard.length >= 3 || (avg !== null && ctx.bands && avg >= ctx.bands.hardest)
           ? 'brutal'

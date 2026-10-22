@@ -23,6 +23,7 @@ import {
   type TranscriptRecord,
 } from '@/lib/planner/transcript';
 import type { PlanIssue, PlanState } from '@/lib/planner/types';
+import { summerOnlyListed, ugaRequiredSummerOnlyMessage, ugaSummerOnlyMessage } from '@/lib/planner/summer-offering';
 import { livePools, poolShortfalls } from './live-pools';
 
 export interface UgaAuditInput {
@@ -36,6 +37,26 @@ export interface UgaAuditInput {
   dualLevel?: Map<string, string>;
   validation?: ValidateOptions;
   coreCredit?: Array<{ area: string; hours: number }>;
+}
+
+/**
+ * Codes a degree requires with no other choice that the UGA Bulletin lists
+ * for summer only: every alternative of a take-every-course row, or of a
+ * choose row without enough other options, is summer-only (autoplan.ts
+ * requiredSummerOnly reads the same rows when it plans).
+ */
+function requiredSummerOnlyCodes(blocks: PlanRequirement[], context: PlanningContext): Set<string> {
+  const byCode = new Map(context.courses.map((course) => [course.code, course]));
+  const out = new Set<string>();
+  for (const block of blocks) {
+    const rule = block.rule;
+    if (rule.kind !== 'all' && rule.kind !== 'choose') continue;
+    const rows = rule.choices.map((choice) => choice.codes).filter((codes) => codes.length > 0);
+    const only = rows.filter((codes) => codes.every((code) => summerOnlyListed(byCode.get(code))));
+    if (only.length === 0 || (rule.kind === 'choose' && rows.length - only.length >= rule.n)) continue;
+    for (const codes of only) for (const code of codes) out.add(code);
+  }
+  return out;
 }
 
 /** Rebuild pool membership from the curriculum, including repairs to older saved plans. */
@@ -248,29 +269,45 @@ export function auditUgaBoard(input: UgaAuditInput) {
   /*
    * A course the UGA Bulletin lists for summer only, on the board in a fall or
    * spring (2026-10-22). 572 UGA courses' "Semester Course Offered" line names
-   * summer alone; the planner's seasons give them fall and spring as well,
-   * unverified (summer-offering.ts ugaPlannerSeasons), as every course whose
-   * line names no fall or spring has always had, and whether to stop booking
-   * them there is the owner's decision. Until then the card says so: ARHI
-   * 2121, offered in summer only, was the Humanities pick in Spring 2028 on a
-   * Biology BS board with no word, while BIOL 2900 in a summer the Bulletin
-   * does not list said "The UGA Bulletin does not list BIOL 2900 for summer".
-   * The same kind as that warning (ap-offering-), so the board bar counts it
-   * as "Course not offered that term".
+   * summer alone. Since the owner's decision of 2026-10-22 the planner's own
+   * picks no longer book them there (summer-offering.ts summerOnlyListed), and
+   * the validator above flags one a student placed, in these words, as "Not
+   * offered this term" (ap-offering-), which the board bar counts as "Course
+   * not offered that term". This loop is kept for a context whose seasons are
+   * not published, so the card never goes quiet; it adds nothing the validator
+   * already said.
+   *
+   * One the degree itself requires with no other choice stays on the board so
+   * the degree stays whole (autoplan.ts ugaSummerOnly), and its card says so
+   * plainly and points to Add a summer, instead of "check before keeping it
+   * here" about a course the degree cannot do without.
    */
+  const requiredSummer = requiredSummerOnlyCodes(
+    [...undergraduate.blocks, ...(graduate?.blocks ?? [])],
+    context,
+  );
+  const boardHasSummer = board.terms.some((term) => term.season === 'Summer');
   for (const term of board.terms) {
     if (term.season === 'Summer') continue;
     for (const id of term.courseIds) {
       const course = byId.get(id);
-      const listed = course?.offeringListed ?? [];
-      if (!course || listed.length === 0 || listed.some((season) => season !== 'Summer')) continue;
+      if (!course || !summerOnlyListed(course)) continue;
+      const issueId = `ap-offering-${term.id}-${id}`;
+      const message = requiredSummer.has(course.code)
+        ? ugaRequiredSummerOnlyMessage(course, term.label, boardHasSummer)
+        : ugaSummerOnlyMessage(course, term.label);
+      const known = issues.find((issue) => issue.id === issueId);
+      if (known) {
+        known.message = message;
+        continue;
+      }
       issues.push({
-        id: `ap-offering-${term.id}-${id}`,
+        id: issueId,
         severity: 'warning',
         termId: term.id,
         courseId: id,
         title: 'Not offered this term',
-        message: `The UGA Bulletin lists ${course.code} for summer only${course.summerYears ? `, in ${course.summerYears}-numbered years` : ''}, so it may not run in ${term.label}. Check UGA's schedule before keeping it here, or take it in a summer.`,
+        message,
       });
     }
   }

@@ -10,7 +10,7 @@ import { PLANNED_AS_RELEASED } from './held-degrees';
 import { compareSampleCourses } from './uga-planning-guidance';
 import { repeatLine, type RepeatAsk } from './repeats';
 import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInput } from './autoplan-release';
-import { calendarYearOf, regularSeasons, runsInSummer, type SummerYears } from './summer-offering';
+import { calendarYearOf, regularSeasons, runsInSummer, summerOnlyListed, ugaSummerOnlyMessage, type SummerYears } from './summer-offering';
 
 /**
  * The deterministic half of the planner: build a four-year plan, and check one.
@@ -3254,11 +3254,19 @@ function cheaperFill(
  * it: nothing else on record says it will be there. A course the catalog
  * offers only every other summer (UGA: "Offered summer semester every
  * odd-numbered year") goes only in its years (summer-offering.ts).
+ *
+ * A course the UGA Bulletin lists for summer alone is out of season in a
+ * fall or spring wherever its season is published (2026-10-22, the owner's
+ * decision): its offeredIn keeps the unverified fall and spring the planner
+ * has always given a row naming neither, so a class a student placed stays
+ * put with its warning, but the planner's own picks, its moves and its
+ * re-picks no longer book it there. A degree that requires one with no
+ * other choice keeps it whole (ugaSummerOnly).
  */
-function outOfSeason(course: { offeredIn: SemesterSeason[]; summerYears?: SummerYears } | undefined, term: { season: SemesterSeason; label: string; calendarYear?: number }, published: boolean): boolean {
+function outOfSeason(course: { offeredIn: SemesterSeason[]; summerYears?: SummerYears; offeringListed?: SemesterSeason[] } | undefined, term: { season: SemesterSeason; label: string; calendarYear?: number }, published: boolean): boolean {
   if (!course) return false;
   if (term.season === 'Summer') return !runsInSummer(course, course.summerYears ? (term.calendarYear ?? calendarYearOf(term)) : null);
-  return published && course.offeredIn.length > 0 && !course.offeredIn.includes(term.season);
+  return published && ((course.offeredIn.length > 0 && !course.offeredIn.includes(term.season)) || summerOnlyListed(course));
 }
 
 /**
@@ -6628,8 +6636,99 @@ function ranksAbove(a: number[], b: number[]): boolean {
 }
 
 export function generatePlan(given: AutoplanInput): GeneratedPlan {
-  const built = generatePlanBuilt(given);
-  return given.context?.schoolId === 'uga' && given.plainEngine !== true && given.tracksOff !== true ? ugaDegreeFirst(built, given) : built;
+  const build = (input: AutoplanInput): GeneratedPlan => {
+    const built = generatePlanBuilt(input);
+    return input.context?.schoolId === 'uga' && input.plainEngine !== true && input.tracksOff !== true ? ugaDegreeFirst(built, input) : built;
+  };
+  return given.context?.schoolId === 'uga' ? ugaSummerOnly(given, build) : build(given);
+}
+
+/**
+ * The courses a UGA degree requires with no other choice that the Bulletin
+ * lists for summer only: every alternative of an all-of row, or of a choose
+ * row too short of other options, is summer-only (Art BFA - Interior Design's
+ * ARID 4010, Forestry's FORS 4650, Geology's GEOL 4270: 11 of 161 bachelor's
+ * degrees). Held or exempt ones are not asked for.
+ */
+function requiredSummerOnly(given: AutoplanInput): string[] {
+  const ctx = given.context;
+  const byCode = catalogByCode(ctx.courses);
+  const equivalents = ctx.equivalents ?? new Map<string, string[]>();
+  const held = new Set([...(given.prior?.courseCodes ?? []), ...(given.prior?.exemptCodes ?? [])].flatMap((c) => expandEquivalents(normaliseCode(c), equivalents)));
+  const summerOnly = (code: string) => summerOnlyListed(byCode.get(code)) && (ctx.offeringPublished?.has(code) ?? false);
+  const out = new Set<string>();
+  for (const requirement of given.requirements) {
+    const rule = requirement.rule;
+    if (rule.kind !== 'all' && rule.kind !== 'choose') continue;
+    const rows = rule.choices.map((choice) => choice.codes.map(normaliseCode)).filter((codes) => codes.length > 0);
+    const only = rows.filter((codes) => codes.every(summerOnly));
+    if (only.length === 0) continue;
+    if (rule.kind === 'choose' && rows.length - only.length >= rule.n) continue;
+    for (const codes of only) if (!codes.some((c) => held.has(c))) for (const c of codes) out.add(c);
+  }
+  return [...out].sort();
+}
+
+/** The context with these codes' summer-only listing set aside, as before 2026-10-22, remembered per set. */
+const summerRelaxedCache = new WeakMap<PlanningContext, Map<string, PlanningContext>>();
+function withSummerOnlyRelaxed(ctx: PlanningContext, codes: Set<string>): PlanningContext {
+  if (codes.size === 0 || !ctx.offeringPublished) return ctx;
+  const key = [...codes].sort().join('|');
+  const byKey = summerRelaxedCache.get(ctx) ?? new Map<string, PlanningContext>();
+  summerRelaxedCache.set(ctx, byKey);
+  const known = byKey.get(key);
+  if (known) return known;
+  const out = { ...ctx, offeringPublished: new Set([...ctx.offeringPublished].filter((code) => !codes.has(code))) };
+  byKey.set(key, out);
+  return out;
+}
+
+/** Every course whose season the context publishes as summer only, remembered per catalog. */
+const summerOnlyCodesCache = new WeakMap<PlanningContext, Set<string>>();
+function summerOnlyCodes(ctx: PlanningContext): Set<string> {
+  const known = summerOnlyCodesCache.get(ctx);
+  if (known) return known;
+  const out = new Set(ctx.courses.filter((c) => summerOnlyListed(c)).map((c) => normaliseCode(c.code)).filter((code) => ctx.offeringPublished?.has(code) ?? false));
+  summerOnlyCodesCache.set(ctx, out);
+  return out;
+}
+
+/**
+ * The planner leaves a course the UGA Bulletin lists for summer only out of
+ * falls and springs (outOfSeason; the owner's decision of 2026-10-22).
+ *
+ * Only a board that booked one there moves. The board is built first as
+ * before (every such listing set aside), and where it holds none in a fall
+ * or spring it stands as it was: leaving them out reorders the picks the
+ * engine weighs, and on a pre-med Dietetics board that alone sent two
+ * history courses off a board that had booked no summer-only class at all.
+ * A board that did book one is built again with the listing in force, so
+ * another eligible course takes its place.
+ *
+ * A degree that requires one with no other choice must not lose it (the
+ * degree beats everything): it goes in a summer when the plan has one it
+ * runs in and can take it, and otherwise stays on the board in a fall or
+ * spring, as it was planned before, where the board's card says it is
+ * offered in summer and to add one (uga-board-audit.ts). A course the plan's
+ * summers could not take after all (its prerequisites or standing come
+ * later) is planned the second way.
+ */
+function ugaSummerOnly(given: AutoplanInput, build: (input: AutoplanInput) => GeneratedPlan): GeneratedPlan {
+  const listed = summerOnlyCodes(given.context);
+  if (listed.size === 0) return build(given);
+  const needed = requiredSummerOnly(given);
+  const byCode = catalogByCode(given.context.courses);
+  const summers = given.horizon?.summers ?? [];
+  const relaxed = new Set(needed.filter((code) => !summers.some((year) => runsInSummer(byCode.get(code) ?? { offeredIn: [] }, year))));
+  const withRelaxed = (codes: Set<string>): AutoplanInput => (codes.size === 0 ? given : { ...given, context: withSummerOnlyRelaxed(given.context, codes) });
+  const before = build(withRelaxed(listed));
+  const clean = before.terms.every((t) => t.season === 'Summer' || t.codes.every((code) => !listed.has(normaliseCode(code)) || relaxed.has(normaliseCode(code))));
+  if (clean) return before;
+  const first = build(withRelaxed(relaxed));
+  const onBoard = new Set(first.terms.flatMap((t) => t.codes.map(normaliseCode)));
+  const missed = needed.filter((code) => !relaxed.has(code) && !onBoard.has(code));
+  if (missed.length === 0) return first;
+  return build(withRelaxed(new Set([...relaxed, ...missed])));
 }
 
 /**
@@ -8281,6 +8380,22 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    */
   const terms = buildHorizon(input.horizon);
   /**
+   * 1 for a course the UGA Bulletin lists for summer only that no term of
+   * this board can hold (no summer it runs in: outOfSeason everywhere), 0
+   * for any other (2026-10-22). Such a course is a list's, a choice's or a
+   * pool's pick only when nothing else will do: chosen, it could only fall off
+   * the board, and ARHI 2121 was the World Languages and Global Culture pick
+   * on a Management board that then said it "did not fit in 7 terms". A row
+   * nothing but summer can fill stays, and is planned as the degree requires
+   * (ugaSummerOnly). Illinois rows carry no Bulletin line, so nothing here
+   * reorders an Illinois board.
+   */
+  const seasonless = rememberedBy((code: string): number => {
+    const course = byCode.get(code);
+    if (!summerOnlyListed(course) || !(ctx.offeringPublished?.has(code) ?? false)) return 0;
+    return terms.every((t) => outOfSeason(course, t, true)) ? 1 : 0;
+  });
+  /**
    * The terms away inside this horizon and what each earns. They have no
    * column, so their hours are counted here: toward the total, and toward
    * class standing in every term after them. A Psychology student back from
@@ -8557,7 +8672,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   // application goes last, and one that needs another of them first
   // (needsSibling) goes behind that one.
   const best = (codes: string[]): string | null =>
-    codes.length === 0 ? null : codes.slice().sort((a, b) => gatedPick(a) - gatedPick(b) || needsSibling(a, codes) - needsSibling(b, codes) || compareRank(rank(a), rank(b), a, b, ctx.samplePlanCourses))[0];
+    codes.length === 0 ? null : codes.slice().sort((a, b) => seasonless(a) - seasonless(b) || gatedPick(a) - gatedPick(b) || needsSibling(a, codes) - needsSibling(b, codes) || compareRank(rank(a), rank(b), a, b, ctx.samplePlanCourses))[0];
 
   const chosenEquivalent = (code: string): string | null =>
     expandEquivalents(code, equivalents).find((candidate) => chosen.has(candidate)) ?? null;
@@ -8831,7 +8946,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             ),
           ),
           creditsOf,
-          order: poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()]), slot.together, sequence),
+          order: ((inOrder) => (a: string, b: string) => seasonless(a) - seasonless(b) || inOrder(a, b))(poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()]), slot.together, sequence)),
           reachable: (code) => (rankDepth.get(code) ?? 0) < terms.length,
           conflict: (code, insidePool) => conflictFor(code, insidePool),
           nested: nestedCounted.get(requirement.id),
@@ -9211,7 +9326,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           .map((option) => pickFromOption(option))
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) =>
-            (choosing ? gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || servesTrack(a.code) - servesTrack(b.code) : 0) ||
+            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || servesTrack(a.code) - servesTrack(b.code) : 0) ||
             (listOrder ? listOrder(a.code, b.code) : 0) ||
             (have ? (rank(a.code)[0] ?? 0) - (rank(b.code)[0] ?? 0) || extraOf(a.code) - extraOf(b.code) : 0) ||
             (choosing ? compareRank(rankChoose(a.code), rankChoose(b.code), a.code, b.code, ctx.samplePlanCourses) : compareRank(rank(a.code), rank(b.code), a.code, b.code, ctx.samplePlanCourses)));
@@ -17065,7 +17180,9 @@ export function validatePlan(
           title: 'Not offered this term',
           message: term.season === 'Summer' && ctx.schoolId === 'uga'
             ? ugaSummerOffering(code, course, term)
-            : `${code} has run only in ${course.offeredIn.join(' and ')} terms over the last ${ctx.offeringTerms?.length ?? 'few'} terms, and this is a ${term.season} term.`,
+            : summerOnlyListed(course)
+              ? ugaSummerOnlyMessage(course, term.label)
+              : `${code} has run only in ${course.offeredIn.join(' and ')} terms over the last ${ctx.offeringTerms?.length ?? 'few'} terms, and this is a ${term.season} term.`,
           termId: term.id,
           courseId,
         });

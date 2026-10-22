@@ -20,7 +20,7 @@ import type {
 import type { Course, SemesterSeason } from '@/lib/planner/types';
 import { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
-import { ugaPlannerSeasons } from '@/lib/planner/summer-offering';
+import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
 
 export { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 
@@ -1004,7 +1004,9 @@ export function loadUgaData(): Promise<UgaData | null> {
         variable: (course.creditsMax ?? course.credits) > course.credits,
         known: true,
       });
-      if (course.offeringKnown) offeringPublished.add(code);
+      // The Bulletin names a summer-only row's season too: published, so the
+      // planner's own picks leave it out of falls and springs (summerOnlyListed).
+      if (course.offeringKnown || summerOnlyListed(course)) offeringPublished.add(code);
     }
 
     const programs = applyUgaProgramOverrides(programFile.programs)

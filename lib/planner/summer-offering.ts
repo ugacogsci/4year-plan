@@ -45,9 +45,11 @@ export function runsInSummer(course: { offeredIn: SemesterSeason[]; summerYears?
  * ["Fall","Spring"]). Fall and spring read exactly as they did before
  * summers were listed: a row naming one of them is verified for it; a row
  * naming both, or neither (summer only, or no season at all), gets the
- * long-standing fall and spring default, unverified, so a fall or spring plan
- * cannot move. Summer is added only where the Bulletin names it, so a row
- * naming no season is never booked into a summer.
+ * long-standing fall and spring default, unverified. Summer is added only
+ * where the Bulletin names it, so a row naming no season is never booked into
+ * a summer. A row naming summer alone keeps the default here (a class a
+ * student placed in a fall stays there, with its warning), but the planner's
+ * own picks leave it out of falls and springs (summerOnlyListed).
  */
 export function ugaPlannerSeasons(listed: readonly SemesterSeason[] | undefined): { offeredIn: SemesterSeason[]; offeringKnown: boolean } {
   const named = (listed ?? []).filter((season) => season === 'Fall' || season === 'Spring');
@@ -57,6 +59,40 @@ export function ugaPlannerSeasons(listed: readonly SemesterSeason[] | undefined)
     offeredIn: summer ? [...regular, 'Summer'] : regular,
     offeringKnown: regular.length === 1,
   };
+}
+
+/**
+ * Whether the catalog's own offering line lists the course for summer alone
+ * (Course.offeringListed is ["Summer"]): 572 UGA courses, ARHI 2121
+ * Introduction to Italian Art among them. ugaPlannerSeasons still gives them
+ * an unverified fall and spring, so a board a student made keeps them where
+ * they put them, but since 2026-10-22 the planner's own picks treat them as
+ * out of season in a fall or spring (autoplan.ts outOfSeason, repick.ts), as
+ * the owner decided: ARHI 2121 was the Humanities pick on 105 of 161 UGA
+ * freshman boards, and each one was then flagged "Not offered this term".
+ * Illinois rows carry no offering line, so nothing here touches Illinois.
+ */
+export function summerOnlyListed(course: { offeringListed?: readonly SemesterSeason[] } | undefined): boolean {
+  const listed = course?.offeringListed ?? [];
+  return listed.length > 0 && listed.every((season) => season === 'Summer');
+}
+
+/** The card's words for a course the UGA Bulletin lists for summer only, in a fall or spring term. */
+export function ugaSummerOnlyMessage(course: { code: string; summerYears?: SummerYears }, termLabel: string): string {
+  return `The UGA Bulletin lists ${course.code} for summer only${course.summerYears ? `, in ${course.summerYears}-numbered years` : ''}, so it may not run in ${termLabel}. Check UGA's schedule before keeping it here, or take it in a summer.`;
+}
+
+/**
+ * The card's words when the degree itself requires such a course and offers
+ * no other choice for it. The planner keeps it on the board, in a fall or
+ * spring, so the degree stays whole (the degree beats everything), and says
+ * plainly what to do: plan a summer for it.
+ */
+export function ugaRequiredSummerOnlyMessage(course: { code: string; summerYears?: SummerYears }, termLabel: string, boardHasSummer: boolean): string {
+  const years = course.summerYears ? ` in ${course.summerYears}-numbered years` : '';
+  return boardHasSummer
+    ? `Your degree requires ${course.code}, and the UGA Bulletin lists it for summer only${years}. None of this plan's summers can take it yet, so it sits in ${termLabel} for now to keep the degree complete. Use Add a summer to plan a later summer for it, and check UGA's summer schedule.`
+    : `Your degree requires ${course.code}, and the UGA Bulletin lists it for summer only${years}. This plan has no summer, so it sits in ${termLabel} for now to keep the degree complete. Use Add a summer to plan it in a summer, and check UGA's summer schedule.`;
 }
 
 /** A course's fall and spring seasons alone, for counting how many regular terms it runs in. */

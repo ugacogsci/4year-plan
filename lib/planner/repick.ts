@@ -53,7 +53,7 @@ import {
 } from './autoplan';
 import { forSchool, labPartners, withHeldVariants, type CareerTrack } from './career-tracks';
 import { normalizePriorities, type Priorities } from './priorities';
-import { calendarYearOf, runsInSummer } from './summer-offering';
+import { calendarYearOf, runsInSummer, summerOnlyListed } from './summer-offering';
 import { saysGoalMatch, type QualityResult } from './quality';
 import type { Course, PlanIssue, PlanState, PlanTerm } from './types';
 
@@ -842,7 +842,8 @@ export function repickBoard(input: RepickInput): RepickResult {
         // The earliest term the course runs in and passes the checks, so a
         // sequence's first half lands before its second.
         for (const term of working.terms) {
-          if (term.season === 'Summer' ? !runsInSummer(course, calendarYearOf(term)) : course.offeringKnown && course.offeredIn.length > 0 && !course.offeredIn.includes(term.season)) continue;
+          // A class the UGA Bulletin lists for summer only is not booked in a fall or spring (summerOnlyListed).
+          if (term.season === 'Summer' ? !runsInSummer(course, calendarYearOf(term)) : summerOnlyListed(course) || (course.offeringKnown && course.offeredIn.length > 0 && !course.offeredIn.includes(term.season))) continue;
           // A lab goes in beside its lecture when the term has room, so the
           // plan does not lose the hours of the elective it would replace.
           if (course.credits <= 2) {
@@ -912,7 +913,7 @@ export function repickBoard(input: RepickInput): RepickResult {
       return (rowsOf.get(code) ?? [code]).some((c) => held.has(c) || where.has(c));
     };
     const runs = (course: Course, term: PlanTerm) =>
-      term.season === 'Summer' ? runsInSummer(course, calendarYearOf(term)) : !(course.offeringKnown && course.offeredIn.length > 0 && !course.offeredIn.includes(term.season));
+      term.season === 'Summer' ? runsInSummer(course, calendarYearOf(term)) : !summerOnlyListed(course) && !(course.offeringKnown && course.offeredIn.length > 0 && !course.offeredIn.includes(term.season));
     /** Ways to put `course` in `term` of `from`, each passing the whole-board check: beside (two credits or less), then an elective slot. */
     const placements = (from: PlanState, termId: string, course: Course): Array<{ next: PlanState; slot: Course | null }> => {
       const term = from.terms.find((t) => t.id === termId);
