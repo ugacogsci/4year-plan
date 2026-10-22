@@ -52,7 +52,10 @@
  * planner-workspace.tsx, cut out and loaded as it was.
  *
  * Read-only for the checkout. Environment: HARNESS_JOBS (workers, default 3),
- * HARNESS_IDS (only these program ids), HARNESS_KINDS (only these kinds).
+ * HARNESS_IDS (only these program ids), HARNESS_KINDS (only these kinds),
+ * HARNESS_ALONE=1 (each program built in a fresh process, so build order
+ * cannot matter), HARNESS_DEBUG=1 (add the engine's own pools, unmet
+ * requirements and notes to each row).
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -108,6 +111,62 @@ if (mode === 'compare') {
     const a = [...after.values()].filter((r) => r.kind === kind && r.ok);
     const starts = (list) => [...new Set(list.map((r) => r.start))].join('/');
     say(`| ${kind} | ${b.length} -> ${a.length} | ${starts(b)} -> ${starts(a)} | ${avg(b, (r) => r.terms)} -> ${avg(a, (r) => r.terms)} | ${avg(b, (r) => r.total)} -> ${avg(a, (r) => r.total)} | ${sum(b, (r) => r.notPlaced)} -> ${sum(a, (r) => r.notPlaced)} | ${sum(b, (r) => r.unmetRows)} -> ${sum(a, (r) => r.unmetRows)} | ${avg(b, (r) => r.attention)} -> ${avg(a, (r) => r.attention)} | ${avg(b, (r) => r.bar)} -> ${avg(a, (r) => r.bar)} | ${b.filter((r) => r.bar === 0).length} -> ${a.filter((r) => r.bar === 0).length} | ${b.filter((r) => r.short).length} -> ${a.filter((r) => r.short).length} | ${sum(b, (r) => r.over18)} -> ${sum(a, (r) => r.over18)} | ${sum(b, (r) => r.trackCodes?.length)} -> ${sum(a, (r) => r.trackCodes?.length)} | ${sum(b, (r) => r.labsApart?.length)} -> ${sum(a, (r) => r.labsApart?.length)} |`);
+  }
+  {
+    const b = [...before.values()].filter((r) => r.ok);
+    const a = [...after.values()].filter((r) => r.ok);
+    const offered = (r) => (r.barKinds ?? []).some((k) => /not offered/i.test(k));
+    say(`| all | ${b.length} -> ${a.length} | | | ${avg(b, (r) => r.total)} -> ${avg(a, (r) => r.total)} | ${sum(b, (r) => r.notPlaced)} -> ${sum(a, (r) => r.notPlaced)} | ${sum(b, (r) => r.unmetRows)} -> ${sum(a, (r) => r.unmetRows)} | ${avg(b, (r) => r.attention)} -> ${avg(a, (r) => r.attention)} | ${avg(b, (r) => r.bar)} -> ${avg(a, (r) => r.bar)} | ${b.filter((r) => r.bar === 0).length} -> ${a.filter((r) => r.bar === 0).length} | ${b.filter((r) => r.short).length} -> ${a.filter((r) => r.short).length} | ${sum(b, (r) => r.over18)} -> ${sum(a, (r) => r.over18)} | ${sum(b, (r) => r.trackCodes?.length)} -> ${sum(a, (r) => r.trackCodes?.length)} | ${sum(b, (r) => r.labsApart?.length)} -> ${sum(a, (r) => r.labsApart?.length)} |`);
+    say();
+    say(`Boards whose bar shows "Course not offered that term": ${b.filter(offered).length} -> ${a.filter(offered).length}.`);
+    if (a.some((r) => r.summerOnlyOff)) {
+      say(`Boards holding a class the Bulletin lists for summer only in a fall or spring: ${b.filter((r) => r.summerOnlyOff?.length).length} -> ${a.filter((r) => r.summerOnlyOff?.length).length} (such classes: ${sum(b, (r) => r.summerOnlyOff?.length)} -> ${sum(a, (r) => r.summerOnlyOff?.length)}); of them required with no other choice: ${b.filter((r) => r.summerOnlyRequired?.length).length} -> ${a.filter((r) => r.summerOnlyRequired?.length).length} boards (${[...new Set(a.flatMap((r) => r.summerOnlyRequired ?? []))].sort().join(', ') || 'none'}).`);
+    }
+    /*
+     * A board meeting fewer degree requirements: more requirement rows unmet,
+     * or as many and more required classes left off. A board with fewer rows
+     * unmet and more classes left off (classes of a row it did not meet
+     * before either) meets more, and is listed apart; so is one that trades a
+     * met row for another at the same counts.
+     */
+    const fewer = [];
+    const mixed = [];
+    const trades = [];
+    for (const [k, x] of after) {
+      const y = before.get(k);
+      if (!y?.ok || !x.ok) continue;
+      const name = (s) => s.replace(/ \(\d+(?:\.\d+)?\/\d+(?:\.\d+)?\)$/, '');
+      const newly = y.unmet && x.unmet ? x.unmet.filter((u) => !y.unmet.map(name).includes(name(u))) : [];
+      const line = `- ${x.name} (${x.id}), ${x.kind}: not placed ${y.notPlaced} -> ${x.notPlaced}${x.notPlaced > y.notPlaced ? ` (${(x.notPlacedCodes ?? []).filter((c) => !(y.notPlacedCodes ?? []).includes(c)).join(', ')})` : ''}; unmet rows ${y.unmetRows} -> ${x.unmetRows}${newly.length ? `; newly unmet: ${newly.join('; ')}` : ''}`;
+      if (x.unmetRows > y.unmetRows || (x.unmetRows === y.unmetRows && x.notPlaced > y.notPlaced)) fewer.push(line);
+      else if (x.notPlaced > y.notPlaced) mixed.push(line);
+      else if (newly.length) trades.push(line);
+    }
+    // The same against the before boards on the owner's reading of 2026-10-22 (row.strict, above).
+    const fewerNew = [];
+    for (const [k, x] of after) {
+      const y0 = before.get(k);
+      if (!y0?.ok || !x.ok) continue;
+      const y = y0.strict ? { ...y0, ...y0.strict } : y0;
+      const xs = x.strict ? { ...x, ...x.strict } : x;
+      if (xs.unmetRows > y.unmetRows || (xs.unmetRows === y.unmetRows && xs.notPlaced > y.notPlaced)) fewerNew.push(`- ${x.name} (${x.id}), ${x.kind}: not placed ${y.notPlaced} -> ${xs.notPlaced}; unmet rows ${y.unmetRows} -> ${xs.unmetRows}${y0.strict ? ` (before, ${y0.strict.dropped.join(', ')} not counted in a fall or spring)` : ''}`);
+    }
+    say();
+    say(`## Boards meeting fewer degree requirements, a summer-only class in a fall or spring not counted on either board: ${fewerNew.length}`);
+    say();
+    for (const line of fewerNew) say(line);
+    say();
+    say(`## Boards meeting fewer degree requirements: ${fewer.length}`);
+    say();
+    for (const line of fewer) say(line);
+    say();
+    say(`## Boards meeting more requirement rows but leaving more required classes off: ${mixed.length}`);
+    say();
+    for (const line of mixed) say(line);
+    say();
+    say(`## Boards trading one unmet row for another at the same counts: ${trades.length}`);
+    say();
+    for (const line of trades) say(line);
   }
   say();
   // What the attention items are, before and after.
@@ -279,8 +338,16 @@ if (process.env.HARNESS_WORKER === undefined) {
   const started = Date.now();
   const lines = [];
   let done = 0;
-  await Promise.all(Array.from({ length: n }, (_, k) => new Promise((ok, fail) => {
-    const child = spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), mode, ...args], { env: { ...process.env, HARNESS_WORKER: `${k}/${n}` }, stdio: ['ignore', 'pipe', 'inherit'] });
+  /*
+   * HARNESS_ALONE=1: each program in a process of its own, so no board can
+   * borrow anything from a degree built before it (a checkout before
+   * fd9f738 carried one degree's course hours into the next). Otherwise each
+   * worker builds every n-th board in turn.
+   */
+  const alone = process.env.HARNESS_ALONE === '1';
+  const queue = alone ? [...new Set(JOBS.map((j) => j.id))] : null;
+  const runChild = (env) => new Promise((ok, fail) => {
+    const child = spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), mode, ...args], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'inherit'] });
     let buf = '';
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
@@ -295,8 +362,12 @@ if (process.env.HARNESS_WORKER === undefined) {
         if (done % 50 === 0) console.error(`[harness] ${done}/${JOBS.length} boards (${Math.round((Date.now() - started) / 1000)}s)`);
       }
     });
-    child.on('exit', (code) => (code === 0 ? ok() : fail(new Error(`worker ${k} exited ${code}`))));
-  })));
+    child.on('exit', (code) => (code === 0 ? ok() : fail(new Error(`worker ${JSON.stringify(env)} exited ${code}`))));
+  });
+  await Promise.all(Array.from({ length: n }, async (_, k) => {
+    if (!queue) return runChild({ HARNESS_WORKER: `${k}/${n}` });
+    for (let id = queue.shift(); id !== undefined; id = queue.shift()) await runChild({ HARNESS_WORKER: '0/1', HARNESS_IDS: id });
+  }));
   const order = new Map(JOBS.map((j, i) => [`${j.id}|${j.kind}`, i]));
   lines.sort((a, b) => { const x = JSON.parse(a); const y = JSON.parse(b); return (order.get(`${x.id}|${x.kind}`) ?? 0) - (order.get(`${y.id}|${y.kind}`) ?? 0); });
   writeFileSync(OUT, lines.join('\n') + '\n');
@@ -348,6 +419,27 @@ function labsApartOf(board, context) {
   board.terms.forEach((t, i) => t.courseIds.forEach((id) => { const c = context.courses.find((x) => x.id === id); if (c) at.set(norm(c.code), i); }));
   const held = new Set(board.completedCourseIds.map((id) => norm(context.courses.find((x) => x.id === id)?.code ?? '')));
   return [...UGA_LABS].filter(([lab, lecture]) => at.has(lab) && !held.has(lecture) && at.get(lab) !== at.get(lecture)).map(([lab]) => lab);
+}
+
+/** A course the UGA Bulletin lists for summer only (Course.offeringListed is Summer alone). */
+const summerOnlyListed = (c) => Boolean(c?.offeringListed?.length) && c.offeringListed.every((s) => s === 'Summer');
+/** The summer-only classes the board holds in a fall or spring term. */
+function summerOnlyOff(board, context) {
+  const byIdHere = new Map(context.courses.map((c) => [c.id, c]));
+  return board.terms.filter((t) => t.season !== 'Summer').flatMap((t) => t.courseIds.map((id) => byIdHere.get(id)).filter(summerOnlyListed).map((c) => c.code));
+}
+/** The summer-only classes a degree requires with no other choice: every alternative of an all-of row is summer-only. */
+function requiredSummerOnly(blocks, context) {
+  const byCodeHere = new Map(context.courses.map((c) => [norm(c.code), c]));
+  const out = new Set();
+  for (const b of blocks) {
+    if (b.rule.kind !== 'all' && b.rule.kind !== 'choose') continue;
+    const rows = b.rule.choices.map((ch) => ch.codes).filter((codes) => codes.length > 0);
+    const only = rows.filter((codes) => codes.every((code) => summerOnlyListed(byCodeHere.get(norm(code)))));
+    if (only.length === 0 || (b.rule.kind === 'choose' && rows.length - only.length >= b.rule.n)) continue;
+    for (const codes of only) for (const code of codes) out.add(norm(code));
+  }
+  return out;
 }
 
 function answersFor(kind, record) {
@@ -407,6 +499,37 @@ function build(program, kind) {
     // As the workspace's audit has it since 2026-10-20: standing counts the assumed terms (0 at UGA before).
     validation: { minimumTermCredits: 12, priorCredits: priorCreditHours + horizon.assumedHours },
   });
+  /*
+   * The board on the owner's reading of 2026-10-22: a class the UGA Bulletin
+   * lists for summer only does not count in a fall or spring (it may not run
+   * there), except one the degree requires with no other choice, which the
+   * planner keeps there on purpose with a note. A board that holds none reads
+   * the same; an older board that booked one is audited again without it,
+   * and a requirement's pick taken off counts as a class not placed.
+   */
+  const requiredSO = requiredSummerOnly(loaded.blocks, context);
+  const offSeason = summerOnlyOff(board, context).filter((code) => !requiredSO.has(norm(code)));
+  let strict = null;
+  if (offSeason.length > 0) {
+    const drop = new Set(offSeason.map((code) => context.courses.find((c) => c.code === code)?.id));
+    const strictBoard = { ...board, terms: board.terms.map((t) => (t.season === 'Summer' ? t : { ...t, courseIds: t.courseIds.filter((id) => !drop.has(id)) })) };
+    const strictAudit = auditUgaBoard({
+      board: strictBoard, context, undergraduate: loaded, priorCodes: completed,
+      extraCredits: priorCreditHours - planCreditRange(completed, context).min + horizon.assumedHours,
+      transcript: record, dualLevel: data.dualLevelCourses,
+      validation: { minimumTermCredits: 12, priorCredits: priorCreditHours + horizon.assumedHours },
+    });
+    const booked = generated.bookedFor ?? {};
+    strict = {
+      unmetRows: strictAudit.areas.filter((row) => !row.satisfied).length + strictAudit.issues.filter((i) => i.id.startsWith('uga-pool-')).length,
+      unmet: [
+        ...strictAudit.areas.filter((row) => !row.satisfied).map((row) => `${row.area.label} (${row.earned}/${row.area.hours})`),
+        ...strictAudit.issues.filter((i) => i.id.startsWith('uga-pool-')).map((i) => i.title),
+      ],
+      notPlaced: generated.notPlaced.length + offSeason.filter((code) => (booked[norm(code)] ?? booked[code] ?? null) !== null).length,
+      dropped: offSeason,
+    };
+  }
   const boardCodes = board.terms.flatMap((t) => t.courseIds).map((id) => context.courses.find((c) => c.id === id)?.code).filter(Boolean);
   const planned = planCreditRange(boardCodes, context).min;
   const target = audit.target ?? publishedTotal;
@@ -465,6 +588,18 @@ function build(program, kind) {
     trackCodes: (generated.electives ?? []).filter((e) => e.track).map((e) => e.code),
     labsApart: labsApartOf(board, context),
     notes: generated.notes.length,
+    // Added 2026-10-22: which rows are unmet (so a board meeting fewer of them shows by name), the board itself,
+    // and the classes the UGA Bulletin lists for summer only that the board holds in a fall or spring.
+    unmet: [
+      ...audit.areas.filter((row) => !row.satisfied).map((row) => `${row.area.label} (${row.earned}/${row.area.hours})`),
+      ...audit.issues.filter((i) => i.id.startsWith('uga-pool-')).map((i) => i.title),
+    ],
+    board: board.terms.map((t) => `${t.label}: ${t.courseIds.map((id) => context.courses.find((c) => c.id === id)?.code ?? id).join(', ')}`),
+    summerOnlyOff: summerOnlyOff(board, context),
+    summerOnlyRequired: summerOnlyOff(board, context).filter((code) => requiredSO.has(norm(code))),
+    strict,
+    // HARNESS_DEBUG=1: the engine's own reading (its pools, unmet requirements, notes), to set beside the audit's.
+    ...(process.env.HARNESS_DEBUG ? { engine: { unsatisfied: generated.unsatisfied.map((u) => `${u.areaLabel}: ${u.label} (${u.reason})`), pools: generated.pools.map((p) => `${p.areaLabel} / ${p.label}: ${p.hours}/${p.hoursTarget ?? '-'}h ${p.count}/${p.countTarget ?? '-'} [${p.picked.join(' ')}] prior [${p.fromPriorCredit.join(' ')}]`), notes: generated.notes, notPlaced: generated.notPlaced.map((x) => `${x.code}: ${x.message}`), electives: generated.electives.map((e) => `${e.code}: ${e.why}`), genEdPicks: (generated.genEdPicks ?? []).map((g) => `${g.code} for ${g.label}`) } } : {}),
   };
 }
 
