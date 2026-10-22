@@ -461,10 +461,11 @@ export type AdvisorToolName =
  * (many courses at once, by instructor) the same shards since 2026-10-18.
  * Left out until they are checked on a UGA board: set_priorities and
  * set_plan_shape (the overload rule they relay comes from Illinois's
- * colleges, and the summer choice from Illinois's offering history).
+ * colleges).
  * add_summer and remove_summer are in since 2026-10-20: they put an empty
- * summer column on the board or take one off and rebuild nothing, so they
- * need no summer course list (UGA's is not loaded).
+ * summer column on the board or take one off and rebuild nothing; since
+ * 2026-10-22 a Rebuild fills a UGA summer from the UGA Bulletin's "Semester
+ * Course Offered" line (public/uga-catalog.json, summer-offering.ts).
  */
 export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolName>([
   'search_courses',
@@ -517,7 +518,7 @@ const UGA_TOOL_TEXT: Partial<Record<AdvisorToolName, { description: string; prop
   },
   add_summer: {
     description:
-      "Put an empty summer column on the board between its first and last terms (\"Summer 2027\"), the same as the board's Add a summer button. Nothing is rebuilt, moved or removed, and the summer stays through Rebuild and reload. The planner never fills it: UGA's summer course list is not loaded, so it cannot tell which classes run in summer. Use it only when the student asks for a summer or says yes to one; then add or move only the classes the student names. The result lists the board's terms afterwards and a warning to pass on.",
+      "Put an empty summer column on the board between its first and last terms (\"Summer 2027\"), the same as the board's Add a summer button. Nothing is rebuilt, moved or removed, and the summer stays through Rebuild and reload; a Rebuild fills it with classes the UGA Bulletin lists for summer, at most 9 credits. Use it only when the student asks for a summer or says yes to one; then put in the classes they want there with add_course or move_course. The result lists the board's terms afterwards and a note to pass on.",
   },
   replace_course: {
     description:
@@ -840,7 +841,8 @@ const UGA_NOT_LOADED = [
   '- Grade history and teaching ratings: none are loaded for UGA, so you cannot rank courses by difficulty or by teaching, and a term cannot be called heavy or light by grades. Judge a term by what is in it (labs, upper-level major courses, credits) and say that is all you go on. Never cite RateMyProfessors or any outside site, and never call an instructor good or bad.',
   '- Getting into a competitive major or college, a second major, minors and certificates: the planner does not check these for UGA. Say so, answer from UGA\'s pages with university_answer, and send the student to the department.',
   '- Credits per term, the finish date and terms away: you cannot change these from the chat for UGA yet. Credits per term are set in Preferences ("Credits you want each term, about") and then Rebuild, which replaces the student\'s own edits to the board; for the rest, say plainly that it cannot be set from here yet.',
-  "- Summers: add_summer puts an empty summer column on the board when the student asks for one, and remove_summer takes one off (one that holds classes only after you name them and the student says yes). UGA's summer course list is not loaded, so you cannot tell which UGA classes run in summer: say so, never say a class runs in summer, and let the student choose; add or move only the classes they name. Nothing here rebuilds the board around summers.",
+  "- Summers: add_summer puts an empty summer column on the board when the student asks for one, and remove_summer takes one off (one that holds classes only after you name them and the student says yes). The planner fills a summer only with classes the UGA Bulletin lists for summer (a class listed for every other summer only in those years), at most 9 credits, when the student presses Rebuild; the 9 is the planner's own ceiling, never a UGA limit. course_details says what the Bulletin lists for a class; never say a class runs in a summer the Bulletin does not list it for. Nothing you can call rebuilds the board around summers.",
+  '- Summer sessions and sections: the planner knows which classes the UGA Bulletin lists for summer, not which summer session or section runs one, or when. For summer sessions and their dates use university_answer.',
 ].join('\n');
 
 /**

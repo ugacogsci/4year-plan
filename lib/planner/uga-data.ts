@@ -1,4 +1,5 @@
 import type { Course, SemesterSeason } from './types';
+import { ugaPlannerSeasons } from './summer-offering';
 
 /**
  * Real UGA catalog, adapted into the planner's Course shape.
@@ -53,7 +54,8 @@ export function adaptCourse(raw: RawCourse): Course {
     cluster: subject,
     requirementIds: [],
     prerequisites: (raw.prerequisites ?? []).map(slug),
-    offeredIn: raw.offeredIn?.length ? raw.offeredIn : (['Fall', 'Spring'] as SemesterSeason[]),
+    // Fall and spring as the planner has always read them, Summer where the page names it (summer-offering.ts).
+    offeredIn: ugaPlannerSeasons(raw.offeredIn).offeredIn,
     format: 'In person',
     tags: (raw.course_objectives ?? []).slice(0, 4),
     mapPosition: { x: raw.x, y: raw.y },

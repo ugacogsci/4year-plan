@@ -1,4 +1,5 @@
 import type { RepeatRule } from './repeats';
+import type { SummerYears } from './summer-offering';
 /**
  * Summer is here because leaving it out was a product gap, not a simplification.
  * It is the normal way a transfer student catches up and the normal way a failed
@@ -52,6 +53,15 @@ export interface Course {
    *  default rather than an observation. A planner that cannot tell those two
    *  apart tells a student a course runs in spring when nobody knows. */
   offeringKnown?: boolean;
+  /** Set when the catalog offers the course only every other summer (UGA Bulletin: "Offered summer semester every odd-numbered year"); absent means every summer it lists. */
+  summerYears?: SummerYears;
+  /**
+   * The seasons the catalog's own offering line names, Summer included, [] when
+   * it names none (UGA: the Bulletin's "Semester Course Offered"). offeredIn is
+   * what the planner plans with, which adds an unverified fall and spring
+   * where the line names neither. Absent where no such line is read (Illinois).
+   */
+  offeringListed?: SemesterSeason[];
   format: 'In person' | 'Online' | 'Hybrid';
   tags: string[];
   section?: CourseSectionSnapshot;

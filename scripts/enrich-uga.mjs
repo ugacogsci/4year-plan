@@ -85,12 +85,22 @@ function creditHours(html) {
   return { credits, creditsMax: credits };
 }
 
-/** "Offered fall, spring and summer" -> ["Fall","Spring"] in the planner's shape. */
+/**
+ * "Offered fall, spring and summer" -> ["Fall","Spring","Summer"] in the
+ * planner's shape. Summer used to be dropped here, so the planner held no
+ * UGA summer offering at all (fixed 2026-10-22; scripts/apply-uga-offered.mjs
+ * wrote the summers into public/uga-catalog.json from the same pages).
+ * A line naming no season keeps the old ["Fall","Spring"] default, which
+ * components/planner/uga-source.tsx reads as "not verified" and never as a
+ * summer. "Offered summer" alone is ["Summer"]: the planner keeps its
+ * unverified fall and spring default beside it (ugaPlannerSeasons).
+ */
 function seasons(s) {
   const l = s.toLowerCase();
   const out = [];
   if (l.includes("fall")) out.push("Fall");
   if (l.includes("spring")) out.push("Spring");
+  if (l.includes("summer")) out.push("Summer");
   return out.length ? out : ["Fall", "Spring"];
 }
 

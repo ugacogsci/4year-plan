@@ -29,6 +29,7 @@ import { pickSectionTerm, sectionTermCaveat, type PlanTermRef } from '@/lib/plan
 import { describeExcellent } from '@/lib/planner/quality';
 import type { RawSection } from '@/lib/planner/illinois-data';
 import type { Course } from '@/lib/planner/types';
+import { ugaOfferingLine } from '@/lib/planner/summer-offering';
 import type { SchoolId } from '@/lib/planner/onboarding';
 
 const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
@@ -454,9 +455,11 @@ export function CourseDetail({
         {isUga && (
           <>
             <p>
-              {course.offeringKnown
-                ? `Catalog pattern: ${course.offeredIn.join(' and ')}.`
-                : 'A specific offering pattern was not verified in this snapshot.'}
+              {course.offeringListed
+                ? ugaOfferingLine(course)
+                : course.offeringKnown
+                  ? `Catalog pattern: ${course.offeredIn.join(' and ')}.`
+                  : 'A specific offering pattern was not verified in this snapshot.'}
             </p>
             <p className="quiet">
               Live sections, meeting times, rooms, instructors, and open seats are not loaded for UGA yet.

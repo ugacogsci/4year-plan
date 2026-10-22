@@ -10,6 +10,7 @@ import { PLANNED_AS_RELEASED } from './held-degrees';
 import { compareSampleCourses } from './uga-planning-guidance';
 import { repeatLine, type RepeatAsk } from './repeats';
 import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInput } from './autoplan-release';
+import { calendarYearOf, regularSeasons, runsInSummer, type SummerYears } from './summer-offering';
 
 /**
  * The deterministic half of the planner: build a four-year plan, and check one.
@@ -3229,12 +3230,41 @@ function cheaperFill(
  * Whether a course is out of its season in a term. Fall and spring follow the
  * published offering history. A summer term is planned only when the student
  * asks for one, and only a course the university has run in a summer goes in
- * it: nothing else on record says it will be there.
+ * it: nothing else on record says it will be there. A course the catalog
+ * offers only every other summer (UGA: "Offered summer semester every
+ * odd-numbered year") goes only in its years (summer-offering.ts).
  */
-function outOfSeason(course: { offeredIn: SemesterSeason[] } | undefined, season: SemesterSeason, published: boolean): boolean {
+function outOfSeason(course: { offeredIn: SemesterSeason[]; summerYears?: SummerYears } | undefined, term: { season: SemesterSeason; label: string; calendarYear?: number }, published: boolean): boolean {
   if (!course) return false;
-  if (season === 'Summer') return !course.offeredIn.includes('Summer');
-  return published && course.offeredIn.length > 0 && !course.offeredIn.includes(season);
+  if (term.season === 'Summer') return !runsInSummer(course, course.summerYears ? (term.calendarYear ?? calendarYearOf(term)) : null);
+  return published && course.offeredIn.length > 0 && !course.offeredIn.includes(term.season);
+}
+
+/**
+ * How many seasons a course runs in, for the one-season ordering. UGA's
+ * seasons list summer beside fall and spring since 2026-10-22, read off the
+ * Bulletin's "Semester Course Offered" line (scripts/apply-uga-offered.mjs);
+ * a fall-only UGA course that also runs in summer still has one fall or
+ * spring to land in, as it counted before summers were listed, so UGA counts
+ * falls and springs alone. Illinois's seasons come from its offering history
+ * and count as they always have.
+ */
+function seasonCount(course: { offeredIn: SemesterSeason[] }, ctx: { schoolId?: 'uga' | 'illinois' }): number {
+  return ctx.schoolId === 'uga' ? regularSeasons(course.offeredIn).length : course.offeredIn.length;
+}
+
+/**
+ * Why a UGA course is flagged in a summer, in the Bulletin's terms: UGA's
+ * seasons are its catalog's "Semester Course Offered" line, not an offering
+ * history, so "has run only in ... over the last few terms" would not be true
+ * of them. A course whose line names no season is not listed for summer
+ * either, and the planner never counts on one there.
+ */
+function ugaSummerOffering(code: string, course: { offeredIn: SemesterSeason[]; summerYears?: SummerYears }, term: { label: string }): string {
+  if (course.offeredIn.includes('Summer') && course.summerYears) {
+    return `The UGA Bulletin offers ${code} in summer only in ${course.summerYears}-numbered years, and ${term.label} is not one. Check UGA's summer schedule before keeping it here.`;
+  }
+  return `The UGA Bulletin does not list ${code} for summer, so the planner does not count on it in ${term.label}. Check UGA's summer schedule before keeping it here.`;
 }
 
 /** A summer term's load: an aim and a ceiling well under a fall or spring. */
@@ -5337,7 +5367,7 @@ export function electiveOptions(input: {
     if (!course) continue;
     if (code !== keep && input.electiveCodes && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga', goalSubjects)) continue;
     if (code !== keep && preparesForHeld(code, ctx.prereqs, (c) => onBoard.has(c) || held.has(c))) continue;
-    if (outOfSeason(course, term.season, published.has(code))) continue;
+    if (outOfSeason(course, term, published.has(code))) continue;
     const needs = ctx.prereqs?.get(code)?.standing;
     if (needs && hoursBefore < (standing[needs] ?? 0)) continue;
     if (!levelFits(code, hoursBefore, standing)) continue;
@@ -7396,7 +7426,7 @@ function spreadExamTerm(g: GeneratedPlan, input: AutoplanInput, language: Langua
     const d = ctx.grades?.get(code)?.difficulty;
     return hardCut !== null && d !== null && d !== undefined && d >= hardCut;
   };
-  const inSeason = (code: string, i: number) => !outOfSeason(catalog.get(code), g.terms[i].season, ctx.offeringPublished?.has(code) ?? false);
+  const inSeason = (code: string, i: number) => !outOfSeason(catalog.get(code), g.terms[i], ctx.offeringPublished?.has(code) ?? false);
   // Year one as the review reads it: the first two falls and springs.
   let regular = 0;
   let yearOneEnd = g.terms.length - 1;
@@ -7681,7 +7711,7 @@ function bookRepeats(g: GeneratedPlan, requirements: PlanRequirement[], input: A
 
   // The board as generatePlan kept it, by the gate's measures: every sitting is held to it.
   const base = gateMeasure(g, input, language);
-  const inSeason = (code: string, i: number) => !outOfSeason(catalog.get(code), g.terms[i].season, ctx.offeringPublished?.has(code) ?? false);
+  const inSeason = (code: string, i: number) => !outOfSeason(catalog.get(code), g.terms[i], ctx.offeringPublished?.has(code) ?? false);
   /** The pool's hours on the board, each sitting of a repeat row counted up to the sittings it asks for. */
   const poolShort = (r: PlanRequirement): boolean => {
     if (r.rule.kind !== 'pool' || r.rule.hours == null) return false;
@@ -8798,7 +8828,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
            */
           const oneSeason = rememberedBy((code: string): number => {
             const course = byCode.get(code);
-            return ctx.offeringPublished?.has(code) && course && course.offeredIn.length === 1 ? 1 : 0;
+            return ctx.offeringPublished?.has(code) && course && seasonCount(course, ctx) === 1 ? 1 : 0;
           });
           const reserved = rememberedBy((code: string): number => {
             const subject = code.split(' ')[0];
@@ -9883,7 +9913,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const seasonKnown = ctx.offeringPublished ?? new Set<string>();
   const height = buildHeights(selected, ctx.prereqs, equivalents, (code) => {
     const course = byCode.get(code);
-    return seasonKnown.has(code) && course && course.offeredIn.length === 1 ? 1 : 0;
+    return seasonKnown.has(code) && course && seasonCount(course, ctx) === 1 ? 1 : 0;
   });
   if (cycles.length > 0) {
     notes.push(`The catalog prerequisites loop on ${cycles.slice(0, 3).join(', ')}${cycles.length > 3 ? ` and ${cycles.length - 3} more` : ''}. The plan broke the loop to keep going, so check those by hand.`);
@@ -10019,7 +10049,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   for (const code of selected) {
     const course = byCode.get(code);
     const seasonOk = (t: (typeof terms)[number]) =>
-      !outOfSeason(course, t.season, seasonKnown.has(code));
+      !outOfSeason(course, t, seasonKnown.has(code));
     let latest = -1;
     for (let i = terms.length - 1; i >= 0; i -= 1) {
       if (i + (height.get(code) ?? 0) > terms.length - 1) continue;
@@ -10088,7 +10118,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const inSeasonBy = (code: string, index: number): number => {
     const course = byCode.get(code);
     let at = index;
-    while (at > 0 && outOfSeason(course, terms[at].season, seasonKnown.has(code))) at -= 1;
+    while (at > 0 && outOfSeason(course, terms[at], seasonKnown.has(code))) at -= 1;
     return at;
   };
   const applyDates = (dates: Record<string, number>, widen = false): void => {
@@ -10617,7 +10647,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // publishes a term. Illinois publishes none, and refusing a course a
         // spring slot on the strength of one crawled fall would be inventing
         // the very fact the data does not have.
-        if (outOfSeason(course, term.season, published.has(code))) { debug(code, term.label, `runs only in ${course.offeredIn.join('/')}`); return false; }
+        if (outOfSeason(course, term, published.has(code))) { debug(code, term.label, `runs only in ${course.offeredIn.join('/')}`); return false; }
         // The improved engine never seats a course with slack in the crawled
         // term when its schedule shows no section: GGIS 104 went into a pre-PT
         // Geography freshman's Fall 2026, where she could not register for it.
@@ -10651,7 +10681,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
          * by Spring 2029, were all her hours needed.
          */
         const lastNeeded = termsNeeded < terms.length && !isSummer(term) && term.index < termsNeeded &&
-          !terms.some((t) => t.index > term.index && t.index < termsNeeded && !isSummer(t) && !outOfSeason(course, t.season, published.has(code)));
+          !terms.some((t) => t.index > term.index && t.index < termsNeeded && !isSummer(t) && !outOfSeason(course, t, published.has(code)));
         const standingByNow = Math.max(hoursBefore, Math.min(hoursByNow, paced), lastNeeded ? pacedFinished : 0);
         if (!standingMet(code, standingByNow)) { debug(code, term.label, `standing not met at ${Math.round(standingByNow)} hours by this term`); return false; }
         // A lab never goes ahead of its lecture. MCB 247's own line names MCB
@@ -11055,7 +11085,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // spring, and a year sooner only moves the crowd to an earlier spring.
         let at = t - 1;
         while (at >= 0 && isSummer(terms[at])) at -= 1;
-        if (at < (depth.get(code) ?? 0) || outOfSeason(byCode.get(code), terms[at].season, seasonKnown.has(code))) continue;
+        if (at < (depth.get(code) ?? 0) || outOfSeason(byCode.get(code), terms[at], seasonKnown.has(code))) continue;
         const lab = lectureLab.get(code);
         const unit = lab !== undefined && due.includes(lab) ? [code, lab] : [code];
         for (const c of unit) soonerBy.set(c, at);
@@ -11279,7 +11309,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       for (const term of terms) {
         if (term.index > lastUsed) break;
         const here = placed.get(term.id) ?? [];
-        if (outOfSeason(course, term.season, published.has(alt))) continue;
+        if (outOfSeason(course, term, published.has(alt))) continue;
         if (planCreditRange(here, ctx).min + creditsOf(alt) > creditCapOf(term)) continue;
         if (isHard(alt) && here.filter(isHard).length >= hardLimitAt(term.index) && (isSummer(term) || term.index < terms.length - 1)) continue;
         const hours = hoursAt(term.index);
@@ -12161,7 +12191,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             if (!course) return false;
             if (!trackWanted.has(code) && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga', goalSubjects)) return false;
             if (tooBig(creditsOf(code))) return false;
-            if (outOfSeason(course, term.season, published.has(code))) return false;
+            if (outOfSeason(course, term, published.has(code))) return false;
             // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
             if (!plainEngine && unscheduledNow(code, term.id)) return false;
             if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
@@ -12243,7 +12273,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (pinned.has(code) || sequenceFirst.has(code) || labOf.has(code) || lectureLab.has(code) || waitedOn.has(code)) continue;
           if (firstTermCourse(byCode.get(code), ctx, arrival) || due(code) < term.index) continue;
           if (size - cr < running + cr || size - cr < credits.min || (yearOne.includes(from.index) && size - cr < 15)) continue;
-          if (running + cr > credits.max || outOfSeason(byCode.get(code), term.season, published.has(code))) continue;
+          if (running + cr > credits.max || outOfSeason(byCode.get(code), term, published.has(code))) continue;
           if (isHard(code) && hardThere >= hardLimitAt(term.index)) continue;
           options.push({ code, from, size });
         }
@@ -12324,7 +12354,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (!course) return false;
           if (!trackWanted.has(code) && !row && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga', goalSubjects)) return false;
           if (tooBig(creditsOf(code))) return false;
-          if (outOfSeason(course, term.season, published.has(code))) return false;
+          if (outOfSeason(course, term, published.has(code))) return false;
           // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
           if (!plainEngine && unscheduledNow(code, term.id)) return false;
           if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
@@ -12437,7 +12467,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         if (term.index > lastUsedTerm) break;
         if (lectureAt >= 0 && term.index !== lectureAt) continue;
         const here = placed.get(term.id) ?? [];
-        if (unit.some((c) => outOfSeason(byCode.get(c), term.season, published.has(c)))) continue;
+        if (unit.some((c) => outOfSeason(byCode.get(c), term, published.has(c)))) continue;
         let hours = priorCreditTotal + awayBefore[term.index];
         const before = new Set<string>(satisfiedForPrereq);
         for (const other of terms) {
@@ -12664,7 +12694,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (!course || isMathOrStatistics(course) || !subjectRoomLeft(course.cluster, taken, majors.primary, majors.subjects, ctx.schoolId === 'uga', goalSubjects)) return false;
           // The most courses of one subject in the term stays what it was.
           if (Math.max(...[...bySubject.keys(), course.cluster].map((s) => (bySubject.get(s) ?? 0) - (s === smallSubject ? 1 : 0) + (s === course.cluster ? 1 : 0))) !== mostOfOne) return false;
-          if (outOfSeason(course, term.season, published.has(code))) return false;
+          if (outOfSeason(course, term, published.has(code))) return false;
           if (!plainEngine && unscheduledNow(code, term.id)) return false;
           if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
           if (conflictWith(code, conflicts, [earned, chosen, plannedAll]) !== null) return false;
@@ -13053,7 +13083,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
               if (!course || gatedPick(into) !== 0 || board0.includes(into) || plannedAll.has(into) || earned.has(into) || exempt.has(into)) continue;
               if (expandEquivalents(into, equivalents).some((twin) => twin !== into && (board0.includes(twin) || earned.has(twin)))) continue;
               if (conflictWith(into, conflicts, [earned, new Set(board0.filter((c) => c !== old))]) !== null) continue;
-              if (outOfSeason(course, term.season, published.has(into)) || unscheduledNow(into, term.id)) continue;
+              if (outOfSeason(course, term, published.has(into)) || unscheduledNow(into, term.id)) continue;
               if (!standingMet(into, hoursSoFar) || !levelFits(into, hoursSoFar, standingHours)) continue;
               if (isHard(into) && !isHard(old) && hardThere >= hardLimitAt(term.index)) continue;
               const load = planCreditRange([...rest, into], ctx).min;
@@ -13300,7 +13330,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const most = Math.max(3, ...bySubject.values());
       const outSubject = byCode.get(out)?.cluster ?? out.split(' ')[0];
       if ((bySubject.get(course.cluster) ?? 0) - (course.cluster === outSubject ? 1 : 0) + 1 > most) return false;
-      if (outOfSeason(course, term.season, published.has(code)) || unscheduledNow(code, term.id)) return false;
+      if (outOfSeason(course, term, published.has(code)) || unscheduledNow(code, term.id)) return false;
       if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
       return electivePrereqsMet(match(ctx.prereqs?.get(code), earlierSet, sameTerm, equivalents));
     };
@@ -13614,7 +13644,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     };
     const seasonFits = (code: string, index: number) => {
       const course = byCode.get(code);
-      return !outOfSeason(course, terms[index].season, published.has(code));
+      return !outOfSeason(course, terms[index], published.has(code));
     };
     const hardIn = (index: number) => (placed.get(terms[index].id) ?? []).filter(isHard).length;
     const fitsAt = (code: string, index: number) => {
@@ -13886,7 +13916,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const same = new Set<string>();
       for (const c of codes) for (const e of expandEquivalents(c, equivalents)) same.add(e);
       for (const code of codes) {
-        if (outOfSeason(byCode.get(code), term.season, published.has(code))) faults += 1;
+        if (outOfSeason(byCode.get(code), term, published.has(code))) faults += 1;
         if (unscheduled(code, term.id)) faults += 1;
         if (!standingMet(code, hours)) faults += 1;
         faults += match(ctx.prereqs?.get(code), before, same, equivalents).missing.length;
@@ -13971,7 +14001,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // The first term it runs, or where that term is full, the next one of
         // year one: a pre-med Psychology freshman's first fall held 16 credits,
         // and LAS 101 stayed in Fall 2028 until her first spring, at 15, took it.
-        const open = terms.filter((t) => !isSummer(t) && t.index < term.index && !outOfSeason(course, t.season, published.has(code)));
+        const open = terms.filter((t) => !isSummer(t) && t.index < term.index && !outOfSeason(course, t, published.has(code)));
         const targets = open.filter((t, i) => i === 0 || yearOne.includes(t.index));
         const from = placed.get(term.id) ?? [];
         // The term it leaves keeps a full-time load, unless the seminar was
@@ -13993,7 +14023,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const swaps = (into: string[]) =>
           into
             .filter((c) => creditsOf(c) === creditsOf(code) && !pinned.has(c) && !labOf.has(c) && !lectureLab.has(c) && !sequenceFirst.has(c) && !dated.has(c) && !genEdPick.has(c) && (chosen.get(c)?.requirementId ?? null) === null && !addedPrerequisites.some((a) => a.code === c) && !forTrack(c) && !trackRowOf.has(c) && !firstTermCourse(byCode.get(c), ctx, arrival))
-            .filter((c) => !outOfSeason(byCode.get(c), term.season, published.has(c)) && (datedBy.get(c) ?? terms.length) >= term.index)
+            .filter((c) => !outOfSeason(byCode.get(c), term, published.has(c)) && (datedBy.get(c) ?? terms.length) >= term.index)
             .sort();
         let moved = false;
         for (const first of targets) {
@@ -14038,7 +14068,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         for (const code of placed.get(term.id) ?? []) {
           const course = byCode.get(code);
           if (!firstTermCourse(course, ctx, arrival)) continue;
-          const targets = terms.filter((t) => yearOne.includes(t.index) && !isSummer(t) && !outOfSeason(course, t.season, published.has(code)));
+          const targets = terms.filter((t) => yearOne.includes(t.index) && !isSummer(t) && !outOfSeason(course, t, published.has(code)));
           let moved = false;
           for (const first of targets) {
             if (moved) break;
@@ -14057,7 +14087,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
               // would take a 15-credit first fall to 13.
               if (sizeOf(nextInto) < Math.min(sizeOf(into), 15)) continue;
               if (nextFrom.filter(isHard).length > Math.max(Math.min(hardLimitAt(term.index), 1), from.filter(isHard).length)) continue;
-              if (outOfSeason(byCode.get(pick), term.season, published.has(pick))) continue;
+              if (outOfSeason(byCode.get(pick), term, published.has(pick))) continue;
               const faults = boardFaults();
               const shape = boardShape();
               placed.set(first.id, nextInto);
@@ -14163,7 +14193,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const mayGo = (c: string, from: number, index: number): boolean =>
       tier(c) !== null &&
       !isSummer(terms[index]) &&
-      !outOfSeason(byCode.get(c), terms[index].season, published.has(c)) &&
+      !outOfSeason(byCode.get(c), terms[index], published.has(c)) &&
       (datedBy.get(c) ?? terms.length) >= index &&
       !(trackRowOf.has(c) && applicationDue !== null && from <= applicationDue && index > applicationDue);
     const fits = (index: number, before: string[], after: string[]): boolean => {
@@ -14194,7 +14224,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       for (const code of [...(placed.get(term.id) ?? [])]) {
         const course = byCode.get(code);
         if (!firstTermCourse(course, ctx, arrival) || pinned.has(code)) continue;
-        const targets = terms.filter((t) => yearOne.includes(t.index) && !isSummer(t) && !outOfSeason(course, t.season, published.has(code)));
+        const targets = terms.filter((t) => yearOne.includes(t.index) && !isSummer(t) && !outOfSeason(course, t, published.has(code)));
         // Each term as it stands with the seminar gone from its own.
         const base = (id: string): string[] => (id === term.id ? (placed.get(term.id) ?? []).filter((c) => c !== code) : placed.get(id) ?? []);
         let done: string | null = null;
@@ -14344,7 +14374,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       to >= 0 &&
       to <= lastUsed &&
       !isSummer(terms[to]) &&
-      !outOfSeason(byCode.get(c), terms[to].season, published.has(c)) &&
+      !outOfSeason(byCode.get(c), terms[to], published.has(c)) &&
       !unscheduledNow(c, terms[to].id) &&
       (datedBy.get(c) ?? terms.length) >= to &&
       !(trackRowOf.has(c) && applicationDue !== null && from <= applicationDue && to > applicationDue) &&
@@ -14584,7 +14614,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       to >= 0 &&
       to <= lastUsed &&
       !isSummer(terms[to]) &&
-      !outOfSeason(byCode.get(c), terms[to].season, published.has(c)) &&
+      !outOfSeason(byCode.get(c), terms[to], published.has(c)) &&
       !unscheduledNow(c, terms[to].id) &&
       (datedBy.get(c) ?? terms.length) >= to &&
       !(trackRowOf.has(c) && applicationDue !== null && from <= applicationDue && to > applicationDue) &&
@@ -14849,7 +14879,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (sizeOf(into) + size > Math.min(creditCapOf(to), yearOne.includes(to.index) ? yearOneCeiling : finishedTerm + (roomy ? roomyOver : 1), sizeOf(here) - 1)) continue;
           if (!yearOne.includes(to.index) && yearHours() - size < Math.min(yearHours(), yearPace)) continue;
           if ([...into, ...unit].filter(isHard).length > Math.max(Math.min(hardLimitAt(to.index), 1), into.filter(isHard).length)) continue;
-          if (unit.some((c) => outOfSeason(byCode.get(c), to.season, published.has(c)))) continue;
+          if (unit.some((c) => outOfSeason(byCode.get(c), to, published.has(c)))) continue;
           const faults = boardFaults();
           const shape = boardShape();
           const mathBefore = yearOneCodes().some(anyCollegeMath);
@@ -15002,7 +15032,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const hard = now.filter(isHard).length;
           return sizeOf(now) <= ceiling && sizeOf(now) >= floor && hard <= Math.max(Math.min(hardLimitAt(i), 1), before.filter(isHard).length);
         }) &&
-        moves.every((m) => !outOfSeason(byCode.get(m.code), terms[m.to].season, published.has(m.code)) && standingMet(m.code, hoursBefore(m.to)) && levelFits(m.code, hoursBefore(m.to), standingHours)) &&
+        moves.every((m) => !outOfSeason(byCode.get(m.code), terms[m.to], published.has(m.code)) && standingMet(m.code, hoursBefore(m.to)) && levelFits(m.code, hoursBefore(m.to), standingHours)) &&
         shapeHolds(shape);
       const now = fits ? boardFaults() : Infinity;
       if (now <= faults) {
@@ -15221,10 +15251,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       let bestMove: { score: number[]; to: number; nextTo: string[]; nextFrom: string[]; out: string[] } | null = null;
       const atCapCount = (indexes: number[], lists: string[][]) => indexes.filter((index, k) => sizeOf(lists[k]) >= creditCapOf(terms[index])).length;
       for (let to = Math.min(due, from - 1); to >= 0 && !done; to -= 1) {
-        if (isSummer(terms[to]) || unit.some((c) => outOfSeason(byCode.get(c), terms[to].season, published.has(c)))) continue;
+        if (isSummer(terms[to]) || unit.some((c) => outOfSeason(byCode.get(c), terms[to], published.has(c)))) continue;
         const into = placed.get(terms[to].id) ?? [];
         const givers = into
-          .filter((c) => giveTier(c) !== null && !outOfSeason(byCode.get(c), terms[from].season, published.has(c)))
+          .filter((c) => giveTier(c) !== null && !outOfSeason(byCode.get(c), terms[from], published.has(c)))
           .sort((a, b) => (giveTier(a) as number) - (giveTier(b) as number) || Math.abs(creditsOf(a) - sizeOf(unit)) - Math.abs(creditsOf(b) - sizeOf(unit)) || a.localeCompare(b));
         // Nothing out, one course out, or two where one is smaller than the
         // late course: MCB 246 with its lab MCB 247 is five hours, and a
@@ -15329,11 +15359,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       for (const t of terms) {
         if (t.index <= yearEnd || isSummer(t)) continue;
         for (const inn of placed.get(t.id) ?? []) {
-          if (!movable(inn) || outOfSeason(byCode.get(inn), terms[i].season, published.has(inn))) continue;
+          if (!movable(inn) || outOfSeason(byCode.get(inn), terms[i], published.has(inn))) continue;
           const moved = sizeOf(here) + creditsOf(inn);
           if (moved >= pace && moved <= yearOneCeiling) options.push({ inn, out: null, from: t.index, order: rank(inn) * 10 });
           for (const out of here) {
-            if (!movable(out) || (datedBy.get(out) ?? terms.length) < t.index || outOfSeason(byCode.get(out), t.season, published.has(out))) continue;
+            if (!movable(out) || (datedBy.get(out) ?? terms.length) < t.index || outOfSeason(byCode.get(out), t, published.has(out))) continue;
             const traded = sizeOf(here) - creditsOf(out) + creditsOf(inn);
             if (traded >= pace && traded <= yearOneCeiling) options.push({ inn, out, from: t.index, order: rank(inn) * 10 + 5 });
           }
@@ -15434,7 +15464,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         if (moved) break;
         const others = terms
           .filter((t) => t.index !== i && t.index <= lastUsed && !isSummer(t) && (least === 3 || !yearOne.includes(t.index)))
-          .filter((t) => unit.every((c) => !outOfSeason(byCode.get(c), t.season, published.has(c)) && (datedBy.get(c) ?? terms.length) >= t.index))
+          .filter((t) => unit.every((c) => !outOfSeason(byCode.get(c), t, published.has(c)) && (datedBy.get(c) ?? terms.length) >= t.index))
           .sort((a, b) => Math.abs(a.index - i) - Math.abs(b.index - i) || a.index - b.index);
         for (const to of others) {
           if (moved) break;
@@ -15442,7 +15472,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const trades: Array<string | null> = [
             null,
             ...into
-              .filter((c) => !isHard(c) && !pinned.has(c) && !sequenceFirst.has(c) && !labOf.has(c) && !lectureLab.has(c) && !firstTermCourse(byCode.get(c), ctx, arrival) && (datedBy.get(c) ?? terms.length) >= i && !outOfSeason(byCode.get(c), term.season, published.has(c)) && Math.abs(creditsOf(c) - sizeOf(unit)) <= 1)
+              .filter((c) => !isHard(c) && !pinned.has(c) && !sequenceFirst.has(c) && !labOf.has(c) && !lectureLab.has(c) && !firstTermCourse(byCode.get(c), ctx, arrival) && (datedBy.get(c) ?? terms.length) >= i && !outOfSeason(byCode.get(c), term, published.has(c)) && Math.abs(creditsOf(c) - sizeOf(unit)) <= 1)
               .sort((a, b) => Math.abs(creditsOf(a) - sizeOf(unit)) - Math.abs(creditsOf(b) - sizeOf(unit)) || a.localeCompare(b)),
           ];
           for (const back of trades) {
@@ -15541,7 +15571,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       let done = false;
       for (const term of terms) {
         if (done || term.index > lastUsed) break;
-        if (isSummer(term) || outOfSeason(course, term.season, published.has(code))) continue;
+        if (isSummer(term) || outOfSeason(course, term, published.has(code))) continue;
         const here = placed.get(term.id) ?? [];
         const outs: Array<string | null> = [
           ...here.filter(fillPick).sort((a, b) => Math.abs(creditsOf(a) - creditsOf(code)) - Math.abs(creditsOf(b) - creditsOf(code)) || a.localeCompare(b)),
@@ -15707,7 +15737,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           for (let k = term.index - 1; k >= 0; k -= 1) {
             const here = placed.get(terms[k].id) ?? [];
             if (planCreditRange(here, ctx).min + creditsOf(add) > credits.max) continue;
-            if (outOfSeason(byCode.get(add), terms[k].season, published.has(add))) continue;
+            if (outOfSeason(byCode.get(add), terms[k], published.has(add))) continue;
             placed.set(terms[k].id, [...here, add]);
             chosen.set(add, { requirementId: null, label: `Prerequisite for ${code}` });
             addedPrerequisites.push({ code: add, requiredBy: code });
@@ -15763,7 +15793,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           };
           for (let k = term.index - 1; k >= 0 && !booked; k -= 1) {
             const here = placed.get(terms[k].id) ?? [];
-            if (outOfSeason(byCode.get(add), terms[k].season, published.has(add))) continue;
+            if (outOfSeason(byCode.get(add), terms[k], published.has(add))) continue;
             const give = here
               .filter((c) => genEdPick.has(c) && creditsOf(c) === creditsOf(add) && !pinned.has(c) && !sequenceFirst.has(c) && !trackRowOf.has(c) && !forTrack(c) && !trackBeyondRoom.has(c) && !labOf.has(c) && !lectureLab.has(c) && !firstTermCourse(byCode.get(c), ctx, arrival) && !namedOnBoard(c) && stillMet(c))
               .sort()[0];
@@ -15836,7 +15866,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       if (term.index > due) break;
       hours += awayBefore[term.index] - (term.index > 0 ? awayBefore[term.index - 1] : 0);
       if (term.index >= from) {
-        if (outOfSeason(course, term.season, published.has(code))) kinds.add('season');
+        if (outOfSeason(course, term, published.has(code))) kinds.add('season');
         else if (!standingMet(code, hours) || !levelFits(code, hours, standingHours)) kinds.add('standing');
         else if (planCreditRange(inTerm, ctx).min + creditsOf(code) > creditCapOf(term)) kinds.add('full');
         else if (isHard(code) && inTerm.filter(isHard).length >= hardLimitAt(term.index)) kinds.add('hard');
@@ -16903,12 +16933,14 @@ export function validatePlan(
         }
       }
 
-      if (outOfSeason(course, term.season, published.has(code))) {
+      if (outOfSeason(course, term, published.has(code))) {
         issues.push({
           id: `ap-offering-${term.id}-${courseId}`,
           severity: 'warning',
           title: 'Not offered this term',
-          message: `${code} has run only in ${course.offeredIn.join(' and ')} terms over the last ${ctx.offeringTerms?.length ?? 'few'} terms, and this is a ${term.season} term.`,
+          message: term.season === 'Summer' && ctx.schoolId === 'uga'
+            ? ugaSummerOffering(code, course, term)
+            : `${code} has run only in ${course.offeredIn.join(' and ')} terms over the last ${ctx.offeringTerms?.length ?? 'few'} terms, and this is a ${term.season} term.`,
           termId: term.id,
           courseId,
         });

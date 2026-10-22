@@ -52,6 +52,7 @@ import {
   type PriorCredit,
 } from './autoplan';
 import { normalizePriorities, type Priorities } from './priorities';
+import { calendarYearOf, runsInSummer } from './summer-offering';
 import { saysGoalMatch, type QualityResult } from './quality';
 import type { Course, PlanIssue, PlanState, PlanTerm } from './types';
 
@@ -834,7 +835,7 @@ export function repickBoard(input: RepickInput): RepickResult {
       // The earliest term the course runs in and passes the checks, so a
       // sequence's first half lands before its second.
       for (const term of working.terms) {
-        if (term.season === 'Summer' ? !course.offeredIn.includes('Summer') : course.offeringKnown && course.offeredIn.length > 0 && !course.offeredIn.includes(term.season)) continue;
+        if (term.season === 'Summer' ? !runsInSummer(course, calendarYearOf(term)) : course.offeringKnown && course.offeredIn.length > 0 && !course.offeredIn.includes(term.season)) continue;
         // A lab goes in beside its lecture when the term has room, so the
         // plan does not lose the hours of the elective it would replace.
         if (course.credits <= 2) {

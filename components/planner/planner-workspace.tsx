@@ -149,6 +149,7 @@ import {
 } from '@/lib/planner/saved-board';
 import { livePools, poolShortfalls } from './live-pools';
 import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersToAdd, summerYearOf, summersInRange, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
+import { runsInSummer, ugaOfferingLine } from '@/lib/planner/summer-offering';
 import { CAREER_TRACKS, careerWordsAfter, INTEREST_TOPICS, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
 import { careerWordsFor, goalReasonOf, restoredCareerWords, setupWords } from '@/lib/planner/goal-words';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
@@ -647,10 +648,12 @@ function combinePrograms(sources: SourceProgram[]): LoadedBundle | null {
 }
 
 /**
- * An empty summer at UGA. UGA's catalog lists no summer offerings yet, so the
- * planner never fills one there, and every class put in one is the student's.
+ * An empty summer at UGA. Since 2026-10-22 the planner holds the UGA
+ * Bulletin's "Semester Course Offered" line for each course and fills a
+ * summer only with courses it lists for summer, up to 9 credits (the
+ * planner's own summer ceiling, under UGA's 18-hour term limit).
  */
-const UGA_SUMMER_NOTE = "ORION doesn't have UGA's summer course list yet, so it won't fill this summer. Add classes yourself.";
+const UGA_SUMMER_NOTE = 'Rebuild fills this summer with classes the UGA Bulletin lists for summer, up to 9 credits. Or add classes yourself.';
 
 /** The plan shape in a sentence for ALMA's board description. Empty when nothing is set. */
 function describeShape(shape: PlanShape): string {
@@ -3373,7 +3376,7 @@ export function PlannerWorkspace({
     notify(
       `${change.term.label} added`,
       isUga
-        ? UGA_SUMMER_NOTE
+        ? 'It is empty. Add classes to it, or press Rebuild to let the planner fill it with classes the UGA Bulletin lists for summer, up to 9 credits (Rebuild replaces your own edits to the board).'
         : 'It is empty. Add classes to it, or press Rebuild to let the planner fill it with courses Illinois has run in summer (Rebuild replaces your own edits to the board).',
       'info',
     );
@@ -4501,7 +4504,7 @@ export function PlannerWorkspace({
         : null;
       const dormant = courses.filter((x) => ctx.offeringTerms?.length && (ctx.offerings?.get(normCode(x.code)) ?? []).length === 0).map((x) => x.code);
       const wrongSeason = courses
-        .filter((x) => x.offeringKnown && x.offeredIn.length > 0 && !x.offeredIn.includes(t.season))
+        .filter((x) => x.offeringKnown && x.offeredIn.length > 0 && (t.season === 'Summer' ? !runsInSummer(x, calendarYearOf(t)) : !x.offeredIn.includes(t.season)))
         .map((x) => `${x.code} (has run in ${x.offeredIn.join(' and ')} only)`);
       const load =
         hard.length >= 3 || (avg !== null && ctx.bands && avg >= ctx.bands.hardest)
@@ -4693,6 +4696,8 @@ export function PlannerWorkspace({
           ...(sched.note ? { sections_note: sched.note } : {}),
           ...sectionTimes(rows, sched.summary?.meet, sched.label, wanted),
           does_not_count_with: L.core?.exclusions?.get(key) ?? [],
+          // UGA's terms are the Bulletin's own offering line, the only record of when a UGA course runs.
+          ...(isUga ? { offered_per_uga_bulletin: ugaOfferingLine(c) } : {}),
         };
       }
       case 'course_syllabus': {
@@ -4980,7 +4985,7 @@ export function PlannerWorkspace({
           summary: `${change.term.label} added to the board, empty`,
           terms: change.board.terms.map((t) => t.label),
           ...(isUga
-            ? { warning: `UGA's summer course list is not loaded, so the planner cannot tell which UGA classes run in summer and will not fill ${change.term.label}, on Rebuild either. Tell the student so and let them choose the classes; add or move only the ones they name. A class put there shows "Not offered this term" because the data lists no summer offerings, not because UGA does not run it in summer.` }
+            ? { note: `Nothing was rebuilt or moved. To fill it, add or move courses the UGA Bulletin lists for summer (course_details says whether it lists one; a course it lists for every other summer goes only in its years), or the student's Rebuild fills it with those courses, at most 9 credits a summer (it replaces their own edits to the board). A class the Bulletin does not list for summer shows "Not offered this term" there.` }
             : { note: `Nothing was rebuilt or moved. To fill it, add or move courses Illinois has run in summer (course_details gives the terms each ran), or set_plan_shape summers rebuilds the board around its summers.` }),
         };
       }

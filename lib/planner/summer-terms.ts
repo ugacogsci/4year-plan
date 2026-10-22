@@ -11,9 +11,9 @@
  *
  *   - adding puts an empty column in calendar order and moves nothing else;
  *   - the year goes into the plan shape as well, so reload, saving and
- *     Rebuild keep the summer (Rebuild at Illinois may fill it from the
- *     summer offering history; UGA's catalog lists no summer offerings yet,
- *     so there it stays empty);
+ *     Rebuild keep the summer (Rebuild may fill it: at Illinois from the
+ *     summer offering history, at UGA since 2026-10-22 from the Bulletin's
+ *     "Semester Course Offered" line, summer-offering.ts);
  *   - removing takes the column and whatever is in it off the board, and
  *     records the year as dropped, so a summer the setup words asked for does
  *     not come back on Rebuild.

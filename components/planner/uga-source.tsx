@@ -19,6 +19,7 @@ import type {
 import type { Course, SemesterSeason } from '@/lib/planner/types';
 import { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
+import { ugaPlannerSeasons } from '@/lib/planner/summer-offering';
 
 export { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 
@@ -401,9 +402,11 @@ async function readJson<T>(url: string): Promise<T | null> {
 }
 
 function adaptCourses(raw: RawUgaCourse): Course[] {
-  const offeredIn: SemesterSeason[] = raw.offeredIn?.length
-    ? raw.offeredIn
-    : ['Fall', 'Spring'];
+  // Fall and spring exactly as before the catalog listed summers; Summer
+  // only where the Bulletin names it (lib/planner/summer-offering.ts).
+  const { offeredIn, offeringKnown } = ugaPlannerSeasons(raw.offeredIn);
+  const summerYears = offeredIn.includes('Summer') && (raw.summerYears === 'odd' || raw.summerYears === 'even') ? raw.summerYears : undefined;
+  const offeringListed: SemesterSeason[] = (raw.offeredIn ?? []).filter((season) => season === 'Fall' || season === 'Spring' || season === 'Summer');
   return listedUgaCourseCodes(raw.code).map((code, index) => ({
       id: slug(code),
       code,
@@ -418,11 +421,11 @@ function adaptCourses(raw: RawUgaCourse): Course[] {
       offeredIn,
       // A one-season row is useful catalog evidence. Fall + Spring is also the
       // fallback written by the enrichment script when a page could not be read,
-      // so it must not be presented as a verified offering pattern.
-      offeringKnown:
-        offeredIn.length !== 2 ||
-        !offeredIn.includes('Fall') ||
-        !offeredIn.includes('Spring'),
+      // so it must not be presented as a verified offering pattern. Summer
+      // does not count here: it is read on its own (runsInSummer).
+      offeringKnown,
+      ...(summerYears ? { summerYears } : {}),
+      offeringListed,
       format: raw.format ?? 'In person',
       tags: raw.tags ?? [],
       mapPosition:
