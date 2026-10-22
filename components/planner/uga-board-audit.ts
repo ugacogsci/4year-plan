@@ -245,6 +245,36 @@ export function auditUgaBoard(input: UgaAuditInput) {
       message: `${summary.physicalEducation} PEDB credit is recorded separately and is not included in the 120 academic hours required for a bachelor's degree.`,
     });
 
+  /*
+   * A course the UGA Bulletin lists for summer only, on the board in a fall or
+   * spring (2026-10-22). 572 UGA courses' "Semester Course Offered" line names
+   * summer alone; the planner's seasons give them fall and spring as well,
+   * unverified (summer-offering.ts ugaPlannerSeasons), as every course whose
+   * line names no fall or spring has always had, and whether to stop booking
+   * them there is the owner's decision. Until then the card says so: ARHI
+   * 2121, offered in summer only, was the Humanities pick in Spring 2028 on a
+   * Biology BS board with no word, while BIOL 2900 in a summer the Bulletin
+   * does not list said "The UGA Bulletin does not list BIOL 2900 for summer".
+   * The same kind as that warning (ap-offering-), so the board bar counts it
+   * as "Course not offered that term".
+   */
+  for (const term of board.terms) {
+    if (term.season === 'Summer') continue;
+    for (const id of term.courseIds) {
+      const course = byId.get(id);
+      const listed = course?.offeringListed ?? [];
+      if (!course || listed.length === 0 || listed.some((season) => season !== 'Summer')) continue;
+      issues.push({
+        id: `ap-offering-${term.id}-${id}`,
+        severity: 'warning',
+        termId: term.id,
+        courseId: id,
+        title: 'Not offered this term',
+        message: `The UGA Bulletin lists ${course.code} for summer only${course.summerYears ? `, in ${course.summerYears}-numbered years` : ''}, so it may not run in ${term.label}. Check UGA's schedule before keeping it here, or take it in a summer.`,
+      });
+    }
+  }
+
   // A prior undergraduate counterpart is not a graduate waiver or graduate credit.
   for (const term of board.terms)
     for (const id of term.courseIds) {
