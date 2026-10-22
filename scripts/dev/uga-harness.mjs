@@ -315,7 +315,9 @@ async function horizonOf() {
   if (existsSync(join(ROOT, 'lib/planner/plan-start.ts'))) return (await lib('lib/planner/plan-start.ts')).horizonFor;
   const src = readFileSync(join(ROOT, 'components/planner/planner-workspace.tsx'), 'utf8');
   const a = src.indexOf('function termOrd(season: SemesterSeason, year: number): number {');
-  const b = src.indexOf('/** "About 45 credits", "I have 60 hours"');
+  // Its end: statedHours followed it until 2026-10-21, when that moved to warnings-triage.ts.
+  const stated = src.indexOf('/** "About 45 credits", "I have 60 hours"');
+  const b = stated >= 0 ? stated : src.indexOf('/** Gen-ed categories met by held credit that holds no Illinois course');
   if (a < 0 || b < 0) throw new Error('horizonFor markers not found in planner-workspace.tsx');
   const at = (p) => pathToFileURL(join(ROOT, p)).href;
   const head = [

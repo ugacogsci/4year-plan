@@ -228,6 +228,20 @@ export function recordPrompt(gap: CreditGap | null | undefined): string | null {
 /** The record prompt's issue when it stands for the semester in progress (the board bar titles its popover from it). */
 export const CURRENT_CLASSES_ID = 'current-classes';
 
+/**
+ * The semester in progress shown empty with nothing assumed for it: a
+ * student who picked "First year" in setup without saying it in words, or a
+ * record that stops a term early. The plan counts nothing for that fall, so
+ * what its classes would fill reads as missing. Asked for only when a
+ * shortfall like that is on the board (the caller checks): an empty column
+ * already invites the classes, and a plan with nothing to settle needs no
+ * second ask.
+ */
+function emptyCurrent(gap: CreditGap | null | undefined): string | null {
+  if (!gap || gap.said !== null || gap.assumed > 0 || !gap.currentTerm || (gap.currentClasses ?? 0) > 0) return null;
+  return gap.currentTerm;
+}
+
 /** Identical rows the list folds into one, with how many. */
 export interface TriageRow {
   issue: PlanIssue;
@@ -329,17 +343,24 @@ export function triageIssues(
   const rows = [...grouped.values()];
   explainedByForfeit(rows);
   explainedByUnreadAreas(rows);
-  const promptText = recordPrompt(options.credit);
+  const empty = emptyCurrent(options.credit);
+  const settles = rows.some((r) => r.kind.tier === 'now' && r.kind.record);
+  const promptText = recordPrompt(options.credit) ?? (empty && settles ? `Your ${empty} classes are not added yet. Add them in the ${empty} column to get an accurate check.` : null);
   const stated = rows.filter((r) => r.kind.key === 'record');
   let prompt: AttentionKind | null = null;
   if (promptText) {
-    const now = options.credit && options.credit.said === null ? currentOnly(options.credit) : null;
+    const now = options.credit && options.credit.said === null ? currentOnly(options.credit) ?? empty : null;
+    const counts = (options.credit?.currentAssumed ?? 0) === 0
+      ? `counts nothing for ${now} yet`
+      : (options.credit?.currentClasses ?? 0) > 0
+        ? `counts about ${options.credit?.currentAssumed} more credits for ${now}`
+        : `counts ${now} as about ${options.credit?.currentAssumed} credits, a usual full load,`;
     const issue: PlanIssue = stated[0]?.issue ?? (now
       ? {
           id: CURRENT_CLASSES_ID,
           severity: 'warning',
           title: `Your ${now} classes`,
-          message: `${now} is under way. Until you add the classes you are taking now, the plan ${(options.credit?.currentClasses ?? 0) > 0 ? `counts about ${options.credit?.currentAssumed} more credits for ${now}` : `counts ${now} as about ${options.credit?.currentAssumed} credits, a usual full load,`} and plans every requirement in the terms after it, so some read as missing or left out. Add them in the ${now} column (a screenshot of your class schedule or your transcript works too, through the upload in the side panel), and the plan is rebuilt around them.`,
+          message: `${now} is under way. Until you add the classes you are taking now, the plan ${counts} and plans every requirement in the terms after it, so some read as missing or left out. Add them in the ${now} column (a screenshot of your class schedule or your transcript works too, through the upload in the side panel), and the plan is rebuilt around them.`,
           termId: '',
         }
       : {
