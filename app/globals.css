@@ -422,6 +422,12 @@ button:disabled {
   scrollbar-width: thin;
 }
 
+.completed-course-label {
+  margin: 6px 0 3px;
+  color: #8fa1b7;
+  font-size: var(--fs-micro);
+}
+
 .completed-course-list span {
   padding: 2px 5px;
   border: 1px solid #26354a;
@@ -3458,6 +3464,8 @@ p.requirement-unnamed {
   font-weight: 500;
   color: var(--orion-mid);
 }
+
+.planner-app .completed-course-label { color: var(--orion-dim); }
 
 .planner-app .completed-course-list span {
   border-color: var(--orion-line);

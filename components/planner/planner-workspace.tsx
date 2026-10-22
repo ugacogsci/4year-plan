@@ -167,7 +167,8 @@ import type { Alternative, ElectiveOf } from './course-card';
 import { andList, plural } from './words';
 import { alignExamsToCollege, examCourses, examCreditNotes, examElectiveHours, examGenEdCredits, examSchedule, matchDocumentExams, useExamCredit } from './exam-credit';
 import { areaProgress, type ProgramRequirements } from '@/lib/planner/scheduler';
-import { transcriptCourseCredits, transcriptCreditSummary, transcriptExemptCodes, withTranscriptCredits } from '@/lib/planner/transcript';
+import { transcriptCourseCredits, transcriptCreditSummary, transcriptExemptCodes, transcriptInProgressCodes, withTranscriptCredits } from '@/lib/planner/transcript';
+import { alreadyTaken } from '@/lib/planner/already-taken';
 import { auditUgaBoard, ugaProgressLoss } from './uga-board-audit';
 import { admissionGoal, chooseAdmission, describeAdmissionChoice, goalFromQuery, readEntry, type AdmissionChoice } from '@/lib/planner/admission-route';
 import { routeQuestion, sectionRowsFrom, type AskContext, type PlannedCourse } from '@/lib/planner/ask-router';
@@ -1477,7 +1478,7 @@ export function PlannerWorkspace({
     }
     if (!context) return;
 
-    const prior = withGenEdCredit(readPriorCredit(
+    const priorRead = withGenEdCredit(readPriorCredit(
       answers?.transferText ?? '',
       answers?.exams.length ?? 0,
       byCode,
@@ -1496,6 +1497,9 @@ export function PlannerWorkspace({
       answers?.languageYears ?? null,
       answers?.language ?? null,
     ), answers, exams, examCredit.entries, catalogCredits);
+    // The classes in progress among them, so a note never says the student already holds one (PriorCredit.inProgressCodes).
+    const takingNow = transcriptInProgressCodes(answers?.transcript);
+    const prior = takingNow.length > 0 ? { ...priorRead, inProgressCodes: takingNow } : priorRead;
     const horizon = horizonFor(answers, new Date(), planShape);
     // Terms the student has been here with nothing on a record for them yet
     // count as about 15 credits each (horizonFor says which), so the terms
@@ -2075,17 +2079,13 @@ export function PlannerWorkspace({
     return out;
   }, [plan, courseIndex]);
 
-  const completedCourses = useMemo(() => {
-    const pending = new Set((answers?.transcript?.courses ?? []).filter((line) => line.use && line.status === 'in_progress').flatMap((line) => line.matched ?? []));
+  /** The rail's "Already taken": each held class once, the ones in progress apart (already-taken.ts). */
+  const heldCourses = useMemo(() => {
     const codes = (plan?.completedCourseIds ?? []).flatMap((id) => {
       const course = courseIndex.get(id);
       return course ? [course.code] : [];
     });
-    const unique = context ? distinctHeld(codes, context).codes : codes;
-    return unique.flatMap((code) => {
-      const course = byCode.get(normCode(code));
-      return course ? [{ code: course.code, title: `${course.title}${pending.has(code) ? ' (in progress)' : ''}` }] : [];
-    });
+    return alreadyTaken(codes, context, byCode, answers?.transcript);
   }, [plan, courseIndex, context, byCode, answers?.transcript]);
   /**
    * Every hour the student holds, as the registrar would count it: each held
@@ -6713,8 +6713,9 @@ export function PlannerWorkspace({
         combinedDegree={Boolean(plan?.doubleDawgs)}
         creditNote={creditNote}
         degreeTotal={activeProgramTotal}
-        priorCount={plan?.completedCourseIds.length ?? 0}
-        priorCourses={completedCourses}
+        priorCount={heldCourses.taken.length}
+        priorCourses={heldCourses.taken}
+        inProgressCourses={heldCourses.takingNow}
         transcript={
           <TranscriptUpload
             school={school}

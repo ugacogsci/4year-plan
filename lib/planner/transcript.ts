@@ -1037,6 +1037,19 @@ export function transcriptCodes(record: TranscriptRecord | null | undefined): st
   return [...out];
 }
 
+/** Of transcriptCodes, the classes the student is taking now (in-progress lines). */
+export function transcriptInProgressCodes(record: TranscriptRecord | null | undefined): string[] {
+  if (!record) return [];
+  const out = new Set<string>();
+  for (const c of record.courses) {
+    if (!c.use || c.counts !== 'course' || !c.matched || c.status !== 'in_progress') continue;
+    if ((c.equivalentCredits ?? c.credits) === 0) continue;
+    out.add(c.matched);
+    for (const extra of c.also ?? []) out.add(extra);
+  }
+  return [...out];
+}
+
 /** Placement/exemption clears a prerequisite, but earns no course or degree hours. */
 export function transcriptExemptCodes(record: TranscriptRecord | null | undefined): string[] {
   return (record?.courses ?? []).flatMap((c) =>

@@ -469,6 +469,14 @@ export interface PriorCredit {
   /** Hours that count toward the degree but map to no course code, which is the normal transfer case. */
   unmatchedCredits: number;
   /**
+   * Of courseCodes, the ones the student is taking now (a transcript's
+   * in-progress lines, or classes added to the current-semester column).
+   * They count as held, as they always have; only the words change: a
+   * career track's note says "you are taking BIOL 1107 now", not "you
+   * already hold" a class not yet passed.
+   */
+  inProgressCodes?: string[];
+  /**
    * General education categories met by credit that holds no Illinois course:
    * a Parkland course the Parkland-to-UIUC guide lists under Humanities, an
    * evaluation report's "HIST 1-- (Gen Ed: SBS)", an IB exam granting "NRES
@@ -12680,6 +12688,10 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       notes.push(`${pastTotal.join(', ')} ${pastTotal.length === 1 ? 'is' : 'are'} required for the goal you named, placed where the planner's own lesser picks were. Drop ${pastTotal.length === 1 ? 'it' : 'them'} if the goal changes.`);
     }
 
+    // Classes in progress count as held, but the note does not say the student holds them yet.
+    const takingNow = new Set((input.prior.inProgressCodes ?? []).map(normaliseCode));
+    const heldDone = [...new Set(trackHeld)].filter((code) => !takingNow.has(code));
+    const heldNow = [...new Set(trackHeld)].filter((code) => takingNow.has(code));
     for (const track of tracks) {
       const mine = [...trackRowOf].filter(([, r]) => r.track === track).map(([code]) => code);
       const pastHere = [...trackBeyondRoom].filter(([, r]) => r.track === track).map(([code]) => code);
@@ -12710,7 +12722,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         track,
         missed,
         at: notes.length,
-        head: `${track.name}: ${booked.length > 0 ? `the plan books ${booked.join(', ')} as electives` : 'no elective room was left for the courses'} from ${track.source.title} (${track.source.url})${trackHeld.length > 0 ? `; you already hold ${[...new Set(trackHeld)].join(', ')}` : ''}${missed.length > 0 ? `; ${missed.join(', ')} did not fit, so plan them with your advisor` : ''}.${shut.length > 0 ? ` ${shut.join('. ')}.` : ''}`,
+        head: `${track.name}: ${booked.length > 0 ? `the plan books ${booked.join(', ')} as electives` : 'no elective room was left for the courses'} from ${track.source.title} (${track.source.url})${heldDone.length > 0 ? `; you already hold ${heldDone.join(', ')}` : ''}${heldNow.length > 0 ? `; you are taking ${heldNow.join(', ')} now, which count once you pass` : ''}${missed.length > 0 ? `; ${missed.join(', ')} did not fit, so plan them with your advisor` : ''}.${shut.length > 0 ? ` ${shut.join('. ')}.` : ''}`,
       });
       notes.push(`${trackNotes[trackNotes.length - 1].head} ${track.note}`);
     }

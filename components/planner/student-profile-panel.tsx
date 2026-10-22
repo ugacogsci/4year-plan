@@ -77,8 +77,11 @@ interface RailProps {
   creditNote?: string | null;
   degreeTotal: number | null;
   combinedDegree?: boolean;
+  /** Classes already passed, each once (a class and its equivalent codes are one). */
   priorCount: number;
   priorCourses: Array<{ code: string; title: string }>;
+  /** Classes the student is taking now: held as in progress, never listed as taken. */
+  inProgressCourses?: Array<{ code: string; title: string }>;
   areas: AreaRow[];
   programLevel: ProgramLevel;
   supportsGraduatePrograms: boolean;
@@ -170,6 +173,7 @@ export function StudentProfilePanel({
   combinedDegree = false,
   priorCount,
   priorCourses,
+  inProgressCourses = [],
   areas,
   programLevel,
   supportsGraduatePrograms,
@@ -258,7 +262,10 @@ export function StudentProfilePanel({
         <details className="rail-completed">
           <summary>
             <span>Already taken</span>
-            <span>{priorCount} course{priorCount === 1 ? '' : 's'}</span>
+            <span>
+              {priorCount} course{priorCount === 1 ? '' : 's'}
+              {inProgressCourses.length > 0 ? `, ${inProgressCourses.length} in progress` : ''}
+            </span>
           </summary>
           {priorCourses.length > 0 && (
             <div className="completed-course-list" aria-label="Classes already taken">
@@ -268,6 +275,18 @@ export function StudentProfilePanel({
                 </span>
               ))}
             </div>
+          )}
+          {inProgressCourses.length > 0 && (
+            <>
+              <p className="completed-course-label">In progress now, counted once you pass</p>
+              <div className="completed-course-list" aria-label="Classes in progress">
+                {inProgressCourses.map((course) => (
+                  <span key={course.code} title={`${course.title} (in progress)`}>
+                    {course.code}
+                  </span>
+                ))}
+              </div>
+            </>
           )}
           {transcript}
         </details>
