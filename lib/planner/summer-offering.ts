@@ -83,16 +83,113 @@ export function ugaSummerOnlyMessage(course: { code: string; summerYears?: Summe
 }
 
 /**
+ * The first summer a course could run once the courses it needs are done, as
+ * a board holds them: the summer after the last of its prerequisite groups is
+ * met (a held course meets one at once; a summer course meets one for the
+ * next summer, not its own), in a year it runs. Null where a group names no
+ * course the board holds or books, so the board cannot tell. The year it
+ * names may lie past the board's last term: Art BFA - Interior Design's ARID
+ * 4010 needs ARID 3125, which needs ARID 3110 and ARID 2110, each a fall
+ * course, so a freshman starting in Spring 2027 has it ready for Summer 2030,
+ * after a Spring 2030 finish (2026-10-22).
+ */
+export function firstSummerFor(
+  course: { offeredIn: SemesterSeason[]; summerYears?: SummerYears },
+  groups: ReadonlyArray<{ any: readonly string[]; concurrent?: boolean; priorLearning?: unknown }>,
+  terms: ReadonlyArray<{ season: SemesterSeason; label?: string; id?: string; codes: readonly string[] }>,
+  held: ReadonlySet<string>,
+): { year: number; after: { code: string; label: string } | null } | null {
+  const ord = (season: SemesterSeason, year: number) => year * 3 + (season === 'Spring' ? 0 : season === 'Summer' ? 1 : 2);
+  const dated = terms.flatMap((t) => {
+    const year = calendarYearOf(t);
+    return year === null ? [] : [{ ...t, year, at: ord(t.season, year) }];
+  });
+  if (dated.length === 0) return null;
+  // Not before the board's first term.
+  let ready = Math.min(...dated.map((t) => t.at)) - 1;
+  let after: { code: string; label: string } | null = null;
+  for (const group of groups) {
+    if (group.concurrent || group.priorLearning) continue;
+    const names = group.any.map((c) => c.replace(/\s+/g, ' ').trim().toUpperCase());
+    if (names.some((c) => held.has(c))) continue;
+    const at = dated.filter((t) => t.codes.some((c) => names.includes(c.replace(/\s+/g, ' ').trim().toUpperCase()))).sort((a, b) => a.at - b.at)[0];
+    if (!at) return null;
+    if (at.at > ready) {
+      ready = at.at;
+      after = { code: at.codes.find((c) => names.includes(c.replace(/\s+/g, ' ').trim().toUpperCase())) ?? names[0], label: at.label ?? `${at.season} ${at.year}` };
+    }
+  }
+  for (let year = Math.floor(ready / 3); year <= Math.floor(ready / 3) + 3; year += 1) {
+    if (ord('Summer', year) > ready && runsInSummer(course, year)) return { year, after };
+  }
+  return null;
+}
+
+/**
+ * Where the first summer a required summer-only course can run lies against
+ * the board (firstSummerFor): inside the plan and on the board, inside it but
+ * not yet added, or past its last term, where Add a summer cannot reach.
+ */
+export interface RequiredSummer {
+  year: number;
+  /** The prerequisite on the board that comes last, and its term. */
+  after: { code: string; label: string } | null;
+  onBoard: boolean;
+  /** Past the board's last term: Add a summer offers only summers inside the plan. */
+  pastLast: boolean;
+  lastLabel: string;
+}
+
+/**
  * The card's words when the degree itself requires such a course and offers
  * no other choice for it. The planner keeps it on the board, in a fall or
  * spring, so the degree stays whole (the degree beats everything), and says
- * plainly what to do: plan a summer for it.
+ * plainly what to do: plan the summer it can run in, naming it where the
+ * board shows which, or, where that summer lies past the plan's last term
+ * and Add a summer cannot reach it, ask the advisor.
  */
-export function ugaRequiredSummerOnlyMessage(course: { code: string; summerYears?: SummerYears }, termLabel: string, boardHasSummer: boolean): string {
+export function ugaRequiredSummerOnlyMessage(course: { code: string; summerYears?: SummerYears }, termLabel: string, boardHasSummer: boolean, first: RequiredSummer | null = null): string {
   const years = course.summerYears ? ` in ${course.summerYears}-numbered years` : '';
+  const head = `Your degree requires ${course.code}, and the UGA Bulletin lists it for summer only${years}.`;
+  const sits = `it sits in ${termLabel} for now to keep the degree complete`;
+  const since = first?.after ? ` (the first summer after ${first.after.code}, in ${first.after.label})` : '';
+  if (first?.pastLast) {
+    return `${head} ${first.after ? `Its prerequisites on this plan end with ${first.after.code} in ${first.after.label}, so the first summer it can run is Summer ${first.year}` : `The first summer it can run is Summer ${first.year}`}, after this plan's last term (${first.lastLabel}), where Add a summer cannot place it. It sits in ${termLabel} for now to keep the degree complete. Ask your advisor how to fit it in, and check UGA's summer schedule.`;
+  }
+  if (first?.onBoard) {
+    return `${head} Summer ${first.year}${since} is on this plan but had no room for it, so ${sits}. Move it to Summer ${first.year} if you can make room there, and check UGA's summer schedule.`;
+  }
+  const plan = first ? `Summer ${first.year} for it${since}` : `${boardHasSummer ? 'a later summer' : 'a summer'} for it`;
   return boardHasSummer
-    ? `Your degree requires ${course.code}, and the UGA Bulletin lists it for summer only${years}. None of this plan's summers can take it yet, so it sits in ${termLabel} for now to keep the degree complete. Use Add a summer to plan a later summer for it, and check UGA's summer schedule.`
-    : `Your degree requires ${course.code}, and the UGA Bulletin lists it for summer only${years}. This plan has no summer, so it sits in ${termLabel} for now to keep the degree complete. Use Add a summer to plan it in a summer, and check UGA's summer schedule.`;
+    ? `${head} None of this plan's summers can take it yet, so ${sits}. Use Add a summer to plan ${plan}, and check UGA's summer schedule.`
+    : `${head} This plan has no summer, so ${sits}. Use Add a summer to plan ${plan}, and check UGA's summer schedule.`;
+}
+
+/**
+ * Where the first summer a course can run lies against a board's terms
+ * (RequiredSummer), or null where the board cannot tell.
+ */
+export function requiredSummerOn(
+  course: { offeredIn: SemesterSeason[]; summerYears?: SummerYears },
+  groups: ReadonlyArray<{ any: readonly string[]; concurrent?: boolean; priorLearning?: unknown }>,
+  terms: ReadonlyArray<{ season: SemesterSeason; label?: string; id?: string; codes: readonly string[] }>,
+  held: ReadonlySet<string>,
+): RequiredSummer | null {
+  const first = firstSummerFor(course, groups, terms, held);
+  if (!first) return null;
+  const ord = (season: SemesterSeason, year: number) => year * 3 + (season === 'Spring' ? 0 : season === 'Summer' ? 1 : 2);
+  const dated = terms.flatMap((t) => {
+    const year = calendarYearOf(t);
+    return year === null ? [] : [{ label: t.label ?? `${t.season} ${year}`, season: t.season, year, at: ord(t.season, year) }];
+  });
+  const last = dated.sort((a, b) => b.at - a.at)[0];
+  return {
+    year: first.year,
+    after: first.after,
+    onBoard: dated.some((t) => t.season === 'Summer' && t.year === first.year),
+    pastLast: !last || ord('Summer', first.year) > last.at,
+    lastLabel: last?.label ?? '',
+  };
 }
 
 /** A course's fall and spring seasons alone, for counting how many regular terms it runs in. */

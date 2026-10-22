@@ -122,6 +122,12 @@ if (mode === 'compare') {
     if (a.some((r) => r.summerOnlyOff)) {
       say(`Boards holding a class the Bulletin lists for summer only in a fall or spring: ${b.filter((r) => r.summerOnlyOff?.length).length} -> ${a.filter((r) => r.summerOnlyOff?.length).length} (such classes: ${sum(b, (r) => r.summerOnlyOff?.length)} -> ${sum(a, (r) => r.summerOnlyOff?.length)}); of them required with no other choice: ${b.filter((r) => r.summerOnlyRequired?.length).length} -> ${a.filter((r) => r.summerOnlyRequired?.length).length} boards (${[...new Set(a.flatMap((r) => r.summerOnlyRequired ?? []))].sort().join(', ') || 'none'}).`);
     }
+    if (a.some((r) => r.summerAdvice?.length)) {
+      const advice = new Map();
+      for (const r of a) for (const item of r.summerAdvice ?? []) advice.set(item.split(':').pop(), (advice.get(item.split(':').pop()) ?? 0) + 1);
+      const words = { add: 'name the summer to add with Add a summer', move: 'say to move it to a summer the board has', past: 'say its first summer is past the plan\'s last term, where Add a summer cannot reach, and to ask the advisor', unnamed: 'say to add a summer without naming one', none: 'say nothing' };
+      say(`Their cards (after): ${[...advice].map(([k, n]) => `${n} ${words[k] ?? k}`).join('; ')}.`);
+    }
     /*
      * A board meeting fewer degree requirements: more requirement rows unmet,
      * or as many and more required classes left off. A board with fewer rows
@@ -597,6 +603,19 @@ function build(program, kind) {
     board: board.terms.map((t) => `${t.label}: ${t.courseIds.map((id) => context.courses.find((c) => c.id === id)?.code ?? id).join(', ')}`),
     summerOnlyOff: summerOnlyOff(board, context),
     summerOnlyRequired: summerOnlyOff(board, context).filter((code) => requiredSO.has(norm(code))),
+    /*
+     * Added 2026-10-22 (round 2): what the card of each such required class
+     * tells the student: plan a named summer with Add a summer ("add"),
+     * move it to a summer the board has ("move"), that its first summer lies
+     * past the plan's last term, where Add a summer cannot reach ("past"), or
+     * a summer not named ("unnamed").
+     */
+    summerAdvice: summerOnlyOff(board, context).filter((code) => requiredSO.has(norm(code))).map((code) => {
+      const id = context.courses.find((c) => c.code === code)?.id;
+      const message = audit.issues.find((i) => i.courseId === id && i.id.startsWith('ap-offering-'))?.message ?? '';
+      const kind = /after this plan's last term/.test(message) ? 'past' : /is on this plan but had no room/.test(message) ? 'move' : /Use Add a summer to plan Summer \d{4}/.test(message) ? 'add' : /Use Add a summer/.test(message) ? 'unnamed' : 'none';
+      return `${code}:${kind}`;
+    }),
     strict,
     // HARNESS_DEBUG=1: the engine's own reading (its pools, unmet requirements, notes), to set beside the audit's.
     ...(process.env.HARNESS_DEBUG ? { engine: { unsatisfied: generated.unsatisfied.map((u) => `${u.areaLabel}: ${u.label} (${u.reason})`), pools: generated.pools.map((p) => `${p.areaLabel} / ${p.label}: ${p.hours}/${p.hoursTarget ?? '-'}h ${p.count}/${p.countTarget ?? '-'} [${p.picked.join(' ')}] prior [${p.fromPriorCredit.join(' ')}]`), notes: generated.notes, notPlaced: generated.notPlaced.map((x) => `${x.code}: ${x.message}`), electives: generated.electives.map((e) => `${e.code}: ${e.why}`), genEdPicks: (generated.genEdPicks ?? []).map((g) => `${g.code} for ${g.label}`) } } : {}),
@@ -614,4 +633,5 @@ for (let i = k; i < JOBS.length; i += n) {
   }
   process.stdout.write(JSON.stringify({ id: program.id, name: program.name, degree: program.degree, kind: job.kind, ...row }) + '\n');
 }
-process.exit(0);
+// A pipe takes its writes after this line: exit once it has them all, or long rows (HARNESS_DEBUG) are cut off and boards go missing.
+process.stdout.write('', () => process.exit(0));

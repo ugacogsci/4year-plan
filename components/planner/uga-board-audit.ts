@@ -23,7 +23,7 @@ import {
   type TranscriptRecord,
 } from '@/lib/planner/transcript';
 import type { PlanIssue, PlanState } from '@/lib/planner/types';
-import { summerOnlyListed, ugaRequiredSummerOnlyMessage, ugaSummerOnlyMessage } from '@/lib/planner/summer-offering';
+import { requiredSummerOn, summerOnlyListed, ugaRequiredSummerOnlyMessage, ugaSummerOnlyMessage } from '@/lib/planner/summer-offering';
 import { livePools, poolShortfalls } from './live-pools';
 
 export interface UgaAuditInput {
@@ -287,6 +287,9 @@ export function auditUgaBoard(input: UgaAuditInput) {
     context,
   );
   const boardHasSummer = board.terms.some((term) => term.season === 'Summer');
+  // The board's terms by code, and what the student holds, for the first summer such a course can run (requiredSummerOn).
+  const termCodes = board.terms.map((term) => ({ season: term.season, label: term.label, id: term.id, codes: term.courseIds.map((id) => byId.get(id)?.code ?? '').filter(Boolean) }));
+  const heldCodes = new Set(priorCodes.map((code) => code.replace(/\s+/g, ' ').trim().toUpperCase()));
   for (const term of board.terms) {
     if (term.season === 'Summer') continue;
     for (const id of term.courseIds) {
@@ -294,7 +297,7 @@ export function auditUgaBoard(input: UgaAuditInput) {
       if (!course || !summerOnlyListed(course)) continue;
       const issueId = `ap-offering-${term.id}-${id}`;
       const message = requiredSummer.has(course.code)
-        ? ugaRequiredSummerOnlyMessage(course, term.label, boardHasSummer)
+        ? ugaRequiredSummerOnlyMessage(course, term.label, boardHasSummer, requiredSummerOn(course, context.prereqs?.get(course.code)?.groups ?? [], termCodes, heldCodes))
         : ugaSummerOnlyMessage(course, term.label);
       const known = issues.find((issue) => issue.id === issueId);
       if (known) {

@@ -10,7 +10,7 @@ import { PLANNED_AS_RELEASED } from './held-degrees';
 import { compareSampleCourses } from './uga-planning-guidance';
 import { repeatLine, type RepeatAsk } from './repeats';
 import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInput } from './autoplan-release';
-import { calendarYearOf, regularSeasons, runsInSummer, summerOnlyListed, ugaSummerOnlyMessage, type SummerYears } from './summer-offering';
+import { calendarYearOf, regularSeasons, requiredSummerOn, runsInSummer, summerOnlyListed, ugaSummerOnlyMessage, type SummerYears } from './summer-offering';
 
 /**
  * The deterministic half of the planner: build a four-year plan, and check one.
@@ -6726,6 +6726,149 @@ function summerOnlyCodes(ctx: PlanningContext): Set<string> {
 }
 
 /**
+ * A board with each of `codes` (summer-only courses the planner booked in a
+ * fall or spring) traded, in its own seat, for another course of the same
+ * rows, or null where one has no such trade.
+ *
+ * Built again with the listing in force, a board moved more than the one
+ * course: on a Plant Biology junior's three terms ARHI 2300, a fall-only
+ * World Languages pick in place of ARHI 2121, took the last fall's seat from
+ * BINF 4550, which the emphasis requires and runs only in fall, and a
+ * pre-med Fisheries and Wildlife board and an incoming Risk Management board
+ * each left one more required course off (2026-10-22). A trade keeps every
+ * other course where it was. The course that comes in counts for every row
+ * the one it replaces counts for (each row and list naming it names it too),
+ * carries the same hours, is neither held nor on the board in any version,
+ * is not itself summer-only, and runs in that term (or, where none does,
+ * the nearest fall or spring with room); and the board may lose nothing the
+ * gate measures (gateWorse: a prerequisite, standing, season, lab, load or
+ * requirement). The pool's own ranking of its alternatives picks among
+ * them, and a course is given up after sixty boards tried.
+ */
+function tradeSummerOnly(board: GeneratedPlan, given: AutoplanInput, codes: string[]): GeneratedPlan | null {
+  const ctx = given.context;
+  const byCode = catalogByCode(ctx.courses);
+  const equivalents = ctx.equivalents ?? new Map<string, string[]>();
+  const published = ctx.offeringPublished ?? new Set<string>();
+  const held = new Set([...(given.prior?.courseCodes ?? []), ...(given.prior?.exemptCodes ?? [])].flatMap((c) => expandEquivalents(normaliseCode(c), equivalents)));
+  const base = gateMeasure(board, given, board.language ?? null);
+  const namesOf = (r: PlanRequirement): string[] => (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool' ? r.rule.choices.flatMap((choice) => choice.codes.map(normaliseCode)) : []);
+  let g = board;
+  for (const out of codes) {
+    const at = g.terms.findIndex((t) => t.season !== 'Summer' && t.codes.some((c) => normaliseCode(c) === out));
+    if (at < 0) continue;
+    // A course another one was booked for keeps it: its prerequisite would be left on the board for nothing.
+    if (g.addedPrerequisites.some((a) => normaliseCode(a.requiredBy) === out)) return null;
+    const hours = planCreditRange([out], ctx);
+    const rows = given.requirements.filter((r) => namesOf(r).includes(out));
+    /*
+     * The rows the course counts for that would miss it: every take-all and
+     * choose row naming it, and a pool naming it only where the board's own
+     * count of the pool falls short without it (an "Open Major Electives"
+     * list three emphases print, already full, needs nothing back).
+     */
+    const needs = rows.filter((r) => {
+      if (r.rule.kind !== 'pool') return true;
+      const report = g.pools.find((p) => p.requirementId === r.id);
+      if (!report) return true;
+      if (!report.picked.some((c) => normaliseCode(c) === out)) return false;
+      return (report.hoursTarget !== null && report.hours - hours.min < report.hoursTarget) || (report.countTarget !== null && report.count - 1 < report.countTarget);
+    });
+    const lists = needs.flatMap((r) => (r.rule.kind === 'pool' ? r.rule.lists.filter((list) => list.codes.some((c) => normaliseCode(c) === out)) : []));
+    /*
+     * A prerequisite the plan added stands in for another course of the same
+     * group (GRMN 2110, summer only, for GRMN 3010's "GRMN 2002 or GRMN 2110
+     * or GRMN 2140H"); a course nothing names or asks for is not traded here.
+     */
+    const asked = g.addedPrerequisites.filter((a) => normaliseCode(a.code) === out);
+    const groupsFor = asked.map((a) => (ctx.prereqs?.get(normaliseCode(a.requiredBy))?.groups ?? []).filter((group) => group.any.some((c) => normaliseCode(c) === out)).flatMap((group) => group.any.map(normaliseCode)));
+    /*
+     * An elective the fill booked for hours alone stands in for another of
+     * that term's elective options, best first, as the card's own dropdown
+     * ranks them (electiveOptions): a Psychology freshman's BIOL 3840 and
+     * BIOL 3460, summer only, were two of her electives.
+     */
+    const elective = rows.length === 0 && asked.length === 0 && (g.bookedFor?.[out] ?? null) === null ? g.electives.find((e) => normaliseCode(e.code) === out && !e.track) : undefined;
+    const options = elective
+      ? electiveOptions({
+          context: ctx, requirements: given.requirements, termId: g.terms[at].id, prior: given.prior,
+          plan: { ...g.plan, terms: g.plan.terms.map((t) => ({ ...t, courseIds: t.courseIds.filter((id) => id !== courseIdFor(out)) })) },
+          interests: given.interests, career: given.career, programName: given.programName, programCollege: given.programCollege,
+          priorities: given.preferences?.priorities, electiveCodes: g.electives.map((e) => normaliseCode(e.code)).filter((c) => c !== out), limit: 30,
+        })
+      : [];
+    if (rows.length === 0 && !elective && (asked.length === 0 || groupsFor.some((names) => names.length === 0))) return null;
+    const countsAlike = (code: string) =>
+      needs.every((r) => namesOf(r).includes(code)) &&
+      lists.every((list) => list.codes.some((c) => normaliseCode(c) === code)) &&
+      groupsFor.every((names) => names.includes(code));
+    const bookedFor = g.bookedFor?.[out] ?? null;
+    const pool = g.pools.find((p) => p.requirementId === bookedFor) ?? g.pools.find((p) => p.picked.some((c) => normaliseCode(c) === out));
+    const onBoard = new Set(g.terms.flatMap((t) => t.codes.map(normaliseCode)).flatMap((c) => expandEquivalents(c, equivalents)));
+    const order = [...new Set([...(pool?.alternatives ?? []).map(normaliseCode), ...needs.flatMap(namesOf), ...groupsFor.flat(), ...options.map((o) => normaliseCode(o.code))])];
+    // Its own seat first, then the nearest other fall or spring the board uses (an elective's options are its term's).
+    const seats = elective ? [at] : g.terms.map((t, i) => i).filter((i) => g.terms[i].season !== 'Summer' && g.terms[i].codes.length > 0).sort((a, b) => Math.abs(a - at) - Math.abs(b - at) || a - b);
+    let traded: GeneratedPlan | null = null;
+    let tries = 0;
+    for (const code of order) {
+      if (tries >= 60) break;
+      const course = byCode.get(code);
+      if (code === out || !course || summerOnlyListed(course)) continue;
+      if (expandEquivalents(code, equivalents).some((c) => onBoard.has(c) || held.has(c))) continue;
+      if (!countsAlike(code)) continue;
+      const range = planCreditRange([code], ctx);
+      if (range.min !== hours.min || range.max !== hours.max) continue;
+      for (const to of seats) {
+        if (outOfSeason(course, g.terms[to], published.has(code)) || tries >= 60) continue;
+        tries += 1;
+        const option = options.find((o) => normaliseCode(o.code) === code);
+        const trial = withCourseTraded(g, out, code, to, ctx, option ? { why: option.why, reasons: option.reasons } : undefined);
+        if (gateWorse(gateMeasure(trial, given, trial.language ?? null), base).length > 0) continue;
+        traded = trial;
+        break;
+      }
+      if (traded) break;
+    }
+    if (!traded) return null;
+    g = traded;
+  }
+  return g;
+}
+
+/** `g` with course `out` off the board and `into` in term `to`, wherever the board, its reports and its words name it. */
+function withCourseTraded(g: GeneratedPlan, out: string, into: string, to: number, ctx: PlanningContext, elective?: { why: string; reasons: string[] }): GeneratedPlan {
+  const published = ctx.offeringPublished ?? new Set<string>();
+  const swap = (code: string) => (normaliseCode(code) === out ? into : code);
+  const escaped = out.replace(/[.*+?^$()|[\]\\{}]/g, (c) => `\\${c}`);
+  const word = new RegExp(`\\b${escaped}\\b`, 'g');
+  const say = (text: string) => text.replace(word, into);
+  const bookedFor = g.bookedFor ? Object.fromEntries(Object.entries(g.bookedFor).map(([code, why]) => [swap(code), why])) : undefined;
+  const termCodes = g.terms.map((t, i) => {
+    const kept = t.codes.filter((c) => normaliseCode(c) !== out);
+    return i === to ? [...kept, into] : kept;
+  });
+  return {
+    ...g,
+    plan: { ...g.plan, terms: g.plan.terms.map((t) => {
+      const i = g.terms.findIndex((x) => x.id === t.id);
+      return i < 0 || termCodes[i].join() === g.terms[i].codes.join() ? t : { ...t, courseIds: [...t.courseIds.filter((id) => id !== courseIdFor(out)), ...(i === to ? [courseIdFor(into)] : [])] };
+    }) },
+    terms: g.terms.map((t, i) => (termCodes[i].join() === t.codes.join()
+      ? { ...t, notes: t.notes.map(say) }
+      : { ...t, codes: termCodes[i], credits: planCreditRange(termCodes[i], ctx), load: { ...t.load, hard: t.load.hard.filter((c) => normaliseCode(c) !== out) }, notes: t.notes.map(say) })),
+    pools: g.pools.map((p) => ({ ...p, picked: p.picked.map(swap), alternatives: p.alternatives.filter((c) => normaliseCode(c) !== into), constraints: p.constraints.map((c) => ({ ...c, picked: c.picked.map(swap) })) })),
+    notPlaced: g.notPlaced.map((n) => ({ ...n, message: say(n.message) })),
+    addedPrerequisites: g.addedPrerequisites.map((a) => ({ code: swap(a.code), requiredBy: a.requiredBy })),
+    ...(bookedFor ? { bookedFor } : {}),
+    ...(g.genEdPicks ? { genEdPicks: g.genEdPicks.map((pick) => ({ ...pick, code: swap(pick.code) })) } : {}),
+    // An elective takes the words its option carries (electiveOptions), not the ones of the course it replaces.
+    electives: g.electives.map((e) => (normaliseCode(e.code) === out ? { ...e, code: into, ...(elective ? { why: elective.why, reasons: elective.reasons } : {}) } : e)),
+    offering: { ...g.offering, unknown: [...g.offering.unknown.filter((c) => normaliseCode(c) !== out), ...(published.has(into) ? [] : [into])] },
+    notes: g.notes.map(say),
+  };
+}
+
+/**
  * The planner leaves a course the UGA Bulletin lists for summer only out of
  * falls and springs (outOfSeason; the owner's decision of 2026-10-22).
  *
@@ -6734,8 +6877,9 @@ function summerOnlyCodes(ctx: PlanningContext): Set<string> {
  * or spring it stands as it was: leaving them out reorders the picks the
  * engine weighs, and on a pre-med Dietetics board that alone sent two
  * history courses off a board that had booked no summer-only class at all.
- * A board that did book one is built again with the listing in force, so
- * another eligible course takes its place.
+ * A board that did book one trades it in its own seat for another course of
+ * the same rows (tradeSummerOnly), so nothing else moves; one with no such
+ * trade is built again with that listing alone in force.
  *
  * A degree that requires one with no other choice must not lose it (the
  * degree beats everything): it goes in a summer when the plan has one it
@@ -6758,23 +6902,61 @@ function ugaSummerOnly(given: AutoplanInput, build: (input: AutoplanInput) => Ge
    * board) is listed off the board, as before, in words that say it runs
    * only in summer and that a summer is where it fits.
    */
+  const held = new Set([...(given.prior?.courseCodes ?? []), ...(given.prior?.exemptCodes ?? [])].map(normaliseCode));
   const said = (g: GeneratedPlan): GeneratedPlan => {
     const hasSummer = g.terms.some((t) => t.season === 'Summer');
     for (const n of g.notPlaced) {
-      if (!needed.includes(normaliseCode(n.code))) continue;
+      const code = normaliseCode(n.code);
+      if (!needed.includes(code)) continue;
       if (/for summer only/.test(n.message)) continue;
-      n.message = `${n.message} The UGA Bulletin lists ${n.code} for summer only, and your degree requires it: use Add a summer to plan ${hasSummer ? 'a later summer' : 'a summer'} for it, and check UGA's summer schedule.`;
+      // The summer named where the board shows which, and said plainly where it lies past the last term (summer-offering.ts requiredSummerOn).
+      const course = byCode.get(code);
+      const first = course ? requiredSummerOn(course, given.context.prereqs?.get(code)?.groups ?? [], g.terms, held) : null;
+      n.message = first?.pastLast
+        ? `${n.message} The UGA Bulletin lists ${n.code} for summer only, and your degree requires it; the first summer it can run${first.after ? ` after ${first.after.code} (${first.after.label})` : ''} is Summer ${first.year}, after this plan's last term (${first.lastLabel}), where Add a summer cannot place it. Ask your advisor how to fit it in, and check UGA's summer schedule.`
+        : `${n.message} The UGA Bulletin lists ${n.code} for summer only, and your degree requires it: use Add a summer to plan ${first && !first.onBoard ? `Summer ${first.year}` : hasSummer ? 'a later summer' : 'a summer'} for it, and check UGA's summer schedule.`;
     }
     return g;
   };
-  const before = build(withRelaxed(listed));
-  const clean = before.terms.every((t) => t.season === 'Summer' || t.codes.every((code) => !listed.has(normaliseCode(code)) || relaxed.has(normaliseCode(code))));
-  if (clean) return said(before);
-  const first = build(withRelaxed(relaxed));
-  const onBoard = new Set(first.terms.flatMap((t) => t.codes.map(normaliseCode)));
-  const missed = needed.filter((code) => !relaxed.has(code) && !onBoard.has(code));
-  if (missed.length === 0) return said(first);
-  return said(build(withRelaxed(new Set([...relaxed, ...missed]))));
+  /*
+   * The board built as before (every listing set aside) stands where it
+   * holds none of them in a fall or spring. Where it does, each is traded in
+   * its own seat (tradeSummerOnly); one with no trade has its listing put in
+   * force and the board is built again, with the others still set aside, so
+   * only what must move moves. A required one that then finds no summer
+   * stays where it was planned, with the card's words.
+   */
+  const keep = new Set(relaxed);
+  /*
+   * A required one a summer of the plan runs keeps its listing from the
+   * start: set aside, it read as a fall or spring course with terms to
+   * spare, waited for junior hours past the one summer, and was left off a
+   * board whose Summer 2028 the general education picks filled
+   * (Environmental Economics and Management's WASR 4700L, 2026-10-22).
+   */
+  const loose = new Set([...listed].filter((code) => !needed.includes(code) || keep.has(code)));
+  const offOf = (g: GeneratedPlan) => g.terms.flatMap((t) => (t.season === 'Summer' ? [] : t.codes.map(normaliseCode).filter((code) => listed.has(code) && !keep.has(code))));
+  let board = build(withRelaxed(loose));
+  for (let round = 0; round < 6; round += 1) {
+    const onBoard = new Set(board.terms.flatMap((t) => t.codes.map(normaliseCode)));
+    const missed = needed.filter((code) => !loose.has(code) && !keep.has(code) && !onBoard.has(code));
+    if (missed.length > 0) {
+      for (const code of missed) {
+        keep.add(code);
+        loose.add(code);
+      }
+      board = build(withRelaxed(loose));
+      continue;
+    }
+    const off = offOf(board);
+    if (off.length === 0) break;
+    const traded = tradeSummerOnly(board, given, off);
+    if (traded) return said(traded);
+    const stuck = off.filter((code) => !tradeSummerOnly(board, given, [code]));
+    for (const code of stuck.length > 0 ? stuck : off) loose.delete(code);
+    board = build(withRelaxed(loose));
+  }
+  return said(board);
 }
 
 /**
