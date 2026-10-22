@@ -169,6 +169,7 @@ import { alignExamsToCollege, examCourses, examCreditNotes, examElectiveHours, e
 import { areaProgress, type ProgramRequirements } from '@/lib/planner/scheduler';
 import { transcriptCourseCredits, transcriptCreditSummary, transcriptExemptCodes, transcriptInProgressCodes, withTranscriptCredits } from '@/lib/planner/transcript';
 import { alreadyTaken } from '@/lib/planner/already-taken';
+import { ugaShownNotes } from '@/lib/planner/uga-plan-notes';
 import { auditUgaBoard, ugaProgressLoss } from './uga-board-audit';
 import { admissionGoal, chooseAdmission, describeAdmissionChoice, goalFromQuery, readEntry, type AdmissionChoice } from '@/lib/planner/admission-route';
 import { routeQuestion, sectionRowsFrom, type AskContext, type PlannedCourse } from '@/lib/planner/ask-router';
@@ -2122,6 +2123,9 @@ export function PlannerWorkspace({
     const names = kept.map((t) => `${t.season} ${t.year}`);
     return { hours, terms: names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? '') };
   }, [loaded, answers, planShape, boardTerms]);
+
+  /** The start note as a build today would write it (plan-start.ts), so a UGA board shows it while it is still true. */
+  const ugaStartNote = useMemo(() => (isUga && plan ? horizonFor(answers, new Date(), planShape).startNote : null), [isUga, plan, answers, planShape]);
 
   /**
    * The semester in progress, as the board's first column: the student's
@@ -6455,9 +6459,11 @@ export function PlannerWorkspace({
     ...(ugaSamplePlans.length > 0 ? ["UGA's published sample plans break ties between otherwise equally suitable courses. They do not override prerequisites, your preferences, or degree requirements. Unnamed elective slots in those samples are not treated as named recommendations."] : []),
     ...(activeProgramTotal && plan ? overTotal(totalCredits, activeProgramTotal) : []),
     // Generation-time counts are not facts about an edited board. UGA's
-    // current audit supplies shortfalls and assumptions instead.
-    // The one note UGA keeps: a board saved while its first term was still open (the restore above).
-    ...(isUga ? planNotes.filter((n) => n.startsWith('This plan was saved when ')) : planNotes),
+    // current audit supplies shortfalls and assumptions instead; the notes
+    // that are not counts show (uga-plan-notes.ts): a board saved while its
+    // first term was open, the start note, the career track's note, the
+    // goal's courses.
+    ...(isUga ? ugaShownNotes(planNotes, ugaStartNote) : planNotes),
     ...(core?.meta?.notes ?? []).map(studentWording),
     ...(isUga
       ? [
