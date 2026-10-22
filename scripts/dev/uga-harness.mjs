@@ -30,6 +30,10 @@
  *   second-nf  The same sophomore, the transcript printed without Fall 2026.
  *   third      "I'm a junior." Fall 2024 to Spring 2026 done (about 60), Fall
  *              2026 in progress (about 75 by December).
+ *   first-premed The freshman, saying "I want to go to medical school": UGA's
+ *              pre-med track (uga-career-tracks.ts), with the track's hours
+ *              set as the workspace sets them (setUgaTrackHours). Added
+ *              2026-10-22; a checkout before the pre-health tracks books none.
  * The transcripts are the program's own courses: the first terms of the
  * board this checkout's engine builds for a student who started in Fall 2025
  * (or 2024), written once by `fixtures` so both checkouts read the same ones.
@@ -76,6 +80,7 @@ const KINDS = {
   second: { words: "I'm a sophomore.", record: 'second' },
   'second-nf': { words: "I'm a sophomore.", record: 'second-nf' },
   third: { words: "I'm a junior.", record: 'third' },
+  'first-premed': { words: "I'm a freshman.", after: 'I want to go to medical school.', record: null },
 };
 const KIND_NAMES = (process.env.HARNESS_KINDS ?? Object.keys(KINDS).join(',')).split(',').map((s) => s.trim()).filter((k) => KINDS[k]);
 
@@ -96,13 +101,13 @@ if (mode === 'compare') {
   const avg = (list, f) => (list.length ? (sum(list, f) / list.length).toFixed(1) : '-');
   say(`# UGA before/after: ${before.size} boards before, ${after.size} after`);
   say();
-  say('| kind | boards | start (before -> after) | terms planned, avg | total credits, avg | required classes not placed | unmet requirement rows | issues that matter now, avg | board bar items, avg | boards saying "Nothing needs attention" | boards short of the degree total | terms over 18 |');
-  say('|---|---|---|---|---|---|---|---|---|---|---|---|');
+  say('| kind | boards | start (before -> after) | terms planned, avg | total credits, avg | required classes not placed | unmet requirement rows | issues that matter now, avg | board bar items, avg | boards saying "Nothing needs attention" | boards short of the degree total | terms over 18 | track courses booked | track labs apart from their lecture |');
+  say('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const kind of KIND_NAMES) {
     const b = [...before.values()].filter((r) => r.kind === kind && r.ok);
     const a = [...after.values()].filter((r) => r.kind === kind && r.ok);
     const starts = (list) => [...new Set(list.map((r) => r.start))].join('/');
-    say(`| ${kind} | ${b.length} -> ${a.length} | ${starts(b)} -> ${starts(a)} | ${avg(b, (r) => r.terms)} -> ${avg(a, (r) => r.terms)} | ${avg(b, (r) => r.total)} -> ${avg(a, (r) => r.total)} | ${sum(b, (r) => r.notPlaced)} -> ${sum(a, (r) => r.notPlaced)} | ${sum(b, (r) => r.unmetRows)} -> ${sum(a, (r) => r.unmetRows)} | ${avg(b, (r) => r.attention)} -> ${avg(a, (r) => r.attention)} | ${avg(b, (r) => r.bar)} -> ${avg(a, (r) => r.bar)} | ${b.filter((r) => r.bar === 0).length} -> ${a.filter((r) => r.bar === 0).length} | ${b.filter((r) => r.short).length} -> ${a.filter((r) => r.short).length} | ${sum(b, (r) => r.over18)} -> ${sum(a, (r) => r.over18)} |`);
+    say(`| ${kind} | ${b.length} -> ${a.length} | ${starts(b)} -> ${starts(a)} | ${avg(b, (r) => r.terms)} -> ${avg(a, (r) => r.terms)} | ${avg(b, (r) => r.total)} -> ${avg(a, (r) => r.total)} | ${sum(b, (r) => r.notPlaced)} -> ${sum(a, (r) => r.notPlaced)} | ${sum(b, (r) => r.unmetRows)} -> ${sum(a, (r) => r.unmetRows)} | ${avg(b, (r) => r.attention)} -> ${avg(a, (r) => r.attention)} | ${avg(b, (r) => r.bar)} -> ${avg(a, (r) => r.bar)} | ${b.filter((r) => r.bar === 0).length} -> ${a.filter((r) => r.bar === 0).length} | ${b.filter((r) => r.short).length} -> ${a.filter((r) => r.short).length} | ${sum(b, (r) => r.over18)} -> ${sum(a, (r) => r.over18)} | ${sum(b, (r) => r.trackCodes?.length)} -> ${sum(a, (r) => r.trackCodes?.length)} | ${sum(b, (r) => r.labsApart?.length)} -> ${sum(a, (r) => r.labsApart?.length)} |`);
   }
   say();
   // What the attention items are, before and after.
@@ -139,6 +144,7 @@ if (mode === 'compare') {
     if (a.short && !b.short) why.push(`now short of the degree total (${a.total} of ${a.target})`);
     if ((a.bar ?? a.attention) > (b.bar ?? b.attention)) why.push(`board bar ${b.bar ?? b.attention} -> ${a.bar ?? a.attention}: ${(a.barKinds ?? a.attentionKinds ?? []).filter((x) => !(b.barKinds ?? b.attentionKinds ?? []).includes(x)).join('; ')}`);
     if (a.over18 > b.over18) why.push(`terms over 18 credits ${b.over18} -> ${a.over18}`);
+    if ((a.labsApart?.length ?? 0) > (b.labsApart?.length ?? 0)) why.push(`track labs apart from their lecture ${b.labsApart?.length ?? 0} -> ${a.labsApart.length}: ${a.labsApart.join(', ')}`);
     if (why.length) worse.push(`- ${a.name} (${a.id}), ${a.kind}: ${why.join('; ')}`);
   }
   const better = [...after].filter(([k, a]) => { const b = before.get(k); return b?.ok && a.ok && ((a.bar ?? a.attention) < (b.bar ?? b.attention) || a.notPlaced < b.notPlaced || a.unmetRows < b.unmetRows); }).length;
@@ -309,6 +315,7 @@ const S = await lib('lib/planner/saved-board.ts');
 // The board bar's own reading of the issues (2026-10-20 on), when this checkout has it.
 const W = existsSync(join(ROOT, 'lib/planner/warnings-triage.ts')) ? await lib('lib/planner/warnings-triage.ts') : null;
 const hasPlanStart = existsSync(join(ROOT, 'lib/planner/plan-start.ts'));
+const CT = await lib('lib/planner/career-tracks.ts');
 
 /** The checkout's horizonFor: lib/planner/plan-start.ts, or cut from the workspace of a checkout before it. */
 async function horizonOf() {
@@ -334,6 +341,15 @@ async function horizonOf() {
 }
 const horizonFor = await horizonOf();
 
+/** UGA's track labs (BIOL 1107L with BIOL 1107 ...) on the board in another term than their lecture, or with no lecture held or booked. */
+const UGA_LABS = CT.UGA_CAREER_TRACKS ? CT.labPartners(CT.UGA_CAREER_TRACKS) : new Map();
+function labsApartOf(board, context) {
+  const at = new Map();
+  board.terms.forEach((t, i) => t.courseIds.forEach((id) => { const c = context.courses.find((x) => x.id === id); if (c) at.set(norm(c.code), i); }));
+  const held = new Set(board.completedCourseIds.map((id) => norm(context.courses.find((x) => x.id === id)?.code ?? '')));
+  return [...UGA_LABS].filter(([lab, lecture]) => at.has(lab) && !held.has(lecture) && at.get(lab) !== at.get(lecture)).map(([lab]) => lab);
+}
+
 function answersFor(kind, record) {
   const { words } = KINDS[kind];
   const academicYear = KINDS[kind].academicYear ?? O.inferAcademicYear(words);
@@ -343,7 +359,7 @@ function answersFor(kind, record) {
     schoolId: 'uga', programLevel: 'undergraduate', programIds: [], minorIds: [], certificateIds: [], doubleDawgsPathwayId: null,
     emphasisSelections: {}, collegeId: '', academicYear,
     graduationSeason: said.season || suggested.season, graduationYear: said.year ?? suggested.year,
-    alreadyTakenCourseCodes: [], studying: '', timeline: words, timelineAt: TODAY.toISOString(), after: words,
+    alreadyTakenCourseCodes: [], studying: '', timeline: words, timelineAt: TODAY.toISOString(), after: KINDS[kind].after ?? words,
     exams: [], transferText: '', transcript: record, languageYears: null, language: '',
   };
 }
@@ -355,6 +371,8 @@ function build(program, kind) {
   const record = recordName ? fixture[recordName] : null;
   const answers = answersFor(kind, record);
   const { loaded, samplePlanCourses } = loadProgram(program);
+  // The goal's hours, as the workspace's context sets them before the transcript's (a checkout before the tracks has none).
+  if (U.setUgaTrackHours && CT?.ugaTrackCodes) U.setUgaTrackHours(data, CT.ugaTrackCodes(CT.interestProfile(answers.after ?? '')));
   const context = { ...T.withTranscriptCredits(data.context, record), samplePlanCourses };
   const ctxByCode = new Map(context.courses.map((c) => [norm(c.code), c]));
   const recordedCredits = T.transcriptCourseCredits(record);
@@ -443,6 +461,10 @@ function build(program, kind) {
     barKinds,
     over18: loads.filter((l) => l > 18).length,
     maxLoad: Math.max(0, ...loads),
+    // The pre-health track: what it booked, and any of its labs placed apart from (or without) its lecture.
+    trackCodes: (generated.electives ?? []).filter((e) => e.track).map((e) => e.code),
+    labsApart: labsApartOf(board, context),
+    notes: generated.notes.length,
   };
 }
 
