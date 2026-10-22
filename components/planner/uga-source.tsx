@@ -618,6 +618,34 @@ function statedGroupHours(group: RawUgaRequirementGroup): number {
   return group.courses.reduce((sum, course) => sum + course.credits, 0);
 }
 
+/** Whether a group of an area is read as a pool to draw hours from, not a row of courses (adaptProgram). */
+function poolLikeGroup(area: RawUgaRequirementArea, group: RawUgaRequirementGroup): boolean {
+  const listedHours = group.courses.reduce((sum, course) => sum + course.credits, 0);
+  const poolWords = `${area.label} ${group.label}`;
+  return (
+    (group.lists?.some((list) => list.codes.length > 0) ?? false) ||
+    (/preferred courses?/i.test(group.label) && listedHours > area.hours) ||
+    (group.choose === null &&
+      area.hours > 0 &&
+      (group.hours != null ||
+        listedHours > area.hours + 4 ||
+        /elective|restricted|choose|select|experiential/i.test(poolWords)))
+  );
+}
+
+/**
+ * The hours an area's rows come to read as courses apart, with `group`'s
+ * picks at `pickHours`: every row of courses (not a pool to draw hours from)
+ * at its stated hours. Where this is more than the area states, the page
+ * counts some of its courses in two of its rows (adaptProgram keeps such a
+ * choose row as printed).
+ */
+export function ugaAreaHoursApart(area: UgaProgram['areas'][number], group: UgaProgram['areas'][number]['groups'][number], pickHours: number): number {
+  return area.groups
+    .filter((other) => other !== group && other.courses.length > 0 && !poolLikeGroup(area, other))
+    .reduce((sum, other) => sum + statedGroupHours(other), pickHours);
+}
+
 function adaptProgram(
   program: UgaProgram,
   byCode: Map<string, Course>,
@@ -695,19 +723,7 @@ function adaptProgram(
         const ordinary = choices.filter((choice) => (choice.credits ?? 0) >= 3);
         if (ordinary.length >= group.choose) choices = ordinary;
       }
-      const listedHours = group.courses.reduce(
-        (sum, course) => sum + course.credits,
-        0,
-      );
-      const poolWords = `${area.label} ${group.label}`;
-      const isPool =
-        (group.lists?.some((list) => list.codes.length > 0) ?? false) ||
-        (/preferred courses?/i.test(group.label) && listedHours > area.hours) ||
-        (group.choose === null &&
-        area.hours > 0 &&
-        (group.hours != null ||
-          listedHours > area.hours + 4 ||
-          /elective|restricted|choose|select|experiential/i.test(poolWords)));
+      const isPool = poolLikeGroup(area, group);
       // A required course cannot also fill a later elective pool. UGA repeats
       // those codes inside broad campus and subject lists, so remove them before
       // the pool reaches the scheduler instead of relying on display-time math.
@@ -731,12 +747,19 @@ function adaptProgram(
        * again among "choose 2", and the pre-med freshman's board took it as
        * one of the two (Field of Study Curriculum 18 of 21, 2026-10-22). Only
        * within the area: UGA lets a course count in a Core area and a major
-       * area both. Kept as printed where too few picks would remain.
+       * area both. Kept as printed where too few picks would remain, and
+       * where the area's own hours say its rows overlap: read as courses
+       * apart, Marketing's rows come to the 21 hours the area states, but
+       * TESOL's German Education rows (GRMN 3010, 3020 and 4001, then five
+       * GRMN 3XXX) come to 24 of the area's 15, so the page counts its
+       * required courses among the five, and asking for five more left
+       * other rows' courses off its boards.
        */
       let trimmed = false;
       if (group.choose !== null && !isPool && fixedInArea.size > 0) {
         const open = choices.filter((choice) => choice.codes.every((code) => !fixedInArea.has(code)));
-        if (open.length < choices.length && open.length >= group.choose) {
+        const pickHours = open.map((choice) => choice.credits ?? 3).sort((a, b) => a - b).slice(0, group.choose).reduce((sum, hours) => sum + hours, 0);
+        if (open.length < choices.length && open.length >= group.choose && (area.hours <= 0 || ugaAreaHoursApart(area, group, pickHours) <= area.hours)) {
           choices = open;
           trimmed = true;
         }
