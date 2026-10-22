@@ -459,13 +459,14 @@ export type AdvisorToolName =
  * find_clubs (ARCH's prompt says what to say instead). course_syllabus reads
  * UGA's own shards (public/uga/syllabi) since 2026-10-15, and term_syllabi
  * (many courses at once, by instructor) the same shards since 2026-10-18.
- * Left out until they are checked on a UGA board: set_priorities and
- * set_plan_shape (the overload rule they relay comes from Illinois's
- * colleges).
  * add_summer and remove_summer are in since 2026-10-20: they put an empty
- * summer column on the board or take one off and rebuild nothing; since
- * 2026-10-22 a Rebuild fills a UGA summer from the UGA Bulletin's "Semester
- * Course Offered" line (public/uga-catalog.json, summer-offering.ts).
+ * summer column on the board or take one off and rebuild nothing.
+ * set_priorities and set_plan_shape are in since 2026-10-22, in UGA's own
+ * words below: set_plan_shape answers with UGA's course-load rule
+ * (uga-load-rules.ts, the Registrar's 18 hours) rather than an Illinois
+ * college's, and fills a summer from the UGA Bulletin's "Semester Course
+ * Offered" line (public/uga-catalog.json, summer-offering.ts) rather than
+ * Illinois's offering history.
  */
 export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolName>([
   'search_courses',
@@ -483,6 +484,8 @@ export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolN
   'explain_choice',
   'what_if',
   'review_board',
+  'set_priorities',
+  'set_plan_shape',
   'exam_credit',
   'prior_credit',
   'find_equivalent',
@@ -519,6 +522,22 @@ const UGA_TOOL_TEXT: Partial<Record<AdvisorToolName, { description: string; prop
   add_summer: {
     description:
       "Put an empty summer column on the board between its first and last terms (\"Summer 2027\"), the same as the board's Add a summer button. Nothing is rebuilt, moved or removed, and the summer stays through Rebuild and reload; a Rebuild fills it with classes the UGA Bulletin lists for summer, at most 9 credits. Use it only when the student asks for a summer or says yes to one; then put in the classes they want there with add_course or move_course. The result lists the board's terms afterwards and a note to pass on.",
+  },
+  set_priorities: {
+    description:
+      "Change what the planner optimises for when it picks electives and orders choices, and re-pick its own picks. At UGA two of the five knobs have data behind them: relevance to what the student is studying and wants to do after (their interests and career words, read for interest topics; no career-track course lists are loaded for UGA) and covering more requirements at once. Workload (grade history), teaching ratings and schedule fit (class times, days, online or in person) are not loaded for UGA, so setting them saves the preference and chooses nothing: say so. Each knob is 0 (ignore), 1 (counts) or 2 (matters most); a preset sets all five. With repick true (the default) the planner swaps its own picks, the elective slots and the from-a-list courses, for the best under the new priorities and leaves required and student-added courses alone, never breaking a prerequisite, overloading a term or using a term a course does not run in; the result lists the net changes, so tell the student. A Double Dawgs board is not re-picked: the priorities wait for its next Rebuild, and the result says so. The same priorities and interests the board was built or last re-picked for move nothing, and the result says so. A re-pick changes the board: use it only for a change the student asked for or said yes to.",
+    properties: {
+      interests: { description: 'What the student said they want to do, in their own words ("machine learning", "investment banking", "physical therapy school"). The planner ranks electives and list picks against these words and the interest topics it reads from them; the result says what it recognised and which topics are now active.' },
+    },
+  },
+  set_plan_shape: {
+    description:
+      "Change the shape of the plan and rebuild the board: credits per term (a minimum, and a target or null for an even share), the finish term, terms away from campus (study abroad, a co-op, an internship, a gap semester: nothing is booked in them; a semester abroad still counts its approved hours toward the degree), and summers the student will take classes in (the planner books only classes the UGA Bulletin lists for summer, in the years it lists them, and at most 9 credits a summer, its own ceiling under UGA's 18-hour term limit; summers make the falls and springs lighter and never move the finish by themselves). Use it for \"I work 20 hours, only 12 credits\", \"I want to graduate a semester early\", \"I'm studying abroad spring 2029\", \"I'll take summer classes\". A lighter load needs a later finish: say so and set both. Above 18 is never planned: the result gives UGA's rule instead. Rebuilding replaces the student's own edits to the board, so when they have made some the tool asks for their yes first. It changes the board: use it only for a change the student asked for or said yes to. Afterwards call review_board and tell the student what changed.",
+    properties: {
+      min_credits: { description: "The fewest credits a fall or spring term may hold (12 is full time at UGA). Under 12 is part-time and the result carries the note to relay. Above 18 is never planned: the result gives UGA's rule instead." },
+      away: { description: 'Fall or spring terms the student is away, each "Spring 2029" or {"term": "Spring 2029", "kind": "study_abroad", "credits": 15}. A semester abroad counts 15 hours unless credits says otherwise (at most 18); a co-op, internship or gap term counts none. Each must fall inside the plan. With no finish set, the default finish moves later so the student keeps eight falls and springs on campus, less what a semester abroad earns. Replaces the list.' },
+      spread_hard: { description: 'One hardest-band course a term where the degree allows. No grade history is loaded for UGA, so no UGA course is in the hardest band and this changes nothing there.' },
+    },
   },
   replace_course: {
     description:
@@ -831,6 +850,18 @@ const UGA_WHO_DECIDES = [
 ].join('\n');
 
 /*
+ * UGA's course load, as its Registrar states it (read 2026-10-20; the pages and
+ * quotes are in uga-load-rules.ts): reg.uga.edu/registration/schedule-adjustments/
+ * "Undergraduate students may register for a maximum of 18 hours during the
+ * fall, spring, and summer" and "may request a change in credit limit by
+ * obtaining approval from their advisors"; reg.uga.edu/student-records/
+ * enrollment-verifications/ 12 hours full time in fall or spring, 6 in summer;
+ * financial aid counts 12 (osfa.uga.edu). The 9-credit summer is the planner's.
+ */
+const UGA_LOAD_RULE =
+  "- Credit load: UGA's Registrar lets an undergraduate register for at most 18 hours in a fall, spring or summer term; more needs a higher credit limit, approved by the student's academic advisor. Full time is 12 hours in a fall or spring term (6 in summer for the Registrar's enrollment verification; financial aid counts 12). Never plan above 18: for a student who asks for more, call set_plan_shape with the number and relay UGA's rule it returns. The planner keeps a summer to 9 credits by its own choice: never call 9 a UGA limit.";
+
+/*
  * What the planner holds for Illinois only. ARCH says so instead of filling
  * the gap from memory (the audit of 2026-10-14 found nothing told it what to
  * say instead, so it could answer from memory).
@@ -840,8 +871,6 @@ const UGA_NOT_LOADED = [
   '- Class times, sections and the weekly clash check: not loaded for UGA. The plan picks courses for each term, not sections; days, times and instructors are chosen at registration. Never state a meeting time, and say that whether a term\'s courses fit in one week is not checked.',
   '- Grade history and teaching ratings: none are loaded for UGA, so you cannot rank courses by difficulty or by teaching, and a term cannot be called heavy or light by grades. Judge a term by what is in it (labs, upper-level major courses, credits) and say that is all you go on. Never cite RateMyProfessors or any outside site, and never call an instructor good or bad.',
   '- Getting into a competitive major or college, a second major, minors and certificates: the planner does not check these for UGA. Say so, answer from UGA\'s pages with university_answer, and send the student to the department.',
-  '- Credits per term, the finish date and terms away: you cannot change these from the chat for UGA yet. Credits per term are set in Preferences ("Credits you want each term, about") and then Rebuild, which replaces the student\'s own edits to the board; for the rest, say plainly that it cannot be set from here yet.',
-  "- Summers: add_summer puts an empty summer column on the board when the student asks for one, and remove_summer takes one off (one that holds classes only after you name them and the student says yes). The planner fills a summer only with classes the UGA Bulletin lists for summer (a class listed for every other summer only in those years), at most 9 credits, when the student presses Rebuild; the 9 is the planner's own ceiling, never a UGA limit. course_details says what the Bulletin lists for a class; never say a class runs in a summer the Bulletin does not list it for. Nothing you can call rebuilds the board around summers.",
   '- Summer sessions and sections: the planner knows which classes the UGA Bulletin lists for summer, not which summer session or section runs one, or when. For summer sessions and their dates use university_answer.',
 ].join('\n');
 
@@ -853,8 +882,9 @@ const UGA_NOT_LOADED = [
  * Why ARCH asks before every change. An earlier test (2026-10) saw ARCH swap a
  * course nobody asked for and then say it had changed nothing: its old prompt
  * said to act on an interest "without stopping to ask" and gave it no rule
- * about reporting changes. ALMA acts on an interest through set_priorities,
- * which ARCH does not have yet, so ARCH proposes and acts on a yes.
+ * about reporting changes. ALMA acts on an interest through set_priorities.
+ * ARCH has set_priorities and set_plan_shape too since 2026-10-22, and keeps
+ * the stricter rule for them: it proposes, and acts on a yes.
  */
 function ugaAdvisorSystem(bot: string, schoolName: string, schoolShort: string): string {
   return `${introLine(bot, schoolName, schoolShort)}
@@ -872,6 +902,11 @@ Changing the board: ask first, change only what was asked, say exactly what chan
 - Change only what was asked. Do not also swap another course, move something to tidy a term, or improve something the student did not mention; offer it instead.
 - An interest ("I really like history", "I want more data science") is a reason to search and propose, not to edit: search_courses for courses in that area eligible in a term, name the elective slots or gen ed picks you would swap and what for, and ask. Act on their yes.
 - After editing, say exactly what changed: the summary of every edit tool that returned ok true in this turn, and nothing more. A tool that returned ok false changed nothing: say so and why. Never say you changed nothing after an edit succeeded, and never describe a change no tool made. record_prior_credit and drop_prior_credit rebuild the plan: say it was rebuilt, then describe the new board from review_board or term_summary, not from memory.
+
+Plan shape, priorities and summers
+- set_plan_shape changes credits per term, the finish, terms away and summers, and rebuilds the board; set_priorities changes what the planner's own picks optimise for and re-picks them. Both change the board, so the rules above apply: use them for a change the student asked for or said yes to, then say what changed (call review_board after set_plan_shape).
+- At UGA only relevance (the student's interests and goals) and coverage have data behind them. No grade history, teaching ratings or class times are loaded, so a wish for easier classes, better professors or a time of day chooses nothing: say so rather than promising it.
+- Summers: add_summer puts an empty summer column on the board when the student asks for one, and remove_summer takes one off (one that holds classes only after you name them and the student says yes); set_plan_shape summers rebuilds the board with its summers filled. The planner fills a summer only with classes the UGA Bulletin lists for summer (a class listed for every other summer only in those years), at most 9 credits. course_details says what the Bulletin lists for a class; never say a class runs in a summer the Bulletin does not list it for.
 
 What you are for
 ${answerAnyLine(schoolShort)}
@@ -898,6 +933,7 @@ Students with credit coming in
 UGA dates and rules you state
 - Drop/add, withdrawal, last day of classes, finals and registration dates come from the "UGA term dates" block below, for the term in progress and the next one. State only those dates, and link the page the block names for them as a markdown link, such as [the Registrar's academic calendar](https://reg.uga.edu/general-information/calendars/academic-calendars/); for summer sessions, any other term, withdrawal limits or a hardship withdrawal use university_answer.
 - Today's date is the first line of the board description. Measure every deadline against it: a date before today has passed, so say it has passed ("drop/add for Fall 2026 has passed") and name who can still help.
+${UGA_LOAD_RULE}
 
 What the planner does not have for UGA (say so plainly; never fill the gap from memory)
 ${UGA_NOT_LOADED}

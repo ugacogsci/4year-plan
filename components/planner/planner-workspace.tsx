@@ -150,6 +150,7 @@ import {
 import { livePools, poolShortfalls } from './live-pools';
 import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersToAdd, summerYearOf, summersInRange, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
 import { runsInSummer, ugaOfferingLine } from '@/lib/planner/summer-offering';
+import { ugaOverloadAnswer, ugaUnderloadNote } from '@/lib/planner/uga-load-rules';
 import { CAREER_TRACKS, careerWordsAfter, INTEREST_TOPICS, trackRequiredStatus, type InterestsMode } from '@/lib/planner/career-tracks';
 import { careerWordsFor, goalReasonOf, restoredCareerWords, setupWords } from '@/lib/planner/goal-words';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
@@ -4985,7 +4986,7 @@ export function PlannerWorkspace({
           summary: `${change.term.label} added to the board, empty`,
           terms: change.board.terms.map((t) => t.label),
           ...(isUga
-            ? { note: `Nothing was rebuilt or moved. To fill it, add or move courses the UGA Bulletin lists for summer (course_details says whether it lists one; a course it lists for every other summer goes only in its years), or the student's Rebuild fills it with those courses, at most 9 credits a summer (it replaces their own edits to the board). A class the Bulletin does not list for summer shows "Not offered this term" there.` }
+            ? { note: `Nothing was rebuilt or moved. To fill it, add or move courses the UGA Bulletin lists for summer (course_details says whether it lists one; a course it lists for every other summer goes only in its years), or set_plan_shape summers rebuilds the board around its summers with those courses, at most 9 credits a summer. A class the Bulletin does not list for summer shows "Not offered this term" there.` }
             : { note: `Nothing was rebuilt or moved. To fill it, add or move courses Illinois has run in summer (course_details gives the terms each ran), or set_plan_shape summers rebuilds the board around its summers.` }),
         };
       }
@@ -5408,7 +5409,18 @@ export function PlannerWorkspace({
          */
         const mode: InterestsMode = input.interests_mode === 'replace' || input.interests_mode === 'clear' ? input.interests_mode : 'add';
         const said = typeof input.interests === 'string' ? input.interests.trim() : '';
-        const tracksBefore = interestProfileOf(careerTextRef.current).tracks;
+        /**
+         * The goals the planner reads from the career words. At UGA, interest
+         * topics only: the career tracks' course lists and the programs
+         * entered by application are Illinois's (repick.ts and autoplan.ts
+         * leave the tracks out for UGA the same way), so ARCH is never handed
+         * them as the student's.
+         */
+        const goalsOf = (text: string) => {
+          const read = interestProfileOf(text);
+          return isUga ? { ...read, tracks: [], apply: [], heard: read.heard.filter((h) => !read.tracks.some((track) => track.id === h)) } : read;
+        };
+        const tracksBefore = goalsOf(careerTextRef.current).tracks;
         let heard: string[] | null = null;
         let stored: string | null = null;
         if (said || mode === 'clear') {
@@ -5417,12 +5429,14 @@ export function PlannerWorkspace({
           setCareerCleared(stored === '');
           careerTextRef.current = stored;
           live.current = { ...live.current, interestsText: [L.setupStudying, stored].join(' '), careerText: stored };
-          if (said) heard = heardInterests(stored);
+          if (said) heard = isUga ? (goalsOf(stored).heard.length > 0 ? goalsOf(stored).heard : interestWordsFrom(stored)) : heardInterests(stored);
         }
-        const outcome = input.repick === false ? { changes: [], unchanged: false } : repickElectives(next, 'alma');
+        // A Double Dawgs board is not re-picked (repickElectives says so): the priorities wait for its next Rebuild.
+        const doubleDawgsBoard = Boolean(planRef.current?.doubleDawgs) && input.repick !== false;
+        const outcome = input.repick === false || doubleDawgsBoard ? { changes: [], unchanged: false } : repickElectives(next, 'alma');
         // Net changes, one per course that left or joined the board.
         const repicked = outcome.changes.map((c) => ({ term: c.term, from: c.from, to: c.to, why: c.why, ...(c.track ? { career_track: c.track } : {}) }));
-        const profile = interestProfileOf(live.current.careerText);
+        const profile = goalsOf(live.current.careerText);
         const dropped = tracksBefore.filter((track) => !profile.tracks.includes(track)).map((track) => track.name);
         /**
          * Programs the student's goals name that are entered by application,
@@ -5460,17 +5474,22 @@ export function PlannerWorkspace({
         const missingTrackCourses = trackCourses.some((t) => t.not_on_the_board.length > 0);
         if (repicked.length > 0) {
           notify(
-            `ALMA re-picked ${repicked.length} ${plural(repicked.length, 'course')}`,
+            `${botName} re-picked ${repicked.length} ${plural(repicked.length, 'course')}`,
             repicked.map((c) => (c.from ? `${c.to} for ${c.from} in ${c.term}` : `${c.to} added in ${c.term}`)).join('; ') + '.',
           );
         } else if (input.repick === false) {
-          notify('ALMA saved your priorities', 'The board was not changed. Re-pick or Rebuild applies them.', 'info');
+          notify(`${botName} saved your priorities`, 'The board was not changed. Re-pick or Rebuild applies them.', 'info');
+        } else if (doubleDawgsBoard) {
+          notify(`${botName} saved your priorities`, 'Rebuild applies them across both Double Dawgs stages (it replaces your own edits to the board).', 'info');
         } else if (outcome.unchanged) {
-          notify('ALMA kept your priorities', 'The board was built, or last re-picked, for exactly these, so nothing moved.', 'info');
+          notify(`${botName} kept your priorities`, 'The board was built, or last re-picked, for exactly these, so nothing moved.', 'info');
         } else {
-          notify('ALMA updated your priorities', 'Every pick already held the best course for them that the board can take.', 'info');
+          notify(`${botName} updated your priorities`, 'Every pick already held the best course for them that the board can take.', 'info');
         }
+        // UGA's data has no grade history, teaching lists or class times for those three knobs to choose by.
+        const ugaNoData = isUga && (['preset', 'workload', 'teaching', 'schedule', 'noEarly', 'notBefore', 'notAfter', 'freeDays', 'format'] as const).some((key) => input[key] !== undefined);
         const interestsNotes = [
+          ugaNoData ? 'At UGA the planner holds no grade history, teaching ratings or class times, so workload, teaching and schedule are saved but have nothing to choose by; picks move only through relevance (the interests) and coverage. If the student asked for easier classes, better professors, a time of day or a format, say so plainly.' : null,
           mode === 'replace' && !said ? 'interests_mode replace needs the new words in interests, so the stored career words were kept; use clear to drop the goal.' : null,
           dropped.length > 0 ? `No longer a goal: ${dropped.join(', ')}. Courses booked for it that are still on the board are ordinary elective slots now, and pressing Rebuild plans without them; say so.` : null,
           missingTrackCourses
@@ -5499,9 +5518,11 @@ export function PlannerWorkspace({
               ? `The courses listed were swapped; required courses, career-track courses and anything the student added were not touched, and no swap left a course without its prerequisites, pushed a term over 18 credits or put a course in a term it does not run. Tell the student each swap and its reason.${repicked.some((c) => 'career_track' in c) ? ' Entries with career_track book a course that track requires (an empty "from" means it was added beside its lecture); these come before a wish for lighter electives, so say that once, and say the other picks were kept light.' : ''}`
               : input.repick === false
                 ? 'Saved. The board was not re-picked.'
-                : outcome.unchanged
-                  ? 'Saved. Nothing moved because the board already reflects these priorities: it was built, or last re-picked, for exactly these priorities and these interests. Say so; do not call set_priorities again for the same wish.'
-                  : 'Saved. Every one of the planner\'s picks already held the best course under these priorities that the board can take (a better-rated course that would break a prerequisite, overload a term or not run that term is never swapped in), so nothing on the board moved.') +
+                : doubleDawgsBoard
+                  ? 'Saved. This is a Double Dawgs board, which a re-pick does not change: the new priorities apply when the student presses Rebuild, which plans both stages again and replaces their own edits to the board. Say so; nothing on the board moved.'
+                  : outcome.unchanged
+                    ? 'Saved. Nothing moved because the board already reflects these priorities: it was built, or last re-picked, for exactly these priorities and these interests. Say so; do not call set_priorities again for the same wish.'
+                    : 'Saved. Every one of the planner\'s picks already held the best course under these priorities that the board can take (a better-rated course that would break a prerequisite, overload a term or not run that term is never swapped in), so nothing on the board moved.') +
             (interestsNotes.length > 0 ? ` ${interestsNotes.join(' ')}` : ''),
         };
       }
@@ -5543,8 +5564,9 @@ export function PlannerWorkspace({
             } else problems.push('target_credits must be a whole number from 6 to 18, or null for an even share.');
           }
         }
-        if (overload !== null) problems.unshift(`${overloadAnswer(college, overload)} Keep the plan at 18 or under, and tell the student this.`);
-        const notes = underload !== null ? { underload: underloadNote(college, underload) } : {};
+        // UGA's own rule (uga-load-rules.ts), never an Illinois college's.
+        if (overload !== null) problems.unshift(`${isUga ? ugaOverloadAnswer(overload) : overloadAnswer(college, overload)} Keep the plan at 18 or under, and tell the student this.`);
+        const notes = underload !== null ? { underload: isUga ? ugaUnderloadNote(underload) : underloadNote(college, underload) } : {};
         if (input.finish !== undefined) {
           if (input.finish === null || input.finish === 'default') nextShape.finish = null;
           else {
@@ -5688,7 +5710,7 @@ export function PlannerWorkspace({
         return {
           ok: true,
           summary: shaped,
-          note: `The board rebuilds now. Call review_board next and tell the student what changed: the terms, the credits per term, and any note the plan adds (a lighter load needs a later finish; a term away is left empty on the board, and a semester abroad counts its hours toward the total; a summer carries at most 9 credits; summers make falls and springs lighter, so if the student wanted to finish earlier instead, confirm it and set finish).${offNote ? ` ${offNote}` : ''}`,
+          note: `The board rebuilds now. Call review_board next and tell the student what changed: the terms, the credits per term, and any note the plan adds (a lighter load needs a later finish; a term away is left empty on the board, and a semester abroad counts its hours toward the total; ${isUga ? "the planner fills a summer only with classes the UGA Bulletin lists for summer, in the years it lists them, and at most 9 credits, its own ceiling under UGA's 18-hour term limit, so never call 9 a UGA rule" : 'a summer carries at most 9 credits'}; summers make falls and springs lighter, so if the student wanted to finish earlier instead, confirm it and set finish).${offNote ? ` ${offNote}` : ''}`,
           ...off,
           ...notes,
         };
