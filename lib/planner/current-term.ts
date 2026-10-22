@@ -25,6 +25,7 @@
  */
 import { lineIsForeign, normalizeCourseCode, normalizeTerm, type TranscriptCourseRecord, type TranscriptRecord } from './transcript';
 import type { PlanState, PlanTerm, SemesterSeason } from './types';
+import { UGA_GRADUATE_FULL_TIME_HOURS } from './uga-load-rules';
 
 export type TermRef = { season: SemesterSeason; year: number };
 
@@ -40,6 +41,33 @@ export type TermRef = { season: SemesterSeason; year: number };
  * being entered, not as a part-time term, until they say so.
  */
 export const FULL_TIME_HOURS = 12;
+
+/** What a fall or spring term counts as before its classes are entered (`usual`), and full time. */
+export interface TermLoad {
+  usual: number;
+  fullTime: number;
+}
+
+/** An undergraduate at either school: about 15 a term (start-term.ts ASSUMED_TERM_HOURS), 12 full time. */
+export const UNDERGRADUATE_LOAD: TermLoad = { usual: 15, fullTime: FULL_TIME_HOURS };
+
+/**
+ * The load a plan's terms are counted at, by school and level. A UGA
+ * graduate student: 9 and 9, UGA's full-time graduate load ("A full-time
+ * course load is nine hours per semester during the academic year",
+ * grad.uga.edu/handbook/, read 2026-10-22; the Registrar's enrollment
+ * verification and financial aid count 9 too, uga-load-rules.ts), which is
+ * also the planner's UGA graduate target (illinois-graduate.ts
+ * graduatePlanSettings). The undergraduate 15 and 12 counted a first-year
+ * master's student's first fall as 15 credits and left half of a 30-hour
+ * master's off the board. An Illinois graduate plan keeps the undergraduate
+ * numbers until the Graduate College's own rule is read (graduatePlanSettings
+ * says the same of its 12).
+ */
+export function termLoadFor(school: string | null | undefined, level: string | null | undefined): TermLoad {
+  if (school === 'uga' && level === 'graduate') return { usual: UGA_GRADUATE_FULL_TIME_HOURS, fullTime: UGA_GRADUATE_FULL_TIME_HOURS };
+  return UNDERGRADUATE_LOAD;
+}
 
 const ord = (t: TermRef) => t.year * 3 + (t.season === 'Spring' ? 0 : t.season === 'Summer' ? 1 : 2);
 export const termOrdOf = ord;
@@ -93,8 +121,9 @@ export function currentConfirmed(record: TranscriptRecord | null | undefined, te
  *     own start), so nothing is added here;
  *   - classes from a transcript: the record lists what they are registered
  *     for, so those classes are the term, nothing assumed;
- *   - classes added by hand, fewer than a full-time load (12), and the student
- *     has not said that is all: the rest of a usual 15-credit term is counted
+ *   - classes added by hand, fewer than a full-time load (12; 9 for a UGA
+ *     graduate student, termLoadFor), and the student has not said that is
+ *     all: the rest of a usual 15-credit term (9 for that graduate) is counted
  *     until they add the rest or say that is all. Without it, adding one
  *     3-credit class took 12 credits off the plan's count at once: a UGA board
  *     then read "Degree credits are short" until Rebuild, and each class added
@@ -102,11 +131,11 @@ export function currentConfirmed(record: TranscriptRecord | null | undefined, te
  *
  * The board says so in the column, plainly, whenever it counts any.
  */
-export function partlyEnteredHours(lines: readonly TranscriptCourseRecord[], confirmed: boolean, fullLoad = 15): number {
+export function partlyEnteredHours(lines: readonly TranscriptCourseRecord[], confirmed: boolean, load: TermLoad = UNDERGRADUATE_LOAD): number {
   if (confirmed || !enteredByHand(lines)) return 0;
   const entered = Math.round(lines.reduce((n, c) => n + lineHours(c), 0));
-  if (entered >= FULL_TIME_HOURS) return 0;
-  const left = fullLoad - entered;
+  if (entered >= load.fullTime) return 0;
+  const left = load.usual - entered;
   return left >= 3 ? left : 0;
 }
 
@@ -260,12 +289,12 @@ export function currentClasses(
  * that all your classes this semester?" for hand-added classes under a
  * full-time load, while the rest of the term is still being counted.
  */
-export function currentQuestion(record: TranscriptRecord | null | undefined, term: TermRef): 'confirm' | 'all' | null {
+export function currentQuestion(record: TranscriptRecord | null | undefined, term: TermRef, load: TermLoad = UNDERGRADUATE_LOAD): 'confirm' | 'all' | null {
   if (currentConfirmed(record, term)) return null;
   const lines = currentLines(record, term);
   if (lines.length === 0) return null;
   if (!enteredByHand(lines)) return 'confirm';
-  return partlyEnteredHours(lines, false) > 0 ? 'all' : null;
+  return partlyEnteredHours(lines, false, load) > 0 ? 'all' : null;
 }
 
 /**

@@ -151,7 +151,7 @@ import {
 import { livePools, poolShortfalls } from './live-pools';
 import { addSummer, removeSummer, summerLabel, summerOn, summerRemovable, summersToAdd, summerYearOf, summersInRange, withAddedSummers, type SummerChange } from '@/lib/planner/summer-terms';
 import { runsInSummer, ugaOfferingLine } from '@/lib/planner/summer-offering';
-import { ugaOverloadAnswer, ugaUnderloadNote } from '@/lib/planner/uga-load-rules';
+import { UGA_GRADUATE_FULL_TIME_HOURS, ugaGraduateOverloadAnswer, ugaGraduateUnderloadNote, ugaOverloadAnswer, ugaUnderloadNote } from '@/lib/planner/uga-load-rules';
 import { CAREER_TRACKS, careerWordsAfter, forSchool, INTEREST_TOPICS, trackRequiredStatus, ugaTrackCodes, type InterestsMode } from '@/lib/planner/career-tracks';
 import { careerWordsFor, goalReasonOf, restoredCareerWords, setupWords } from '@/lib/planner/goal-words';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
@@ -212,7 +212,7 @@ import { UGA_TRANSFER_PORTAL, loadUgaTransfer, ugaDesignation, ugaLookup, ugaSch
 import { withCoreCredit } from '@/lib/planner/transfer-core';
 import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
 import { horizonFor, stepRegular, termOrd } from '@/lib/planner/plan-start';
-import { currentClasses, currentPlanTerm, currentQuestion, termIdOf, withCurrentClass, withCurrentConfirmed, withInstructorsOfTerm, withoutCurrentClass } from '@/lib/planner/current-term';
+import { currentClasses, currentPlanTerm, currentQuestion, termIdOf, termLoadFor, withCurrentClass, withCurrentConfirmed, withInstructorsOfTerm, withoutCurrentClass } from '@/lib/planner/current-term';
 import { CurrentTermColumn } from './current-term-column';
 import { distinctHeld, heldTowardDegree, type GenEdCredit, type PlanRequirement, type PriorCredit } from '@/lib/planner/autoplan';
 import { boardChecker, genEdCandidates, genEdWhy, notRegistrable, planMarks, repickBoard, repickSignature, type RepickChange } from '@/lib/planner/repick';
@@ -2118,7 +2118,7 @@ export function PlannerWorkspace({
     // counted by its own column, not assumed on top of it.
     const onBoard = new Set((boardTerms ?? []).map((t) => t.label));
     const kept = h.assumedTerms.filter((t) => !onBoard.has(`${t.season} ${t.year}`));
-    const hours = kept.length === h.assumedTerms.length ? h.assumedHours : Math.max(0, h.assumedHours - (h.assumedTerms.length - kept.length) * 15);
+    const hours = kept.length === h.assumedTerms.length ? h.assumedHours : Math.max(0, h.assumedHours - (h.assumedTerms.length - kept.length) * termLoadFor(answers?.schoolId, answers?.programLevel).usual);
     const names = kept.map((t) => `${t.season} ${t.year}`);
     return { hours, terms: names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? '') };
   }, [loaded, answers, planShape, boardTerms]);
@@ -2144,7 +2144,7 @@ export function PlannerWorkspace({
       ref: h.current,
       term: currentPlanTerm(h.current, classes.flatMap((c) => (c.courseId ? [c.courseId] : []))),
       classes,
-      question: currentQuestion(record, h.current),
+      question: currentQuestion(record, h.current, termLoadFor(answers?.schoolId, answers?.programLevel)),
       assumedHours: h.currentAssumedHours,
     };
   }, [isCatalogSchool, boardTerms, answers, planShape, byCode, courseIndex]);
@@ -4219,6 +4219,8 @@ export function PlannerWorkspace({
     lines.push(
       `Degree: ${L.loaded.program.name}, ${school?.name ?? 'selected university'}. Published total: ${currentAudit?.target ?? L.activeProgramTotal ?? 'not published'} credits. Plan: ${currentAudit?.total ?? L.totalCredits} through ${last}.`,
     );
+    // ARCH's credit-load lines differ for a graduate plan (advisor.ts UGA_LOAD_RULE).
+    if (isUga && isGraduatePlan) lines.push('Plan level: graduate. UGA\'s graduate load rules apply: full time is 9 hours in a fall or spring term.');
     if (doubleDawgsPathway) {
       lines.push(`Double Dawgs: ${doubleDawgsPathway.name}. Source: ${doubleDawgsPathway.url}. Combined draft: ${JSON.stringify(board.doubleDawgs ?? null)}. Current independent credit ledgers: ${JSON.stringify(currentAudit?.ledger ?? combinedLedger)}. Shared courses must remain before the bachelor's milestone. Do not claim advisor approval or graduate admission.`);
     }
@@ -5567,12 +5569,19 @@ export function PlannerWorkspace({
         let overload: number | null = null;
         /** Under 12 is planned when asked, with the registrar's warnings: six 9-hour terms used to come back without a word. */
         let underload: number | null = null;
+        /**
+         * Full time for this plan: 12 for an undergraduate, 9 for a UGA
+         * graduate student, whose 9 credits are a full load (uga-load-rules.ts).
+         * A UGA graduate plan used to be told 9 was three-quarter time.
+         */
+        const ugaGraduate = isUga && isGraduatePlan;
+        const fullTime = ugaGraduate ? UGA_GRADUATE_FULL_TIME_HOURS : 12;
         if (input.min_credits !== undefined) {
           const n = Number(input.min_credits);
           if (Number.isInteger(n) && n > 18) overload = Math.max(overload ?? 0, n);
           else if (Number.isInteger(n) && n >= 6) {
             nextMin = n;
-            if (n < 12) underload = Math.min(underload ?? n, n);
+            if (n < fullTime) underload = Math.min(underload ?? n, n);
           } else problems.push('min_credits must be a whole number from 6 to 18.');
         }
         if (input.target_credits !== undefined) {
@@ -5582,13 +5591,14 @@ export function PlannerWorkspace({
             if (Number.isInteger(n) && n > 18) overload = Math.max(overload ?? 0, n);
             else if (Number.isInteger(n) && n >= 6) {
               nextTarget = n;
-              if (n < 12) underload = Math.min(underload ?? n, n);
+              if (n < fullTime) underload = Math.min(underload ?? n, n);
             } else problems.push('target_credits must be a whole number from 6 to 18, or null for an even share.');
           }
         }
         // UGA's own rule (uga-load-rules.ts), never an Illinois college's.
-        if (overload !== null) problems.unshift(`${isUga ? ugaOverloadAnswer(overload) : overloadAnswer(college, overload)} Keep the plan at 18 or under, and tell the student this.`);
-        const notes = underload !== null ? { underload: isUga ? ugaUnderloadNote(underload) : underloadNote(college, underload) } : {};
+        // A UGA graduate plan gets the Graduate School's rule, never the undergraduate one.
+        if (overload !== null) problems.unshift(`${isUga ? (ugaGraduate ? ugaGraduateOverloadAnswer(overload) : ugaOverloadAnswer(overload)) : overloadAnswer(college, overload)} Keep the plan at 18 or under, and tell the student this.`);
+        const notes = underload !== null ? { underload: isUga ? (ugaGraduate ? ugaGraduateUnderloadNote(underload) : ugaUnderloadNote(underload)) : underloadNote(college, underload) } : {};
         if (input.finish !== undefined) {
           if (input.finish === null || input.finish === 'default') nextShape.finish = null;
           else {

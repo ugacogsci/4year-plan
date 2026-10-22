@@ -544,7 +544,7 @@ const UGA_TOOL_TEXT: Partial<Record<AdvisorToolName, { description: string; prop
     description:
       "Change the shape of the plan and rebuild the board: credits per term (a minimum, and a target or null for an even share), the finish term, terms away from campus (study abroad, a co-op, an internship, a gap semester: nothing is booked in them; a semester abroad still counts its approved hours toward the degree), and summers the student will take classes in (the planner books only classes the UGA Bulletin lists for summer, in the years it lists them, and at most 9 credits a summer, its own ceiling under UGA's 18-hour term limit; summers make the falls and springs lighter and never move the finish by themselves). Use it for \"I work 20 hours, only 12 credits\", \"I want to graduate a semester early\", \"I'm studying abroad spring 2029\", \"I'll take summer classes\". A lighter load needs a later finish: say so and set both. Above 18 is never planned: the result gives UGA's rule instead. Rebuilding replaces the student's own edits to the board, so when they have made some the tool asks for their yes first. It changes the board: use it only for a change the student asked for or said yes to. Afterwards call review_board and tell the student what changed.",
     properties: {
-      min_credits: { description: "The fewest credits a fall or spring term may hold (12 is full time at UGA). Under 12 is part-time and the result carries the note to relay. Above 18 is never planned: the result gives UGA's rule instead." },
+      min_credits: { description: "The fewest credits a fall or spring term may hold (12 is full time for a UGA undergraduate, 9 for a graduate student). Under full time is part-time and the result carries the note to relay. Above 18 is never planned: the result gives UGA's rule instead." },
       away: { description: 'Fall or spring terms the student is away, each "Spring 2029" or {"term": "Spring 2029", "kind": "study_abroad", "credits": 15}. A semester abroad counts 15 hours unless credits says otherwise (at most 18); a co-op, internship or gap term counts none. Each must fall inside the plan. With no finish set, the default finish moves later so the student keeps eight falls and springs on campus, less what a semester abroad earns. Replaces the list.' },
       spread_hard: { description: 'One hardest-band course a term where the degree allows. No grade history is loaded for UGA, so no UGA course is in the hardest band and this changes nothing there.' },
     },
@@ -867,9 +867,13 @@ const UGA_WHO_DECIDES = [
  * obtaining approval from their advisors"; reg.uga.edu/student-records/
  * enrollment-verifications/ 12 hours full time in fall or spring, 6 in summer;
  * financial aid counts 12 (osfa.uga.edu). The 9-credit summer is the planner's.
+ * A graduate student's (2026-10-22, grad.uga.edu/handbook/): full time is 9
+ * hours a fall or spring term and 6 in summer, 18 at most a semester, 12 with
+ * an assistantship; the line said only the undergraduate rule, and
+ * set_plan_shape told a graduate student 9 was three-quarter time.
  */
 const UGA_LOAD_RULE =
-  "- Credit load: UGA's Registrar lets an undergraduate register for at most 18 hours in a fall, spring or summer term; more needs a higher credit limit, approved by the student's academic advisor. Full time is 12 hours in a fall or spring term (6 in summer for the Registrar's enrollment verification; financial aid counts 12). Never plan above 18: for a student who asks for more, call set_plan_shape with the number and relay UGA's rule it returns. The planner keeps a summer to 9 credits by its own choice: never call 9 a UGA limit.";
+  "- Credit load: UGA's Registrar lets an undergraduate register for at most 18 hours in a fall, spring or summer term; more needs a higher credit limit, approved by the student's academic advisor. Full time is 12 hours in a fall or spring term (6 in summer for the Registrar's enrollment verification; financial aid counts 12). Never plan above 18: for a student who asks for more, call set_plan_shape with the number and relay UGA's rule it returns. The planner keeps a summer to 9 credits by its own choice: never call 9 a UGA limit.\n- A graduate plan (the board description says Plan level: graduate) follows the UGA Graduate School instead: full time is 9 hours in a fall or spring term and 6 in summer, 18 hours is the most any student may take in a semester, and a student holding an assistantship registers for at least 12 hours of graduate credit in a fall or spring term. Never give a graduate student the undergraduate 12-hour rule; set_plan_shape returns the Graduate School's.";
 
 /*
  * What the planner holds for Illinois only. ARCH says so instead of filling

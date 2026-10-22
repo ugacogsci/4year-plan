@@ -34,10 +34,16 @@
  *      student says that is all: the rest of a 15-credit term is counted too
  *      (current-term.ts partlyEnteredHours), so typing in a first class does
  *      not take 12 credits off the plan at once.
+ *
+ * A UGA graduate plan counts 9 where these say 15, and 9 as full time where
+ * they say 12: UGA's full-time graduate load (current-term.ts termLoadFor,
+ * since 2026-10-22). With 15, a first-year master's student's Fall 2026 left
+ * 243 of 259 UGA graduate programs planning fewer credits, half of a 30-hour
+ * master's off the board.
  */
 import { calendarTerm, firstOpenTerm, readHorizon } from '@/components/planner/illinois-source';
 import type { Horizon } from './autoplan';
-import { currentConfirmed, currentLines, currentTermFor, partlyEnteredHours, termUnderWay } from './current-term';
+import { currentConfirmed, currentLines, currentTermFor, partlyEnteredHours, termLoadFor, termUnderWay } from './current-term';
 import { schoolById, timelineForPlanning, type OnboardingAnswers } from './onboarding';
 import type { PlanShape } from './saved-board';
 import { assumedHours as assumedHoursOf, recordCoverage, uncoveredTerms } from './start-term';
@@ -83,6 +89,10 @@ export function horizonFor(
   // fall" and "incoming" in the student's words are read as of the day they
   // wrote them. Both schools (see the header).
   const bot = schoolById(answers?.schoolId ?? null)?.bot ?? 'the assistant';
+  // What a term counts as before its classes are entered: about 15 (12 full
+  // time), or 9 for a UGA graduate student, UGA's full-time graduate load
+  // (current-term.ts termLoadFor).
+  const load = termLoadFor(answers?.schoolId, answers?.programLevel);
   const open = firstOpenTerm(today);
   const stamped = answers?.timelineAt ? new Date(answers.timelineAt) : null;
   const written = stamped && !Number.isNaN(stamped.getTime()) ? stamped : today;
@@ -186,9 +196,9 @@ export function horizonFor(
   if (began && beganFrom !== 'record' && !horizon.gradPassed) {
     const coverage = recordCoverage(answers?.transcript);
     horizon.assumedTerms = uncoveredTerms(began, start, coverage.terms, pastAway);
-    horizon.assumedHours = assumedHoursOf(horizon.assumedTerms, coverage.unplacedHours);
+    horizon.assumedHours = assumedHoursOf(horizon.assumedTerms, coverage.unplacedHours, load.usual);
     const cur = horizon.current;
-    if (cur && horizon.assumedTerms.some((t) => sameTerm(t, cur))) horizon.currentAssumedHours = Math.min(15, horizon.assumedHours);
+    if (cur && horizon.assumedTerms.some((t) => sameTerm(t, cur))) horizon.currentAssumedHours = Math.min(load.usual, horizon.assumedHours);
   }
   // The term in progress for a student whose record starts them here and
   // shows them here the term before it (Spring 2026 done, Fall 2026 not on
@@ -205,8 +215,8 @@ export function horizonFor(
     const before = stepRegular(nowTerm, -1);
     if (last && termOrd(last.season, last.year) >= termOrd(before.season, before.year) && termOrd(last.season, last.year) < termOrd(nowTerm.season, nowTerm.year)) {
       horizon.assumedTerms = [...horizon.assumedTerms, nowTerm];
-      horizon.assumedHours += 15;
-      horizon.currentAssumedHours = 15;
+      horizon.assumedHours += load.usual;
+      horizon.currentAssumedHours = load.usual;
     }
   }
   // The rest of a current term whose classes the student is still typing in.
@@ -215,17 +225,17 @@ export function horizonFor(
   const cur = horizon.current;
   let partly: { entered: number; more: number } | null = null;
   if (cur && !horizon.gradPassed && !horizon.assumedTerms.some((t) => sameTerm(t, cur))) {
-    const more = partlyEnteredHours(currentLines(answers?.transcript, cur), currentConfirmed(answers?.transcript, cur));
+    const more = partlyEnteredHours(currentLines(answers?.transcript, cur), currentConfirmed(answers?.transcript, cur), load);
     if (more > 0) {
       horizon.assumedHours += more;
       horizon.currentAssumedHours = more;
       horizon.assumedTerms = [...horizon.assumedTerms, cur];
-      partly = { entered: 15 - more, more };
+      partly = { entered: load.usual - more, more };
     }
   }
   const assumedNames = horizon.assumedTerms.length === 1 ? label(horizon.assumedTerms[0]) : `${horizon.assumedTerms.slice(0, -1).map(label).join(', ')} and ${label(horizon.assumedTerms[horizon.assumedTerms.length - 1] ?? start)}`;
   const assumed = horizon.assumedHours <= 0 ? ''
-    : horizon.assumedHours < horizon.assumedTerms.length * 15
+    : horizon.assumedHours < horizon.assumedTerms.length * load.usual
       ? ` Until you do, this plan counts about ${horizon.assumedHours} more credits for ${assumedNames}, beyond the classes you have added.`
       : ` Until you do, this plan counts ${assumedNames} as about ${horizon.assumedHours} credits${horizon.assumedTerms.length > 1 ? ' in all' : ''}, the usual full load.`;
   // Where the student adds the classes they are taking now: the column, when the board shows one.
@@ -257,7 +267,7 @@ export function horizonFor(
   }
   if (partly && cur && !horizon.gradPassed && !(finishPassed && shape.finish)) {
     const others = horizon.assumedTerms.filter((t) => !sameTerm(t, cur));
-    horizon.startNote = `You have added ${partly.entered} credits of ${label(cur)} classes. Until you add the rest, or say in the ${label(cur)} column that those are all, this plan counts about ${partly.more} more for ${label(cur)}, the rest of a usual 15-credit term.${others.length > 0 ? ` It also counts ${others.map(label).join(', ')} as about ${horizon.assumedHours - partly.more} credits until you add those classes.` : ''}`;
+    horizon.startNote = `You have added ${partly.entered} credits of ${label(cur)} classes. Until you add the rest, or say in the ${label(cur)} column that those are all, this plan counts about ${partly.more} more for ${label(cur)}, the rest of a usual ${load.usual}-credit term.${others.length > 0 ? ` It also counts ${others.map(label).join(', ')} as about ${horizon.assumedHours - partly.more} credits until you add those classes.` : ''}`;
   }
   return horizon;
 }

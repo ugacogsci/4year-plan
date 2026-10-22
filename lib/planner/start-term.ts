@@ -62,9 +62,9 @@ export function uncoveredTerms(began: TermRef, start: TermRef, covered: Set<stri
   return out;
 }
 
-/** Hours assumed for those terms, less what the record holds with no term. */
-export function assumedHours(terms: TermRef[], unplacedHours: number): number {
-  const left = terms.length * ASSUMED_TERM_HOURS - Math.round(unplacedHours);
+/** Hours assumed for those terms, less what the record holds with no term; `perTerm` is the plan's load (current-term.ts termLoadFor: 9 for a UGA graduate student). */
+export function assumedHours(terms: TermRef[], unplacedHours: number, perTerm = ASSUMED_TERM_HOURS): number {
+  const left = terms.length * perTerm - Math.round(unplacedHours);
   // A few hours short of a full load is the classes they added, not a term missing.
   return left >= 3 ? left : 0;
 }
