@@ -19,6 +19,9 @@
  * year of study read from the words, the finish onboarding suggests for it):
  *   incoming   "I'm an incoming freshman, starting college next fall." No record.
  *   first      "I'm a freshman." In their first fall. No record.
+ *   first-setup The same freshman as the guided setup or the Details step
+ *              leaves them: "First year" picked, no words about it, the
+ *              suggested finish. No record.
  *   first-added The same freshman, with their Fall 2026 classes added by hand
  *              (the program's own first fall, as the column's "Add a class
  *              you're taking now" writes them).
@@ -36,8 +39,11 @@
  * withGenEdCredit, the horizon's assumed hours added to the prior credit,
  * generatePlan with UGA's elective limit and fill), then audited as the
  * workspace audits it (auditUgaBoard, with the assumed hours in its extra
- * credits, and degreeCompletionIssue); "attention" is what the board bar
- * counts (attention.ts needsAttention). horizonFor comes from the checkout's
+ * credits, and degreeCompletionIssue); "attention" counts the issues that
+ * matter now (attention.ts needsAttention), and "bar" is what the board bar
+ * itself shows (warnings-triage.ts triageIssues with the workspace's credit
+ * gap: the record prompt, then the kinds that matter now; 0 is "Nothing
+ * needs attention"). horizonFor comes from the checkout's
  * lib/planner/plan-start.ts, or for a checkout before it existed, from its
  * planner-workspace.tsx, cut out and loaded as it was.
  *
@@ -65,6 +71,7 @@ const TODAY = new Date('2026-10-20T15:00:00Z');
 const KINDS = {
   incoming: { words: "I'm an incoming freshman, starting college next fall.", record: null },
   first: { words: "I'm a freshman.", record: null },
+  'first-setup': { words: '', academicYear: 'first', record: null },
   'first-added': { words: "I'm a freshman.", record: 'first-added' },
   second: { words: "I'm a sophomore.", record: 'second' },
   'second-nf': { words: "I'm a sophomore.", record: 'second-nf' },
@@ -89,13 +96,13 @@ if (mode === 'compare') {
   const avg = (list, f) => (list.length ? (sum(list, f) / list.length).toFixed(1) : '-');
   say(`# UGA before/after: ${before.size} boards before, ${after.size} after`);
   say();
-  say('| kind | boards | start (before -> after) | terms planned, avg | total credits, avg | required classes not placed | unmet requirement rows | things that need attention, avg | boards with any | boards short of the degree total |');
-  say('|---|---|---|---|---|---|---|---|---|---|');
+  say('| kind | boards | start (before -> after) | terms planned, avg | total credits, avg | required classes not placed | unmet requirement rows | issues that matter now, avg | board bar items, avg | boards saying "Nothing needs attention" | boards short of the degree total | terms over 18 |');
+  say('|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const kind of KIND_NAMES) {
     const b = [...before.values()].filter((r) => r.kind === kind && r.ok);
     const a = [...after.values()].filter((r) => r.kind === kind && r.ok);
     const starts = (list) => [...new Set(list.map((r) => r.start))].join('/');
-    say(`| ${kind} | ${b.length} -> ${a.length} | ${starts(b)} -> ${starts(a)} | ${avg(b, (r) => r.terms)} -> ${avg(a, (r) => r.terms)} | ${avg(b, (r) => r.total)} -> ${avg(a, (r) => r.total)} | ${sum(b, (r) => r.notPlaced)} -> ${sum(a, (r) => r.notPlaced)} | ${sum(b, (r) => r.unmetRows)} -> ${sum(a, (r) => r.unmetRows)} | ${avg(b, (r) => r.attention)} -> ${avg(a, (r) => r.attention)} | ${b.filter((r) => r.attention > 0).length} -> ${a.filter((r) => r.attention > 0).length} | ${b.filter((r) => r.short).length} -> ${a.filter((r) => r.short).length} |`);
+    say(`| ${kind} | ${b.length} -> ${a.length} | ${starts(b)} -> ${starts(a)} | ${avg(b, (r) => r.terms)} -> ${avg(a, (r) => r.terms)} | ${avg(b, (r) => r.total)} -> ${avg(a, (r) => r.total)} | ${sum(b, (r) => r.notPlaced)} -> ${sum(a, (r) => r.notPlaced)} | ${sum(b, (r) => r.unmetRows)} -> ${sum(a, (r) => r.unmetRows)} | ${avg(b, (r) => r.attention)} -> ${avg(a, (r) => r.attention)} | ${avg(b, (r) => r.bar)} -> ${avg(a, (r) => r.bar)} | ${b.filter((r) => r.bar === 0).length} -> ${a.filter((r) => r.bar === 0).length} | ${b.filter((r) => r.short).length} -> ${a.filter((r) => r.short).length} | ${sum(b, (r) => r.over18)} -> ${sum(a, (r) => r.over18)} |`);
   }
   say();
   // What the attention items are, before and after.
@@ -106,7 +113,18 @@ if (mode === 'compare') {
   };
   const kb = kinds(before);
   const ka = kinds(after);
-  say('## What the boards say needs attention (boards showing each, before -> after)');
+  const barKinds = (map) => {
+    const n = new Map();
+    for (const r of map.values()) for (const k of r.barKinds ?? []) n.set(k, (n.get(k) ?? 0) + 1);
+    return n;
+  };
+  const bb = barKinds(before);
+  const ba = barKinds(after);
+  say('## What the board bar shows (boards showing each, before -> after)');
+  say();
+  for (const k of [...new Set([...bb.keys(), ...ba.keys()])].sort((x, y) => (ba.get(y) ?? 0) + (bb.get(y) ?? 0) - (ba.get(x) ?? 0) - (bb.get(x) ?? 0))) say(`- ${k}: ${bb.get(k) ?? 0} -> ${ba.get(k) ?? 0}`);
+  say();
+  say('## Issues that matter now, by kind (boards showing each, before -> after)');
   say();
   for (const k of [...new Set([...kb.keys(), ...ka.keys()])].sort((x, y) => (ka.get(y) ?? 0) + (kb.get(y) ?? 0) - (ka.get(x) ?? 0) - (kb.get(x) ?? 0))) say(`- ${k}: ${kb.get(k) ?? 0} -> ${ka.get(k) ?? 0}`);
   say();
@@ -119,11 +137,11 @@ if (mode === 'compare') {
     if (a.notPlaced > b.notPlaced) why.push(`required classes not placed ${b.notPlaced} -> ${a.notPlaced}`);
     if (a.unmetRows > b.unmetRows) why.push(`unmet requirement rows ${b.unmetRows} -> ${a.unmetRows}`);
     if (a.short && !b.short) why.push(`now short of the degree total (${a.total} of ${a.target})`);
-    if (a.attention > b.attention) why.push(`attention ${b.attention} -> ${a.attention}: ${(a.attentionKinds ?? []).filter((x) => !(b.attentionKinds ?? []).includes(x)).join('; ')}`);
+    if ((a.bar ?? a.attention) > (b.bar ?? b.attention)) why.push(`board bar ${b.bar ?? b.attention} -> ${a.bar ?? a.attention}: ${(a.barKinds ?? a.attentionKinds ?? []).filter((x) => !(b.barKinds ?? b.attentionKinds ?? []).includes(x)).join('; ')}`);
     if (a.over18 > b.over18) why.push(`terms over 18 credits ${b.over18} -> ${a.over18}`);
     if (why.length) worse.push(`- ${a.name} (${a.id}), ${a.kind}: ${why.join('; ')}`);
   }
-  const better = [...after].filter(([k, a]) => { const b = before.get(k); return b?.ok && a.ok && (a.attention < b.attention || a.notPlaced < b.notPlaced || a.unmetRows < b.unmetRows); }).length;
+  const better = [...after].filter(([k, a]) => { const b = before.get(k); return b?.ok && a.ok && ((a.bar ?? a.attention) < (b.bar ?? b.attention) || a.notPlaced < b.notPlaced || a.unmetRows < b.unmetRows); }).length;
   say(`## Boards worse on any count: ${worse.length}; better on at least one: ${better}`);
   say();
   for (const line of worse.slice(0, 200)) say(line);
@@ -288,6 +306,9 @@ const { auditUgaBoard } = await lib('components/planner/uga-board-audit.ts');
 const { degreeCompletionIssue } = await lib('lib/planner/completion.ts');
 const { needsAttention, attentionItems } = await lib('lib/planner/attention.ts');
 const S = await lib('lib/planner/saved-board.ts');
+// The board bar's own reading of the issues (2026-10-20 on), when this checkout has it.
+const W = existsSync(join(ROOT, 'lib/planner/warnings-triage.ts')) ? await lib('lib/planner/warnings-triage.ts') : null;
+const hasPlanStart = existsSync(join(ROOT, 'lib/planner/plan-start.ts'));
 
 /** The checkout's horizonFor: lib/planner/plan-start.ts, or cut from the workspace of a checkout before it. */
 async function horizonOf() {
@@ -313,7 +334,7 @@ const horizonFor = await horizonOf();
 
 function answersFor(kind, record) {
   const { words } = KINDS[kind];
-  const academicYear = O.inferAcademicYear(words);
+  const academicYear = KINDS[kind].academicYear ?? O.inferAcademicYear(words);
   const said = O.inferGraduationTarget(words);
   const suggested = O.suggestGraduationTarget(academicYear, 4, TODAY);
   return {
@@ -377,6 +398,28 @@ function build(program, kind) {
   const issues = [completion, ...audit.issues].filter(Boolean);
   const attention = issues.filter(needsAttention);
   const loads = board.terms.map((t) => planCreditRange(t.courseIds.map((id) => context.courses.find((c) => c.id === id)?.code).filter(Boolean), context).min);
+  // What the board bar shows: the workspace's creditGap and triageIssues. The
+  // terms assumed until their classes are added count at UGA since the
+  // current-semester column (plan-start.ts); before it the workspace gave UGA none.
+  let bar = attention.length;
+  let barKinds = attentionItems(issues).map((a) => a.text);
+  if (W) {
+    const names = horizon.assumedTerms.map((t) => `${t.season} ${t.year}`);
+    const credit = {
+      said: W.statedHours(answers.timeline ?? ''),
+      recorded: planCreditRange(distinctHeld(completed, context).codes, context).min + priorHours,
+      assumed: hasPlanStart ? horizon.assumedHours : 0,
+      assumedTerms: names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? ''),
+      // The current-semester column, as the workspace passes it (ignored by a checkout before it).
+      currentTerm: current ? `${current.season} ${current.year}` : null,
+      currentAssumed: horizon.currentAssumedHours ?? 0,
+      currentClasses: current ? (record?.courses ?? []).filter((c) => c.use && c.status === 'in_progress' && !T.lineIsForeign(record, c) && (!c.term || c.term === `${current.season} ${current.year}`)).length : 0,
+    };
+    const full = issues.map((i) => ({ termId: '', message: '', ...i }));
+    const t = W.triageIssues(full, { credit, bot: 'ARCH' });
+    bar = (t.prompt ? 1 : 0) + t.now.length;
+    barKinds = t.prominent.map((k) => (k.key === 'record' ? `prompt: ${k.label}` : k.label.replace(/\(\d+\)$/, '(n)').replace(/^\d+ requirements not met$/, 'n requirements not met')));
+  }
   return {
     ok: true,
     start: board.terms[0]?.label ?? null,
@@ -394,6 +437,8 @@ function build(program, kind) {
     unmetRows: audit.areas.filter((row) => !row.satisfied).length + audit.issues.filter((i) => i.id.startsWith('uga-pool-')).length,
     attention: attention.length,
     attentionKinds: attentionItems(issues).map((a) => a.text),
+    bar,
+    barKinds,
     over18: loads.filter((l) => l > 18).length,
     maxLoad: Math.max(0, ...loads),
   };
