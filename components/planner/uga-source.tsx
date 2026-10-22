@@ -959,6 +959,25 @@ export function loadUgaData(): Promise<UgaData | null> {
     }
 
     const courses = rawCourses.flatMap(adaptCourses);
+    /*
+     * Every row of public/uga-catalog.json says 3 credits: a placeholder
+     * (CHEM 1211L is 1 hour, PHYS 1111 4). A loaded degree's table repairs the
+     * courses it names (loadUgaProgram), and until 2026-10-22 it never put them
+     * back, so a gen-ed pick or an elective another degree named carried that
+     * degree's real hours into the next board, and a board depended on which
+     * degrees were built before it. Each course now starts at the hours most of
+     * UGA's own program tables print for it (rowHoursOf, the reading
+     * setUgaTrackHours already gave a pre-health course), whatever was loaded
+     * before; a course no table names keeps the 3. The degree's own table still
+     * wins for the courses it names.
+     */
+    const tableHours = rowHoursOf(programFile.programs);
+    for (const course of courses) {
+      const hours = tableHours.get(normCode(course.code));
+      if (hours === undefined) continue;
+      course.credits = hours;
+      course.creditsMax = hours;
+    }
     // GradFIRST is one credit, additional to the graduate program of study.
     // https://ai.uga.edu/ms-artificial-intelligence#degree-requirements
     for (const course of courses) if (/^GRSC 7001E?$/.test(course.code)) { course.credits = 1; course.creditsMax = 1; }
@@ -1034,9 +1053,11 @@ export function loadUgaData(): Promise<UgaData | null> {
  *
  * The catalog file has 3 credits on every UGA row (CHEM 1211L and PHYS
  * 1111-1111L included); a degree's own table repairs the hours of the courses
- * it names (loadUgaProgram). A track course outside the degree has only the
- * placeholder, so setUgaTrackHours gives it the hours UGA's program tables
- * print for it (public/uga-programs.json, the value most of its rows give:
+ * it names (loadUgaProgram). Since 2026-10-22 every course already starts at
+ * the hours its program-table rows print (loadUgaData), so this changes a
+ * course only where that starting point was changed since; it is kept so a
+ * goal's courses can never fall back to the placeholder. setUgaTrackHours
+ * gives a track course the hours UGA's program tables print for it (public/uga-programs.json, the value most of its rows give:
  * CHEM 1211L 1 hour in 221 rows, PHYS 1111 4 hours in 307 rows and 3 in an
  * older 50). Only while the student's goal names the track: a UGA student
  * with no pre-health goal is planned on the catalog's hours as before, and
@@ -1053,8 +1074,9 @@ const trackHoursBefore = new WeakMap<UgaData, Map<string, { credits: number; cre
 const trackWanted = new WeakMap<UgaData, Set<string>>();
 type HoursWere = { credits: number; creditsMax?: number; range?: PlanCreditRange };
 /**
- * The catalog's own hours for every course a degree table or a goal has
- * changed since the data loaded, taken the first time either changes it.
+ * Each course's hours as the data loaded them (its program-table hours,
+ * loadUgaData) for every course a degree table or a goal has changed since,
+ * taken the first time either changes it.
  *
  * Without it a board depended on which degrees were built before it in the
  * same session: loadUgaProgram wrote each degree's table hours into the one
@@ -1064,7 +1086,7 @@ type HoursWere = { credits: number; creditsMax?: number; range?: PlanCreditRange
  * against the same programs built after every other, and Music Performance
  * BMus left 2 to 4 more required courses unplaced), and degreeHours kept
  * every degree's codes, so a goal's hours skipped courses only an earlier
- * degree named. A new degree now starts from the catalog (restoreCatalogHours).
+ * degree named. A new degree now starts from the hours the data loaded with (restoreCatalogHours).
  */
 const catalogHoursOf = new WeakMap<UgaData, Map<string, HoursWere>>();
 
@@ -1097,8 +1119,15 @@ function restoreCatalogHours(data: UgaData): void {
 export function ugaRowHours(data: UgaData): Map<string, number> {
   const known = rowHoursCache.get(data);
   if (known) return known;
+  const out = rowHoursOf(rawProgramsOf.get(data) ?? data.programs);
+  rowHoursCache.set(data, out);
+  return out;
+}
+
+/** The hours most rows of these program tables print for each course (ties to the larger). */
+function rowHoursOf(programs: readonly UgaProgram[]): Map<string, number> {
   const counts = new Map<string, Map<number, number>>();
-  for (const program of rawProgramsOf.get(data) ?? data.programs) {
+  for (const program of programs) {
     for (const area of program.areas) {
       for (const group of area.groups) {
         for (const row of group.courses) {
@@ -1116,7 +1145,6 @@ export function ugaRowHours(data: UgaData): Map<string, number> {
     const [hours] = [...byHours].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0];
     out.set(code, hours);
   }
-  rowHoursCache.set(data, out);
   return out;
 }
 
