@@ -6630,6 +6630,105 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
   // A goal that orders the general education picks (AutoplanInput.goalGenEd): one the student named that no pre-professional track books.
   const goalProfile = careerProfileOf(raw);
   const goalAsked = goalWeighs(goalProfile) && (goalProfile.topics.length > 0 || goalProfile.subjects.length > 0 || goalProfile.courses.length > 0 || goalProfile.words.length > 0);
+  /**
+   * The degree before a goal's rows where both cannot fit (the owner's rule
+   * of 2026-10-06): among the boards already built for this horizon, one
+   * that leaves fewer of the degree's required courses off than the board
+   * kept, and none it places, stands over it where, against the floor, the
+   * release's board and the board kept alike, it is worse only in its shape
+   * (SHAPE_ONLY), in a track row later or off where the arithmetic forces it,
+   * or in hours past the total no more than the required courses it newly
+   * places. A row is forced later only where no course of it has a seat
+   * under the term maximum by its date (anywhere, for a row off the board):
+   * a fall or spring with its hours to spare, after the prerequisites it
+   * names, beside its lab or lecture; and the plan's own "The degree's own
+   * courses come first" note names it, so the student is told it needs a
+   * summer session or an extra term. A pre-med Industrial Design freshman's
+   * board kept the track's chemistry and biology in her first two years and
+   * started the ARTD 201 to ARTD 402 studio chain, one course a term and
+   * each in one season, in Fall 2029, so ARTD 301, 302, 401 and 402 had no
+   * term; a board built on the way started it in Fall 2027 and finished it,
+   * with MCB 246, which then had no seat, named for a summer. The best such
+   * board by gateRank is kept; the measures here are the gate's
+   * (scripts/dev/sweep/gate.mjs degreeFirst).
+   */
+  const degreeFirstOf = (kept: GeneratedPlan, plainBoard: GeneratedPlan, releasedBoard: GeneratedPlan, built: GeneratedPlan[], horizon: Horizon, measureOf: (g: GeneratedPlan) => GateMeasure): GeneratedPlan => {
+    const mk = measureOf(kept);
+    if (mk.requiredOff.size === 0 || mk.rowLate.size === 0) return kept;
+    const labs = measuredLabs(context);
+    const labFor = new Map<string, string>();
+    for (const [lab, lecture] of labs) if (!labFor.has(lecture)) labFor.set(lecture, lab);
+    const held = new Set([...prior.courseCodes, ...prior.exemptCodes].map(normaliseCode));
+    const max = { ...DEFAULT_CREDITS, ...raw.preferences?.creditsPerTerm }.max;
+    const calendar = buildHorizon(horizon);
+    const lastFall = Math.max(-1, ...calendar.filter((t) => t.season === 'Fall').map((t) => t.index));
+    const springs = calendar.filter((t) => t.season === 'Spring' && t.index < lastFall);
+    const due = springs.length > 0 ? springs[springs.length - 1].index : calendar.length;
+    const creditOf = (code: string) => planCreditRange([code], context).min;
+    /** Whether `g`'s rows later or off than on `ref` are all forced, and named. */
+    const forced = (g: GeneratedPlan, ref: GateMeasure): boolean => {
+      const at = new Map<string, number>();
+      for (const t of g.terms) for (const c of t.codes) at.set(normaliseCode(c), t.index);
+      const free = g.terms.filter((t) => t.season !== 'Summer').map((t) => ({ index: t.index, free: Math.max(0, max - planCreditRange(t.codes, context).min) }));
+      const end = Math.max(-1, ...g.terms.map((t) => t.index));
+      const said = g.notes.flatMap((n) => [...n.matchAll(/The degree's own courses come first, so [^.]*\./g)].map((m) => m[0])).join(' ');
+      const seat = (code: string, last: number): boolean => {
+        const partner = labs.get(code) ?? labFor.get(code) ?? null;
+        const partnerAt = partner !== null ? at.get(partner) : undefined;
+        const hours = creditOf(code) + (partner !== null && partnerAt === undefined && !held.has(partner) ? creditOf(partner) : 0);
+        let after = -1;
+        for (const group of context.prereqs?.get(code)?.groups ?? []) {
+          if (group.priorLearning || group.concurrent) continue;
+          const names = group.any.map(normaliseCode);
+          if (names.some((c) => held.has(c))) continue;
+          const on = names.filter((c) => at.has(c)).map((c) => at.get(c) as number);
+          if (on.length === 0) return false;
+          after = Math.max(after, Math.min(...on));
+        }
+        return free.some((t) => t.index > after && t.index <= last && (partnerAt === undefined || t.index === partnerAt) && t.free >= hours);
+      };
+      for (const [key, late] of measureOf(g).rowLate) {
+        if (late <= (ref.rowLate.get(key) ?? 0)) continue;
+        const codes = key.slice(key.indexOf(':') + 1).split('/').map(normaliseCode);
+        const off = codes.every((c) => !at.has(c));
+        if (codes.some((c) => seat(c, off ? end : due))) return false;
+        if (!codes.some((c) => said.includes(c))) return false;
+      }
+      return true;
+    };
+    /*
+     * The courses the page's rows name, as the gate counts what a board newly
+     * places: a set's first course (CourseChoice.codes), so ARTD 302 beside
+     * ARTD 301 is not counted twice over.
+     */
+    const named = new Set(given.requirements.flatMap((r) => (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool' ? r.rule.choices.flatMap((c) => c.codes.map(normaliseCode)) : [])));
+    /*
+     * The requirements a board leaves unmet: a row with a course off it, or
+     * a list short. Fewer courses off is not enough where every requirement
+     * they belong to is still short of another: a Sustainability, Food and
+     * Environmental Systems board placing two more of a list it still leaves
+     * five courses short meets nothing more, and its extra hours past the
+     * total bought nothing.
+     */
+    const unmetOf = (g: GeneratedPlan) => new Set([...g.notPlaced.map((n) => n.requirementId ?? null).filter((id): id is string => id !== null), ...g.unsatisfied.map((u) => u.requirementId)]);
+    const stands = (g: GeneratedPlan, refBoard: GeneratedPlan): boolean => {
+      const mg = measureOf(g);
+      const ref = measureOf(refBoard);
+      if (!(mg.requiredOff.size < ref.requiredOff.size && [...mg.requiredOff].every((c) => ref.requiredOff.has(c)) && mg.offCount <= ref.offCount)) return false;
+      const unmet = unmetOf(g);
+      const unmetBefore = unmetOf(refBoard);
+      if (!(unmet.size < unmetBefore.size && [...unmet].every((id) => unmetBefore.has(id)))) return false;
+      const had = new Set(refBoard.terms.flatMap((t) => t.codes.map(normaliseCode)));
+      const newly = [...new Set(g.terms.flatMap((t) => t.codes.map(normaliseCode)))].filter((c) => !had.has(c) && named.has(c)).reduce((sum, c) => sum + creditOf(c), 0);
+      return gateWorse(mg, ref).every((w) => SHAPE_ONLY.has(w) || (w === 'track' && forced(g, ref)) || (w === 'beyond' && mg.beyond - ref.beyond <= newly));
+    };
+    let best = kept;
+    for (const g of new Set(built)) {
+      if (g === kept || ![kept, plainBoard, releasedBoard].every((b) => stands(g, b))) continue;
+      if (best === kept || ranksAbove(gateRank(measureOf(g)), gateRank(measureOf(best)))) best = g;
+    }
+    return best;
+  };
   const inner = (horizon: Horizon) => {
     if (given.plainEngine === true) return once(horizon, { pace: false, sooner: false, plain: true, asRead: true, before: true });
     // The major's subjects as the review reads them, from the page's own rows.
@@ -7097,6 +7196,7 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
         tries.push({ ...goalRecipe, goalGenEd: 'after' });
       }
     }
+    best = degreeFirstOf(best, plain, released, trail.tried.map((t) => t.board), horizon, measureOf);
     best.gate = best === plain ? { kept: 'plain', worse: trail.tried[0]?.worse ?? [] } : { kept: 'improved', worse: [] };
     gateTrails.set(best, trail);
     return best;
