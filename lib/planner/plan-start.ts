@@ -240,6 +240,10 @@ export function horizonFor(
       : ` Until you do, this plan counts ${assumedNames} as about ${horizon.assumedHours} credits${horizon.assumedTerms.length > 1 ? ' in all' : ''}, the usual full load.`;
   // Where the student adds the classes they are taking now: the column, when the board shows one.
   const addNow = horizon.current ? `in the ${label(horizon.current)} column (or upload a screenshot of your schedule)` : `(upload your schedule or tell ${bot})`;
+  // Classes already in that column: the note says so rather than asking for them again (UGA's plan dialog shows it since 2026-10-22).
+  const entered = horizon.current && currentLines(answers?.transcript, horizon.current).length > 0
+    ? `Your ${label(horizon.current)} classes are in its column, counted as in progress until you pass them.`
+    : null;
   // What the student is told about the first term, from the term the board starts in.
   const nowUnderWay = now.season !== 'Summer' && termOrd(now.season, now.year) < termOrd(start.season, start.year);
   if (horizon.gradPassed) {
@@ -258,7 +262,7 @@ export function horizonFor(
     horizon.startNote = assumed ? `Your record does not show your classes from ${assumedNames} yet. Add them (upload your transcript or tell ${bot}) so they count.${assumed}` : null;
   } else if (began) {
     horizon.startNote = nowUnderWay && termOrd(now.season, now.year) >= termOrd(began.season, began.year)
-      ? `${label(now)} is under way and adding classes has closed, so this plan starts in ${label(start)}${sameTerm(now, began) ? '' : ` and counts your finish from ${label(began)}, when you started`}. Add the classes you are taking now ${addNow} so they count.${assumed}`
+      ? `${label(now)} is under way and adding classes has closed, so this plan starts in ${label(start)}${sameTerm(now, began) ? '' : ` and counts your finish from ${label(began)}, when you started`}. ${entered && !assumed ? entered : `Add the classes you are taking now ${addNow} so they count.`}${assumed}`
       : `You started in ${label(began)}, so this plan starts in ${label(start)}, the next term you can sign up for, and counts your finish from ${label(began)}. Add the classes you have taken (upload a transcript or tell ${bot}) so they count.${assumed}`;
   } else if (incoming) {
     horizon.startNote = `Students who have not started college yet begin in the fall, so this plan starts in ${label(start)}. If you start in ${label(open)} instead, say so in About you.`;
