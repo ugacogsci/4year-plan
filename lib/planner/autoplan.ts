@@ -6753,14 +6753,28 @@ function ugaSummerOnly(given: AutoplanInput, build: (input: AutoplanInput) => Ge
   const summers = given.horizon?.summers ?? [];
   const relaxed = new Set(needed.filter((code) => !summers.some((year) => runsInSummer(byCode.get(code) ?? { offeredIn: [] }, year))));
   const withRelaxed = (codes: Set<string>): AutoplanInput => (codes.size === 0 ? given : { ...given, context: withSummerOnlyRelaxed(given.context, codes) });
+  /*
+   * One the board still could not hold (Forestry's FORS 4650 on a short
+   * board) is listed off the board, as before, in words that say it runs
+   * only in summer and that a summer is where it fits.
+   */
+  const said = (g: GeneratedPlan): GeneratedPlan => {
+    const hasSummer = g.terms.some((t) => t.season === 'Summer');
+    for (const n of g.notPlaced) {
+      if (!needed.includes(normaliseCode(n.code))) continue;
+      if (/for summer only/.test(n.message)) continue;
+      n.message = `${n.message} The UGA Bulletin lists ${n.code} for summer only, and your degree requires it: use Add a summer to plan ${hasSummer ? 'a later summer' : 'a summer'} for it, and check UGA's summer schedule.`;
+    }
+    return g;
+  };
   const before = build(withRelaxed(listed));
   const clean = before.terms.every((t) => t.season === 'Summer' || t.codes.every((code) => !listed.has(normaliseCode(code)) || relaxed.has(normaliseCode(code))));
-  if (clean) return before;
+  if (clean) return said(before);
   const first = build(withRelaxed(relaxed));
   const onBoard = new Set(first.terms.flatMap((t) => t.codes.map(normaliseCode)));
   const missed = needed.filter((code) => !relaxed.has(code) && !onBoard.has(code));
-  if (missed.length === 0) return first;
-  return build(withRelaxed(new Set([...relaxed, ...missed])));
+  if (missed.length === 0) return said(first);
+  return said(build(withRelaxed(new Set([...relaxed, ...missed]))));
 }
 
 /**
