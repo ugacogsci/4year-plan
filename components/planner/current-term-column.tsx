@@ -55,6 +55,12 @@ export interface CurrentTermColumnProps {
   instructors?: InstructorControl;
   /** The plan cannot change right now (a degree is loading). */
   busy?: boolean;
+  /**
+   * Some required classes did not fit in the planned terms. With no class
+   * entered for this term, the plan cannot tell which requirements this
+   * term's classes meet, so it plans every one in the terms after it.
+   */
+  unplaced?: boolean;
 }
 
 export function CurrentTermColumn({
@@ -71,6 +77,7 @@ export function CurrentTermColumn({
   onSelect,
   instructors,
   busy = false,
+  unplaced = false,
 }: CurrentTermColumnProps) {
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -142,6 +149,7 @@ export function CurrentTermColumn({
         <p className="semester-note current-term-invite" role="note">
           Add the classes you&apos;re taking now so ORION and {botName} can help with this semester.
           {countLine ? ` ${countLine}` : ''}
+          {unplaced ? ' Some required classes do not fit in the terms after it yet; the classes you are taking now count toward your requirements once you add them.' : ''}
         </p>
       )}
       {!empty && countLine && <p className="semester-note" role="note">{countLine}</p>}

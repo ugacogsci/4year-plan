@@ -2161,7 +2161,9 @@ export function PlannerWorkspace({
     // built counting them, so leaving them out read as "credits are short".
     priorCodes: [...completedCodes], extraCredits: priorCreditHours - planCreditRange([...completedCodes], context).min + assumedCredit.hours,
     transcript: transcriptRecord, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used,
-    validation: { minimumTermCredits, priorCredits: priorCreditHours, standingHours: isGraduatePlan ? gradSettings.standingHours : undefined },
+    // Class standing counts the assumed terms too: the plan was placed counting them, and
+    // without them a freshman's Spring 2027 read 15 hours behind ("Class standing not reached").
+    validation: { minimumTermCredits, priorCredits: priorCreditHours + assumedCredit.hours, standingHours: isGraduatePlan ? gradSettings.standingHours : undefined },
   }) : null, [isUga, plan, context, loaded, completedCodes, priorCreditHours, transcriptRecord, uga, coreCredit, minimumTermCredits, isGraduatePlan, gradSettings.standingHours, assumedCredit.hours]);
 
   /**
@@ -3711,7 +3713,7 @@ export function PlannerWorkspace({
       graduate: L.loaded.doubleDawgsGraduate, priorCodes: [...L.completedCodes],
       extraCredits: L.priorCreditHours - planCreditRange([...L.completedCodes], L.context).min + L.assumedCredit.hours,
       transcript: L.answers?.transcript, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used,
-      validation: validateOptions() });
+      validation: { ...validateOptions(), priorCredits: L.priorCreditHours + L.assumedCredit.hours } });
   }
 
   function auditIssuesOn(board: PlanState) {
@@ -7023,6 +7025,7 @@ export function PlannerWorkspace({
               onSelect={selectCurrentClass}
               instructors={instructorControl}
               busy={programBusy}
+              unplaced={(report?.notPlaced.length ?? 0) > 0}
             />
           )}
           {plan?.terms.map((term) => {

@@ -190,6 +190,25 @@ export function horizonFor(
     const cur = horizon.current;
     if (cur && horizon.assumedTerms.some((t) => sameTerm(t, cur))) horizon.currentAssumedHours = Math.min(15, horizon.assumedHours);
   }
+  // The term in progress for a student whose record starts them here and
+  // shows them here the term before it (Spring 2026 done, Fall 2026 not on
+  // it): a record printed before this term's classes showed. A term missing
+  // from the middle of a record is a term off, as above; the one under way,
+  // right after the record's last term, is them taking classes now, so it
+  // counts as about 15 until they add those classes, said in the column.
+  // Without it a sophomore whose transcript stops at Spring 2026 had five
+  // terms to hold 90 credits and a UGA board read "Degree credits are short".
+  const nowTerm = horizon.current;
+  if (nowTerm && began && beganFrom === 'record' && !horizon.gradPassed && nowTerm.season !== 'Summer' &&
+      currentLines(answers?.transcript, nowTerm).length === 0) {
+    const last = lastHomeTerm(answers?.transcript);
+    const before = stepRegular(nowTerm, -1);
+    if (last && termOrd(last.season, last.year) >= termOrd(before.season, before.year) && termOrd(last.season, last.year) < termOrd(nowTerm.season, nowTerm.year)) {
+      horizon.assumedTerms = [...horizon.assumedTerms, nowTerm];
+      horizon.assumedHours += 15;
+      horizon.currentAssumedHours = 15;
+    }
+  }
   // The rest of a current term whose classes the student is still typing in.
   // Not when the term is already assumed above: its classes with no term on
   // them were taken off that assumption there (assumedHours), once.
@@ -222,7 +241,9 @@ export function horizonFor(
   } else if (finishPassed && shape.finish) {
     horizon.startNote = `The finish set earlier, ${label(shape.finish)}, has passed, so this plan uses the finish from About you instead.`;
   } else if (beganFrom === 'record') {
-    horizon.startNote = null;
+    horizon.startNote = horizon.current && horizon.currentAssumedHours > 0
+      ? `Your record does not show ${label(horizon.current)} classes yet. Until you add them in the ${label(horizon.current)} column (or upload a newer transcript), this plan counts ${label(horizon.current)} as about ${horizon.currentAssumedHours} credits, the usual full load.`
+      : null;
   } else if (busyNext) {
     horizon.startNote = assumed ? `Your record does not show your classes from ${assumedNames} yet. Add them (upload your transcript or tell ${bot}) so they count.${assumed}` : null;
   } else if (began) {
@@ -259,6 +280,21 @@ function firstIllinoisTerm(record: TranscriptRecord | null | undefined): { seaso
     if (!m) continue;
     const t = { season: m[1] as SemesterSeason, year: Number(m[2]) };
     if (!best || termOrd(t.season, t.year) < termOrd(best.season, best.year)) best = t;
+  }
+  return best;
+}
+
+/** The latest term this school taught the student, done or in progress (a home record only), or null. */
+function lastHomeTerm(record: TranscriptRecord | null | undefined): { season: SemesterSeason; year: number } | null {
+  if (!record || record.home === false || record.kind === 'transfer_report') return null;
+  let best: { season: SemesterSeason; year: number } | null = null;
+  for (const c of record.courses ?? []) {
+    if (!c.use || (c.status !== 'completed' && c.status !== 'in_progress')) continue;
+    if (lineIsForeign(record, c) || c.matchedBy === 'student') continue;
+    const m = (normalizeTerm(c.term) ?? '').match(/^(Fall|Spring|Summer) (\d{4})$/);
+    if (!m) continue;
+    const t = { season: m[1] as SemesterSeason, year: Number(m[2]) };
+    if (!best || termOrd(t.season, t.year) > termOrd(best.season, best.year)) best = t;
   }
   return best;
 }

@@ -19,6 +19,9 @@
  * year of study read from the words, the finish onboarding suggests for it):
  *   incoming   "I'm an incoming freshman, starting college next fall." No record.
  *   first      "I'm a freshman." In their first fall. No record.
+ *   first-added The same freshman, with their Fall 2026 classes added by hand
+ *              (the program's own first fall, as the column's "Add a class
+ *              you're taking now" writes them).
  *   second     "I'm a sophomore." A UGA transcript: Fall 2025 and Spring 2026
  *              done (about 30 credits), Fall 2026 in progress.
  *   second-nf  The same sophomore, the transcript printed without Fall 2026.
@@ -62,6 +65,7 @@ const TODAY = new Date('2026-10-20T15:00:00Z');
 const KINDS = {
   incoming: { words: "I'm an incoming freshman, starting college next fall.", record: null },
   first: { words: "I'm a freshman.", record: null },
+  'first-added': { words: "I'm a freshman.", record: 'first-added' },
   second: { words: "I'm a sophomore.", record: 'second' },
   'second-nf': { words: "I'm a sophomore.", record: 'second-nf' },
   third: { words: "I'm a junior.", record: 'third' },
@@ -216,9 +220,15 @@ if (mode === 'fixtures') {
       });
       const record = (courses) => ({ schoolId: 'uga', fileName: 'harness-transcript.pdf', readAt: '2026-10-20T14:00:00Z', institution: 'University of Georgia', kind: 'transcript', home: true, files: ['harness-transcript.pdf'], courses, exams: [], notes: [] });
       // Sophomore: the board of a student who began Fall 2025, its first two terms done, its third (labelled Fall 2026) in progress.
+      const fresh = reference(2026);
       const soph = reference(2025);
       const junior = reference(2024);
+      const added = fresh.terms[0].courseIds.map((id) => byId.get(id)).filter(Boolean).map((c) => ({
+        code: c.code, title: c.title, credits: c.credits, grade: null, term: 'Fall 2026', status: 'in_progress',
+        from: null, equivalent: null, matched: norm(c.code), matchedBy: 'student', use: true, counts: 'course', illinoisCredits: c.credits,
+      }));
       out[program.id] = {
+        'first-added': { schoolId: 'uga', fileName: 'Added by you', readAt: '2026-10-20T14:00:00Z', institution: null, kind: 'course_list', home: true, files: [], courses: added, exams: [], notes: [] },
         second: record(lines(soph, 2, true)),
         'second-nf': record(lines(soph, 2, false)),
         third: record(lines(junior, 4, true)),
@@ -349,14 +359,12 @@ function build(program, kind) {
   const once = distinctHeld(completed.filter((c) => !forfeited.has(c)), context).codes;
   const priorCreditHours = planCreditRange(once, context).min + priorHours;
   const current = horizon.current ?? null;
-  // The in-progress hours the current column shows (current-term.ts currentLines): this school's lines of that term.
-  const inProgressShown = current ? (record?.courses ?? []).filter((c) => c.use && c.status === 'in_progress' && c.counts !== 'none' && !T.lineIsForeign(record, c) && (!c.term || c.term === `${current.season} ${current.year}`)).reduce((s, c) => s + (c.equivalentCredits ?? c.credits ?? c.assumedCredits ?? 0), 0) : 0;
   const audit = auditUgaBoard({
     board, context, undergraduate: loaded, priorCodes: completed,
     extraCredits: priorCreditHours - planCreditRange(completed, context).min + horizon.assumedHours,
     transcript: record, dualLevel: data.dualLevelCourses,
-    validation: { minimumTermCredits: 12, priorCredits: priorCreditHours },
-    inProgressShown,
+    // As the workspace's audit has it since 2026-10-20: standing counts the assumed terms (0 at UGA before).
+    validation: { minimumTermCredits: 12, priorCredits: priorCreditHours + horizon.assumedHours },
   });
   const boardCodes = board.terms.flatMap((t) => t.courseIds).map((id) => context.courses.find((c) => c.id === id)?.code).filter(Boolean);
   const planned = planCreditRange(boardCodes, context).min;
