@@ -7548,6 +7548,17 @@ button.unofficial-label:focus-visible,
 .current-term-ask-buttons button svg,
 .current-term-done svg { width: 13px; height: 13px; }
 .current-class-card { cursor: default; }
+/* A current class is never resized, and its "added by you" line would push a
+   planned card's 58px body into a scrollbar or under "Set my instructor": its
+   body shows in full and the card grows to hold it. */
+.current-class-card .course-card-body,
+.planner-app .current-class-card .course-card-body { max-height: none; min-height: auto; overflow: visible; }
+/* A planned column's grid holds its cards to 84px when it is full; the current
+   column stacks its few cards at their own height instead, so nothing in one
+   is drawn over, and scrolls when they do not fit. */
+.current-term-column .semester-courses { display: flex; flex-direction: column; }
+.current-term-column .semester-courses > * { flex: none; }
+.planner-app .current-class-spacer { grid-row: 1 / 3; }
 .current-class-card:active { cursor: default; }
 .current-class-spacer { grid-column: 1; grid-row: 1 / 4; width: 22px; }
 .planner-app .current-class-spacer { width: 18px; }

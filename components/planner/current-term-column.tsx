@@ -190,7 +190,7 @@ export function CurrentTermColumn({
                   <span className="course-card-credits">{c.credits} cr</span>
                 </span>
                 <span className="course-card-title">{c.title}</span>
-                <span className="current-class-from">{c.from === 'transcript' ? 'from your transcript' : 'added by you'}</span>
+                <span className="current-class-from">{c.from === 'transcript' ? 'from your upload' : 'added by you'}</span>
               </button>
               {editing ? (
                 <button
