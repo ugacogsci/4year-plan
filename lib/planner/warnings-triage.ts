@@ -166,6 +166,14 @@ export interface CreditGap {
   assumed: number;
   /** "Fall 2024, Spring 2025 and Fall 2025": the terms assumed. */
   assumedTerms?: string;
+  /**
+   * The semester in progress, when the board shows it as its own column
+   * ("Fall 2026", current-term.ts), with the hours of `assumed` counted for
+   * it until its classes are added and how many classes it holds now.
+   */
+  currentTerm?: string | null;
+  currentAssumed?: number;
+  currentClasses?: number;
 }
 
 /** A shortfall of more than this many hours between what was said and what is recorded asks for the record. */
@@ -174,9 +182,32 @@ const SAID_SLACK = 6;
 const RECORD_ASK = 'Add your classes or upload a transcript to get an accurate check.';
 
 /**
+ * The semester in progress, when it is the only term the plan assumes credit
+ * for: its classes are what the check is missing, and the board's own column
+ * for it is where they go.
+ */
+function currentOnly(gap: CreditGap): string | null {
+  const hours = gap.currentAssumed ?? 0;
+  return gap.currentTerm && hours > 0 && gap.assumed - hours <= 0 ? gap.currentTerm : null;
+}
+
+/**
  * The one plain prompt for credit the plan cannot see, or null. Said hours
  * not on the record ask for it; with nothing said, terms the build assumed
  * credit for ask for their classes.
+ *
+ * The semester in progress (since 2026-10-22, current-term.ts). A freshman
+ * in October, or a sophomore whose transcript was printed before this fall,
+ * has a plan that counts the fall under way as about 15 credits until they
+ * add the classes they are taking now, and plans every requirement in the
+ * terms after it, so some read as missing or left out (more at UGA, whose
+ * plans used to book their own classes into that fall). Those classes are the
+ * one thing that settles it, so the prompt names that term and its column,
+ * ranks first as the record prompt always has, and folds the shortfalls they
+ * explain under "Waiting for your record", rather than a list of
+ * requirements the student cannot act on yet. Classes from a transcript
+ * assume nothing, so they ask nothing here: the column asks once whether
+ * they are right.
  */
 export function recordPrompt(gap: CreditGap | null | undefined): string | null {
   if (!gap) return null;
@@ -184,9 +215,18 @@ export function recordPrompt(gap: CreditGap | null | undefined): string | null {
     if (gap.recorded + SAID_SLACK >= gap.said) return null;
     return `You said about ${gap.said} credits; ${gap.recorded > 0 ? `${gap.recorded} are` : 'none are'} recorded. ${RECORD_ASK}`;
   }
+  const now = currentOnly(gap);
+  if (now) {
+    return (gap.currentClasses ?? 0) > 0
+      ? `Your ${now} classes are not all added yet. Add the rest in the ${now} column, or say there that those are all, to get an accurate check.`
+      : `Your ${now} classes are not added yet. Add them in the ${now} column to get an accurate check.`;
+  }
   if (gap.assumed > 0) return `Your classes from ${gap.assumedTerms || 'your earlier terms'} are not recorded yet. ${RECORD_ASK}`;
   return null;
 }
+
+/** The record prompt's issue when it stands for the semester in progress (the board bar titles its popover from it). */
+export const CURRENT_CLASSES_ID = 'current-classes';
 
 /** Identical rows the list folds into one, with how many. */
 export interface TriageRow {
@@ -293,13 +333,22 @@ export function triageIssues(
   const stated = rows.filter((r) => r.kind.key === 'record');
   let prompt: AttentionKind | null = null;
   if (promptText) {
-    const issue: PlanIssue = stated[0]?.issue ?? {
-      id: 'stated-hours',
-      severity: 'warning',
-      title: promptText.replace(` ${RECORD_ASK}`, ''),
-      message: `The plan counts only the classes it can see, so requirements those credits fill read as missing. Upload your transcript or academic history (a screenshot works), pick your AP or IB exams, or tell ${options.bot ?? 'the assistant'} what you took, and the plan is rebuilt around it.`,
-      termId: '',
-    };
+    const now = options.credit && options.credit.said === null ? currentOnly(options.credit) : null;
+    const issue: PlanIssue = stated[0]?.issue ?? (now
+      ? {
+          id: CURRENT_CLASSES_ID,
+          severity: 'warning',
+          title: `Your ${now} classes`,
+          message: `${now} is under way. Until you add the classes you are taking now, the plan ${(options.credit?.currentClasses ?? 0) > 0 ? `counts about ${options.credit?.currentAssumed} more credits for ${now}` : `counts ${now} as about ${options.credit?.currentAssumed} credits, a usual full load,`} and plans every requirement in the terms after it, so some read as missing or left out. Add them in the ${now} column (a screenshot of your class schedule or your transcript works too, through the upload in the side panel), and the plan is rebuilt around them.`,
+          termId: '',
+        }
+      : {
+          id: 'stated-hours',
+          severity: 'warning',
+          title: promptText.replace(` ${RECORD_ASK}`, ''),
+          message: `The plan counts only the classes it can see, so requirements those credits fill read as missing. Upload your transcript or academic history (a screenshot works), pick your AP or IB exams, or tell ${options.bot ?? 'the assistant'} what you took, and the plan is rebuilt around it.`,
+          termId: '',
+        });
     prompt = { key: 'record', label: promptText, severity: 'warning', issue, rows: stated };
     for (const row of rows) if (row.kind.tier === 'now' && row.kind.record) row.folded = true;
   }

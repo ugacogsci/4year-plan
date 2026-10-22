@@ -229,7 +229,7 @@ export function horizonFor(
       ? ` Until you do, this plan counts about ${horizon.assumedHours} more credits for ${assumedNames}, beyond the classes you have added.`
       : ` Until you do, this plan counts ${assumedNames} as about ${horizon.assumedHours} credits${horizon.assumedTerms.length > 1 ? ' in all' : ''}, the usual full load.`;
   // Where the student adds the classes they are taking now: the column, when the board shows one.
-  const addNow = horizon.current ? `in the ${label(horizon.current)} column` : `(upload your schedule or tell ${bot})`;
+  const addNow = horizon.current ? `in the ${label(horizon.current)} column (or upload a screenshot of your schedule)` : `(upload your schedule or tell ${bot})`;
   // What the student is told about the first term, from the term the board starts in.
   const nowUnderWay = now.season !== 'Summer' && termOrd(now.season, now.year) < termOrd(start.season, start.year);
   if (horizon.gradPassed) {

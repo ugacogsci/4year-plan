@@ -56,11 +56,14 @@ export interface CurrentTermColumnProps {
   /** The plan cannot change right now (a degree is loading). */
   busy?: boolean;
   /**
-   * Some required classes did not fit in the planned terms. With no class
-   * entered for this term, the plan cannot tell which requirements this
-   * term's classes meet, so it plans every one in the terms after it.
+   * Where the student's class schedule lives ("Athena", "Student
+   * Self-Service"): a screenshot of it, uploaded through the side panel's
+   * transcript upload, fills this column (the reader marks a current
+   * schedule's classes in progress, app/api/transcript/route.ts).
    */
-  unplaced?: boolean;
+  scheduleFrom?: string;
+  /** Open the side panel's upload, where a schedule screenshot or a transcript is read. */
+  onUpload?: () => void;
 }
 
 export function CurrentTermColumn({
@@ -77,7 +80,8 @@ export function CurrentTermColumn({
   onSelect,
   instructors,
   busy = false,
-  unplaced = false,
+  scheduleFrom,
+  onUpload,
 }: CurrentTermColumnProps) {
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -102,11 +106,11 @@ export function CurrentTermColumn({
   }
 
   const empty = classes.length === 0;
-  const countLine = assumedHours > 0
-    ? empty
-      ? `Until then, this plan counts ${term.label} as about ${assumedHours} credits, a usual full load.`
-      : `Until you add the rest, this plan counts about ${assumedHours} more credits for ${term.label}.`
-    : null;
+  // An empty column says one plain line, the invite. What the plan counts for
+  // the term until then is said by the board bar's prompt for this column
+  // (warnings-triage.ts) and on hover over "no classes yet".
+  const countLine = assumedHours > 0 && !empty ? `Until you add the rest, this plan counts about ${assumedHours} more credits for ${term.label}.` : null;
+  const countTitle = assumedHours > 0 && empty ? `Until you add them, this plan counts ${term.label} as about ${assumedHours} credits, a usual full load.` : undefined;
 
   return (
     <section
@@ -122,7 +126,7 @@ export function CurrentTermColumn({
             <small className="current-term-badge">In progress</small>
           </h3>
         </div>
-        <p className="semester-credit-count">{empty ? 'no classes yet' : `${credits} ${credits === 1 ? 'credit' : 'credits'}`}</p>
+        <p className="semester-credit-count" title={countTitle}>{empty ? 'no classes yet' : `${credits} ${credits === 1 ? 'credit' : 'credits'}`}</p>
       </header>
 
       {question && !editing && (
@@ -147,9 +151,17 @@ export function CurrentTermColumn({
 
       {empty && (
         <p className="semester-note current-term-invite" role="note">
-          Add the classes you&apos;re taking now so ORION and {botName} can help with this semester.
-          {countLine ? ` ${countLine}` : ''}
-          {unplaced ? ' Some required classes do not fit in the terms after it yet; the classes you are taking now count toward your requirements once you add them.' : ''}
+          Add the classes you&apos;re taking now
+          {onUpload ? (
+            <>
+              , or{' '}
+              <button type="button" className="current-term-upload" onClick={onUpload}>
+                upload a screenshot of your {scheduleFrom ?? 'class'} schedule
+              </button>
+              ,
+            </>
+          ) : null}{' '}
+          so ORION and {botName} can help with this semester.
         </p>
       )}
       {!empty && countLine && <p className="semester-note" role="note">{countLine}</p>}

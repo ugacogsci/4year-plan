@@ -2101,21 +2101,6 @@ export function PlannerWorkspace({
   }, [loaded, answers, planShape, boardTerms]);
 
   /**
-   * What the student says they hold against what the plan can see: hours on
-   * the record (each class once, exams, transfer hours) and the terms the
-   * build assumed credit for. The "You said about 70 credits" row and the
-   * board bar's one prompt to add the record both read it (warnings-triage.ts).
-   */
-  const creditGap = useMemo((): CreditGap => ({
-    said: statedHours(answers?.timeline ?? ''),
-    recorded:
-      (context ? planCreditRange(distinctHeld([...completedCodes], context).codes, context).min : 0) +
-      priorHoursOf(answers, exams, examCredit.entries, catalogCredits),
-    assumed: assumedCredit.hours,
-    assumedTerms: assumedCredit.terms,
-  }), [answers, context, completedCodes, exams, examCredit, catalogCredits, assumedCredit]);
-
-  /**
    * The semester in progress, as the board's first column: the student's
    * real classes from their record, never the planner's (current-term.ts).
    * Null when the board starts in the term under way, for a student who has
@@ -2140,6 +2125,26 @@ export function PlannerWorkspace({
       assumedHours: h.currentAssumedHours,
     };
   }, [isCatalogSchool, boardTerms, answers, planShape, byCode, courseIndex]);
+
+  /**
+   * What the student says they hold against what the plan can see: hours on
+   * the record (each class once, exams, transfer hours) and the terms the
+   * build assumed credit for, the semester in progress among them. The "You
+   * said about 70 credits" row and the board bar's one prompt to add the
+   * record both read it (warnings-triage.ts).
+   */
+  const creditGap = useMemo((): CreditGap => ({
+    said: statedHours(answers?.timeline ?? ''),
+    recorded:
+      (context ? planCreditRange(distinctHeld([...completedCodes], context).codes, context).min : 0) +
+      priorHoursOf(answers, exams, examCredit.entries, catalogCredits),
+    assumed: assumedCredit.hours,
+    assumedTerms: assumedCredit.terms,
+    // The semester in progress, so the prompt sends the student to its column when it is all the plan assumes.
+    currentTerm: currentView?.term.label ?? null,
+    currentAssumed: currentView?.assumedHours ?? 0,
+    currentClasses: currentView?.classes.length ?? 0,
+  }), [answers, context, completedCodes, exams, examCredit, catalogCredits, assumedCredit, currentView]);
 
   /** The summers the board bar offers to add (summer-terms.ts). */
   const summerChoices = useMemo(() => (plan ? summersToAdd(plan) : []), [plan]);
@@ -3508,6 +3513,26 @@ export function PlannerWorkspace({
     const rest = catalog.filter((c) => !first.has(c) && matchesQuery(c, q)).slice(0, 12 - byCodeFirst.length);
     return [...byCodeFirst, ...rest];
   }, [catalog]);
+  /**
+   * The column's "upload a screenshot of your schedule": the side panel open
+   * at its transcript upload. The upload already reads a schedule screenshot
+   * (app/api/transcript/route.ts marks a current-enrollments list in
+   * progress, dated by the term it prints), so its classes land in the
+   * column; with a record already there it is "Add another page or file", so
+   * the record is added to, not replaced.
+   */
+  function openRecordUpload() {
+    setRailOpen(true);
+    requestAnimationFrame(() => {
+      const details = document.querySelector('.rail .rail-completed');
+      if (details instanceof HTMLDetailsElement) details.open = true;
+      const more = document.querySelector<HTMLInputElement>('.rail .transcript-more input');
+      const pick = document.querySelector<HTMLInputElement>('.rail .transcript-pick input');
+      const target = more ?? pick;
+      target?.closest('label')?.scrollIntoView({ block: 'center' });
+      target?.focus({ preventScroll: true });
+    });
+  }
   /** A current class's popup: its details, and My instructor for this term. */
   function selectCurrentClass(courseId: string) {
     setChooser(null);
@@ -7025,7 +7050,8 @@ export function PlannerWorkspace({
               onSelect={selectCurrentClass}
               instructors={instructorControl}
               busy={programBusy}
-              unplaced={(report?.notPlaced.length ?? 0) > 0}
+              scheduleFrom={isUga ? 'Athena' : 'Student Self-Service'}
+              onUpload={openRecordUpload}
             />
           )}
           {plan?.terms.map((term) => {

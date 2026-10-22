@@ -7590,6 +7590,21 @@ button.unofficial-label:focus-visible,
 .planner-app .current-term-hits button { font-family: var(--app-font-mono); font-size: 10px; }
 .current-term-none { margin: 2px 4px; font-size: 11px; color: var(--orion-dim, var(--ink-dim)); }
 .current-term-done { justify-self: start; margin-top: 4px; }
+/* "upload a screenshot of your Athena schedule": a link in the invite line that opens the side panel's upload. */
+.current-term-upload {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.current-term-upload:hover { color: var(--orion-text, var(--foreground)); }
+.current-term-upload:focus-visible { outline: 2px solid var(--orion-mid, currentColor); outline-offset: 1px; border-radius: 2px; }
 /* "Add a class you're taking now" is longer than "Add a course": it wraps inside the column. */
 .current-term-column .semester-add-button {
   max-width: 100%;

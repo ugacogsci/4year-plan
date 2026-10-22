@@ -17,7 +17,7 @@ import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@/compone
 import { cn } from '@/lib/utils';
 import { splitCourseMentions } from '@/lib/planner/course-mentions';
 import type { Course, PlanIssue } from '@/lib/planner/types';
-import type { AttentionKind, Triage, TriageRow } from '@/lib/planner/warnings-triage';
+import { CURRENT_CLASSES_ID, type AttentionKind, type Triage, type TriageRow } from '@/lib/planner/warnings-triage';
 
 interface LinkProps {
   coursesByCode?: ReadonlyMap<string, Course>;
@@ -106,7 +106,8 @@ function Chip({ kind, onSelect, ...links }: LinkProps & { kind: AttentionKind; o
         <span className="attention-chip-text">{kind.label}</span>
       </PopoverTrigger>
       <PopoverContent side="bottom" align="end" className="attention-popover" positionerClassName="attention-positioner" collisionPadding={12}>
-        <PopoverTitle>{kind.key === 'record' ? 'Credit the plan cannot see' : kind.label}</PopoverTitle>
+        {/* The record prompt for the semester in progress is titled by that term ("Your Fall 2026 classes"). */}
+        <PopoverTitle>{kind.key === 'record' ? (kind.issue.id === CURRENT_CLASSES_ID ? kind.issue.title : 'Credit the plan cannot see') : kind.label}</PopoverTitle>
         <div className="attention-body">
           {kind.key === 'record' ? (
             <p>
@@ -139,6 +140,8 @@ export function AttentionBar({
   const prominent = new Set(triage.prominent.flatMap((kind) => kind.rows));
   const nowMore = triage.now.flatMap((kind) => kind.rows).filter((row) => !prominent.has(row));
   const links = { coursesByCode, onShowCourse };
+  // What settles the rows waiting for the record: the classes of the semester in progress, when that is all the prompt asks for.
+  const current = triage.prompt?.issue.id === CURRENT_CLASSES_ID ? triage.prompt.issue.title.replace(/^Your (.+) classes$/, '$1') : null;
   return (
     <div className="attention-bar" role="group" aria-label="What needs attention">
       {triage.allClear ? (
@@ -158,7 +161,9 @@ export function AttentionBar({
               <Section title="Also needs attention" rows={nowMore} tone="now" onSelect={onSelectIssue} close={close} {...links} />
               <Section
                 title="Waiting for your record"
-                note="Credit you already hold may settle these. Add your classes or upload a transcript, and the plan is checked again."
+                note={current
+                  ? `The classes you are taking now may settle these. Add them in the ${current} column, and the plan is checked again.`
+                  : 'Credit you already hold may settle these. Add your classes or upload a transcript, and the plan is checked again.'}
                 rows={triage.folded}
                 tone="now"
                 onSelect={onSelectIssue}
