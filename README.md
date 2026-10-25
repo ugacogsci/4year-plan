@@ -255,9 +255,11 @@ For a separate local review of third-party professor ratings, run
 profile summaries (names, departments, aggregate ratings and profile links)
 using the site's anonymous directory query, with serial requests and rate-limit
 backoff. It stops on denied access and does not collect review text. JSON, CSV,
-coverage summaries and resume checkpoints go in `data/ratemyprofessors/`, which
-is ignored by Git and is not served or used by the planner. Use `--school uga`
-or `--school illinois` for one school, or `--output DIR` for a fresh snapshot.
+coverage summaries and resume checkpoints go in `data/ratemyprofessors/`.
+The dataset exports and coverage summaries are tracked in Git; checkpoints and
+temporary writes stay local. These datasets are not served or used by the
+planner. Use `--school uga` or `--school illinois` for one school, or
+`--output DIR` for a fresh snapshot.
 Re-running with the same directory resumes an interrupted collection; a
 completed snapshot is reused. Coverage means profiles listed by that site,
 including historical and unrated entries, not a verified current faculty roster.

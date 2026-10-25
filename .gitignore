@@ -42,5 +42,6 @@ public/__samples/
 data/syllabi/
 data/syllabi
 
-# Local third-party professor-rating snapshots; not bundled into the planner.
-data/ratemyprofessors/
+# Local collection checkpoints and temporary writes; dataset exports are tracked.
+data/ratemyprofessors/*.checkpoint.json
+data/ratemyprofessors/*.tmp
