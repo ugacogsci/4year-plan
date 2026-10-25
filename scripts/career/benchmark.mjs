@@ -3,9 +3,11 @@
  * The career matcher against today's word matching: twenty goals, two
  * majors at each school, the same freshman, built both ways.
  *
- *   node scripts/career/benchmark.mjs embed <goals.json>
+ *   node scripts/career/benchmark.mjs embed <goals.json> [label...]
  *       the goals' vectors, with the 8-bit model the browser runs
- *       (public/career-model, scripts/career/browser-assets.mjs)
+ *       (public/career-model, scripts/career/browser-assets.mjs); with
+ *       labels, only those goals (of GOALS and CHECK_GOALS), as
+ *       lib/planner/__career-embedding.goals.json holds them
  *   node scripts/career/benchmark.mjs illinois <goals.json> <out.jsonl>
  *       Illinois boards, words and meaning (the UGA boards come from
  *       scripts/dev/uga-harness.mjs with HARNESS_GOALS, HARNESS_MEANING)
@@ -45,6 +47,11 @@ export const GOALS = [
   ['game developer', 'I want to be a game developer'],
   ['undecided', "I'm undecided about what I want to do"],
 ];
+/** More goals for lib/planner/__career-embedding.check.mjs, not in the benchmark. */
+const CHECK_GOALS = [
+  ['Spanish teacher', 'I want to be a Spanish teacher'],
+  ['translator', 'I want to be a translator'],
+];
 const ILLINOIS = ['las/psychology-bslas', 'engineering/computer-science-bs'];
 
 if (mode !== 'report' && !process.execArgv.some((a) => a.includes('strip-types'))) {
@@ -68,14 +75,15 @@ if (mode === 'embed') {
   const { goalQuery } = await import(join(LIB, 'career-embedding.ts'));
   const out = [];
   const t1 = Date.now();
-  for (const [label, text] of GOALS) {
+  const wanted = args.slice(1);
+  for (const [label, text] of wanted.length ? [...GOALS, ...CHECK_GOALS].filter(([label]) => wanted.includes(label)) : GOALS) {
     // As the browser does (career-embedding-browser.ts): the goal without its framing, none for "undecided".
     const query = goalQuery(text);
     const v = query ? await fe(query, { pooling: 'mean', normalize: true }) : null;
     out.push({ label, text, query, vector: v ? Array.from(v.data, (x) => Number(x.toFixed(6))) : null });
   }
   writeFileSync(args[0], JSON.stringify(out));
-  console.log(`model loaded in ${loaded} ms; ${GOALS.length} goals embedded in ${Date.now() - t1} ms (${((Date.now() - t1) / GOALS.length).toFixed(0)} ms each)`);
+  console.log(`model loaded in ${loaded} ms; ${out.length} goals embedded in ${Date.now() - t1} ms (${((Date.now() - t1) / out.length).toFixed(0)} ms each)`);
   process.exit(0);
 }
 
@@ -170,6 +178,8 @@ const H4 = { startSeason: 'Fall', startYear: 2026, gradSeason: 'Spring', gradYea
 const FRESH = { courseCodes: [], exemptCodes: [], unmatchedCredits: 0, known: true, languageSemesters: 4, languageName: 'Spanish', genEdCredits: [] };
 const vectors = E.courseVectorsFrom(read('illinois/course-vectors.json'), readFileSync(join(PUBLIC, 'illinois/course-vectors.bin')));
 const goals = JSON.parse(readFileSync(args[0], 'utf8'));
+// The career pathways the goal is read with (as the browser loads them); BENCH_PATHWAYS=0 reads the goal alone.
+const pathways = process.env.BENCH_PATHWAYS !== '0' && existsSync(join(PUBLIC, 'career-pathways.json')) ? E.pathwayVectorsFrom(read('career-pathways.json')) : undefined;
 
 /** One freshman board, as the workspace builds it: interests [studying, career], career the goal. */
 export function illinoisBoard(programId, career, careerFit) {
@@ -196,7 +206,7 @@ for (const programId of ILLINOIS) {
   const programName = summaries.find((p) => p.id === programId)?.name ?? programId;
   for (const g of goals) {
     for (const how of ['words', 'meaning']) {
-      const fit = how === 'meaning' && g.vector ? E.careerFitFor({ text: g.text, vector: g.vector, label: g.label, school: 'Illinois' }, vectors) : undefined;
+      const fit = how === 'meaning' && g.vector ? E.careerFitFor({ text: g.text, vector: g.vector, label: g.label, school: 'Illinois', ...(pathways ? { pathways } : {}) }, vectors) : undefined;
       const t0 = Date.now();
       const plan = illinoisBoard(programId, g.text, fit);
       built += 1;

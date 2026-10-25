@@ -20,10 +20,17 @@
  * (careerMatcherOn) and the model has loaded; without it every plan is
  * built exactly as before.
  *
+ * A short goal is too little for the small model to place ("dentist"
+ * found no course at all; "nurse" sat nearest lactation biology), so the
+ * goal is first matched by meaning to the closest of 54 researched career
+ * pathways (public/career-pathways.json, expandGoal) and read together with
+ * that pathway's skill areas. A goal no pathway is close to is read alone.
+ *
  * Pure and synchronous: the vectors and the goal's vector come in from
  * career-embedding-browser.ts (the page) or the Node scripts, so a plan
  * build never waits on a model.
  */
+import { listedUgaCourseCodes } from './uga-course-codes';
 
 export const CAREER_MODEL = 'Xenova/all-MiniLM-L6-v2';
 export const CAREER_DIMS = 384;
@@ -57,6 +64,8 @@ export interface CourseVectors {
   dims: number;
   /** Each course's mean similarity to the reference occupations (CourseVectorsMeta.hubs), when the file has them. */
   hubs?: Float32Array;
+  /** Row -> the language of a beginner language course ("Elementary Turkish I" -> "Turkish"), from CourseVectorsMeta.beginnerLanguage. */
+  beginnerLanguage?: Map<number, string>;
 }
 
 export interface CourseVectorsMeta {
@@ -73,6 +82,31 @@ export interface CourseVectorsMeta {
    * than to careers in general.
    */
   hubs?: number[];
+  /**
+   * The beginner courses of a world language, code -> language: an
+   * "Elementary", "Beginning", "First-Year" or "Basic" course in a language
+   * the catalog also teaches at an intermediate level
+   * (scripts/career/embed-courses.mjs beginnerLanguagesOf). They are not
+   * goal courses unless the goal is about languages (careerFitFor): every
+   * one sits near "teacher", and a Psychology board got five of them.
+   */
+  beginnerLanguage?: Record<string, string>;
+}
+
+/**
+ * The codes a planner books a vector's course under. Illinois codes are as
+ * listed. A UGA row's code can print a lab or a graduate number with the
+ * course ("POUL 3000-3000L", "JURI 4600/6600"); the UGA planner books it as
+ * "POUL 3000" and "JURI 4600" (uga-course-codes.ts listedUgaCourseCodes,
+ * the expansion uga-source.tsx builds its courses with), so the vector is
+ * found under those too, and under the lab's own code ("POUL 3000L").
+ * Graduate numbers are left out: graduate courses keep word matching.
+ */
+export function plannerCodesOf(code: string): string[] {
+  if (!/^[A-Z]{2,5}(?:\([A-Z]{2,5}\))*\s+\d{4}/.test(code)) return [code];
+  const undergraduate = listedUgaCourseCodes(code).filter((c) => /\s[1-4]\d{3}/.test(c));
+  const lab = code.match(/^([A-Z]{2,5})\s+\d{4}[A-Z]?-(\d{4}L)$/);
+  return [...new Set([code, ...undergraduate, ...(lab ? [`${lab[1]} ${lab[2]}`] : [])])];
 }
 
 export function courseVectorsFrom(meta: CourseVectorsMeta, bin: ArrayBuffer | Uint8Array): CourseVectors {
@@ -80,7 +114,105 @@ export function courseVectorsFrom(meta: CourseVectorsMeta, bin: ArrayBuffer | Ui
   const view = bin instanceof Uint8Array ? bin : new Uint8Array(bin);
   if (view.byteLength !== meta.codes.length * meta.dims) throw new Error('course vectors do not match their index');
   const bytes = new Int8Array(view.buffer, view.byteOffset, view.byteLength);
-  return { codes: meta.codes, index: new Map(meta.codes.map((code, i) => [code, i])), bytes, scales: Float32Array.from(meta.scales), dims: meta.dims, ...(meta.hubs?.length === meta.codes.length ? { hubs: Float32Array.from(meta.hubs) } : {}) };
+  // A row's own code first; then the planner's codes for it, where no row has that code itself.
+  const index = new Map(meta.codes.map((code, i) => [code, i]));
+  meta.codes.forEach((code, i) => {
+    for (const alias of plannerCodesOf(code)) if (!index.has(alias)) index.set(alias, i);
+  });
+  const beginner = meta.beginnerLanguage ? new Map(Object.entries(meta.beginnerLanguage).flatMap(([code, language]) => (index.has(code) ? [[index.get(code)!, language] as [number, string]] : []))) : undefined;
+  return {
+    codes: meta.codes, index, bytes, scales: Float32Array.from(meta.scales), dims: meta.dims,
+    ...(meta.hubs?.length === meta.codes.length ? { hubs: Float32Array.from(meta.hubs) } : {}),
+    ...(beginner?.size ? { beginnerLanguage: beginner } : {}),
+  };
+}
+
+/** The career pathways by meaning (public/career-pathways.json, scripts/career/embed-pathways.mjs). */
+export interface PathwayVectorsMeta {
+  model: string;
+  dims: number;
+  pathways: Array<{
+    id: string;
+    name: string;
+    /** A world language is one of the pathway's core skills (international affairs). */
+    languages: boolean;
+    /** The pathway's name and goal words, read by the model: what a goal is matched against. Base64 of signed bytes, and their scale. */
+    match: string;
+    matchScale: number;
+    /** Its summary and core skill areas: what the goal is read with. */
+    areas: string;
+    areasScale: number;
+  }>;
+}
+
+export interface PathwayVectors {
+  pathways: Array<{ id: string; name: string; languages: boolean; match: Float32Array; areas: Float32Array }>;
+}
+
+function unitFrom(b64: string, scale: number, dims: number): Float32Array {
+  const raw = atob(b64);
+  if (raw.length !== dims) throw new Error('a pathway vector has the wrong length');
+  const out = new Float32Array(dims);
+  let n = 0;
+  for (let k = 0; k < dims; k++) {
+    const byte = raw.charCodeAt(k);
+    out[k] = (byte > 127 ? byte - 256 : byte) * scale;
+    n += out[k] ** 2;
+  }
+  n = Math.sqrt(n);
+  if (n > 0) for (let k = 0; k < dims; k++) out[k] /= n;
+  return out;
+}
+
+export function pathwayVectorsFrom(meta: PathwayVectorsMeta): PathwayVectors {
+  if (meta.model !== CAREER_MODEL || meta.dims !== CAREER_DIMS) throw new Error(`pathway vectors are ${meta.model} x ${meta.dims}`);
+  return { pathways: meta.pathways.map((p) => ({ id: p.id, name: p.name, languages: p.languages, match: unitFrom(p.match, p.matchScale, meta.dims), areas: unitFrom(p.areas, p.areasScale, meta.dims) })) };
+}
+
+/**
+ * How a goal is read with its pathway (expandGoal). A goal as close as
+ * PATHWAY_FULL to a pathway's name and goal words is read 30% as itself and
+ * 70% as the pathway's summary and core skill areas; from PATHWAY_FLOOR up
+ * the pathway's share grows from nothing, and a goal below it is read alone
+ * (low confidence: "translator" is 0.22 from its nearest pathway). Pathways
+ * within PATHWAY_NEAR of the closest are read too, two at most ("marketing":
+ * marketing and sales 0.50, advertising and public relations 0.45). Measured
+ * on the benchmark's goals (docs/career-system.md).
+ */
+export const PATHWAY_FLOOR = 0.35;
+export const PATHWAY_FULL = 0.45;
+export const PATHWAY_NEAR = 0.05;
+export const PATHWAY_SHARE = 0.7;
+
+export interface ExpandedGoal {
+  vector: Float32Array;
+  /** The pathways the goal was read with, closest first; empty when it was read alone. */
+  pathways: Array<{ id: string; name: string; match: number; languages: boolean }>;
+  /** The pathways' share of the vector, 0 to PATHWAY_SHARE. */
+  share: number;
+}
+
+/** The goal read with its closest career pathway(s): the vector the courses are measured against. */
+export function expandGoal(goal: Float32Array, pv: PathwayVectors): ExpandedGoal {
+  const dims = goal.length;
+  const dotf = (a: Float32Array, b: Float32Array) => {
+    let s = 0;
+    for (let k = 0; k < dims; k++) s += a[k] * b[k];
+    return s;
+  };
+  const scored = pv.pathways.map((p) => ({ p, match: dotf(goal, p.match) })).sort((a, b) => b.match - a.match || (a.p.id < b.p.id ? -1 : 1));
+  const best = scored[0]?.match ?? 0;
+  if (best < PATHWAY_FLOOR) return { vector: goal, pathways: [], share: 0 };
+  const taken = scored.filter((s) => s.match >= best - PATHWAY_NEAR).slice(0, 2);
+  const areas = new Float32Array(dims);
+  for (const s of taken) for (let k = 0; k < dims; k++) areas[k] += s.match * s.p.areas[k];
+  const an = Math.sqrt(dotf(areas, areas));
+  const share = PATHWAY_SHARE * Math.min(1, (best - PATHWAY_FLOOR) / (PATHWAY_FULL - PATHWAY_FLOOR));
+  const vector = new Float32Array(dims);
+  for (let k = 0; k < dims; k++) vector[k] = (1 - share) * goal[k] + share * (an > 0 ? areas[k] / an : 0);
+  const vn = Math.sqrt(dotf(vector, vector));
+  if (vn > 0) for (let k = 0; k < dims; k++) vector[k] /= vn;
+  return { vector, pathways: taken.map((s) => ({ id: s.p.id, name: s.p.name, match: Number(s.match.toFixed(3)), languages: s.p.languages })), share: Number(share.toFixed(3)) };
 }
 
 /**
@@ -102,7 +234,28 @@ export interface CareerFit {
   between(a: string, b: string): number | null;
   /** "closest to your goal (dentist): 3rd of 6,225 courses by meaning", or null for a course that is not a goal course. */
   reasonFor(code: string): string | null;
+  /** The career pathways the goal was read with (expandGoal), closest first; empty when it was read alone. */
+  pathways: string[];
+  /** The goal is about languages (careerFitFor): beginner language courses can be goal courses. */
+  aboutLanguages: boolean;
+  /** What a board's goal picks are capped by (GOAL_GROUP_CAP): the course's subject, or "world languages" for a beginner language course. */
+  capGroup(code: string): string;
 }
+
+/**
+ * At most this many of a board's goal picks (electives and general
+ * education picks the goal ordered) from one subject, or from the beginner
+ * language courses together: the variety points only compare two courses,
+ * so before this a board could pile up six courses of one subject.
+ */
+export const GOAL_GROUP_CAP = 3;
+
+/**
+ * A goal about languages: it says so ("translator", "bilingual", "ESL"),
+ * names a language the catalog teaches ("Spanish teacher"), or is read with
+ * a pathway with a world language among its core skills (expandGoal).
+ */
+const LANGUAGE_GOAL = /\b(?:languages?|linguists?|linguistics|translat\w*|interpret(?:er|ers|ing)|bilingual|multilingual|polyglot|esl|tesol|tefl)\b/i;
 
 /**
  * How many of the catalog's courses count as goal courses: the closest 2%
@@ -163,13 +316,22 @@ function dot(v: CourseVectors, i: number, goal: Float32Array): number {
 }
 
 /** The goal against every course once; the answers are then lookups. `goal` is the model's normalised vector for the goal text. */
-export function careerFitFor(input: { text: string; vector: Float32Array | number[]; label?: string; school?: string }, v: CourseVectors): CareerFit {
-  const goal = Float32Array.from(input.vector);
+export function careerFitFor(input: { text: string; vector: Float32Array | number[]; label?: string; school?: string; pathways?: PathwayVectors }, v: CourseVectors): CareerFit {
+  // The goal read with its closest career pathway(s), when they are given and one is close enough.
+  const expanded = input.pathways ? expandGoal(Float32Array.from(input.vector), input.pathways) : null;
+  const goal = expanded ? expanded.vector : Float32Array.from(input.vector);
   const n = v.codes.length;
   const sims = new Float32Array(n);
   for (let i = 0; i < n; i++) sims[i] = dot(v, i, goal);
-  // Ranked by closeness to this goal beyond closeness to careers in general (CourseVectorsMeta.hubs).
-  const score = v.hubs ? sims.map((s, i) => s - v.hubs![i]) : sims;
+  const words = input.text.toLowerCase();
+  const aboutLanguages = LANGUAGE_GOAL.test(input.text) || (expanded?.pathways.some((p) => p.languages) ?? false) ||
+    // A language the catalog teaches, or one part of a joint name ("Hindi-Urdu": "Hindi" too).
+    [...new Set([...(v.beginnerLanguage?.values() ?? [])].flatMap((language) => [language, ...language.split('-')]))]
+      .some((language) => new RegExp(`\\b${language.toLowerCase().replace(/[^a-z]+/g, '\\W+')}\\b`).test(words));
+  const excluded = (i: number) => !aboutLanguages && (v.beginnerLanguage?.has(i) ?? false);
+  // Ranked by closeness to this goal beyond closeness to careers in general (CourseVectorsMeta.hubs);
+  // a beginner language course is no goal course unless the goal is about languages.
+  const score = sims.map((s, i) => (excluded(i) ? Number.NEGATIVE_INFINITY : v.hubs ? s - v.hubs[i] : s));
   const order = [...score.keys()].sort((a, b) => score[b] - score[a] || (v.codes[a] < v.codes[b] ? -1 : 1));
   const rank = new Int32Array(n);
   order.forEach((i, r) => { rank[i] = r + 1; });
@@ -190,7 +352,7 @@ export function careerFitFor(input: { text: string; vector: Float32Array | numbe
   };
   const strengthAt = (i: number): number => {
     // By rank, so courses tied at the cut (UGA's copies of one description) do not widen the band.
-    if (rank[i] > take || sims[i] < MIN_SIMILARITY) return 0;
+    if (rank[i] > take || sims[i] < MIN_SIMILARITY || excluded(i)) return 0;
     return top > floor ? Math.min(1, Math.max(0.05, (score[i] - floor) / (top - floor))) : 1;
   };
   return {
@@ -218,6 +380,12 @@ export function careerFitFor(input: { text: string; vector: Float32Array | numbe
       const i = v.index.get(code);
       if (i === undefined || strengthAt(i) <= 0) return null;
       return `closest to your goal (${label}): ${ordinal(rank[i])} of ${n.toLocaleString('en-US')} ${input.school ? `${input.school} ` : ''}courses by meaning`;
+    },
+    pathways: expanded?.pathways.map((p) => p.name) ?? [],
+    aboutLanguages,
+    capGroup: (code) => {
+      const i = v.index.get(code);
+      return i !== undefined && v.beginnerLanguage?.has(i) ? 'world languages' : code.split(' ')[0];
     },
   };
 }

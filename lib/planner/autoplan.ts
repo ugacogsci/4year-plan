@@ -4,7 +4,7 @@ import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
 import { forSchool, interestProfile, labPartners, withHeldVariants, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
 import type { Priorities } from './priorities';
 import { interestWordsFrom, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
-import { progressionPoints, varietyPenalty, type CareerFit } from './career-embedding';
+import { GOAL_GROUP_CAP, progressionPoints, varietyPenalty, type CareerFit } from './career-embedding';
 import { DEFAULT_PRIORITIES } from './priorities';
 import { weeklyFit, type WeeklySchedule } from './weekly-fit';
 import { PLANNED_AS_RELEASED } from './held-degrees';
@@ -12529,18 +12529,37 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * to a point and a half, and loses as much where it does not
      * (progressionPoints), so the introductory goal course comes first and
      * the advanced one later. Courses that are not goal courses keep their
-     * own score.
+     * own score. A cap: once a board has GOAL_GROUP_CAP goal picks from one
+     * subject (or among the beginner language courses, CareerFit.capGroup),
+     * counting the general education picks the goal ordered, another goal
+     * course from it is passed over, so a board does not pile up one
+     * subject's courses.
      */
     const careerFit = input.careerFit;
     const careerPicks: string[] = [];
     const careerBase = new Map<string, number>();
     const lastTermIndex = Math.max(1, ...terms.map((t) => t.index));
+    let careerGenEdGroups: Map<string, number> | null = null;
+    const careerGroupFull = (code: string): boolean => {
+      if (!careerGenEdGroups) {
+        careerGenEdGroups = new Map();
+        for (const [picked, why] of chosen) {
+          const req = why.requirementId ? input.requirements.find((r) => r.id === why.requirementId) : undefined;
+          if (req?.rule.kind !== 'gened' || careerFit!.strength(picked) <= 0) continue;
+          const group = careerFit!.capGroup(picked);
+          careerGenEdGroups.set(group, (careerGenEdGroups.get(group) ?? 0) + 1);
+        }
+      }
+      const group = careerFit!.capGroup(code);
+      return (careerGenEdGroups.get(group) ?? 0) + careerPicks.filter((p) => !trackWanted.has(p) && careerFit!.capGroup(p) === group).length >= GOAL_GROUP_CAP;
+    };
     const careerFirstFit = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, termIndex: number): string | undefined => {
       let best: string | undefined;
       let bestScore = Number.NEGATIVE_INFINITY;
       for (let i = 0, seen = 0; i < candidates.length && seen < 6; i += 1) {
         const code = candidates[i];
         if (tooBig(candidateCredits[i]) || !fits(code)) continue;
+        if (careerFit!.strength(code) > 0 && careerGroupFull(code)) continue;
         seen += 1;
         let base = careerBase.get(code);
         if (base === undefined) {

@@ -409,7 +409,10 @@ const FITS = new Map();
 if (GOALS.length && process.env.HARNESS_MEANING === '1') {
   const E = await lib('lib/planner/career-embedding.ts');
   const vectors = E.courseVectorsFrom(JSON.parse(readFileSync(join(ROOT, 'public/uga/course-vectors.json'), 'utf8')), readFileSync(join(ROOT, 'public/uga/course-vectors.bin')));
-  for (const g of GOALS) if (g.vector) FITS.set(`goal:${g.label}`, E.careerFitFor({ text: g.text, vector: g.vector, label: g.label, school: 'UGA' }, vectors));
+  // The career pathways the goal is read with, when the checkout has them (as the browser loads them).
+  const pathwaysFile = join(ROOT, 'public/career-pathways.json');
+  const pathways = existsSync(pathwaysFile) && E.pathwayVectorsFrom ? E.pathwayVectorsFrom(JSON.parse(readFileSync(pathwaysFile, 'utf8'))) : undefined;
+  for (const g of GOALS) if (g.vector) FITS.set(`goal:${g.label}`, E.careerFitFor({ text: g.text, vector: g.vector, label: g.label, school: 'UGA', ...(pathways ? { pathways } : {}) }, vectors));
 }
 
 /** The checkout's horizonFor: lib/planner/plan-start.ts, or cut from the workspace of a checkout before it. */

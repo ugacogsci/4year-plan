@@ -2,9 +2,10 @@
  * The career matcher's loading, in the browser (career-embedding.ts says
  * what it is for).
  *
- * Three things load, once per visit, and only when the flag is on and the
+ * Four things load, once per visit, and only when the flag is on and the
  * student has a goal: the school's course vectors (public/<school>/
- * course-vectors.*, about 2.5 MB), the sentence model (public/career-model/,
+ * course-vectors.*, about 2.5 MB), the career pathways' vectors
+ * (public/career-pathways.json, 64 KB), the sentence model (public/career-model/,
  * a 22 MB file the browser keeps in its cache afterwards) and the
  * WebAssembly runtime that runs it (14 MB). All three come from this site;
  * transformers.js is told not to fetch anything from anywhere else. The
@@ -15,7 +16,7 @@
  * logged once, and answered with null for the rest of the visit: the plan
  * is then built from the goal's words, as it is with the flag off.
  */
-import { CAREER_MODEL, careerFitFor, courseVectorsFrom, goalQuery, type CareerFit, type CourseVectors, type CourseVectorsMeta } from './career-embedding';
+import { CAREER_MODEL, careerFitFor, courseVectorsFrom, goalQuery, pathwayVectorsFrom, type CareerFit, type CourseVectors, type CourseVectorsMeta, type PathwayVectors, type PathwayVectorsMeta } from './career-embedding';
 
 const BASE = '/career-model/';
 
@@ -24,6 +25,7 @@ let embedder: Promise<Embed> | null = null;
 let broken = false;
 const vectors = new Map<string, Promise<CourseVectors>>();
 const goals = new Map<string, Promise<Float32Array>>();
+let pathways: Promise<PathwayVectors | null> | null = null;
 
 /** How long the last loads took, in milliseconds, for the docs' load-time note and the console. */
 export const careerTiming: { model?: number; vectors?: number; goal?: number } = {};
@@ -80,6 +82,18 @@ function loadVectors(school: string): Promise<CourseVectors> {
   return hit;
 }
 
+/** The career pathways by meaning; null when the file is missing, and the goal is then read alone. */
+function loadPathways(): Promise<PathwayVectors | null> {
+  pathways ??= fetch('/career-pathways.json')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((meta) => (meta ? pathwayVectorsFrom(meta as PathwayVectorsMeta) : null))
+    .catch((error) => {
+      console.warn('[career matcher] no career pathways; the goal is read alone.', error);
+      return null;
+    });
+  return pathways;
+}
+
 /**
  * The goal by meaning for one school, or null (no goal, or the matcher could
  * not load). Repeated calls with the same goal reuse the model, the vectors
@@ -91,7 +105,7 @@ export async function loadCareerFit(school: 'illinois' | 'uga', text: string): P
   const query = goalQuery(goal);
   if (!query || broken) return null;
   try {
-    const [embed, courses] = await Promise.all([loadEmbedder(), loadVectors(school)]);
+    const [embed, courses, paths] = await Promise.all([loadEmbedder(), loadVectors(school), loadPathways()]);
     let vector = goals.get(query);
     if (!vector) {
       const started = performance.now();
@@ -101,7 +115,7 @@ export async function loadCareerFit(school: 'illinois' | 'uga', text: string): P
       });
       goals.set(query, vector);
     }
-    return careerFitFor({ text: goal, vector: await vector, school: school === 'uga' ? 'UGA' : 'Illinois' }, courses);
+    return careerFitFor({ text: goal, vector: await vector, school: school === 'uga' ? 'UGA' : 'Illinois', ...(paths ? { pathways: paths } : {}) }, courses);
   } catch (error) {
     broken = true;
     console.warn('[career matcher] not available; goal courses are matched by their words.', error);
