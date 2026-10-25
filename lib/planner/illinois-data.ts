@@ -4673,7 +4673,7 @@ const FOOT_NAMES_CODE = /\b[A-Z]{2,4}\s?\d{3}\b/;
  * free electives still fill it, but the plan lists it.
  *
  * Only a sized comment after the last row, in a group with rows that no
- * pool or header reading took, whose words no other block of the group
+ * pool or header reading took and no comment of which says "including", whose words no other block of the group
  * already reads (a level pool, a segmented part), and that is not a total, a
  * cap, a recommendation, a gen-ed category or a pointer at lists elsewhere.
  */
@@ -4685,6 +4685,9 @@ function footHoursBlocks(read: AreaGroupRead[], blocks: AreaRuleBlock[], consume
     const mine = blocks.filter((b) => b.groupIndex === r.index);
     // A group read as a pool, a choice or a level rule took its sentences already.
     if (mine.length === 0 || mine.some((b) => b.idSuffix === 'level' || b.rule.kind === 'pool' || b.rule.kind === 'hours')) continue;
+    // "Minimum of 30 hours of Religion courses including:" over its foot rows: they are parts of that
+    // total, not hours beside it (segmentedTable reads "including" the same way).
+    if ((r.group.comments ?? []).some((c) => /\bincluding\b/i.test(c.text))) continue;
     const foot = (r.group.comments ?? []).filter((c) => c.at >= all.length && c.hours !== null && c.hours !== undefined && c.hours > 0);
     const seen = new Set<string>();
     for (const [k, c] of foot.entries()) {
