@@ -26,10 +26,15 @@
  * general, so a course whose vector sits near every short goal (UKR 201,
  * Second-Year Ukrainian, came first for "dentist") does not lead them all.
  *
+ * `beginnerLanguage`: the first courses of each world language, code ->
+ * language (beginnerLanguagesOf below). The matcher keeps them out of goal
+ * picks unless the goal is about languages.
+ *
  *   node scripts/career/embed-courses.mjs [illinois|uga]...   (both by default; about 15 minutes)
  *   node scripts/career/embed-courses.mjs --hubs-only          recompute the hubs from the stored vectors (seconds)
+ *   node scripts/career/embed-courses.mjs --languages-only     recompute beginnerLanguage from the catalogs (no model)
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -51,6 +56,58 @@ function coursesOf(school) {
     out.push({ code, text: `${c.title}. ${c.title}. ${c.description ?? ''}`.slice(0, 1200) });
   }
   return { courses: out, fetchedAt: Array.isArray(raw) ? null : raw.fetchedAt ?? null };
+}
+
+/**
+ * The beginner courses of each world language a school teaches, code ->
+ * language. A course is one when its title starts "Elementary",
+ * "Beginning", "First-Year" or "Basic" (also "Intensive" or "Accelerated
+ * Elementary") followed by a one- or two-word name ("Elementary Turkish I",
+ * "Elementary Modern Standard Arabic II", "Elementary Hindi-Urdu I"), and
+ * that name is a language: some course of it describes speaking with
+ * listening, reading or writing, or grammar, pronunciation, vocabulary or
+ * conversation ("Beginning Golf" and "Beginning Painting" do not). At
+ * Illinois the registrar's table of courses approved for the language
+ * requirement (public/illinois/languages.json) adds its first- and
+ * second-semester courses under the table's own names.
+ */
+export function beginnerLanguagesOf(school) {
+  const raw = JSON.parse(readFileSync(join(ROOT, `public/${school}-catalog.json`), 'utf8'));
+  const list = Array.isArray(raw) ? raw : raw.courses;
+  const BEGIN = /^(?:(?:intensive|accelerated)\s+)?(?:elementary|beginning|first[- ]year|basic)\s+(.+)$/i;
+  const nameOf = (title) => {
+    const m = String(title ?? '').match(BEGIN);
+    if (!m) return null;
+    const name = m[1].replace(/\s*\([^)]*\)\s*$/, '').replace(/\s+(?:I{1,3}|IV|[1-4])$/, '').replace(/\s+language(?:\s+and\s+culture)?$/i, '').replace(/^(?:modern\s+)?(?:standard\s+)?/i, '').trim();
+    return /^[A-Z][a-z]+(?:[- ][A-Z][a-z]+)?$/.test(name) ? name : null;
+  };
+  const speaks = (d) => /\b(?:grammar|pronunciation|vocabulary|conversation(?:al)?)\b/i.test(d) || (/\bspeaking\b/i.test(d) && /\b(?:listening|reading|writing)\b/i.test(d));
+  const languages = new Set(list.filter((c) => nameOf(c.title) && speaks(c.description ?? '')).map((c) => nameOf(c.title)));
+  const out = {};
+  for (const c of list) {
+    const name = nameOf(c.title);
+    if (name && languages.has(name) && level(norm(c.code)) > 0 && level(norm(c.code)) < 500) out[norm(c.code)] = name;
+  }
+  const table = join(ROOT, `public/${school}/languages.json`);
+  if (existsSync(table)) {
+    for (const l of JSON.parse(readFileSync(table, 'utf8')).languages) {
+      for (const code of l.levels.slice(0, 2).flat(2)) out[norm(code)] ??= l.name.replace(/\s*\(.*\)\s*$/, '');
+    }
+  }
+  return Object.fromEntries(Object.entries(out).sort(([a], [b]) => (a < b ? -1 : 1)));
+}
+
+if (process.argv.includes('--languages-only')) {
+  for (const school of ['illinois', 'uga']) {
+    const metaPath = join(ROOT, `public/${school}/course-vectors.json`);
+    const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
+    const { beginnerLanguage: _old, ...rest } = meta;
+    const have = new Set(meta.codes);
+    const beginnerLanguage = Object.fromEntries(Object.entries(beginnerLanguagesOf(school)).filter(([code]) => have.has(code)));
+    writeFileSync(metaPath, JSON.stringify({ ...rest, beginnerLanguage }));
+    console.log(`${school}: ${Object.keys(beginnerLanguage).length} beginner language courses in ${new Set(Object.values(beginnerLanguage)).size} languages`);
+  }
+  process.exit(0);
 }
 
 export const REFERENCE = [
@@ -120,6 +177,7 @@ for (const school of schools.length > 0 ? schools : ['illinois', 'uga']) {
     model: 'Xenova/all-MiniLM-L6-v2', dims: D, pooling: 'mean', normalized: true, recipe: RECIPE,
     count: courses.length, catalogFetchedAt: fetchedAt, codes: courses.map((c) => c.code), scales,
     reference: REFERENCE.length, hubs: hubsOf(bytes, scales),
+    beginnerLanguage: Object.fromEntries(Object.entries(beginnerLanguagesOf(school)).filter(([code]) => courses.some((c) => c.code === code))),
   }));
   console.log(`\n${school}: ${courses.length} courses in ${((Date.now() - t0) / 1000).toFixed(0)}s, ${(bytes.length / 1048576).toFixed(2)} MiB of vectors`);
 }
