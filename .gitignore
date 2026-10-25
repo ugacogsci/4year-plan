@@ -41,3 +41,6 @@ public/__samples/
 # facts in public/illinois/syllabi.json are.
 data/syllabi/
 data/syllabi
+
+# Local third-party professor-rating snapshots; not bundled into the planner.
+data/ratemyprofessors/
