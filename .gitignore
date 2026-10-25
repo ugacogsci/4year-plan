@@ -41,3 +41,7 @@ public/__samples/
 # facts in public/illinois/syllabi.json are.
 data/syllabi/
 data/syllabi
+
+# Copies of the career matcher's model and runtime, made by
+# scripts/career/browser-assets.mjs from node_modules (about 38 MB).
+public/career-model/
