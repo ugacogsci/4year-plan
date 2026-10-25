@@ -40,7 +40,6 @@ export const READ_AS_RELEASED = new Set<string>([
   'aces/nutrition-health-bs', // Fall 2026 start, pre-PT, 4 language semesters: engine work (credits past the total it did not need)
   'aces/public-policy-law-bs', // Fall 2026 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it)
   'aces/sustainability-food-environmental-systems-bs', // Spring 2027 start, pre-PT, 2 language semesters: engine work (under 21 hours at the 300 level)
-  'bus/accountancy-bs', // Fall 2026 start, pre-med, 2 language semesters: engine work (credits past the total it did not need, a pre-med/PT course late or off with room for it)
   'education/computer-science-education-bs/learning-sciences', // Fall 2026 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it)
   'education/computer-science-education-bs/secondary-education', // Fall 2026 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it)
   'education/secondary-education-bs/mathematics', // Spring 2027 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it); on the release reading too
@@ -49,13 +48,8 @@ export const READ_AS_RELEASED = new Set<string>([
   'engineering/mechanical-engineering-bs', // Fall 2026 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it); on the release reading too
   'faa/architectural-studies-bs', // Fall 2026 start, pre-med, 4 language semesters: engine work (a pre-med/PT course late or off with room for it); on the release reading too
   'faa/art-art-history-bfa', // Fall 2026 start, pre-med, 2 language semesters: engine work (credits past the total it did not need, a pre-med/PT course late or off with room for it)
-  'faa/industrial-design-bfa', // Fall 2026 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it)
   'faa/studio-art-bfasa/fashion', // Fall 2026 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it)
-  'faa/studio-art-bfasa/illustration', // Fall 2026 start, pre-med, 4 language semesters: engine work (a pre-med/PT course late or off with room for it)
-  'faa/studio-art-bfasa/painting', // Spring 2027 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it)
   'faa/studio-art-bfasa/photography', // Fall 2026 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it)
-  'faa/studio-art-bfasa/printmaking', // Spring 2027 start, pre-med, 2 language semesters: engine work (a pre-med/PT course late or off with room for it)
-  'faa/studio-art-bfasa/sculpture', // Fall 2026 start, pre-med, 4 language semesters: engine work (a pre-med/PT course late or off with room for it)
   'faa/theatre-bfa/lighting-design-technology', // Fall 2026 start, pre-med, 4 language semesters: engine work (a pre-med/PT course late or off with room for it)
   'las/actuarial-science-bslas', // Fall 2026 start, pre-med, 4 language semesters: engine work (a pre-med/PT course late or off with room for it); on the release reading too
   'las/chemistry-bs/environmental-chemistry', // extra students, a pre-med student with AP credit: blocked (a course before its prerequisite)
@@ -63,7 +57,6 @@ export const READ_AS_RELEASED = new Set<string>([
   'las/integrative-biology-bslas/honors', // Spring 2027 start, no goal, 4 language semesters: blocked (a lab apart from its lecture)
   'las/political-science-balas/civic-leadership', // Spring 2027 start, pre-PT, 2 language semesters: engine work (credits past the total it did not need)
   'las/sociology-balas', // extra students, a pre-PT transfer with 60 hours: engine work (a pre-med/PT course late or off with room for it)
-  'socw/social-work-bsw', // extra students, a pre-med sophomore: engine work (a pre-med/PT course late or off with room for it)
 ]);
 
 /** Planned by the illinois-fixes release's engine as well (autoplan-release.ts). */
@@ -82,7 +75,6 @@ export const PLANNED_AS_RELEASED = new Set<string>([
   'las/actuarial-science-bslas', // Fall 2026 start, pre-med, 4 language semesters: engine work (a pre-med/PT course late or off with room for it); on the release reading too
   'las/chemistry-bs/environmental-chemistry', // extra students, a pre-med student with AP credit: blocked (a course before its prerequisite)
   'las/sociology-balas', // extra students, a pre-PT transfer with 60 hours: engine work (a pre-med/PT course late or off with room for it)
-  'socw/social-work-bsw', // extra students, a pre-med sophomore: engine work (a pre-med/PT course late or off with room for it)
 ]);
 
 /**
