@@ -3418,6 +3418,120 @@ export function optionListsIn(
   return { core, lists };
 }
 
+/** One part of a table cut at its comment rows (segmentedTable). */
+type TableSegment =
+  | { kind: 'all'; text: string; rows: RawProgramCourse[] }
+  | { kind: 'choose'; text: string; rows: RawProgramCourse[]; n: number; hours: number | null }
+  | { kind: 'sets'; text: string; sets: RawProgramCourse[][]; hours: number | null }
+  | { kind: 'pool'; text: string; rows: RawProgramCourse[]; hours: number }
+  | { kind: 'hours'; text: string; hours: number };
+
+/**
+ * A table of rows with no hours of their own, cut into parts by its comment
+ * rows: each comment row governs the rows under it, up to the next one.
+ *
+ * Biochemistry's Major Requirements is one such table: "Select one of the
+ * following:" (8) over CHEM 202-205 and CHEM 102-105, "Organic chemistry,
+ * select from:" (9) over two sequences, "Molecular and Cellular Biology" (17)
+ * over six MCB courses, "Physical chemistry, select one group of courses:"
+ * (7) over CHEM 440 & BIOC 446 "or" CHEM 442 & CHEM 444, and so on down to
+ * "Select 10 hours of Advanced Science/Technical Electives ... from approved
+ * list." (10) with no rows under it. Read as one table, every row was
+ * required: 24 courses, 82 hours, both chemistry sequences and both physics
+ * sequences, and 36 rows the catalog would not credit together.
+ *
+ * A comment that says to select or choose is a choice: the count it states,
+ * else one where every row is about the comment's hours, else a pool of its
+ * hours. An "or" between rows makes each side one set to take whole. A plain
+ * heading ("Molecular and Cellular Biology", "Theory") makes its rows
+ * required, and only where they do not run past the hours it states. A sized
+ * comment with no rows under it is that many hours. Stacked comments (a
+ * heading over "Choose 1:") are one comment. Only where every row sits under
+ * a comment, no row has hours of its own (optionListsIn reads those tables),
+ * and every part reads; anything else is left as it reads now.
+ */
+function segmentedTable(group: RawProgramGroup, rows: RawProgramCourse[], byCode: CatalogRowLookup): TableSegment[] | null {
+  const all = group.courses ?? [];
+  const comments = group.comments ?? [];
+  if (all.length === 0 || comments.length < 2 || rows.length !== all.length) return null;
+  if (all.some((row) => (row.credits !== null && row.credits !== undefined) || !row.code)) return null;
+  const isOr = (text: string) => /^or$/i.test(text.trim());
+  // The comment rows at each position, "or" rows apart.
+  const at = new Map<number, RawProgramComment[]>();
+  for (const c of comments) if (!isOr(c.text)) at.set(c.at, [...(at.get(c.at) ?? []), c]);
+  const positions = [...at.keys()].sort((a, b) => a - b);
+  if (positions.length < 2 || positions[0] !== 0) return null;
+  const capped = (text: string) => /\((?:max|min)\w*\)|\bmaximum\b|\bup to\b/i.test(text.replace(/\([^()]{8,}\)/g, ' '));
+  const credit = (row: RawProgramCourse) => rowCatalogCredits(row, byCode);
+  const out: TableSegment[] = [];
+  for (const [i, pos] of positions.entries()) {
+    const stack = at.get(pos)!;
+    const end = Math.min(positions[i + 1] ?? all.length, all.length);
+    const part = pos < end ? all.slice(pos, end) : [];
+    if (part.length === 0) {
+      // After the last row: each sized comment is that many hours ("Select 10 hours of Advanced
+      // Science/Technical Electives ... from approved list."); one with no size is a note.
+      const seen = new Set<string>();
+      for (const c of stack) {
+        const text = c.text.replace(/[\s:]+$/, '');
+        if (c.hours === null || c.hours === undefined || !(c.hours > 0) || seen.has(text.toLowerCase())) continue;
+        if (capped(text)) return null;
+        seen.add(text.toLowerCase());
+        out.push({ kind: 'hours', text, hours: c.hours });
+      }
+      continue;
+    }
+    // The last of a stack heads its rows, with the hours a lead-in states; the first lead-in names
+    // them ("History" over "Choose 1:").
+    const c = stack[stack.length - 1];
+    const lead = stack.length > 1 ? stack[0].text.replace(/[\s:]+$/, '') : '';
+    // "12 hours of workshops, including at least one of the following sequences": the list is a floor
+    // inside a larger total this does not read.
+    if (stack.some((s) => /\bincluding\b/i.test(s.text))) return null;
+    const h = { text: c.text, hours: c.hours ?? [...stack].reverse().find((s) => s.hours !== null && s.hours !== undefined)?.hours ?? null };
+    const own = h.text.replace(/[\s:]+$/, '');
+    const text = lead && !OPTION_HEAD.test(lead) && lead.length <= 40 && !own.toLowerCase().startsWith(lead.toLowerCase()) ? `${lead}: ${own}` : own;
+    // "Select 18 credits (max)", "up to 7 hours": a cap, not a requirement.
+    if (capped(own)) return null;
+    const credits = part.map(credit);
+    if (credits.some((c) => c === null || !(c > 0))) return null;
+    const sum = (credits as number[]).reduce((s, c) => s + c, 0);
+    const ors = comments.filter((c) => isOr(c.text) && c.at > pos && c.at < end).map((c) => c.at);
+    if (ors.length > 0) {
+      const sets: RawProgramCourse[][] = [];
+      let from = pos;
+      for (const at of [...ors, end]) {
+        if (at <= from) return null;
+        sets.push(all.slice(from, at));
+        from = at;
+      }
+      if (sets.some((set) => set.length > 1 && set.some((row) => (row.or ?? []).length > 0))) return null;
+      out.push({ kind: 'sets', text, sets, hours: h.hours });
+      continue;
+    }
+    if (OPTION_HEAD.test(h.text)) {
+      const word = COMMENT_COUNT.exec(h.text)?.[1]?.toLowerCase();
+      const counted = word ? (COMMENT_WORDS[word] ?? Number(word)) : null;
+      const stated = COMMENT_HOURS.exec(h.text);
+      if (counted !== null) {
+        if (!(counted >= 1) || counted > part.length) return null;
+        out.push({ kind: 'choose', text, rows: part, n: counted, hours: h.hours });
+      } else if (stated) {
+        out.push({ kind: 'pool', text, rows: part, hours: Number(stated[1]) });
+      } else if (h.hours !== null && h.hours < sum) {
+        const each = (credits as number[]).every((c) => Math.abs(c - h.hours!) <= 2);
+        if (each) out.push({ kind: 'choose', text, rows: part, n: 1, hours: h.hours });
+        else out.push({ kind: 'pool', text, rows: part, hours: h.hours });
+      } else return null;
+      continue;
+    }
+    if (h.hours !== null && sum > h.hours + 1) return null;
+    out.push({ kind: 'all', text, rows: part });
+  }
+  if (!out.some((s) => s.kind !== 'all')) return null;
+  return out;
+}
+
 /** The catalog hours of one row: a pair its title names (bundleOf) added up, else the least of its alternatives. */
 function rowCatalogCredits(row: RawProgramCourse, byCode: CatalogRowLookup): number | null {
   const bundle = bundleOf(row, byCode);
@@ -4321,6 +4435,51 @@ export function requirementRulesForArea(
       } else if (r.ownChoose !== null) {
         rule = { kind: 'choose', n: r.ownChoose, choices };
       } else {
+        // A table its comment rows cut into parts (segmentedTable): the required rows keep the
+        // group's own block and id, and each other part is a block of its own.
+        const parts = readingSelectLines && !readingAsReleased && wholeTableCount(r.group, r.rows, choices) === null ? segmentedTable(r.group, r.rows, byCode) : null;
+        if (parts) {
+          const core = parts.flatMap((p) => (p.kind === 'all' ? p.rows : []));
+          if (core.length > 0) {
+            blocks.push({ groupIndex: r.index, label: r.label, hours: null, note: r.group.note ?? '', rule: { kind: 'all', choices: choicesFrom(core, byCode, r.label) }, rows: core.length });
+          }
+          let k = 0;
+          for (const p of parts) {
+            if (p.kind === 'all') continue;
+            k += 1;
+            const label = [r.label || area.label || '', p.text].filter(Boolean).join(': ');
+            let partRule: RequirementRule;
+            let partRows = 0;
+            if (p.kind === 'hours') {
+              partRule = { kind: 'hours', hours: p.hours, genEd: null, label: p.text, minLevel: levelFloorIn(p.text, ''), exclude: exceptionsIn(p.text) };
+            } else if (p.kind === 'sets') {
+              partRows = p.sets.reduce((s, set) => s + set.length, 0);
+              if (p.sets.every((set) => set.length === 1)) {
+                partRule = { kind: 'choose', n: 1, choices: choicesFrom(p.sets.flat(), byCode, p.text), list: true };
+              } else {
+                const sets = p.sets.map((set) => choicesFrom(set, byCode, ''));
+                const bundles = sets.map((set) => set.flatMap((c) => c.bundles?.[0] ?? c.codes));
+                const each = sets.map((set) => set.reduce((s, c) => s + (c.credits ?? 0), 0));
+                partRule = {
+                  kind: 'choose',
+                  n: 1,
+                  list: true,
+                  choices: [{ codes: bundles.flat(), title: p.text, credits: Math.min(...each), creditsMax: null, substitutes: [], bundles }],
+                };
+              }
+            } else if (p.kind === 'choose') {
+              partRows = p.rows.length;
+              partRule = { kind: 'choose', n: p.n, choices: choicesFrom(p.rows, byCode, p.text), list: true };
+            } else {
+              partRows = p.rows.length;
+              pools += 1;
+              const choices = choicesFrom(p.rows, byCode, p.text);
+              partRule = { kind: 'pool', hours: p.hours, n: null, choices, lists: [{ label: p.text, codes: choices.flatMap((c) => c.codes) }], constraints: [], from: 'group', label: p.text };
+            }
+            blocks.push({ groupIndex: r.index, idSuffix: `opt${k}`, label, hours: p.kind === 'hours' || p.kind === 'pool' ? p.hours : (p.hours ?? null), note: p.text, rule: partRule, rows: partRows });
+          }
+          continue;
+        }
         // A table that is one list under one count (wholeTableCount), else every row.
         const n = wholeTableCount(r.group, r.rows, choices);
         rule = n !== null ? { kind: 'choose', n, choices } : { kind: 'all', choices };
