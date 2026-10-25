@@ -21,6 +21,7 @@ import type { Course, SemesterSeason } from '@/lib/planner/types';
 import { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
 import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
+import { canonicalUgaCode, listedUgaCourseCodes } from '@/lib/planner/uga-course-codes';
 
 export { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 
@@ -31,30 +32,6 @@ const slug = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
-
-/**
- * Requirement rows normally print one code. When a row contains a combined
- * lecture/lab or joint listing, this is the stable first code; catalog rows
- * are expanded separately below so both undergraduate and graduate numbers
- * remain searchable.
- */
-function canonicalUgaCode(value: string): string {
-  const code = normCode(value).replace(/\s*\*+\s*$/, '');
-  const match = code.match(/^([A-Z]{2,5})(?:\([A-Z]{2,5}\))*\s+(\d{4}[A-Z]?)/);
-  return match ? `${match[1]} ${match[2]}` : code;
-}
-
-/** Return the separately searchable codes printed on a joint UGA course row. */
-function listedUgaCourseCodes(value: string): string[] {
-  const code = normCode(value).replace(/\s*\*+\s*$/, '');
-  const match = code.match(
-    /^([A-Z]{2,5})(?:\([A-Z]{2,5}\))*\s+(\d{4}[A-Z]?)(?:\/(\d{4}[A-Z]?))?/,
-  );
-  if (!match) return [canonicalUgaCode(code)];
-  return [...new Set([match[2], match[3]].filter(Boolean))].map(
-    (number) => `${match[1]} ${number}`,
-  );
-}
 
 /** Online, honors, service-learning, and writing-intensive rows are versions of one UGA course. */
 function ugaVariantKey(value: string): string {
