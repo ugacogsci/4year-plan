@@ -4,6 +4,7 @@ import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
 import { forSchool, interestProfile, labPartners, withHeldVariants, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
 import type { Priorities } from './priorities';
 import { interestWordsFrom, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
+import { progressionPoints, varietyPenalty, type CareerFit } from './career-embedding';
 import { DEFAULT_PRIORITIES } from './priorities';
 import { weeklyFit, type WeeklySchedule } from './weekly-fit';
 import { PLANNED_AS_RELEASED } from './held-degrees';
@@ -703,6 +704,19 @@ export interface AutoplanInput {
    */
   career?: string;
   /**
+   * The career matcher (career-embedding.ts): the goal by meaning, when its
+   * flag is on and the model loaded. Ranks free choices only (electives,
+   * general education and list picks); absent, the plan is built from the
+   * goal's words exactly as before.
+   */
+  careerFit?: CareerFit;
+  /**
+   * Which free choices the career matcher ranks on this build (careerGated):
+   * 'all', or 'electives' (general education and list picks by the goal's
+   * words, as without it). Set by generatePlan itself; never by a caller.
+   */
+  careerFitScope?: 'all' | 'electives';
+  /**
    * Built without the student's career tracks: generatePlan's degree-first
    * check for a UGA pre-health board (ugaDegreeFirst). Never set by a caller.
    */
@@ -1149,6 +1163,8 @@ export interface PriorLearningCheck {
 export interface GeneratedPlan {
   plan: PlanState;
   terms: PlannedTerm[];
+  /** With the career matcher on: which free choices it ranked on this board (careerGated); absent with it off. */
+  careerScope?: 'all' | 'electives' | 'words';
   /** Requirements with no course assigned, each with the catalog link so a human can check. */
   unsatisfied: UnsatisfiedRequirement[];
   /**
@@ -3559,6 +3575,8 @@ interface ElectiveScoring {
   opensGoal?: ReadonlySet<string>;
   /** The student's goal weighs as a goal (goalWeighs): GOAL_POINTS on top of the relevance knob's own. */
   goalPoints?: boolean;
+  /** With the career matcher: a point for a goal course that leads on to another goal course in its subject (careerFollowOnOf). */
+  careerFollowOn?: (code: string) => number;
 }
 
 /**
@@ -3592,6 +3610,13 @@ const LIGHT_POINTS = 6;
  * a course in the major's own subject that matches nothing the student said.
  */
 const GOAL_POINTS = 3;
+
+/**
+ * With the career matcher on, up to three points more for how close a goal
+ * course is (QualityResult.goalFit, 0 to 1), so the closest of the goal
+ * courses lead rather than whichever the other measures favour.
+ */
+const FIT_POINTS = 3;
 
 /** Grade-history lightness in steps of a tenth, lightest 0, for the list and gen-ed orders at workload 2. */
 function lightStep(q: QualityResult): number {
@@ -3845,6 +3870,8 @@ function qualityFor(
     primarySubject: string | null;
     degreeSubjects: Set<string>;
     wantedTags: Set<string>;
+    /** The career matcher, when on (QualityInputs.careerFit). */
+    careerFit?: CareerFit;
   },
   /**
    * Answers already given for this context, by the scorer's inputs
@@ -3871,9 +3898,10 @@ function qualityFor(
     excellent: excellentWithTwins(ctx),
     excellentTerms: ctx.excellentTerms,
     nowLabel: ctx.snapshotTerm?.label ?? null,
+    ...(opts.careerFit ? { careerFit: opts.careerFit } : {}),
   };
   const key = shared
-    ? JSON.stringify([opts.priorities ?? null, opts.interestWords, opts.profile ? [opts.profile.words, opts.profile.subjects, opts.profile.courses] : null, opts.primarySubject, [...opts.degreeSubjects], [...opts.wantedTags]])
+    ? JSON.stringify([opts.priorities ?? null, opts.interestWords, opts.profile ? [opts.profile.words, opts.profile.subjects, opts.profile.courses] : null, opts.primarySubject, [...opts.degreeSubjects], [...opts.wantedTags]]) + (opts.careerFit ? `|fit:${opts.careerFit.key}` : '')
     : '';
   const memo = shared?.get(key) ?? new Map<string, QualityResult>();
   shared?.set(key, memo);
@@ -3902,6 +3930,8 @@ export function qualityScorer(input: {
   interests?: string;
   /** The career words alone, as AutoplanInput.career. */
   career?: string;
+  /** The career matcher, when on (AutoplanInput.careerFit). */
+  careerFit?: CareerFit;
   programName?: string;
   priorities?: Priorities;
   carriedCodes?: Iterable<string>;
@@ -3916,6 +3946,7 @@ export function qualityScorer(input: {
     priorities: input.priorities,
     interestWords: interestWordsOf(input.interests),
     profile: careerProfileOf(input),
+    careerFit: input.careerFit,
     primarySubject: majors.primary,
     degreeSubjects: majors.subjects,
     wantedTags,
@@ -4333,6 +4364,39 @@ function goalSubjectsOf(profile: InterestProfile): Set<string> {
  * headed for investment banking FIN 300 as an elective, and the finance
  * courses become reachable. Empty when the relevance knob is off.
  */
+/**
+ * With the career matcher on: a point for a goal course that another goal
+ * course in the same subject lists as a prerequisite, so a pick the student
+ * can build on (an introductory course whose next course also fits the
+ * goal) leads one that ends there. Undefined with the matcher off.
+ */
+const followOnCache = new WeakMap<object, Map<string, string[]>>();
+function careerFollowOnOf(ctx: Pick<PlanningContext, 'prereqs'>, fit: CareerFit | undefined): ((code: string) => number) | undefined {
+  if (!fit) return undefined;
+  const prereqs = ctx.prereqs ?? new Map<string, PlanPrereq>();
+  let leadsTo = followOnCache.get(prereqs);
+  if (!leadsTo) {
+    leadsTo = new Map<string, string[]>();
+    for (const [after, spec] of prereqs) for (const group of spec.groups) for (const before of group.any) {
+      const key = normaliseCode(before);
+      const list = leadsTo.get(key) ?? [];
+      list.push(normaliseCode(after));
+      leadsTo.set(key, list);
+    }
+    followOnCache.set(prereqs, leadsTo);
+  }
+  const subjectOf = (code: string) => code.split(' ')[0];
+  const memo = new Map<string, number>();
+  return (code: string) => {
+    let hit = memo.get(code);
+    if (hit === undefined) {
+      hit = fit.strength(code) > 0 && (leadsTo.get(code) ?? []).some((next) => subjectOf(next) === subjectOf(code) && fit.strength(next) > 0) ? 1 : 0;
+      memo.set(code, hit);
+    }
+    return hit;
+  };
+}
+
 function goalOpenersOf(ctx: Pick<PlanningContext, 'prereqs'>, profile: InterestProfile, priorities: Priorities | undefined): Set<string> {
   const out = new Set<string>();
   if ((priorities ?? DEFAULT_PRIORITIES).relevance === 0 || !goalWeighs(profile)) return out;
@@ -5145,6 +5209,8 @@ function scoreElective(code: string, s: ElectiveScoring): number {
   // (goalWeighs): the knob's own points only, as before.
   const goal = q.interest ?? 0;
   score += goal > 0 ? (s.goalPoints ? GOAL_POINTS : 0) + 1.5 * goal : s.opensGoal?.has(code) ? GOAL_POINTS : 0;
+  // The career matcher's closeness on top (career-embedding.ts).
+  if (q.goalFit !== undefined) score += FIT_POINTS * q.goalFit + (s.careerFollowOn?.(code) ?? 0);
   // Lighter workload matters most: the measure again, on its own (lightFirst).
   if (s.lightFirst) score += LIGHT_POINTS * (q.lightness ?? 0);
   return score;
@@ -5300,6 +5366,8 @@ export function electiveOptions(input: {
   interests?: string;
   /** The career words alone, as AutoplanInput.career. */
   career?: string;
+  /** The career matcher, when on (AutoplanInput.careerFit). */
+  careerFit?: CareerFit;
   programName?: string;
   /** Restrict the eligibility check to one published requirement list. */
   candidateCodes?: ReadonlySet<string>;
@@ -5407,10 +5475,12 @@ export function electiveOptions(input: {
     lightFirst: lightFirst(input.priorities),
     opensGoal: goalOpenersOf(ctx, careerProfileOf(input), input.priorities),
     goalPoints: goalWeighs(careerProfileOf(input)),
+    careerFollowOn: careerFollowOnOf(ctx, input.careerFit),
     quality: input.quality ?? qualityFor(ctx, byCode, {
       priorities: input.priorities,
       interestWords: interestWordsOf(input.interests),
     profile: careerProfileOf(input),
+    careerFit: input.careerFit,
       primarySubject: majors.primary,
       degreeSubjects: majors.subjects,
       wantedTags,
@@ -6668,11 +6738,38 @@ function ranksAbove(a: number[], b: number[]): boolean {
 }
 
 export function generatePlan(given: AutoplanInput): GeneratedPlan {
+  if (given.careerFit && given.careerFitScope === undefined) return careerGated(given);
   const build = (input: AutoplanInput): GeneratedPlan => {
     const built = generatePlanBuilt(input);
     return input.context?.schoolId === 'uga' && input.plainEngine !== true && input.tracksOff !== true ? ugaDegreeFirst(built, input) : built;
   };
   return given.context?.schoolId === 'uga' ? ugaSummerOnly(given, build) : build(given);
+}
+
+/**
+ * The career matcher never costs the degree anything. A board is built with
+ * it ranking every free choice, and also without it; the matcher's board
+ * stands only if it leaves no more requirements unmet and no course unplaced
+ * that the board without it places. Otherwise the matcher ranks the
+ * electives alone, with general education and list picks as before, under
+ * the same test; and if that board fails it too, the board without the
+ * matcher is the plan. Measured on the benchmark (docs/career-system.md): a
+ * UGA Computer Science freshman with six terms had room for every choice
+ * but one, and the general education course the matcher preferred for an
+ * environmental scientist (ARHI 2121) was the one that did not fit, leaving
+ * World Languages and Global Culture short.
+ */
+function careerGated(given: AutoplanInput): GeneratedPlan {
+  const words = generatePlan({ ...given, careerFit: undefined });
+  const noWorse = (plan: GeneratedPlan): boolean => {
+    const missing = new Set(words.notPlaced.map((x) => normaliseCode(x.code)));
+    return plan.unsatisfied.length <= words.unsatisfied.length && plan.notPlaced.every((x) => missing.has(normaliseCode(x.code)));
+  };
+  const all = generatePlan({ ...given, careerFitScope: 'all' });
+  if (noWorse(all)) return { ...all, careerScope: 'all' };
+  const electives = generatePlan({ ...given, careerFitScope: 'electives' });
+  if (noWorse(electives)) return { ...electives, careerScope: 'electives' };
+  return { ...words, careerScope: 'words' };
 }
 
 /**
@@ -8371,6 +8468,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     priorities: prefs.priorities,
     interestWords: interestWordsOf(input.interests),
     profile: careerProfileOf(input),
+    careerFit: input.careerFitScope === 'electives' ? undefined : input.careerFit,
     primarySubject: majorsForRank.primary,
     degreeSubjects: majorsForRank.subjects,
     wantedTags: genEdTagsOf(input.requirements),
@@ -8411,6 +8509,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     priorities: { ...genEdPriorities, coverage: 0 },
     interestWords: interestWordsOf(input.interests),
     profile: careerProfileOf(input),
+    careerFit: input.careerFitScope === 'electives' ? undefined : input.careerFit,
     primarySubject: majorsForRank.primary,
     degreeSubjects: majorsForRank.subjects,
     wantedTags: new Set(),
@@ -12300,10 +12399,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       lightFirst: lightFirst(prefs.priorities),
       opensGoal: goalOpenersOf(ctx, careerProfileOf(input), prefs.priorities),
       goalPoints: goalWeighs(careerProfileOf(input)),
+      careerFollowOn: careerFollowOnOf(ctx, input.careerFit),
       quality: qualityFor(ctx, byCode, {
         priorities: prefs.priorities,
         interestWords: interestWordsOf(input.interests),
     profile: careerProfileOf(input),
+    careerFit: input.careerFit,
         primarySubject: majors.primary,
         degreeSubjects: majors.subjects,
         wantedTags: stillWanted,
@@ -12411,19 +12512,56 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * from the list above: a course it rejects is one `fits` rejects too, so
      * skipping it returns the same course, only sooner.
      */
-    const firstFit = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean): string | undefined => {
+    const firstFit = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, termIndex?: number): string | undefined => {
+      if (careerFit && termIndex !== undefined) return careerFirstFit(fits, tooBig, termIndex);
       for (let i = 0; i < candidates.length; i += 1) {
         if (!tooBig(candidateCredits[i]) && fits(candidates[i])) return candidates[i];
       }
       return undefined;
     };
+    /**
+     * With the career matcher on (AutoplanInput.careerFit): of the first six
+     * courses that fit, in rank order, the best once two things are counted
+     * that a ranking made before the fill cannot know. Variety: a goal course
+     * almost the same as a goal pick already on the board loses up to four
+     * points (varietyPenalty), so a dentist's board is not five oral-biology
+     * courses. Progression: a goal course whose level suits the term gains up
+     * to a point and a half, and loses as much where it does not
+     * (progressionPoints), so the introductory goal course comes first and
+     * the advanced one later. Courses that are not goal courses keep their
+     * own score.
+     */
+    const careerFit = input.careerFit;
+    const careerPicks: string[] = [];
+    const careerBase = new Map<string, number>();
+    const lastTermIndex = Math.max(1, ...terms.map((t) => t.index));
+    const careerFirstFit = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, termIndex: number): string | undefined => {
+      let best: string | undefined;
+      let bestScore = Number.NEGATIVE_INFINITY;
+      for (let i = 0, seen = 0; i < candidates.length && seen < 6; i += 1) {
+        const code = candidates[i];
+        if (tooBig(candidateCredits[i]) || !fits(code)) continue;
+        seen += 1;
+        let base = careerBase.get(code);
+        if (base === undefined) {
+          base = scoreElective(code, scoring);
+          careerBase.set(code, base);
+        }
+        const here = careerFit!.strength(code) > 0 ? progressionPoints(courseLevel(code), termIndex / lastTermIndex) - varietyPenalty(careerFit!, code, careerPicks) : 0;
+        if (base + here > bestScore) {
+          best = code;
+          bestScore = base + here;
+        }
+      }
+      return best;
+    };
     /** `trackOnly`: `fits` takes only a course the track still wants (see choose). */
-    const pickFrom = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, trackOnly = false): string | undefined => {
+    const pickFrom = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, trackOnly = false, termIndex?: number): string | undefined => {
       const track = [...trackWanted.keys()].find((code) => !plannedAll.has(code) && fits(code));
       if (track || trackOnly) return track;
       const floor = floorWanted();
-      const atLevel = floor !== null ? firstFit((code) => courseLevel(code) >= floor && fits(code), tooBig) : undefined;
-      return atLevel ?? firstFit(fits, tooBig);
+      const atLevel = floor !== null ? firstFit((code) => courseLevel(code) >= floor && fits(code), tooBig, termIndex) : undefined;
+      return atLevel ?? firstFit(fits, tooBig, termIndex);
     };
     const lighter = (code: string) => (grades.get(code)?.difficulty ?? 0) < (ctx.bands ?? FALLBACK_BANDS).harder;
     /**
@@ -12447,7 +12585,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * its own term where the term has room (the pass after the rounds).
      */
     // `tooBig`: the credit test inside `fits` (see firstFit).
-    const choose = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, gap: number, heavy: boolean, loose = false): string | undefined => {
+    // `termIndex`: where the pick lands, for the career matcher's progression (careerFirstFit).
+    const choose = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, gap: number, heavy: boolean, loose = false, termIndex?: number): string | undefined => {
       const sized = (code: string) => trackWanted.has(code) || creditsOf(code) >= 3 || creditsOf(code) === gap || (loose && creditsOf(code) <= gap);
       const exact = (code: string) => gap > 0 && gap < 3 && creditsOf(code) === gap;
       const track = (code: string) => trackWanted.has(code);
@@ -12469,7 +12608,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
          */
         if (landing && !(gap > 0 && gap < 3)) continue;
         const ok = (code: string) => also(code) && sized(code) && fits(code);
-        const found = landing && lightFirst(prefs.priorities) ? lightestOf(ok, tooBig) : pickFrom(ok, tooBig, trackOnly);
+        const found = landing && lightFirst(prefs.priorities) ? lightestOf(ok, tooBig) : pickFrom(ok, tooBig, trackOnly, termIndex);
         if (found) return found;
       }
       return undefined;
@@ -12723,7 +12862,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           };
           // A summer takes the light one too, whatever it already holds (see `choose`).
           const heavyHere = isSummer(term) || ['heavy', 'brutal'].includes(bandVerdictFor(hardHere, termLoad(here, grades).avgDifficulty, (ctx.bands ?? FALLBACK_BANDS)));
-          const pick = choose(fitsHere, tooBig, degreeTotalPublished - total, heavyHere, loose);
+          const pick = choose(fitsHere, tooBig, degreeTotalPublished - total, heavyHere, loose, term.index);
           if (!pick) continue;
           here.push(pick);
           plannedAll.add(pick);
@@ -12735,6 +12874,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const levelWhy = spendLevel(pick);
           electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : { forGoal: (scoring.quality(pick).interest ?? 0) > 0 }) });
           if (creditsOf(pick) < 3 && !trackWanted.has(pick) && !levelWhy) landers.push({ code: pick, termId: term.id });
+          if (careerFit && careerFit.strength(pick) > 0) careerPicks.push(pick);
           followLab(pick, term, here);
           progress = true;
         }
@@ -12931,7 +13071,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           topped = true;
           continue;
         }
-        const pick = wanted ?? choose(fitsHere, tooBig, credits.min - running, heavyHere);
+        const pick = wanted ?? choose(fitsHere, tooBig, credits.min - running, heavyHere, false, term.index);
         if (!pick) continue;
         here.push(pick);
         plannedAll.add(pick);
@@ -12945,6 +13085,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const levelWhy = spendLevel(pick);
         electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : { forGoal: (scoring.quality(pick).interest ?? 0) > 0 }) });
         if (!trackWanted.has(pick) && !levelWhy) padding.set(pick, overTotal() - overBefore);
+        if (careerFit && careerFit.strength(pick) > 0) careerPicks.push(pick);
         followLab(pick, term, here);
         topped = true;
       }

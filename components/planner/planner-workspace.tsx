@@ -154,6 +154,8 @@ import { runsInSummer, summerOnlyListed, ugaOfferingLine } from '@/lib/planner/s
 import { UGA_GRADUATE_FULL_TIME_HOURS, ugaGraduateOverloadAnswer, ugaGraduateUnderloadNote, ugaOverloadAnswer, ugaUnderloadNote } from '@/lib/planner/uga-load-rules';
 import { CAREER_TRACKS, careerWordsAfter, forSchool, INTEREST_TOPICS, trackRequiredStatus, ugaTrackCodes, type InterestsMode } from '@/lib/planner/career-tracks';
 import { careerWordsFor, goalReasonOf, restoredCareerWords, setupWords } from '@/lib/planner/goal-words';
+import { careerMatcherOn, type CareerFit } from '@/lib/planner/career-embedding';
+import { loadCareerFit } from '@/lib/planner/career-embedding-browser';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
 import { describeExcellent, interestWordsFrom, sectionTimes } from '@/lib/planner/quality';
 import {
@@ -956,6 +958,17 @@ export function PlannerWorkspace({
   const careerTyped = useMemo(() => restoredCareerWords(careerInterests, answers), [careerInterests, answers]);
   /** What the student said they want to do: the only words career tracks and topics are read from. */
   const careerText = careerWordsFor(setup, careerTyped, careerCleared);
+  /**
+   * The career matcher (lib/planner/career-embedding.ts), behind its flag:
+   * the goal read by meaning, loaded in the background once the student has
+   * a goal (the effect beside buildPlan). Null while it loads, with the flag
+   * off, for a goal it was not made for, and when the model cannot load;
+   * every surface then reads the goal's words as before.
+   */
+  const [careerFitLoaded, setCareerFitLoaded] = useState<CareerFit | null>(null);
+  const careerFit = careerFitLoaded && careerFitLoaded.key === careerText.trim() ? careerFitLoaded : null;
+  /** The goal the last build read by meaning ('' for none), so the matcher's arrival rebuilds a board once. */
+  const builtWithFit = useRef('');
   const [planShape, setPlanShape] = useState<PlanShape>(NO_SHAPE);
   /** Set by ALMA's set_plan_shape so the next shape change rebuilds the board. */
   const rebuildForShape = useRef(false);
@@ -1461,8 +1474,23 @@ export function PlannerWorkspace({
 
   // ---- the plan -------------------------------------------------------------
 
+  useEffect(() => {
+    if (!isCatalogSchool || isGraduatePlan || !careerText.trim() || !careerMatcherOn()) return;
+    let live = true;
+    const wait = setTimeout(() => {
+      void loadCareerFit(isUga ? 'uga' : 'illinois', careerText).then((fit) => {
+        if (live && fit) setCareerFitLoaded(fit);
+      });
+    }, 400);
+    return () => {
+      live = false;
+      clearTimeout(wait);
+    };
+  }, [careerText, isUga, isCatalogSchool, isGraduatePlan]);
+
   const buildPlan = useCallback(() => {
     const buildStartedAt = performance.now();
+    builtWithFit.current = careerFit?.key ?? '';
     if (!isCatalogSchool) {
       const sample = createSamplePlan();
       replaceActivePlan(sample);
@@ -1599,6 +1627,7 @@ export function PlannerWorkspace({
       // Goals come from what the student wants to do, never from the major's
       // name: "Psychology" alone was booking psychopathology as their goal.
       career: careerText,
+      ...(careerFit ? { careerFit } : {}),
       programName: loaded.program.name,
       programCollege: loaded.program.college,
       arrival: arrivalOf(answers),
@@ -1822,7 +1851,20 @@ export function PlannerWorkspace({
     // computed for it (the effect after `issues`): the all-clear follows
     // every check the board shows, not only unplaced courses.
     announceBuild.current = true;
-  }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, setup, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga]);
+  }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, setup, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga, careerFit]);
+  /*
+   * The career matcher arrives a moment after the goal (it loads in the
+   * background): a board built before it, and not edited since, is built
+   * again once with it. An edited board keeps the student's edits; the next
+   * Rebuild reads the goal by meaning.
+   */
+  const careerFitKey = careerFit?.key ?? '';
+  useEffect(() => {
+    if (!careerFitKey || builtWithFit.current === careerFitKey) return;
+    if (!plan || !context || !loaded || boardEdited) return;
+    // oxlint-disable-next-line react/react-compiler
+    buildPlan();
+  }, [careerFitKey, plan, context, loaded, boardEdited, buildPlan]);
 
   /**
    * Credit that changes after the board exists rebuilds the board.
@@ -3167,11 +3209,11 @@ export function PlannerWorkspace({
     const out = new Map<string, string>();
     for (const [id, mark] of electiveOf) {
       const course = courseIndex.get(id);
-      const line = course ? goalReasonOf(course, mark, { career: careerText, interests: interestsText }) : null;
+      const line = course ? goalReasonOf(course, mark, { career: careerText, interests: interestsText }, careerFit ?? undefined) : null;
       if (line) out.set(id, line);
     }
     return out;
-  }, [electiveOf, courseIndex, careerText, interestsText]);
+  }, [electiveOf, courseIndex, careerText, interestsText, careerFit]);
 
   const chooserData = useMemo((): { label: string; options: Course[]; whys: Map<string, string> } | null => {
     if (!chooser || !plan || !context || !loaded) return null;
@@ -3608,12 +3650,13 @@ export function PlannerWorkspace({
             requirements: loaded.blocks,
             interests: interestsText,
             career: careerText,
+            careerFit: careerFit ?? undefined,
             programName: loaded.program.name,
             priorities,
             carriedCodes: [...boardCodes, ...completedCodes],
           })
         : null,
-    [context, loaded, interestsText, careerText, priorities, boardCodes, completedCodes],
+    [context, loaded, interestsText, careerText, careerFit, priorities, boardCodes, completedCodes],
   );
 
   /**
@@ -3640,6 +3683,7 @@ export function PlannerWorkspace({
     priorForOptions,
     interestsText,
     careerText,
+    careerFit,
     setupStudying: setup.studying,
     pools,
     language: report?.language ?? null,
@@ -3679,6 +3723,7 @@ export function PlannerWorkspace({
       priorForOptions,
       interestsText,
       careerText,
+      careerFit,
       setupStudying: setup.studying,
       pools,
       language: report?.language ?? null,
@@ -3992,6 +4037,7 @@ export function PlannerWorkspace({
         prior: L.priorForOptions,
         interests: L.interestsText,
         career: L.careerText,
+        careerFit: L.careerFit ?? undefined,
         programName: L.loaded.program.name,
         programCollege: L.loaded.program.college,
         priorities: L.priorities,
@@ -4126,6 +4172,7 @@ export function PlannerWorkspace({
       prior: L.priorForOptions,
       interests: L.interestsText,
       career: L.careerText,
+      careerFit: L.careerFit ?? undefined,
       programName: L.loaded.program.name,
       programCollege: isIllinois && !isGraduatePlan ? L.loaded.program.college : undefined,
       electiveLevelRange: isGraduatePlan ? gradSettings.electiveLevelRange : undefined,
@@ -4166,7 +4213,7 @@ export function PlannerWorkspace({
   /** The card's goal line for a course on the board, from the latest render's words (goal-words.ts goalReasonOf). */
   function goalLineOf(course: Course): string | null {
     const L = live.current;
-    return goalReasonOf(course, L.electiveOf.get(course.id), { career: L.careerText, interests: L.interestsText });
+    return goalReasonOf(course, L.electiveOf.get(course.id), { career: L.careerText, interests: L.interestsText }, L.careerFit ?? undefined);
   }
   function markOf(course: Course): string {
     const mark = roleMarkOf(course);

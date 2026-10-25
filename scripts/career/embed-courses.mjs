@@ -20,7 +20,14 @@
  * component / 127): public/<school>/course-vectors.bin holds the bytes in
  * the order of `codes` in public/<school>/course-vectors.json.
  *
+ * `hubs`: each course's mean similarity to fifty reference occupations,
+ * none of them a benchmark goal (REFERENCE below). The matcher ranks a
+ * course by how much closer it is to the student's goal than to careers in
+ * general, so a course whose vector sits near every short goal (UKR 201,
+ * Second-Year Ukrainian, came first for "dentist") does not lead them all.
+ *
  *   node scripts/career/embed-courses.mjs [illinois|uga]...   (both by default; about 15 minutes)
+ *   node scripts/career/embed-courses.mjs --hubs-only          recompute the hubs from the stored vectors (seconds)
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -46,10 +53,49 @@ function coursesOf(school) {
   return { courses: out, fetchedAt: Array.isArray(raw) ? null : raw.fetchedAt ?? null };
 }
 
+export const REFERENCE = [
+  'pharmacist', 'architect', 'chef', 'airline pilot', 'electrician', 'librarian', 'police officer', 'firefighter', 'social worker', 'economist',
+  'chemist', 'biologist', 'physicist', 'musician', 'actor', 'painter', 'photographer', 'translator', 'diplomat', 'entrepreneur',
+  'management consultant', 'banker', 'real estate agent', 'urban planner', 'pastor', 'farmer', 'geologist', 'astronomer', 'statistician', 'surgeon',
+  'psychologist', 'optometrist', 'athletic trainer', 'coach', 'writer', 'editor', 'film director', 'fashion designer', 'interior designer', 'civil engineer',
+  'electrical engineer', 'chemical engineer', 'nutritionist', 'zoologist', 'historian', 'archaeologist', 'museum curator', 'political scientist', 'military officer', 'pilot',
+];
+
 const schools = process.argv.slice(2).filter((a) => a === 'illinois' || a === 'uga');
 const { pipeline, env } = await import('@huggingface/transformers');
 env.allowRemoteModels = false;
 const fe = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'fp32' });
+const refs = await fe(REFERENCE, { pooling: 'mean', normalize: true });
+
+/** Mean similarity of each stored course vector to the reference occupations. */
+function hubsOf(bytes, scales) {
+  const n = scales.length;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    for (let r = 0; r < REFERENCE.length; r++) {
+      let s = 0;
+      for (let k = 0; k < D; k++) s += bytes[i * D + k] * refs.data[r * D + k];
+      sum += s * scales[i];
+    }
+    out.push(Number((sum / REFERENCE.length).toFixed(4)));
+  }
+  return out;
+}
+
+if (process.argv.includes('--hubs-only')) {
+  for (const school of ['illinois', 'uga']) {
+    const metaPath = join(ROOT, `public/${school}/course-vectors.json`);
+    const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
+    const bin = readFileSync(join(ROOT, `public/${school}/course-vectors.bin`));
+    const bytes = new Int8Array(bin.buffer, bin.byteOffset, bin.byteLength);
+    const { hubs: _old, ...rest } = meta;
+    writeFileSync(metaPath, JSON.stringify({ ...rest, reference: REFERENCE.length, hubs: hubsOf(bytes, meta.scales) }));
+    console.log(`${school}: hubs for ${meta.codes.length} courses`);
+  }
+  process.exit(0);
+}
+
 for (const school of schools.length > 0 ? schools : ['illinois', 'uga']) {
   const t0 = Date.now();
   const { courses, fetchedAt } = coursesOf(school);
@@ -73,6 +119,7 @@ for (const school of schools.length > 0 ? schools : ['illinois', 'uga']) {
   writeFileSync(join(ROOT, `public/${school}/course-vectors.json`), JSON.stringify({
     model: 'Xenova/all-MiniLM-L6-v2', dims: D, pooling: 'mean', normalized: true, recipe: RECIPE,
     count: courses.length, catalogFetchedAt: fetchedAt, codes: courses.map((c) => c.code), scales,
+    reference: REFERENCE.length, hubs: hubsOf(bytes, scales),
   }));
   console.log(`\n${school}: ${courses.length} courses in ${((Date.now() - t0) / 1000).toFixed(0)}s, ${(bytes.length / 1048576).toFixed(2)} MiB of vectors`);
 }

@@ -2,6 +2,7 @@ import { interestProfile, type InterestProfile } from './career-tracks';
 import { courseMatchesWord, interestWordsFrom } from './quality';
 import type { PlanMark } from './repick';
 import type { OnboardingAnswers } from './onboarding';
+import type { CareerFit } from './career-embedding';
 
 /**
  * The goal words in the one setup box, and the line that says a card was
@@ -401,9 +402,13 @@ export function goalReasonOf(
   course: { code: string; title: string; cluster: string },
   mark: PlanMark | undefined,
   words: { career: string; interests: string },
+  /** The career matcher, when on: a goal pick it ranked says how close it is (career-embedding.ts reasonFor). */
+  fit?: CareerFit,
 ): string | null {
   if (!mark?.goal) return null;
   if (mark.kind === 'track') return `Picked for your goal: ${mark.track ?? mark.label}`;
+  const close = fit?.reasonFor(codeOf(course.code));
+  if (close) return close.charAt(0).toUpperCase() + close.slice(1);
   const named = goalNamed(course, words.career);
   if (named) return `Picked for your goal: ${named}`;
   if (mark.kind === 'gened') return null;
