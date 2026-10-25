@@ -12531,14 +12531,17 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * the advanced one later. Courses that are not goal courses keep their
      * own score. A cap: once a board has GOAL_GROUP_CAP goal picks from one
      * subject (or among the beginner language courses, CareerFit.capGroup),
-     * counting the general education picks the goal ordered, another goal
-     * course from it is passed over, so a board does not pile up one
-     * subject's courses.
+     * counting the general education picks closest to the goal, another goal
+     * course from it (by meaning, or one the goal names) is passed over, so
+     * a board does not pile up one subject's courses.
      */
     const careerFit = input.careerFit;
     const careerPicks: string[] = [];
     const careerBase = new Map<string, number>();
     const lastTermIndex = Math.max(1, ...terms.map((t) => t.index));
+    // The goal picks so far (the electives a card says are for the goal), for the cap.
+    const careerGoalPicks: string[] = [];
+    const goalPick = (code: string) => (scoring.quality(code).interest ?? 0) > 0;
     let careerGenEdGroups: Map<string, number> | null = null;
     const careerGroupFull = (code: string): boolean => {
       if (!careerGenEdGroups) {
@@ -12551,7 +12554,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         }
       }
       const group = careerFit!.capGroup(code);
-      return (careerGenEdGroups.get(group) ?? 0) + careerPicks.filter((p) => !trackWanted.has(p) && careerFit!.capGroup(p) === group).length >= GOAL_GROUP_CAP;
+      return (careerGenEdGroups.get(group) ?? 0) + careerGoalPicks.filter((p) => careerFit!.capGroup(p) === group).length >= GOAL_GROUP_CAP;
     };
     const careerFirstFit = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, termIndex: number): string | undefined => {
       let best: string | undefined;
@@ -12559,7 +12562,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       for (let i = 0, seen = 0; i < candidates.length && seen < 6; i += 1) {
         const code = candidates[i];
         if (tooBig(candidateCredits[i]) || !fits(code)) continue;
-        if (careerFit!.strength(code) > 0 && careerGroupFull(code)) continue;
+        if (goalPick(code) && careerGroupFull(code)) continue;
         seen += 1;
         let base = careerBase.get(code);
         if (base === undefined) {
@@ -12894,6 +12897,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : { forGoal: (scoring.quality(pick).interest ?? 0) > 0 }) });
           if (creditsOf(pick) < 3 && !trackWanted.has(pick) && !levelWhy) landers.push({ code: pick, termId: term.id });
           if (careerFit && careerFit.strength(pick) > 0) careerPicks.push(pick);
+          if (careerFit && !trackWanted.has(pick) && goalPick(pick)) careerGoalPicks.push(pick);
           followLab(pick, term, here);
           progress = true;
         }
@@ -13105,6 +13109,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : { forGoal: (scoring.quality(pick).interest ?? 0) > 0 }) });
         if (!trackWanted.has(pick) && !levelWhy) padding.set(pick, overTotal() - overBefore);
         if (careerFit && careerFit.strength(pick) > 0) careerPicks.push(pick);
+        if (careerFit && !trackWanted.has(pick) && goalPick(pick)) careerGoalPicks.push(pick);
         followLab(pick, term, here);
         topped = true;
       }
