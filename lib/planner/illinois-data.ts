@@ -4645,8 +4645,67 @@ export function requirementRulesForArea(
     }
   }
 
+  if (readingSelectLines && !readingAsReleased) blocks.push(...footHoursBlocks(read, blocks, consumed));
+
   blocks.sort((a, b) => a.groupIndex - b.groupIndex);
   return { blocks, droppedRows, droppedTotalRows, pools, areaHours: areaBudget };
+}
+
+/** A foot row that is a total, a cap, a recommendation, a gen-ed category or a pointer, not hours of its own. */
+const NOT_FOOT_HOURS =
+  /^\s*(?:minimum\s+)?total\b|\bmaximum\b|\bup to\b|\bno more than\b|\bmay (?:count|apply|be applied)\b|\brecommended\b|\boptional\b|^\s*fulfilled by\b|\bfrom the (?:lists?|courses?) below\b|\bsee\b[^.]*\bbelow\b|\blist below\b|\bselect from\b|\bchoose from the following\b|\bfrom the following\b|\bselect an? (?:option|specialization)\b|\bmust include\b|\bselect one course from\b|^\s*concentration\s*$/i;
+/** A course code in a foot row's words: the row names courses this does not read ("Select three sections from GLBL 296 OR one GLBL 298 section"). */
+const FOOT_NAMES_CODE = /\b[A-Z]{2,4}\s?\d{3}\b/;
+
+/**
+ * Sized sentences at the foot of a table of course rows, read as hours of
+ * their own (fix plan pattern 1a).
+ *
+ * Public Health ends its Core table of twelve HK and CHLH courses with "HK
+ * Electives (choose from all HK courses, in consultation with advisor)" (12);
+ * Urban Studies & Planning ends its concentration table with "Plus 15 hours
+ * of UP electives in addition to Foundation, Core, & Concentration" (15);
+ * Finance ends its three required FIN courses with "One additional
+ * full-semester, 3-hour Finance course at the 200-level or above" (3). The
+ * crawler keeps those rows as comments with their hours, and the reader put
+ * their words in the table's note and nothing else, so the plan never named
+ * the hours. Each becomes an hours block beside the table's own block; the
+ * free electives still fill it, but the plan lists it.
+ *
+ * Only a sized comment after the last row, in a group with rows that no
+ * pool or header reading took, whose words no other block of the group
+ * already reads (a level pool, a segmented part), and that is not a total, a
+ * cap, a recommendation, a gen-ed category or a pointer at lists elsewhere.
+ */
+function footHoursBlocks(read: AreaGroupRead[], blocks: AreaRuleBlock[], consumed: ReadonlySet<number>): AreaRuleBlock[] {
+  const out: AreaRuleBlock[] = [];
+  for (const r of read) {
+    const all = r.group.courses ?? [];
+    if (consumed.has(r.index) || r.isTotal || r.rows.length === 0 || all.length === 0) continue;
+    const mine = blocks.filter((b) => b.groupIndex === r.index);
+    // A group read as a pool, a choice or a level rule took its sentences already.
+    if (mine.length === 0 || mine.some((b) => b.idSuffix === 'level' || b.rule.kind === 'pool' || b.rule.kind === 'hours')) continue;
+    const foot = (r.group.comments ?? []).filter((c) => c.at >= all.length && c.hours !== null && c.hours !== undefined && c.hours > 0);
+    const seen = new Set<string>();
+    for (const [k, c] of foot.entries()) {
+      const text = c.text.replace(/[\s:]+$/, '').trim();
+      if (!text || seen.has(text.toLowerCase()) || NOT_FOOT_HOURS.test(text) || FOOT_NAMES_CODE.test(text) || genEdForLabel(text) !== null) continue;
+      if (mine.some((b) => b.note.trim() === text || b.label.endsWith(text))) continue;
+      seen.add(text.toLowerCase());
+      out.push({
+        groupIndex: r.index,
+        idSuffix: `foot${k + 1}`,
+        label: [r.label, text].filter(Boolean).join(': '),
+        hours: c.hours as number,
+        note: text,
+        // The level it states stays in its words for now (pattern 5): read as a floor, the electives it
+        // booked moved a math course later on six boards (Musicology, Integrative Biology, MCB).
+        rule: { kind: 'hours', hours: c.hours as number, genEd: null, label: text, minLevel: null, exclude: exceptionsIn(text) },
+        rows: 0,
+      });
+    }
+  }
+  return out;
 }
 
 const positive = (n: number | null): number | null => (n !== null && n > 0 ? n : null);
