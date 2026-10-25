@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Onboarding } from './onboarding';
 import { clearSavedPlan, PlannerWorkspace } from './planner-workspace';
 import { isReadySchool, loadAnswers, saveAnswers, type OnboardingAnswers } from '@/lib/planner/onboarding';
+import { careerMatcherOn } from '@/lib/planner/career-embedding';
 import { InsightsRuntime, InsightsGate } from './insights-controls';
 import { AccountControls } from './account-controls';
 
@@ -23,6 +24,13 @@ export function AppShell() {
   const [saved, setSaved] = useState<OnboardingAnswers | null>(null);
   const [answers, setAnswers] = useState<OnboardingAnswers | null>(null);
   const [ready, setReady] = useState(false);
+
+  // The career matcher's switch (?career-matcher=on / off), remembered on this
+  // device as soon as the page opens, before onboarding moves the page on
+  // (lib/planner/career-embedding.ts careerMatcherOn).
+  useEffect(() => {
+    careerMatcherOn();
+  }, []);
 
   useEffect(() => {
     /**

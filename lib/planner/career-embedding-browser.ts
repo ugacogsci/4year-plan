@@ -43,7 +43,10 @@ function loadEmbedder(): Promise<Embed> {
     tf.env.allowRemoteModels = false;
     tf.env.allowLocalModels = true;
     tf.env.localModelPath = `${BASE}models/`;
-    const extract = await tf.pipeline('feature-extraction', CAREER_MODEL, { dtype: 'fp32', model_file_name: 'model_int8w', device: 'wasm' });
+    // With the runtime handed in, transformers.js lists no devices of its own
+    // and refuses its default ("Unsupported device: wasm"); 'auto' takes any,
+    // and the session is told the one the runtime has.
+    const extract = await tf.pipeline('feature-extraction', CAREER_MODEL, { dtype: 'fp32', model_file_name: 'model_int8w', device: 'auto', session_options: { executionProviders: ['wasm'] } });
     careerTiming.model = Math.round(performance.now() - started);
     return async (text: string) => {
       const out = await extract(text, { pooling: 'mean', normalize: true });

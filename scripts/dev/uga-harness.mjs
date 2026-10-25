@@ -85,7 +85,18 @@ const KINDS = {
   third: { words: "I'm a junior.", record: 'third' },
   'first-premed': { words: "I'm a freshman.", after: 'I want to go to medical school.', record: null },
 };
-const KIND_NAMES = (process.env.HARNESS_KINDS ?? Object.keys(KINDS).join(',')).split(',').map((s) => s.trim()).filter((k) => KINDS[k]);
+/*
+ * HARNESS_GOALS=<goals.json> ([{ label, text, vector }], written by
+ * scripts/career/benchmark.mjs): one more kind per goal, "goal:<label>", an
+ * incoming freshman who says that goal, and by default only those kinds.
+ * With HARNESS_MEANING=1 the build reads the goal by meaning
+ * (lib/planner/career-embedding.ts, the checkout's public/uga/course-vectors.*),
+ * as the workspace does with the career matcher's flag on; without it, by
+ * its words. Neither variable set: the kinds above, as before.
+ */
+const GOALS = process.env.HARNESS_GOALS ? JSON.parse(readFileSync(resolve(process.env.HARNESS_GOALS), 'utf8')) : [];
+for (const g of GOALS) KINDS[`goal:${g.label}`] = { words: "I'm an incoming freshman, starting college next fall.", after: g.text, record: null };
+const KIND_NAMES = (process.env.HARNESS_KINDS ?? (GOALS.length ? GOALS.map((g) => `goal:${g.label}`) : Object.keys(KINDS)).join(',')).split(',').map((s) => s.trim()).filter((k) => KINDS[k]);
 
 // ---------------------------------------------------------------------------
 // compare
@@ -393,6 +404,13 @@ const S = await lib('lib/planner/saved-board.ts');
 const W = existsSync(join(ROOT, 'lib/planner/warnings-triage.ts')) ? await lib('lib/planner/warnings-triage.ts') : null;
 const hasPlanStart = existsSync(join(ROOT, 'lib/planner/plan-start.ts'));
 const CT = await lib('lib/planner/career-tracks.ts');
+/** HARNESS_MEANING=1: each goal kind's career matcher (see HARNESS_GOALS). */
+const FITS = new Map();
+if (GOALS.length && process.env.HARNESS_MEANING === '1') {
+  const E = await lib('lib/planner/career-embedding.ts');
+  const vectors = E.courseVectorsFrom(JSON.parse(readFileSync(join(ROOT, 'public/uga/course-vectors.json'), 'utf8')), readFileSync(join(ROOT, 'public/uga/course-vectors.bin')));
+  for (const g of GOALS) if (g.vector) FITS.set(`goal:${g.label}`, E.careerFitFor({ text: g.text, vector: g.vector, label: g.label, school: 'UGA' }, vectors));
+}
 
 /** The checkout's horizonFor: lib/planner/plan-start.ts, or cut from the workspace of a checkout before it. */
 async function horizonOf() {
@@ -490,6 +508,7 @@ function build(program, kind) {
     programId: loaded.summary?.id ?? program.id, electiveHoursLimit: loaded.electiveHours, fillToDegreeTotal: loaded.fillToDegreeTotal,
     degreeTotal: publishedTotal, interests: ['', careerText].join(' '), career: careerText,
     programName: loaded.program.name, programCollege: loaded.program.college, admissionRoute: null, residency: null, firstYear: false,
+    ...(FITS.has(kind) ? { careerFit: FITS.get(kind) } : {}),
   });
   const board = generated.plan;
   // What the workspace counts against the board (completedCodes, priorCreditHours).
@@ -617,6 +636,15 @@ function build(program, kind) {
       return `${code}:${kind}`;
     }),
     strict,
+    // A goal kind (HARNESS_GOALS): the picks the goal made, and why.
+    ...(KINDS[kind].after && kind.startsWith('goal:') ? {
+      goalPicks: [
+        ...generated.electives.filter((e) => e.forGoal || e.track).map((e) => ({ code: e.code, title: ctxByCode.get(norm(e.code))?.title ?? '', why: e.why, kind: e.track ? 'track' : 'elective' })),
+        ...(generated.genEdPicks ?? []).filter((g) => g.forGoal).map((g) => ({ code: g.code, title: ctxByCode.get(norm(g.code))?.title ?? '', why: g.label, kind: 'gened' })),
+      ],
+      unsatisfied: generated.unsatisfied.length,
+      careerScope: generated.careerScope ?? null,
+    } : {}),
     // HARNESS_DEBUG=1: the engine's own reading (its pools, unmet requirements, notes), to set beside the audit's.
     ...(process.env.HARNESS_DEBUG ? { engine: { unsatisfied: generated.unsatisfied.map((u) => `${u.areaLabel}: ${u.label} (${u.reason})`), pools: generated.pools.map((p) => `${p.areaLabel} / ${p.label}: ${p.hours}/${p.hoursTarget ?? '-'}h ${p.count}/${p.countTarget ?? '-'} [${p.picked.join(' ')}] prior [${p.fromPriorCredit.join(' ')}]`), notes: generated.notes, notPlaced: generated.notPlaced.map((x) => `${x.code}: ${x.message}`), electives: generated.electives.map((e) => `${e.code}: ${e.why}`), genEdPicks: (generated.genEdPicks ?? []).map((g) => `${g.code} for ${g.label}`) } } : {}),
   };
