@@ -401,6 +401,39 @@ if (problems.length) {
 }
 
 // ---- the scoreboard ---------------------------------------------------------
+/**
+ * Hours a reading asks for, per degree (a blocks sidecar): take-all credits, and how far each area's
+ * required hours (take-all credits plus every sized pick) run past the hours the page states for that area.
+ */
+function requiredHoursRead(blockRows, checkout) {
+  const stated = new Map();
+  const statedOf = (id, area) => {
+    if (!stated.has(id)) {
+      const f = resolve(checkout, 'public/illinois/program', `${id}.json`);
+      const p = existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : { areas: [] };
+      stated.set(id, new Map((p.areas ?? []).filter((a) => a.hours != null).map((a) => [a.label ?? '', a.hours])));
+    }
+    return stated.get(id).get(area ?? '') ?? null;
+  };
+  const perArea = new Map();
+  let takeAll = 0;
+  let unsized = 0;
+  for (const b of blockRows) {
+    if (['gened', 'language', 'unparsed'].includes(b.kind)) continue;
+    const key = `${b.id}|${b.area ?? ''}`;
+    const hours = b.kind === 'all' ? b.credits : (b.hours ?? 0);
+    if (b.kind === 'all') takeAll += b.credits;
+    else if (b.hours == null && b.n == null) unsized++;
+    perArea.set(key, (perArea.get(key) ?? 0) + hours);
+  }
+  let extra = 0;
+  for (const [key, hours] of perArea) {
+    const [id, area] = key.split('|');
+    const page = statedOf(id, area);
+    if (page != null && hours > page) extra += hours - page;
+  }
+  return { takeAll, extra, unsized };
+}
 const STATICS = loadStatics(CHECKOUT);
 const MEASURES = makeMeasures(STATICS);
 const reading = READING ? readingOf(readRows(READING)) : null;
@@ -437,6 +470,20 @@ const changedBoards = pairs.filter(({ x, y }) => JSON.stringify(x.terms.map((t) 
   console.log(`  reading (both boards judged on it): ${READING ?? 'none (sweep with blocks, or pass --reading)'}`);
   console.log(`  ${'measure'.padEnd(88)}${pad('before', 16)}${pad('after', 16)}`);
   for (const [label, f] of rows) console.log(`  ${label.padEnd(88)}${pad(f(sides.x), 16)}${pad(f(sides.y), 16)}`);
+  // Most reading errors never reach "not placed": an unread requirement is an unmet row with a reason
+  // (no-course-data, not-parsed, excluded, filled-by-electives), and an option list read as take-all books
+  // extra courses. These rows make those visible (audit fix plan, step 0).
+  const reasons = [...new Set(pairs.flatMap(({ x, y }) => [...x.unsatisfied, ...y.unsatisfied].map((u) => u.reason)))].sort();
+  for (const why of reasons) {
+    const f = (r) => sum(r, (b) => b.unsatisfied.filter((u) => u.reason === why).length);
+    console.log(`  ${`  unmet rows: ${why}`.padEnd(88)}${pad(f(sides.x), 16)}${pad(f(sides.y), 16)}`);
+  }
+  const readingHours = (f) => (f && existsSync(f) ? requiredHoursRead(readRows(f), CHECKOUT) : null);
+  const hx = readingHours(sidecar(files[0]));
+  const hy = readingHours(READING);
+  console.log(`  ${'Take-all hours read (all degrees, each degree once)'.padEnd(88)}${pad(hx?.takeAll ?? 'n/a', 16)}${pad(hy?.takeAll ?? 'n/a', 16)}`);
+  console.log(`  ${'Extra required hours (an area read for more than the page states)'.padEnd(88)}${pad(hx?.extra ?? 'n/a', 16)}${pad(hy?.extra ?? 'n/a', 16)}`);
+  console.log(`  ${'Choose and pool blocks with no size (never booked)'.padEnd(88)}${pad(hx?.unsized ?? 'n/a', 16)}${pad(hy?.unsized ?? 'n/a', 16)}`);
   console.log(`  ${'Plans changed (courses per term)'.padEnd(88)}${pad('', 16)}${pad(changedBoards, 16)}`);
   console.log(`  ${'Plans that meet FEWER real requirements than before (must stay 0)'.padEnd(88)}${pad('', 16)}${pad(fewer, 16)}`);
   console.log(`  ${'"Take all" blocks holding two courses that do not both count'.padEnd(88)}${pad(takeAll(sidecar(files[0])), 16)}${pad(takeAll(READING), 16)}`);
