@@ -257,8 +257,8 @@ using the site's anonymous directory query, with serial requests and rate-limit
 backoff. It stops on denied access and does not collect review text. JSON, CSV,
 coverage summaries and resume checkpoints go in `data/ratemyprofessors/`.
 The dataset exports and coverage summaries are tracked in Git; checkpoints and
-temporary writes stay local. These datasets are not served or used by the
-planner. Use `--school uga` or `--school illinois` for one school, or
+temporary writes stay local. The raw datasets are not served; the planner
+serves the compact copy described below. Use `--school uga` or `--school illinois` for one school, or
 `--output DIR` for a fresh snapshot.
 Re-running with the same directory resumes an interrupted collection; a
 completed snapshot is reused. Coverage means profiles listed by that site,
@@ -269,6 +269,34 @@ another pass and merges unique IDs into the snapshot (the default page size is
 50; the maximum is 500). A changing directory total remains marked partial;
 use a fresh output directory for a new snapshot. Collector checks:
 `node --test scripts/ratemyprofessors/collect.test.mjs`.
+
+ALMA and ARCH answer "what do students think of this professor?" from those
+ratings. `node scripts/professor-ratings/build.mjs` keeps the rated profiles
+(name, department, overall, difficulty, would take again, count, link) in
+`public/<school>/professor-ratings.json`, merging one person's obvious
+duplicate profiles (the same name, and the same department or one inside the
+other). The `professor_ratings` tool, and `student_ratings` on instructors in
+`course_syllabus` and `term_syllabi`, match the planner's instructor names
+(sections, syllabi, "My instructor") to a profile in
+`lib/planner/professor-ratings.ts`: the last name and the first name must
+agree (a nickname, or a first name the other starts with, counts); a first
+initial alone needs the only profile at the school with that initial and a
+department that fits the course; two profiles of one name are settled by the
+course's department or reported as "not sure which profile", never guessed.
+The departments a subject's instructors are listed under are learned from
+names that match exactly one profile, and from the catalog's subject names
+and course titles. On the syllabi's instructors, 55% match at UGA (9% not
+sure) and 43% at Illinois (8% not sure); the rest have no profile. The
+answer is a consensus with fixed thresholds: under 5 ratings, too few to say
+much; overall 4.0+ rated highly, 3.5 well, 2.6-3.4 mixed, 2.5 or lower low;
+difficulty 4.0+ hard, 3.0 moderately hard, 2.5 about average, under 2.5 on
+the easier side; would take again 80%+ most, under 50% fewer than half. Every
+answer says it rests on N self-selected ratings across all of the professor's
+courses and links the profile. The data holds no comments, so the bots say
+the ratings do not cover things like email or office hours, and invent
+nothing. At Illinois the Teachers Ranked as Excellent lists stay the official
+signal. The planner's own picks never read these ratings. Checks:
+`lib/planner/__professor-ratings.check.mjs`.
 
 A good pick is also one the student can take. A free elective is never a
 course written for someone else (a discussion tied to another section,
