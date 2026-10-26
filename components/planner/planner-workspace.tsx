@@ -4361,6 +4361,15 @@ export function PlannerWorkspace({
         const c = L.byCode.get(normalizeCourseCode(typeof input.code === 'string' ? input.code : ''));
         return c ? { ok: true, code: c.code, title: c.title, description: c.description, prerequisites: c.prerequisiteText, credits: c.credits } : { ok: false, reason: 'Course not found.' };
       }
+      if (name === 'professor_ratings') {
+        // Needs no degree: a name, and the course's syllabi for its instructors and subject.
+        const ratingSchool: RatingsSchool | null = L.context?.schoolId === 'uga' ? 'uga' : isIllinois ? 'illinois' : null;
+        if (!ratingSchool) return { ok: false, reason: 'The planner holds no student ratings for this school.' };
+        const asked = typeof input.code === 'string' ? input.code : '';
+        const c = asked ? (L.byCode.get(normalizeCourseCode(asked)) ?? null) : null;
+        const names = c ? instructorOptions([], await syllabiOf(c.code)).map((o) => o.name) : [];
+        return professorRatingsResult(await loadProfessorRatings(ratingSchool), { name: typeof input.name === 'string' ? input.name : '', code: c?.code ?? (asked ? normalizeCourseCode(asked) : null) }, names);
+      }
       return { ok: false, reason: 'No degree is selected. You can explore courses or select a degree in Preferences to enable requirement-aware plan changes.' };
     }
     const board = planRef.current ?? {
