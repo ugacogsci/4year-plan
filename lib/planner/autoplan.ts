@@ -4,7 +4,7 @@ import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
 import { forSchool, interestProfile, labPartners, withHeldVariants, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
 import type { Priorities } from './priorities';
 import { interestWordsFrom, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
-import { GOAL_GROUP_CAP, progressionPoints, varietyPenalty, type CareerFit } from './career-embedding';
+import { GOAL_GROUP_CAP, NEAR_SAME, progressionPoints, varietyPenalty, type CareerFit } from './career-embedding';
 import { DEFAULT_PRIORITIES } from './priorities';
 import { weeklyFit, type WeeklySchedule } from './weekly-fit';
 import { PLANNED_AS_RELEASED } from './held-degrees';
@@ -12548,7 +12548,15 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * subject (or among the beginner language courses, CareerFit.capGroup),
      * counting the general education picks closest to the goal, another goal
      * course from it (by meaning, or one the goal names) is passed over, so
-     * a board does not pile up one subject's courses.
+     * a board does not pile up one subject's courses. The major's own subject
+     * is not capped (subjectRoomLeft gives it its room): under it a Computer
+     * Science major who wants to be a software engineer stopped at three CS
+     * goal picks and passed over CS 476 Program Verification and CS 483
+     * Applied Parallel Programming. And a goal course nearly the
+     * same as a goal pick already on the board (NEAR_SAME), neither a
+     * prerequisite of the other, is passed over: the variety points alone
+     * left KINS 2100 Prevention and Care of Athletic Injuries beside ATTR 3100
+     * Prevention and Care of Conditions in Sport.
      */
     const careerFit = input.careerFit;
     const careerPicks: string[] = [];
@@ -12569,8 +12577,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         }
       }
       const group = careerFit!.capGroup(code);
+      if (group === majors.primary) return false;
       return (careerGenEdGroups.get(group) ?? 0) + careerGoalPicks.filter((p) => careerFit!.capGroup(p) === group).length >= GOAL_GROUP_CAP;
     };
+    const listsBefore = (after: string, before: string) => (ctx.prereqs?.get(after)?.groups ?? []).some((g) => g.any.some((c) => normaliseCode(c) === before));
+    const careerNearlySame = (code: string): boolean =>
+      careerPicks.some((p) => (careerFit!.between(code, p) ?? 0) >= NEAR_SAME && !listsBefore(code, p) && !listsBefore(p, code));
     const careerFirstFit = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, termIndex: number): string | undefined => {
       let best: string | undefined;
       let bestScore = Number.NEGATIVE_INFINITY;
@@ -12578,6 +12590,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const code = candidates[i];
         if (tooBig(candidateCredits[i]) || !fits(code)) continue;
         if (goalPick(code) && careerGroupFull(code)) continue;
+        if (careerFit!.strength(code) > 0 && careerNearlySame(code)) continue;
         seen += 1;
         let base = careerBase.get(code);
         if (base === undefined) {
