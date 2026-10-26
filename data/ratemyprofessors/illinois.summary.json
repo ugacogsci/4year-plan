@@ -1,0 +1,23 @@
+{
+  "source": "Rate My Professors",
+  "directoryUrl": "https://www.ratemyprofessors.com/search/professors/1112",
+  "school": "University of Illinois at Urbana-Champaign",
+  "schoolId": 1112,
+  "startedAt": "2026-10-25T20:59:25.157Z",
+  "updatedAt": "2026-10-25T21:03:47.215Z",
+  "status": "complete",
+  "expectedCount": 5347,
+  "observedCounts": [
+    5347
+  ],
+  "uniqueProfiles": 5347,
+  "ratedProfiles": 4373,
+  "unratedProfiles": 974,
+  "pages": 129,
+  "passes": 3,
+  "duplicateObservations": 10694,
+  "paginationExhausted": true,
+  "error": null,
+  "scope": "All public directory profiles at collection time, including historical, duplicate-person, and unrated entries; not a current faculty roster. No review text collected. Unknown ratings are null.",
+  "caveat": "Self-selected student ratings; profiles have not been matched to ORION instructor records or incorporated into recommendations."
+}

@@ -41,3 +41,7 @@ public/__samples/
 # facts in public/illinois/syllabi.json are.
 data/syllabi/
 data/syllabi
+
+# Local collection checkpoints and temporary writes; dataset exports are tracked.
+data/ratemyprofessors/*.checkpoint.json
+data/ratemyprofessors/*.tmp

@@ -1,0 +1,23 @@
+{
+  "source": "Rate My Professors",
+  "directoryUrl": "https://www.ratemyprofessors.com/search/professors/1101",
+  "school": "University of Georgia",
+  "schoolId": 1101,
+  "startedAt": "2026-10-25T20:55:25.589Z",
+  "updatedAt": "2026-10-25T21:03:03.118Z",
+  "status": "complete",
+  "expectedCount": 6197,
+  "observedCounts": [
+    6197
+  ],
+  "uniqueProfiles": 6197,
+  "ratedProfiles": 5414,
+  "unratedProfiles": 783,
+  "pages": 137,
+  "passes": 2,
+  "duplicateObservations": 6197,
+  "paginationExhausted": true,
+  "error": null,
+  "scope": "All public directory profiles at collection time, including historical, duplicate-person, and unrated entries; not a current faculty roster. No review text collected. Unknown ratings are null.",
+  "caveat": "Self-selected student ratings; profiles have not been matched to ORION instructor records or incorporated into recommendations."
+}

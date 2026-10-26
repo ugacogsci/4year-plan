@@ -250,6 +250,26 @@ calls an instructor good or bad: it says whether they are on the list, and
 for which terms. The "Lightest" preset is workload at 2 with everything else
 balanced, and at 2 grade-history lightness ranks ahead of the rest.
 
+For a separate local review of third-party professor ratings, run
+`node scripts/ratemyprofessors/collect.mjs`. It collects public UGA and Illinois
+profile summaries (names, departments, aggregate ratings and profile links)
+using the site's anonymous directory query, with serial requests and rate-limit
+backoff. It stops on denied access and does not collect review text. JSON, CSV,
+coverage summaries and resume checkpoints go in `data/ratemyprofessors/`.
+The dataset exports and coverage summaries are tracked in Git; checkpoints and
+temporary writes stay local. These datasets are not served or used by the
+planner. Use `--school uga` or `--school illinois` for one school, or
+`--output DIR` for a fresh snapshot.
+Re-running with the same directory resumes an interrupted collection; a
+completed snapshot is reused. Coverage means profiles listed by that site,
+including historical and unrated entries, not a verified current faculty roster.
+Counts must match before a collection is marked complete. If unstable directory
+pagination repeats profiles and leaves gaps, `--recheck --page-size 500` makes
+another pass and merges unique IDs into the snapshot (the default page size is
+50; the maximum is 500). A changing directory total remains marked partial;
+use a fresh output directory for a new snapshot. Collector checks:
+`node --test scripts/ratemyprofessors/collect.test.mjs`.
+
 A good pick is also one the student can take. A free elective is never a
 course written for someone else (a discussion tied to another section,
 graduate, thesis or arranged work, a seminar for first-years, transfers,
