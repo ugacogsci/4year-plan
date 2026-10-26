@@ -105,9 +105,10 @@ for (const school of ['uga', 'illinois'].filter((s) => !only || s === only)) {
     continue;
   }
   const raw = readJson(src);
-  const profiles = R.ratedProfiles(raw.profiles ?? []);
   const fromSyllabi = syllabusNames(school);
   const learnFrom = school === 'illinois' ? [...fromSyllabi, ...illinoisGradeNames()] : fromSyllabi;
+  // Who else the school's records name with a profile's last name and initial ("Singh, Gagandeep" beside "Guarav Singh").
+  const profiles = R.markSameInitial(R.ratedProfiles(raw.profiles ?? []), learnFrom.map((n) => n.name));
   const catalog = school === 'uga' ? readJson(join(ROOT, 'public', 'uga-catalog.json')) : readJson(join(ROOT, 'public', 'illinois-catalog.json')).courses;
   const byTitles = titleNamer(catalog);
   const named = school === 'illinois' ? (subj, dept) => illinoisNamed(subj, dept) || byTitles(subj, dept) : byTitles;

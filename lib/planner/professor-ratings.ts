@@ -26,7 +26,10 @@
  *   - One profile: taken on a full first name, unless the course's subject is
  *     known and the profile's department is not one of its own (then not
  *     sure). On a first initial alone, taken only when it is the one profile
- *     at the school with that last name and initial and the department fits.
+ *     at the school with that last name and initial, the department fits, and
+ *     the school's own grade history and syllabi name no other person with
+ *     that last name and initial (sameInitial, set at build time: "Singh, G"
+ *     is not Guarav Singh for sure while the school also has a Gagandeep Singh).
  *   - More than one profile: the one whose department fits the course, when
  *     exactly one does; otherwise "not sure which profile", never a guess.
  *   - Profiles of one person the site lists twice (the same first and last
@@ -70,6 +73,12 @@ export interface RatedProfile {
   url: string;
   /** The person's other profiles, merged into this one. */
   merged?: Array<{ id: number; dept: string; count: number; url: string }>;
+  /**
+   * Other people the school's grade history or syllabi name with this last
+   * name and first initial ("Gagandeep Singh" beside a profile "Guarav Singh"):
+   * a first initial alone is then not this profile for sure. Set at build time.
+   */
+  sameInitial?: string[];
 }
 
 export interface ProfessorRatingsFile {
@@ -233,6 +242,9 @@ export function matchProfessor(file: ProfessorRatingsFile, raw: string, subject:
   if (hits.length === 1) {
     const [h] = hits;
     if (h.on === 'initial') {
+      // "Singh, G" when the school also has a Gagandeep Singh: the one rated profile may be the other person.
+      const others = w.given.length === 0 ? (h.p.sameInitial ?? []).filter((o) => wantedName(o)?.lastForms.some((f) => w.lastForms.includes(f))) : [];
+      if (others.length > 0) return { status: 'unsure', departments, why: `Only a first initial is known, and the school's grade history or syllabi also name ${others.slice(0, 2).join(' and ')}${others.length > 2 ? ' and others' : ''} with that last name and initial.` };
       return fits(h.p) ? { status: 'found', profile: h.p, on: 'initial' } : { status: 'unsure', departments, why: 'Only a first initial is known, and the course does not confirm the department.' };
     }
     if (known && !fits(h.p)) return { status: 'unsure', departments, why: `The one profile with this name is listed under ${h.p.dept}, not a department this course's instructors are listed under.` };
@@ -528,6 +540,40 @@ export function learnSubjectDepartments(
     if (all.length > 0) out[subj] = all;
   }
   return out;
+}
+
+/**
+ * Each profile with sameInitial: the people the school's own records (names,
+ * from its grade history and syllabi) give a full first name that starts with
+ * the profile's first initial, under its last name, and that is not the
+ * profile's first name (firstFit). A profile none of them clash with is
+ * returned without the field.
+ */
+export function markSameInitial(profiles: readonly RatedProfile[], names: readonly string[]): RatedProfile[] {
+  const byLast = new Map<string, WantedName[]>();
+  const seen = new Set<string>();
+  for (const n of names) {
+    const w = wantedName(n);
+    if (!w || w.given.length === 0) continue;
+    const key = `${w.given.join(' ')}|${w.lastForms.join(' ')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    for (const f of w.lastForms) {
+      const list = byLast.get(f) ?? [];
+      list.push(w);
+      byLast.set(f, list);
+    }
+  }
+  return profiles.map((p) => {
+    const { sameInitial: _old, ...rest } = p;
+    const initial = nameWords(p.first, false)[0]?.charAt(0);
+    if (!initial) return rest;
+    const others = new Set<string>();
+    for (const f of lastForms(nameWords(p.last, true))) {
+      for (const q of byLast.get(f) ?? []) if (q.given[0].charAt(0) === initial && firstFit(q, p) === null) others.add(q.display);
+    }
+    return others.size > 0 ? { ...rest, sameInitial: [...others].sort() } : rest;
+  });
 }
 
 // ---------------------------------------------------------------------------
