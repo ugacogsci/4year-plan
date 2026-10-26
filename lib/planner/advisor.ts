@@ -418,6 +418,20 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   },
   // Defined in clubs-tool.ts. ARCH's own wording is in UGA_TOOL_TEXT: UGA's list is partial.
   FIND_CLUBS_TOOL,
+  // professor-ratings.ts: Rate My Professors profiles matched to the planner's instructors (2026-10-26).
+  {
+    name: 'professor_ratings',
+    description:
+      "What students say about a professor on Rate My Professors, as numbers only: the overall rating (1 to 5), the difficulty (1 to 5), the percent who would take the professor again and how many ratings there are, for the profile that surely matches that professor at the student's university, with a consensus sentence and the profile link. Give a name (as the student or a syllabus writes it), a course code, or both; with only a course, every instructor the planner knows for it (its sections and syllabi, and the instructor the student set). The course's department settles which profile is theirs when a name fits more than one. A name with no profile, or with more than one that could be theirs, comes back as such (no profile found, not sure which profile), never as a guess. The ratings are self-selected, cover all of a professor's courses, and hold no comments. Use it for any question about what students think of a professor, how hard their classes are, or whether students would take them again.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'The professor as the student or a syllabus names them ("Jane Smith"), or a last name with the course.' },
+        code: { type: 'string', description: 'The course the question is about ("ABCD 1234").' },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 export type AdvisorToolName =
@@ -447,7 +461,8 @@ export type AdvisorToolName =
   | 'drop_prior_credit'
   | 'planner_answer'
   | 'university_answer'
-  | 'find_clubs';
+  | 'find_clubs'
+  | 'professor_ratings';
 
 // ---------------------------------------------------------------------------
 // ARCH's tools: ALMA's, less the Illinois-only ones, described without Illinois
@@ -468,7 +483,9 @@ export type AdvisorToolName =
  * (uga-load-rules.ts, the Registrar's 18 hours) rather than an Illinois
  * college's, and fills a summer from the UGA Bulletin's "Semester Course
  * Offered" line (public/uga-catalog.json, summer-offering.ts) rather than
- * Illinois's offering history.
+ * Illinois's offering history. professor_ratings is in since 2026-10-26, in
+ * ALMA's words (they name no school), over UGA's own Rate My Professors file
+ * (public/uga/professor-ratings.json).
  */
 export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolName>([
   'search_courses',
@@ -496,6 +513,7 @@ export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolN
   'planner_answer',
   'university_answer',
   'find_clubs',
+  'professor_ratings',
 ]);
 
 /**
@@ -673,6 +691,7 @@ export const SHARED_ADVISOR_RULES = {
   talkPlain: `- Plain, short, specific. Name courses by code and title, and name the term. Say exactly what changed: "Replaced FIN 435 with HIST 200, Introduction to Historical Interpretation, in Spring 2029."`,
   talkShort: `- No headers, no bullet lists longer than four items, no markdown tables. A short paragraph or a few lines.`,
   talkSources: `- When university_answer returns sources, mention where the answer came from in a few words. Never invent a page, office, deadline or policy.`,
+  professorRatings: `- What students think of a professor, how hard their classes are, whether students would take them again: call professor_ratings (with the course, when there is one); course_syllabus and term_syllabi carry the same numbers on an instructor as student_ratings. Speak only as the consensus of those student ratings, never as fact: give the consensus words with the count ("based on 46 student ratings on Rate My Professors, students rate the classes as hard"), say once that the ratings are self-selected and cover all of the professor's courses rather than this one, and link the profile. Under 5 ratings, say there are too few to say much. The ratings are numbers only, with no comments: for anything else (answering email, office hours, exams, grading, how they teach) say the ratings do not cover that, and never invent or paraphrase what students wrote. Never call a professor good or bad yourself, and never insult or mock anyone. When the tool says no profile found or not sure which profile, say exactly that and never guess; having no profile says nothing about a professor.`,
   talkNotLicensed: `- You are not a licensed academic advisor and you do not register anyone. Where a decision has consequences (dropping a required course, a lighter load that adds a semester), say so once and let the student decide.`,
 } as const;
 
@@ -816,7 +835,8 @@ ${SHARED_ADVISOR_RULES.boardToolsForFacts}
 - How a course is graded or run (what an assignment, project or exam is worth, how many exams, the final, attendance, late work, the textbook) comes only from course_syllabus. Name the term and instructor the facts come from and link the syllabus. Say that weights can change by term, instructor and section, so the student's own syllabus on the first day is the final word. When the syllabus is not from this_term's term, or its instructors are not among this_term's instructors, say so plainly ("this is from Spring 2026; this fall Hutchens and He teach it"), and say how old it is when it is older than a year or is a master outline without grading. Give the instructors as the syllabus names them, as "instructors named include" rather than a full list. Paraphrase; never put quotation marks around words the tool did not return verbatim, and never fill in a date, location or rule the tool does not give. When course_syllabus finds none, say no public syllabus was found and suggest the course's Canvas page or the instructor; never guess weights.
 ${SHARED_ADVISOR_RULES.syllabusLayout}
 ${SHARED_ADVISOR_RULES.boardToolFails}
-- Teaching ratings come only from the university's own Teachers Ranked as Excellent lists, which course_details and search results carry. Never cite RateMyProfessors or any outside site, and never call an instructor good or bad on your own; say whether they are on the list, and for which terms. A name missing from the list is not a rating against it.
+- The official teaching signal is the university's own Teachers Ranked as Excellent lists, which course_details and search results carry: say whether an instructor is on the list, and for which terms; a name missing from the list is not a rating against it. Student ratings from Rate My Professors (professor_ratings) are unofficial and come second: give the list first when both bear on a question, and never cite any other outside site or call an instructor good or bad on your own.
+${SHARED_ADVISOR_RULES.professorRatings}
 - When you suggest a course, say why in the student's terms, from the fit reasons the tools return: the grade history, the list, their interests, the requirement it also covers. Do not invent reasons the tools did not give.
 ${SHARED_ADVISOR_RULES.boardTermSize}
 
@@ -883,7 +903,7 @@ const UGA_LOAD_RULE =
 const UGA_NOT_LOADED = [
   "- Clubs: find_clubs reads a partial UGA list, the clubs official UGA pages name; UGA's own directory, the Involvement Network, is not read. Call it for any question about which clubs to join, name at most 4 of the clubs it returns by their exact names, say once that the list is partial and give its source.url for the rest, and use university_answer for how to join or start an organization. Never name a club from memory, and never give officer names or emails.",
   '- Class times, sections and the weekly clash check: not loaded for UGA. The plan picks courses for each term, not sections; days, times and instructors are chosen at registration. Never state a meeting time, and say that whether a term\'s courses fit in one week is not checked.',
-  '- Grade history and teaching ratings: none are loaded for UGA, so you cannot rank courses by difficulty or by teaching, and a term cannot be called heavy or light by grades. Judge a term by what is in it (labs, upper-level major courses, credits) and say that is all you go on. Never cite RateMyProfessors or any outside site, and never call an instructor good or bad.',
+  '- Grade history and teaching ratings: none are loaded for UGA, so you cannot rank courses by difficulty or by teaching, and a term cannot be called heavy or light by grades. Judge a term by what is in it (labs, upper-level major courses, credits) and say that is all you go on. Student ratings of professors from Rate My Professors (professor_ratings) describe a professor across all their courses, not a course or a term: use them only as the professor-ratings rule says, never cite any other outside site, and never call an instructor good or bad on your own.',
   '- Getting into a competitive major or college, a second major, minors and certificates: the planner does not check these for UGA. Say so, answer from UGA\'s pages with university_answer, and send the student to the department.',
   '- Summer sessions and sections: the planner knows which classes the UGA Bulletin lists for summer, not which summer session or section runs one, or when. For summer sessions and their dates use university_answer.',
 ].join('\n');
@@ -935,6 +955,7 @@ ${SHARED_ADVISOR_RULES.boardToolsForFacts}
 - How a course is graded or run (what an assignment, project or exam is worth, how many exams, the final, attendance, late work, the textbook) and what it covers come only from course_syllabus. Name the term and instructor the facts come from and link the file. Say that weights and policies can change by term, instructor and section, so the student's own syllabus on the first day is the final word; say how old a syllabus is when it is older than a year; and call the Bulletin's outline what it is (the course's objectives and topics, with no grading). When course_syllabus finds none, say that no syllabus for the course is posted on UGA's Bulletin and point to the course's eLC page or instructor; never guess weights, exams or attendance rules.
 ${SHARED_ADVISOR_RULES.syllabusLayout}
 ${SHARED_ADVISOR_RULES.boardToolFails}
+${SHARED_ADVISOR_RULES.professorRatings}
 - When you suggest a course, say why in the student's terms, from the reasons the tools return (the requirement it covers, its prerequisites, their interests). Do not invent reasons the tools did not give.
 ${SHARED_ADVISOR_RULES.boardTermSize}
 

@@ -143,6 +143,8 @@ function toolLabel(name: AdvisorToolName, input: Record<string, unknown>): strin
       return 'Checking the board';
     case 'university_answer':
       return 'Reading the university’s official pages';
+    case 'professor_ratings':
+      return s('name') ? `Reading student ratings for ${s('name')}` : s('code') ? `Reading student ratings for ${s('code')}'s instructors` : 'Reading student ratings';
     case 'find_clubs':
       return s('query') ? `Looking up clubs for “${s('query')}”` : s('goal') ? `Looking up clubs for ${s('goal')}` : 'Looking up clubs for your goals';
     default:
