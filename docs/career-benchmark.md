@@ -24,13 +24,13 @@ degree: unmet 1 -> 1, not placed 0 -> 0; the matcher ranked: all
 | IS 205 Programming for Information Problems | IS 205 Programming for Information Problems |
 | ECE 316 Ethics and Engineering | ACE 161 Computer Concepts & Applications |
 | BADM 352 Database Design and Management | CS 124 Introduction to Computer Science I |
-| SE 361 Emotional Intelligence Skills | GSD 103 The Basics of Game Design |
-| IS 305 Programming for Information Problems II | CS 128 Introduction to Computer Science II |
-| CS 107 Data Science Discovery | BCOG 200 Introduction to Programming for the Bra |
+| SE 361 Emotional Intelligence Skills | CS 128 Introduction to Computer Science II |
+| IS 305 Programming for Information Problems II | BCOG 200 Introduction to Programming for the Bra |
+| CS 107 Data Science Discovery | IE 405 Computing for ISE |
 | ETMA 232 Materials and Construction Sys | CI 438 Computer Programming and the Classroom |
-| SE 101 Engineering Graphics & Design | IE 405 Computing for ISE |
-| NPRE 330 Materials in Nuclear Engineering | GSD 405 Introduction to the Video Game Developme |
-| CS 266 Community Innovation | STAT 447 Data Science Programming Methods |
+| SE 101 Engineering Graphics & Design | GSD 405 Introduction to the Video Game Developme |
+| NPRE 330 Materials in Nuclear Engineering | STAT 447 Data Science Programming Methods |
+| CS 266 Community Innovation |  |
 | ETMA 100 Technical Systems in Agr |  |
 | STAT 385 Statistics Programming Methods |  |
 | ECE 110 Introduction to Electronics |  |
@@ -95,6 +95,7 @@ degree: unmet 1 -> 1, not placed 0 -> 0; the matcher ranked: all
 |  | HDFS 408 Hospitalized Children |
 |  | GWS 409 Women's Health |
 |  | CMN 462 Health Communication in Relationships |
+|  | MCB 100 Introductory Microbiology |
 |  | ANTH 379 Medical Anthropology |
 |  | GWS 263* History of Medicine in the United State |
 |  | RHET 105* Writing and Research |
@@ -205,19 +206,23 @@ degree: unmet 1 -> 1, not placed 0 -> 0; the matcher ranked: all
 | PSYC 239 Community Psych | PSYC 239 Community Psych |
 | PSYC 336 Topics in Clin/Comm Psych | PSYC 336 Topics in Clin/Comm Psych |
 | PSYC 238 Psychopathology and Problems in Living | PSYC 216 Child Psych |
-| PSYC 379 Clinical/Abnormal Psych Lab | EPSY 201 Educational Psychology |
-| PSYC 250 Psych of Personality | HK 201 Health Sciences Research Methods |
-| SOCW 200 Introduction to Social Work | HK 200 Mental Health Issues |
-| SOCW 225 Social Work Statistics | SOCW 200 Introduction to Social Work |
-| PSYC 365 Stress, Trauma and Resilience | SOC 274 Health, Illness and Society |
-| SOCW 321 Social Entre & Social Change | EPSY 218 College Student Mental Health |
-| SOCW 370 Social Work and Disability Studies | CMN 462 Health Communication in Relationships |
-| PSYC 465 Personality and Soc Dev | GWS 409 Women's Health |
-| HK 200 Mental Health Issues | HIST 236* Madness and Modern Society |
-| EPSY 420 Theories of Psychotherapy | HK 300* Health Behavior Theories and Application |
-| EPSY 218 College Student Mental Health |  |
-| SOCW 297* Asian Families in America |  |
-| SOCW 296* Diversity: Identities & Issues |  |
+| PSYC 379 Clinical/Abnormal Psych Lab | PSYC 363 Developmental Child Psych Lab |
+| PSYC 250 Psych of Personality | PSYC 318 Psych of the Infant |
+| SOCW 200 Introduction to Social Work | EPSY 201 Educational Psychology |
+| SOCW 225 Social Work Statistics | HK 201 Health Sciences Research Methods |
+| PSYC 365 Stress, Trauma and Resilience | PSYC 224 Cognitive Psych |
+| SOCW 321 Social Entre & Social Change | HK 200 Mental Health Issues |
+| SOCW 370 Social Work and Disability Studies | PSYC 238 Psychopathology and Problems in Living |
+| PSYC 465 Personality and Soc Dev | PSYC 379 Clinical/Abnormal Psych Lab |
+| HK 200 Mental Health Issues | PSYC 365 Stress, Trauma and Resilience |
+| EPSY 420 Theories of Psychotherapy | SOCW 200 Introduction to Social Work |
+| EPSY 218 College Student Mental Health | SOC 274 Health, Illness and Society |
+| SOCW 297* Asian Families in America | PSYC 331 Cognitive Psych Lab |
+| SOCW 296* Diversity: Identities & Issues | EPSY 218 College Student Mental Health |
+|  | CMN 462 Health Communication in Relationships |
+|  | GWS 409 Women's Health |
+|  | HIST 236* Madness and Modern Society |
+|  | HK 300* Health Behavior Theories and Application |
 
 reason line: "closest to your goal (therapist): 13th of 6,225 Illinois courses by meaning"
 
@@ -266,10 +271,10 @@ degree: unmet 1 -> 1, not placed 0 -> 0; the matcher ranked: all
 |---|---|
 | SE 101 Engineering Graphics & Design | TAM 201 Mechanics for Technol & Mgmt |
 | ECE 316 Ethics and Engineering | NPRE 330 Materials in Nuclear Engineering |
-| SE 361 Emotional Intelligence Skills | GSD 103 The Basics of Game Design |
-| TAM 201 Mechanics for Technol & Mgmt | SE 400 Engineering Law |
-| ETMA 232 Materials and Construction Sys | HK 458 Rehabilitation Biomechanics |
-| ETMA 100 Technical Systems in Agr | NPRE 402 Nuclear Power Engineering |
+| SE 361 Emotional Intelligence Skills | SE 400 Engineering Law |
+| TAM 201 Mechanics for Technol & Mgmt | HK 458 Rehabilitation Biomechanics |
+| ETMA 232 Materials and Construction Sys | NPRE 402 Nuclear Power Engineering |
+| ETMA 100 Technical Systems in Agr |  |
 | ECE 110 Introduction to Electronics |  |
 | NPRE 330 Materials in Nuclear Engineering |  |
 | IE 340 Human Factors |  |
@@ -333,21 +338,18 @@ degree: unmet 1 -> 1, not placed 0 -> 0; the matcher ranked: all
 | SE 361 Emotional Intelligence Skills | IS 204 Research Design for Information Sciences |
 | GSD 202 Let’s Play: Understanding the Role of Pl | PSYC 358 Human Factors |
 | GSD 101 Introduction to Game Studies and Design | BADM 350 IT for Networked Organizations |
-| SE 101 Engineering Graphics & Design | SOC 350 Technology and Society |
-| IS 236 User Research & Evaluation | HK 203 Introduction to Health Technology |
-| DTX 180 Exercising Empathy | JOUR 101 Interactive Media & You |
-| BADM 371 User Interaction/User Experience Design | GSD 103 The Basics of Game Design |
-| ARTD 218 Interaction Design Foundation | IS 236 User Research & Evaluation |
-| ARTD 317 UI/UX Design for Non-Majors | ARTH 211 Design History Survey |
-| ARTD 426 Product Innovation | SOCW 220 Technology and Social Issues |
-| DTX 221* Human-Centered Design Across Discipline | ARTD 317 UI/UX Design for Non-Majors |
-|  | GSD 204 Gender in Gaming |
-|  | FAA 102 Design Beyond Boundaries |
+| SE 101 Engineering Graphics & Design | IS 236 User Research & Evaluation |
+| IS 236 User Research & Evaluation | JOUR 101 Interactive Media & You |
+| DTX 180 Exercising Empathy | GSD 103 The Basics of Game Design |
+| BADM 371 User Interaction/User Experience Design | ARTH 211 Design History Survey |
+| ARTD 218 Interaction Design Foundation | GSD 204 Gender in Gaming |
+| ARTD 317 UI/UX Design for Non-Majors | ARTD 317 UI/UX Design for Non-Majors |
+| ARTD 426 Product Innovation | FAA 102 Design Beyond Boundaries |
+| DTX 221* Human-Centered Design Across Discipline | ARTD 218 Interaction Design Foundation |
 |  | ARTD 328 Human-Centered Product Design |
-|  | INFO 333 User Experience Design In Action |
-|  | ARTD 218 Interaction Design Foundation |
 |  | CMN 410 Workplace Comm Technology |
-|  | HK 401 Health Behavior and Technology |
+|  | BADM 371 User Interaction/User Experience Design |
+|  | ARTF 105 Design II |
 |  | DTX 221* Human-Centered Design Across Discipline |
 
 reason line: "closest to your goal (UX designer): 6th of 6,225 Illinois courses by meaning"
@@ -454,7 +456,6 @@ degree: unmet 1 -> 1, not placed 0 -> 0; the matcher ranked: all
 |  | CI 438 Computer Programming and the Classroom |
 |  | IE 405 Computing for ISE |
 |  | STAT 447 Data Science Programming Methods |
-|  | ACE 360 Spreadsheet Models and Applications |
 
 reason line: "closest to your goal (game developer): 49th of 6,225 Illinois courses by meaning"
 
@@ -485,8 +486,8 @@ degree: unmet 2 -> 2, not placed 0 -> 0; the matcher ranked: all
 | BADM 352 Database Design and Management | CS 340 Introduction to Computer Systems |
 | CS 484 Parallel Programming | IS 205 Programming for Information Problems |
 | SE 361 Emotional Intelligence Skills | ACE 161 Computer Concepts & Applications |
-| CS 483 Applied Parallel Programming |  |
-| ECE 364 Programming Methods for Machine Learning |  |
+| CS 483 Applied Parallel Programming | CS 476 Program Verification |
+| ECE 364 Programming Methods for Machine Learning | CS 483 Applied Parallel Programming |
 | IS 205 Programming for Information Problems |  |
 | ETMA 311* Humanity in the Food Web |  |
 
@@ -521,9 +522,9 @@ degree: unmet 2 -> 2, not placed 0 -> 0; the matcher ranked: all
 | SOC 100 Introduction to Sociology | HK 264 Applied Medical Terminology for the Healt |
 | HK 206 Health Care Systems | SOC 274 Health, Illness and Society |
 | CHEM 102 General Chemistry I | ANSC 207 The Science of Pets and How to Care for |
-|  | SOCW 240 Death & Dying |
+|  | CHEM 102 General Chemistry I |
 |  | PHIL 214 Biomedical Ethics |
-|  | CPSC 180 Medicinal Plants and Herbology |
+|  | SOCW 240 Death & Dying |
 |  | GWS 263* History of Medicine in the United State |
 |  | RHET 105* Writing and Research |
 |  | HDFS 105* Intro to Human Development |
@@ -682,9 +683,9 @@ degree: unmet 2 -> 2, not placed 0 -> 0; the matcher ranked: all
 | IS 226 Introduction to HCI | IS 202 Social Aspects Info Tech |
 | GSD 202 Let’s Play: Understanding the Role of Pl | BADM 350 IT for Networked Organizations |
 | DTX 221 Human-Centered Design Across Disciplines | IS 204 Research Design for Information Sciences |
-| GSD 101 Introduction to Game Studies and Design | SOC 350 Technology and Society |
-| IS 236 User Research & Evaluation | HK 203 Introduction to Health Technology |
-|  | IS 226 Introduction to HCI |
+| GSD 101 Introduction to Game Studies and Design | IS 226 Introduction to HCI |
+| IS 236 User Research & Evaluation | ARTH 211 Design History Survey |
+|  | GSD 103 The Basics of Game Design |
 |  | DTX 221* Human-Centered Design Across Discipline |
 |  | JOUR 101* Interactive Media & You |
 
@@ -753,15 +754,13 @@ degree: unmet 2 -> 2, not placed 0 -> 0; the matcher ranked: all
 
 | words (today) | meaning (career matcher) |
 |---|---|
-| GSD 101 Introduction to Game Studies and Design | CS 423 Operating Systems Design |
-| GSD 202 Let’s Play: Understanding the Role of Pl | CS 422 Programming Language Design |
-| GSD 204 Gender in Gaming | CS 340 Introduction to Computer Systems |
-| IS 142 Social History of Games and Gaming | IS 205 Programming for Information Problems |
-| GSD 102 Introduction to the Videogame Industry | ACE 161 Computer Concepts & Applications |
-|  | GSD 101 Introduction to Game Studies and Design |
-|  | ACE 360 Spreadsheet Models and Applications |
+| GSD 101 Introduction to Game Studies and Design | CS 422 Programming Language Design |
+| GSD 202 Let’s Play: Understanding the Role of Pl | IS 205 Programming for Information Problems |
+| GSD 204 Gender in Gaming | ACE 161 Computer Concepts & Applications |
+| IS 142 Social History of Games and Gaming | GSD 101 Introduction to Game Studies and Design |
+| GSD 102 Introduction to the Videogame Industry | CI 492 Discrete Mathematics for CS Teachers |
 
-reason line: "closest to your goal (game developer): 25th of 6,225 Illinois courses by meaning"
+reason line: "closest to your goal (game developer): 19th of 6,225 Illinois courses by meaning"
 
 ## Illinois · Computer Science, BS · undecided
 
@@ -1008,13 +1007,11 @@ degree: unmet 1 -> 1, not placed 0 -> 0; the matcher ranked: all
 | words (today) | meaning (career matcher) |
 |---|---|
 | BIOL 3990 Seminar in the Practice of Medicine | BIOL 3990 Seminar in the Practice of Medicine |
-| HDFS 2300 Research Unlocked: Skills for Understa | NUTR 2400 Preparing for Careers in Science, Medi |
-| MIBO 2500 Microbiology and Health Care | GRNT 3030 Medical Care of Older Adults |
-| ANTH 3540 Multicultural Health Care | ANTH 3540 Multicultural Health Care |
-| ETES 3100 Technical Field Theory | BIOL 4200W Science and Health Writing |
-| ECHD 3020 Introduction to Counseling and Human D | PHIL 3220 Biomedical Ethics |
-|  | HIST 3433 History of Medicine |
-|  | BIOL 2900 Clinical Applications of Biological Sc |
+| HDFS 2300 Research Unlocked: Skills for Understa | CBIO 2200 Anatomy and Physiology I |
+| MIBO 2500 Microbiology and Health Care | MIBO 2500 Microbiology and Health Care |
+| ANTH 3540 Multicultural Health Care | BIOL 4200W Science and Health Writing |
+| ETES 3100 Technical Field Theory | GRNT 3030 Medical Care of Older Adults |
+| ECHD 3020 Introduction to Counseling and Human D | BIOL 2900 Clinical Applications of Biological Sc |
 |  | VPAT 3900 Current Topics in One Health |
 
 reason line: "closest to your goal (nurse): 16th of 7,322 UGA courses by meaning"
@@ -1139,8 +1136,7 @@ degree: unmet 1 -> 1, not placed 0 -> 0; the matcher ranked: all
 | ARST 1050 Drawing I: Observation and Visual Lang | RBIO 2010 Introductory Regenerative Bioscience |
 | PHRM 3470 Pathophysiology I | LAMS 3020E Foundations of Clinical Medicine III |
 | DANC 2060 Aerial Yoga Trapeze I | HPRB 3750 Foundations of Injury Prevention |
-|  | ATTR 3100 Prevention and Care of Conditions in S |
-|  | DANC 2020 Practicing Wellness |
+|  | DANC 3020 Principles of Science and Somatics in  |
 
 reason line: "closest to your goal (physical therapist): 3rd of 7,322 UGA courses by meaning"
 
@@ -1188,7 +1184,7 @@ degree: unmet 1 -> 1, not placed 0 -> 0; the matcher ranked: all
 | ACCT 2101 Principles of Accounting I | LEGL 2700 Legal and Regulatory Environment of Bu |
 | FHCE 3250 Survey of Financial Planning | FHCE 3250 Survey of Financial Planning |
 | TXMI 3240 Retail Planning and Buying | MIST 2090 Introduction to Information Systems in |
-| THEA 3600 Fundamentals of Acting on Camera | JURI 3355 Criminal Legal System Through Crime Bo |
+| THEA 3600 Fundamentals of Acting on Camera | JURI 4384 Accounting and Finance for Lawyers |
 | BIOL 3900 Readings in Biology | HIST 4765 Museum Registration Methods |
 |  | MBUS 3755 Economic and Financial Fundamentals Ap |
 
@@ -1200,16 +1196,16 @@ degree: unmet 1 -> 1, not placed 0 -> 0; the matcher ranked: all
 
 | words (today) | meaning (career matcher) |
 |---|---|
-| PSYC 4120 Sensation and Perception | BIOL 3910 Topics in Biology |
+| PSYC 4120 Sensation and Perception | VPAT 3101 Basic Veterinary Medical Terminology |
 | ANTH 2800 Food, Environment, and Culture | ADSC 2010 Introductory Animal and Dairy Science |
-| BIOL 1108 Principles of Biology II | VPAT 3101 Basic Veterinary Medical Terminology |
+| BIOL 1108 Principles of Biology II | IDIS 3110 Food Animal Infectious Diseases |
 | CBIO 3050 Medical Histology | POPH 3300 Introduction to Wildlife Health |
-| POUL 3000 Avian Surgical Techniques | IDIS 3110 Food Animal Infectious Diseases |
+| POUL 3000 Avian Surgical Techniques | PSYC 4120 Sensation and Perception |
 |  | MIBO 2500 Microbiology and Health Care |
-|  | WMST 2500 Introduction to Gender, Women, and Hea |
+|  | ENTO 3650 Medical Entomology |
 |  | BIOL 2900 Clinical Applications of Biological Sc |
 
-reason line: "closest to your goal (veterinarian): 23rd of 7,322 UGA courses by meaning"
+reason line: "closest to your goal (veterinarian): 4th of 7,322 UGA courses by meaning"
 
 ## UGA · Psychology BS · sports management
 
