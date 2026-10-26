@@ -138,5 +138,4 @@ export const SELECT_LINES_HELD = new Set<string>([
   'aces/animal-sciences-bs/food-animal-production-management', // Fall 2026 start, no goal, 2 language semesters: engine work (same requirements met, a prerequisite to check, worse across the sweep); reading it also drops the concentration core block ::2::0 a check pins
   'las/economics-balas', // kept held at the merge of w9-readings (2026-10-14): on the new reading Sofia's (AP) lightest and workload-2 list picks are harder than balanced's (__electives.check.mjs), and Psychology + Economics has no 300/400-level MATH row for __programs-compare.check.mjs to check
   'las/econometrics-quantitative-economics-bslas', // kept held at the merge of w9-readings (2026-10-14): on the new reading a no-goal freshman gets MATH 112 a term after calculus (__review.check.mjs)
-  'aces/engineering-technology-management-agricultural-systems-bs/construction-management', // kept held at the merge of w9-readings (2026-10-14): on the new reading the plain engine's pre-med board loses MATH 112 or AGCM 220 (__review.check.mjs, round 5)
 ]);
