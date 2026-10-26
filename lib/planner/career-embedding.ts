@@ -142,11 +142,16 @@ export interface PathwayVectorsMeta {
     /** Its summary and core skill areas: what the goal is read with. */
     areas: string;
     areasScale: number;
+    /** A health pathway's science foundations: ids of `skills` (scripts/career/embed-pathways.mjs foundationsOf). */
+    foundations?: string[];
   }>;
+  /** The skills pathways list as science foundations, each its name read by the model. */
+  skills?: Array<{ id: string; name: string; vector: string; scale: number }>;
 }
 
+export interface FoundationSkill { id: string; name: string; vector: Float32Array }
 export interface PathwayVectors {
-  pathways: Array<{ id: string; name: string; languages: boolean; match: Float32Array; areas: Float32Array }>;
+  pathways: Array<{ id: string; name: string; languages: boolean; match: Float32Array; areas: Float32Array; foundations: FoundationSkill[] }>;
 }
 
 function unitFrom(b64: string, scale: number, dims: number): Float32Array {
@@ -166,7 +171,13 @@ function unitFrom(b64: string, scale: number, dims: number): Float32Array {
 
 export function pathwayVectorsFrom(meta: PathwayVectorsMeta): PathwayVectors {
   if (meta.model !== CAREER_MODEL || meta.dims !== CAREER_DIMS) throw new Error(`pathway vectors are ${meta.model} x ${meta.dims}`);
-  return { pathways: meta.pathways.map((p) => ({ id: p.id, name: p.name, languages: p.languages, match: unitFrom(p.match, p.matchScale, meta.dims), areas: unitFrom(p.areas, p.areasScale, meta.dims) })) };
+  const skills = new Map((meta.skills ?? []).map((s) => [s.id, { id: s.id, name: s.name, vector: unitFrom(s.vector, s.scale, meta.dims) }]));
+  return {
+    pathways: meta.pathways.map((p) => ({
+      id: p.id, name: p.name, languages: p.languages, match: unitFrom(p.match, p.matchScale, meta.dims), areas: unitFrom(p.areas, p.areasScale, meta.dims),
+      foundations: (p.foundations ?? []).flatMap((id) => skills.get(id) ?? []),
+    })),
+  };
 }
 
 /**
@@ -183,11 +194,32 @@ export const PATHWAY_FLOOR = 0.35;
 export const PATHWAY_FULL = 0.45;
 export const PATHWAY_NEAR = 0.05;
 export const PATHWAY_SHARE = 0.7;
+/**
+ * The adaptive part of the reading (careerFitFor): when the goal's own words
+ * already come as close as OWN_STRONG to some course of the school, a goal
+ * course must also be at least OWN_SHARE as close to those words as that
+ * course is; from OWN_WEAK up the bar grows from nothing, and a goal whose
+ * words match nothing well ("nurse" 0.32 at Illinois, "dentist" 0.30) is
+ * read through its pathway as before. "mechanical engineer" alone is 0.54
+ * from TAM 201 at Illinois, and read 70% as its pathway it had GSD 103 The
+ * Basics of Game Design (0.07 from the words alone) among its goal courses,
+ * as "software engineer" did. Shrinking the pathway's share instead moved
+ * "UX designer" from interaction and interface design to industrial design.
+ */
+export const OWN_WEAK = 0.45;
+export const OWN_STRONG = 0.6;
+export const OWN_SHARE = 0.3;
 
 export interface ExpandedGoal {
   vector: Float32Array;
   /** The pathways the goal was read with, closest first; empty when it was read alone. */
   pathways: Array<{ id: string; name: string; match: number; languages: boolean }>;
+  /**
+   * Their science foundations (FoundationSkill), once each, when the
+   * closest pathway is read in full (PATHWAY_FULL) and has them: a health
+   * pathway's core sciences.
+   */
+  foundations: FoundationSkill[];
   /** The pathways' share of the vector, 0 to PATHWAY_SHARE. */
   share: number;
 }
@@ -202,7 +234,7 @@ export function expandGoal(goal: Float32Array, pv: PathwayVectors): ExpandedGoal
   };
   const scored = pv.pathways.map((p) => ({ p, match: dotf(goal, p.match) })).sort((a, b) => b.match - a.match || (a.p.id < b.p.id ? -1 : 1));
   const best = scored[0]?.match ?? 0;
-  if (best < PATHWAY_FLOOR) return { vector: goal, pathways: [], share: 0 };
+  if (best < PATHWAY_FLOOR) return { vector: goal, pathways: [], share: 0, foundations: [] };
   const taken = scored.filter((s) => s.match >= best - PATHWAY_NEAR).slice(0, 2);
   const areas = new Float32Array(dims);
   for (const s of taken) for (let k = 0; k < dims; k++) areas[k] += s.match * s.p.areas[k];
@@ -212,7 +244,8 @@ export function expandGoal(goal: Float32Array, pv: PathwayVectors): ExpandedGoal
   for (let k = 0; k < dims; k++) vector[k] = (1 - share) * goal[k] + share * (an > 0 ? areas[k] / an : 0);
   const vn = Math.sqrt(dotf(vector, vector));
   if (vn > 0) for (let k = 0; k < dims; k++) vector[k] /= vn;
-  return { vector, pathways: taken.map((s) => ({ id: s.p.id, name: s.p.name, match: Number(s.match.toFixed(3)), languages: s.p.languages })), share: Number(share.toFixed(3)) };
+  const foundations = best >= PATHWAY_FULL && taken[0].p.foundations.length > 0 ? [...new Map(taken.flatMap((s) => s.p.foundations).map((f) => [f.id, f])).values()] : [];
+  return { vector, pathways: taken.map((s) => ({ id: s.p.id, name: s.p.name, match: Number(s.match.toFixed(3)), languages: s.p.languages })), share: Number(share.toFixed(3)), foundations };
 }
 
 /**
@@ -275,6 +308,29 @@ const MIN_SIMILARITY = 0.3;
  */
 const MIN_STRENGTH = 0.15;
 
+/**
+ * A health pathway's science foundations (expandGoal): for each core
+ * science, the FOUNDATION_TAKE courses of the school about it (cosine to the
+ * science's name at least FOUNDATION_MIN, numbered at most FOUNDATION_LEVEL
+ * hundred, 2000 at UGA: the first two years), those nearest the science and
+ * the student's own words together, are goal courses at full closeness. A
+ * nurse's goal read with nursing's summary sat nearest health humanities
+ * ("Health, Illness and Society", "History of Medicine") and none of the
+ * sciences nursing programs ask for first (anatomy and physiology,
+ * microbiology, chemistry). At cosine 0.5, three a science, the third year
+ * and the goal's reading to break ties, CHEM 108 Chemistry, Everyday
+ * Phenomena and the Animal Sciences' ANSC 222 Anatomy and Physiology came in.
+ */
+const FOUNDATION_TAKE = 2;
+const FOUNDATION_MIN = 0.6;
+const FOUNDATION_LEVEL = 2;
+/** A course number's hundreds (thousands at UGA): "MCB 244" 2, "CBIO 2210-2210L" 2. */
+function courseLevelOf(code: string): number {
+  const digits = /\d{3,4}/.exec(code)?.[0];
+  if (!digits) return 0;
+  return Math.floor(Number(digits) / (digits.length === 4 ? 1000 : 100));
+}
+
 const ordinal = (n: number): string => {
   const teen = n % 100 >= 11 && n % 100 <= 13;
   const s = teen ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th';
@@ -325,12 +381,19 @@ function dot(v: CourseVectors, i: number, goal: Float32Array): number {
 
 /** The goal against every course once; the answers are then lookups. `goal` is the model's normalised vector for the goal text. */
 export function careerFitFor(input: { text: string; vector: Float32Array | number[]; label?: string; school?: string; pathways?: PathwayVectors }, v: CourseVectors): CareerFit {
-  // The goal read with its closest career pathway(s), when they are given and one is close enough.
-  const expanded = input.pathways ? expandGoal(Float32Array.from(input.vector), input.pathways) : null;
-  const goal = expanded ? expanded.vector : Float32Array.from(input.vector);
+  const own = Float32Array.from(input.vector);
   const n = v.codes.length;
-  const sims = new Float32Array(n);
-  for (let i = 0; i < n; i++) sims[i] = dot(v, i, goal);
+  const ownSims = new Float32Array(n);
+  let ownTop = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < n; i++) {
+    ownSims[i] = dot(v, i, own);
+    // Beginner language courses sit near every short goal (careerFitFor's language rule): not a match to count.
+    if (ownSims[i] > ownTop && !v.beginnerLanguage?.has(i)) ownTop = ownSims[i];
+  }
+  // The goal read with its closest career pathway(s), when they are given and one is close enough.
+  const expanded = input.pathways ? expandGoal(own, input.pathways) : null;
+  const sims = expanded && expanded.share > 0 ? new Float32Array(n) : ownSims;
+  if (expanded && expanded.share > 0) for (let i = 0; i < n; i++) sims[i] = dot(v, i, expanded.vector);
   const words = input.text.toLowerCase();
   const aboutLanguages = LANGUAGE_GOAL.test(input.text) || (expanded?.pathways.some((p) => p.languages) ?? false) ||
     // A language the catalog teaches, or one part of a joint name ("Hindi-Urdu": "Hindi" too).
@@ -347,6 +410,24 @@ export function careerFitFor(input: { text: string; vector: Float32Array | numbe
   const top = score[order[0]] ?? 0;
   const floor = score[order[Math.min(take, n) - 1]] ?? 0;
   const label = input.label ?? goalLabel(input.text);
+  // Read through a pathway, a goal whose own words already match a course well keeps its goal courses
+  // near those words too (OWN_SHARE of the closest, from nothing at OWN_WEAK to all of it at OWN_STRONG).
+  const direct = Math.min(1, Math.max(0, (ownTop - OWN_WEAK) / (OWN_STRONG - OWN_WEAK)));
+  const ownFloor = expanded && expanded.share > 0 ? OWN_SHARE * direct * ownTop : 0;
+  // A health pathway's core sciences (expandGoal foundations): for each, the FOUNDATION_TAKE courses closest
+  // to it among the first- and second-year ones, the student's own words breaking near-ties (human anatomy
+  // and physiology for a nurse, not the animal sciences' course of that name).
+  const foundation = new Map<number, string>();
+  for (const f of expanded?.foundations ?? []) {
+    const near: Array<[number, number]> = [];
+    for (let i = 0; i < n; i++) {
+      if (excluded(i) || courseLevelOf(v.codes[i]) > FOUNDATION_LEVEL) continue;
+      const c = dot(v, i, f.vector);
+      if (c >= FOUNDATION_MIN) near.push([i, c + ownSims[i]]);
+    }
+    near.sort((a, b) => b[1] - a[1] || (v.codes[a[0]] < v.codes[b[0]] ? -1 : 1));
+    for (const [i] of near.slice(0, FOUNDATION_TAKE)) if (!foundation.has(i)) foundation.set(i, f.name);
+  }
   const norms = new Map<number, number>();
   const normOf = (i: number): number => {
     let hit = norms.get(i);
@@ -359,8 +440,10 @@ export function careerFitFor(input: { text: string; vector: Float32Array | numbe
     return hit;
   };
   const strengthAt = (i: number): number => {
+    if (foundation.has(i)) return 1;
     // By rank, so courses tied at the cut (UGA's copies of one description) do not widen the band.
     if (rank[i] > take || sims[i] < MIN_SIMILARITY || excluded(i)) return 0;
+    if (ownSims[i] < ownFloor) return 0;
     const at = top > floor ? Math.min(1, (score[i] - floor) / (top - floor)) : 1;
     return at < MIN_STRENGTH ? 0 : at;
   };
@@ -388,6 +471,8 @@ export function careerFitFor(input: { text: string; vector: Float32Array | numbe
     reasonFor: (code) => {
       const i = v.index.get(code);
       if (i === undefined || strengthAt(i) <= 0) return null;
+      const science = foundation.get(i);
+      if (science) return `a core science for your goal (${label}): ${science}`;
       return `closest to your goal (${label}): ${ordinal(rank[i])} of ${n.toLocaleString('en-US')} ${input.school ? `${input.school} ` : ''}courses by meaning`;
     },
     pathways: expanded?.pathways.map((p) => p.name) ?? [],
@@ -407,6 +492,8 @@ export function careerFitFor(input: { text: string; vector: Float32Array | numbe
  * courses in one field sit around 0.4 to 0.6, so a board can still go deep.
  */
 export const VARIETY_POINTS = 4;
+/** Two goal courses this alike are one too many on a board (autoplan.ts elective fill), unless one leads to the other. */
+export const NEAR_SAME = 0.85;
 export function varietyPenalty(fit: CareerFit, code: string, picks: readonly string[]): number {
   let most = 0;
   for (const p of picks) most = Math.max(most, fit.between(code, p) ?? 0);
