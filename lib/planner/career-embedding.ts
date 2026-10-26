@@ -10,8 +10,8 @@
  * goal and every course are turned into 384 numbers by the same sentence
  * model (Xenova/all-MiniLM-L6-v2, the one the Illinois course map is built
  * with), and courses whose numbers point the same way as the goal's are
- * about the same thing, shared words or not ("dentist" sits near oral
- * biology and anatomy).
+ * about the same thing, shared words or not ("UX designer" sits near
+ * DTX 221 Human-Centered Design Across Disciplines).
  *
  * Only free choices read it (electives, general education picks, choose-N
  * lists, the re-pick, the chooser): it enters as the relevance measure in
@@ -266,6 +266,14 @@ const LANGUAGE_GOAL = /\b(?:languages?|linguists?|linguistics|translat\w*|interp
  */
 const GOAL_SHARE = 0.02;
 const MIN_SIMILARITY = 0.3;
+/**
+ * And never one in the bottom 15% of the band between the 2% cut and the
+ * closest course: read with its pathway, an accountant's goal courses ran
+ * from ACCY 201 (cosine 0.64) down to ADV 212 Advertising History (0.33,
+ * 0.05 of the way up), and every goal course earns the goal's points, so
+ * the weakest still beat courses that are not goal courses.
+ */
+const MIN_STRENGTH = 0.15;
 
 const ordinal = (n: number): string => {
   const teen = n % 100 >= 11 && n % 100 <= 13;
@@ -353,7 +361,8 @@ export function careerFitFor(input: { text: string; vector: Float32Array | numbe
   const strengthAt = (i: number): number => {
     // By rank, so courses tied at the cut (UGA's copies of one description) do not widen the band.
     if (rank[i] > take || sims[i] < MIN_SIMILARITY || excluded(i)) return 0;
-    return top > floor ? Math.min(1, Math.max(0.05, (score[i] - floor) / (top - floor))) : 1;
+    const at = top > floor ? Math.min(1, (score[i] - floor) / (top - floor)) : 1;
+    return at < MIN_STRENGTH ? 0 : at;
   };
   return {
     key: input.text,
