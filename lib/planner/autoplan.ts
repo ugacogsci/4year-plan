@@ -4427,6 +4427,19 @@ const COLLEGE_SUBJECTS: Record<string, string> = { LAS: 'las', ENG: 'engineering
 export type StudentGroup = 'international' | 'transfer' | 'first-year';
 
 /**
+ * Courses whose group of students only the catalog description names, as
+ * DESCRIPTION_ONLY_GROUP above. ACES 200, "ACES Transfer Orientation": the
+ * description says "Required of all off campus transfer students and
+ * optional for Inter College Transfer students", while its title, empty
+ * prerequisite sentence and Fall 2026 sections say nothing. Plant
+ * Biotechnology's page prints "ACES 101 or ACES 200", and a first-year
+ * board booked the transfer orientation.
+ */
+const DESCRIPTION_ONLY_AUDIENCE: Record<string, StudentGroup> = {
+  'ACES 200': 'transfer',
+};
+
+/**
  * Who a course is written for, or null for anyone: LAS 100 "Success in LAS
  * for International Students", LAS 102 "For first-term LAS transfer students
  * only.", LAS 101 "Restricted to first-year students in LAS." with sections
@@ -4435,6 +4448,8 @@ export type StudentGroup = 'international' | 'transfer' | 'first-year';
 export function audienceOf(course: Course | undefined, ctx: Pick<PlanningContext, 'prereqs' | 'sections'>): StudentGroup | null {
   if (!course) return null;
   const code = normaliseCode(course.code);
+  const listed = DESCRIPTION_ONLY_AUDIENCE[code];
+  if (listed) return listed;
   const said = `${course.title} ${ctx.prereqs?.get(code)?.text ?? ''} ${(ctx.sections?.get(code)?.restrictions ?? []).join(' ')}`;
   if (/\binternational students\b/i.test(said)) return 'international';
   if (/\btransfer students?\b|\btransfer student - /i.test(said)) return 'transfer';
@@ -8939,6 +8954,23 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     expandEquivalents(code, equivalents).find((candidate) => chosen.has(candidate)) ?? null;
 
   /**
+   * A row's alternatives this student may take.
+   *
+   * Plant Biotechnology prints "ACES 101 or ACES 200": the first-year course,
+   * which this catalog snapshot does not carry, and the ACES Transfer
+   * Orientation, "Required of all off campus transfer students". Ranked by
+   * catalog presence alone, every freshman board booked the transfer
+   * orientation. An alternative written for another group of students
+   * (audienceOf) is left out when the row names one for this student, booked
+   * or not; a row of nothing but another group's courses stays as it is.
+   */
+  const forThisStudent = (option: string[]): string[] => {
+    if (option.length < 2) return option;
+    const fits = option.filter((code) => audienceFits(audienceOf(byCode.get(code), ctx), arrival));
+    return fits.length > 0 && fits.length < option.length ? fits : option;
+  };
+
+  /**
    * The course that fills one slot, and whether it is already filling another.
    *
    * A degree page often lists the same course under two groups. That is one
@@ -8946,8 +8978,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the second slot shared keeps it out of the unsatisfied list, where it would
    * read as a hole in the degree that is not there.
    */
-  const pickFromOption = (option: string[]): { code: string; shared: boolean } | null => {
-    for (const code of option) if (earned.has(code)) return { code, shared: false };
+  const pickFromOption = (row: string[]): { code: string; shared: boolean } | null => {
+    for (const code of row) if (earned.has(code)) return { code, shared: false };
+    const option = forThisStudent(row);
     // Reuse an ordinary/online/honors version already selected by another
     // requirement before considering a fresh alternative. Looking only at
     // exact codes scheduled ENGL 1101 and ENGL 1101E in the same UGA plan.
@@ -9043,7 +9076,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       for (const slot of slotsFor(requirement, ctx, who)) {
         for (const option of slot.options) {
           const pick = option.find((code) => earned.has(code))
-            ?? best(option.filter((code) => byCode.has(code)));
+            ?? best(forThisStudent(option).filter((code) => byCode.has(code)));
           if (!pick || seen.has(pick)) continue;
           seen.add(pick);
           demanded.push(pick);
@@ -9702,7 +9735,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // options is string[][]: each entry is one requirement slot and the
         // codes inside it are alternatives, so a slot counts as available
         // when any one of its alternatives is in the catalog.
-        const known = slot.options.filter((alts) => alts.some((code) => byCode.has(code))).length;
+        const known = slot.options.filter((alts) => forThisStudent(alts).some((code) => byCode.has(code))).length;
         if (filled < want && excludedHere.length > 0) {
           /**
            * The shortfall the student can do something about, said plainly.

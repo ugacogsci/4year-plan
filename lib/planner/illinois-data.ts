@@ -5516,7 +5516,14 @@ function acrossLists(
 /** Credit hours of a group's rows, from the catalog rather than the degree page. */
 function sumRowCredits(rows: RawProgramCourse[], byCode: CatalogRowLookup): number {
   let sum = 0;
-  for (const row of rows) sum += byCode.get(normCode(row.code))?.credits ?? row.credits ?? 0;
+  for (const row of rows) {
+    // A row whose own code the catalog lacks counts the least of its
+    // alternatives: Information Sciences' "IS 307 or IS 308 OR IS 309", where
+    // IS 307 is not in the catalog and IS 308 and IS 309 are 3 hours each.
+    const own = byCode.get(normCode(row.code))?.credits;
+    const least = own === undefined && (row.or ?? []).length > 0 ? rowCatalogCredits(row, byCode) : null;
+    sum += own ?? least ?? row.credits ?? 0;
+  }
   return sum;
 }
 

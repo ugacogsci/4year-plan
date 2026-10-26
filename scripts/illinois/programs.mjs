@@ -77,6 +77,19 @@ function plainCodeIn(cell) {
 }
 
 /**
+ * The alternatives a plain-text "or" cell names, each its own course:
+ * Information Sciences prints IS 307, then "or IS 308 OR IS 309" in one
+ * orclass cell with no links. plainCodeIn reads one code per cell, so the two
+ * alternatives were dropped and the core asked for IS 307 alone. Only a cell
+ * that is nothing but codes joined by "or".
+ */
+function plainAlternativesIn(cell) {
+  const t = text(cell);
+  if (!/^or\s+[A-Z]{2,4} \d{3}(?:\s+or\s+[A-Z]{2,4} \d{3})+$/i.test(t)) return null;
+  return [...t.matchAll(/\b([A-Z]{2,4}) (\d{3})\b/g)].map((m) => `${m[1]} ${m[2]}`);
+}
+
+/**
  * The courses a code cell joins to its first with "&". "CMN 111 & CMN 112" is
  * one choice of two courses, and "or CMN 111 & CMN 112" one alternative of
  * two; codeIn keeps the first code only, so the pair read as CMN 111 alone and
@@ -205,7 +218,13 @@ function parseTables(html) {
       if (/orclass/.test(cls)) {
         // An alternative belongs to the course above it, not to itself.
         const prev = current.courses[current.courses.length - 1];
-        if (prev && code) {
+        const plain = !linked && isCourseRow ? plainAlternativesIn(codeCell) : null;
+        if (prev && plain) {
+          for (const alt of plain) {
+            (prev.or ??= []).push(alt);
+            (prev.unlinked ??= []).push(alt);
+          }
+        } else if (prev && code) {
           (prev.or ??= []).push(code);
           if (partners.length) (prev.and ??= {})[code] = partners;
           if (!linked) (prev.unlinked ??= []).push(code);
