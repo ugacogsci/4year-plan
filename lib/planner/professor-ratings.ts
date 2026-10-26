@@ -270,13 +270,13 @@ export function ratingConsensus(p: RatedProfile): string {
   const overall =
     p.rating >= 4 ? `students rate ${name} highly overall (${one(p.rating)} of 5)`
     : p.rating >= 3.5 ? `students rate ${name} well overall (${one(p.rating)} of 5)`
-    : p.rating > 2.5 ? `students' overall ratings of ${name} are mixed (${one(p.rating)} of 5)`
+    : p.rating > 2.5 ? `overall ratings of ${name} are mixed (${one(p.rating)} of 5)`
     : `students rate ${name} low overall (${one(p.rating)} of 5)`;
   const hard =
     p.difficulty >= 4 ? 'hard' : p.difficulty >= 3 ? 'moderately hard' : p.difficulty >= 2.5 ? 'about average in difficulty' : 'on the easier side';
   const again =
-    p.again === null ? '' : p.again >= 80 ? `, and most (${p.again}%) say they would take ${name} again` : p.again < 50 ? `, and fewer than half (${p.again}%) say they would take ${name} again` : `, and ${p.again}% say they would take ${name} again`;
-  return `${lead}, ${overall}, rate the classes as ${hard} (difficulty ${one(p.difficulty)} of 5)${again}. ${caveat}`;
+    p.again === null ? '' : p.again >= 80 ? `, and most (${p.again}%) say they would take the professor again` : p.again < 50 ? `, and fewer than half (${p.again}%) say they would take the professor again` : `, and ${p.again}% say they would take the professor again`;
+  return `${lead}: ${overall}; the classes are rated ${hard} (difficulty ${one(p.difficulty)} of 5)${again}. ${caveat}`;
 }
 
 // ---------------------------------------------------------------------------
