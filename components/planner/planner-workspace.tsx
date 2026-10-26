@@ -1627,7 +1627,8 @@ export function PlannerWorkspace({
       // Goals come from what the student wants to do, never from the major's
       // name: "Psychology" alone was booking psychopathology as their goal.
       career: careerText,
-      ...(careerFit ? { careerFit } : {}),
+      // The degree check holds the matcher's board to the board audit too (AutoplanInput.careerAudit).
+      ...(careerFit ? { careerFit, ...(isUga ? { careerAudit: (g: GeneratedPlan) => ugaUnmetRows(ugaAuditOn(g.plan)) } : {}) } : {}),
       programName: loaded.program.name,
       programCollege: loaded.program.college,
       arrival: arrivalOf(answers),
@@ -3801,6 +3802,11 @@ export function PlannerWorkspace({
     if (!L.context) return [];
     const forfeited = new Set((L.report?.forfeited ?? []).map((f) => normCode(f.held)));
     return distinctHeld([...L.completedCodes].filter((code) => !forfeited.has(code)), L.context).codes;
+  }
+
+  /** Requirement rows a UGA board audit leaves unmet, as the board bar counts them. */
+  function ugaUnmetRows(audit: ReturnType<typeof ugaAuditOn>): number {
+    return audit ? audit.areas.filter((row) => !row.satisfied).length + audit.issues.filter((issue) => issue.id.startsWith('uga-pool-')).length : 0;
   }
 
   function ugaAuditOn(board: PlanState) {

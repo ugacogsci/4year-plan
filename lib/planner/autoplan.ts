@@ -717,6 +717,14 @@ export interface AutoplanInput {
    */
   careerFitScope?: 'all' | 'electives';
   /**
+   * With the career matcher: how many requirement rows the board's own audit
+   * leaves unmet (at UGA the board audit the board bar reads, auditUgaBoard,
+   * whose pool reading can differ from the engine's), so the degree check
+   * (careerGated) also holds the matcher's board to it. Absent, the engine's
+   * own reading is the whole check.
+   */
+  careerAudit?: (generated: GeneratedPlan) => number;
+  /**
    * Built without the student's career tracks: generatePlan's degree-first
    * check for a UGA pre-health board (ugaDegreeFirst). Never set by a caller.
    */
@@ -6761,9 +6769,16 @@ export function generatePlan(given: AutoplanInput): GeneratedPlan {
  */
 function careerGated(given: AutoplanInput): GeneratedPlan {
   const words = generatePlan({ ...given, careerFit: undefined });
+  // The caller's audit too (AutoplanInput.careerAudit): a UGA Computer Science
+  // board for an environmental scientist met every requirement in the
+  // engine's reading but left Social Sciences short in the board audit's.
+  let wordsAudit: number | undefined;
   const noWorse = (plan: GeneratedPlan): boolean => {
     const missing = new Set(words.notPlaced.map((x) => normaliseCode(x.code)));
-    return plan.unsatisfied.length <= words.unsatisfied.length && plan.notPlaced.every((x) => missing.has(normaliseCode(x.code)));
+    if (!(plan.unsatisfied.length <= words.unsatisfied.length && plan.notPlaced.every((x) => missing.has(normaliseCode(x.code))))) return false;
+    if (!given.careerAudit) return true;
+    wordsAudit ??= given.careerAudit(words);
+    return given.careerAudit(plan) <= wordsAudit;
   };
   const all = generatePlan({ ...given, careerFitScope: 'all' });
   if (noWorse(all)) return { ...all, careerScope: 'all' };

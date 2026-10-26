@@ -505,13 +505,26 @@ function build(program, kind) {
   const priorHere = horizon.assumedHours > 0 ? { ...prior, unmatchedCredits: prior.unmatchedCredits + horizon.assumedHours } : prior;
   const publishedTotal = loaded.summary?.totalCredits || loaded.program.totalCredits || null;
   const careerText = answers.after;
+  /** With the career matcher: a candidate board's unmet audit rows, read as below (AutoplanInput.careerAudit). */
+  const unmetRowsOf = (g) => {
+    const done = g.plan.completedCourseIds.map((id) => context.courses.find((c) => c.id === id)?.code).filter(Boolean).map(norm);
+    const gone = new Set((g.forfeited ?? []).map((f) => norm(f.held)));
+    const hours = planCreditRange(distinctHeld(done.filter((c) => !gone.has(c)), context).codes, context).min + priorHours;
+    const a = auditUgaBoard({
+      board: g.plan, context, undergraduate: loaded, priorCodes: done,
+      extraCredits: hours - planCreditRange(done, context).min + horizon.assumedHours,
+      transcript: record, dualLevel: data.dualLevelCourses,
+      validation: { minimumTermCredits: 12, priorCredits: hours + horizon.assumedHours },
+    });
+    return a.areas.filter((row) => !row.satisfied).length + a.issues.filter((i) => i.id.startsWith('uga-pool-')).length;
+  };
   const generated = generatePlan({
     requirements: loaded.blocks, context, prior: priorHere, horizon,
     preferences: { creditsPerTerm: { min: 12, target: null, max: 18 }, priorities: DEFAULT_PRIORITIES },
     programId: loaded.summary?.id ?? program.id, electiveHoursLimit: loaded.electiveHours, fillToDegreeTotal: loaded.fillToDegreeTotal,
     degreeTotal: publishedTotal, interests: ['', careerText].join(' '), career: careerText,
     programName: loaded.program.name, programCollege: loaded.program.college, admissionRoute: null, residency: null, firstYear: false,
-    ...(FITS.has(kind) ? { careerFit: FITS.get(kind) } : {}),
+    ...(FITS.has(kind) ? { careerFit: FITS.get(kind), careerAudit: (g) => unmetRowsOf(g) } : {}),
   });
   const board = generated.plan;
   // What the workspace counts against the board (completedCodes, priorCreditHours).
