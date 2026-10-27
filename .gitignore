@@ -45,3 +45,7 @@ data/syllabi
 # Local collection checkpoints and temporary writes; dataset exports are tracked.
 data/ratemyprofessors/*.checkpoint.json
 data/ratemyprofessors/*.tmp
+
+# Copies of the career matcher's model and runtime, made by
+# scripts/career/browser-assets.mjs from node_modules (about 38 MB).
+public/career-model/

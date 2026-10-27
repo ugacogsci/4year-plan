@@ -20,6 +20,7 @@
  * Every number here is a statement about the past or about a catalog page,
  * and the reason strings say which, so a card can show them as they are.
  */
+import type { CareerFit } from './career-embedding';
 import type { Priorities } from './priorities';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
 import { describeMeetingWindow, registrationFits } from './meeting-fit';
@@ -122,6 +123,13 @@ export interface QualityInputs {
   excellentTerms?: string[];
   /** The term the sections were crawled for, "Fall 2026", so a reason can name it. */
   nowLabel?: string | null;
+  /**
+   * The career matcher (career-embedding.ts), when its flag is on and the
+   * model loaded: relevance by meaning instead of shared words, for every
+   * course it has a vector for. Absent, relevance is read from the words as
+   * before.
+   */
+  careerFit?: CareerFit;
 }
 
 export interface QualityResult {
@@ -154,6 +162,11 @@ export interface QualityResult {
    * directly (autoplan.ts scoreElective, the list and gen-ed orders).
    */
   lightness?: number;
+  /**
+   * How close the course is to the student's goal by meaning, 0 to 1
+   * (CareerFit.strength), when the career matcher read it; absent otherwise.
+   */
+  goalFit?: number;
 }
 
 /**
@@ -233,6 +246,8 @@ export const RELEVANCE_REASONS = {
   title: 'its title matches what you said you want',
   subject: 'in a subject you said you want',
   topics: 'catalog topics match: ',
+  /** The career matcher's reason (career-embedding.ts reasonFor): "closest to your goal (dentist): 3rd of ...". */
+  meaning: 'closest to your goal (',
 } as const;
 
 /**
@@ -244,7 +259,7 @@ export const RELEVANCE_REASONS = {
  * earns no goal points there, so it says nothing about the goal.
  */
 export function saysGoalMatch(why: string): boolean {
-  return [RELEVANCE_REASONS.named, RELEVANCE_REASONS.titleAndSubject, RELEVANCE_REASONS.title, RELEVANCE_REASONS.topics].some((reason) => why.includes(reason));
+  return [RELEVANCE_REASONS.named, RELEVANCE_REASONS.titleAndSubject, RELEVANCE_REASONS.title, RELEVANCE_REASONS.topics, RELEVANCE_REASONS.meaning].some((reason) => why.includes(reason));
 }
 
 /**
@@ -465,7 +480,23 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
 
   // relevance: the student's words against courses, titles and subjects; the degree's own subjects count too.
   let interest = 0;
-  if (p.relevance > 0) {
+  let goalFit: number | undefined;
+  const fit = q.careerFit?.covers(code) ? q.careerFit : undefined;
+  if (p.relevance > 0 && fit) {
+    // By meaning (career-embedding.ts): a course the goal's career track
+    // names first, then the courses closest to the goal, then the degree's
+    // own subjects as before. No word of the goal is matched against the
+    // title: "software engineer" against "Materials Science and
+    // Engineering" is the mistake this replaces.
+    let v = 0;
+    goalFit = fit.strength(code);
+    const why = fit.reasonFor(code);
+    if (q.interestCourses?.has(code)) { v = 1; reasons.push(RELEVANCE_REASONS.named); interest = p.relevance; }
+    else if (goalFit > 0 && why) { v = 0.8 + 0.2 * goalFit; reasons.push(why); interest = p.relevance; }
+    else if (course.cluster === q.primarySubject) { v = 0.6; reasons.push('in your major'); }
+    else if (q.degreeSubjects.has(course.cluster)) { v = 0.4; reasons.push("in one of your degree's subjects"); }
+    take(p.relevance, v, 'relevance');
+  } else if (p.relevance > 0) {
     let v = 0;
     const title = course.title.toLowerCase();
     const free = q.interestWords.filter((w) => w.length >= 5 && !INTEREST_STOPWORDS.has(w));
@@ -570,7 +601,7 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     }
   }
 
-  return { score: weightSum > 0 ? weighted / weightSum : 0, known, reasons, unknown, cautions, conflicts, interest, lightness };
+  return { score: weightSum > 0 ? weighted / weightSum : 0, known, reasons, unknown, cautions, conflicts, interest, lightness, ...(goalFit !== undefined ? { goalFit } : {}) };
 }
 
 /**

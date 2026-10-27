@@ -55,6 +55,7 @@ import { forSchool, labPartners, withHeldVariants, type CareerTrack } from './ca
 import { normalizePriorities, type Priorities } from './priorities';
 import { calendarYearOf, runsInSummer, summerOnlyListed } from './summer-offering';
 import { saysGoalMatch, type QualityResult } from './quality';
+import type { CareerFit } from './career-embedding';
 import type { Course, PlanIssue, PlanState, PlanTerm } from './types';
 
 // ---------------------------------------------------------------------------
@@ -662,6 +663,8 @@ export interface RepickInput {
    * read from it, never from the major's name in the studying answer.
    */
   career?: string;
+  /** The career matcher, when on (AutoplanInput.careerFit): the re-pick ranks by meaning as the build did. */
+  careerFit?: CareerFit;
   programName?: string;
   programCollege?: string;
   priorities: Priorities;
@@ -757,6 +760,7 @@ export function repickBoard(input: RepickInput): RepickResult {
     requirements: input.requirements,
     interests: input.interests,
     career: input.career,
+    careerFit: input.careerFit,
     programName: input.programName,
     priorities: input.priorities,
     carriedCodes: [...board.terms.flatMap((t) => t.courseIds).map(codeOf), ...held],
@@ -1046,6 +1050,7 @@ export function repickBoard(input: RepickInput): RepickResult {
           prior: input.prior,
           interests: input.interests,
           career: input.career,
+          careerFit: input.careerFit,
           programName: input.programName,
           programCollege: input.programCollege,
           priorities: input.priorities,
