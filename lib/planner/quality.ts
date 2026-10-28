@@ -563,7 +563,12 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
         // Coverage distinguishes a broad title match from a course addressing
         // several parts of the student's goal, without claiming semantic certainty.
         const coverage = hits.length / Math.max(1, topics.length);
-        v = Math.max(subjectHit ? 0.75 : 0.4, 0.5 + 0.5 * coverage);
+        // Read anew, never under what the title or subject already earned, and more of the goal in the
+        // description adds to a title's: CSCI 4060 Mobile Software Development, a title match whose
+        // description matched twice, fell under CSCI 4500 Programming Languages, whose matched once.
+        v = q.legacyTopics
+          ? Math.max(subjectHit ? 0.75 : 0.4, 0.5 + 0.5 * coverage)
+          : Math.min(1, Math.max(v, subjectHit ? 0.75 : 0.4, 0.5 + 0.5 * coverage) + (titleHit ? 0.1 * coverage : 0));
         reasons.push(`${RELEVANCE_REASONS.topics}${hits.slice(0, 3).join(', ')}`);
         interest = p.relevance;
       }
