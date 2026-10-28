@@ -1073,6 +1073,20 @@ export function calendarTerm(today: Date): { season: SemesterSeason; year: numbe
 }
 
 /**
+ * The fall a student whose words say they have not started college starts
+ * in ("I'm an incoming freshman, starting college next fall": Fall 2027 in
+ * October 2026), as the plan's start reads them (readHorizon); null for
+ * anyone else, or a start that is no fall after today. The finish the
+ * onboarding suggests counts from it (suggestGraduationTarget).
+ */
+export function firstFallOf(timeline: string, today: Date): number | null {
+  const read = readHorizon(timeline, firstOpenTerm(today), calendarTerm(today));
+  const now = calendarTerm(today);
+  const nextFall = now.season === 'Fall' ? now.year + 1 : now.year;
+  return read.notStarted && read.startSeason === 'Fall' && read.startYear >= nextFall ? read.startYear : null;
+}
+
+/**
  * The student's own timeline where they gave one, the crawled term otherwise.
  *
  * The hard part is telling a start date from an end date, and the first version

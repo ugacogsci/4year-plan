@@ -16,7 +16,7 @@ import {
   type UgaSelectionRequirement,
 } from './uga-source';
 import { SiteFooter } from './site-notice';
-import { loadIllinoisMinorFile, openProgram } from './illinois-source';
+import { loadIllinoisMinorFile, firstFallOf, openProgram } from './illinois-source';
 import { illinoisMinorOptions } from '@/lib/planner/illinois-minors';
 import { graduateProgramOptions, loadIllinoisGraduatePrograms } from '@/lib/planner/illinois-graduate';
 import type { IllinoisProgramSummary } from '@/lib/planner/illinois-load';
@@ -537,7 +537,7 @@ export function Onboarding({
     setAnswers((current) => {
       const text = [current.studying, current.timeline, current.after].join(' ');
       const academicYear = current.academicYear || inferAcademicYear(current.timeline);
-      const suggestedGraduation = suggestGraduationTarget(academicYear, programYears, today);
+      const suggestedGraduation = suggestGraduationTarget(academicYear, programYears, today, firstFallOf(current.timeline, today));
       const selectedPrograms = (catalog?.ugaPrograms ?? []).filter((program) =>
         current.programIds.includes(program.id),
       );
@@ -839,7 +839,7 @@ export function Onboarding({
                   value={answers.academicYear}
                   onChange={(event) => {
                     const academicYear = event.target.value as AcademicYear;
-                    const target = suggestGraduationTarget(academicYear, programYears, today);
+                    const target = suggestGraduationTarget(academicYear, programYears, today, firstFallOf(answers.timeline, today));
                     setGraduationEdited(false);
                     setAnswers((current) => ({
                       ...current,

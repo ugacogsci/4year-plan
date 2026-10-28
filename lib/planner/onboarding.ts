@@ -195,12 +195,21 @@ export function suggestGraduationTarget(
   academicYear: AcademicYear,
   programYears: number,
   now = new Date(),
+  /**
+   * The fall a student who has not started college yet starts in
+   * (illinois-source.tsx firstFallOf): their years count from it. Counted
+   * from this one, an incoming freshman in October 2026 was offered Spring
+   * 2030, six terms from Fall 2027, and 160 of 161 incoming UGA boards could
+   * not finish their degree (2026-10-28).
+   */
+  firstFall: number | null = null,
 ): { season: GraduationSeason; year: number | null } {
   if (!academicYear) return { season: '', year: null };
   const currentYear = { first: 1, second: 2, third: 3, fourth: 4, 'fifth-plus': 5 }[academicYear];
   // The current academic year ends next spring in fall, or this spring otherwise.
   const academicEnd = now.getFullYear() + (currentAcademicSeason(now) === 'Fall' ? 1 : 0);
-  const year = academicEnd + Math.max(0, programYears - currentYear);
+  // An incoming student's first year ends the spring after the fall they start.
+  const year = (firstFall !== null ? Math.max(academicEnd, firstFall + 1) : academicEnd) + Math.max(0, programYears - currentYear);
   return {
     season: isGraduationTermPast('Spring', year, now) ? currentAcademicSeason(now) : 'Spring',
     year,

@@ -7,6 +7,7 @@ import { setupReplySchema, validatedSetupPatch, type SetupCatalog, type SetupMes
 import { loadUgaPlanningGuidance, type DoubleDawgsPathway } from '@/lib/planner/uga-planning-guidance';
 import { normalizeUgaCollegeId, UGA_COLLEGES } from '@/lib/planner/uga-colleges';
 import { trackContent } from '@/lib/insights/client';
+import { firstFallOf } from './illinois-source';
 import { type UgaProgram } from './uga-source';
 import { PriorCredit } from './prior-credit';
 import { doubleDawgsTimingValid } from './double-dawgs-timing';
@@ -82,7 +83,8 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
       }
       const selectedDegrees = (next.programLevel === 'graduate' ? catalog.graduateDegrees : catalog.undergraduateDegrees).filter((row) => next.programIds.includes(row.id));
       if (next.academicYear && !next.graduationYear) {
-        const target = suggestGraduationTarget(next.academicYear, defaultProgramYears(next.programLevel, selectedDegrees.flatMap((p) => p.degree ?? [])));
+        const said = nextMessages.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
+        const target = suggestGraduationTarget(next.academicYear, defaultProgramYears(next.programLevel, selectedDegrees.flatMap((p) => p.degree ?? [])), new Date(), firstFallOf(said, new Date()));
         next = { ...next, graduationSeason: target.season, graduationYear: target.year };
       }
       const colleges = [...new Set(catalog.ugaPrograms.filter((p) => next.programIds.includes(p.id)).map((p) => normalizeUgaCollegeId(p.college)).filter(Boolean))];

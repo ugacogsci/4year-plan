@@ -473,7 +473,8 @@ function answersFor(kind, record) {
   const { words } = KINDS[kind];
   const academicYear = KINDS[kind].academicYear ?? O.inferAcademicYear(words);
   const said = O.inferGraduationTarget(words);
-  const suggested = O.suggestGraduationTarget(academicYear, 4, TODAY);
+  // As the onboarding suggests it: from the fall an incoming student starts (a checkout before 2026-10-28 counts from this one).
+  const suggested = O.suggestGraduationTarget(academicYear, 4, TODAY, IS.firstFallOf ? IS.firstFallOf(words, TODAY) : null);
   return {
     schoolId: 'uga', programLevel: 'undergraduate', programIds: [], minorIds: [], certificateIds: [], doubleDawgsPathwayId: null,
     emphasisSelections: {}, collegeId: '', academicYear,
