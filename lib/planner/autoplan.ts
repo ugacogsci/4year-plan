@@ -758,6 +758,13 @@ export interface AutoplanInput {
    */
   freeChoices?: 'common' | 'ties' | 'off';
   /**
+   * False builds a degree the release's engine plans (held-degrees.ts
+   * PLANNED_AS_RELEASED) with this engine, as the board freeChoicesGated
+   * trades that degree's picks from; never a board a student is handed. Set
+   * by generatePlan itself; never by a caller.
+   */
+  asReleased?: false;
+  /**
    * With the career matcher: how many requirement rows the board's own audit
    * leaves unmet (at UGA the board audit the board bar reads, auditUgaBoard,
    * whose pool reading can differ from the engine's), so the degree check
@@ -7098,31 +7105,42 @@ function freeChoicesGated(given: AutoplanInput): GeneratedPlan {
   const stands = (g: GeneratedPlan): boolean => measureStands(g) && auditStands(g);
   // The other boards book their own picks in the seasons UGA's schedule runs them (withScheduledSeasons).
   const scheduled = withScheduledSeasons(shared);
-  const common = generatePlan({ ...scheduled, freeChoices: 'common' });
-  if (stands(common)) return { ...common, freeChoices: 'common' };
   /*
-   * Otherwise the board with the schedule and without the reading, and
-   * where that is worse too, the floor, each with the picks the first board
-   * chose traded in seat for seat where its own pick differs
-   * (freeChoicesTraded): the order of the placement stays the one that
-   * stood, and the picks are the sensible ones.
+   * A board with the picks board `from` chose traded in seat for seat where
+   * its own pick differs (freeChoicesTraded): the order of the placement
+   * stays the one that stood, and the picks are the sensible ones.
    */
-  const traded = (g: GeneratedPlan): GeneratedPlan => {
-    const out = freeChoicesTraded(g, common, given, scheduled.context, measureStands);
+  const traded = (g: GeneratedPlan, from: GeneratedPlan): GeneratedPlan => {
+    const out = freeChoicesTraded(g, from, given, scheduled.context, measureStands);
     if (out.trades.length === 0 || auditStands(out.board)) return out.board;
     // The audit reads a trade differently (a course two rows can count): each again, the audit after each.
     let board = g;
     for (const step of out.trades) {
-      const trial = step.reduce((b, { out: code, into, to }) => withCourseTraded(b, code, into, to, given.context, common.electives.find((e) => normaliseCode(e.code) === into)), board);
+      const trial = step.reduce((b, { out: code, into, to }) => withCourseTraded(b, code, into, to, given.context, from.electives.find((e) => normaliseCode(e.code) === into)), board);
       if (measureStands(trial) && auditStands(trial)) board = trial;
     }
     return board;
   };
+  /*
+   * A degree the release's engine plans (held-degrees.ts PLANNED_AS_RELEASED)
+   * keeps that engine's board, which has no reading of its own, with the
+   * picks this engine makes with the reading traded in where the owner's
+   * rule allows: Mechanical Engineering, Computer Engineering and Actuarial
+   * Science freshmen kept REL 260 Mystics and Saints in Islam, PORT 150 and
+   * THEA 110 Broadway Musicals for their general education categories
+   * (2026-10-28).
+   */
+  if (given.context.schoolId !== 'uga' && given.programId && PLANNED_AS_RELEASED.has(given.programId) && given.asReleased !== false) {
+    return { ...traded(before, generatePlan({ ...scheduled, freeChoices: 'common', asReleased: false })), freeChoices: 'off' };
+  }
+  const common = generatePlan({ ...scheduled, freeChoices: 'common' });
+  if (stands(common)) return { ...common, freeChoices: 'common' };
+  // Otherwise the board with the schedule and without the reading, and where that is worse too, the floor, each with the first board's picks traded in.
   if (unscheduled !== shared) {
     const off = generatePlan({ ...scheduled, freeChoices: 'off' });
-    if (stands(off)) return { ...traded(off), freeChoices: 'off' };
+    if (stands(off)) return { ...traded(off, common), freeChoices: 'off' };
   }
-  return { ...traded(before), freeChoices: unscheduled !== shared ? 'unscheduled' : 'off' };
+  return { ...traded(before, common), freeChoices: unscheduled !== shared ? 'unscheduled' : 'off' };
 }
 
 /**
@@ -7224,6 +7242,19 @@ function freeChoicesTraded(kept: GeneratedPlan, from: GeneratedPlan, given: Auto
   }
   const freeElectives = (b: GeneratedPlan) => b.electives.filter((e) => !e.track && (b.bookedFor?.[e.code] ?? null) === null).map((e) => normaliseCode(e.code));
   const theirElectives = freeElectives(from);
+  const sized = new Map<string, Set<string>>();
+  const sizedLike = (hours: { min: number; max: number }): Set<string> => {
+    const key = `${hours.min}-${hours.max}`;
+    if (!sized.has(key)) sized.set(key, new Set(scheduled.courses.map((c) => normaliseCode(c.code)).filter((c) => { const r = planCreditRange([c], ctx); return r.min === hours.min && r.max === hours.max; })));
+    return sized.get(key)!;
+  };
+  // Illinois: a course outside the degree's subjects fewer than 300 students a year take (ILLINOIS_POPULAR_POINTS), unless the goal is about it.
+  const degree = degreeSubjectsOf(given.requirements, given.programName);
+  const forGoal = new Set([...kept.electives, ...from.electives].filter((e) => e.forGoal).map((e) => normaliseCode(e.code)));
+  const rareOutside = (code: string): boolean => {
+    const subject = byCode.get(code)?.cluster ?? code.split(' ')[0];
+    return ctx.schoolId !== 'uga' && signals.counted && !forGoal.has(code) && !degree.subjects.has(subject) && subject !== degree.primary && signals.band(code) >= 2;
+  };
   for (const out of freeElectives(kept)) if (!theirElectives.includes(out)) wants.push({ out, into: theirElectives });
   let g = kept;
   const trades: Array<Array<{ out: string; into: string; to: number }>> = [];
@@ -7241,6 +7272,7 @@ function freeChoicesTraded(kept: GeneratedPlan, from: GeneratedPlan, given: Auto
     const lists = rows.flatMap((r) => (r.rule.kind === 'pool' ? r.rule.lists.filter((list) => list.codes.some((c) => normaliseCode(c) === out)) : []));
     const tags = tagsOf(out);
     const onBoard = new Set(g.terms.flatMap((t) => t.codes.map(normaliseCode)).flatMap((c) => expandEquivalents(c, equivalents)));
+    const isElective = rows.length === 0 && (g.bookedFor?.[out] ?? null) === null && g.electives.some((e) => normaliseCode(e.code) === out && !e.track);
     const tradeFrom = (candidates: string[], options: Array<{ code: string; why: string; reasons: string[] }> = []): boolean => {
       for (const code of candidates) {
         if (tries >= 40) return false;
@@ -7249,7 +7281,14 @@ function freeChoicesTraded(kept: GeneratedPlan, from: GeneratedPlan, given: Auto
         if (expandEquivalents(code, equivalents).some((c) => onBoard.has(c) || held.has(c))) continue;
         if (!rows.every((r) => namesOf(r).includes(code)) || !lists.every((list) => list.codes.some((c) => normaliseCode(c) === code))) continue;
         const tagsKept = tags.every((t) => course.tags.includes(t));
-        if (!tagsKept && (genEdRows.length === 0 || !tags.some((t) => course.tags.includes(t)))) continue;
+        /*
+         * A free elective's seat takes any course where the categories its
+         * course carried stay met (keepsCategories, below): asked to share a
+         * category with it, an Illinois English freshman's REL 260 Mystics
+         * and Saints in Islam, booked as an elective, found none of the
+         * English courses the first board chose (2026-10-28).
+         */
+        if (!tagsKept && (genEdRows.length === 0 || !(isElective || tags.some((t) => course.tags.includes(t))))) continue;
         const range = planCreditRange([code], ctx);
         if (range.min !== hours.min || range.max !== hours.max) continue;
         if (outOfSeason(course, term, published.has(code)) || !ranInSeason(code, term.season)) continue;
@@ -7269,17 +7308,24 @@ function freeChoicesTraded(kept: GeneratedPlan, from: GeneratedPlan, given: Auto
     /*
      * A free elective the schedule does not run there, with none of the
      * first board's left to take its seat: that term's own elective options,
-     * best first, as its card ranks them (electiveOptions).
+     * best first, as its card ranks them (electiveOptions). So too, at
+     * Illinois, one outside the degree's subjects that fewer than 300
+     * students a year take (rareOutside): ARTJ 301 Manga and ECE 316 Ethics
+     * and Engineering stayed the electives of the boards built without the
+     * reading, with no course of the first board's left to trade in.
      */
-    const isElective = rows.length === 0 && (g.bookedFor?.[out] ?? null) === null && g.electives.some((e) => normaliseCode(e.code) === out && !e.track);
-    if (!isElective || tries >= 40 || (!signals.offSchedule(out) && !outOfSeason(byCode.get(out), term, published.has(out)))) continue;
+    const runs = !signals.offSchedule(out) && !outOfSeason(byCode.get(out), term, published.has(out));
+    if (!isElective || tries >= 40 || (runs && !rareOutside(out))) continue;
     const options = electiveOptions({
       context: scheduled, requirements: given.requirements, termId: term.id, prior: given.prior,
       plan: { ...g.plan, terms: g.plan.terms.map((t) => ({ ...t, courseIds: t.courseIds.filter((id) => id !== courseIdFor(out)) })) },
       interests: given.interests, career: given.career, programName: given.programName, programCollege: given.programCollege,
       priorities: given.preferences?.priorities, electiveCodes: g.electives.map((e) => normaliseCode(e.code)).filter((c) => c !== out), limit: 8,
+      // A seat under three hours takes a course of its size: the term's best eight are three-hour courses.
+      ...(hours.max < 3 ? { candidateCodes: sizedLike(hours) } : {}),
     });
-    tradeFrom(options.map((o) => normaliseCode(o.code)), options);
+    // Traded for being rare, only for a course that is not.
+    tradeFrom(options.map((o) => normaliseCode(o.code)).filter((code) => !runs || !rareOutside(code)), options);
   }
   /*
    * A pick both boards made that sits in a season it does not run in (the
@@ -7813,7 +7859,7 @@ function ugaDegreeFirst(built: GeneratedPlan, given: AutoplanInput): GeneratedPl
 
 function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
   // A degree held at the release (held-degrees.ts PLANNED_AS_RELEASED) is planned by the release's engine.
-  if (given.programId && PLANNED_AS_RELEASED.has(given.programId)) {
+  if (given.programId && given.asReleased !== false && PLANNED_AS_RELEASED.has(given.programId)) {
     const released = generateReleasedPlan(given as unknown as ReleasedInput) as unknown as GeneratedPlan;
     if (given.plainEngine !== true) spreadExamTerm(released, given, released.language ?? null);
     return released;
