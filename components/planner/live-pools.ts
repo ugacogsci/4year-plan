@@ -214,10 +214,15 @@ export function livePools({
   const mine: string[][] = base.map(() => []);
   if (reserveRequired) {
     const have = new Set([...boardSet, ...prior]);
+    // A choose row with more of its courses on the board than it asks for keeps the ones no list here
+    // needs: an English major's "Language, Criticism, and Culture" took ENGL 4060, first on its list,
+    // from the two "Literature Before 1800" counts, with ENGL 4899 on the board for it (2026-10-28).
+    const listed = (code: string) => members.some((codes) => codes.has(code));
     for (const block of blocks) {
       if (block.rule.kind !== 'all' && block.rule.kind !== 'choose') continue;
       const choices = block.rule.choices.flatMap((choice) => [...have].find((held) => choice.codes.some((code) => held === normaliseCode(code) || context.equivalents?.get(held)?.includes(normaliseCode(code)))) ?? []);
-      for (const code of choices.slice(0, block.rule.kind === 'choose' ? block.rule.n : choices.length)) claimed.add(normaliseCode(code));
+      const kept = block.rule.kind === 'choose' ? [...choices].sort((a, b) => Number(listed(normaliseCode(a))) - Number(listed(normaliseCode(b)))) : choices;
+      for (const code of kept.slice(0, block.rule.kind === 'choose' ? block.rule.n : choices.length)) claimed.add(normaliseCode(code));
     }
   }
 
@@ -235,13 +240,26 @@ export function livePools({
 
   // Then whatever the student added, in board order so the panel lists a pool's
   // courses the way the plan reads left to right.
-  for (const code of [...prior, ...board]) {
-    if (claimed.has(code)) continue;
-    const index = members.findIndex((set, i) => !independentIds?.has(base[i].requirementId) && set.has(code));
-    if (index < 0) continue;
-    claimed.add(code);
-    mine[index].push(code);
+  // The courses one list alone names first, then each course two lists name to the first that still
+  // needs it: in board order, a Consumer Economics freshman's FHCE 3260 filled the twelve-hour list
+  // past full and left the four-hour one, which names it too, short (2026-10-28).
+  const order = [...prior, ...board];
+  const listing = (code: string) => members.flatMap((set, i) => (!independentIds?.has(base[i].requirementId) && set.has(code) ? [i] : []));
+  const short = (i: number) =>
+    (base[i].hoursTarget !== null && planCreditRange(mine[i], context).min < base[i].hoursTarget!) ||
+    (base[i].countTarget !== null && mine[i].length < base[i].countTarget!);
+  for (const shared of [false, true]) {
+    for (const code of order) {
+      if (claimed.has(code)) continue;
+      const lists = listing(code);
+      if (lists.length === 0 || (lists.length > 1) !== shared) continue;
+      const index = lists.find(short) ?? lists[0];
+      claimed.add(code);
+      mine[index].push(code);
+    }
   }
+  const at = new Map(order.map((code, i) => [code, i]));
+  for (const codes of mine) codes.sort((a, b) => (at.get(a) ?? 0) - (at.get(b) ?? 0));
 
   return base.map((pool, index) => {
     const assigned = independentIds?.has(pool.requirementId) ? [...new Set([...prior, ...boardSet])].filter((code) => members[index].has(code)) : mine[index];

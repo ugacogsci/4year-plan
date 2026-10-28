@@ -190,13 +190,13 @@ export function areaProgress(
    * and can never overstate it, which is the only safe direction when the
    * number is read as how close somebody is to graduating.
    */
-  const earnOf = (group: RequirementGroup, spent: Set<string>, largestFirst = false, satisfied = groupSatisfied): number => {
+  const earnOf = (group: RequirementGroup, spent: Set<string>, largestFirst = false, satisfied = groupSatisfied, sharedBy?: (code: string) => boolean): number => {
     const hits: Array<{ code: string; credits: number }> = [];
     for (const row of group.courses) {
       const hit = rowMatch(row, spent);
       if (hit) hits.push(hit);
     }
-    hits.sort((a, b) => (largestFirst ? b.credits - a.credits : a.credits - b.credits) || a.code.localeCompare(b.code));
+    hits.sort((a, b) => Number(sharedBy?.(a.code) ?? false) - Number(sharedBy?.(b.code) ?? false) || (largestFirst ? b.credits - a.credits : a.credits - b.credits) || a.code.localeCompare(b.code));
 
     const hoursCap = group.cap?.hours ?? null;
     const countCap = group.cap?.courses ?? null;
@@ -221,6 +221,17 @@ export function areaProgress(
   // for the course this ordering stops the gen-ed area from taking.
   if (options?.allowCrossAreaOverlap) {
     program.areas.forEach((area, index) => {
+      /*
+       * A group spends the courses no other group of its area lists before
+       * one another group lists too: a Consumer Economics freshman's FHCE
+       * 3260, on both of Major Electives' lists, went to the twelve-hour one
+       * and left the four-hour one short (2026-10-28).
+       */
+      const listed = area.groups.map((group) => new Set(group.courses.flatMap((row) => [row, ...(row.alternatives ?? [])].map((r) => r.code))));
+      const elsewhere = (group: RequirementGroup) => {
+        const others = listed.filter((_, i) => area.groups[i] !== group);
+        return (code: string) => others.some((codes) => codes.has(code) || (equivalents?.get(code) ?? []).some((alias) => codes.has(alias)));
+      };
       const run = (largestFirst: boolean) => {
         const spent = new Set<string>();
         const satisfied = new Map<RequirementGroup, boolean>();
@@ -228,7 +239,7 @@ export function areaProgress(
         for (const broadPass of [false, true]) {
           for (const group of area.groups) {
             if ((group.broad ?? false) !== broadPass) continue;
-            earned += earnOf(group, spent, largestFirst, satisfied);
+            earned += earnOf(group, spent, largestFirst, satisfied, elsewhere(group));
           }
         }
         const met = area.hours > 0 && Math.min(earned, area.hours) >= area.hours && area.groups.every((group) => satisfied.get(group) !== false);
