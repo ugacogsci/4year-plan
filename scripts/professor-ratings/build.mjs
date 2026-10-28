@@ -6,10 +6,12 @@
  * take again, count, profile link), one person's obvious duplicate profiles
  * merged; the day they were collected; and, per course subject, the site
  * departments its instructors are listed under (learned from the syllabi's
- * and, for Illinois, the grade history's instructor names that match exactly
- * one profile, plus Illinois's catalog subject names). Matching and wording
- * live in lib/planner/professor-ratings.ts. Prints match coverage for the
- * instructors named on each school's syllabi.
+ * instructor names that match exactly one profile, and Illinois's grade
+ * history's or UGA's Schedule of Classes' (public/uga/course-offerings.json,
+ * 2026-10-28), plus Illinois's catalog subject names). The same names say
+ * who else shares a profile's last name and initial (sameInitial). Matching
+ * and wording live in lib/planner/professor-ratings.ts. Prints match coverage
+ * for the instructors named on each school's syllabi.
  *
  *   node scripts/professor-ratings/build.mjs            (both schools)
  *   node scripts/professor-ratings/build.mjs --school uga
@@ -84,6 +86,22 @@ function syllabusNames(school) {
   return out;
 }
 
+/**
+ * UGA's Schedule of Classes instructors ("Michael Cotterell"), per course
+ * (public/uga/course-offerings.json, scripts/uga/schedule-build.mjs): the
+ * school's whole teaching roster for Spring 2026 to Summer 2027, which
+ * professor_ratings reads names from.
+ */
+function ugaScheduleNames() {
+  const path = join(ROOT, 'public', 'uga', 'course-offerings.json');
+  if (!existsSync(path)) return [];
+  const out = [];
+  for (const [code, byTerm] of Object.entries(readJson(path).courses ?? {})) {
+    for (const o of Object.values(byTerm)) for (const [name] of o.instructors ?? []) out.push({ subject: subjectOf(code), name, code });
+  }
+  return out;
+}
+
 /** Illinois's grade-history instructors ("Shaffer, Eric G"), per course. */
 function illinoisGradeNames() {
   const dir = join(ROOT, 'public', 'illinois', 'course');
@@ -106,7 +124,8 @@ for (const school of ['uga', 'illinois'].filter((s) => !only || s === only)) {
   }
   const raw = readJson(src);
   const fromSyllabi = syllabusNames(school);
-  const learnFrom = school === 'illinois' ? [...fromSyllabi, ...illinoisGradeNames()] : fromSyllabi;
+  const fromSchedule = school === 'uga' ? ugaScheduleNames() : [];
+  const learnFrom = school === 'illinois' ? [...fromSyllabi, ...illinoisGradeNames()] : [...fromSyllabi, ...fromSchedule];
   // Who else the school's records name with a profile's last name and initial ("Singh, Gagandeep" beside "Guarav Singh").
   const profiles = R.markSameInitial(R.ratedProfiles(raw.profiles ?? []), learnFrom.map((n) => n.name));
   const catalog = school === 'uga' ? readJson(join(ROOT, 'public', 'uga-catalog.json')) : readJson(join(ROOT, 'public', 'illinois-catalog.json')).courses;

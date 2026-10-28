@@ -21,15 +21,19 @@
  *     the first. A first initial alone ("Challen, G") is never enough by itself.
  *   - The course's subject settles which profile it is. The departments a
  *     subject's instructors are listed under on the site are learned at build
- *     time from names that match exactly one profile (and, for Illinois, from
- *     the catalog's subject names): subjectDepartments.
+ *     time from names that match exactly one profile (the syllabi's; Illinois's
+ *     grade history and catalog subject names; UGA's Schedule of Classes,
+ *     2026-10-28): subjectDepartments.
  *   - One profile: taken on a full first name, unless the course's subject is
  *     known and the profile's department is not one of its own (then not
  *     sure). On a first initial alone, taken only when it is the one profile
  *     at the school with that last name and initial, the department fits, and
- *     the school's own grade history and syllabi name no other person with
- *     that last name and initial (sameInitial, set at build time: "Singh, G"
- *     is not Guarav Singh for sure while the school also has a Gagandeep Singh).
+ *     the school's own records (grade history, syllabi, UGA's schedule) name
+ *     no other person with that last name and initial (sameInitial, set at
+ *     build time: "Singh, G" is not Guarav Singh for sure while the school
+ *     also has a Gagandeep Singh). A profile that gives only an initial ("L
+ *     Reeves") is held to the same: not sure while the records name two people
+ *     it could be.
  *   - More than one profile: the one whose department fits the course, when
  *     exactly one does; otherwise "not sure which professor", never a guess.
  *   - Profiles of one person the site lists twice (the same first and last
@@ -255,8 +259,15 @@ export function matchProfessor(file: ProfessorRatingsFile, raw: string, subject:
     const [h] = hits;
     if (h.on === 'initial') {
       // "Singh, G" when the school also has a Gagandeep Singh: the one rated profile may be the other person.
-      const others = w.given.length === 0 ? (h.p.sameInitial ?? []).filter((o) => wantedName(o)?.lastForms.some((f) => w.lastForms.includes(f))) : [];
-      if (others.length > 0) return { status: 'unsure', departments, why: `Only a first initial is known, and the school's grade history or syllabi also name ${others.slice(0, 2).join(' and ')}${others.length > 2 ? ' and others' : ''} with that last name and initial.` };
+      // And the other way round, a profile that gives only an initial ("L Reeves") is not surely the
+      // course's Laura Reeves while the school's records also name a Lisa Reeves: its sameInitial lists
+      // everyone it could be, so one of them is no clash and a second is.
+      const initialOnly = nameWords(h.p.first, false).every((x) => x.length < 2);
+      const others = (h.p.sameInitial ?? []).filter((o) => {
+        const x = wantedName(o);
+        return Boolean(x?.lastForms.some((f) => w.lastForms.includes(f)) && (w.given.length === 0 || x?.given[0] !== w.given[0]));
+      });
+      if (others.length > (initialOnly && w.given.length === 0 ? 1 : 0)) return { status: 'unsure', departments, why: `Only a first initial is known, and the school's records also name ${others.slice(0, 2).join(' and ')}${others.length > 2 ? ' and others' : ''} with that last name and initial.` };
       return fits(h.p) ? { status: 'found', profile: h.p, on: 'initial' } : { status: 'unsure', departments, why: 'Only a first initial is known, and the course does not confirm the department.' };
     }
     if (known && !fits(h.p)) return { status: 'unsure', departments, why: `The one rated professor with this name is listed under ${h.p.dept}, not a department this course's instructors are listed under.` };
@@ -654,10 +665,11 @@ export function learnSubjectDepartments(
 
 /**
  * Each profile with sameInitial: the people the school's own records (names,
- * from its grade history and syllabi) give a full first name that starts with
- * the profile's first initial, under its last name, and that is not the
- * profile's first name (firstFit). A profile none of them clash with is
- * returned without the field.
+ * from its grade history, syllabi and, at UGA, Schedule of Classes) give a
+ * full first name that starts with the profile's first initial, under its
+ * last name, and that is not the profile's first name (firstFit). For a
+ * profile that gives only an initial ("L Reeves"), every such person. A
+ * profile none of them clash with is returned without the field.
  */
 export function markSameInitial(profiles: readonly RatedProfile[], names: readonly string[]): RatedProfile[] {
   const byLast = new Map<string, WantedName[]>();
@@ -680,7 +692,10 @@ export function markSameInitial(profiles: readonly RatedProfile[], names: readon
     if (!initial) return rest;
     const others = new Set<string>();
     for (const f of lastForms(nameWords(p.last, true))) {
-      for (const q of byLast.get(f) ?? []) if (q.given[0].charAt(0) === initial && firstFit(q, p) === null) others.add(q.display);
+      for (const q of byLast.get(f) ?? []) {
+        const fit = firstFit(q, p);
+        if (q.given[0].charAt(0) === initial && fit !== 'exact' && fit !== 'near') others.add(q.display);
+      }
     }
     return others.size > 0 ? { ...rest, sameInitial: [...others].sort() } : rest;
   });
