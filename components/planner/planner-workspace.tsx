@@ -1596,6 +1596,25 @@ export function PlannerWorkspace({
         }
       }
     }
+    /*
+     * The audit of a board the build weighs (AutoplanInput.boardAudit and
+     * careerAudit): its own held classes, this build's degree, catalog and
+     * hours, as the UGA harness audits a candidate. Read off the board on
+     * screen (ugaAuditOn), it took the previous board's held classes until the
+     * effect after the build, and on a first build no degree at all, so every
+     * candidate read no rows unmet.
+     */
+    const priorHours = priorHoursOf(answers, exams, examCredit.entries, catalogCredits);
+    let courseById: Map<string, Course> | null = null;
+    const builtAudit = (board: PlanState): number => {
+      courseById ??= new Map(context.courses.map((course) => [course.id, course]));
+      const held = board.completedCourseIds.flatMap((id) => courseById?.get(id)?.code ?? []).map(normCode);
+      const hours = planCreditRange(distinctHeld(held, context).codes, context).min + priorHours;
+      return ugaUnmetRows(auditUgaBoard({ board, context, undergraduate: loaded, graduate: loaded.doubleDawgsGraduate, priorCodes: held,
+        extraCredits: hours - planCreditRange(held, context).min + horizon.assumedHours,
+        transcript: answers?.transcript, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used,
+        validation: { ...validateOptions(), programName: loaded.program.name, priorCredits: hours + horizon.assumedHours } }));
+    };
     let planInput: AutoplanInput = {
       requirements: loaded.blocks,
       context,
@@ -1630,9 +1649,9 @@ export function PlannerWorkspace({
       // name: "Psychology" alone was booking psychopathology as their goal.
       career: careerText,
       // The degree check holds the matcher's board to the board audit too (AutoplanInput.careerAudit).
-      ...(careerFit ? { careerFit, ...(isUga ? { careerAudit: (g: GeneratedPlan) => ugaUnmetRows(ugaAuditOn(g.plan)) } : {}) } : {}),
+      ...(careerFit ? { careerFit, ...(isUga ? { careerAudit: (g: GeneratedPlan) => builtAudit(g.plan) } : {}) } : {}),
       // And the free choices' check (AutoplanInput.boardAudit), at UGA by the audit the board bar reads.
-      ...(isUga ? { boardAudit: (g: GeneratedPlan) => ugaUnmetRows(ugaAuditOn(g.plan)) } : {}),
+      ...(isUga ? { boardAudit: (g: GeneratedPlan) => builtAudit(g.plan) } : {}),
       programName: loaded.program.name,
       programCollege: loaded.program.college,
       arrival: arrivalOf(answers),
