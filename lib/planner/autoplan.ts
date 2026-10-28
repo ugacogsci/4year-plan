@@ -9198,6 +9198,27 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   }, input.qualityMemo), input.programName, input.programCollege);
 
   const chosen = new Map<string, { requirementId: string | null; label: string }>();
+  /**
+   * The subjects the degree takes the student past the introduction in: a
+   * course of 200 level or more (UGA's 2000) the student holds, or one the
+   * board books for a requirement. A first course in one of them is no
+   * elective of the planner's own: ACCT 1160 Survey of Accounting, the
+   * accounting course for students outside business, kept the last spring of
+   * nine BBA boards at 12 credits beside the ACCT 2101 and 2102 every BBA
+   * requires (2026-10-28). Read when the electives are filled, after every
+   * requirement is booked; a student can still add one by hand. UGA only:
+   * at Illinois a 100-level course is often a major's own gen-ed course
+   * (ENGL 115 for an English major), and barring them moved pre-med boards'
+   * CHEM 332 past its deadline.
+   */
+  const pastIntroductions = (): Set<string> => {
+    const out = new Set<string>();
+    if (ctx.schoolId !== 'uga') return out;
+    for (const [code, why] of chosen) if (why.requirementId !== null && courseLevel(code) >= 200) out.add(code.split(' ')[0]);
+    for (const code of earned) if (courseLevel(code) >= 200) out.add(code.split(' ')[0]);
+    return out;
+  };
+  const introductionPast = (code: string, past: Set<string>): boolean => courseLevel(code) < 200 && past.has(code.split(' ')[0]);
   /** The rest of each pair a choice booked whole (PlanSlot.together): CMN 112 with CMN 111. */
   const pairRest = new Set<string>();
   /**
@@ -9620,9 +9641,15 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        * Thesis", two credits with nothing in front of it, was the cheapest
        * course on Computer Engineering's list and was booked as a technical
        * elective for a student who had asked for nothing of the kind.
+       *
+       * Nor is a first-year seminar a broad list's pick: a general-elective
+       * sample holds FYOS 1001 First-Year Odyssey Seminar, the commonest
+       * course on it, and where year one was full it landed in an
+       * Accounting and International Business freshman's last spring
+       * (2026-10-28).
        */
       const title = byCode.get(code)?.title ?? '';
-      const aside = /\b(thesis|independent study|research|special topics|internship|honors)\b/i.test(title) || creditsOf(code) < 3 ? 1 : 0;
+      const aside = /\b(thesis|independent study|research|special topics|internship|honors)\b/i.test(title) || creditsOf(code) < 3 || (breadth.broad && FIRST_YEAR_SEMINAR_TITLE.test(title)) ? 1 : 0;
       // A course that cannot meet something the student said outright (in
       // person only, no class before noon) goes behind every one that can.
       const clash = qualityAtPlacement(code).conflicts?.length ? 1 : 0;
@@ -13338,7 +13365,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const rankingKey = `${input.fillerRules === false ? 'before:' : ''}${[...stillWanted].sort().join('|')}`;
     const ranked = input.electiveRanking?.get(rankingKey) ?? rankedElectivePool(ctx, scoring, () => false, Infinity, input.electiveLevelRange);
     input.electiveRanking?.set(rankingKey, ranked);
-    const candidates = ranked.filter((code) => !(plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who) || behindApplication(code)));
+    const past = pastIntroductions();
+    const candidates = ranked.filter((code) => !(plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who) || behindApplication(code) || introductionPast(code, past)));
     let total = priorCreditTotal + awayCreditTotal + [...placed.values()].flat().reduce((sum, code) => sum + creditsOf(code), 0);
     /**
      * Where the hours past the degree total come from, so the note names the
@@ -15290,6 +15318,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       // Nor another version of a course on the board or held (AAEC 2580E beside AAEC 2580), or a UGA
       // course the coming year's schedule does not run (freeChoiceSignals.offSchedule).
       const versionHeld = (c: string) => expandEquivalents(c, equivalents).some((twin) => twin !== c && (onBoard.has(twin) || earned.has(twin)));
+      // Nor a first course in a subject the degree takes the student past (pastIntroductions).
+      const past = pastIntroductions();
       return ctx.courses
         .map((c) => normaliseCode(c.code))
         .filter((c) => {
@@ -15297,7 +15327,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           return worth >= least && worth <= most && worth <= 3 && !onBoard.has(c) && !earned.has(c) && !exempt.has(c) && !isHard(c) &&
             needFor(c) === null && courseLevel(c) < 300 && !reallyVariable(ctx.creditRanges?.get(c)) &&
             !(input.notTowardDegree?.(c)) && electiveBarred(c) === null && titleClosesTo(byCode.get(c), who) === false &&
-            !versionHeld(c) && !signals.offSchedule(c) &&
+            !versionHeld(c) && !signals.offSchedule(c) && !introductionPast(c, past) &&
             conflictWith(c, conflicts, [earned, onBoard]) === null && fitsAt(c, index);
         });
     };
