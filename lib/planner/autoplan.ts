@@ -3884,7 +3884,6 @@ export function closedToProgram(ctx: Pick<PlanningContext, 'sections'>, code: st
   );
 }
 
-/** Ran in exactly one of the crawled terms, when there are enough terms for that to mean something. */
 /**
  * What a free choice reads once the student's goal and the degree's own
  * subjects have had their say: how commonly the course is taken, and whether
@@ -3999,6 +3998,7 @@ export function commonlyTakenLine(ctx: PlanningContext, code: string): string | 
   return `${text[0].toUpperCase()}${text.slice(1)}.`;
 }
 
+/** Ran in exactly one of the crawled terms, when there are enough terms for that to mean something. */
 function rareCheck(ctx: PlanningContext): (code: string) => boolean {
   const terms = ctx.offeringTerms ?? [];
   if (!ctx.offerings || terms.length < 4) return () => false;
@@ -9421,17 +9421,6 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * reports the course as unplaceable in the same breath.
    */
   const terms = buildHorizon(input.horizon);
-  /**
-   * 1 for a course the UGA Bulletin lists for summer only that no term of
-   * this board can hold (no summer it runs in: outOfSeason everywhere), 0
-   * for any other (2026-10-22). Such a course is a list's, a choice's or a
-   * pool's pick only when nothing else will do: chosen, it could only fall off
-   * the board, and ARHI 2121 was the World Languages and Global Culture pick
-   * on a Management board that then said it "did not fit in 7 terms". A row
-   * nothing but summer can fill stays, and is planned as the degree requires
-   * (ugaSummerOnly). Illinois rows carry no Bulletin line, so nothing here
-   * reorders an Illinois board.
-   */
   /** How commonly each course is taken and whether it is on this year's schedule, for the free choices (freeChoiceSignals). */
   const signals = freeChoiceSignals(ctx);
   const lastTies = freeMode !== 'off';
@@ -9445,6 +9434,17 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * best-taught ones (workload or teaching 2): then theirs is the ask.
    */
   const commonFirst = freeMode === 'common' && !lightFirst(prefs.priorities) && (prefs.priorities ?? DEFAULT_PRIORITIES).teaching !== 2;
+  /**
+   * 1 for a course the UGA Bulletin lists for summer only that no term of
+   * this board can hold (no summer it runs in: outOfSeason everywhere), 0
+   * for any other (2026-10-22). Such a course is a list's, a choice's or a
+   * pool's pick only when nothing else will do: chosen, it could only fall off
+   * the board, and ARHI 2121 was the World Languages and Global Culture pick
+   * on a Management board that then said it "did not fit in 7 terms". A row
+   * nothing but summer can fill stays, and is planned as the degree requires
+   * (ugaSummerOnly). Illinois rows carry no Bulletin line, so nothing here
+   * reorders an Illinois board.
+   */
   const seasonless = rememberedBy((code: string): number => {
     const course = byCode.get(code);
     if (!summerOnlyListed(course) || !(ctx.offeringPublished?.has(code) ?? false)) return 0;
