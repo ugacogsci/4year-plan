@@ -92,7 +92,14 @@ export function withCoreCredit(blocks: RequirementBlock[], record: TranscriptRec
       if (hours <= 0) break;
       for (const block of blocks) {
         if (hours <= 0) break;
-        const size = block.areaLabel === area ? sizeOf(block) : null;
+        // With a minor or a second program beside the degree every area is
+        // named for its program ("Risk Management and Insurance BBA: II.
+        // Physical Sciences", planner-workspace.tsx combinePrograms), as the
+        // board audit reads it (uga-board-audit.ts, endsWith): matched on the
+        // bare name alone, a Georgia State ASTR 1000 (ASTR 1GXX) filled
+        // Physical Sciences for the degree alone and booked ASTR 1010 once a
+        // minor and a certificate were added.
+        const size = block.areaLabel === area || block.areaLabel.endsWith(`: ${area}`) ? sizeOf(block) : null;
         if (!size) continue;
         const remaining = left.get(block.id) ?? size.size;
         if (remaining <= 0) continue;

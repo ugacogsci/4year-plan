@@ -415,9 +415,34 @@ export function matchTranscript(
   schoolId: 'uga' | 'illinois' = 'illinois',
   /** UGA's own equivalency list for the schools the reading names (transfer-official.ts). */
   ugaTable: UgaTransferTable | null = null,
+  /**
+   * UGA codes the catalog does not list that the Schedule of Classes runs
+   * as one class with a course it does ("ATSC 1112" -> "GEOG 1112";
+   * uga-offerings.ts crossListed).
+   */
+  crossListed: Readonly<Record<string, string>> | null = null,
 ): TranscriptRecord {
   const known = new Map(catalog.map((c) => [c.code, c]));
   const uga = schoolId === 'uga';
+  /**
+   * The catalog course a UGA line names under a number the catalog does not
+   * list, and why: an online, honors, writing or service-learning section
+   * printed with its letter (PHYS 1211E), a course's older number (COMM
+   * 1100), or another subject's listing of the same class (ATSC 1112 for
+   * GEOG 1112). Counted as hours before, such a line left its core area
+   * open: a senior's Weather and Climate taken as ATSC 1112, or physics
+   * taken online, booked ASTR 1010 (2026-10-28).
+   */
+  const ugaNamed = (code: string): { code: string; why: string } | null => {
+    if (!uga || known.has(code)) return null;
+    const version = code.match(/^(\S+ \d{4})[EHSWR]$/);
+    if (version && known.has(version[1])) return { code: version[1], why: `UGA lists ${code} as a section of ${version[1]}, ${known.get(version[1])?.title ?? 'the same course'}.` };
+    const now = UGA_RENUMBERED[code]?.now;
+    if (now && known.has(now)) return { code: now, why: `${code} is the older number of UGA's ${UGA_RENUMBERED[code].title}, now ${now}.` };
+    const listed = crossListed?.[code];
+    if (listed && known.has(listed)) return { code: listed, why: `UGA's Schedule of Classes runs ${code} as one class with ${listed}, ${known.get(listed)?.title ?? 'the same course'}.` };
+    return null;
+  };
   /**
    * A line that carries a UGA designation, from the document or from UGA's
    * list: credit toward a core area, elective hours, or nothing.
@@ -523,6 +548,18 @@ export function matchTranscript(
           counts: off ? 'none' : 'course',
           use: !off,
           ...(fromElsewhere ? { basis: { from: 'document' as const, badge: 'course' as const, text: `Your ${uga ? 'UGA' : 'Illinois'} record lists it as ${code}.`, source: null } } : {}),
+        };
+      }
+      const named = ugaNamed(code);
+      if (named) {
+        return {
+          ...base,
+          matched: named.code,
+          matchedBy: 'code',
+          illinoisCredits: creditsOfCode(named.code),
+          counts: off ? 'none' : 'course',
+          use: !off,
+          basis: { from: 'document' as const, badge: 'course' as const, text: named.why, source: null },
         };
       }
       // An Illinois record with a code the catalog no longer lists: the hours

@@ -21,6 +21,7 @@ import type { Course, SemesterSeason } from '@/lib/planner/types';
 import { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
 import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
+import type { AnyCourseRule } from '@/lib/planner/any-course';
 import { canonicalUgaCode, listedUgaCourseCodes } from '@/lib/planner/uga-course-codes';
 
 export { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
@@ -120,6 +121,13 @@ interface RawUgaRequirementCourse {
   code: string;
   title: string;
   credits: number;
+  /**
+   * A subject-wide row's levels where the page gives more than its first
+   * ("POLS 3XXX", "3000-level or higher": levelTo 5; "2000-level or below":
+   * levelFrom 1), as first digits (scripts/uga-programs.mjs levelRange).
+   */
+  levelFrom?: number;
+  levelTo?: number;
 }
 
 interface RawUgaRequirementGroup {
@@ -579,6 +587,25 @@ function choicesFor(
   return choices;
 }
 
+/**
+ * The levels a group's subject-wide rows take beyond the one the planner
+ * plans from: "POLS prefix course 3000-level or higher" plans from the 3000
+ * level, and a held 4000-level POLS class counts (any-course.ts
+ * withHeldInRange). Read as the 3000 level alone, a Political Science
+ * senior's ten 4000-level POLS classes counted for none of the major's 18
+ * hours and the board booked four more; planned from the whole range, the
+ * pools filled with 4000- and 5000-level courses that crowded the required
+ * ones out of their last terms (Fisheries and Wildlife's ECOL 4000).
+ */
+function heldRangesFor(group: RawUgaRequirementGroup): AnyCourseRule[] {
+  return group.courses.flatMap((row) => {
+    const wildcard = canonicalUgaCode(row.code).match(/^([A-Z]{2,5})\s+([1-9])XXX$/);
+    if (!wildcard || wildcard[1] === 'ANY' || (row.levelFrom === undefined && row.levelTo === undefined)) return [];
+    const level = Number(wildcard[2]);
+    return [{ minLevel: row.levelFrom ?? level, maxLevel: row.levelTo ?? level, excludeSubjects: [], subjects: [wildcard[1]] }];
+  });
+}
+
 function minimumGroupHours(group: RawUgaRequirementGroup): number {
   if (group.choose === null || group.choose <= 0) return 0;
   const ordinary = group.courses.filter((course) => course.credits >= 3);
@@ -643,6 +670,21 @@ function adaptProgram(
   const blocks: RequirementBlock[] = [];
   const areas: RequirementArea[] = [];
   const fixedRequirementCodes = new Set<string>();
+  /*
+   * The same class under another of its numbers: its online or honors
+   * version (RMIN 4000E beside RMIN 4000), or Terry's x001 section of a
+   * course with the same title (MGMT 3001 Principles of Management beside
+   * MGMT 3000). The Bulletin says a general elective "cannot also be used to
+   * satisfy major-specific requirements"; compared by code alone, a senior's
+   * held RMIN 4000 and MGMT 3000 also counted as Upper Division General
+   * Electives through RMIN 4000E and MGMT 3001.
+   */
+  const versionOf = (code: string): string => {
+    const key = ugaVariantKey(code);
+    const title = byCode.get(code)?.title;
+    return title ? `${key.slice(0, -1)}|${title.toLowerCase()}` : key;
+  };
+  const fixedVersions = new Set<string>();
   const fallbackProgramHours =
     program.areas.length === 0 && isUgaGraduateDegree(program)
       ? program.totalCredits
@@ -710,7 +752,7 @@ function adaptProgram(
         );
         choices = choices.filter((choice) =>
           choice.codes.every(
-            (code) => !fixedRequirementCodes.has(code) && !excluded.has(code),
+            (code) => !fixedRequirementCodes.has(code) && !excluded.has(code) && !fixedVersions.has(versionOf(code)),
           ),
         );
       }
@@ -745,9 +787,10 @@ function adaptProgram(
         group.hours ?? Math.max(1, area.hours - representedBefore);
       let rule: RequirementRule;
 
+      const heldRanges = heldRangesFor(group);
       if (group.choose !== null && !isPool) {
         // A trimmed row picks another area's required course first (autoplan.ts PlanSlot.sharedFirst).
-        rule = { kind: 'choose', n: Math.min(group.choose, choices.length), choices, ...(trimmed ? { sharedFirst: true } : {}) };
+        rule = { kind: 'choose', n: Math.min(group.choose, choices.length), choices, ...(trimmed ? { sharedFirst: true } : {}), ...(heldRanges.length ? { heldRanges } : {}) };
       } else if (isPool) {
         const allowed = new Set(choices.flatMap((choice) => choice.codes));
         const lists = (group.lists ?? [])
@@ -800,6 +843,8 @@ function adaptProgram(
                 },
               ]
             : [];
+        // "Any upper level course 3000-5999": the rule, beside the sample in `choices`.
+        const any = group.courses.map((row) => canonicalUgaCode(row.code).match(/^ANY\s+([1-9])XXX$/)).find(Boolean);
         rule = {
           kind: 'pool',
           hours: group.hours ?? (group.choose === null ? poolHours : null),
@@ -809,6 +854,8 @@ function adaptProgram(
           constraints,
           from: 'group',
           label: group.label || area.label,
+          ...(any ? { anyCourse: { minLevel: Number(any[1]), maxLevel: Number(any[1]) >= 6 ? 9 : 5, excludeSubjects: area.excludePrefixes ?? [] } } : {}),
+          ...(heldRanges.length ? { heldRanges } : {}),
         };
       } else {
         rule = { kind: 'all', choices };
@@ -869,6 +916,7 @@ function adaptProgram(
         for (const choice of choices) {
           for (const code of choice.codes) {
             fixedRequirementCodes.add(code);
+            fixedVersions.add(versionOf(code));
             fixedInArea.add(code);
           }
         }

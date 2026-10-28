@@ -23,6 +23,7 @@ import {
 } from '@/lib/planner/transcript';
 import { loadTransferGenEd, type CatalogLite } from '@/lib/planner/transfer-match';
 import { loadUgaTransfer } from '@/lib/planner/transfer-official';
+import { loadUgaOfferings } from '@/lib/planner/uga-offerings';
 import { declineMaybe, maybeLines } from '@/lib/planner/transfer-maybe';
 
 /**
@@ -138,6 +139,8 @@ export function TranscriptUpload({
       const guide = school?.id === 'illinois' ? await loadTransferGenEd() : null;
       // UGA's own equivalency list, for the schools this reading names.
       const ugaTable = school?.id === 'uga' ? await loadUgaTransfer([json.reading.institution, ...json.reading.courses.map((c) => c.from)]) : null;
+      // UGA codes printed under another subject's listing of a catalog course (ATSC 1112 for GEOG 1112).
+      const crossListed = school?.id === 'uga' ? (await loadUgaOfferings())?.crossListed ?? null : null;
       const names = files.map((f) => f.fileName);
       // A score report: exams and no course lines. The exams go to the exam
       // list, priced by the registrar's table like the ones picked by hand,
@@ -155,7 +158,7 @@ export function TranscriptUpload({
       if (addTo) {
         // More pages of the same record: the lines already settled keep the
         // student's choices, and only the new lines are matched.
-        const fresh = matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable);
+        const fresh = matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable, crossListed);
         const seen = new Set(addTo.courses.map((c) => `${c.code}|${c.term ?? ''}`));
         // A home record added to another school's record (a UGA history after a
         // Georgia State transcript): its own lines say so, or the merged record
@@ -175,7 +178,7 @@ export function TranscriptUpload({
           gecc: addTo.gecc ?? fresh.gecc ?? null,
         });
       } else {
-        onChange(matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable));
+        onChange(matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable, crossListed));
       }
     } catch {
       // Past the reply, the network is not the problem: say so honestly.

@@ -11,6 +11,7 @@ import { PLANNED_AS_RELEASED } from './held-degrees';
 import { compareSampleCourses } from './uga-planning-guidance';
 import { repeatLine, type RepeatAsk } from './repeats';
 import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInput } from './autoplan-release';
+import { withHeldAnyCourse, withHeldInRange, type AnyCourseRule } from './any-course';
 import { calendarYearOf, regularSeasons, requiredSummerOn, runsInSummer, summerOnlyListed, ugaSummerOnlyMessage, type SummerYears } from './summer-offering';
 
 /**
@@ -118,6 +119,8 @@ export type PlanRule =
        * first (PlanSlot.sharedFirst).
        */
       sharedFirst?: boolean;
+      /** UGA: the levels a subject-wide row also takes for a held class, past the one it plans from (any-course.ts withHeldInRange). */
+      heldRanges?: AnyCourseRule[];
     }
   /**
    * "Take N hours, or N courses, from this list." Both numbers are optional
@@ -134,6 +137,10 @@ export type PlanRule =
       label: string;
       /** Rows the page joins with "OR" alone, which a930f09 read as all to take (illinois-data joinedByOr). */
       joinedByOr?: boolean;
+      /** UGA's "Any upper level course 3000-5999": a rule, the choices a sample of it (any-course.ts). */
+      anyCourse?: AnyCourseRule;
+      /** As the choose row's (heldRanges). */
+      heldRanges?: AnyCourseRule[];
     }
   | {
       kind: 'hours';
@@ -6760,13 +6767,36 @@ function ranksAbove(a: number[], b: number[]): boolean {
   return false;
 }
 
-export function generatePlan(given: AutoplanInput): GeneratedPlan {
+export function generatePlan(input: AutoplanInput): GeneratedPlan {
+  const given = withHeldOpenBlocks(input);
   if (given.careerFit && given.careerFitScope === undefined) return careerGated(given);
   const build = (input: AutoplanInput): GeneratedPlan => {
     const built = generatePlanBuilt(input);
     return input.context?.schoolId === 'uga' && input.plainEngine !== true && input.tracksOff !== true ? ugaDegreeFirst(built, input) : built;
   };
   return given.context?.schoolId === 'uga' ? ugaSummerOnly(given, build) : build(given);
+}
+
+/**
+ * UGA's open elective blocks ("Any upper level course 3000-5999") with the
+ * held classes their rule takes on their lists, each in one block, and its
+ * subject-wide rows with the held classes their whole range takes
+ * (any-course.ts); the same input when the degree has neither.
+ */
+function withHeldOpenBlocks(given: AutoplanInput): AutoplanInput {
+  if (!given.requirements.some((r) => (r.rule.kind === 'pool' && r.rule.anyCourse) || ((r.rule.kind === 'pool' || r.rule.kind === 'choose') && r.rule.heldRanges?.length))) return given;
+  const byCode = catalogByCode(given.context.courses);
+  const equivalents = given.context.equivalents ?? new Map<string, string[]>();
+  const held = given.prior.courseCodes.map(normaliseCode);
+  const creditsOf = (code: string) => byCode.get(code)?.credits ?? 3;
+  const { requirements: open } = withHeldAnyCourse(given.requirements, held, {
+    creditsOf,
+    versionsOf: (code) => expandEquivalents(code, equivalents),
+    titleOf: (code) => byCode.get(code)?.title,
+  });
+  // And the held classes a subject-wide row's whole range takes ("3000-level or higher").
+  const requirements = withHeldInRange(open, held, { creditsOf, versionsOf: (code) => expandEquivalents(code, equivalents) });
+  return requirements === given.requirements ? given : { ...given, requirements };
 }
 
 /**
@@ -16320,9 +16350,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const id = chosen.get(out)?.requirementId ?? null;
       if (id === null || id === lacking || !shortLists.has(id) || (requirementById.get(id)?.rule.kind ?? 'all') === 'all') return false;
       // Nor a step of a sequence: GRK 202, the fourth semester of Greek, is
-      // no list pick to give up whatever list it was booked for.
+      // no list pick to give up whatever list it was booked for. A pick for
+      // an open elective block ("Any upper level course 3000-5999") is any
+      // course, its own prerequisites or not: an incoming Marketing and
+      // International Business student's MARK 4450 there gives its seat to
+      // MGMT 5560, which International Business Curriculum requires.
+      const rule = requirementById.get(id)?.rule;
       const subject = out.split(' ')[0];
-      const step = (ctx.prereqs?.get(out)?.groups ?? []).some((g) => g.any.some((raw) => normaliseCode(raw).split(' ')[0] === subject));
+      const step = !(rule?.kind === 'pool' && rule.anyCourse) && (ctx.prereqs?.get(out)?.groups ?? []).some((g) => g.any.some((raw) => normaliseCode(raw).split(' ')[0] === subject));
       return !step && !pinned.has(out) && !sequenceFirst.has(out) && !labOf.has(out) && !lectureLab.has(out) && !forTrack(out) && !trackRowOf.has(out) && !datedBy.has(out) && !firstTermCourse(byCode.get(out), ctx, arrival);
     };
     for (const code of leftOff) {

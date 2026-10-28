@@ -7,6 +7,7 @@ import {
   type ValidateOptions,
 } from '@/lib/planner/autoplan';
 import { areaProgress } from '@/lib/planner/scheduler';
+import { programWithHeldAnyCourse, withHeldAnyCourse, withHeldInRange } from '@/lib/planner/any-course';
 import {
   degreeTermOrder,
   doubleDawgsContext,
@@ -59,6 +60,25 @@ function requiredSummerOnlyCodes(blocks: PlanRequirement[], context: PlanningCon
   return out;
 }
 
+/**
+ * The degree read with the held classes its open elective blocks take
+ * ("Any upper level course 3000-5999") and its subject-wide rows' whole
+ * ranges take ("3000-level or higher"), as generatePlan reads it
+ * (any-course.ts), so the board's progress counts what the board was built on.
+ */
+function withHeldOpenBlocks(source: CombinedDegreeSource, priorCodes: string[], context: PlanningContext): CombinedDegreeSource {
+  const byCode = new Map(context.courses.map((course) => [course.code, course]));
+  const creditsOf = (code: string) => byCode.get(code)?.credits ?? 3;
+  const { requirements: open } = withHeldAnyCourse(source.blocks, priorCodes, {
+    creditsOf,
+    versionsOf: (code) => [code, ...(context.equivalents?.get(code) ?? [])],
+    titleOf: (code) => byCode.get(code)?.title,
+  });
+  const requirements = withHeldInRange(open, priorCodes, { creditsOf, versionsOf: (code) => [code, ...(context.equivalents?.get(code) ?? [])] });
+  if (requirements === source.blocks) return source;
+  return { ...source, blocks: requirements, program: programWithHeldAnyCourse(source.program, source.blocks, requirements, (code) => byCode.get(code)?.title) };
+}
+
 /** Rebuild pool membership from the curriculum, including repairs to older saved plans. */
 function poolsFor(
   blocks: PlanRequirement[],
@@ -109,13 +129,13 @@ function poolsFor(
 export function auditUgaBoard(input: UgaAuditInput) {
   const {
     board,
-    undergraduate,
     graduate,
     priorCodes,
     extraCredits,
     transcript,
   } = input;
   const context = doubleDawgsContext(board, input.context)!;
+  const undergraduate = withHeldOpenBlocks(input.undergraduate, priorCodes, context);
   const byId = new Map(context.courses.map((course) => [course.id, course]));
   const planned = board.terms.flatMap((term) =>
     term.courseIds.flatMap((id) => byId.get(id)?.code ?? []),

@@ -13,6 +13,7 @@ import type {
   RequirementGroup,
   RequirementRow,
 } from './scheduler';
+import type { AnyCourseRule } from './any-course';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
 import { registrationFits } from './meeting-fit.ts';
 import { HAND_READINGS_HELD, HEADER_LISTS_HELD, READ_AS_RELEASED, SELECT_LINES_HELD } from './held-degrees.ts';
@@ -596,6 +597,8 @@ export type RequirementRule =
       list?: boolean;
       /** UGA only: the row no longer offers a course its own area requires (autoplan.ts PlanRule sharedFirst). */
       sharedFirst?: boolean;
+      /** UGA: the levels a subject-wide row also takes for a held class (any-course.ts withHeldInRange). */
+      heldRanges?: AnyCourseRule[];
     }
   /**
    * "Take N hours, or N courses, from this list."
@@ -628,6 +631,15 @@ export type RequirementRule =
        * builds a930f09's reading beside this one, for its gate.
        */
       joinedByOr?: boolean;
+      /**
+       * UGA's "Any upper level course 3000-5999" and "Any course* excluding
+       * ACCT, BUSN, ...": the Bulletin's rule, of which `choices` is a
+       * sample to plan from; a held class the rule takes counts too
+       * (any-course.ts withHeldAnyCourse).
+       */
+      anyCourse?: AnyCourseRule;
+      /** As the choose row's (heldRanges). */
+      heldRanges?: AnyCourseRule[];
     }
   | {
       kind: 'hours';
