@@ -723,10 +723,14 @@ export function parseDetail(html) {
     }
     return hasCourses || isElectiveArea;
   });
+  // "*Excluding the following course prefixes: ACCT, BUSN, ..., RMIN." The
+  // International Business co-major pages end the list with a period, which
+  // the reading before stopped at, and their Non-Business blocks took
+  // ACCT 1160 as a non-business course.
   const excludedPrefixes =
     flatPage
       .match(
-        /excluding the following course prefixes:\s*([A-Z,\s]+?)(?:Please note|Transfer coursework)/i,
+        /[Ee]xcluding (?:the following course prefixes|courses with the following prefixes):\s*([A-Z]{2,5}(?:,\s*(?:or\s+)?[A-Z]{2,5})*)/,
       )?.[1]
       ?.match(/[A-Z]{2,5}/g) ?? [];
   for (const keptArea of kept) {
