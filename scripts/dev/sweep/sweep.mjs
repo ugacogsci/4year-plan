@@ -439,6 +439,8 @@ function measure(job) {
     terms: terms.map((t) => ({ label: t.label, cr: t.cr, codes: t.codes, hard: t.hard })),
     notes: g.notes,
     electiveWhy: (g.electives ?? []).map((e) => `${e.code}: ${e.why}`),
+    // How the free choices read how commonly a course is taken (autoplan.ts freeChoicesGated), when the checkout says.
+    ...(g.freeChoices ? { freeChoices: g.freeChoices } : {}),
     momentumAll: momentum.map((f) => ({ id: f.id, cause: f.cause, message: f.message })),
     orderFaults,
     kept: g.gate?.kept ?? null,

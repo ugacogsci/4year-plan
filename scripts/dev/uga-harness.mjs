@@ -631,6 +631,8 @@ function build(program, kind) {
     trackCodes: (generated.electives ?? []).filter((e) => e.track).map((e) => e.code),
     labsApart: labsApartOf(board, context),
     notes: generated.notes.length,
+    // How the free choices read how commonly a course is taken (autoplan.ts freeChoicesGated), when the checkout says.
+    ...(generated.freeChoices ? { freeChoices: generated.freeChoices } : {}),
     // Added 2026-10-22: which rows are unmet (so a board meeting fewer of them shows by name), the board itself,
     // and the classes the UGA Bulletin lists for summer only that the board holds in a fall or spring.
     unmet: [
