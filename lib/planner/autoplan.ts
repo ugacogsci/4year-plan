@@ -3702,6 +3702,23 @@ const FIT_POINTS = 3;
  */
 const POPULAR_POINTS = [1, 0.5, 0, -6, -9, 0];
 
+/**
+ * Illinois's, by the grade reports' students a year. A course 1,000 or more
+ * take gains two, past the nudge of another of the degree's subjects (1.5)
+ * and short of the major's own (3); one 300 to 999 gains nothing; one 100 to
+ * 300 loses three, and so does one with neither a grade report nor a section
+ * in the crawled term, which nothing here shows anyone takes. Outside the
+ * degree a course 100 to 300 a year take is mostly another major's own, and
+ * with light grades and one well-liked instructor it outranked the courses
+ * students across the campus take: ENGL 200 Introduction to the Study of
+ * Literature and Culture (about 100 a year), BADM 340 Ethical Dilemmas of
+ * Business and SHS 271 Communication and Aging were the free electives of
+ * Psychology and ACES Undeclared freshmen beside ACE 240 Personal Financial
+ * Planning (1,500), and ETMA 132 Basics of Project Management (no grade
+ * report) another (2026-10-28).
+ */
+const ILLINOIS_POPULAR_POINTS = [2, 0, -3, -6, -9, -3];
+
 /** Grade-history lightness in steps of a tenth, lightest 0, for the list and gen-ed orders at workload 2. */
 function lightStep(q: QualityResult): number {
   return Math.floor((1 - (q.lightness ?? 0)) * 10);
@@ -3898,6 +3915,8 @@ export function closedToProgram(ctx: Pick<PlanningContext, 'sections'>, code: st
 interface FreeChoiceSignals {
   /** Students a year (PlanningContext.taken), or null when not known. */
   taken(code: string): number | null;
+  /** Whether the school's counts of students a year are loaded (PlanningContext.taken): without them `band` reads sections alone, or nothing. */
+  counted: boolean;
   /**
    * 0 for 1,000 or more a year, 1 for 300, 2 for 100, 3 for 30, 4 for
    * fewer, 5 not known. Coarse on purpose: 1,246 and 1,183 students say the same thing.
@@ -3940,6 +3959,7 @@ function freeChoiceSignals(ctx: PlanningContext): FreeChoiceSignals {
   };
   const made: FreeChoiceSignals = {
     taken,
+    counted: (ctx.taken?.size ?? 0) > 0,
     band: rememberedBy((code: string): number => {
       const n = taken(code) ?? fromSections(code);
       if (n === null) return POPULAR_BANDS.length + 1;
@@ -5457,7 +5477,9 @@ function scoreElective(code: string, s: ElectiveScoring): number {
       // electives were FINA 3000, MGMT 3000 and MARK 3000, Terry's business core).
       // A course under three credits keeps the four of before at most: the one that lands a plan on its
       // total is swapped for a three-credit one where the term allows (landThreeHour), from its own level.
-      const points = Math.max(POPULAR_POINTS[s.free.band(code)] ?? 0, s.creditsOf(code) < 3 ? -4 : -Infinity);
+      // Illinois's reading by the grade reports (ILLINOIS_POPULAR_POINTS), except for a course the goal is about: what the student asked for is not filler.
+      const table = s.uga || !s.free.counted || goal > 0 || s.opensGoal?.has(code) ? POPULAR_POINTS : ILLINOIS_POPULAR_POINTS;
+      const points = Math.max(table[s.free.band(code)] ?? 0, s.creditsOf(code) < 3 ? -4 : -Infinity);
       score += points > 0 && (courseLevel(code) < 200 || courseLevel(code) >= 300 || s.harder?.(code)) ? 0 : points;
     }
     // In only one of fall and spring there: as a rare course.
@@ -13600,7 +13622,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
          */
         if (landing && !(gap > 0 && gap < 3)) continue;
         const ok = (code: string) => also(code) && sized(code) && fits(code);
-        const found = landing && lightFirst(prefs.priorities) ? lightestOf(ok, tooBig) : pickFrom(ok, tooBig, trackOnly, termIndex);
+        const found = landing && lightFirst(prefs.priorities) ? lightestOf(ok, tooBig) : landing && commonLanding ? commonestOf(ok, tooBig) : pickFrom(ok, tooBig, trackOnly, termIndex);
         if (found) return found;
       }
       return undefined;
@@ -13614,7 +13636,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * over ANSC 210 (5). The ten keep the rest of the prior: a 400-level
      * library-science course is not a filler for anyone.
      */
-    const lightestOf = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean): string | undefined => {
+    const lightestOf = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, step = (code: string) => lightStep(scoring.quality(code))): string | undefined => {
       const track = [...trackWanted.keys()].find((code) => !plannedAll.has(code) && fits(code));
       if (track) return track;
       const best: string[] = [];
@@ -13625,8 +13647,22 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         if (best.length >= 10) break;
       }
       // Stable: equal steps keep the score order.
-      return best.sort((a, b) => lightStep(scoring.quality(a)) - lightStep(scoring.quality(b)))[0];
+      return best.sort((a, b) => step(a) - step(b))[0];
     };
+    /**
+     * Otherwise, with the free choices' reading at Illinois, the most
+     * commonly taken of those ten by the grade reports (freeChoiceSignals),
+     * a course of its size that students across the campus take: light
+     * grades and one well-liked instructor made FSHN 249 Food Service
+     * Sanitation (about 20 students a year) the one-credit landing course of
+     * 150 boards, and ETMA 132 Basics of Project Management (no grade report)
+     * one of 112. A course with no grade report goes last: its count from
+     * the crawled term's sections reads a seminar of seven topics (THEA 399
+     * Undergraduate Group Seminar) as 350 students.
+     */
+    const commonLanding = commonFirst && ctx.schoolId !== 'uga' && signals.counted;
+    const commonestOf = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean) =>
+      lightestOf(fits, tooBig, (code) => (signals.taken(code) === null ? POPULAR_BANDS.length + 1 : signals.band(code)));
     /**
      * A lab goes with its lecture: never into a term the lecture is not in.
      * Not only a lab the track wants: the fill landing a Computer Engineering
