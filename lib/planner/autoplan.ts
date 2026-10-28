@@ -11122,13 +11122,26 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       }
       return count;
     };
+    /*
+     * 0 for the second half of a sequence whose first half is in the plan,
+     * held or the track's to book later (the course numbered one below it in
+     * its subject): PHYS 1212 after PHYS 1211. Picked by the prerequisites it adds alone, a Psychology
+     * pre-med's physics was PHYS 1211 Principles of Physics for Scientists
+     * and Engineers and then PHYS 1112 Introductory Physics, half of each.
+     */
+    const continues = (c: string): number => {
+      const m = c.match(/^(\S+) (\d{3,4})$/);
+      if (plainEngine || !m) return 1;
+      const below = `${m[1]} ${String(Number(m[2]) - 1).padStart(m[2].length, '0')}`;
+      return inPlan(below) || earned.has(below) || trackLeft.some((x) => x.code === below) || trackBeyondRoom.has(below) ? 0 : 1;
+    };
     const pickFor = (row: TrackCourse): string | null => {
       const options = row.codes
         .map(normaliseCode)
         .filter((c) => byCode.has(c) && creditsOf(c) > 0 && !input.notTowardDegree?.(c))
-        .map((c, order) => ({ c, order, low: unresolvedLow(c), adds: adds(c) }))
+        .map((c, order) => ({ c, order, low: unresolvedLow(c), next: continues(c), adds: adds(c) }))
         .filter(({ c }) => conflictFor(c) === null && !preparesForHeld(c, ctx.prereqs, inPlan, !plainEngine));
-      return options.sort((a, b) => a.low - b.low || a.adds - b.adds || a.order - b.order)[0]?.c ?? null;
+      return options.sort((a, b) => a.low - b.low || a.next - b.next || a.adds - b.adds || a.order - b.order)[0]?.c ?? null;
     };
     const rows = tracks.flatMap((track) => track.courses.filter((row) => row.need !== 'suggested').map((row) => ({ track, row })));
     /**
