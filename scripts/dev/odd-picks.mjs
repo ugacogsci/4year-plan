@@ -30,7 +30,9 @@
  *     list over a hundred); a free elective among the most taken 15% of all
  *     undergraduate courses. UGA counts students enrolled in Spring, Summer
  *     and Fall 2026; Illinois, students graded in its grade reports.
- * Also counted (UGA): picks not offered in their planned term at all.
+ * Also counted (UGA): picks not offered in their planned term at all, and
+ * every class the board books (required ones too) that the schedule does not
+ * run in its planned term, or does not list at all.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -258,8 +260,30 @@ const measure = (rows) => {
     bySource: Object.fromEntries(['list', 'choose', 'gened', 'elective'].map((s) => [s, { picks: picks.filter((p) => p.source === s).length, odd: pct((p) => p.odd, (p) => p.source === s) }])),
     medianUnrelated: (() => { const xs = picks.filter((p) => !p.related).map((p) => p.taken).sort((a, b) => a - b); return xs.length ? xs[Math.floor(xs.length / 2)] : 0; })() };
 };
+// Every class a board books, by whether the schedule runs it in its planned term (UGA's Schedule of Classes).
+const booked = (rows) => {
+  let all = 0;
+  let off = 0;
+  let unlisted = 0;
+  let required = 0;
+  for (const row of rows) {
+    const r = readingOf(row.id);
+    for (const t of boardOf(row)) {
+      for (const code of t.codes) {
+        all += 1;
+        if (offered(code, t.term)) continue;
+        off += 1;
+        if (!['Fall 2026', 'Spring 2027', 'Summer 2026'].some((term) => offered(code, term))) unlisted += 1;
+        if (r.required.has(code)) required += 1;
+      }
+    }
+  }
+  return { all, off, unlisted, required, perPlan: rows.length ? (off / rows.length).toFixed(2) : '-' };
+};
 const b = measure(both.map((k) => before.get(k)));
 const a = measure(both.map((k) => after.get(k)));
+const bookedBefore = school === 'uga' ? booked(both.map((k) => before.get(k))) : null;
+const bookedAfter = school === 'uga' ? booked(both.map((k) => after.get(k))) : null;
 const lines = [];
 const say = (s = '') => lines.push(s);
 say(`# Odd picks, ${school === 'uga' ? 'UGA' : 'Illinois'}: ${both.length} boards on both sides`);
@@ -273,6 +297,12 @@ say(`| picks not offered in their planned term, per plan | ${b.notOfferedPerPlan
 say(`| share not offered in their planned term | ${b.notOfferedShare} | ${a.notOfferedShare} |`);
 say(`| students a year in the typical unrelated pick (median) | ${b.medianUnrelated} | ${a.medianUnrelated} |`);
 for (const s of ['list', 'choose', 'gened', 'elective']) if (b.bySource[s].picks || a.bySource[s].picks) say(`| ${s} picks: odd share (picks) | ${b.bySource[s].odd} (${b.bySource[s].picks}) | ${a.bySource[s].odd} (${a.bySource[s].picks}) |`);
+if (bookedBefore && bookedAfter) {
+  say(`| every booked class not run in its planned term, per plan | ${bookedBefore.perPlan} | ${bookedAfter.perPlan} |`);
+  say(`| ... of all booked classes | ${bookedBefore.off} of ${bookedBefore.all} | ${bookedAfter.off} of ${bookedAfter.all} |`);
+  say(`| ... of them on no term of the schedule | ${bookedBefore.unlisted} | ${bookedAfter.unlisted} |`);
+  say(`| ... of them a course the degree requires outright | ${bookedBefore.required} | ${bookedAfter.required} |`);
+}
 say();
 const freq = (picks) => { const m = new Map(); for (const p of picks.filter((x) => x.odd)) m.set(`${p.code} ${p.title}`, (m.get(`${p.code} ${p.title}`) ?? 0) + 1); return [...m].sort((x, y) => y[1] - x[1]); };
 say(`Most frequent odd picks before: ${freq(b.picks).slice(0, EXAMPLES).map(([k, n]) => `${k} (${n})`).join('; ')}`);
@@ -280,4 +310,4 @@ say();
 say(`Most frequent odd picks after: ${freq(a.picks).slice(0, EXAMPLES).map(([k, n]) => `${k} (${n})`).join('; ')}`);
 console.log(lines.join('\n'));
 const out = arg('--json');
-if (out) writeFileSync(out, JSON.stringify({ school, boards: both.length, before: { ...b, picks: undefined }, after: { ...a, picks: undefined }, beforePicks: b.picks, afterPicks: a.picks }));
+if (out) writeFileSync(out, JSON.stringify({ school, boards: both.length, before: { ...b, picks: undefined, booked: bookedBefore }, after: { ...a, picks: undefined, booked: bookedAfter }, beforePicks: b.picks, afterPicks: a.picks }));
