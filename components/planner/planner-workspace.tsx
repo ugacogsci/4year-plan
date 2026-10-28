@@ -227,13 +227,13 @@ import { subjectMatches, subjectName } from '@/lib/planner/illinois-subjects';
 import { TranscriptUpload } from './transcript-upload';
 import { loadIllinoisCourseDetail, loadIllinoisSectionTerms, loadIllinoisSyllabi, sectionTermsOf } from '@/lib/planner/illinois-load';
 import { loadUgaSyllabi } from '@/lib/planner/uga-syllabi';
-import { instructorsFor, loadUgaOfferings, scheduleTermFor, type UgaOfferingsFile } from '@/lib/planner/uga-offerings';
+import { instructorsFor, loadUgaOfferings, nextRegistrationTerm, scheduleTermFor, termSpan, type UgaOfferingsFile } from '@/lib/planner/uga-offerings';
 import {
   carryInstructors, chosenInstructor, currentTermLabel, instructorOptions, resolveTerms, SYLLABUS_FACTS, syllabiByInstructor,
   studyYearAtBoardStart, syllabiToShow, teachingNames, termSyllabiResult, withInstructor, type ScheduledInstructor, type SyllabusFact, type SyllabusRecord, type TermCourseInput,
 } from '@/lib/planner/instructors';
 import type { InstructorControl } from './instructor-picker';
-import { loadProfessorRatings, professorRatingsResult, withStudentRatings, type RatingsSchool } from '@/lib/planner/professor-ratings';
+import { loadProfessorRatings, professorRatingsResult, withStudentRatings, type CourseSchedule, type RatingsSchool } from '@/lib/planner/professor-ratings';
 import type { IllinoisCore } from '@/lib/planner/illinois-load';
 import {
   graduateOptionName, graduatePlanSettings, isIllinoisGraduateId, loadIllinoisGraduateCatalog,
@@ -3529,6 +3529,26 @@ export function PlannerWorkspace({
     const file = await loadUgaOfferings();
     return file ? { file, instructors: instructorsFor(file, code).map((i) => ({ name: i.name, terms: i.terms })) } : null;
   }
+  /**
+   * What professor_ratings reads for a UGA course besides the ratings: the
+   * names the planner knows for it (the schedule's, then its syllabi's), and
+   * the rundown's schedule, led by the course's own term on the board when the
+   * schedule covers it, else by the next term students register for.
+   */
+  async function ugaRatingsInput(code: string, termLabel: string | null): Promise<{ names: string[]; schedule: CourseSchedule | null }> {
+    const [syllabi, scheduled] = await Promise.all([syllabiOf(code), ugaScheduleOf(code)]);
+    if (!scheduled) return { names: instructorOptions([], syllabi).map((o) => o.name), schedule: null };
+    const options = instructorOptions([], syllabi, scheduled.instructors);
+    const own = termLabel && scheduled.file.terms.some((t) => t.label === termLabel) ? termLabel : null;
+    return {
+      names: options.map((o) => o.name),
+      schedule: {
+        source: `UGA's Schedule of Classes (${termSpan(scheduled.file)})`,
+        term: own ?? nextRegistrationTerm(scheduled.file),
+        teaches: options.flatMap((o) => (o.scheduledTerms ? [{ name: o.name, terms: o.scheduledTerms }] : [])),
+      },
+    };
+  }
   async function instructorChoices(courseId: string, termId: string) {
     const course = courseIndex.get(courseId);
     if (!course) return [];
@@ -4455,13 +4475,17 @@ export function PlannerWorkspace({
         return c ? { ok: true, code: c.code, title: c.title, description: c.description, prerequisites: c.prerequisiteText, credits: c.credits } : { ok: false, reason: 'Course not found.' };
       }
       if (name === 'professor_ratings') {
-        // Needs no degree: a name, and the course's syllabi for its instructors and subject.
+        // Needs no degree: a name, and the course's syllabi (at UGA its Schedule of Classes too) for its instructors and subject.
         const ratingSchool: RatingsSchool | null = L.context?.schoolId === 'uga' ? 'uga' : isIllinois ? 'illinois' : null;
         if (!ratingSchool) return { ok: false, reason: 'The planner holds no student ratings for this school.' };
         const asked = typeof input.code === 'string' ? input.code : '';
         const c = asked ? (L.byCode.get(normalizeCourseCode(asked)) ?? null) : null;
-        const names = c ? instructorOptions([], await syllabiOf(c.code)).map((o) => o.name) : [];
-        return professorRatingsResult(await loadProfessorRatings(ratingSchool), { name: typeof input.name === 'string' ? input.name : '', code: c?.code ?? (asked ? normalizeCourseCode(asked) : null) }, names);
+        const { names, schedule } = !c
+          ? { names: [], schedule: null }
+          : ratingSchool === 'uga'
+            ? await ugaRatingsInput(c.code, null)
+            : { names: instructorOptions([], await syllabiOf(c.code)).map((o) => o.name), schedule: null };
+        return professorRatingsResult(await loadProfessorRatings(ratingSchool), { name: typeof input.name === 'string' ? input.name : '', code: c?.code ?? (asked ? normalizeCourseCode(asked) : null) }, names, [], { schedule });
       }
       return { ok: false, reason: 'No degree is selected. You can explore courses or select a degree in Preferences to enable requirement-aware plan changes.' };
     }
@@ -5645,7 +5669,7 @@ export function PlannerWorkspace({
         // UGA's data has no grade history, teaching lists or class times for those three knobs to choose by.
         const ugaNoData = isUga && (['preset', 'workload', 'teaching', 'schedule', 'noEarly', 'notBefore', 'notAfter', 'freeDays', 'format'] as const).some((key) => input[key] !== undefined);
         const interestsNotes = [
-          ugaNoData ? 'At UGA the planner holds no grade history, teaching ratings or class times, so workload, teaching and schedule are saved but have nothing to choose by; picks move only through relevance (the interests) and coverage. If the student asked for easier classes, better professors, a time of day or a format, say so plainly.' : null,
+          ugaNoData ? "At UGA the planner's picks read no grade history, student ratings or class times, so workload, teaching and schedule are saved but have nothing to choose by; picks move only through relevance (the interests) and coverage. If the student asked for easier classes, better professors, a time of day or a format, say so plainly (professor_ratings can still give how students rate a course's instructors)." : null,
           mode === 'replace' && !said ? 'interests_mode replace needs the new words in interests, so the stored career words were kept; use clear to drop the goal.' : null,
           dropped.length > 0 ? `No longer a goal: ${dropped.join(', ')}. Courses booked for it that are still on the board are ordinary elective slots now, and pressing Rebuild plans without them; say so.` : null,
           missingTrackCourses
@@ -6225,7 +6249,8 @@ export function PlannerWorkspace({
       }
       case 'professor_ratings': {
         // Read-only. Rate My Professors profiles matched to a name, or to every instructor the
-        // planner knows for a course (its sections, its syllabi, the student's own choice).
+        // planner knows for a course (its schedule, its syllabi, the student's own choice), as a
+        // rundown led by who teaches it in the term that matters (professorRatingsResult).
         const ratingSchool: RatingsSchool | null = L.context?.schoolId === 'uga' ? 'uga' : isIllinois ? 'illinois' : null;
         if (!ratingSchool) return { ok: false, reason: 'The planner holds no student ratings for this school.' };
         const file = await loadProfessorRatings(ratingSchool);
@@ -6233,16 +6258,27 @@ export function PlannerWorkspace({
         const c = asked ? courseOf(asked) : null;
         let names: string[] = [];
         let fuller: string[] = [];
+        let schedule: CourseSchedule | null = null;
+        let chosen: string | null = null;
         if (c) {
           const at = holding(c.id) ?? takingNow(c.id);
-          const chosen = at ? chosenInstructor(board, at.id, c.code) : null;
-          const [syllabi, detail] = await Promise.all([syllabiOf(c.code), isIllinois ? loadIllinoisCourseDetail(c.code).catch(() => null) : Promise.resolve(null)]);
-          const sched = isIllinois ? scheduleOf(c) : null;
-          const termRows = sched ? (sched.termId ? (detail?.sectionsByTerm?.[sched.termId] ?? null) : (detail?.sections ?? null)) : null;
-          names = [...(chosen ? [chosen] : []), ...instructorOptions(teachingNames(termRows?.sections ?? null), syllabi).map((o) => o.name)];
-          fuller = (detail?.instructors ?? []).map((i) => i.name);
+          chosen = at ? chosenInstructor(board, at.id, c.code) : null;
+          if (isIllinois) {
+            const [syllabi, detail] = await Promise.all([syllabiOf(c.code), loadIllinoisCourseDetail(c.code).catch(() => null)]);
+            const sched = scheduleOf(c);
+            const termRows = sched.termId ? (detail?.sectionsByTerm?.[sched.termId] ?? null) : (detail?.sections ?? null);
+            const options = instructorOptions(teachingNames(termRows?.sections ?? null), syllabi);
+            names = options.map((o) => o.name);
+            fuller = (detail?.instructors ?? []).map((i) => i.name);
+            // The published sections of the term that matters lead the rundown.
+            const label = sched.label;
+            if (termRows && label) schedule = { source: `Illinois's published class schedule for ${label}`, term: label, teaches: options.filter((o) => o.teaching).map((o) => ({ name: o.name, terms: [label] })) };
+          } else {
+            ({ names, schedule } = await ugaRatingsInput(c.code, at?.label ?? null));
+          }
+          if (chosen) names = [chosen, ...names];
         }
-        return professorRatingsResult(file, { name: str('name'), code: c?.code ?? (asked ? normalizeCourseCode(asked) : null) }, names, fuller);
+        return professorRatingsResult(file, { name: str('name'), code: c?.code ?? (asked ? normalizeCourseCode(asked) : null) }, names, fuller, { schedule, chosen });
       }
       case 'find_clubs': {
         // Read-only: no undo step, no confirmation. Ranked for the words as they are now, so a goal

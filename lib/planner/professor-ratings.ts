@@ -31,7 +31,7 @@
  *     that last name and initial (sameInitial, set at build time: "Singh, G"
  *     is not Guarav Singh for sure while the school also has a Gagandeep Singh).
  *   - More than one profile: the one whose department fits the course, when
- *     exactly one does; otherwise "not sure which profile", never a guess.
+ *     exactly one does; otherwise "not sure which professor", never a guess.
  *   - Profiles of one person the site lists twice (the same first and last
  *     name, and the same department or one inside the other, such as
  *     "Engineering" and "Mechanical Engineering") were merged at build time,
@@ -40,19 +40,31 @@
  * The consensus sentence (ratingConsensus) is deterministic, from these
  * thresholds:
  *   - under 5 ratings: "too few to say much", and nothing more;
- *   - 5-9 "only N", 10-29 "N", 30 or more "many (N)";
+ *   - 5-9 "only N", 10 or more "N";
  *   - overall 4.0+ rated highly, 3.5-3.9 rated well, 2.6-3.4 mixed, 2.5 or lower low;
  *   - difficulty 4.0+ hard, 3.0-3.9 moderately hard, 2.5-2.9 about average,
  *     under 2.5 on the easier side;
  *   - would take again: 80%+ "most", under 50% "fewer than half", else the
  *     percent alone; left out when the site shows none.
- * Every sentence says it rests on N self-selected student ratings on Rate My
- * Professors, across all of the professor's courses, and gives the link.
+ * "Based on 196 student ratings, students rate Ada Lovelace 4.4 of 5 overall
+ * (rated highly), difficulty 3.5 of 5 (moderately hard), and most (90%)
+ * would take the professor again." The one caveat, that the ratings are
+ * self-selected and cover all of a professor's courses, comes once per result
+ * (RATINGS_CAVEAT), not once per professor.
+ *
+ * The owner's rule (2026-10-27): nothing the advisors or a student see names
+ * the site or links a profile. The numbers are "student ratings"; the file
+ * keeps each profile's link for the build and the checks alone.
+ *
+ * For a course, professor_ratings gives a rundown (professorRatingsResult): its
+ * instructors with the terms a class schedule names them for (UGA's Schedule
+ * of Classes, Illinois's published sections), those teaching the term it leads
+ * with first, and the highest rated of them as the pick.
  *
  * Pure apart from loadProfessorRatings: __professor-ratings.check.mjs and the
  * build script run the same code over the shipped files.
  */
-import { readInstructorName } from './instructors';
+import { readInstructorName, type InstructorName } from './instructors';
 
 export type RatingsSchool = 'uga' | 'illinois';
 
@@ -238,7 +250,7 @@ export function matchProfessor(file: ProfessorRatingsFile, raw: string, subject:
   const fits = (p: RatedProfile) => departmentFits(file, subj, p.dept) || (p.merged ?? []).some((m) => departmentFits(file, subj, m.dept));
   const departments = [...new Set(hits.map((h) => h.p.dept))];
   // A first initial alone ("Liu, Y") is someone else as often as not: only one profile at the school may fit it.
-  if (w.given.length === 0 && hits.length > 1) return { status: 'unsure', departments, why: `Only a first initial is known, and ${hits.length} profiles share it.` };
+  if (w.given.length === 0 && hits.length > 1) return { status: 'unsure', departments, why: `Only a first initial is known, and ${hits.length} rated professors share it.` };
   if (hits.length === 1) {
     const [h] = hits;
     if (h.on === 'initial') {
@@ -247,12 +259,12 @@ export function matchProfessor(file: ProfessorRatingsFile, raw: string, subject:
       if (others.length > 0) return { status: 'unsure', departments, why: `Only a first initial is known, and the school's grade history or syllabi also name ${others.slice(0, 2).join(' and ')}${others.length > 2 ? ' and others' : ''} with that last name and initial.` };
       return fits(h.p) ? { status: 'found', profile: h.p, on: 'initial' } : { status: 'unsure', departments, why: 'Only a first initial is known, and the course does not confirm the department.' };
     }
-    if (known && !fits(h.p)) return { status: 'unsure', departments, why: `The one profile with this name is listed under ${h.p.dept}, not a department this course's instructors are listed under.` };
+    if (known && !fits(h.p)) return { status: 'unsure', departments, why: `The one rated professor with this name is listed under ${h.p.dept}, not a department this course's instructors are listed under.` };
     return { status: 'found', profile: h.p, on: h.on };
   }
   const fitting = hits.filter((h) => fits(h.p));
   if (fitting.length === 1) return { status: 'found', profile: fitting[0].p, on: fitting[0].on };
-  return { status: 'unsure', departments, why: subj ? `${hits.length} profiles could be this person and the course does not settle which.` : `${hits.length} profiles could be this person; the course would settle which.` };
+  return { status: 'unsure', departments, why: subj ? `${hits.length} rated professors could be this person and the course does not settle which.` : `${hits.length} rated professors could be this person; the course would settle which.` };
 }
 
 // ---------------------------------------------------------------------------
@@ -272,23 +284,27 @@ export function ratingWords(p: RatedProfile): string {
   return [overall, `classes rated ${hard}`, ...(again ? [again] : [])].join('; ');
 }
 
-/** The full consensus sentence, with the count, the caveats and the link. */
+/** The one short caveat an answer gives, once, however many professors it names. */
+export const RATINGS_CAVEAT = "Student ratings are self-selected and cover all of a professor's courses, not one course.";
+
+/**
+ * The consensus sentence, with the count: "Based on 46 student ratings,
+ * students rate Ada Lovelace 4.4 of 5 overall (rated highly), difficulty 3.5
+ * of 5 (moderately hard), and most (90%) would take the professor again." It
+ * never names the site the ratings come from or links it, and leaves the
+ * caveat to RATINGS_CAVEAT.
+ */
 export function ratingConsensus(p: RatedProfile): string {
   const name = `${p.first} ${p.last}`.replace(/\s+/g, ' ').trim();
   const n = p.count;
-  const caveat = `These are self-selected ratings that cover all of ${name}'s courses, not one course, and they are numbers only, with no written comments. Profile: ${p.url}`;
-  if (n < TOO_FEW) return `Only ${n} student rating${n === 1 ? '' : 's'} on Rate My Professors, too few to say much. ${caveat}`;
-  const lead = n >= 30 ? `Based on many student ratings (${n}) on Rate My Professors` : n >= 10 ? `Based on ${n} student ratings on Rate My Professors` : `Based on only ${n} student ratings on Rate My Professors`;
-  const overall =
-    p.rating >= 4 ? `students rate ${name} highly overall (${one(p.rating)} of 5)`
-    : p.rating >= 3.5 ? `students rate ${name} well overall (${one(p.rating)} of 5)`
-    : p.rating > 2.5 ? `overall ratings of ${name} are mixed (${one(p.rating)} of 5)`
-    : `students rate ${name} low overall (${one(p.rating)} of 5)`;
+  if (n < TOO_FEW) return `Only ${n} student rating${n === 1 ? '' : 's'} of ${name}, too few to say much.`;
+  const lead = n >= 10 ? `Based on ${n} student ratings` : `Based on only ${n} student ratings`;
+  const overall = p.rating >= 4 ? 'rated highly' : p.rating >= 3.5 ? 'rated well' : p.rating > 2.5 ? 'mixed' : 'rated low';
   const hard =
-    p.difficulty >= 4 ? 'hard' : p.difficulty >= 3 ? 'moderately hard' : p.difficulty >= 2.5 ? 'about average in difficulty' : 'on the easier side';
+    p.difficulty >= 4 ? 'hard' : p.difficulty >= 3 ? 'moderately hard' : p.difficulty >= 2.5 ? 'about average' : 'on the easier side';
   const again =
-    p.again === null ? '' : p.again >= 80 ? `, and most (${p.again}%) say they would take the professor again` : p.again < 50 ? `, and fewer than half (${p.again}%) say they would take the professor again` : `, and ${p.again}% say they would take the professor again`;
-  return `${lead}: ${overall}; the classes are rated ${hard} (difficulty ${one(p.difficulty)} of 5)${again}. ${caveat}`;
+    p.again === null ? '' : p.again >= 80 ? `, and most (${p.again}%) would take the professor again` : p.again < 50 ? `, and fewer than half (${p.again}%) would take the professor again` : `, and ${p.again}% would take the professor again`;
+  return `${lead}, students rate ${name} ${one(p.rating)} of 5 overall (${overall}), difficulty ${one(p.difficulty)} of 5 (${hard})${again}.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -298,7 +314,7 @@ export function ratingConsensus(p: RatedProfile): string {
 const SCHOOL_SHORT: Record<RatingsSchool, string> = { uga: 'UGA', illinois: 'Illinois' };
 
 export function ratingsNote(file: ProfessorRatingsFile): string {
-  return `Student ratings from Rate My Professors, collected ${file.collectedAt}: self-selected, numbers only (overall 1-5, difficulty 1-5, percent who would take the professor again, how many ratings), each covering all of a professor's courses, with no comments or tags. Give them as the consensus of those ratings, with the count and these caveats; never add what students wrote, and for anything the numbers do not cover (email, office hours, exams, grading) say the ratings do not cover it.`;
+  return `Student ratings, collected ${file.collectedAt}: self-selected, numbers only (overall 1-5, difficulty 1-5, percent who would take the professor again, how many ratings), each covering all of a professor's courses, with no comments or tags. Give them as the consensus of those student ratings, with the count, and the caveat at most once in the answer; never name or link where they come from, never add what students wrote, and for anything the numbers do not cover (email, office hours, exams, grading) say the ratings do not cover it.`;
 }
 
 function foundEntry(asked: string, m: Extract<ProfileMatch, { status: 'found' }>): Record<string, unknown> {
@@ -313,8 +329,6 @@ function foundEntry(asked: string, m: Extract<ProfileMatch, { status: 'found' }>
     difficulty: p.difficulty,
     would_take_again_percent: p.again,
     consensus: ratingConsensus(p),
-    profile: p.url,
-    ...(p.merged?.length ? { profiles_merged: 1 + p.merged.length } : {}),
     ...(m.on === 'initial' ? { matched_on: 'last name, first initial and the course department' } : {}),
   };
 }
@@ -322,31 +336,103 @@ function foundEntry(asked: string, m: Extract<ProfileMatch, { status: 'found' }>
 function entryFor(file: ProfessorRatingsFile, asked: string, name: string, subject: string | null): Record<string, unknown> {
   const m = matchProfessor(file, name, subject);
   if (m.status === 'found') return foundEntry(asked, m);
-  if (m.status === 'unsure') return { asked, status: 'not sure which profile', profiles_listed_under: m.departments, why: m.why };
+  if (m.status === 'unsure') return { asked, status: 'not sure which professor', could_be_listed_under: m.departments, why: m.why };
   if (m.status === 'needs_first_name') return { asked, status: 'needs a first name or the course', why: 'A last name alone could be several people.' };
-  return { asked, status: 'no profile found', why: `No Rate My Professors profile at ${SCHOOL_SHORT[file.school]} matches this name; that says nothing about the professor.` };
+  return { asked, status: 'no student ratings found', why: `No student ratings at ${SCHOOL_SHORT[file.school]} were found for this name; that says nothing about the professor.` };
+}
+
+/** What a class schedule says about a course's instructors, for professor_ratings' rundown. */
+export interface CourseSchedule {
+  /** Where it comes from and what it covers: "UGA's Schedule of Classes, Spring 2026 to Summer 2027". */
+  source: string;
+  /** The term the rundown leads with: the course's own on the board when the schedule has it, else the next one students register for. */
+  term: string | null;
+  /** Everyone it names for the course, as courseInstructors writes them, with the terms they teach it in, newest first. */
+  teaches: ReadonlyArray<{ name: string; terms: readonly string[] }>;
+}
+
+/** How many of a course's instructors the rundown lists; the rest are counted. */
+const RUNDOWN = 12;
+
+/** Ratings enough for the pick to rest on when someone has them: "5.0 from 5 ratings" does not outrank "4.4 from 196". */
+const SOLID = 10;
+
+const isRated = (e: Record<string, unknown>, least = TOO_FEW) => e.status === 'found' && Number(e.ratings) >= least;
+
+/** 10 ratings or more first, then 5 or more; higher overall first within each, then more ratings. */
+const byRating = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+  Number(isRated(b, SOLID)) - Number(isRated(a, SOLID)) || Number(isRated(b)) - Number(isRated(a)) || Number(b.overall) - Number(a.overall) || Number(b.ratings) - Number(a.ratings);
+
+/** Whether a name the student typed has the first name of one the course lists: the same, a nickname, or one the other starts. */
+function sameFirst(a: InstructorName, b: InstructorName | null): boolean {
+  if (!b) return false;
+  if (!a.fullFirst || !b.fullFirst) return !a.initial || !b.initial || a.initial === b.initial;
+  const x = collapse(a.display.split(' ')[0] ?? '');
+  const y = collapse(b.display.split(' ')[0] ?? '');
+  return x === y || nicknameOf(x, y) || startsTheOther(x, y);
+}
+
+/**
+ * The pick for a course: the highest rated of those teaching it in the lead
+ * term, or of all its instructors when none of those has 5 ratings, among
+ * those with 10 ratings or more when anyone has them, else with 5 or more.
+ * Null when no instructor has 5 ratings.
+ */
+function pickOf(code: string, lead: string | null, rows: ReadonlyArray<{ e: Record<string, unknown>; t: readonly string[] }>): { name: string; words: string } | null {
+  const inLead = lead ? rows.filter((r) => r.t.includes(lead)) : [];
+  const fromLead = inLead.some((r) => isRated(r.e));
+  const pool = (fromLead ? inLead : rows).map((r) => r.e);
+  const least = pool.some((e) => isRated(e, SOLID)) ? SOLID : TOO_FEW;
+  const ranked = pool.filter((e) => isRated(e, least)).sort(byRating);
+  const [best, next] = ranked;
+  if (!best) return null;
+  // Each by the course's own name for them ("asked"), as the schedule and the picker write it.
+  const who = (e: Record<string, unknown>) => String(e.asked);
+  const numbers = (e: Record<string, unknown>) => `${one(Number(e.overall))} of 5 overall from ${String(e.ratings)} ratings`;
+  const among = fromLead
+    ? ranked.length === 1 ? `${who(best)} is the one teaching ${code} in ${lead} with ${least} or more student ratings` : `Of those teaching ${code} in ${lead} with ${least} or more student ratings, ${who(best)} is rated highest`
+    : `${inLead.length > 0 ? `No one teaching ${code} in ${lead} has ${TOO_FEW} or more student ratings; of its other instructors with ${least} or more, ` : `Of ${code}'s instructors with ${least} or more student ratings, `}${who(best)} is rated highest`;
+  const level = next && one(Number(next.overall)) === one(Number(best.overall)) ? ` ${who(next)} is level (${numbers(next)}).` : '';
+  return { name: who(best), words: `${among}: ${numbers(best)}.${level}` };
 }
 
 /**
  * professor_ratings: one professor by name, or every instructor of a course.
  * courseInstructors are the names the planner knows for the course (its
- * sections, its syllabi, the student's choice); a last name the student typed
- * is read as the one of them it fits, when exactly one does. alsoKnownAs are
- * fuller forms of those names (Illinois's grade history), see fullerName.
+ * schedule's, its syllabi's, the student's choice); a last name the student
+ * typed is read as the one of them it fits, when exactly one does.
+ * alsoKnownAs are fuller forms of those names (Illinois's grade history), see
+ * fullerName. With a course alone it is a rundown, most useful first: the
+ * student's own instructor (chosen), those the schedule names for the lead
+ * term, its other terms' instructors, then the syllabi's names, the best
+ * rated first within each; and the pick (pickOf). A course no schedule term
+ * and no syllabus names anyone for says so, rather than asking the student.
  */
 export function professorRatingsResult(
   file: ProfessorRatingsFile | null,
   input: { name?: string | null; code?: string | null },
   courseInstructors: readonly string[] = [],
   alsoKnownAs: readonly string[] = [],
+  options: { schedule?: CourseSchedule | null; chosen?: string | null } = {},
 ): Record<string, unknown> {
   const name = (input.name ?? '').trim();
   const code = (input.code ?? '').trim().toUpperCase().replace(/\s+/g, ' ') || null;
   if (!file) return { ok: false, reason: 'The student ratings for this school could not be loaded.' };
   if (!name && !code) return { ok: false, reason: "Give a professor's name, a course code, or both." };
   const subject = code ? (code.split(' ')[0] ?? null) : null;
-  const known = [...new Set(courseInstructors.map((n) => fullerName(n.trim(), alsoKnownAs)).filter(Boolean))];
-  let professors: Array<Record<string, unknown>>;
+  // Each instructor once, under the fuller name the planner holds, keeping the name as given for the schedule's terms.
+  const given = new Map<string, string>();
+  for (const n of courseInstructors) {
+    const k = fullerName(n.trim(), alsoKnownAs);
+    if (k && !given.has(k)) given.set(k, n.trim());
+  }
+  const known = [...given.keys()];
+  const schedule = options.schedule ?? null;
+  const termsOf = new Map((schedule?.teaches ?? []).map((t) => [t.name.trim(), [...t.terms]]));
+  const termsFor = (k: string) => termsOf.get(given.get(k) ?? k) ?? [];
+  const lead = schedule?.term ?? null;
+  // No source links: the chat never names or links the site the ratings come from.
+  const head = { ok: true, school: SCHOOL_SHORT[file.school], course: code, ...(schedule ? { schedule: schedule.source } : {}) };
   if (name) {
     const typed = readInstructorName(name);
     const fits = typed ? known.filter((k) => {
@@ -355,23 +441,48 @@ export function professorRatingsResult(
     }) : [];
     // "Challen" with CS 124: the course's own Geoffrey Challen.
     const fuller = fits.length === 1 && (!typed?.fullFirst) ? fits[0] : name;
-    professors = [entryFor(file, name, fuller, subject)];
-  } else {
-    professors = known.slice(0, 8).map((k) => entryFor(file, k, k, subject));
-    if (professors.length === 0) {
-      return { ok: true, source: 'Rate My Professors', school: SCHOOL_SHORT[file.school], course: code, professors: [], note: `The planner knows no instructor for ${code}: ask the student which professor they mean.` };
-    }
+    const entry = entryFor(file, name, fuller, subject);
+    // The schedule's terms only for the course's own person: "Yan Liu" typed is not the course's Yi Liu.
+    const terms = fits.length === 1 && typed && sameFirst(typed, readInstructorName(fits[0])) ? termsFor(fits[0]) : [];
+    return { ...head, professors: [terms.length > 0 ? { ...entry, teaches: terms } : entry], caveat: RATINGS_CAVEAT, note: ratingsNote(file) };
   }
-  const found = professors.filter((p) => p.status === 'found');
+  if (known.length === 0) {
+    return {
+      ...head,
+      professors: [],
+      note: schedule
+        ? `No one on ${schedule.source} teaches ${code}, and no syllabus names an instructor for it. Say so plainly: no instructor is scheduled, so there is no one to rate yet. Never ask the student to look an instructor up.`
+        : `The planner knows no instructor for ${code}: ask the student which professor they mean.`,
+    };
+  }
+  const mine = options.chosen?.trim() ? fullerName(options.chosen.trim(), alsoKnownAs) : null;
+  const rows = known.map((k, i) => {
+    const t = termsFor(k);
+    const e = entryFor(file, k, k, subject);
+    return { i, k, t, e: t.length > 0 ? { ...e, teaches: t } : e };
+  });
+  const group = (r: (typeof rows)[number]) => (r.k === mine ? 0 : lead && r.t.includes(lead) ? 1 : r.t.length > 0 ? 2 : 3);
+  rows.sort((a, b) => group(a) - group(b) || Number(isRated(b.e)) - Number(isRated(a.e)) || (isRated(a.e) ? byRating(a.e, b.e) : 0) || a.i - b.i);
+  const inLead = lead ? rows.filter((r) => r.t.includes(lead)).length : 0;
+  const scheduled = rows.some((r) => r.t.length > 0);
+  const scheduleNote = !schedule
+    ? null
+    : !scheduled
+      ? `No one on ${schedule.source} teaches ${code}: these names are from its syllabi, not a term's schedule.`
+      : lead && inLead === 0
+        ? `No one on ${schedule.source} teaches ${code} in ${lead}; teaches gives the terms each instructor is scheduled for.`
+        : null;
+  const pick = code ? pickOf(code, lead, rows) : null;
   return {
-    ok: true,
-    source: 'Rate My Professors',
-    school: SCHOOL_SHORT[file.school],
-    course: code,
-    professors,
-    ...(known.length > 8 && !name ? { more_instructors: known.length - 8 } : {}),
+    ...head,
+    ...(lead ? { term: lead, teaching_that_term: inLead } : {}),
+    ...(scheduleNote ? { schedule_note: scheduleNote } : {}),
+    highest_rated: pick?.name ?? null,
+    pick: pick?.words ?? `None of ${code}'s instructors has ${TOO_FEW} or more student ratings, so the ratings point to no one.`,
+    professors: rows.slice(0, RUNDOWN).map((r) => r.e),
+    ...(rows.length > RUNDOWN ? { more_instructors: rows.length - RUNDOWN } : {}),
+    caveat: RATINGS_CAVEAT,
     note: ratingsNote(file),
-    sources: found.map((p, i) => ({ n: i + 1, title: `${String(p.professor)} on Rate My Professors`, url: p.profile as string, host: 'www.ratemyprofessors.com' })),
   };
 }
 
@@ -400,7 +511,6 @@ export function instructorRatings(file: ProfessorRatingsFile, instructor: string
     ratings: p.count,
     ...(p.count >= TOO_FEW ? { overall: p.rating, difficulty: p.difficulty, would_take_again_percent: p.again } : {}),
     words: ratingWords(p),
-    profile: p.url,
   };
 }
 
@@ -433,7 +543,7 @@ export function withStudentRatings<T extends Record<string, unknown>>(
     out.courses = (out.courses as Array<Record<string, unknown>>).map((c) => (c && typeof c.code === 'string' && Array.isArray(c.instructors) ? { ...c, instructors: mark(c.instructors, c.code) } : c));
   }
   if (added === 0) return result;
-  out.student_ratings_note = `${ratingsNote(file)} student_ratings appears only where one profile surely matches the instructor; words is the consensus to give, with the count. For more, call professor_ratings.`;
+  out.student_ratings_note = `${ratingsNote(file)} student_ratings appears only where the ratings surely belong to the instructor; words is the consensus to give, with the count. For more, call professor_ratings.`;
   return out as T;
 }
 

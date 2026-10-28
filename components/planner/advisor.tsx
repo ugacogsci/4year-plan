@@ -195,7 +195,8 @@ function sourcesIn(messages: AdvisorMessage[], fromIndex: number): Source[] {
       try {
         const parsed = JSON.parse(block.content) as { sources?: Source[] };
         for (const source of parsed.sources ?? []) {
-          if (seen.has(source.url)) continue;
+          // Student ratings are never linked to the site they come from, even in a chat saved before 2026-10-27.
+          if (seen.has(source.url) || /(^|\.)ratemyprofessors\.com$/i.test(source.host ?? '')) continue;
           seen.add(source.url);
           out.push(source);
         }
