@@ -435,6 +435,20 @@ fall term, a course that has run in none of the eight terms is ranked last,
 marked down as an elective, and flagged on its card, and the detail panel and
 the bot say which terms it ran in.
 
+UGA publishes its whole Schedule of Classes as one CSV per term.
+`node scripts/uga/schedule-build.mjs` reads the three terms the Registrar's
+page shows now (through the page's own download, robots.txt checked, 10 s
+apart) and the frozen final files of past terms into
+`public/uga/course-offerings.json`: per course per term, the sections, the
+students enrolled and the seats, the campuses, and each section's primary
+instructor, for the newest five terms (Spring 2026 to Summer 2027 now, about
+2.5 MB). Online, honors, writing-intensive and service-learning versions count
+under their course; a lab or discussion booked with its lecture is counted
+apart. `lib/planner/uga-offerings.ts` reads it (`offeredIn`, `enrollmentOf`,
+`instructorsFor`); a term not in the file, or a subject an upcoming term is
+still posting, reads as unknown, never "not offered". Nothing in the planner
+or the bots reads it yet. Check: `lib/planner/__uga-offerings.check.mjs`.
+
 ### The language requirement is planned, not quoted
 
 Most Illinois degrees require the third (LAS Sciences and Letters: fourth)
