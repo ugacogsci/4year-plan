@@ -4682,11 +4682,19 @@ export function PlannerWorkspace({
         review: L.issues.filter((i) => i.termId === t.id && i.severity !== 'info').map((i) => `${i.severity}: ${i.message}`),
       };
     };
-    /** Runners-up for a slot or a list pick, with reasons. */
+    /**
+     * Runners-up for a slot or a list pick, with reasons, and how commonly each
+     * is taken and when it runs: at UGA that decides a list's choice wherever
+     * the fit to the student's words ties, and with the fit scores alone ARCH
+     * read six common core courses at 0.14 as "a coin flip among filler".
+     */
     const runnersUp = (c: Course, t: PlanTerm, limit: number) =>
       alternativesFor(c.id, t.id)
         .slice(0, limit)
-        .map((a) => ({ code: a.course.code, title: a.course.title, credits: creditsOf(a.course), why: a.why, fit: fitOf(a.course) }));
+        .map((a) => {
+          const common = commonlyTakenLine(ctx, a.course.code);
+          return { code: a.course.code, title: a.course.title, credits: creditsOf(a.course), why: a.why, fit: fitOf(a.course), ...(common ? { how_common: common } : {}) };
+        });
     const withCourseIn = (base: PlanState, courseId: string, termId: string): PlanState => ({
       ...base,
       terms: base.terms.map((t) => (t.id === termId ? { ...t, courseIds: [...t.courseIds, courseId] } : t)),
@@ -5291,12 +5299,34 @@ export function PlannerWorkspace({
             note: 'The level is required; the language is the student\'s choice. Switching one card switches the rest of the sequence.',
           };
         }
+        /*
+         * A list's pick says which requirement it meets and why it was the
+         * pick, in words: with only the fit scores (0.14 for six common core
+         * courses alike) ARCH called a Risk Management sophomore's LAND 2510,
+         * booked for World Languages and Global Culture, "purely to reach the
+         * 120-credit total... a coin flip among filler" (2026-10-28).
+         */
+        const pool = mark?.kind === 'pool'
+          ? L.pools.find((p) => (mark.requirementId ? p.requirementId === mark.requirementId : p.label === mark.label) && p.picked.some((code) => normCode(code) === key))
+          : undefined;
+        const fills = pool ? (pool.areaLabel && pool.areaLabel !== pool.label ? `${pool.areaLabel}: ${pool.label}` : pool.label) : null;
+        const alongside = pool ? board.terms.flatMap((x) => x.courseIds).flatMap((id) => {
+          const other = L.courseIndex.get(id);
+          const otherMark = other ? L.electiveOf.get(other.id) : undefined;
+          return other && other.id !== c.id && otherMark?.kind === 'pool' && (mark?.requirementId ? otherMark.requirementId === mark.requirementId : otherMark.label === mark?.label) ? [other.code] : [];
+        }) : [];
+        const common = commonlyTakenLine(ctx, c.code);
+        const listWhy = pool && fills
+          ? `${c.code} meets part of a requirement: it is one of the courses this plan books for ${fills}${pool.hoursTarget !== null ? ` (${pool.hoursTarget} hours)` : ''}${alongside.length > 0 ? `, with ${alongside.join(', ')}` : ''}.${common ? ` What the planner weighed for it: ${common}` : ''}`
+          : null;
         return {
           ...base,
           list: mark?.kind === 'pool' ? mark.label : null,
+          ...(fills ? { counts_toward: fills } : {}),
+          ...(listWhy ? { why: listWhy } : {}),
           chosen_for: mark?.detail ?? null,
           runners_up: runnersUp(c, t, 6),
-          note: 'Runners-up are what the planner would offer in its place under the current priorities, best first; a swap needs a clear reason.',
+          note: `Runners-up are what the planner would offer in its place under the current priorities, best first; a swap needs a clear reason.${mark?.kind === 'pool' ? ' A course from a list meets that requirement: it is not filler, and a swap keeps the requirement met only from the same list.' : ''}${isUga ? " At UGA a list's pick is on the coming year's Schedule of Classes; among those the planner takes what fits the student's goal, then the degree's own subjects, then the fewest prerequisites to add, then a course that runs every fall and spring and that many students take (how_common). Equal fit scores are settled by those facts, not by chance." : ''}`,
         };
       }
       case 'what_if': {
