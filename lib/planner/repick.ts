@@ -177,10 +177,19 @@ export function planMarks(
     const shown = picks.bookedFor
       ? `${area && area !== pool.label.trim() ? `For ${area}: ` : ''}${wanted ? `${wanted} from this list, ${Math.min(counts, want ?? counts)} chosen.` : `${counts} chosen from this list. The catalog does not say how many to take.`}`
       : detail;
+    /*
+     * A prerequisite the planner booked that a list also takes, past what
+     * the list needs, is there for the course after it, and its card says
+     * so (below): a UGA Computer Science board's CSCI 1301 and CSCI 2610,
+     * booked before CSCI 1302 and CSCI 2720, read "Counts toward the degree
+     * total. The list Approved core courses already has its 1" (2026-10-28).
+     */
+    const prerequisite = new Set(picks.addedPrerequisites.map((a) => normaliseCode(a.code)));
     let counted = 0;
     for (const code of own) {
       const course = find(code);
       if (!course) continue;
+      if (want !== null && counted >= want && prerequisite.has(normaliseCode(code))) continue;
       if (want !== null && counted >= want) {
         map.set(course.id, {
           label: 'Elective',
