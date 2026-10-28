@@ -30,6 +30,7 @@ import {
   loadIllinoisMeta,
   loadIllinoisProgram,
   sectionTermsOf,
+  takenPerYear,
   toGradeRow,
   type IllinoisCore,
   type IllinoisProgramSummary,
@@ -565,22 +566,9 @@ export function buildContext(
   }
 
   const season = (core.meta?.term?.term ?? 'fall').toLowerCase();
-  /*
-   * Students a year, from the grade reports (students graded over the
-   * span the file names, "Spring 2024 through Summer 2026": two and a half
-   * years of falls and springs), for the free choices' "commonly taken"
-   * (autoplan.ts freeChoiceSignals).
-   */
+  // Students a year, from the grade reports (takenPerYear), for the free choices' "commonly taken".
   const gradeSpan = core.meta?.sources?.grades?.terms ?? '';
-  const spanYears = (() => {
-    const m = gradeSpan.match(/(Spring|Summer|Fall)\s+(\d{4})\s+through\s+(Spring|Summer|Fall)\s+(\d{4})/i);
-    if (!m) return null;
-    const at = (season: string, year: string) => Number(year) * 2 + (/fall/i.test(season) ? 1 : 0);
-    // A span from a summer starts with the fall after it.
-    const regular = at(m[3], m[4]) - (at(m[1], m[2]) + (/summer/i.test(m[1]) ? 1 : 0)) + 1;
-    return regular > 0 ? regular / 2 : null;
-  })();
-  const taken = core.grades && spanYears ? new Map([...core.grades].map(([code, summary]) => [code, summary.n / spanYears])) : undefined;
+  const taken = takenPerYear(core.grades, gradeSpan);
   const context: PlanningContext = {
     courses: core.index,
     prereqs: core.prereqs

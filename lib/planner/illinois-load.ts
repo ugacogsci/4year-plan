@@ -938,6 +938,25 @@ export function toGradeRow(
 }
 
 /**
+ * Students a year in each course, from the grade reports: students graded
+ * over the span the meta file names ("Spring 2024 through Summer 2026", two
+ * and a half years of falls and springs), for the free choices' "commonly
+ * taken" (autoplan.ts freeChoiceSignals). Undefined when the span cannot be
+ * read. The all-degrees sweep reads it the same way (scripts/dev/sweep):
+ * built without it, the sweep ranked SHS 222 (2,520 students) by its two
+ * Fall 2026 sections and ECE 316 (171) the same.
+ */
+export function takenPerYear(grades: ReadonlyMap<string, { n: number }> | null | undefined, span: string): Map<string, number> | undefined {
+  const m = span.match(/(Spring|Summer|Fall)\s+(\d{4})\s+through\s+(Spring|Summer|Fall)\s+(\d{4})/i);
+  if (!grades || !m) return undefined;
+  const at = (season: string, year: string) => Number(year) * 2 + (/fall/i.test(season) ? 1 : 0);
+  // A span from a summer starts with the fall after it.
+  const regular = at(m[3], m[4]) - (at(m[1], m[2]) + (/summer/i.test(m[1]) ? 1 : 0)) + 1;
+  if (regular <= 0) return undefined;
+  return new Map([...grades].map(([code, summary]) => [code, summary.n / (regular / 2)]));
+}
+
+/**
  * One sentence for the header, naming what is loaded and what is not.
  *
  * It says "not loaded" rather than reporting zero, because the section crawl is

@@ -166,7 +166,7 @@ const V = await import(join(HERE, 'review.ts'));
 const R = await import(join(HERE, 'repick.ts'));
 const { PRIORITY_PRESETS } = await import(join(HERE, 'priorities.ts'));
 const { adaptIllinoisPrograms, missingPrerequisiteGroups, attachRequirementIds } = await import(join(HERE, 'illinois-data.ts'));
-const { hydrateIndexRow, toGradeRow, applyOfferings } = await import(join(HERE, 'illinois-load.ts'));
+const { hydrateIndexRow, toGradeRow, applyOfferings, takenPerYear } = await import(join(HERE, 'illinois-load.ts'));
 const { livePools } = await import(join(ROOT, 'components/planner/live-pools.ts'));
 
 const pub = (n) => JSON.parse(readFileSync(join(PUBLIC, n), 'utf8'));
@@ -203,6 +203,14 @@ const termSections = (meta.sectionTerms ?? []).map((t) => {
   const sections = t.file === 'sections.json' ? firstSections : new Map(file.courses.map((r) => [norm(r.code), { ...r, termId: file.termId, termLabel: file.termLabel }]));
   return { id: t.id, label: t.label, season: seasonWord(String(t.term).toLowerCase()), year: t.year, sections };
 });
+/**
+ * Students a year by the grade reports, as the workspace hands them to the
+ * engine (illinois-source.tsx buildContext, illinois-load.ts takenPerYear):
+ * without them the free choices read "commonly taken" off the crawled term's
+ * section count, and SHS 222 (2,520 students, two sections) and ECE 316 (171,
+ * two sections) looked alike. A checkout with no takenPerYear reads none.
+ */
+const taken = takenPerYear?.(gradeRaw, meta.sources?.grades?.terms ?? '');
 const context = {
   courses: rows,
   prereqs: new Map(Object.entries(pub('illinois/prereqs.json'))),
@@ -222,6 +230,7 @@ const context = {
   languages: pub('illinois/languages.json'),
   snapshotTerm: meta.term ? { id: meta.term.id, label: meta.term.label, season: season === 'spring' ? 'Spring' : season === 'summer' ? 'Summer' : 'Fall' } : null,
   gradeFootnote: meta.gradeFootnote ?? null,
+  ...(taken ? { taken, takenSource: `Illinois grade reports, ${meta.sources.grades.terms}` } : {}),
   prereqCheck: (s, e, t, q) => missingPrerequisiteGroups(s ?? null, e, t, q),
 };
 const facts = new Map(rows.map((c) => [norm(c.code), { equivalents: (c.twins ?? []).map(norm), genEd: c.tags ?? [] }]));
