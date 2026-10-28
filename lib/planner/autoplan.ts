@@ -451,9 +451,10 @@ export interface PlanningContext {
    * Classes' terms (uga-offerings.ts seasonsRun), and those terms. Only the
    * free choices read it, to prefer a course on this year's schedule and one
    * that runs every fall and spring; the board's offering warnings read
-   * `offerings`, which UGA does not set.
+   * `offerings`, which UGA does not set. `arranged` holds the courses whose
+   * every section is arranged one to one (uga-offerings.ts arrangedOnly).
    */
-  scheduled?: { terms: string[]; seasons: Map<string, SemesterSeason[]> };
+  scheduled?: { terms: string[]; seasons: Map<string, SemesterSeason[]>; arranged?: Set<string> };
   /** UGA: each subject's name by code ("ENTR": "Entrepreneurship"), for the relevance measure (QualityInputs.subjectNames). Absent: Illinois's table. */
   subjectNames?: Map<string, string>;
   /** New course number -> the old number whose offering history it carries. */
@@ -3897,7 +3898,12 @@ interface FreeChoiceSignals {
    * sections in the crawled term.
    */
   band(code: string): number;
-  /** 1 for a UGA course the Schedule of Classes has in none of its terms (Spring 2026 to Summer 2027). */
+  /**
+   * 1 for a UGA course the Schedule of Classes has in none of its terms
+   * (Spring 2026 to Summer 2027), only as sections arranged one to one (a
+   * directed study), or only in the season the Bulletin does not list it
+   * for: none is a course a student can sign up for where the plan can book it.
+   */
   offSchedule(code: string): number;
   /** 1 for a course that runs in only one of fall and spring (UGA's schedule, Illinois's offering history). */
   oneSeason(code: string): number;
@@ -3933,7 +3939,15 @@ function freeChoiceSignals(ctx: PlanningContext): FreeChoiceSignals {
       const at = POPULAR_BANDS.findIndex((floor) => n >= floor);
       return at < 0 ? POPULAR_BANDS.length : at;
     }),
-    offSchedule: (code) => (scheduled && !scheduled.seasons.has(code) ? 1 : 0),
+    offSchedule: rememberedBy((code: string): number => {
+      if (!scheduled) return 0;
+      const seasons = scheduled.seasons.get(code);
+      if (!seasons || scheduled.arranged?.has(code)) return 1;
+      // Or one the Bulletin publishes for a fall or a spring the schedule runs it in neither of (ARID 2020, ARHI 3022).
+      const course = catalogByCode(ctx.courses).get(code);
+      const listed = course && ctx.offeringPublished?.has(code) ? regularSeasons(course.offeredIn) : [];
+      return listed.length > 0 && !listed.some((season) => seasons.includes(season)) ? 1 : 0;
+    }),
     oneSeason: rememberedBy((code: string): number => {
       const seasons = seasonsOf(code);
       if (!seasons || seasons.length === 0) return 0;

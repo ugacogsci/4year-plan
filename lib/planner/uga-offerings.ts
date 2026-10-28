@@ -288,8 +288,33 @@ export function takenPerYear(file: UgaOfferingsFile): Map<string, number> {
   const out = new Map<string, number>();
   for (const [code, byTerm] of Object.entries(file.courses)) {
     let n = 0;
-    for (const label of counted.values()) n += byTerm[label]?.enrolled ?? 0;
-    if (n > 0) out.set(code, n);
+    let ran = false;
+    for (const label of counted.values()) {
+      n += byTerm[label]?.enrolled ?? 0;
+      if ((byTerm[label]?.sections ?? 0) > 0) ran = true;
+    }
+    // A course with sections in those terms and no one in them is 0, not unknown: DIGI 3100's one
+    // Fall 2026 section, no seats and no students, was a filler elective on 207 boards (2026-10-28).
+    if (n > 0 || ran) out.set(code, n);
+  }
+  return out;
+}
+
+/**
+ * The courses a student cannot simply sign up for: in every term the file
+ * lists them, every section is one the schedule stars as arranged one to
+ * one (TermOffering.individual: directed study, research, internships), or
+ * the sections hold no seats and no students (a section posted with no
+ * enrollment limit, DIGI 3100's in Fall 2026). A student arranges one with a
+ * faculty member; it is never the planner's own pick for a list or an
+ * elective (SWAH 3990 Directed Study in Swahili was a filler on 57 boards).
+ */
+export function arrangedOnly(file: UgaOfferingsFile): Set<string> {
+  const out = new Set<string>();
+  for (const [code, byTerm] of Object.entries(file.courses)) {
+    const ran = Object.values(byTerm).filter((o) => o.sections > 0);
+    const open = ran.some((o) => !o.individual && (o.seats > 0 || (o.noLimit ?? 0) > 0 || (o.enrolled ?? 0) > 0));
+    if (ran.length > 0 && !open) out.add(code);
   }
   return out;
 }

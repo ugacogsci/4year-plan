@@ -23,7 +23,7 @@ import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner
 import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
 import type { AnyCourseRule } from '@/lib/planner/any-course';
 import { canonicalUgaCode, listedUgaCourseCodes } from '@/lib/planner/uga-course-codes';
-import { loadUgaOfferings, seasonsRun, takenPerYear, type UgaOfferingsFile } from '@/lib/planner/uga-offerings';
+import { arrangedOnly, loadUgaOfferings, seasonsRun, takenPerYear, type UgaOfferingsFile } from '@/lib/planner/uga-offerings';
 
 export { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 
@@ -1144,7 +1144,7 @@ export function loadUgaData(): Promise<UgaData | null> {
       ...(offerings ? {
         taken: takenPerYear(offerings),
         takenSource: ((counted) => `UGA's Schedule of Classes, ${counted[0]?.label} to ${counted.at(-1)?.label}`)(offerings.terms.filter((t) => t.enrolled > 0).sort((a, b) => a.period.localeCompare(b.period))),
-        scheduled: { terms: offerings.terms.map((t) => t.label), seasons: seasonsRun(offerings) },
+        scheduled: { terms: offerings.terms.map((t) => t.label), seasons: seasonsRun(offerings), arranged: arrangedOnly(offerings) },
         ...(offerings.subjects ? { subjectNames: new Map(Object.entries(offerings.subjects)) } : {}),
       } : {}),
     };
