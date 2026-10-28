@@ -22,6 +22,11 @@
  *
  *   node scripts/uga-programs.mjs --limit 5     # sample
  *   node scripts/uga-programs.mjs               # everything
+ *   node scripts/uga-programs.mjs --undergraduate        # bachelor's degrees only, the rest kept
+ *   node scripts/uga-programs.mjs --degrees MINOR,CERT-UG  # those kinds only, the rest kept
+ *   node scripts/uga-programs.mjs --levels       # only the level ranges of bachelor's
+ *                                                # subject-wide rows ("3000-level or higher"),
+ *                                                # every other field of the file kept as it is
  */
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -44,6 +49,22 @@ const clean = (h) =>
 
 const undergraduateDegree = (degree) =>
   degree === 'AB' || /^B[A-Z]+$/.test(degree);
+
+/**
+ * The levels a subject-wide row takes, as the page words it after the first
+ * level: "POLS prefix course 3000-level or higher" is 3000 to 5999, "AFAM
+ * prefix courses 2000-level or below" 1000 to 2999, "1000/2000-level" both.
+ * The row's code keeps its first level ("POLS 3XXX"); levelFrom and levelTo
+ * (first digits) are set only where they differ from it. Read as the first
+ * level alone, a Political Science senior's ten 4000-level POLS classes
+ * counted for none of the major's 18 hours "3000-level or higher" (2026-10-28).
+ */
+function levelRange(level, second, qualifier) {
+  const n = Number(level);
+  const to = second ? Number(second) : /higher|above/i.test(qualifier ?? '') ? 5 : n;
+  const from = /below/i.test(qualifier ?? '') ? 1 : n;
+  return { ...(from !== n ? { levelFrom: from } : {}), ...(to !== n ? { levelTo: Math.max(to, from) } : {}) };
+}
 
 /**
  * Areas of emphasis are not ordinary optional prose. Some programs require
@@ -142,11 +163,11 @@ function parseEmphases(html) {
       }
     }
     for (const prefix of segment.matchAll(
-      /coursePrefix=([A-Z]{2,5})[\s\S]{0,220}?prefix\s+courses?\s+at\s+the\s+(\d)000-level(?:\s+(?:or|and)\s+above)?/gi,
+      /coursePrefix=([A-Z]{2,5})[\s\S]{0,220}?prefix\s+courses?\s+at\s+the\s+(\d)000-level(\s+(?:or|and)\s+above)?/gi,
     )) {
       const code = `${prefix[1].toUpperCase()} ${prefix[2]}XXX`;
       if (!courses.some((course) => course.code === code)) {
-        courses.push({ code, title: `${prefix[1].toUpperCase()} ${prefix[2]}000-level or higher courses`, credits: 0 });
+        courses.push({ code, ...levelRange(prefix[2], null, prefix[3] ? 'above' : null), title: `${prefix[1].toUpperCase()} ${prefix[2]}000-level${prefix[3] ? ' or higher' : ''} courses`, credits: 0 });
       }
     }
     const precedingArea = [...areaHeadings].reverse().find((heading) => heading.at < marker.at) ?? null;
@@ -258,7 +279,7 @@ async function listPage(page) {
  * opens a group inside it, a "Choose N" line sets that group's rule, and every
  * one-row course table that follows belongs to whatever is currently open.
  */
-function parseDetail(html) {
+export function parseDetail(html) {
   const marks = [];
   const flatPage = clean(html);
   const majorElectiveExclusions = [
@@ -288,9 +309,15 @@ function parseDetail(html) {
     // "4000/6000-level courses". It is a real twelve-hour pool, not one course.
     const subject = raw.match(/^([A-Z]{2,5})$/)?.[1];
     const level = clean(title).match(
-      /^(?:prefix\s+)?(\d)000(?:\/\d000)?-level(?:\s+or\s+higher)?\s*(?:courses?)?/i,
+      /^(?:prefix\s+)?(\d)000(?:\/\d000)?-level(?:\s+or\s+(?:higher|above|below))?\s*(?:courses?)?/i,
     )?.[1];
     return subject && level ? `${subject} ${level}XXX` : null;
+  };
+  /** The level range a two-cell subject row's title words ("4000/6000-level courses", "3000-level or above"). */
+  const titleRange = (code, title) => {
+    const m = code.match(/ (\d)XXX$/) ? clean(title).match(/^(?:prefix\s+)?(\d)000(?:\/(\d)000)?-level(?:\s+or\s+(higher|above|below))?/i) : null;
+    // "4000/6000-level" is an undergraduate course and its graduate number, not two levels.
+    return m ? levelRange(m[1], m[2] && Number(m[2]) <= 5 ? m[2] : null, m[3]) : {};
   };
 
   // Course rows: each course is its own one-row table, "CODE | Title | Hours".
@@ -319,6 +346,7 @@ function parseDetail(html) {
           kind: 'course',
           at: m.index ?? 0,
           code,
+          ...titleRange(code, cells[1] ?? ''),
           title: cells[1] ?? '',
           credits: printedCredits[index] ?? (index > 0 && code.endsWith('L') ? 1 : printedCredits[0] ?? 3),
           andPrevious:
@@ -335,13 +363,15 @@ function parseDetail(html) {
   // A subject-wide elective is rendered as a linked subject followed by prose,
   // not as a normal course code cell: "CSCI 4000/6000-level courses".
   for (const m of html.matchAll(
-    /<a[^>]*>\s*([A-Z]{2,5})\s*<\/a>[\s\S]{0,240}?(?:prefix\s+)?(\d)000(?:\/\d000)?-level(?:\s+or\s+higher)?/gi,
+    /<a[^>]*>\s*([A-Z]{2,5})\s*<\/a>[\s\S]{0,240}?(?:prefix\s+)?(\d)000(?:\/(\d)000)?-level(?:\s+or\s+(higher|above|below))?/gi,
   )) {
+    const second = m[3] && Number(m[3]) <= 5 ? m[3] : null;
     marks.push({
       kind: 'course',
       at: m.index ?? 0,
       code: `${m[1].toUpperCase()} ${m[2]}XXX`,
-      title: `${m[1].toUpperCase()} ${m[2]}000-level courses`,
+      ...levelRange(m[2], second, m[4]),
+      title: `${m[1].toUpperCase()} ${m[2]}000${second ? `/${second}000` : ''}-level${m[4] ? ` or ${m[4].toLowerCase()}` : ''} courses`,
       credits: 0,
     });
   }
@@ -495,6 +525,31 @@ function parseDetail(html) {
     });
   }
 
+  // Minor and certificate pages write the rule as prose over named groups:
+  // "Choose a total of 4 courses from Group 1 and Group 2." One rule for the
+  // area, its groups the lists it draws on (structured, as "Choose a minimum
+  // of ..." above); a group's own "Choose 2 to 3 courses" is kept in the note.
+  for (const m of html.matchAll(
+    /Choose\s+a\s+total\s+of\s+(one|two|three|four|five|six|\d+)\s+(courses?|credit\s+hours?|hours?)\s+from\s+(?:the\s+)?groups?\b/gi,
+  )) {
+    const amount = numberWord(m[1]);
+    const inHours = /hour/i.test(m[2]);
+    const after = clean(html.slice(m.index ?? 0, (m.index ?? 0) + 900));
+    marks.push({
+      kind: 'rule',
+      at: m.index ?? 0,
+      choose: inHours ? null : amount,
+      hours: inHours ? amount : null,
+      minimum: false,
+      upperDivisionHours: null,
+      minimumAreas: null,
+      note: after.match(/^Choose\b.*?(?:\.(?=\s)|$)/i)?.[0] ?? '',
+      grouped: false,
+      structured: true,
+      overGroups: true,
+    });
+  }
+
   const priority = { heading: 0, area: 1, rule: 2, course: 3 };
   marks.sort(
     (a2, b2) => a2.at - b2.at || priority[a2.kind] - priority[b2.kind],
@@ -591,7 +646,7 @@ function parseDetail(html) {
         courses: [],
       };
       area.groups.push(group);
-      if (mk.structured && mk.choose !== null) structuredGroup = group;
+      if (mk.structured && (mk.choose !== null || mk.overGroups)) structuredGroup = group;
       courseBundle = null;
     } else if (mk.kind === 'course') {
       if (!area || skipGroup || skipOptional) continue;
@@ -688,11 +743,46 @@ function parseDetail(html) {
   };
 }
 
+/** A program's subject-wide rows ("POLS 3XXX"), with the area each sits in. */
+function subjectRows(program) {
+  return program.areas.flatMap((area) => area.groups.flatMap((group) => group.courses
+    .filter((row) => /^[A-Z]{2,5} [1-9]XXX$/.test(row.code) && !row.code.startsWith('ANY '))
+    .map((row) => ({ area, row }))));
+}
+
+/**
+ * The file's program with each subject-wide row's level range as the page
+ * reads it now (levelRange), matched by area and code; nothing else changes.
+ */
+function withLevels(program, fresh) {
+  const freshRows = subjectRows(fresh);
+  return {
+    ...program,
+    areas: program.areas.map((area) => ({
+      ...area,
+      groups: area.groups.map((group) => ({
+        ...group,
+        courses: group.courses.map((row) => {
+          if (!/^[A-Z]{2,5} [1-9]XXX$/.test(row.code) || row.code.startsWith('ANY ')) return row;
+          const now = freshRows.find((x) => x.area.label === area.label && x.row.code === row.code)?.row;
+          if (!now) return row;
+          const { levelFrom, levelTo, ...rest } = row;
+          return { ...rest, title: now.title, ...(now.levelFrom ? { levelFrom: now.levelFrom } : {}), ...(now.levelTo ? { levelTo: now.levelTo } : {}) };
+        }),
+      })),
+    })),
+  };
+}
+
 const run = async () => {
   const onlyId = process.argv.includes('--id')
     ? process.argv[process.argv.indexOf('--id') + 1]
     : null;
   const undergraduateOnly = process.argv.includes('--undergraduate');
+  const levelsOnly = process.argv.includes('--levels');
+  const degrees = process.argv.includes('--degrees')
+    ? process.argv[process.argv.indexOf('--degrees') + 1].split(',')
+    : null;
   const limit = process.argv.includes('--limit')
     ? Number(process.argv[process.argv.indexOf('--limit') + 1])
     : Infinity;
@@ -707,6 +797,14 @@ const run = async () => {
     seen.set(found.id, found);
   } else if (undergraduateOnly && existing) {
     for (const program of existing.programs.filter((candidate) => undergraduateDegree(candidate.degree))) {
+      seen.set(program.id, program);
+    }
+  } else if (degrees && existing) {
+    for (const program of existing.programs.filter((candidate) => degrees.includes(candidate.degree))) {
+      seen.set(program.id, program);
+    }
+  } else if (levelsOnly && existing) {
+    for (const program of existing.programs.filter((candidate) => undergraduateDegree(candidate.degree) && subjectRows(candidate).length > 0)) {
       seen.set(program.id, program);
     }
   } else {
@@ -759,11 +857,16 @@ const run = async () => {
     if (i % 25 === 0 || i === programs.length) {
       process.stdout.write(`\r  ${i}/${programs.length} fetched, ${withReq} with requirements   `);
     }
-    await sleep(300);
+    await sleep(levelsOnly || degrees ? 1000 : 300);
   }
 
   const finalPrograms =
-    (onlyId || undergraduateOnly) && existing
+    levelsOnly && existing
+      ? existing.programs.map((program) => {
+          const fresh = out.find((candidate) => candidate.id === program.id);
+          return fresh && fresh.areas.length ? withLevels(program, fresh) : program;
+        })
+      : (onlyId || undergraduateOnly || degrees) && existing
       ? existing.programs.map(
           (program) => out.find((fresh) => fresh.id === program.id) ?? program,
         )
@@ -782,4 +885,7 @@ const run = async () => {
   console.log(`  with parsed requirements: ${withReq}`);
 };
 
-run().catch((e) => { console.error(e); process.exit(1); });
+// Run when called, not when a check imports parseDetail to read a saved page.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  run().catch((e) => { console.error(e); process.exit(1); });
+}
