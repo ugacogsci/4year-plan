@@ -3638,6 +3638,8 @@ interface ElectiveScoring {
   /** How commonly taken and whether on this year's schedule (freeChoiceSignals); `common` false when the student asked for the lightest or best-taught courses. */
   free?: FreeChoiceSignals;
   common?: boolean;
+  /** 1 for a UGA course the coming year's schedule does not run (FreeChoiceSignals.offSchedule), with or without the free choices' reading. */
+  offSchedule?: (code: string) => number;
   /** Graded harder than most (the school's harder band), where grade history is loaded. */
   harder?: (code: string) => boolean;
 }
@@ -5434,14 +5436,16 @@ function scoreElective(code: string, s: ElectiveScoring): number {
       // Nor to one at the 300 level or above: an upper-level course of another department is
       // commonly taken because other degrees require it (a Political Science freshman's free
       // electives were FINA 3000, MGMT 3000 and MARK 3000, Terry's business core).
-      const points = POPULAR_POINTS[s.free.band(code)] ?? 0;
+      // A course under three credits keeps the four of before at most: the one that lands a plan on its
+      // total is swapped for a three-credit one where the term allows (landThreeHour), from its own level.
+      const points = Math.max(POPULAR_POINTS[s.free.band(code)] ?? 0, s.creditsOf(code) < 3 ? -4 : -Infinity);
       score += points > 0 && (courseLevel(code) < 200 || courseLevel(code) >= 300 || s.harder?.(code)) ? 0 : points;
     }
-    // Not on UGA's Schedule of Classes in any of its terms: as the dormant rule above.
-    if (s.common && s.free.offSchedule(code)) score -= 9;
     // In only one of fall and spring there: as a rare course.
     if (s.common && s.uga && s.free.oneSeason(code)) score -= 1;
   }
+  // Not on UGA's Schedule of Classes in any of its terms, or only as directed study: as the dormant rule above.
+  if (s.offSchedule?.(code)) score -= 9;
   return score;
 }
 
@@ -5711,6 +5715,7 @@ export function electiveOptions(input: {
     goalPoints: goalWeighs(careerProfileOf(input)),
     careerFollowOn: careerFollowOnOf(ctx, input.careerFit),
     free: freeChoiceSignals(ctx),
+    offSchedule: freeChoiceSignals(ctx).offSchedule,
     common: !lightFirst(input.priorities) && (input.priorities ?? DEFAULT_PRIORITIES).teaching !== 2,
     harder: (code) => (ctx.grades?.get(code)?.difficulty ?? 0) >= (ctx.bands ?? FALLBACK_BANDS).harder,
     quality: input.quality ?? qualityFor(ctx, byCode, {
@@ -9395,12 +9400,26 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        */
       const wholeShare = breadth.broad && breadth.hours ? (breadth.hours % Math.max(1, creditsOf(code)) === 0 ? 0 : 1) : 0;
       const near = breadth.upper ? (subjectHere || nearSubjects.has(subject) ? 0 : 1) : 0;
-      const offered = breadth.broad && freeMode === 'common' ? [wholeShare, near, signals.offSchedule(code), signals.oneSeason(code), breadth.core && !subjectHere && courseLevel(code) >= 300 ? 1 : 0] : [];
+      const offered = breadth.broad && freeMode === 'common' ? [wholeShare, near, signals.oneSeason(code), breadth.core && !subjectHere && courseLevel(code) >= 300 ? 1 : 0] : [];
       const common = breadth.broad && commonFirst ? [subjectHere ? 0 : signals.band(code)] : [];
       const lastTie = lastTies ? [-(signals.taken(code) ?? 0)] : [];
+      /*
+       * On any UGA list, the major's own included, a course a student can
+       * sign up for in the coming year before the goal and the degree's
+       * subjects have their say: not on the Schedule of Classes at all, or
+       * only as directed study, it is no pick (a software engineer's CSCI
+       * 4500 and 4490, a History student's HIST 3552, 3575 and 4555, an
+       * English student's ENGL 4197 Middle Welsh). And in a broad list a goal
+       * match fewer than 30 students a year take is not one either: one word
+       * of "sports marketing" made LAMS 5485 Equine Sports Medicine,
+       * Rehabilitation, and Podiatry (9 a year) a Marketing student's
+       * Non-Business elective.
+       */
+      const schedule = ctx.schoolId === 'uga' ? [signals.offSchedule(code)] : [];
+      const wantedHere = breadth.broad && lastTies && !subjectHere && signals.band(code) === POPULAR_BANDS.length ? 1 : wanted;
       const key = input.goalRows
-        ? [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, clash, aside, wanted, own, extra, unverifiable, ...offered, ...light, ...common, variable, ...byPriority, chain, ...lastTie]
-        : [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, unverifiable, clash, aside, wanted, own, extra, ...offered, ...light, ...common, variable, ...byPriority, chain, ...lastTie];
+        ? [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, ...schedule, clash, aside, wantedHere, own, extra, unverifiable, ...offered, ...light, ...common, variable, ...byPriority, chain, ...lastTie]
+        : [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, ...schedule, unverifiable, clash, aside, wantedHere, own, extra, ...offered, ...light, ...common, variable, ...byPriority, chain, ...lastTie];
       const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
       if (traced && normaliseCode(traced) === code) console.error(`  [PLAN_DEBUG] ${code} list-pick key [inCatalog, audience, gated, shutsTrack, ${pickServe ? 'servesTrack, ' : ''}unverifiable, clash, aside, wanted, own, extra, ${light.length ? 'light, ' : ''}variable, unknown, -score, -known, chain] = ${JSON.stringify(key)}`);
       return key;
@@ -10227,11 +10246,18 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const have = choosing && !plainEngine && input.goalRows ? new Set([...satisfiedForPrereq, ...chosen.keys()]) : null;
         const costMemo = new Map<string, number>();
         const extraOf = rememberedBy((code: string): number => (have ? prerequisiteCost(code, have, ctx.prereqs, equivalents, byCode, costMemo, new Set()) : 0));
+        /*
+         * A choice's version for this student (listAudience: MATH 2400H
+         * Differential Calculus with Theory is the honors one) and, at UGA,
+         * one on the coming year's schedule (poolOrderFor's schedule step), as
+         * a list's pick reads them.
+         */
+        const readFor = rememberedBy((code: string): number => (lastTies ? listAudience(code) * 2 : 0) + signals.offSchedule(code));
         const scored = slot.options
           .map((option) => pickFromOption(option))
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) =>
-            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) : 0) ||
+            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) || readFor(a.code) - readFor(b.code) : 0) ||
             (listOrder ? listOrder(a.code, b.code) : 0) ||
             (have ? (rank(a.code)[0] ?? 0) - (rank(b.code)[0] ?? 0) || extraOf(a.code) - extraOf(b.code) : 0) ||
             // A choice's last ties on its hours (the row asks for a course, not hours: STAT 2000 at four
@@ -10539,7 +10565,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      */
     // A course the named track books anyway goes first: MCB 244 takes CHEM
     // 102, not CHEM 101, for a pre-PT student (see trackPreferred).
-    const pick = trackPreferred(open) ?? (holdsTwins(open) ? open.slice().sort(twinPreference)[0] : (best(open) ?? open[0]));
+    // With the free choices' reading, a version for this student on the coming year's schedule where the
+    // group has one: MATH 2260's calculus was MATH 2300H, the honors one, for an Agribusiness freshman.
+    const fitting = lastTies ? open.filter((alt) => listAudience(alt) === 0 && signals.offSchedule(alt) === 0) : open;
+    const among = fitting.length > 0 ? fitting : open;
+    const pick = trackPreferred(open) ?? (holdsTwins(among) ? among.slice().sort(twinPreference)[0] : (best(among) ?? among[0]));
     chosen.set(pick, { requirementId: null, label: `Prerequisite for ${code}` });
     addedPrerequisites.push({ code: pick, requiredBy: code });
     return pick;
@@ -12932,6 +12962,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       goalPoints: goalWeighs(careerProfileOf(input)),
       careerFollowOn: careerFollowOnOf(ctx, input.careerFit),
       free: lastTies ? signals : undefined,
+      offSchedule: signals.offSchedule,
       common: commonFirst,
       harder: (code) => (grades.get(code)?.difficulty ?? 0) >= (ctx.bands ?? FALLBACK_BANDS).harder,
       quality: qualityFor(ctx, byCode, {
@@ -14911,6 +14942,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      */
     const smallCourses = (index: number, least: number, most: number): string[] => {
       const onBoard = new Set([...placed.values()].flat());
+      // Nor another version of a course on the board or held (AAEC 2580E beside AAEC 2580), or a UGA
+      // course the coming year's schedule does not run (freeChoiceSignals.offSchedule).
+      const versionHeld = (c: string) => expandEquivalents(c, equivalents).some((twin) => twin !== c && (onBoard.has(twin) || earned.has(twin)));
       return ctx.courses
         .map((c) => normaliseCode(c.code))
         .filter((c) => {
@@ -14918,9 +14952,19 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           return worth >= least && worth <= most && worth <= 3 && !onBoard.has(c) && !earned.has(c) && !exempt.has(c) && !isHard(c) &&
             needFor(c) === null && courseLevel(c) < 300 && !reallyVariable(ctx.creditRanges?.get(c)) &&
             !(input.notTowardDegree?.(c)) && electiveBarred(c) === null && titleClosesTo(byCode.get(c), who) === false &&
+            !versionHeld(c) && !signals.offSchedule(c) &&
             conflictWith(c, conflicts, [earned, onBoard]) === null && fitsAt(c, index);
         });
     };
+    /** Among small courses alike, the one more students take, never the code (freeChoiceSignals). */
+    const takenOrder = (a: string, b: string) => (lastTies ? (signals.taken(b) ?? 0) - (signals.taken(a) ?? 0) : 0);
+    /*
+     * And with the reading, one fewer than a hundred students a year take
+     * after the rest, before the priority score: light grades made FSHN 249
+     * Food Service Sanitation (about 20 a year) the small course of 290
+     * Illinois boards.
+     */
+    const commonOrder = (a: string, b: string) => (commonFirst ? Number(signals.band(a) >= 3) - Number(signals.band(b) >= 3) : 0);
     const move = (code: string, from: number, to: number) => {
       placed.set(terms[from].id, (placed.get(terms[from].id) ?? []).filter((c) => c !== code));
       placed.set(terms[to].id, [...(placed.get(terms[to].id) ?? []), code]);
@@ -15006,7 +15050,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             for (let k = i - 1; k >= 0 && !done; k -= 1) {
               const room = creditCapOf(terms[k]) - creditsIn(k);
               if (room < short) continue;
-              const pick = smallCourses(k, short, room).sort((a, b) => creditsOf(a) - creditsOf(b) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || a.localeCompare(b))[0];
+              const pick = smallCourses(k, short, room).sort((a, b) => creditsOf(a) - creditsOf(b) || commonOrder(a, b) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || takenOrder(a, b) || a.localeCompare(b))[0];
               if (!pick) continue;
               placed.set(terms[k].id, [...(placed.get(terms[k].id) ?? []), pick]);
               chosen.set(pick, { requirementId: null, label: 'Elective' });
@@ -15029,7 +15073,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             for (let k = i - 1; k >= 0 && left > 0; k -= 1) {
               const room = Math.min(creditCapOf(terms[k]) - creditsIn(k), left);
               if (room <= 0) continue;
-              const pick = smallCourses(k, 1, room).sort((a, b) => creditsOf(b) - creditsOf(a) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || a.localeCompare(b))[0];
+              const pick = smallCourses(k, 1, room).sort((a, b) => creditsOf(b) - creditsOf(a) || commonOrder(a, b) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || takenOrder(a, b) || a.localeCompare(b))[0];
               if (!pick) continue;
               placed.set(terms[k].id, [...(placed.get(terms[k].id) ?? []), pick]);
               added.push({ pick, k });
@@ -15069,7 +15113,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const have = creditsIn(i);
         if (terms[i].season === 'Summer' || have === 0 || have >= credits.min) continue;
         const short = credits.min - have;
-        const pick = smallCourses(i, short, 3).sort((a, b) => creditsOf(a) - creditsOf(b) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || a.localeCompare(b))[0];
+        const pick = smallCourses(i, short, 3).sort((a, b) => creditsOf(a) - creditsOf(b) || commonOrder(a, b) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || takenOrder(a, b) || a.localeCompare(b))[0];
         if (!pick) continue;
         placed.set(terms[i].id, [...(placed.get(terms[i].id) ?? []), pick]);
         chosen.set(pick, { requirementId: null, label: 'Elective' });
