@@ -1607,11 +1607,11 @@ export function PlannerWorkspace({
      */
     const priorHours = priorHoursOf(answers, exams, examCredit.entries, catalogCredits);
     let courseById: Map<string, Course> | null = null;
-    const builtAudit = (board: PlanState): number => {
+    const builtAudit = (board: PlanState, bookedFor?: Record<string, string | null>): number => {
       courseById ??= new Map(context.courses.map((course) => [course.id, course]));
       const held = board.completedCourseIds.flatMap((id) => courseById?.get(id)?.code ?? []).map(normCode);
       const hours = planCreditRange(distinctHeld(held, context).codes, context).min + priorHours;
-      return ugaUnmetRows(auditUgaBoard({ board, context, undergraduate: loaded, graduate: loaded.doubleDawgsGraduate, priorCodes: held,
+      return ugaUnmetRows(auditUgaBoard({ board, context, undergraduate: loaded, graduate: loaded.doubleDawgsGraduate, priorCodes: held, bookedFor,
         extraCredits: hours - planCreditRange(held, context).min + horizon.assumedHours,
         transcript: answers?.transcript, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used,
         validation: { ...validateOptions(), programName: loaded.program.name, priorCredits: hours + horizon.assumedHours } }));
@@ -1650,9 +1650,9 @@ export function PlannerWorkspace({
       // name: "Psychology" alone was booking psychopathology as their goal.
       career: careerText,
       // The degree check holds the matcher's board to the board audit too (AutoplanInput.careerAudit).
-      ...(careerFit ? { careerFit, ...(isUga ? { careerAudit: (g: GeneratedPlan) => builtAudit(g.plan) } : {}) } : {}),
+      ...(careerFit ? { careerFit, ...(isUga ? { careerAudit: (g: GeneratedPlan) => builtAudit(g.plan, g.bookedFor) } : {}) } : {}),
       // And the free choices' check (AutoplanInput.boardAudit), at UGA by the audit the board bar reads.
-      ...(isUga ? { boardAudit: (g: GeneratedPlan) => builtAudit(g.plan) } : {}),
+      ...(isUga ? { boardAudit: (g: GeneratedPlan) => builtAudit(g.plan, g.bookedFor) } : {}),
       programName: loaded.program.name,
       programCollege: loaded.program.college,
       arrival: arrivalOf(answers),
@@ -2254,7 +2254,7 @@ export function PlannerWorkspace({
   }, [plan, courseIndex]);
 
   const ugaAudit = useMemo(() => isUga && plan && context && loaded ? auditUgaBoard({
-    board: plan, context, undergraduate: loaded, graduate: loaded.doubleDawgsGraduate,
+    board: plan, context, undergraduate: loaded, graduate: loaded.doubleDawgsGraduate, bookedFor: report?.bookedFor,
     // The terms assumed until their classes are added (assumedCredit) count
     // toward the degree total here as on Illinois's headline: the plan was
     // built counting them, so leaving them out read as "credits are short".
@@ -2263,7 +2263,7 @@ export function PlannerWorkspace({
     // Class standing counts the assumed terms too: the plan was placed counting them, and
     // without them a freshman's Spring 2027 read 15 hours behind ("Class standing not reached").
     validation: { minimumTermCredits, priorCredits: priorCreditHours + assumedCredit.hours, standingHours: isGraduatePlan ? gradSettings.standingHours : undefined },
-  }) : null, [isUga, plan, context, loaded, completedCodes, priorCreditHours, transcriptRecord, uga, coreCredit, minimumTermCredits, isGraduatePlan, gradSettings.standingHours, assumedCredit.hours]);
+  }) : null, [isUga, plan, context, loaded, report?.bookedFor, completedCodes, priorCreditHours, transcriptRecord, uga, coreCredit, minimumTermCredits, isGraduatePlan, gradSettings.standingHours, assumedCredit.hours]);
 
   /**
    * The pools, counted off the board rather than off the generation.
@@ -2826,6 +2826,8 @@ export function PlannerWorkspace({
           electives: report?.electives ?? [],
           genEdPicks: report?.genEdPicks ?? [],
           addedPrerequisites: report?.addedPrerequisites ?? [],
+          // At UGA a core class is on several of the audit's lists; each card wears the row it was booked for.
+          ...(isUga ? { bookedFor: report?.bookedFor } : {}),
         },
         byCode,
         context ? (code) => commonlyTakenLine(context, code) : undefined,
@@ -2840,7 +2842,7 @@ export function PlannerWorkspace({
       }
       return marks;
     },
-    [pools, byCode, report, plan?.doubleDawgs, context],
+    [pools, byCode, report, plan?.doubleDawgs, context, isUga],
   );
 
   /** Whether the query matches anything at all, so the panel can say when it does not. */
@@ -3874,7 +3876,7 @@ export function PlannerWorkspace({
     const L = live.current;
     if (!isUga || !L.context || !L.loaded) return null;
     return auditUgaBoard({ board, context: L.context, undergraduate: L.loaded,
-      graduate: L.loaded.doubleDawgsGraduate, priorCodes: [...L.completedCodes],
+      graduate: L.loaded.doubleDawgsGraduate, priorCodes: [...L.completedCodes], bookedFor: L.report?.bookedFor,
       extraCredits: L.priorCreditHours - planCreditRange([...L.completedCodes], L.context).min + L.assumedCredit.hours,
       transcript: L.answers?.transcript, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used,
       validation: { ...validateOptions(), priorCredits: L.priorCreditHours + L.assumedCredit.hours } });

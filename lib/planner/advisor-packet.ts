@@ -429,8 +429,11 @@ function fillsOf(course: Course, role: CardRole, input: PacketInput): string {
       const listed = input.blocks.find((b) => (b.rule.choices ?? []).some((ch) => ch.codes.map(normaliseCode).includes(code)));
       return listed ? named(listed) : 'Named by the degree page';
     }
-    case 'from a list':
-      return mark?.label ?? 'A list on the degree page';
+    case 'from a list': {
+      // With its area where the card knows its row: UGA's "Approved core courses" is three areas' list.
+      const block = mark?.requirementId ? input.blocks.find((b) => b.id === mark.requirementId) : undefined;
+      return block ? named(block) : (mark?.label ?? 'A list on the degree page');
+    }
     case 'gen ed pick':
       return mark?.label ? `Gen ed: ${mark.label}` : 'A general education category';
     case 'career track':

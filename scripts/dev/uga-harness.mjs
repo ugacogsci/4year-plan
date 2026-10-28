@@ -55,7 +55,9 @@
  * HARNESS_IDS (only these program ids), HARNESS_KINDS (only these kinds),
  * HARNESS_ALONE=1 (each program built in a fresh process, so build order
  * cannot matter), HARNESS_DEBUG=1 (add the engine's own pools, unmet
- * requirements and notes to each row).
+ * requirements and notes to each row), HARNESS_BOOKED=0 (audit without the
+ * row each course was booked for, as every audit read before 2026-10-28; a
+ * checkout before then ignores it either way).
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -506,13 +508,15 @@ function build(program, kind) {
   const priorHere = horizon.assumedHours > 0 ? { ...prior, unmatchedCredits: prior.unmatchedCredits + horizon.assumedHours } : prior;
   const publishedTotal = loaded.summary?.totalCredits || loaded.program.totalCredits || null;
   const careerText = answers.after;
+  // The row each course was booked for, as the workspace passes it to the audit (UgaAuditInput.bookedFor).
+  const bookedOf = (g) => (process.env.HARNESS_BOOKED === '0' ? {} : { bookedFor: g.bookedFor });
   /** With the career matcher: a candidate board's unmet audit rows, read as below (AutoplanInput.careerAudit). */
   const unmetRowsOf = (g) => {
     const done = g.plan.completedCourseIds.map((id) => context.courses.find((c) => c.id === id)?.code).filter(Boolean).map(norm);
     const gone = new Set((g.forfeited ?? []).map((f) => norm(f.held)));
     const hours = planCreditRange(distinctHeld(done.filter((c) => !gone.has(c)), context).codes, context).min + priorHours;
     const a = auditUgaBoard({
-      board: g.plan, context, undergraduate: loaded, priorCodes: done,
+      board: g.plan, context, undergraduate: loaded, priorCodes: done, ...bookedOf(g),
       extraCredits: hours - planCreditRange(done, context).min + horizon.assumedHours,
       transcript: record, dualLevel: data.dualLevelCourses,
       validation: { minimumTermCredits: 12, priorCredits: hours + horizon.assumedHours },
@@ -537,7 +541,7 @@ function build(program, kind) {
   const priorCreditHours = planCreditRange(once, context).min + priorHours;
   const current = horizon.current ?? null;
   const audit = auditUgaBoard({
-    board, context, undergraduate: loaded, priorCodes: completed,
+    board, context, undergraduate: loaded, priorCodes: completed, ...bookedOf(generated),
     extraCredits: priorCreditHours - planCreditRange(completed, context).min + horizon.assumedHours,
     transcript: record, dualLevel: data.dualLevelCourses,
     // As the workspace's audit has it since 2026-10-20: standing counts the assumed terms (0 at UGA before).
@@ -558,7 +562,7 @@ function build(program, kind) {
     const drop = new Set(offSeason.map((code) => context.courses.find((c) => c.code === code)?.id));
     const strictBoard = { ...board, terms: board.terms.map((t) => (t.season === 'Summer' ? t : { ...t, courseIds: t.courseIds.filter((id) => !drop.has(id)) })) };
     const strictAudit = auditUgaBoard({
-      board: strictBoard, context, undergraduate: loaded, priorCodes: completed,
+      board: strictBoard, context, undergraduate: loaded, priorCodes: completed, ...bookedOf(generated),
       extraCredits: priorCreditHours - planCreditRange(completed, context).min + horizon.assumedHours,
       transcript: record, dualLevel: data.dualLevelCourses,
       validation: { minimumTermCredits: 12, priorCredits: priorCreditHours + horizon.assumedHours },
@@ -640,6 +644,22 @@ function build(program, kind) {
       ...audit.areas.filter((row) => !row.satisfied).map((row) => `${row.area.label} (${row.earned}/${row.area.hours})`),
       ...audit.issues.filter((i) => i.id.startsWith('uga-pool-')).map((i) => i.title),
     ],
+    /*
+     * Added 2026-10-28: the same board audited as every audit read before
+     * then, without the row each course was booked for, so a board can be
+     * set beside an older run's on one reading (a core class no longer
+     * counts again as a Non-Business elective, which shows gaps the old
+     * reading hid).
+     */
+    ...(generated.bookedFor && process.env.HARNESS_BOOKED !== '0' ? { plain: ((a) => ({
+      unmetRows: a.areas.filter((row) => !row.satisfied).length + a.issues.filter((i) => i.id.startsWith('uga-pool-')).length,
+      unmet: [...a.areas.filter((row) => !row.satisfied).map((row) => `${row.area.label} (${row.earned}/${row.area.hours})`), ...a.issues.filter((i) => i.id.startsWith('uga-pool-')).map((i) => i.title)],
+    }))(auditUgaBoard({
+      board, context, undergraduate: loaded, priorCodes: completed,
+      extraCredits: priorCreditHours - planCreditRange(completed, context).min + horizon.assumedHours,
+      transcript: record, dualLevel: data.dualLevelCourses,
+      validation: { minimumTermCredits: 12, priorCredits: priorCreditHours + horizon.assumedHours },
+    })) } : {}),
     board: board.terms.map((t) => `${t.label}: ${t.courseIds.map((id) => context.courses.find((c) => c.id === id)?.code ?? id).join(', ')}`),
     summerOnlyOff: summerOnlyOff(board, context),
     summerOnlyRequired: summerOnlyOff(board, context).filter((code) => requiredSO.has(norm(code))),

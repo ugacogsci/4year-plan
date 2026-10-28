@@ -140,14 +140,21 @@ function oneOfEach(heldCodes: Iterable<string>, versionsOf: (code: string) => st
 export function withHeldAnyCourse(
   requirements: PlanRequirement[],
   heldCodes: Iterable<string>,
-  opts: { creditsOf: (code: string) => number; versionsOf?: (code: string) => string[]; titleOf?: (code: string) => string | undefined },
+  opts: {
+    creditsOf: (code: string) => number;
+    versionsOf?: (code: string) => string[];
+    titleOf?: (code: string) => string | undefined;
+    /** Classes on the board one of the degree's own rows was booked for (auditUgaBoard's bookedFor): off the open blocks' lists, as a held class those rows count is. */
+    counted?: Iterable<string>;
+  },
 ): { requirements: PlanRequirement[]; added: Map<string, string[]> } {
   const open = requirements.filter((r) => r.rule.kind === 'pool' && r.rule.anyCourse);
   const added = new Map<string, string[]>();
   if (open.length === 0) return { requirements, added };
   const versionsOf = opts.versionsOf ?? ((code: string) => [code]);
   const held = oneOfEach(heldCodes, versionsOf);
-  if (held.length === 0) return { requirements, added };
+  const booked = [...(opts.counted ?? [])];
+  if (held.length === 0 && booked.length === 0) return { requirements, added };
   const listed = (choices: PlanCourseChoice[], code: string): boolean => {
     const versions = new Set(versionsOf(code));
     return choices.some((choice) => choice.codes.some((c) => c === code || versions.has(c)));
@@ -199,7 +206,7 @@ export function withHeldAnyCourse(
     if (first) taken.set(code, first.id);
   }
   // A class the degree's own rows count is not also a general elective, even where a sample lists it.
-  const counted = new Set(held.filter((code) => sameClassSpent(code)).flatMap((code) => versionsOf(code).concat(code)));
+  const counted = new Set([...held.filter((code) => sameClassSpent(code)), ...booked].flatMap((code) => versionsOf(code).concat(code)));
   if (taken.size === 0 && counted.size === 0) return { requirements, added };
 
   const out = requirements.map((r) => {

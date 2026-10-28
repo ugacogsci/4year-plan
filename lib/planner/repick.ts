@@ -79,6 +79,8 @@ export interface PlanMark {
   kind?: PlanMarkKind;
   /** The career track a 'track' card is booked for: "Pre-physical therapy (DPT)". */
   track?: string;
+  /** The list a 'pool' card counts toward (PoolReport.requirementId): several UGA areas share the label "Approved core courses". */
+  requirementId?: string;
   /**
    * The planner picked it for the student's goal: a career track's course, an
    * elective whose recorded reason says it matches what the student said they
@@ -97,6 +99,13 @@ export interface PlanPicks {
   electives: Array<{ code: string; why: string; reasons?: string[]; track?: string; forGoal?: boolean }>;
   genEdPicks: Array<{ code: string; label: string; forGoal?: boolean }>;
   addedPrerequisites: Array<{ code: string; requiredBy: string }>;
+  /**
+   * Which row each course was booked for (GeneratedPlan.bookedFor), where a
+   * course sits on several of the board's counted lists at once: at UGA a
+   * core class is on its area's list, another area's and the Non-Business
+   * sample, and each list's count reads it (uga-board-audit.ts).
+   */
+  bookedFor?: Record<string, string | null>;
 }
 
 const plural = (n: number, word: string) => (n === 1 ? word : `${word}s`);
@@ -143,8 +152,33 @@ export function planMarks(
      * electives toward the total, free to swap.
      */
     const want = pool.countTarget ?? (pool.hoursTarget !== null ? Math.ceil(pool.hoursTarget / 3) : null);
+    /*
+     * Where the caller knows the row each course was booked for (bookedFor,
+     * UGA), a course booked for another row is that row's: it wears that
+     * row's mark, not this list's, and this list's count leaves it out. The
+     * ones booked for this list fill it first. A Risk Management sophomore's
+     * LAND 2510, booked for World Languages and Global Culture, read "Counts
+     * toward the degree total", the fourth course of the Non-Business list
+     * in term order, and ARCH called it filler; her HIST 2112 read "9 hours
+     * from this list, 6 chosen" for Social Sciences, two of the six being
+     * ECON 2105 and 2106, booked for Courses Related to the Major
+     * (2026-10-28). The card also says which area the list is for: three
+     * of UGA's are "Approved core courses".
+     */
+    const bookedFor = (code: string) => picks.bookedFor?.[normaliseCode(code)] ?? null;
+    const own = picks.bookedFor
+      ? pool.picked.filter((code) => find(code) && (bookedFor(code) === null || bookedFor(code) === pool.requirementId))
+        .sort((a, b) => Number(bookedFor(b) === pool.requirementId) - Number(bookedFor(a) === pool.requirementId))
+      : pool.picked;
+    // The count still takes a minor's or certificate's course the list counts as the audit does (uga-board-audit.ts withHeldOpenBlocks).
+    const programOf = (id: string | null) => id?.split('::')[0] ?? null;
+    const counts = picks.bookedFor ? pool.picked.filter((code) => find(code) && (bookedFor(code) === null || programOf(bookedFor(code)) !== programOf(pool.requirementId) || bookedFor(code) === pool.requirementId)).length : pool.count;
+    const area = pool.areaLabel?.trim() ?? '';
+    const shown = picks.bookedFor
+      ? `${area && area !== pool.label.trim() ? `For ${area}: ` : ''}${wanted ? `${wanted} from this list, ${Math.min(counts, want ?? counts)} chosen.` : `${counts} chosen from this list. The catalog does not say how many to take.`}`
+      : detail;
     let counted = 0;
-    for (const code of pool.picked) {
+    for (const code of own) {
       const course = find(code);
       if (!course) continue;
       if (want !== null && counted >= want) {
@@ -155,7 +189,7 @@ export function planMarks(
         });
         continue;
       }
-      map.set(course.id, { label: pool.label.trim() || 'Unlabelled catalog requirement', detail: `${detail}${facts(code)}`, kind: 'pool' });
+      map.set(course.id, { label: pool.label.trim() || 'Unlabelled catalog requirement', detail: `${shown}${facts(code)}`, kind: 'pool', ...(picks.bookedFor ? { requirementId: pool.requirementId } : {}) });
       counted += 1;
     }
   }

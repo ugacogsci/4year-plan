@@ -38,6 +38,8 @@ export interface UgaAuditInput {
   dualLevel?: Map<string, string>;
   validation?: ValidateOptions;
   coreCredit?: Array<{ area: string; hours: number }>;
+  /** Which row each course on the board was booked for (GeneratedPlan.bookedFor), where the caller has it. */
+  bookedFor?: Record<string, string | null>;
 }
 
 /**
@@ -67,18 +69,26 @@ function requiredSummerOnlyCodes(blocks: PlanRequirement[], context: PlanningCon
  * (any-course.ts), so the board's progress counts what the board was built on.
  * A minor's or certificate's courses on the board count toward those blocks
  * as held classes do, as the board was built (autoplan.ts openWithShared).
+ * A course the board booked for one of the degree's own rows (`bookedFor`)
+ * is that row's, as it is in the build: a Risk Management sophomore's ECOL
+ * 1000, MATH 1113, HIST 2112 and RELI 1001, booked for the core, are on the
+ * Non-Business sample too, and the block read 12 of 12 hours on a board the
+ * build had booked 3 for (2026-10-28).
  */
-function withHeldOpenBlocks(source: CombinedDegreeSource, priorCodes: string[], context: PlanningContext, planned: string[] = []): CombinedDegreeSource {
+function withHeldOpenBlocks(source: CombinedDegreeSource, priorCodes: string[], context: PlanningContext, planned: string[] = [], bookedFor?: Record<string, string | null>): CombinedDegreeSource {
   const byCode = new Map(context.courses.map((course) => [course.code, course]));
   const creditsOf = (code: string) => byCode.get(code)?.credits ?? 3;
   const programOf = (id: string) => id.split('::')[0];
   const openPrograms = new Set(source.blocks.filter((b) => b.rule.kind === 'pool' && b.rule.anyCourse).map((b) => programOf(b.id)));
   const otherRows = source.blocks.filter((b) => b.id.includes('::') && !openPrograms.has(programOf(b.id)));
   const others = openPrograms.size === 0 ? [] : planned.filter((code) => otherRows.some((b) => (b.rule.kind === 'all' || b.rule.kind === 'choose' || b.rule.kind === 'pool') && b.rule.choices.some((choice) => choice.codes.includes(code))));
+  const ownRows = new Set(source.blocks.filter((b) => openPrograms.has(programOf(b.id)) && !(b.rule.kind === 'pool' && b.rule.anyCourse)).map((b) => b.id));
+  const counted = bookedFor ? planned.filter((code) => !others.includes(code) && ownRows.has(bookedFor[code.replace(/\s+/g, ' ').trim().toUpperCase()] ?? '')) : [];
   const { requirements: open } = withHeldAnyCourse(source.blocks, [...priorCodes, ...others], {
     creditsOf,
     versionsOf: (code) => [code, ...(context.equivalents?.get(code) ?? [])],
     titleOf: (code) => byCode.get(code)?.title,
+    counted,
   });
   const requirements = withHeldInRange(open, priorCodes, { creditsOf, versionsOf: (code) => [code, ...(context.equivalents?.get(code) ?? [])] });
   if (requirements === source.blocks) return source;
@@ -145,7 +155,7 @@ export function auditUgaBoard(input: UgaAuditInput) {
   const planned = board.terms.flatMap((term) =>
     term.courseIds.flatMap((id) => byId.get(id)?.code ?? []),
   );
-  const undergraduate = withHeldOpenBlocks(input.undergraduate, priorCodes, context, planned);
+  const undergraduate = withHeldOpenBlocks(input.undergraduate, priorCodes, context, planned, input.bookedFor);
   const prior = new Set(priorCodes);
   const have = new Set([...priorCodes, ...planned]);
   const ledger = doubleDawgsLedger(board, context, priorCodes, extraCredits);
