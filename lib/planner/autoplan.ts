@@ -1221,8 +1221,12 @@ export interface GeneratedPlan {
   terms: PlannedTerm[];
   /** With the career matcher on: which free choices it ranked on this board (careerGated); absent with it off. */
   careerScope?: 'all' | 'electives' | 'words';
-  /** How the free choices read how commonly a course is taken on this board (freeChoicesGated). */
-  freeChoices?: 'common' | 'ties' | 'off';
+  /**
+   * How the free choices read how commonly a course is taken on this board
+   * (freeChoicesGated); 'unscheduled', at UGA, the board built without the
+   * Schedule of Classes' seasons too, its picks traded where they could be.
+   */
+  freeChoices?: 'common' | 'ties' | 'off' | 'unscheduled';
   /** Requirements with no course assigned, each with the catalog link so a human can check. */
   unsatisfied: UnsatisfiedRequirement[];
   /**
@@ -7015,31 +7019,305 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
 
 /**
  * The free choices read how commonly a course is taken and whether it is on
- * this year's schedule only where it costs the degree nothing. The board is
- * built with them ranking every broad choice ('common'), and without them
- * ('off'); the first stands where it is no worse than the second by the
- * owner's rule (freeChoicesWorse: requirements met, errors, order, labs,
- * terms, hours, track dates, residency, and the shape of year one and of
- * the last two terms). Where it is worse, the board with them breaking ties
- * alone ('ties') stands on the same test, and otherwise the board without
- * them. Applied to every board, the sensible picks reshuffled what fits on
- * boards with more courses than seats: a Civil Engineering freshman's MACS
- * 100 took the last seat from the SE 101 her page requires (2026-10-28).
- * The boards share the scorer's answers (qualityMemo).
+ * this year's schedule only where it costs the degree nothing. The floor is
+ * the board as the planner built it before: without the reading ('off') and,
+ * at UGA, without the Schedule of Classes' seasons. The board with the
+ * reading ranking every broad choice ('common') stands where it is no worse
+ * than the floor by the owner's rule (freeChoicesWorse: requirements met,
+ * errors, order, labs, terms, hours, track dates, residency, and the shape
+ * of year one and of the last two terms). Where it is worse, at UGA the
+ * board with the schedule and without the reading stands on the same test,
+ * and otherwise the floor, each with the first board's picks traded in seat
+ * for seat (freeChoicesTraded). Applied to every board, the sensible picks
+ * reshuffled what fits on boards with more courses than seats: a Civil
+ * Engineering freshman's MACS 100 took the last seat from the SE 101 her
+ * page requires (2026-10-28); and so did the schedule's seasons, on boards
+ * with more courses than terms (Environmental Economics and Management's
+ * 28 left off). A board with the schedule books its own picks in the
+ * seasons the schedule runs them (withScheduledSeasons) and passes over a
+ * course it does not run (freeChoiceSignals.offSchedule). The boards share
+ * the scorer's answers (qualityMemo). The board with the reading breaking
+ * ties alone ('ties') stood on a twentieth of UGA's boards and a quarter of
+ * Illinois's at a whole build each; the trades do its work.
  */
 function freeChoicesGated(given: AutoplanInput): GeneratedPlan {
   const shared = { ...given, qualityMemo: given.qualityMemo ?? new Map<string, Map<string, QualityResult>>() };
-  const off = generatePlan({ ...shared, freeChoices: 'off' });
+  // The floor: the board as the planner built it before, without the schedule's seasons or its reading.
+  const unscheduled = shared.context.scheduled ? { ...shared, context: { ...shared.context, scheduled: undefined } } : shared;
+  const before = generatePlan({ ...unscheduled, freeChoices: 'off' });
   // With no prerequisites loaded nothing on the board is checked, the gate's measures included: the board as before.
-  if (!given.context.prereqs) return { ...off, freeChoices: 'off' };
-  const floor = gateMeasure(off, given, off.language ?? null);
-  const floorAudit = given.boardAudit ? { unmet: given.boardAudit(off), notPlaced: off.notPlaced.length } : null;
-  const stands = (g: GeneratedPlan): boolean => freeChoicesWorse(gateMeasure(g, given, g.language ?? null), floor, floorAudit && given.boardAudit ? { a: { unmet: given.boardAudit(g), notPlaced: g.notPlaced.length }, b: floorAudit } : undefined).length === 0;
-  const common = generatePlan({ ...shared, freeChoices: 'common' });
+  if (!given.context.prereqs) return { ...before, freeChoices: 'off' };
+  const floor = gateMeasure(before, given, before.language ?? null);
+  const floorAudit = given.boardAudit ? { unmet: given.boardAudit(before), notPlaced: before.notPlaced.length } : null;
+  // The board audit's count, where the caller has one (AutoplanInput.boardAudit), as freeChoicesWorse reads it.
+  const auditStands = (g: GeneratedPlan): boolean => {
+    if (!floorAudit || !given.boardAudit) return true;
+    const unmet = given.boardAudit(g);
+    return unmet < floorAudit.unmet || (unmet === floorAudit.unmet && g.notPlaced.length <= floorAudit.notPlaced);
+  };
+  const measureStands = (g: GeneratedPlan): boolean => freeChoicesWorse(gateMeasure(g, given, g.language ?? null), floor).length === 0;
+  const stands = (g: GeneratedPlan): boolean => measureStands(g) && auditStands(g);
+  // The other boards book their own picks in the seasons UGA's schedule runs them (withScheduledSeasons).
+  const scheduled = withScheduledSeasons(shared);
+  const common = generatePlan({ ...scheduled, freeChoices: 'common' });
   if (stands(common)) return { ...common, freeChoices: 'common' };
-  const ties = generatePlan({ ...shared, freeChoices: 'ties' });
-  if (stands(ties)) return { ...ties, freeChoices: 'ties' };
-  return { ...off, freeChoices: 'off' };
+  /*
+   * Otherwise the board with the schedule and without the reading, and
+   * where that is worse too, the floor, each with the picks the first board
+   * chose traded in seat for seat where its own pick differs
+   * (freeChoicesTraded): the order of the placement stays the one that
+   * stood, and the picks are the sensible ones.
+   */
+  const traded = (g: GeneratedPlan): GeneratedPlan => {
+    const out = freeChoicesTraded(g, common, given, scheduled.context, measureStands);
+    if (out.trades.length === 0 || auditStands(out.board)) return out.board;
+    // The audit reads a trade differently (a course two rows can count): each again, the audit after each.
+    let board = g;
+    for (const step of out.trades) {
+      const trial = step.reduce((b, { out: code, into, to }) => withCourseTraded(b, code, into, to, given.context, common.electives.find((e) => normaliseCode(e.code) === into)), board);
+      if (measureStands(trial) && auditStands(trial)) board = trial;
+    }
+    return board;
+  };
+  if (unscheduled !== shared) {
+    const off = generatePlan({ ...scheduled, freeChoices: 'off' });
+    if (stands(off)) return { ...traded(off), freeChoices: 'off' };
+  }
+  return { ...traded(before), freeChoices: unscheduled !== shared ? 'unscheduled' : 'off' };
+}
+
+/**
+ * Board `kept` (freeChoicesGated's 'off' or its floor) with each pick it made
+ * for a list, a core area or a general education category that board
+ * `from`, built with the free choices' reading, made differently, traded
+ * seat for seat for one of `from`'s: the course `from` booked there, then
+ * the rest of that list in `from`'s order. Only a course of the same hours
+ * that counts toward everything the pick counted for (every row naming
+ * it, and every general education category it carries), runs in the seat's
+ * season (`scheduled`: the Bulletin's, and UGA's Schedule of Classes for a
+ * pick the Bulletin gives no season), and is on the coming year's schedule;
+ * each trade stands only where the board stays no worse than the board
+ * without the reading (`stands`). An all-or-nothing choice of boards kept
+ * every old pick on a third of UGA's boards, 96 of 161 pre-med freshmen
+ * among them (RUSS 3160 Madness, Desire, and Death, ENTO 1000), where the
+ * new picks' board moved Organic Chemistry II a year (2026-10-28).
+ */
+function freeChoicesTraded(kept: GeneratedPlan, from: GeneratedPlan, given: AutoplanInput, scheduled: PlanningContext, stands: (g: GeneratedPlan) => boolean): { board: GeneratedPlan; trades: Array<Array<{ out: string; into: string; to: number }>> } {
+  const ctx = given.context;
+  const equivalents = ctx.equivalents ?? new Map<string, string[]>();
+  const byCode = catalogByCode(scheduled.courses);
+  const published = scheduled.offeringPublished ?? new Set<string>();
+  const signals = freeChoiceSignals(scheduled);
+  const held = new Set([...given.prior.courseCodes, ...given.prior.exemptCodes].flatMap((c) => expandEquivalents(normaliseCode(c), equivalents)));
+  const namesOf = (r: PlanRequirement): string[] => (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool' ? r.rule.choices.flatMap((choice) => choice.codes.map(normaliseCode)) : []);
+  // The general education tags any category of the degree reads: a trade keeps every one the pick carried,
+  const genEdTags = new Set(given.requirements.flatMap((r) => (r.rule.kind === 'gened' ? r.rule.genEd : [])));
+  const tagsOf = (code: string) => (byCode.get(code)?.tags ?? []).filter((t) => genEdTags.has(t));
+  /*
+   * or leaves every category it met met, counted from the board and the
+   * held classes, a course once within an exclusive group (Cultural
+   * Studies): THEA 110 carries Humanities and Western, MUS 133 Humanities
+   * and Non-Western, and the board's GLBL 100 is its Western course.
+   */
+  const genEdRows = given.requirements.flatMap((r) => (r.rule.kind === 'gened' && r.rule.genEd.length > 0 && (r.rule.hours !== null || r.rule.courses !== null) ? [{ id: r.id, rule: r.rule }] : []));
+  const heldCodes = given.prior.courseCodes.map(normaliseCode);
+  const categoriesMet = (b: GeneratedPlan): Set<string> => {
+    const codes = [...heldCodes, ...b.terms.flatMap((t) => t.codes.map(normaliseCode))];
+    const used = new Map<string, Set<string>>();
+    const met = new Set<string>();
+    for (const { id, rule } of genEdRows) {
+      const tags = new Set(rule.genEd);
+      const group = rule.exclusiveGroup ? (used.get(rule.exclusiveGroup) ?? used.set(rule.exclusiveGroup, new Set()).get(rule.exclusiveGroup)!) : null;
+      let hours = 0;
+      let count = 0;
+      const enough = () => (rule.hours === null || hours >= rule.hours) && (rule.courses === null || count >= rule.courses);
+      for (const code of codes) {
+        if (enough()) break;
+        if (group?.has(code) || !(byCode.get(code)?.tags ?? []).some((t) => tags.has(t))) continue;
+        hours += planCreditRange([code], ctx).min;
+        count += 1;
+        group?.add(code);
+      }
+      if (enough()) met.add(id);
+    }
+    return met;
+  };
+  let metBefore: Set<string> | null = null;
+  // Only where the count above reads every category the pick carries as met already: one it cannot read is not traded.
+  const keepsCategories = (trial: GeneratedPlan, out: string): boolean => {
+    metBefore ??= categoriesMet(g);
+    const carried = genEdRows.filter(({ rule }) => (byCode.get(out)?.tags ?? []).some((t) => rule.genEd.includes(t)));
+    if (!carried.every(({ id }) => metBefore!.has(id))) return false;
+    const after = categoriesMet(trial);
+    return [...metBefore].every((id) => after.has(id));
+  };
+  // Illinois: a seat's season in the offering history, where it has one (an UGA pick's is its published season above).
+  const ranInSeason = (code: string, season: SemesterSeason): boolean => {
+    const ran = ctx.schoolId === 'uga' ? undefined : ctx.offerings?.get(code);
+    if (!ran || season === 'Summer') return true;
+    return ran.some((t) => t.startsWith(season === 'Fall' ? 'fa' : 'sp'));
+  };
+  const wants: Array<{ out: string; into: string[] }> = [];
+  for (const p of kept.pools) {
+    const q = from.pools.find((x) => x.requirementId === p.requirementId);
+    if (!q) continue;
+    const mine = new Set(p.picked.map(normaliseCode));
+    const theirs = q.picked.map(normaliseCode);
+    const into = [...theirs.filter((c) => !mine.has(c)), ...q.alternatives.map(normaliseCode)];
+    for (const out of p.picked.map(normaliseCode)) if (!theirs.includes(out)) wants.push({ out, into });
+  }
+  // A category's pick: `from`'s picks for it first, then any course `from` booked for another category or as an elective (it carries every tag the pick did, below).
+  const elsewhereOnFrom = [...(from.genEdPicks ?? []).map((x) => x.code), ...from.electives.filter((e) => !e.track).map((e) => e.code)].map(normaliseCode);
+  for (const pick of kept.genEdPicks ?? []) {
+    const out = normaliseCode(pick.code);
+    const theirs = (from.genEdPicks ?? []).filter((x) => x.requirementId === pick.requirementId).map((x) => normaliseCode(x.code));
+    if (theirs.length === 0 || theirs.includes(out)) continue;
+    const mine = new Set((kept.genEdPicks ?? []).filter((x) => x.requirementId === pick.requirementId).map((x) => normaliseCode(x.code)));
+    wants.push({ out, into: [...new Set([...theirs, ...elsewhereOnFrom])].filter((c) => !mine.has(c)) });
+  }
+  // A row's choice (one of several courses, or N of a longer list) and a free elective, as `from` made them.
+  const choiceRows = new Set(given.requirements.filter((r) => (r.rule.kind === 'choose' && r.rule.choices.length > r.rule.n) || (r.rule.kind === 'all' && r.rule.choices.some((choice) => choice.codes.length > 1))).map((r) => r.id));
+  const bookedIn = (b: GeneratedPlan, id: string) => Object.entries(b.bookedFor ?? {}).filter(([, why]) => why === id).map(([code]) => normaliseCode(code));
+  for (const id of choiceRows) {
+    const mine = bookedIn(kept, id);
+    const theirs = bookedIn(from, id);
+    for (const out of mine) if (theirs.length > 0 && !theirs.includes(out)) wants.push({ out, into: theirs.filter((c) => !mine.includes(c)) });
+  }
+  const freeElectives = (b: GeneratedPlan) => b.electives.filter((e) => !e.track && (b.bookedFor?.[e.code] ?? null) === null).map((e) => normaliseCode(e.code));
+  const theirElectives = freeElectives(from);
+  for (const out of freeElectives(kept)) if (!theirElectives.includes(out)) wants.push({ out, into: theirElectives });
+  let g = kept;
+  const trades: Array<Array<{ out: string; into: string; to: number }>> = [];
+  let tries = 0;
+  for (const { out, into } of wants) {
+    if (tries >= 40) break;
+    const at = g.terms.findIndex((t) => t.codes.some((c) => normaliseCode(c) === out));
+    if (at < 0) continue;
+    const term = g.terms[at];
+    // A course another one was booked for keeps it.
+    if (g.addedPrerequisites.some((a) => normaliseCode(a.requiredBy) === out || normaliseCode(a.code) === out)) continue;
+    const hours = planCreditRange([out], ctx);
+    // The rows that count it: every take-all and choose row naming it, and a list only where the board's own count of it holds it.
+    const rows = given.requirements.filter((r) => namesOf(r).includes(out) && (r.rule.kind !== 'pool' || g.pools.some((p) => p.requirementId === r.id && p.picked.some((c) => normaliseCode(c) === out))));
+    const lists = rows.flatMap((r) => (r.rule.kind === 'pool' ? r.rule.lists.filter((list) => list.codes.some((c) => normaliseCode(c) === out)) : []));
+    const tags = tagsOf(out);
+    const onBoard = new Set(g.terms.flatMap((t) => t.codes.map(normaliseCode)).flatMap((c) => expandEquivalents(c, equivalents)));
+    const tradeFrom = (candidates: string[], options: Array<{ code: string; why: string; reasons: string[] }> = []): boolean => {
+      for (const code of candidates) {
+        if (tries >= 40) return false;
+        const course = byCode.get(code);
+        if (!course || code === out || summerOnlyListed(course) || signals.offSchedule(code)) continue;
+        if (expandEquivalents(code, equivalents).some((c) => onBoard.has(c) || held.has(c))) continue;
+        if (!rows.every((r) => namesOf(r).includes(code)) || !lists.every((list) => list.codes.some((c) => normaliseCode(c) === code))) continue;
+        const tagsKept = tags.every((t) => course.tags.includes(t));
+        if (!tagsKept && (genEdRows.length === 0 || !tags.some((t) => course.tags.includes(t)))) continue;
+        const range = planCreditRange([code], ctx);
+        if (range.min !== hours.min || range.max !== hours.max) continue;
+        if (outOfSeason(course, term, published.has(code)) || !ranInSeason(code, term.season)) continue;
+        tries += 1;
+        const elective = from.electives.find((e) => normaliseCode(e.code) === code) ?? options.find((o) => normaliseCode(o.code) === code);
+        const trial = withCourseTraded(g, out, code, at, ctx, elective ? { why: elective.why, reasons: elective.reasons } : undefined);
+        if (!tagsKept && !keepsCategories(trial, out)) continue;
+        if (!stands(trial)) continue;
+        g = trial;
+        metBefore = null;
+        trades.push([{ out, into: code, to: at }]);
+        return true;
+      }
+      return false;
+    };
+    if (tradeFrom(into)) continue;
+    /*
+     * A free elective the schedule does not run there, with none of the
+     * first board's left to take its seat: that term's own elective options,
+     * best first, as its card ranks them (electiveOptions).
+     */
+    const isElective = rows.length === 0 && (g.bookedFor?.[out] ?? null) === null && g.electives.some((e) => normaliseCode(e.code) === out && !e.track);
+    if (!isElective || tries >= 40 || (!signals.offSchedule(out) && !outOfSeason(byCode.get(out), term, published.has(out)))) continue;
+    const options = electiveOptions({
+      context: scheduled, requirements: given.requirements, termId: term.id, prior: given.prior,
+      plan: { ...g.plan, terms: g.plan.terms.map((t) => ({ ...t, courseIds: t.courseIds.filter((id) => id !== courseIdFor(out)) })) },
+      interests: given.interests, career: given.career, programName: given.programName, programCollege: given.programCollege,
+      priorities: given.preferences?.priorities, electiveCodes: g.electives.map((e) => normaliseCode(e.code)).filter((c) => c !== out), limit: 8,
+    });
+    tradeFrom(options.map((o) => normaliseCode(o.code)), options);
+  }
+  /*
+   * A pick both boards made that sits in a season it does not run in (the
+   * board without the reading placed it by the Bulletin alone) changes
+   * seats with another free pick of its hours that runs in its season.
+   */
+  const free = new Set([...g.pools.flatMap((p) => p.picked), ...(g.genEdPicks ?? []).map((pick) => pick.code), ...freeElectives(g), ...[...choiceRows].flatMap((id) => bookedIn(g, id))].map(normaliseCode));
+  const inSeason = (code: string, i: number) => !outOfSeason(byCode.get(code), g.terms[i], published.has(code)) && ranInSeason(code, g.terms[i].season);
+  for (const code of free) {
+    if (tries >= 40) break;
+    const at = g.terms.findIndex((t) => t.codes.some((c) => normaliseCode(c) === code));
+    if (at < 0 || g.terms[at].season === 'Summer' || inSeason(code, at)) continue;
+    const hours = planCreditRange([code], ctx).min;
+    let moved = false;
+    for (let to = 0; to < g.terms.length && !moved && tries < 40; to += 1) {
+      if (to === at || g.terms[to].season === 'Summer' || !inSeason(code, to)) continue;
+      for (const other of g.terms[to].codes.map(normaliseCode)) {
+        if (!free.has(other) || planCreditRange([other], ctx).min !== hours || !inSeason(other, at)) continue;
+        tries += 1;
+        const trial = withCourseTraded(withCourseTraded(g, code, code, to, ctx), other, other, at, ctx);
+        if (!stands(trial)) continue;
+        g = trial;
+        trades.push([{ out: code, into: code, to }, { out: other, into: other, to: at }]);
+        moved = true;
+        break;
+      }
+    }
+  }
+  return { board: g, trades };
+}
+
+/**
+ * The planner's own picks (a list's, a core area's, an elective) in the
+ * season UGA's Schedule of Classes runs them in (PlanningContext.scheduled),
+ * as a season the catalog publishes, where the Bulletin names none: it
+ * names one season for a quarter of UGA's courses, so a pick went in any
+ * fall or spring (a History freshman's HIST 3224, on the schedule in spring
+ * alone, in a fall; a software engineer's CSCI 4810 and 4860 likewise). A
+ * season the Bulletin publishes stands, since the board's warnings read it
+ * (a pick the schedule runs only in the other season is off the schedule
+ * for the free choices: freeChoiceSignals.offSchedule). A course the degree
+ * requires with no other choice, a career track's, one held or under way,
+ * one the schedule does not list and one the Bulletin lists for summer only
+ * keep the Bulletin's seasons too: the schedule is one year of sections, and
+ * a required course has nowhere else to go. Read once per board; the same
+ * input where there is no schedule.
+ */
+function withScheduledSeasons(given: AutoplanInput): AutoplanInput {
+  const ctx = given.context;
+  const scheduled = ctx.schoolId === 'uga' ? ctx.scheduled : undefined;
+  if (!scheduled) return given;
+  const equivalents = ctx.equivalents ?? new Map<string, string[]>();
+  const keep = new Set<string>();
+  const add = (code: string) => { for (const c of expandEquivalents(normaliseCode(code), equivalents)) keep.add(c); };
+  // A choice of one course's versions (COMM 2520 or COMM 2520E) is that course.
+  const oneCourse = (codes: string[]) => codes.every((code) => expandEquivalents(normaliseCode(codes[0]), equivalents).includes(normaliseCode(code)));
+  for (const r of given.requirements) {
+    const rule = r.rule;
+    if (rule.kind !== 'all' && !(rule.kind === 'choose' && rule.choices.length <= rule.n)) continue;
+    for (const choice of rule.choices) if (choice.codes.length > 0 && oneCourse(choice.codes)) choice.codes.forEach(add);
+  }
+  for (const track of careerProfileOf(given).tracks) for (const row of track.courses) for (const code of [...row.codes, ...(row.variants ?? [])]) add(code);
+  for (const code of [...given.prior.courseCodes, ...given.prior.exemptCodes, ...(given.prior.inProgressCodes ?? [])]) add(code);
+  const published = new Set(ctx.offeringPublished ?? []);
+  const courses = ctx.courses.map((course) => {
+    const code = normaliseCode(course.code);
+    const seasons = scheduled.seasons.get(code);
+    // A season the Bulletin publishes stands: the board's warnings read it (validatePlan).
+    if (!seasons || keep.has(code) || published.has(code) || summerOnlyListed(course)) return course;
+    // One of fall and spring there: that one, and the summer where the schedule has one too.
+    const regular = regularSeasons(seasons);
+    if (regular.length !== 1) return course;
+    published.add(code);
+    const offeredIn: SemesterSeason[] = seasons.includes('Summer') ? [...regular, 'Summer'] : regular;
+    return { ...course, offeredIn, offeringKnown: true };
+  });
+  return { ...given, context: { ...ctx, courses, offeringPublished: published } };
 }
 
 /**
