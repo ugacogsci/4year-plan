@@ -5417,8 +5417,11 @@ function scoreElective(code: string, s: ElectiveScoring): number {
     if (s.common && !s.degreeSubjects.has(course.cluster) && course.cluster !== s.primarySubject) {
       // The points for being common go to a course past the 100 level and not graded harder than
       // most (the hours the degree wants at the 300 and 400 levels, and the hardest courses, stay where they were); the cost of being rare goes to any.
+      // Nor to one at the 300 level or above: an upper-level course of another department is
+      // commonly taken because other degrees require it (a Political Science freshman's free
+      // electives were FINA 3000, MGMT 3000 and MARK 3000, Terry's business core).
       const points = POPULAR_POINTS[s.free.band(code)] ?? 0;
-      score += points > 0 && (courseLevel(code) < 200 || s.harder?.(code)) ? 0 : points;
+      score += points > 0 && (courseLevel(code) < 200 || courseLevel(code) >= 300 || s.harder?.(code)) ? 0 : points;
     }
     // Not on UGA's Schedule of Classes in any of its terms: as the dormant rule above.
     if (s.common && s.free.offSchedule(code)) score -= 9;
