@@ -1,12 +1,14 @@
 /**
  * Who teaches a course, and what each instructor's own syllabus says.
  *
- * Two sources name instructors, each in its own way. Illinois's published
- * sections (Fall 2026, Spring 2027) write "Challen, G"; a syllabus writes
- * whatever its author typed: "Geoffrey Challen", "Dr. Amir Malvandi",
- * "Callaway, Todd", "Clark, Malissa (17223) TR 2:55-4:15", "Rodríguez".
- * This reads every form down to one person per last name (two people with
- * the same last name and different first initials stay two), with the
+ * Three sources name instructors, each in its own way. Illinois's published
+ * sections (Fall 2026, Spring 2027) write "Challen, G"; UGA's Schedule of
+ * Classes (Spring 2026 to Summer 2027, uga-offerings.ts) writes "Michael
+ * Cotterell", one way per person; a syllabus writes whatever its author
+ * typed: "Geoffrey Challen", "Dr. Amir Malvandi", "Callaway, Todd", "Clark,
+ * Malissa (17223) TR 2:55-4:15", "Rodríguez". This reads every form down to
+ * one person per last name (two people with the same last name and different
+ * first initials stay two, and so do two the schedule lists), with the
  * fullest clean name as the one shown.
  *
  * The student can say which instructor they have or will take, per course
@@ -203,32 +205,76 @@ export interface InstructorOption {
   teaching: boolean;
   /** Terms of this instructor's syllabi for the course, newest first ("Fall 2025"). */
   syllabusTerms: string[];
+  /** The schedule's terms they teach the course in, newest first; only where a whole schedule is given (UGA's). */
+  scheduledTerms?: string[];
+}
+
+/**
+ * Someone a class schedule names for a course, with the terms they teach it
+ * in, newest first: UGA's Schedule of Classes (uga-offerings.ts
+ * instructorsFor), which writes each person one way, "First Last".
+ */
+export interface ScheduledInstructor {
+  name: string;
+  terms: readonly string[];
 }
 
 interface Person {
   name: InstructorName;
   teaching: boolean;
   terms: Array<{ rank: number; label: string }>;
+  /** The schedule's terms (ScheduledInstructor); listed is whether the schedule names them at all. */
+  scheduled: string[];
+  listed: boolean;
 }
 
-/** Each person once, the forms of their name merged, in the order first seen. */
-function people(sectionNames: readonly string[], syllabi: readonly SyllabusRecord[]): Person[] {
+/** "Phil" and "Philip", or an initial and its name, can be one person's first name; "Yi" and "Yan" cannot. */
+function firstNamesFit(a: InstructorName, b: InstructorName): boolean {
+  if (!a.fullFirst || !b.fullFirst) return true;
+  const first = (n: InstructorName) => fold(n.display.split(' ')[0] ?? '').replace(/[-']/g, '');
+  const x = first(a);
+  const y = first(b);
+  return x === y || (Math.min(x.length, y.length) >= 3 && (x.startsWith(y) || y.startsWith(x)));
+}
+
+/**
+ * Each person once, the forms of their name merged, in the order first seen:
+ * section names, then the schedule's, then the syllabi's. termLabel is the
+ * card's term: a scheduled person who teaches in it is teaching.
+ */
+function people(sectionNames: readonly string[], syllabi: readonly SyllabusRecord[], scheduled: readonly ScheduledInstructor[] = [], termLabel: string | null = null): Person[] {
   const out: Person[] = [];
-  const add = (raw: string, teaching: boolean, term: { rank: number; label: string } | null) => {
+  const add = (raw: string, teaching: boolean, term: { rank: number; label: string } | null, terms: readonly string[] | null = null) => {
     const name = readInstructorName(raw);
     if (!name) return;
     // A last name alone joins the person with that last name; two different initials stay two people.
-    const same = out.filter((p) => samePerson(p.name, name));
+    let same = out.filter((p) => samePerson(p.name, name));
+    const listed = same.filter((p) => p.listed);
+    // The schedule writes each person one way, so two names it lists are two people unless they read the
+    // same ("Michael Slonaker" and "Mark Slonaker" both teach KINS 4850). Another source's name joins the
+    // one listed person its first name fits, and stands alone when it fits several.
+    if (terms) same = same.filter((p) => !p.listed || p.name.display === name.display);
+    else if (listed.length > 1) {
+      const fit = listed.filter((p) => firstNamesFit(p.name, name));
+      same = fit.length === 1 ? fit : same.filter((p) => !p.listed);
+    }
     const hit = (name.initial ? same.find((p) => p.name.initial === name.initial) : null) ?? same[0];
+    const teaches = teaching || Boolean(terms && termLabel && terms.includes(termLabel));
     if (hit) {
-      hit.name = better(hit.name, name);
-      hit.teaching ||= teaching;
+      // The schedule's own form of a listed person's name stays the one shown: "Michael Cotterell", not a syllabus's "Michael E. Cotterell".
+      hit.name = terms ? name : hit.listed ? hit.name : better(hit.name, name);
+      hit.teaching ||= teaches;
       if (term && !hit.terms.some((t) => t.label === term.label)) hit.terms.push(term);
+      if (terms) {
+        hit.listed = true;
+        for (const t of terms) if (!hit.scheduled.includes(t)) hit.scheduled.push(t);
+      }
     } else {
-      out.push({ name, teaching, terms: term ? [term] : [] });
+      out.push({ name, teaching: teaches, terms: term ? [term] : [], scheduled: [...(terms ?? [])], listed: terms !== null });
     }
   };
   for (const raw of sectionNames) add(raw, true, null);
+  for (const s of scheduled) add(s.name, false, null, s.terms);
   for (const s of syllabi) {
     const label = syllabusTermLabel(s);
     for (const raw of s.instructors ?? []) add(raw, false, { rank: syllabusTermRank(s.term), label });
@@ -239,14 +285,28 @@ function people(sectionNames: readonly string[], syllabi: readonly SyllabusRecor
 
 /**
  * Who the picker offers for a course in a term: everyone teaching a section
- * of it in that term's published schedule, then everyone named on one of its
- * syllabi, newest syllabus first. One entry per person.
+ * of it in that term's published schedule, then (UGA) everyone the Schedule
+ * of Classes names for it in its other terms, then everyone named on one of
+ * its syllabi, newest syllabus first. One entry per person. scheduled and
+ * termLabel are UGA's: the whole schedule's instructors and the card's term.
  */
-export function instructorOptions(sectionNames: readonly string[], syllabi: readonly SyllabusRecord[]): InstructorOption[] {
-  return people(sectionNames, syllabi)
-    .map((p) => ({ name: p.name.display, teaching: p.teaching, syllabusTerms: p.terms.map((t) => t.label), rank: p.terms[0]?.rank ?? -2 }))
-    .sort((a, b) => Number(b.teaching) - Number(a.teaching) || b.rank - a.rank)
-    .map(({ rank: _rank, ...option }) => option);
+export function instructorOptions(
+  sectionNames: readonly string[],
+  syllabi: readonly SyllabusRecord[],
+  scheduled: readonly ScheduledInstructor[] = [],
+  termLabel: string | null = null,
+): InstructorOption[] {
+  return people(sectionNames, syllabi, scheduled, termLabel)
+    .map((p) => ({
+      name: p.name.display,
+      teaching: p.teaching,
+      syllabusTerms: p.terms.map((t) => t.label),
+      ...(p.scheduled.length > 0 ? { scheduledTerms: p.scheduled } : {}),
+      rank: p.terms[0]?.rank ?? -2,
+      listed: p.listed,
+    }))
+    .sort((a, b) => Number(b.teaching) - Number(a.teaching) || Number(b.listed) - Number(a.listed) || b.rank - a.rank)
+    .map(({ rank: _rank, listed: _listed, ...option }) => option);
 }
 
 /**
@@ -330,9 +390,9 @@ export interface InstructorGroup {
  */
 export function groupByInstructor(
   syllabi: readonly SyllabusRecord[],
-  options: { teaching?: readonly string[]; chosen?: string | null } = {},
+  options: { teaching?: readonly string[]; chosen?: string | null; scheduled?: readonly ScheduledInstructor[]; termLabel?: string | null } = {},
 ): InstructorGroup[] {
-  const everyone = people(options.teaching ?? [], syllabi);
+  const everyone = people(options.teaching ?? [], syllabi, options.scheduled ?? [], options.termLabel ?? null);
   const chosenName = options.chosen ? readInstructorName(options.chosen) : null;
   const sorted = [...syllabi].sort((a, b) => syllabusTermRank(b.term) - syllabusTermRank(a.term));
   const groups: InstructorGroup[] = everyone.map((p) => ({
@@ -401,7 +461,7 @@ export function syllabusFacts(s: SyllabusRecord, facts: readonly SyllabusFact[],
  */
 export function syllabiByInstructor(
   syllabi: readonly SyllabusRecord[],
-  options: { teaching?: readonly string[]; chosen?: string | null; termLabel?: string | null; courseTermLabel?: string | null },
+  options: { teaching?: readonly string[]; scheduled?: readonly ScheduledInstructor[]; chosen?: string | null; termLabel?: string | null; courseTermLabel?: string | null },
 ): { chosen_instructor: string | null; chosen_has_syllabus: boolean | null; by_instructor: Array<Record<string, unknown>> } {
   const groups = groupByInstructor(syllabi, options);
   const chosen = options.chosen ?? null;
@@ -426,7 +486,11 @@ export function syllabiByInstructor(
  * One with no term that can be its own goes out undated, its termLabel
  * saying so ("term not listed"), never blank or "Spring 2090".
  */
-export function syllabiToShow(syllabi: readonly SyllabusRecord[], options: { teaching?: readonly string[]; chosen?: string | null }, limit = 6): SyllabusRecord[] {
+export function syllabiToShow(
+  syllabi: readonly SyllabusRecord[],
+  options: { teaching?: readonly string[]; scheduled?: readonly ScheduledInstructor[]; termLabel?: string | null; chosen?: string | null },
+  limit = 6,
+): SyllabusRecord[] {
   const groups = groupByInstructor(syllabi, options);
   const out: SyllabusRecord[] = [];
   const push = (s: SyllabusRecord | undefined) => {
@@ -571,6 +635,8 @@ export interface TermCourseInput {
   teaching: string[] | null;
   /** The term whose sections those are, when it is not the card's own ("Fall 2026's sections"). */
   teachingTermLabel?: string | null;
+  /** UGA: the Schedule of Classes' instructors for that term, in place of teaching. */
+  scheduled?: ScheduledInstructor[];
   syllabi: SyllabusRecord[];
 }
 
@@ -582,14 +648,14 @@ export interface TermCourseInput {
 export function termSyllabiResult(courses: readonly TermCourseInput[], facts: readonly SyllabusFact[], options: { maxInstructors?: number } = {}): Array<Record<string, unknown>> {
   const max = options.maxInstructors ?? 6;
   return courses.map((c) => {
-    const groups = groupByInstructor(c.syllabi, { teaching: c.teaching ?? [], chosen: c.chosen });
+    const groups = groupByInstructor(c.syllabi, { teaching: c.teaching ?? [], chosen: c.chosen, scheduled: c.scheduled, termLabel: c.teachingTermLabel ?? c.termLabel });
     const withSyllabus = groups.filter((g) => g.syllabi.length > 0);
     const base: Record<string, unknown> = { term: c.termLabel, code: c.code, title: c.title, chosen_instructor: c.chosen };
     if (c.syllabi.length === 0) {
       return {
         ...base,
         syllabus_found: false,
-        ...(c.teaching && c.teaching.length > 0 ? { teaching: groups.map((g) => g.instructor).filter(Boolean).slice(0, max) } : {}),
+        ...((c.teaching?.length ?? 0) + (c.scheduled?.length ?? 0) > 0 ? { teaching: groups.map((g) => g.instructor).filter(Boolean).slice(0, max) } : {}),
       };
     }
     const entry = (g: InstructorGroup) => ({

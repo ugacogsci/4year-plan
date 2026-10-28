@@ -271,6 +271,34 @@ export function instructorsFor(file: UgaOfferingsFile, code: string, termLabel?:
 
 const SEASON_OF = /^(Fall|Spring|Summer) \d{4}$/;
 
+/** The terms the file covers, oldest to newest: "Spring 2026 to Summer 2027". */
+export function termSpan(file: UgaOfferingsFile): string {
+  const terms = [...file.terms].sort((a, b) => a.period.localeCompare(b.period));
+  return terms.length > 1 ? `${terms[0].label} to ${terms[terms.length - 1].label}` : (terms[0]?.label ?? '');
+}
+
+/**
+ * The term students register for next: the earliest upcoming one (Spring 2027
+ * while Fall 2026 is in session). Null when the file has none upcoming.
+ */
+export function nextRegistrationTerm(file: UgaOfferingsFile): string | null {
+  const upcoming = file.terms.filter((t) => t.status === 'upcoming').sort((a, b) => a.period.localeCompare(b.period));
+  return upcoming[0]?.label ?? null;
+}
+
+/**
+ * The file's term that answers who teaches a course in a board term: that
+ * term when the file covers it, else the newest of its season ("Fall 2027"
+ * reads Fall 2026, labelled as such by the caller); with no term, the next
+ * one students register for. Null when the file has no such term.
+ */
+export function scheduleTermFor(file: UgaOfferingsFile, termLabel: string | null): string | null {
+  if (!termLabel) return nextRegistrationTerm(file);
+  if (file.terms.some((t) => t.label === termLabel)) return termLabel;
+  const season = termLabel.match(SEASON_OF)?.[1];
+  return file.terms.find((t) => t.label.match(SEASON_OF)?.[1] === season)?.label ?? null;
+}
+
 /**
  * Students a year in each course: enrollment summed over the newest fall,
  * spring and summer whose registration has opened (Spring, Summer and Fall

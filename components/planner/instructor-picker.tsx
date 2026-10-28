@@ -31,7 +31,7 @@ import type { InstructorOption } from '@/lib/planner/instructors';
 export interface InstructorControl {
   /** The student's instructor for a course in a term, or null for "not sure yet". */
   chosen: (courseId: string, termId: string) => string | null;
-  /** Who can be picked: the term's published sections, then the course's syllabi. */
+  /** Who can be picked: the term's published sections (UGA: its Schedule of Classes), then the course's syllabi. */
   options: (courseId: string, termId: string) => Promise<InstructorOption[]>;
   set: (courseId: string, termId: string, name: string | null) => void;
   /** "Someone else": open the course popup with the name field ready. */
@@ -50,6 +50,7 @@ export function instructorShort(name: string): string {
 /** Why an option is offered, in a few words. */
 function optionNote(option: InstructorOption, termLabel: string | null): string {
   if (option.teaching && termLabel) return `teaches ${termLabel}`;
+  if (option.scheduledTerms?.length) return `on the ${option.scheduledTerms[0]} schedule`;
   if (option.syllabusTerms.length > 0) return `syllabus ${option.syllabusTerms[0]}`;
   return '';
 }
