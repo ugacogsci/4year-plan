@@ -69,6 +69,8 @@ export interface Course {
   pathwayRole?: 'required' | 'choice';
   /** The catalog's repeat rule ("May be repeated in separate terms to a maximum of 12 hours"); absent when the course may not be repeated. */
   repeat?: RepeatRule;
+  /** Illinois: the code the registrar files this course's grades under, a cross-listed twin or its old number (illinois-load.ts); absent for the listing that holds them. */
+  gradeFrom?: string;
 }
 
 export interface PlanTerm {

@@ -3971,6 +3971,19 @@ function freeChoiceSignals(ctx: PlanningContext): FreeChoiceSignals {
 }
 
 /**
+ * 1 for an Illinois cross-listing the grade reports count under its twin
+ * (EPSY 222's students are SHS 222's), 0 for the listing that holds them.
+ * Two listings of one class tie on every measure the free choices read, and
+ * the code then chose: EPSY 222, LA 242 and GWS 356 were the picks where
+ * students sign up as SHS 222, RST 242 and MACS 356 (2026-10-28).
+ */
+function filedUnderTwin(course: Course | undefined, equivalents: Map<string, string[]> | undefined): number {
+  if (!course?.gradeFrom) return 0;
+  const from = normaliseCode(course.gradeFrom);
+  return (equivalents?.get(normaliseCode(course.code)) ?? []).some((twin) => normaliseCode(twin) === from) ? 1 : 0;
+}
+
+/**
  * The line a free pick's card and ARCH give for how commonly the course is
  * taken and when it runs, from the same facts the choice read
  * (freeChoiceSignals): "About 1,300 students a year take it (UGA's Schedule
@@ -5511,6 +5524,8 @@ function rankedElectivePool(
         courseLevel(a.code) - courseLevel(b.code) ||
         // How many take it, before the code: never the alphabet or the hash (freeChoiceSignals).
         (s.free ? (s.free.taken(b.code) ?? 0) - (s.free.taken(a.code) ?? 0) : 0) ||
+        // Of two listings of one class, the one students sign up under (filedUnderTwin).
+        (s.free ? filedUnderTwin(s.byCode.get(a.code), ctx.equivalents) - filedUnderTwin(s.byCode.get(b.code), ctx.equivalents) : 0) ||
         (ctx.schoolId === 'uga' ? electiveTie(a.code) - electiveTie(b.code) : a.code.localeCompare(b.code)),
     );
 
@@ -10467,6 +10482,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             if (ranked !== 0) return ranked;
             const taken = lastTies ? (signals.taken(b) ?? 0) - (signals.taken(a) ?? 0) : 0;
             if (taken !== 0) return taken;
+            // Of two listings of one class, the one students sign up under (filedUnderTwin).
+            const filed = lastTies ? filedUnderTwin(byCode.get(a), equivalents) - filedUnderTwin(byCode.get(b), equivalents) : 0;
+            if (filed !== 0) return filed;
             const offered = sectionCount(b) - sectionCount(a);
             if (offered !== 0) return offered;
             return compareSampleCourses(a, b, ctx.samplePlanCourses) || a.localeCompare(b);
