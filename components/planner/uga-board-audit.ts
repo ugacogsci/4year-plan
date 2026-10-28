@@ -65,11 +65,17 @@ function requiredSummerOnlyCodes(blocks: PlanRequirement[], context: PlanningCon
  * ("Any upper level course 3000-5999") and its subject-wide rows' whole
  * ranges take ("3000-level or higher"), as generatePlan reads it
  * (any-course.ts), so the board's progress counts what the board was built on.
+ * A minor's or certificate's courses on the board count toward those blocks
+ * as held classes do, as the board was built (autoplan.ts openWithShared).
  */
-function withHeldOpenBlocks(source: CombinedDegreeSource, priorCodes: string[], context: PlanningContext): CombinedDegreeSource {
+function withHeldOpenBlocks(source: CombinedDegreeSource, priorCodes: string[], context: PlanningContext, planned: string[] = []): CombinedDegreeSource {
   const byCode = new Map(context.courses.map((course) => [course.code, course]));
   const creditsOf = (code: string) => byCode.get(code)?.credits ?? 3;
-  const { requirements: open } = withHeldAnyCourse(source.blocks, priorCodes, {
+  const programOf = (id: string) => id.split('::')[0];
+  const openPrograms = new Set(source.blocks.filter((b) => b.rule.kind === 'pool' && b.rule.anyCourse).map((b) => programOf(b.id)));
+  const otherRows = source.blocks.filter((b) => b.id.includes('::') && !openPrograms.has(programOf(b.id)));
+  const others = openPrograms.size === 0 ? [] : planned.filter((code) => otherRows.some((b) => (b.rule.kind === 'all' || b.rule.kind === 'choose' || b.rule.kind === 'pool') && b.rule.choices.some((choice) => choice.codes.includes(code))));
+  const { requirements: open } = withHeldAnyCourse(source.blocks, [...priorCodes, ...others], {
     creditsOf,
     versionsOf: (code) => [code, ...(context.equivalents?.get(code) ?? [])],
     titleOf: (code) => byCode.get(code)?.title,
@@ -135,11 +141,11 @@ export function auditUgaBoard(input: UgaAuditInput) {
     transcript,
   } = input;
   const context = doubleDawgsContext(board, input.context)!;
-  const undergraduate = withHeldOpenBlocks(input.undergraduate, priorCodes, context);
   const byId = new Map(context.courses.map((course) => [course.id, course]));
   const planned = board.terms.flatMap((term) =>
     term.courseIds.flatMap((id) => byId.get(id)?.code ?? []),
   );
+  const undergraduate = withHeldOpenBlocks(input.undergraduate, priorCodes, context, planned);
   const prior = new Set(priorCodes);
   const have = new Set([...priorCodes, ...planned]);
   const ledger = doubleDawgsLedger(board, context, priorCodes, extraCredits);

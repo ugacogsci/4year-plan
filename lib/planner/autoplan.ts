@@ -9953,17 +9953,55 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * courses left it needing, and an incoming student's six terms lost HIST 2301.
    */
   const sharedLast = input.requirements.filter((r) => r.rule.kind === 'choose' && r.rule.sharedFirst === true);
+  /*
+   * A minor's or a certificate's courses count toward the degree's open
+   * elective blocks ("Any upper level course 3000-5999", "any non-business
+   * course") as the degree's held classes do, and as UGA's audit counts them
+   * (uga-board-audit.ts): with another program on the board those blocks go
+   * after its rows, and take the courses its rows chose (openShared, below).
+   * Booked first, a Risk Management freshman's Upper Division and
+   * Non-Business electives were twenty-four hours of their own beside her
+   * Consumer Economics minor and Legal Studies certificate, 141 hours of 120
+   * at eighteen a term (2026-10-28).
+   */
+  const programOfRow = (id: string) => id.split('::')[0];
+  const openRows = input.requirements.filter((r) => r.rule.kind === 'pool' && r.rule.anyCourse);
+  const openPrograms = new Set(openRows.map((r) => programOfRow(r.id)));
+  const openLast = input.requirements.some((r) => r.id.includes('::') && !openPrograms.has(programOfRow(r.id))) ? openRows : [];
   const orderedRequirements = nestedLast([
-    ...input.requirements.filter((r) => r.rule.kind !== 'gened' && !sharedLast.includes(r)),
+    ...input.requirements.filter((r) => r.rule.kind !== 'gened' && !sharedLast.includes(r) && !openLast.includes(r)),
     ...sharedLast,
+    ...openLast,
     ...culturalFirst,
   ], nestedParent);
+  /** The open blocks read with the other programs' chosen courses they take (withHeldAnyCourse), once those are chosen. */
+  let openShared: Map<string, PlanRequirement> | null = null;
+  const openWithShared = (requirement: PlanRequirement): PlanRequirement => {
+    if (!openLast.includes(requirement)) return requirement;
+    if (!openShared) {
+      const others = [...chosen].filter(([, why]) => why.requirementId?.includes('::') && !openPrograms.has(programOfRow(why.requirementId))).map(([code]) => code);
+      const { requirements: read, added } = withHeldAnyCourse(input.requirements, [...input.prior.courseCodes.map(normaliseCode), ...others], {
+        creditsOf,
+        versionsOf: (code) => expandEquivalents(code, equivalents),
+        titleOf: (code) => byCode.get(code)?.title,
+      });
+      openShared = new Map(read.filter((r) => openLast.some((open) => open.id === r.id)).map((r) => [r.id, r]));
+      // Counted as a nested row's courses are: on the list, and held for the block's hours (fillPool).
+      for (const [id, codes] of added) {
+        const counted = nestedCounted.get(id) ?? new Set<string>();
+        for (const code of codes) if (others.includes(code)) counted.add(code);
+        nestedCounted.set(id, counted);
+      }
+    }
+    return openShared.get(requirement.id) ?? requirement;
+  };
   /** Gen-ed requirements already filled, so a category knows which others are still waiting. */
   const genEdDone = new Set<string>();
   /** Courses each "to include" pool's nested rows have counted, by the pool's id. */
   const nestedCounted = new Map<string, Set<string>>();
 
-  for (const requirement of orderedRequirements) {
+  for (const ordered of orderedRequirements) {
+    const requirement = openWithShared(ordered);
     if (requirement.rule.kind === 'unparsed' || requirement.rule.kind === 'language') {
       // "Additional course work ... so that there are at least 128 hours earned
       // toward the degree" is the page saying this block is whatever reaches the
