@@ -46,6 +46,11 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
     !doubleDawgsTimingValid(answers) && 'Double Dawgs graduation dates',
     !creditReviewed && 'prior credit',
   ].filter(Boolean);
+  // A first-year student may have no prior credit at all; a later year's record is their transcript.
+  const newStudent = !answers.academicYear || answers.academicYear === 'first';
+  const creditStep = newStudent
+    ? 'add any AP, IB, dual-enrollment or transfer credit under "Add prior credit or upload a transcript" below, or choose "I have no prior credit"'
+    : 'upload your transcript or add the classes you have taken under "Add prior credit or upload a transcript" below, or tell the assistant what you have taken';
   const send = async () => {
     if (!draft.trim() || !catalog || !answers.schoolId || busy) return;
     setBusy(true); setError('');
@@ -111,7 +116,15 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
         {answers.academicYear && <span>{answers.academicYear} year</span>}
         {answers.graduationYear && <span>{answers.graduationSeason} {answers.graduationYear}{!graduationConfirmed ? ' (suggested)' : ''}</span>}
         {!graduationConfirmed && answers.graduationYear && <button onClick={() => { const content = `My intended graduation is ${answers.graduationSeason} ${answers.graduationYear}.`; const history: SetupMessage[] = [...messages, { role: 'user', content }]; setMessages(history); onChange({ ...answers, setupConversation: history, setupConfirmations: { programConfirmed, creditReviewed, graduationConfirmed: true } }); }}>Use this graduation term</button>}
+        {!creditReviewed && newStudent && <button onClick={() => { const content = 'I have no AP, IB, dual-enrollment or transfer credit.'; const history: SetupMessage[] = [...messages, { role: 'user', content }]; setMessages(history); onChange({ ...answers, setupConversation: history, setupConfirmations: { programConfirmed, graduationConfirmed, creditReviewed: true } }); }}>I have no prior credit</button>}
       </div>
+      {/*
+        * The buttons answer without the assistant, which would have asked for what is left:
+        * after "Use this graduation term" nothing asked for prior credit, and no Build button came (2026-10-28).
+        */}
+      {!busy && missing.length > 0 && <p className="onb-q-hint">{missing.length === 1 && !creditReviewed
+        ? `Last step: ${creditStep}.`
+        : `Still needed before your plan: ${missing.join(', ')}. Tell the assistant here${!creditReviewed ? `, and ${creditStep}` : ''}.`}</p>}
     </>}
     <form className="guided-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
       <textarea aria-label={messages.length ? 'Reply to the setup assistant' : 'Describe yourself'} maxLength={6000} rows={messages.length ? 3 : 5} value={draft} disabled={busy}
