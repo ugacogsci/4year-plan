@@ -57,8 +57,10 @@
  * (RATINGS_CAVEAT), not once per professor.
  *
  * The owner's rule (2026-10-27): nothing the advisors or a student see names
- * the site or links a profile. The numbers are "student ratings"; the file
- * keeps each profile's link for the build and the checks alone.
+ * the site or links a profile. The numbers are "student ratings". The shipped
+ * files hold neither the site's name nor a profile link either (2026-10-28):
+ * anyone can open public/<school>/professor-ratings.json, and nothing read
+ * them.
  *
  * For a course, professor_ratings gives a rundown (professorRatingsResult): its
  * instructors with the terms a class schedule names them for (UGA's Schedule
@@ -86,9 +88,8 @@ export interface RatedProfile {
   /** Percent who would take the professor again; null when the site shows none. */
   again: number | null;
   count: number;
-  url: string;
   /** The person's other profiles, merged into this one. */
-  merged?: Array<{ id: number; dept: string; count: number; url: string }>;
+  merged?: Array<{ id: number; dept: string; count: number }>;
   /**
    * Other people the school's grade history or syllabi name with this last
    * name and first initial ("Gagandeep Singh" beside a profile "Guarav Singh"):
@@ -98,7 +99,6 @@ export interface RatedProfile {
 }
 
 export interface ProfessorRatingsFile {
-  source: 'Rate My Professors';
   school: RatingsSchool;
   schoolName: string;
   /** The day the profiles were collected, YYYY-MM-DD. */
@@ -484,9 +484,22 @@ export function professorRatingsResult(
         ? `No one on ${schedule.source} teaches ${code} in ${lead}; teaches gives the terms each instructor is scheduled for.`
         : null;
   const pick = code ? pickOf(code, lead, rows) : null;
+  /*
+   * The counts in one sentence that adds up: ARCH told a student 28 teach
+   * MATH 2250 in Spring 2027 and then "44 more are listed with no ratings",
+   * more_instructors being the rest of every term's 56 after the 12 listed,
+   * rated or not (2026-10-28).
+   */
+  const rest = rows.slice(RUNDOWN);
+  const restRated = rest.filter((r) => isRated(r.e)).length;
+  const restInLead = lead ? rest.filter((r) => r.t.includes(lead)).length : 0;
+  const counts = rest.length > 0 || (lead && rows.length > inLead)
+    ? `${lead ? `${inLead} teach ${code} in ${lead}, and ` : ''}${rows.length} are named across all its schedule terms and syllabi. professors lists ${Math.min(rows.length, RUNDOWN)} of the ${rows.length}${rest.length > 0 ? `; the other ${rest.length} (more_instructors) are not listed: ${lead ? `${restInLead} of them teach it in ${lead}, and ` : ''}${restRated} of them have student ratings` : ''}.`
+    : null;
   return {
     ...head,
     ...(lead ? { term: lead, teaching_that_term: inLead } : {}),
+    ...(counts ? { instructors_all_terms: rows.length, counts } : {}),
     ...(scheduleNote ? { schedule_note: scheduleNote } : {}),
     highest_rated: pick?.name ?? null,
     pick: pick?.words ?? `None of ${code}'s instructors has ${TOO_FEW} or more student ratings, so the ratings point to no one.`,
@@ -613,8 +626,7 @@ export function ratedProfiles(raw: readonly RawProfile[]): RatedProfile[] {
       difficulty: Math.round((weighted(parts((p) => p.averageDifficulty)) ?? 0) * 10) / 10,
       again: again === null ? null : Math.round(again),
       count: g.reduce((s, p) => s + (p.ratingCount ?? 0), 0),
-      url: top.profileUrl,
-      ...(rest.length > 0 ? { merged: rest.map((p) => ({ id: p.id, dept: (p.department ?? '').trim(), count: p.ratingCount ?? 0, url: p.profileUrl })) } : {}),
+      ...(rest.length > 0 ? { merged: rest.map((p) => ({ id: p.id, dept: (p.department ?? '').trim(), count: p.ratingCount ?? 0 })) } : {}),
     };
   });
 }
@@ -633,7 +645,7 @@ export function learnSubjectDepartments(
   namedBy?: (subject: string, dept: string) => boolean,
   allSubjects: readonly string[] = [],
 ): Record<string, string[]> {
-  const blank: ProfessorRatingsFile = { source: 'Rate My Professors', school: 'uga', schoolName: '', collectedAt: '', profiles: [...profiles], subjectDepartments: {} };
+  const blank: ProfessorRatingsFile = { school: 'uga', schoolName: '', collectedAt: '', profiles: [...profiles], subjectDepartments: {} };
   const tally = new Map<string, Map<string, Set<number>>>();
   const seen = new Set<string>();
   for (const { subject, name } of names) {

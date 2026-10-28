@@ -3,8 +3,8 @@
  * Professors collection (data/ratemyprofessors/<school>.json, read only).
  *
  * Kept: rated profiles only (name, department, overall, difficulty, would
- * take again, count, profile link), one person's obvious duplicate profiles
- * merged; the day they were collected; and, per course subject, the site
+ * take again, count; no profile link and no site name, which nothing reads
+ * and anyone could open), one person's obvious duplicate profiles merged; the day they were collected; and, per course subject, the site
  * departments its instructors are listed under (learned from the syllabi's
  * instructor names that match exactly one profile, and Illinois's grade
  * history's or UGA's Schedule of Classes' (public/uga/course-offerings.json,
@@ -133,7 +133,6 @@ for (const school of ['uga', 'illinois'].filter((s) => !only || s === only)) {
   const named = school === 'illinois' ? (subj, dept) => illinoisNamed(subj, dept) || byTitles(subj, dept) : byTitles;
   const subjectDepartments = R.learnSubjectDepartments(profiles, learnFrom, named, [...new Set(catalog.map((c) => subjectOf(c.code ?? `${c.subject} ${c.number}`)))]);
   const file = {
-    source: 'Rate My Professors',
     school,
     schoolName: raw.metadata?.school ?? school,
     collectedAt: String(raw.metadata?.updatedAt ?? '').slice(0, 10),
