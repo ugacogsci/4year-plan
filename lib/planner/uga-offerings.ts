@@ -117,6 +117,14 @@ export interface UgaOfferingsFile {
   campuses: Record<string, string>;
   /** Codes on the schedule that the planner's catalog does not list. */
   notInCatalog: string[];
+  /**
+   * Of those, the ones the schedule runs as one class with a catalog course
+   * (a cross-listing): "ATSC 1112" -> "GEOG 1112". Absent in a file built
+   * before 2026-10-28.
+   */
+  crossListed?: Record<string, string>;
+  /** Each subject's name as the schedule prints it ("ENTR": "Entrepreneurship"); absent before 2026-10-28. */
+  subjects?: Record<string, string>;
   courses: Record<string, Record<string, TermOffering>>;
 }
 
@@ -259,6 +267,54 @@ export function instructorsFor(file: UgaOfferingsFile, code: string, termLabel?:
   }
   const newest = (i: InstructorOffering) => file.terms.findIndex((t) => t.label === i.terms[0]);
   return [...out.values()].sort((a, b) => b.sections - a.sections || newest(a) - newest(b) || a.name.localeCompare(b.name));
+}
+
+const SEASON_OF = /^(Fall|Spring|Summer) \d{4}$/;
+
+/**
+ * Students a year in each course: enrollment summed over the newest fall,
+ * spring and summer whose registration has opened (Spring, Summer and Fall
+ * 2026 in this file), keyed by the file's course code. What the planner's
+ * free choices read as "commonly taken" (autoplan.ts freeChoiceSignals); a course
+ * the schedule does not list is absent, not 0.
+ */
+export function takenPerYear(file: UgaOfferingsFile): Map<string, number> {
+  const counted = new Map<string, string>();
+  for (const t of file.terms) {
+    const season = t.label.match(SEASON_OF)?.[1];
+    if (!season || counted.has(season) || t.enrolled <= 0) continue;
+    counted.set(season, t.label);
+  }
+  const out = new Map<string, number>();
+  for (const [code, byTerm] of Object.entries(file.courses)) {
+    let n = 0;
+    for (const label of counted.values()) n += byTerm[label]?.enrolled ?? 0;
+    if (n > 0) out.set(code, n);
+  }
+  return out;
+}
+
+/**
+ * The seasons each course has a section in, over every term in the file,
+ * for the course and for each version that ran apart ("MATH 2250E"). A
+ * course the file does not list has run in none of its terms.
+ */
+export function seasonsRun(file: UgaOfferingsFile): Map<string, Array<'Fall' | 'Spring' | 'Summer'>> {
+  const out = new Map<string, Set<'Fall' | 'Spring' | 'Summer'>>();
+  const add = (code: string, season: 'Fall' | 'Spring' | 'Summer') => {
+    const set = out.get(code) ?? new Set();
+    set.add(season);
+    out.set(code, set);
+  };
+  for (const [code, byTerm] of Object.entries(file.courses)) {
+    for (const [label, o] of Object.entries(byTerm)) {
+      const season = label.match(SEASON_OF)?.[1] as 'Fall' | 'Spring' | 'Summer' | undefined;
+      if (!season || o.sections <= 0) continue;
+      add(code, season);
+      for (const [version, v] of Object.entries(o.versions ?? {})) if (v.sections > 0) add(`${code}${version}`, season);
+    }
+  }
+  return new Map([...out].map(([code, set]) => [code, [...set]]));
 }
 
 /** Whether any of the course's sections that term are on the Athens campus. */

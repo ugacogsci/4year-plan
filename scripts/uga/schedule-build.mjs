@@ -235,6 +235,10 @@ function readTerm(text, source, fetchedAt, known) {
   const campuses = new Map();
   const people = new Set();
   const courses = new Map();
+  // Sections the schedule lists under two subjects ("AS_GEOG1112" holds GEOG 1112 and ATSC 1112).
+  const crossLists = new Map();
+  // Each subject's name as the schedule prints it: "ENTR - Entrepreneurship".
+  const subjects = new Map();
   let start = null;
   let end = null;
   let sections = 0;
@@ -254,6 +258,10 @@ function readTerm(text, source, fetchedAt, known) {
     bump(statuses, get(r, 'STATUS'));
     if (get(r, 'STATUS') !== 'A') continue; // cancelled ("X", "C") or pending ("P")
     const code = C.normUgaCode(`${get(r, 'SUBJECT')} ${get(r, 'COURSE_NUMBER')}`);
+    const group = col.SECTION_CROSS_LIST === undefined ? '' : get(r, 'SECTION_CROSS_LIST').trim();
+    const subjectName = col.SUBJECT_DESC === undefined ? '' : get(r, 'SUBJECT_DESC').replace(/^[A-Z]{2,5}\s*[-–]\s*/, '').trim();
+    if (subjectName && !subjects.has(get(r, 'SUBJECT'))) subjects.set(get(r, 'SUBJECT'), subjectName);
+    if (group) (crossLists.get(group) ?? crossLists.set(group, new Set()).get(group)).add(code);
     const k = O.offeringKeyOf(code, known);
     const entry = courses.get(k.key) ?? { sections: 0, enrolled: 0, seats: 0, noLimit: 0, campuses: new Map(), instructors: new Map(), unnamed: 0, versions: new Map(), parts: new Map(), starred: true };
     courses.set(k.key, entry);
@@ -289,8 +297,34 @@ function readTerm(text, source, fetchedAt, known) {
     term: { label, period, status, url: source.url, fetchedAt, enrolled, courses: [...courses.values()].filter((e) => e.sections > 0).length, sections, instructors: people.size },
     courses,
     campuses,
+    crossLists,
+    subjects,
     stats: { rows: rows.length, crns: seen.size, statuses: Object.fromEntries(statuses), notInCatalog },
   };
+}
+
+/**
+ * Codes the catalog does not list that the schedule runs as one class with
+ * a course it does (a cross-listing): "ATSC 1112" -> "GEOG 1112". A
+ * transcript printing the other subject's number names the catalog's course
+ * (lib/planner/transcript.ts). Where a listing holds more than one catalog
+ * course, the one with the same number (ATSC 4111 with AENG 4111, not its
+ * graduate AENG 6111); a listing that still leaves a choice names none.
+ */
+function crossListedAs(groups, known) {
+  const out = new Map();
+  for (const codes of groups) {
+    const inCatalog = [...codes].filter(known);
+    if (inCatalog.length === 0) continue;
+    for (const code of codes) {
+      if (known(code) || out.has(code)) continue;
+      const number = code.split(' ')[1];
+      const same = inCatalog.filter((c) => c.split(' ')[1] === number);
+      const pick = same.length === 1 ? same[0] : same.length === 0 && inCatalog.length === 1 ? inCatalog[0] : null;
+      if (pick) out.set(code, pick);
+    }
+  }
+  return out;
 }
 
 /**
@@ -408,6 +442,8 @@ for (const t of terms) {
 const order = terms.map((t) => t.label);
 
 const codes = Object.keys(courses).filter((c) => Object.keys(courses[c]).length > 0).sort();
+const crossListed = crossListedAs([...read.values()].flatMap((t) => [...t.crossLists.values()]), known);
+for (const [code, to] of Object.entries(prev?.crossListed ?? {})) if (!crossListed.has(code) && !known(code) && known(to)) crossListed.set(code, to);
 const file = {
   school: 'uga',
   source: 'UGA Office of the Registrar, Schedule of Classes',
@@ -416,6 +452,9 @@ const file = {
   terms,
   campuses: Object.fromEntries([...campusNames].sort()),
   notInCatalog: codes.filter((c) => !known(c)),
+  crossListed: Object.fromEntries([...crossListed].sort()),
+  // A subject's name, for reading a student's words against it ("entrepreneurship" names ENTR).
+  subjects: Object.fromEntries([...new Map([...Object.entries(prev?.subjects ?? {}), ...[...read.values()].flatMap((t) => [...t.subjects])])].sort()),
   courses: Object.fromEntries(codes.map((c) => [c, Object.fromEntries(order.filter((l) => courses[c][l]).map((l) => [l, courses[c][l]]))])),
 };
 
