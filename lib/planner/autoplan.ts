@@ -3692,13 +3692,15 @@ const FIT_POINTS = 3;
  * it is taken, by FreeChoiceSignals.band (1,000 a year or more, 300, 100, 30,
  * fewer, not known): a point at most, below the nudge a course in one of the
  * degree's own subjects gets (1.5) and a goal match, above a tie. A course
- * fewer than 30 a year take loses four, under half of what one that has not
- * run loses. Light grades and one well-liked instructor made ARTJ 301 Manga
- * (30 students in two and a half years) an Illinois freshman's elective, and
- * at UGA the scrambled code order made HORT 3030 Floral Design and
- * Management one.
+ * fewer than 100 a year take loses six, one fewer than 30 nine, as one that
+ * has not run does: light grades and one well-liked instructor made ARTJ 301
+ * Manga (30 students in two and a half years) an Illinois freshman's
+ * elective, and at UGA the scrambled code order made HORT 3030 Floral Design
+ * and Management one; at four points off ARTJ 301 still was, on 274 Illinois
+ * boards, and ECE 316 Ethics and Engineering (about 70 a year) on 416, an
+ * Advertising student's among them, and at six on 317 and 417 (2026-10-28).
  */
-const POPULAR_POINTS = [1, 0.5, 0, -1.5, -4, 0];
+const POPULAR_POINTS = [1, 0.5, 0, -6, -9, 0];
 
 /** Grade-history lightness in steps of a tenth, lightest 0, for the list and gen-ed orders at workload 2. */
 function lightStep(q: QualityResult): number {
@@ -10336,6 +10338,20 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
              */
             const goal = goalGenEd(a) - goalGenEd(b);
             if (goalFirst && goal !== 0) return goal;
+            /*
+             * With the free choices' reading, a course fewer than three
+             * hundred students a year take, or graded harder than most
+             * (commonGenEd), goes behind the commonly taken ones before a
+             * second category counts: REL 260 Mystics and Saints in Islam
+             * carries Humanities and Non-Western Cultures as MUS 133 (about
+             * 2,900 in the grade reports) does, and took both on 538 boards;
+             * ECE 101 Exploring Digital Information Technologies for
+             * Non-Engineers was Natural Sciences for 364 over ACES 102.
+             */
+            if (commonFirst) {
+              const rare = Number(commonGenEd(a) >= 2) - Number(commonGenEd(b) >= 2);
+              if (rare !== 0) return rare;
+            }
             const both = alsoCounts(b) - alsoCounts(a);
             if (both !== 0) return both;
             // Behind the second category (AutoplanInput.goalGenEd 'after'): the
