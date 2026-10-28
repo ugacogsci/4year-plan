@@ -197,6 +197,16 @@ const LOW_INFORMATION = new Set([
   'theory', 'practice', 'analysis', 'introduction', 'advanced', 'special', 'topics', 'human', 'world', 'culture',
 ]);
 
+/**
+ * "Engineer" is the job, not the field: "software engineer" made every
+ * department with Engineering in its name one the student wants, and a
+ * Computer Science sophomore's electives were ETMA 363 Fluid Power Systems
+ * and SE 261 Business Side of Engineering (2026-10-28). It names no subject,
+ * and in a title it counts only in the degree's own subjects (a UGA Computer
+ * Science student's "Calculus II for Science and Engineering").
+ */
+const JOB_WORDS = new Set(['engineer', 'engineers', 'engineering']);
+
 const escapeWord = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
@@ -290,7 +300,7 @@ export function courseMatchesWord(course: { title: string; cluster: string }, wo
   const title = course.title.toLowerCase();
   const stem = stemOf(w);
   const inTitle = titleWord(w, false).test(title) || (stem !== w && titleWord(stem, false).test(title));
-  return (inTitle && !LOW_INFORMATION.has(w)) || namesSubject(course.cluster, w);
+  return (inTitle && !LOW_INFORMATION.has(w)) || (!JOB_WORDS.has(w) && namesSubject(course.cluster, w));
 }
 
 /**
@@ -515,7 +525,15 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     let v = 0;
     const title = course.title.toLowerCase();
     const free = q.interestWords.filter((w) => w.length >= 5 && !INTEREST_STOPWORDS.has(w));
-    const curated = q.curatedWords ?? [];
+    /*
+     * A goal whose own subject is the major (software engineering's CS, for a
+     * Computer Science major) reads another department's courses past their
+     * introductions only: IS 205 Programming for Information Problems and IS
+     * 206 teach at the start what CS 124 and CS 225 do, and were a Computer
+     * Science sophomore's electives "for" the goal (2026-10-28).
+     */
+    const introElsewhere = q.primarySubject !== null && Boolean(q.interestSubjects?.has(q.primarySubject)) && course.cluster !== q.primarySubject && Number(code.match(/\d/)?.[0] ?? 0) < 3;
+    const curated = introElsewhere ? [] : (q.curatedWords ?? []);
     // A word that names the student's own major says nothing a course in the
     // major does not already carry: "computer" from "computer science" made
     // CS 415 Game Development as relevant to machine learning as CS 446.
@@ -526,12 +544,13 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     // Nor does it make a title relevant: "computer" from "Computer
     // engineering" matched every "...for Computer Vision" course as well as
     // the hardware courses the student asked about.
-    const freeHits = free.filter((w) => !namesMajor(w) && (inTitle(w, false) || (stemOf(w) !== w && inTitle(stemOf(w), false))));
+    const ownSubject = course.cluster === q.primarySubject || q.degreeSubjects.has(course.cluster);
+    const freeHits = free.filter((w) => !namesMajor(w) && (ownSubject || !JOB_WORDS.has(w)) && (inTitle(w, false) || (stemOf(w) !== w && inTitle(stemOf(w), false))));
     const strongFree = freeHits.filter((w) => !LOW_INFORMATION.has(w));
     const titleHit = curatedHits.length > 0 || strongFree.length > 0 || freeHits.length >= 2;
     const subjectHit =
       Boolean(q.interestSubjects?.has(course.cluster)) ||
-      free.some((w) => !namesMajor(w) && namesSubject(course.cluster, w, names));
+      free.some((w) => !namesMajor(w) && !JOB_WORDS.has(w) && namesSubject(course.cluster, w, names));
     const courseHit = Boolean(q.interestCourses?.has(code));
     if (courseHit) { v = 1; reasons.push(RELEVANCE_REASONS.named); }
     else if (titleHit && subjectHit) { v = 1; reasons.push(RELEVANCE_REASONS.titleAndSubject); }
