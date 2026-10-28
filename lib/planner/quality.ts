@@ -124,6 +124,21 @@ export interface QualityInputs {
   /** The term the sections were crawled for, "Fall 2026", so a reason can name it. */
   nowLabel?: string | null;
   /**
+   * The school's subject names by code, where they are not Illinois's (UGA's
+   * Schedule of Classes: "ENTR": "Entrepreneurship"), so a student's word
+   * names a UGA subject: read against Illinois's table, "entrepreneurship"
+   * named no UGA subject at all.
+   */
+  subjectNames?: ReadonlyMap<string, string>;
+  /**
+   * The relevance measure as it read before 2026-10-28: every word the
+   * student wrote against the catalog description, one word enough, and
+   * Illinois's subject names. Only for the board built without the free
+   * choices' new reading (autoplan.ts freeChoicesGated 'off'), so that board
+   * is the planner's old one.
+   */
+  legacyTopics?: boolean;
+  /**
    * The career matcher (career-embedding.ts), when its flag is on and the
    * model loaded: relevance by meaning instead of shared words, for every
    * course it has a vector for. Absent, relevance is read from the words as
@@ -224,9 +239,9 @@ function stemOf(word: string): string {
  * Comparative Literature; search keeps its looser matcher, this is only for
  * ranking a student's picks.
  */
-function namesSubject(cluster: string, word: string): boolean {
+function namesSubject(cluster: string, word: string, names?: ReadonlyMap<string, string>): boolean {
   if (LOW_INFORMATION.has(word)) return false;
-  const name = (ILLINOIS_SUBJECT_NAMES[cluster] ?? '').toLowerCase();
+  const name = ((names ? names.get(cluster) : ILLINOIS_SUBJECT_NAMES[cluster]) ?? '').toLowerCase();
   const stem = word.slice(0, Math.max(6, word.length - 3));
   return name.split(/[^a-z]+/).some((part) => part === word || (part.length >= 6 && part.startsWith(stem) && stem.length >= 6));
 }
@@ -504,7 +519,8 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     // A word that names the student's own major says nothing a course in the
     // major does not already carry: "computer" from "computer science" made
     // CS 415 Game Development as relevant to machine learning as CS 446.
-    const namesMajor = (w: string) => q.primarySubject !== null && namesSubject(q.primarySubject, w);
+    const names = q.legacyTopics ? undefined : q.subjectNames;
+    const namesMajor = (w: string) => q.primarySubject !== null && namesSubject(q.primarySubject, w, names);
     const inTitle = (w: string, whole: boolean) => titleWord(w, whole).test(title);
     const curatedHits = curated.filter((w) => inTitle(w, w.length < 5));
     // Nor does it make a title relevant: "computer" from "Computer
@@ -515,7 +531,7 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     const titleHit = curatedHits.length > 0 || strongFree.length > 0 || freeHits.length >= 2;
     const subjectHit =
       Boolean(q.interestSubjects?.has(course.cluster)) ||
-      free.some((w) => !namesMajor(w) && namesSubject(course.cluster, w));
+      free.some((w) => !namesMajor(w) && namesSubject(course.cluster, w, names));
     const courseHit = Boolean(q.interestCourses?.has(code));
     if (courseHit) { v = 1; reasons.push(RELEVANCE_REASONS.named); }
     else if (titleHit && subjectHit) { v = 1; reasons.push(RELEVANCE_REASONS.titleAndSubject); }
@@ -524,10 +540,25 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     else if (course.cluster === q.primarySubject) { v = 0.6; reasons.push('in your major'); }
     else if (q.degreeSubjects.has(course.cluster)) { v = 0.4; reasons.push("in one of your degree's subjects"); }
     if (course.description && !courseHit) {
-      const topics = [...new Set([...free.filter((word) => !namesMajor(word)), ...curated])];
+      /*
+       * A catalog description is three hundred words; one word the student
+       * wrote turns up in it by chance. "I want to start my own business"
+       * found HIST 2301 History of Western Society to 1500 ("from the start
+       * of the written record") for a Risk Management freshman's World
+       * Languages and Global Culture, and "law school" RUSS 3160 Madness,
+       * Desire, and Death ("judicial"): 118 of the 143 description-only
+       * picks in a sample of 121 UGA boards matched one word (2026-10-28).
+       * So it takes two words, one not a broad word ("business"), and the
+       * student's free words are read here only where the title already
+       * matched, to tell two such titles apart; a description alone counts
+       * only the goal's own curated words (career-tracks.ts). A board saved
+       * before still reads its "catalog topics match" reason (saysGoalMatch).
+       */
+      const freeTopics = q.legacyTopics || titleHit ? free.filter((word) => !namesMajor(word)) : [];
+      const topics = [...new Set([...freeTopics, ...curated.filter((word) => q.legacyTopics || !namesMajor(word))])];
       const description = course.description.toLowerCase();
       const hits = topics.filter((word) => titleWord(stemOf(word), word.length < 5).test(`${title} ${description}`));
-      const meaningful = hits.some((word) => !LOW_INFORMATION.has(word)) || hits.length >= 2;
+      const meaningful = q.legacyTopics ? hits.some((word) => !LOW_INFORMATION.has(word)) || hits.length >= 2 : hits.length >= 2 && hits.some((word) => !LOW_INFORMATION.has(word));
       if (meaningful) {
         // Coverage distinguishes a broad title match from a course addressing
         // several parts of the student's goal, without claiming semantic certainty.

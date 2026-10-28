@@ -103,6 +103,7 @@ import {
 } from './uga-source';
 import {
   arrivalFromWords,
+  commonlyTakenLine,
   degreeSubjects,
   electiveOptions,
   interestProfileOf,
@@ -1630,6 +1631,8 @@ export function PlannerWorkspace({
       career: careerText,
       // The degree check holds the matcher's board to the board audit too (AutoplanInput.careerAudit).
       ...(careerFit ? { careerFit, ...(isUga ? { careerAudit: (g: GeneratedPlan) => ugaUnmetRows(ugaAuditOn(g.plan)) } : {}) } : {}),
+      // And the free choices' check (AutoplanInput.boardAudit), at UGA by the audit the board bar reads.
+      ...(isUga ? { boardAudit: (g: GeneratedPlan) => ugaUnmetRows(ugaAuditOn(g.plan)) } : {}),
       programName: loaded.program.name,
       programCollege: loaded.program.college,
       arrival: arrivalOf(answers),
@@ -2805,6 +2808,7 @@ export function PlannerWorkspace({
           addedPrerequisites: report?.addedPrerequisites ?? [],
         },
         byCode,
+        context ? (code) => commonlyTakenLine(context, code) : undefined,
       );
       for (const shared of plan?.doubleDawgs?.shared ?? []) {
         const course = byCode.get(shared.code);
@@ -2816,7 +2820,7 @@ export function PlannerWorkspace({
       }
       return marks;
     },
-    [pools, byCode, report, plan?.doubleDawgs],
+    [pools, byCode, report, plan?.doubleDawgs, context],
   );
 
   /** Whether the query matches anything at all, so the panel can say when it does not. */

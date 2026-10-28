@@ -720,6 +720,12 @@ export function splitLanguageRequirement(text: string): { language: { semesters:
 
 export interface CourseChoice {
   codes: string[];
+  /**
+   * UGA: one of the most taken courses an open elective block's sample adds
+   * for the free choices' reading (uga-source.tsx broadElectiveCourses); a
+   * board built without that reading plans from the sample alone.
+   */
+  common?: boolean;
   title: string;
   credits: number | null;
   creditsMax: number | null;

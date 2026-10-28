@@ -525,6 +525,8 @@ function build(program, kind) {
     degreeTotal: publishedTotal, interests: ['', careerText].join(' '), career: careerText,
     programName: loaded.program.name, programCollege: loaded.program.college, admissionRoute: null, residency: null, firstYear: false,
     ...(FITS.has(kind) ? { careerFit: FITS.get(kind), careerAudit: (g) => unmetRowsOf(g) } : {}),
+    // The free choices' check by the board audit, as the workspace passes it (AutoplanInput.boardAudit; a checkout before it ignores it).
+    boardAudit: (g) => unmetRowsOf(g),
   });
   const board = generated.plan;
   // What the workspace counts against the board (completedCodes, priorCreditHours).

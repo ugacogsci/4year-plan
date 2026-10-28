@@ -1,7 +1,7 @@
 import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from './types';
 import { termLoad, type GradeRow } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
-import { forSchool, interestProfile, labPartners, withHeldVariants, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
+import { forSchool, interestProfile, labPartners, UGA_CAREER_TRACKS, withHeldVariants, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
 import type { Priorities } from './priorities';
 import { interestWordsFrom, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
 import { GOAL_GROUP_CAP, NEAR_SAME, progressionPoints, varietyPenalty, type CareerFit } from './career-embedding';
@@ -74,6 +74,8 @@ export interface PlanCourseChoice {
   set?: string[];
   /** A row asking for the course more than once (repeats.ts): THEA 359 x 8 hours is four 2-hour sittings. */
   repeat?: RepeatAsk;
+  /** UGA: a most taken course an open elective block's sample adds for the free choices (CourseChoice.common). */
+  common?: boolean;
 }
 
 /** One named list inside a pool, so a constraint can point at it. */
@@ -433,6 +435,27 @@ export interface PlanningContext {
    */
   offerings?: Map<string, string[]>;
   offeringTerms?: string[];
+  /**
+   * Students a year in each course, as the school counts them: UGA's
+   * Schedule of Classes (enrolled over its newest fall, spring and summer,
+   * uga-offerings.ts takenPerYear), Illinois's grade reports (students
+   * graded, a year). The free choices read it as "commonly taken"
+   * (freeChoiceSignals): with nothing else to tell 280 courses of a core list
+   * apart, UGA's picks were the alphabet's (2026-10-28). Absent, not known.
+   */
+  taken?: Map<string, number>;
+  /** Where `taken` was counted, for the line a card prints: "UGA's Schedule of Classes, Spring to Fall 2026". */
+  takenSource?: string;
+  /**
+   * UGA: the seasons each course has a section in, over the Schedule of
+   * Classes' terms (uga-offerings.ts seasonsRun), and those terms. Only the
+   * free choices read it, to prefer a course on this year's schedule and one
+   * that runs every fall and spring; the board's offering warnings read
+   * `offerings`, which UGA does not set.
+   */
+  scheduled?: { terms: string[]; seasons: Map<string, SemesterSeason[]> };
+  /** UGA: each subject's name by code ("ENTR": "Entrepreneurship"), for the relevance measure (QualityInputs.subjectNames). Absent: Illinois's table. */
+  subjectNames?: Map<string, string>;
   /** New course number -> the old number whose offering history it carries. */
   offeringAliases?: Map<string, string>;
   /** The registrar's language table, so the language requirement can be planned rather than quoted. */
@@ -513,6 +536,8 @@ export interface Arrival {
   transfer: boolean;
   /** Said they are an international student: LAS 100 "Success in LAS for International Students". */
   international: boolean;
+  /** In an honors degree ("Integrative Biology Honors"): an honors version is for them. Nothing else says a student is in an honors program. */
+  honors?: boolean;
 }
 
 /**
@@ -724,6 +749,14 @@ export interface AutoplanInput {
    */
   careerFitScope?: 'all' | 'electives';
   /**
+   * How the free choices read how commonly a course is taken and whether it
+   * is on this year's schedule (freeChoiceSignals): 'common' ahead of the
+   * priority score in a broad list, a category and an elective slot; 'ties'
+   * only where everything else is equal; 'off' not at all. Set by generatePlan
+   * itself (freeChoicesGated); never by a caller.
+   */
+  freeChoices?: 'common' | 'ties' | 'off';
+  /**
    * With the career matcher: how many requirement rows the board's own audit
    * leaves unmet (at UGA the board audit the board bar reads, auditUgaBoard,
    * whose pool reading can differ from the engine's), so the degree check
@@ -731,6 +764,13 @@ export interface AutoplanInput {
    * own reading is the whole check.
    */
   careerAudit?: (generated: GeneratedPlan) => number;
+  /**
+   * The same count for the free choices' check (freeChoicesGated), with the
+   * matcher on or off: at UGA the board audit's rows can read a pool the
+   * engine read as met as short (and the other way round), and the UGA
+   * harness counts the audit's.
+   */
+  boardAudit?: (generated: GeneratedPlan) => number;
   /**
    * Built without the student's career tracks: generatePlan's degree-first
    * check for a UGA pre-health board (ugaDegreeFirst). Never set by a caller.
@@ -1180,6 +1220,8 @@ export interface GeneratedPlan {
   terms: PlannedTerm[];
   /** With the career matcher on: which free choices it ranked on this board (careerGated); absent with it off. */
   careerScope?: 'all' | 'electives' | 'words';
+  /** How the free choices read how commonly a course is taken on this board (freeChoicesGated). */
+  freeChoices?: 'common' | 'ties' | 'off';
   /** Requirements with no course assigned, each with the catalog link so a human can check. */
   unsatisfied: UnsatisfiedRequirement[];
   /**
@@ -3592,6 +3634,11 @@ interface ElectiveScoring {
   goalPoints?: boolean;
   /** With the career matcher: a point for a goal course that leads on to another goal course in its subject (careerFollowOnOf). */
   careerFollowOn?: (code: string) => number;
+  /** How commonly taken and whether on this year's schedule (freeChoiceSignals); `common` false when the student asked for the lightest or best-taught courses. */
+  free?: FreeChoiceSignals;
+  common?: boolean;
+  /** Graded harder than most (the school's harder band), where grade history is loaded. */
+  harder?: (code: string) => boolean;
 }
 
 /**
@@ -3632,6 +3679,19 @@ const GOAL_POINTS = 3;
  * courses lead rather than whichever the other measures favour.
  */
 const FIT_POINTS = 3;
+
+/**
+ * What a free elective outside the degree's subjects gains for how commonly
+ * it is taken, by FreeChoiceSignals.band (1,000 a year or more, 300, 100, 30,
+ * fewer, not known): a point at most, below the nudge a course in one of the
+ * degree's own subjects gets (1.5) and a goal match, above a tie. A course
+ * fewer than 30 a year take loses four, under half of what one that has not
+ * run loses. Light grades and one well-liked instructor made ARTJ 301 Manga
+ * (30 students in two and a half years) an Illinois freshman's elective, and
+ * at UGA the scrambled code order made HORT 3030 Floral Design and
+ * Management one.
+ */
+const POPULAR_POINTS = [1, 0.5, 0, -1.5, -4, 0];
 
 /** Grade-history lightness in steps of a tenth, lightest 0, for the list and gen-ed orders at workload 2. */
 function lightStep(q: QualityResult): number {
@@ -3816,6 +3876,107 @@ export function closedToProgram(ctx: Pick<PlanningContext, 'sections'>, code: st
 }
 
 /** Ran in exactly one of the crawled terms, when there are enough terms for that to mean something. */
+/**
+ * What a free choice reads once the student's goal and the degree's own
+ * subjects have had their say: how commonly the course is taken, and whether
+ * it is on this year's schedule. A choice between equals is the one a student
+ * most often makes, never the alphabet's: UGA's core lists tied nine picks in
+ * ten on everything the scorer knows (no grade or teaching data there), and
+ * the tie went to AESC, AFST and ASTR (51% of the unrelated UGA picks began
+ * with an A, 11% of the courses on the lists did); Illinois's went to small
+ * light-graded courses, REL 260 Mystics and Saints in Islam (56 students in
+ * two and a half years) for Non-Western Cultures over ANTH 103 (3,031).
+ */
+interface FreeChoiceSignals {
+  /** Students a year (PlanningContext.taken), or null when not known. */
+  taken(code: string): number | null;
+  /**
+   * 0 for 1,000 or more a year, 1 for 300, 2 for 100, 3 for 30, 4 for
+   * fewer, 5 not known. Coarse on purpose: 1,246 and 1,183 students say the same thing.
+   * Illinois's courses with no grade report (RHET 105) are read from their
+   * sections in the crawled term.
+   */
+  band(code: string): number;
+  /** 1 for a UGA course the Schedule of Classes has in none of its terms (Spring 2026 to Summer 2027). */
+  offSchedule(code: string): number;
+  /** 1 for a course that runs in only one of fall and spring (UGA's schedule, Illinois's offering history). */
+  oneSeason(code: string): number;
+  /** Whether the schedule runs the course in `season`; null when it cannot say (UGA only). */
+  runsIn(code: string, season: SemesterSeason): boolean | null;
+}
+
+const POPULAR_BANDS = [1000, 300, 100, 30];
+const signalsCache = new WeakMap<PlanningContext, FreeChoiceSignals>();
+function freeChoiceSignals(ctx: PlanningContext): FreeChoiceSignals {
+  const known = signalsCache.get(ctx);
+  if (known) return known;
+  const scheduled = ctx.schoolId === 'uga' ? ctx.scheduled : undefined;
+  const taken = (code: string): number | null => ctx.taken?.get(code) ?? null;
+  const fromSections = (code: string): number | null => {
+    const total = ctx.sections?.get(code)?.total ?? 0;
+    // About 25 a section, twice a year: for a course with no grade report only.
+    return ctx.schoolId !== 'uga' && total > 0 ? total * 50 : null;
+  };
+  const seasonsOf = (code: string): SemesterSeason[] | null => {
+    if (scheduled) return scheduled.seasons.get(code) ?? [];
+    const ran = ctx.offerings?.get(code);
+    if (!ran || (ctx.offeringTerms ?? []).length === 0) return null;
+    const out = new Set<SemesterSeason>();
+    for (const t of ran) out.add(t.startsWith('fa') ? 'Fall' : t.startsWith('sp') ? 'Spring' : 'Summer');
+    return [...out];
+  };
+  const made: FreeChoiceSignals = {
+    taken,
+    band: rememberedBy((code: string): number => {
+      const n = taken(code) ?? fromSections(code);
+      if (n === null) return POPULAR_BANDS.length + 1;
+      const at = POPULAR_BANDS.findIndex((floor) => n >= floor);
+      return at < 0 ? POPULAR_BANDS.length : at;
+    }),
+    offSchedule: (code) => (scheduled && !scheduled.seasons.has(code) ? 1 : 0),
+    oneSeason: rememberedBy((code: string): number => {
+      const seasons = seasonsOf(code);
+      if (!seasons || seasons.length === 0) return 0;
+      return seasons.filter((s) => s !== 'Summer').length === 1 ? 1 : 0;
+    }),
+    runsIn: (code, season) => {
+      if (!scheduled) return null;
+      const seasons = scheduled.seasons.get(code);
+      return seasons ? seasons.includes(season) : null;
+    },
+  };
+  signalsCache.set(ctx, made);
+  return made;
+}
+
+/**
+ * The line a free pick's card and ARCH give for how commonly the course is
+ * taken and when it runs, from the same facts the choice read
+ * (freeChoiceSignals): "About 1,300 students a year take it (UGA's Schedule
+ * of Classes, Spring to Fall 2026); it runs every fall and spring." Null
+ * when nothing is known.
+ */
+export function commonlyTakenLine(ctx: PlanningContext, code: string): string | null {
+  const key = normaliseCode(code);
+  const n = ctx.taken?.get(key);
+  const seasons = ctx.schoolId === 'uga' ? ctx.scheduled?.seasons.get(key) : undefined;
+  const round = (x: number) => (x >= 1000 ? Math.round(x / 100) * 100 : x >= 100 ? Math.round(x / 10) * 10 : Math.round(x));
+  const head = n ? `About ${round(n).toLocaleString('en-US')} ${round(n) === 1 ? 'student' : 'students'} a year take it${ctx.takenSource ? ` (${ctx.takenSource})` : ''}` : null;
+  const regular = (seasons ?? []).filter((s) => s !== 'Summer');
+  const runs = ctx.schoolId === 'uga' && ctx.scheduled
+    ? !seasons
+      ? 'it is not on the Schedule of Classes from Spring 2026 to Summer 2027'
+      : regular.length === 2
+        ? 'it runs every fall and spring'
+        : regular.length === 1
+          ? `it runs in the ${regular[0].toLowerCase()} only`
+          : 'it runs in the summer only'
+    : null;
+  if (!head && !runs) return null;
+  const text = [head, runs].filter(Boolean).join('; ');
+  return `${text[0].toUpperCase()}${text.slice(1)}.`;
+}
+
 function rareCheck(ctx: PlanningContext): (code: string) => boolean {
   const terms = ctx.offeringTerms ?? [];
   if (!ctx.offerings || terms.length < 4) return () => false;
@@ -3887,6 +4048,8 @@ function qualityFor(
     wantedTags: Set<string>;
     /** The career matcher, when on (QualityInputs.careerFit). */
     careerFit?: CareerFit;
+    /** The relevance measure as it read before the free choices' new reading (QualityInputs.legacyTopics). */
+    legacy?: boolean;
   },
   /**
    * Answers already given for this context, by the scorer's inputs
@@ -3914,9 +4077,11 @@ function qualityFor(
     excellentTerms: ctx.excellentTerms,
     nowLabel: ctx.snapshotTerm?.label ?? null,
     ...(opts.careerFit ? { careerFit: opts.careerFit } : {}),
+    ...(ctx.subjectNames ? { subjectNames: ctx.subjectNames } : {}),
+    ...(opts.legacy ? { legacyTopics: true } : {}),
   };
   const key = shared
-    ? JSON.stringify([opts.priorities ?? null, opts.interestWords, opts.profile ? [opts.profile.words, opts.profile.subjects, opts.profile.courses] : null, opts.primarySubject, [...opts.degreeSubjects], [...opts.wantedTags]]) + (opts.careerFit ? `|fit:${opts.careerFit.key}` : '')
+    ? JSON.stringify([opts.priorities ?? null, opts.interestWords, opts.profile ? [opts.profile.words, opts.profile.subjects, opts.profile.courses] : null, opts.primarySubject, [...opts.degreeSubjects], [...opts.wantedTags]]) + (opts.careerFit ? `|fit:${opts.careerFit.key}` : '') + (opts.legacy ? '|legacy' : '')
     : '';
   const memo = shared?.get(key) ?? new Map<string, QualityResult>();
   shared?.set(key, memo);
@@ -4503,7 +4668,7 @@ const DESCRIPTION_ONLY_MAJORS: Record<string, string> = {
 const COLLEGE_SUBJECTS: Record<string, string> = { LAS: 'las', ENG: 'engineering', BUS: 'bus', AHS: 'ahs', ACES: 'aces', EDUC: 'education', FAA: 'faa', MDIA: 'media' };
 
 /** The group of students a course is written for: its title, prerequisite sentence and section restrictions say. */
-export type StudentGroup = 'international' | 'transfer' | 'first-year';
+export type StudentGroup = 'international' | 'transfer' | 'first-year' | 'honors';
 
 /**
  * Courses whose group of students only the catalog description names, as
@@ -4533,11 +4698,15 @@ export function audienceOf(course: Course | undefined, ctx: Pick<PlanningContext
   if (/\binternational students\b/i.test(said)) return 'international';
   if (/\btransfer students?\b|\btransfer student - /i.test(said)) return 'transfer';
   if (/\bfirst[- ]year students\b|\bfirst time freshman\b/i.test(said)) return 'first-year';
+  // UGA's honors versions, "MATH 2300H Differential Calculus (Honors)", "Permission of Honors": a
+  // regular student's row took MATH 2300H over MATH 2250 for having no prerequisite (2026-10-28).
+  if (/\(honors\)|\bpermission of (?:the )?honors\b|\bhonors program students\b/i.test(said)) return 'honors';
   return null;
 }
 
 /** Whether a course written for `audience` is for this student. */
 export function audienceFits(audience: StudentGroup | null, arrival: Arrival): boolean {
+  if (audience === 'honors') return arrival.honors === true;
   if (audience === 'international') return arrival.international;
   if (audience === 'transfer') return arrival.transfer;
   if (audience === 'first-year') return !arrival.transfer;
@@ -5243,6 +5412,19 @@ function scoreElective(code: string, s: ElectiveScoring): number {
   if (q.goalFit !== undefined) score += FIT_POINTS * q.goalFit + (s.careerFollowOn?.(code) ?? 0);
   // Lighter workload matters most: the measure again, on its own (lightFirst).
   if (s.lightFirst) score += LIGHT_POINTS * (q.lightness ?? 0);
+  if (s.free) {
+    // Commonly taken, outside the degree's subjects (POPULAR_POINTS).
+    if (s.common && !s.degreeSubjects.has(course.cluster) && course.cluster !== s.primarySubject) {
+      // The points for being common go to a course past the 100 level and not graded harder than
+      // most (the hours the degree wants at the 300 and 400 levels, and the hardest courses, stay where they were); the cost of being rare goes to any.
+      const points = POPULAR_POINTS[s.free.band(code)] ?? 0;
+      score += points > 0 && (courseLevel(code) < 200 || s.harder?.(code)) ? 0 : points;
+    }
+    // Not on UGA's Schedule of Classes in any of its terms: as the dormant rule above.
+    if (s.common && s.free.offSchedule(code)) score -= 9;
+    // In only one of fall and spring there: as a rare course.
+    if (s.common && s.uga && s.free.oneSeason(code)) score -= 1;
+  }
   return score;
 }
 
@@ -5300,6 +5482,8 @@ function rankedElectivePool(
         compareSampleCourses(a.code, b.code, ctx.samplePlanCourses) ||
         Number(isElectiveVariant(a.code)) - Number(isElectiveVariant(b.code)) ||
         courseLevel(a.code) - courseLevel(b.code) ||
+        // How many take it, before the code: never the alphabet or the hash (freeChoiceSignals).
+        (s.free ? (s.free.taken(b.code) ?? 0) - (s.free.taken(a.code) ?? 0) : 0) ||
         (ctx.schoolId === 'uga' ? electiveTie(a.code) - electiveTie(b.code) : a.code.localeCompare(b.code)),
     );
 
@@ -5333,17 +5517,20 @@ function rankedElectivePool(
     let bestAdjusted = Number.NEGATIVE_INFINITY;
     let bestTie = Number.POSITIVE_INFINITY;
     let bestSample = false;
+    let bestTaken = -1;
     for (const [subject, queue] of queues) {
       const next = queue[0];
       if (!next) continue;
       const adjusted = next.score - (used.get(subject) ?? 0) * 1.5;
       const tie = electiveTie(next.code);
       const sample = ctx.samplePlanCourses?.has(next.code) ?? false;
-      if (adjusted > bestAdjusted || (adjusted === bestAdjusted && (Number(sample) > Number(bestSample) || (sample === bestSample && tie < bestTie)))) {
+      const taken = s.free?.taken(next.code) ?? 0;
+      if (adjusted > bestAdjusted || (adjusted === bestAdjusted && (Number(sample) > Number(bestSample) || (sample === bestSample && (taken > bestTaken || (taken === bestTaken && tie < bestTie)))))) {
         bestSubject = subject;
         bestAdjusted = adjusted;
         bestTie = tie;
         bestSample = sample;
+        bestTaken = taken;
       }
     }
     if (bestSubject === null) break;
@@ -5506,6 +5693,9 @@ export function electiveOptions(input: {
     opensGoal: goalOpenersOf(ctx, careerProfileOf(input), input.priorities),
     goalPoints: goalWeighs(careerProfileOf(input)),
     careerFollowOn: careerFollowOnOf(ctx, input.careerFit),
+    free: freeChoiceSignals(ctx),
+    common: !lightFirst(input.priorities) && (input.priorities ?? DEFAULT_PRIORITIES).teaching !== 2,
+    harder: (code) => (ctx.grades?.get(code)?.difficulty ?? 0) >= (ctx.bands ?? FALLBACK_BANDS).harder,
     quality: input.quality ?? qualityFor(ctx, byCode, {
       priorities: input.priorities,
       interestWords: interestWordsOf(input.interests),
@@ -6094,6 +6284,8 @@ function orderShape(termCodes: Array<{ codes: string[]; regular: boolean }>, ctx
   return { loose, split, apart };
 }
 const LAB_OF = labPartners();
+/** UGA's lab pairs in every career track, whether or not the student named one (the free choices' check, freeChoicesWorse). */
+const UGA_LAB_OF = labPartners(UGA_CAREER_TRACKS);
 /**
  * `base` with the context's track pairs (PlanningContext.trackLabs) added,
  * made once per pair of maps. Without track pairs, `base` itself.
@@ -6557,6 +6749,26 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
     major: [...yearOneCodes, ...held].filter(inMajor).length,
     // Falls and springs more than one past the hours the student asked for.
     overTarget: credits.target == null ? 0 : g.terms.filter((t) => t.season !== 'Summer' && t.credits.min > (credits.target as number) + 1).length,
+    // Hours under the degree total: a board one half-hour short reads "short of the degree" on the board.
+    short: input.degreeTotal == null ? 0 : Math.max(0, input.degreeTotal - g.credits.total.min),
+    /*
+     * At UGA, every track's lab on the board in another term than its
+     * lecture, or with no lecture: a Cellular Biology freshman's BIOL 1108L a
+     * fall before BIOL 1108. The labs measured above are only the tracks the
+     * student named (withTrackLabs).
+     */
+    labsApart: ctx.schoolId !== 'uga' ? new Set<string>() : new Set([...UGA_LAB_OF].filter(([lab, lecture]) => at.has(lab) && !held.has(lecture) && at.get(lab) !== at.get(lecture)).map(([lab]) => lab)),
+    // The sittings booked toward rows asking for a course more than once (bookRepeats), each row up to its ask.
+    sittings: input.requirements.reduce((n, r) => {
+      if (r.rule.kind !== 'all' && r.rule.kind !== 'choose' && r.rule.kind !== 'pool') return n;
+      for (const choice of r.rule.choices) {
+        if (!choice.repeat || choice.repeat.sittings < 2) continue;
+        const codes = new Set(choice.codes.map(normaliseCode));
+        const booked = g.terms.reduce((k, t) => k + t.codes.filter((c) => codes.has(normaliseCode(c))).length, 0) + [...codes].filter((c) => held.has(c)).length;
+        n += Math.min(booked, choice.repeat.sittings);
+      }
+      return n;
+    }, 0),
   };
 }
 
@@ -6768,13 +6980,116 @@ function ranksAbove(a: number[], b: number[]): boolean {
 }
 
 export function generatePlan(input: AutoplanInput): GeneratedPlan {
-  const given = withHeldOpenBlocks(input);
+  const held = withHeldOpenBlocks(input);
+  if (held.freeChoices === undefined) return freeChoicesGated(held);
+  const given = held.freeChoices === 'off' ? withoutCommonSample(held) : held;
   if (given.careerFit && given.careerFitScope === undefined) return careerGated(given);
   const build = (input: AutoplanInput): GeneratedPlan => {
     const built = generatePlanBuilt(input);
     return input.context?.schoolId === 'uga' && input.plainEngine !== true && input.tracksOff !== true ? ugaDegreeFirst(built, input) : built;
   };
   return given.context?.schoolId === 'uga' ? ugaSummerOnly(given, build) : build(given);
+}
+
+/**
+ * The free choices read how commonly a course is taken and whether it is on
+ * this year's schedule only where it costs the degree nothing. The board is
+ * built with them ranking every broad choice ('common'), and without them
+ * ('off'); the first stands where it is no worse than the second by the
+ * owner's rule (freeChoicesWorse: requirements met, errors, order, labs,
+ * terms, hours, track dates, residency, and the shape of year one and of
+ * the last two terms). Where it is worse, the board with them breaking ties
+ * alone ('ties') stands on the same test, and otherwise the board without
+ * them. Applied to every board, the sensible picks reshuffled what fits on
+ * boards with more courses than seats: a Civil Engineering freshman's MACS
+ * 100 took the last seat from the SE 101 her page requires (2026-10-28).
+ * The boards share the scorer's answers (qualityMemo).
+ */
+function freeChoicesGated(given: AutoplanInput): GeneratedPlan {
+  const shared = { ...given, qualityMemo: given.qualityMemo ?? new Map<string, Map<string, QualityResult>>() };
+  const off = generatePlan({ ...shared, freeChoices: 'off' });
+  // With no prerequisites loaded nothing on the board is checked, the gate's measures included: the board as before.
+  if (!given.context.prereqs) return { ...off, freeChoices: 'off' };
+  const floor = gateMeasure(off, given, off.language ?? null);
+  const floorAudit = given.boardAudit ? { unmet: given.boardAudit(off), notPlaced: off.notPlaced.length } : null;
+  const stands = (g: GeneratedPlan): boolean => freeChoicesWorse(gateMeasure(g, given, g.language ?? null), floor, floorAudit && given.boardAudit ? { a: { unmet: given.boardAudit(g), notPlaced: g.notPlaced.length }, b: floorAudit } : undefined).length === 0;
+  const common = generatePlan({ ...shared, freeChoices: 'common' });
+  if (stands(common)) return { ...common, freeChoices: 'common' };
+  const ties = generatePlan({ ...shared, freeChoices: 'ties' });
+  if (stands(ties)) return { ...ties, freeChoices: 'ties' };
+  return { ...off, freeChoices: 'off' };
+}
+
+/**
+ * Where board `a`, built with the free choices read for how commonly a
+ * course is taken, is worse than `b`, built without (freeChoicesGated), by
+ * the owner's three-level rule (scripts/dev/sweep/gate.mjs) rather than
+ * gateWorse's course-by-course one: requirements by how many are met (the
+ * sweep's and the UGA harness's count), so a board that trades one row its
+ * seats cannot hold for another is not worse; then never worse on the
+ * sittings of a course a row asks for more than once, hours under the
+ * degree total, UGA's track labs apart from their lectures, errors, order,
+ * labs, terms, hours past the total, terms over the cap, three
+ * hardest-band courses in a term, track dates or residency; and, where it
+ * meets as many requirements, never worse on the shape of year one and of
+ * the last two terms either. A board that meets more may change its shape.
+ */
+function freeChoicesWorse(a: GateMeasure, b: GateMeasure, audit?: { a: { unmet: number; notPlaced: number }; b: { unmet: number; notPlaced: number } }): string[] {
+  const within = <T,>(x: Set<T>, y: Set<T>) => [...x].every((v) => y.has(v));
+  const worse: string[] = [];
+  if (a.unsatisfied.size > b.unsatisfied.size || (a.unsatisfied.size === b.unsatisfied.size && (a.requiredOff.size > b.requiredOff.size || a.offCount > b.offCount))) worse.push('requirements');
+  // The board audit's count too, where the caller has one (AutoplanInput.boardAudit), as the UGA harness reads it.
+  if (audit && (audit.a.unmet > audit.b.unmet || (audit.a.unmet === audit.b.unmet && audit.a.notPlaced > audit.b.notPlaced))) worse.push('audit');
+  // Fewer sittings of a course a row asks for more than once: a Voice freshman's MUSC 105 booked once, not three times.
+  if (a.sittings < b.sittings) worse.push('sittings');
+  if (a.short > b.short + 0.01) worse.push('short');
+  if (!within(a.labsApart, b.labsApart)) worse.push('labsApart');
+  if (!within(a.errors, b.errors)) worse.push('errors');
+  if (!within(a.order, b.order)) worse.push('order');
+  if (!within(a.apart, b.apart)) worse.push('labApart');
+  if (a.lastUsed > b.lastUsed) worse.push('terms');
+  if (a.beyond > b.beyond + 1) worse.push('beyond');
+  if (a.overCap.size > b.overCap.size) worse.push('overCap');
+  if (a.stacked > b.stacked) worse.push('stack3');
+  if ([...a.rowLate].some(([key, late]) => late > (b.rowLate.get(key) ?? 0))) worse.push('track');
+  if (a.residency && b.residency && (a.residency.upper < Math.min(a.residency.needUpper, b.residency.upper) || a.residency.hours < Math.min(a.residency.needHours, b.residency.hours))) worse.push('residency');
+  if (a.unsatisfied.size < b.unsatisfied.size && (!audit || audit.a.unmet <= audit.b.unmet)) return worse;
+  if (a.warnings.size > b.warnings.size) worse.push('warnings');
+  if (a.atCap > b.atCap) worse.push('atCap');
+  if (a.thin > b.thin) worse.push('thin');
+  if (a.doubled > b.doubled) worse.push('stack2');
+  if (a.crowded > b.crowded || a.crowdMax > Math.max(3, b.crowdMax)) worse.push('crowded');
+  if (a.seminarsLate.size > b.seminarsLate.size || [...a.orientationAt].some(([code, i]) => i > (b.orientationAt.get(code) ?? Infinity))) worse.push('seminar');
+  // A first college math course after year one is a momentum flag where the board without one raised none (momentum-math).
+  const mathLate = (m: GateMeasure) => !m.math && m.mathAt !== Infinity;
+  if ((b.math && !a.math) || a.mathAt > b.mathAt || (mathLate(a) && !mathLate(b))) worse.push('math');
+  if (a.split.size > b.split.size) worse.push('sequence');
+  // Year one heavier, its first-term seminars aside or counted: a Chemistry freshman's first fall at 17 with LAS 100 to 102 and two picks.
+  const heavier = (x: number[], y: number[]) => [17, 18].some((at) => x.filter((cr) => cr >= at).length > y.filter((cr) => cr >= at).length);
+  if (heavier(a.yearOneLoad, b.yearOneLoad) || heavier(a.yearOne, b.yearOne)) worse.push('yearOneHeavy');
+  if (a.yearOne.filter((cr) => cr < 15).length > b.yearOne.filter((cr) => cr < 15).length) worse.push('yearOneLight');
+  if (a.major < 3 && b.major >= 3) worse.push('yearOneMajor');
+  if (a.overTarget > b.overTarget) worse.push('overTarget');
+  return worse;
+}
+
+/**
+ * The degree as the board built without the free choices' reading plans it:
+ * an open elective block's sample without the most taken courses added for
+ * that reading (PlanCourseChoice.common), a held one aside. Planned from the
+ * longer list with it off, an incoming Management freshman's six terms
+ * seated AAEC 2710 and left AFAM 4250 off, and Upper-Division General
+ * Electives 3 hours short.
+ */
+function withoutCommonSample(given: AutoplanInput): AutoplanInput {
+  const added = (r: PlanRequirement) => r.rule.kind === 'pool' && r.rule.choices.some((choice) => choice.common);
+  if (!given.requirements.some(added)) return given;
+  const equivalents = given.context.equivalents ?? new Map<string, string[]>();
+  const held = new Set(given.prior.courseCodes.flatMap((code) => expandEquivalents(normaliseCode(code), equivalents)));
+  const requirements = given.requirements.map((r) => (r.rule.kind === 'pool' && added(r)
+    ? { ...r, rule: { ...r.rule, choices: r.rule.choices.filter((choice) => !choice.common || choice.codes.some((code) => held.has(normaliseCode(code)))) } }
+    : r));
+  return { ...given, requirements };
 }
 
 /**
@@ -7197,7 +7512,8 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
     list.map((r) => (r.rule.kind === 'pool' && r.rule.joinedByOr ? { ...r, rule: { kind: 'all', choices: r.rule.choices } } : r));
   const readsDifferently = given.requirements.some((r) => r.rule.kind === 'pool' && r.rule.joinedByOr === true);
   const electiveRanking = new Map<string, string[]>();
-  const qualityMemo = new Map<string, Map<string, QualityResult>>();
+  // The scorer's answers do not depend on the free choices' mode: one memo for its boards (freeChoicesGated).
+  const qualityMemo = given.qualityMemo ?? new Map<string, Map<string, QualityResult>>();
   /** How each board was built, for the gate's trail. */
   const builtAs = new WeakMap<GeneratedPlan, string>();
   const buildOf = new WeakMap<GeneratedPlan, Build>();
@@ -8440,6 +8756,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const unscheduledNow = (code: string, termId: string): boolean =>
     ctx.snapshotTerm?.id === termId && ctx.sections !== undefined && !((ctx.sections.get(code)?.total ?? 0) > 0);
   const prefs = input.preferences ?? {};
+  /** How the free choices read how commonly a course is taken (AutoplanInput.freeChoices): ahead of the score, as the last tie, or not at all. */
+  const freeMode = input.freeChoices ?? 'common';
   const credits = { ...DEFAULT_CREDITS, ...prefs.creditsPerTerm };
   const maxHard = prefs.maxHardCourses ?? DEFAULT_MAX_HARD;
   const hardCut = prefs.hardDifficulty === undefined
@@ -8532,6 +8850,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     primarySubject: majorsForRank.primary,
     degreeSubjects: majorsForRank.subjects,
     wantedTags: genEdTagsOf(input.requirements),
+    legacy: freeMode === 'off',
   }, input.qualityMemo);
   const rank = makeRanker(ctx, byCode, rankDepth, policy, qualityAtPlacement, input.programName, input.programCollege);
   /** How a list's pick weighs the track the student named (AutoplanInput.trackPicks). */
@@ -8573,6 +8892,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     primarySubject: majorsForRank.primary,
     degreeSubjects: majorsForRank.subjects,
     wantedTags: new Set(),
+    legacy: freeMode === 'off',
   }, input.qualityMemo), input.programName, input.programCollege);
 
   const chosen = new Map<string, { requirementId: string | null; label: string }>();
@@ -8810,6 +9130,19 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * (ugaSummerOnly). Illinois rows carry no Bulletin line, so nothing here
    * reorders an Illinois board.
    */
+  /** How commonly each course is taken and whether it is on this year's schedule, for the free choices (freeChoiceSignals). */
+  const signals = freeChoiceSignals(ctx);
+  const lastTies = freeMode !== 'off';
+  /** Subjects the degree's own course rows name (not its core areas or lists), whether or not they are among its subjects (degreeSubjectsOf). */
+  const nearSubjects = new Set(input.requirements
+    .filter((r) => (r.rule.kind === 'all' || r.rule.kind === 'choose') && !/(?:^|:\s*)(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences)\b/i.test(r.areaLabel))
+    .flatMap((r) => (r.rule.kind === 'all' || r.rule.kind === 'choose' ? r.rule.choices : []).flatMap((choice) => choice.codes.map((code) => code.split(' ')[0]))));
+  /**
+   * The commonly taken course goes ahead of the student's priority score in
+   * a broad choice, unless the student asked for the lightest courses or the
+   * best-taught ones (workload or teaching 2): then theirs is the ask.
+   */
+  const commonFirst = freeMode === 'common' && !lightFirst(prefs.priorities) && (prefs.priorities ?? DEFAULT_PRIORITIES).teaching !== 2;
   const seasonless = rememberedBy((code: string): number => {
     const course = byCode.get(code);
     if (!summerOnlyListed(course) || !(ctx.offeringPublished?.has(code) ?? false)) return 0;
@@ -8921,6 +9254,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const arrival: Arrival = {
     transfer: input.arrival?.transfer ?? priorCreditTotal >= (input.standingHours ?? DEFAULT_STANDING_HOURS).junior,
     international: input.arrival?.international ?? false,
+    // Without the free-choice reading (AutoplanInput.freeChoices 'off') an honors version is anyone's, as before.
+    honors: input.arrival?.honors ?? (input.freeChoices === 'off' || /\bhonors\b/i.test(input.programName ?? '')),
   };
   const listAudience = (code: string): number => {
     const audience = audienceOf(byCode.get(code), ctx);
@@ -8938,7 +9273,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * `have` is a snapshot of what is chosen when the pool runs, which is why the
    * memo is built per pool rather than once.
    */
-  const poolOrderFor = (have: Set<string>, together?: Map<string, string[]>, sequence = new Set<string>()) => {
+  const poolOrderFor = (have: Set<string>, together?: Map<string, string[]>, sequence = new Set<string>(), breadth: { broad: boolean; core: boolean; hours?: number | null; upper?: boolean } = { broad: false, core: false }) => {
     const memo = new Map<string, number>();
     // Remembered by code (rememberedBy) for the pool's sorts, as its
     // prerequisite cost already is: nothing it reads changes while the pool
@@ -9021,9 +9356,34 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const track = [shutsTrackRow(code, together?.get(code)), ...(pickServe ? [servesTrack(code)] : [])];
       // UGA only: a course in the slot's own sequence comes first.
       const inSequence = ctx.schoolId === 'uga' ? [sequence.has(code) ? 1 : 0] : [];
+      /*
+       * A broad list (a UGA core area, a general-elective list, "any upper
+       * level course") once the goal, the degree's subjects and the
+       * prerequisites have spoken (freeChoiceSignals): on this year's
+       * schedule, in fall and spring both, an introductory course for a core
+       * area outside the degree (RUSS 3160 Madness, Desire, and Death was a
+       * law-bound Accounting student's Humanities), then the commonly taken,
+       * unless the student asked for the lightest or best-taught courses.
+       * Every list breaks its last tie on how many take the course, never on
+       * the code: GEOG 1112 Introduction to Weather and Climate (1,269 a
+       * year) over ASTR 1010 (68), a thirty-way tie the alphabet decided.
+       */
+      const subjectHere = degreeRead.subjects.has(subject) || subject === degreeRead.primary;
+      /*
+       * Its hours a whole share of the list's (a three-hour core area takes a
+       * three-hour course: BIOS 2010 at four was a Risk Management
+       * freshman's Quantitative Reasoning), and for an upper-division
+       * "any course" list a subject the degree's own rows name (a Risk
+       * Management student's FINA or LEGL before FHCE or EDIT).
+       */
+      const wholeShare = breadth.broad && breadth.hours ? (breadth.hours % Math.max(1, creditsOf(code)) === 0 ? 0 : 1) : 0;
+      const near = breadth.upper ? (subjectHere || nearSubjects.has(subject) ? 0 : 1) : 0;
+      const offered = breadth.broad && freeMode === 'common' ? [wholeShare, near, signals.offSchedule(code), signals.oneSeason(code), breadth.core && !subjectHere && courseLevel(code) >= 300 ? 1 : 0] : [];
+      const common = breadth.broad && commonFirst ? [subjectHere ? 0 : signals.band(code)] : [];
+      const lastTie = lastTies ? [-(signals.taken(code) ?? 0)] : [];
       const key = input.goalRows
-        ? [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, clash, aside, wanted, own, extra, unverifiable, ...light, variable, ...byPriority, chain]
-        : [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, unverifiable, clash, aside, wanted, own, extra, ...light, variable, ...byPriority, chain];
+        ? [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, clash, aside, wanted, own, extra, unverifiable, ...offered, ...light, ...common, variable, ...byPriority, chain, ...lastTie]
+        : [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, unverifiable, clash, aside, wanted, own, extra, ...offered, ...light, ...common, variable, ...byPriority, chain, ...lastTie];
       const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
       if (traced && normaliseCode(traced) === code) console.error(`  [PLAN_DEBUG] ${code} list-pick key [inCatalog, audience, gated, shutsTrack, ${pickServe ? 'servesTrack, ' : ''}unverifiable, clash, aside, wanted, own, extra, ${light.length ? 'light, ' : ''}variable, unknown, -score, -known, chain] = ${JSON.stringify(key)}`);
       return key;
@@ -9381,7 +9741,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
          * a student reads has to be the second one.
          */
         const broadCore = /(?:^|:\s*)(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences)\b/i.test(slot.areaLabel);
-        const sequence = broadCore
+        const anyCourse = requirement.rule.kind === 'pool' ? requirement.rule.anyCourse : undefined;
+        // A list of forty or more mostly outside the degree's subjects is breadth too (poolOrderFor).
+        const outside = slot.options.filter((option) => !option.some((code) => degreeRead.subjects.has(code.split(' ')[0]) || code.split(' ')[0] === degreeRead.primary)).length;
+        const broad = broadCore || anyCourse !== undefined || (slot.options.length >= 40 && outside * 2 > slot.options.length);
+        // "Any course" lists hold both halves of the science sequences too (CHEM 1211 and 1212), as a core area does.
+        const sequence = broadCore || anyCourse
           ? genEdSequenceMembers(slot.options.flat())
           : new Set<string>();
         const fill = fillPool(slot, {
@@ -9395,7 +9760,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             ),
           ),
           creditsOf,
-          order: ((inOrder) => (a: string, b: string) => seasonless(a) - seasonless(b) || inOrder(a, b))(poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()]), slot.together, sequence)),
+          order: ((inOrder) => (a: string, b: string) => seasonless(a) - seasonless(b) || inOrder(a, b))(poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()]), slot.together, sequence, { broad, core: broadCore, hours: slot.hoursTarget, upper: (anyCourse?.minLevel ?? 0) >= 3 })),
           reachable: (code) => (rankDepth.get(code) ?? 0) < terms.length,
           conflict: (code, insidePool) => conflictFor(code, insidePool),
           versionsOf: (code) => expandEquivalents(code, equivalents),
@@ -9518,6 +9883,26 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             const course = byCode.get(code);
             return ctx.offeringPublished?.has(code) && course && seasonCount(course, ctx) === 1 ? 1 : 0;
           });
+          const finishes = rememberedBy((code: string): boolean => (ctx.prereqs?.get(code)?.groups ?? []).some((group) =>
+            group.any.map(normaliseCode).some((need) => need !== code && sequence.has(need) && (chosen.has(need) || satisfiedForPrereq.has(need)))));
+          const unverified = rememberedBy((code: string): number => {
+            const spec = ctx.prereqs?.get(code);
+            return spec && spec.text.length > 0 && !spec.parsed && !(input.standingRead === true && standingIsAll(spec)) ? 1 : 0;
+          });
+          const quantitative = slot.options.length > 0 && (requirement.rule.kind === 'gened' ? requirement.rule.genEd : []).some((tag) => /quantitative/i.test(tag));
+          const need = wantHours !== null ? Math.max(0, wantHours - haveHours) : null;
+          const wholeShare = rememberedBy((code: string): number => (need !== null && need > 0 && need % Math.max(1, creditsOf(code)) !== 0 ? 1 : 0));
+          const pickedSubjects = new Set([...chosen.keys()].filter((c) => !degreeRead.subjects.has(c.split(' ')[0])).map((c) => c.split(' ')[0]));
+          const repeated = rememberedBy((code: string): number => {
+            const subject = code.split(' ')[0];
+            return degreeRead.subjects.has(subject) || subject === degreeRead.primary ? 0 : pickedSubjects.has(subject) ? 1 : 0;
+          });
+          const commonGenEd = rememberedBy((code: string): number => {
+            const subject = code.split(' ')[0];
+            if (degreeRead.subjects.has(subject) || subject === degreeRead.primary) return 0;
+            const difficulty = grades.get(code)?.difficulty ?? null;
+            return difficulty !== null && difficulty >= (ctx.bands ?? FALLBACK_BANDS).harder ? POPULAR_BANDS.length + 1 : signals.band(code);
+          });
           const reserved = rememberedBy((code: string): number => {
             const subject = code.split(' ')[0];
             if (degreeRead.subjects.has(subject) || subject === degreeRead.primary) return 0;
@@ -9579,8 +9964,20 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             // a sequence to a pre-med, it is the course the MCAT assumes.
             const track = claimedByTrack(b) - claimedByTrack(a);
             if (track !== 0) return track;
-            const half = (sequence.has(a) ? 1 : 0) - (sequence.has(b) ? 1 : 0);
+            // The second half of a sequence whose first half is already on the board finishes it, and is no half (CMN 112 after CMN 111).
+            const half = (sequence.has(a) && !(lastTies && finishes(a)) ? 1 : 0) - (sequence.has(b) && !(lastTies && finishes(b)) ? 1 : 0);
             if (half !== 0) return half;
+            /*
+             * Behind a placement test, not run lately, or closed to the major
+             * (the ranker's first step) before anything below: CMN 111 on a
+             * board rules out RHET 105, both halves of the CMN and ESL
+             * sequences are left, CMN 112 runs mostly in spring, and the
+             * season check below gave 54 freshman boards ESL 111 and ESL 112,
+             * the sequence behind an English placement result, for
+             * Composition I instead of CMN 112 (2026-10-28).
+             */
+            const barred = lastTies ? Number((rankGenEd(a)[0] ?? 0) > 0) - Number((rankGenEd(b)[0] ?? 0) > 0) : 0;
+            if (barred !== 0) return barred;
             const kept = reserved(a) - reserved(b);
             if (kept !== 0) return kept;
             /**
@@ -9636,8 +10033,45 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             // every fall was full of ECE, and it pushed the plan a term long.
             const seasonal = oneSeason(a) - oneSeason(b);
             if (seasonal !== 0) return seasonal;
+            /*
+             * Then, among courses placeable as early (the ranker's catalog
+             * and chain steps), the commonly taken one (freeChoiceSignals),
+             * ahead of the priority score: light grades and one well-liked
+             * instructor made REL 260 Mystics and Saints in Islam (56
+             * students in two and a half years) the Non-Western Cultures
+             * pick on 60 boards over ANTH 103 (3,031), and PORT 150 US
+             * Minority Cultures over SHS 222 (2,520). A course graded
+             * harder than most outside the degree's subjects is not one
+             * for its numbers (CHEM 102 is taken by every pre-med).
+             */
+            if (commonFirst) {
+              const early = compareRank(rankGenEd(a).slice(0, 2), rankGenEd(b).slice(0, 2), '', '');
+              if (early !== 0) return early;
+              /*
+               * And before how commonly taken: a math or statistics course for
+               * Quantitative Reasoning (a first college math course in year
+               * one is one of CCRC's early-momentum measures, momentum-math);
+               * hours that are a whole share of the category's (a 3-credit
+               * course for 6 hours, not a 4); a subject not already among
+               * the board's picks (MUS 132 and MUS 133 both, for Humanities
+               * and the Arts).
+               */
+              const math = Number(quantitative && !isMathOrStatistics(byCode.get(a) ?? { code: a, title: '' })) - Number(quantitative && !isMathOrStatistics(byCode.get(b) ?? { code: b, title: '' }));
+              if (math !== 0) return math;
+              // A prerequisite sentence the parser could not read is a condition nobody checked (poolOrderFor's unverifiable).
+              const unread = unverified(a) - unverified(b);
+              if (unread !== 0) return unread;
+              const share = wholeShare(a) - wholeShare(b);
+              if (share !== 0) return share;
+              const repeat = repeated(a) - repeated(b);
+              if (repeat !== 0) return repeat;
+              const common = commonGenEd(a) - commonGenEd(b);
+              if (common !== 0) return common;
+            }
             const ranked = compareRank(rankGenEd(a), rankGenEd(b), '', '');
             if (ranked !== 0) return ranked;
+            const taken = lastTies ? (signals.taken(b) ?? 0) - (signals.taken(a) ?? 0) : 0;
+            if (taken !== 0) return taken;
             const offered = sectionCount(b) - sectionCount(a);
             if (offered !== 0) return offered;
             return compareSampleCourses(a, b, ctx.samplePlanCourses) || a.localeCompare(b);
@@ -9783,7 +10217,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) : 0) ||
             (listOrder ? listOrder(a.code, b.code) : 0) ||
             (have ? (rank(a.code)[0] ?? 0) - (rank(b.code)[0] ?? 0) || extraOf(a.code) - extraOf(b.code) : 0) ||
-            (choosing ? compareRank(rankChoose(a.code), rankChoose(b.code), a.code, b.code, ctx.samplePlanCourses) : compareRank(rank(a.code), rank(b.code), a.code, b.code, ctx.samplePlanCourses)));
+            // A choice's last ties on its hours (the row asks for a course, not hours: STAT 2000 at four
+            // left a Risk Management freshman's full board a seat short) and how many take it (freeChoiceSignals), not the code.
+            (choosing ? compareRank([...rankChoose(a.code), ...(lastTies ? [creditsOf(a.code), -(signals.taken(a.code) ?? 0)] : [])], [...rankChoose(b.code), ...(lastTies ? [creditsOf(b.code), -(signals.taken(b.code) ?? 0)] : [])], a.code, b.code, ctx.samplePlanCourses) : compareRank(rank(a.code), rank(b.code), a.code, b.code, ctx.samplePlanCourses)));
 
         /**
          * Credit in hand is spent before anything is booked.
@@ -12478,6 +12914,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       opensGoal: goalOpenersOf(ctx, careerProfileOf(input), prefs.priorities),
       goalPoints: goalWeighs(careerProfileOf(input)),
       careerFollowOn: careerFollowOnOf(ctx, input.careerFit),
+      free: lastTies ? signals : undefined,
+      common: commonFirst,
+      harder: (code) => (grades.get(code)?.difficulty ?? 0) >= (ctx.bands ?? FALLBACK_BANDS).harder,
       quality: qualityFor(ctx, byCode, {
         priorities: prefs.priorities,
         interestWords: interestWordsOf(input.interests),
@@ -12486,6 +12925,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         primarySubject: majors.primary,
         degreeSubjects: majors.subjects,
         wantedTags: stillWanted,
+        legacy: freeMode === 'off',
       }, input.qualityMemo),
     };
     const plannedAll = new Set<string>([...placed.values()].flat());
@@ -12963,6 +13403,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             if (outOfSeason(course, term, published.has(code))) return false;
             // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
             if (!plainEngine && unscheduledNow(code, term.id)) return false;
+            // Nor, at UGA, one the Schedule of Classes runs in other seasons only (freeChoiceSignals).
+            if (freeMode === 'common' && !trackWanted.has(code) && signals.runsIn(code, term.season) === false) return false;
             if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
             // No last-term exemption here: an elective is never forced into a term.
             if (isHard(code) && hardHere >= hardLimitAt(term.index)) return false;
@@ -13128,6 +13570,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (outOfSeason(course, term, published.has(code))) return false;
           // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
           if (!plainEngine && unscheduledNow(code, term.id)) return false;
+          if (freeMode === 'common' && !trackWanted.has(code) && signals.runsIn(code, term.season) === false) return false;
           if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
           if (isHard(code) && hardHere >= hardLimitAt(term.index)) return false;
           if (apartFromLecture(code, here)) return false;
@@ -13473,6 +13916,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (Math.max(...[...bySubject.keys(), course.cluster].map((s) => (bySubject.get(s) ?? 0) - (s === smallSubject ? 1 : 0) + (s === course.cluster ? 1 : 0))) !== mostOfOne) return false;
           if (outOfSeason(course, term, published.has(code))) return false;
           if (!plainEngine && unscheduledNow(code, term.id)) return false;
+          if (freeMode === 'common' && !trackWanted.has(code) && signals.runsIn(code, term.season) === false) return false;
           if (!standingMet(code, hoursSoFar) || !levelFits(code, hoursSoFar, standingHours)) return false;
           if (conflictWith(code, conflicts, [earned, chosen, plannedAll]) !== null) return false;
           if (expandEquivalents(code, equivalents).some((twin) => twin !== code && (plannedAll.has(twin) || earned.has(twin)))) return false;
@@ -16350,14 +16794,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const id = chosen.get(out)?.requirementId ?? null;
       if (id === null || id === lacking || !shortLists.has(id) || (requirementById.get(id)?.rule.kind ?? 'all') === 'all') return false;
       // Nor a step of a sequence: GRK 202, the fourth semester of Greek, is
-      // no list pick to give up whatever list it was booked for. A pick for
-      // an open elective block ("Any upper level course 3000-5999") is any
-      // course, its own prerequisites or not: an incoming Marketing and
-      // International Business student's MARK 4450 there gives its seat to
-      // MGMT 5560, which International Business Curriculum requires.
-      const rule = requirementById.get(id)?.rule;
+      // no list pick to give up whatever list it was booked for.
       const subject = out.split(' ')[0];
-      const step = !(rule?.kind === 'pool' && rule.anyCourse) && (ctx.prereqs?.get(out)?.groups ?? []).some((g) => g.any.some((raw) => normaliseCode(raw).split(' ')[0] === subject));
+      const step = (ctx.prereqs?.get(out)?.groups ?? []).some((g) => g.any.some((raw) => normaliseCode(raw).split(' ')[0] === subject));
       return !step && !pinned.has(out) && !sequenceFirst.has(out) && !labOf.has(out) && !lectureLab.has(out) && !forTrack(out) && !trackRowOf.has(out) && !datedBy.has(out) && !firstTermCourse(byCode.get(out), ctx, arrival);
     };
     for (const code of leftOff) {

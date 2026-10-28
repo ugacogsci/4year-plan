@@ -106,8 +106,21 @@ const plural = (n: number, word: string) => (n === 1 ? word : `${word}s`);
  * there for, keyed by course id. The board's chips, ALMA's roles and the
  * re-pick all read this one map.
  */
-export function planMarks(picks: PlanPicks, byCode: Map<string, Course>): Map<string, PlanMark> {
+export function planMarks(
+  picks: PlanPicks,
+  byCode: Map<string, Course>,
+  /**
+   * How commonly a pick is taken and when it runs (autoplan.ts
+   * commonlyTakenLine), added to a list's or a category's pick: the fact its
+   * choice read, where the card said only "9 hours from this list, 3 chosen".
+   */
+  factsOf?: (code: string) => string | null,
+): Map<string, PlanMark> {
   const map = new Map<string, PlanMark>();
+  const facts = (code: string) => {
+    const line = factsOf?.(code);
+    return line ? ` ${line}` : '';
+  };
   const find = (code: string) => byCode.get(normaliseCode(code));
   for (const pool of picks.pools) {
     // Written with the number each half carries. Hardcoding "courses" made
@@ -142,7 +155,7 @@ export function planMarks(picks: PlanPicks, byCode: Map<string, Course>): Map<st
         });
         continue;
       }
-      map.set(course.id, { label: pool.label.trim() || 'Unlabelled catalog requirement', detail, kind: 'pool' });
+      map.set(course.id, { label: pool.label.trim() || 'Unlabelled catalog requirement', detail: `${detail}${facts(code)}`, kind: 'pool' });
       counted += 1;
     }
   }
@@ -175,9 +188,9 @@ export function planMarks(picks: PlanPicks, byCode: Map<string, Course>): Map<st
     const forGoal = Boolean(pick.track) || (pick.forGoal ?? saysGoalMatch([pick.why, ...(pick.reasons ?? [])].join(' ')));
     const own: PlanMark = pick.track
       ? { label: pick.track, detail: pick.why, kind: 'track', track: pick.track, goal: true }
-      : { label: 'Elective', detail: pick.why, kind: 'elective', ...(forGoal ? { goal: true } : {}) };
+      : { label: 'Elective', detail: `${pick.why}${facts(pick.code)}`, kind: 'elective', ...(forGoal ? { goal: true } : {}) };
     if (!mark) map.set(course.id, own);
-    else if (mark.kind === 'elective' && mark.label === 'Elective') map.set(course.id, pick.track ? own : { ...mark, detail: pick.why, ...(forGoal ? { goal: true } : {}) });
+    else if (mark.kind === 'elective' && mark.label === 'Elective') map.set(course.id, pick.track ? own : { ...mark, detail: `${pick.why}${facts(pick.code)}`, ...(forGoal ? { goal: true } : {}) });
   }
   /**
    * The planner's gen-ed picks and the prerequisites it booked. Both are its
@@ -190,7 +203,7 @@ export function planMarks(picks: PlanPicks, byCode: Map<string, Course>): Map<st
     if (!course || map.has(course.id)) continue;
     map.set(course.id, {
       label: pick.label,
-      detail: `The planner's pick for ${pick.label}. Any course that carries the same categories can take its place.`,
+      detail: `The planner's pick for ${pick.label}.${facts(pick.code)} Any course that carries the same categories can take its place.`,
       kind: 'gened',
       ...(pick.forGoal ? { goal: true } : {}),
     });

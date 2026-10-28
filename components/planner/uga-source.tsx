@@ -23,6 +23,7 @@ import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner
 import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
 import type { AnyCourseRule } from '@/lib/planner/any-course';
 import { canonicalUgaCode, listedUgaCourseCodes } from '@/lib/planner/uga-course-codes';
+import { loadUgaOfferings, seasonsRun, takenPerYear, type UgaOfferingsFile } from '@/lib/planner/uga-offerings';
 
 export { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 
@@ -354,6 +355,8 @@ export interface UgaData {
   fetchedAt: string;
   /** Graduate -> undergraduate number only where the catalog prints a dual-level listing. */
   dualLevelCourses: Map<string, string>;
+  /** UGA's Schedule of Classes (uga-offerings.ts), or null when it could not be read. */
+  offerings?: UgaOfferingsFile | null;
 }
 
 export interface UgaLoadedProgram {
@@ -489,11 +492,29 @@ function creditChoice(row: RawUgaRequirementCourse): CourseChoice {
   };
 }
 
+/**
+ * A campus-wide wildcard ("Any upper level course 3000-5999") as courses to
+ * plan from: up to four a subject, 400 in all. The rule itself stays on the
+ * block (PlanRule pool anyCourse), so a held course counts whether or not it
+ * is among these (any-course.ts).
+ *
+ * A hash of the code chooses the sample and its order, and the fill's pick
+ * out of it followed the hash (HORT 3030 Floral Design and Management for a
+ * Risk Management senior). Where the Schedule of Classes is loaded (`taken`),
+ * each subject's most taken courses the hash left out follow (`common`), most
+ * taken first, up to 200, so the free choices can read how commonly a course
+ * is taken (autoplan.ts freeChoiceSignals); a board built without that
+ * reading plans from the sample alone (autoplan.ts withoutCommonSample).
+ * Ordered by it outright, the sample changed what fit on full boards with it
+ * off too: an incoming Accounting freshman's six terms left Upper-Division
+ * General Electives 3 of 9 hours short.
+ */
 function broadElectiveCourses(
   courses: Course[],
   minimumLevel: number,
   excludePrefixes: string[],
-): Course[] {
+  taken?: ReadonlyMap<string, number>,
+): { sample: Course[]; common: Course[] } {
   const bySubject = new Map<string, Course[]>();
   const maximumLevel = minimumLevel >= 6 ? 9 : 5;
   const score = (code: string) => {
@@ -525,10 +546,10 @@ function broadElectiveCourses(
     else bySubject.set(subject, [course]);
   }
 
-  const subjects = [...bySubject.keys()].sort((a, b) => score(a) - score(b));
   for (const coursesForSubject of bySubject.values()) {
     coursesForSubject.sort((a, b) => score(a.code) - score(b.code));
   }
+  const subjects = [...bySubject.keys()].sort((a, b) => score(a) - score(b));
   const selected: Course[] = [];
   for (let index = 0; index < 4 && selected.length < 400; index += 1) {
     for (const subject of subjects) {
@@ -537,7 +558,14 @@ function broadElectiveCourses(
       if (selected.length >= 400) break;
     }
   }
-  return selected;
+  if (!taken) return { sample: selected, common: [] };
+  const students = (code: string) => taken.get(code) ?? 0;
+  const chosen = new Set(selected.map((course) => course.code));
+  const commonOnes = [...bySubject.values()]
+    .flatMap((coursesForSubject) => [...coursesForSubject].sort((a, b) => students(b.code) - students(a.code) || score(a.code) - score(b.code)).slice(0, 4))
+    .filter((course) => !chosen.has(course.code) && students(course.code) > 0)
+    .sort((a, b) => students(b.code) - students(a.code) || score(a.code) - score(b.code));
+  return { sample: selected, common: commonOnes.slice(0, 200) };
 }
 
 /** Expand a subject- or campus-level wildcard into real catalog choices. */
@@ -545,6 +573,7 @@ function choicesFor(
   group: RawUgaRequirementGroup,
   byCode: Map<string, Course>,
   excludePrefixes: string[] = [],
+  taken?: ReadonlyMap<string, number>,
 ): CourseChoice[] {
   const choices: CourseChoice[] = [];
   const seen = new Set<string>();
@@ -553,13 +582,14 @@ function choicesFor(
     const wildcard = canonicalUgaCode(row.code).match(
       /^([A-Z]{2,5})\s+([1-9])XXX$/,
     );
+    const broad = wildcard?.[1] === 'ANY'
+      ? broadElectiveCourses([...byCode.values()], Number(wildcard[2]), excludePrefixes, taken)
+      : null;
+    // The most taken courses the sample adds for the free choices' reading (CourseChoice.common).
+    const common = new Set(broad?.common.map((course) => course.code) ?? []);
     const rows = wildcard
-      ? (wildcard[1] === 'ANY'
-          ? broadElectiveCourses(
-              [...byCode.values()],
-              Number(wildcard[2]),
-              excludePrefixes,
-            )
+      ? (broad
+          ? [...broad.sample, ...broad.common]
           : [...byCode.values()].filter((course) =>
               course.code.startsWith(`${wildcard[1]} ${wildcard[2]}`),
             ))
@@ -580,8 +610,9 @@ function choicesFor(
         existing.codes.push(code);
         continue;
       }
-      byVariant.set(variantKey, choice);
-      choices.push(choice);
+      const kept = common.has(code) ? { ...choice, common: true } : choice;
+      byVariant.set(variantKey, kept);
+      choices.push(kept);
     }
   }
   return choices;
@@ -653,6 +684,7 @@ export function ugaAreaHoursApart(area: UgaProgram['areas'][number], group: UgaP
 function adaptProgram(
   program: UgaProgram,
   byCode: Map<string, Course>,
+  taken?: ReadonlyMap<string, number>,
 ): UgaLoadedProgram {
   // Preferred core courses are recommendations inside the approved list,
   // not extra mandatory courses. Preserve the complete list as one pool.
@@ -737,7 +769,7 @@ function adaptProgram(
       if (/core courses?/i.test(group.label) && representedBefore >= area.hours)
         return;
       const id = `${areaId}::${groupIndex}`;
-      let choices = choicesFor(group, byCode, area.excludePrefixes);
+      let choices = choicesFor(group, byCode, area.excludePrefixes, taken);
       if (group.choose !== null && area.hours >= group.choose * 3) {
         const ordinary = choices.filter((choice) => (choice.credits ?? 0) >= 3);
         if (ordinary.length >= group.choose) choices = ordinary;
@@ -1022,10 +1054,11 @@ function adaptProgram(
 export function loadUgaData(): Promise<UgaData | null> {
   if (ugaPromise) return ugaPromise;
   ugaPromise = (async () => {
-    const [rawCourses, programFile, guidance] = await Promise.all([
+    const [rawCourses, programFile, guidance, offerings] = await Promise.all([
       readJson<RawUgaCourse[]>('/uga-catalog.json'),
       readJson<RawUgaProgramFile>('/uga-programs.json'),
       loadUgaPlanningGuidance(),
+      loadUgaOfferings(),
     ]);
     if (!rawCourses || !programFile) {
       ugaPromise = null;
@@ -1106,6 +1139,14 @@ export function loadUgaData(): Promise<UgaData | null> {
       offeringPublished,
       snapshotTerm: null,
       gradeFootnote: null,
+      // What is commonly taken and what is on this year's schedule, for the
+      // free choices (autoplan.ts freeChoiceSignals); without the file, as before.
+      ...(offerings ? {
+        taken: takenPerYear(offerings),
+        takenSource: ((counted) => `UGA's Schedule of Classes, ${counted[0]?.label} to ${counted.at(-1)?.label}`)(offerings.terms.filter((t) => t.enrolled > 0).sort((a, b) => a.period.localeCompare(b.period))),
+        scheduled: { terms: offerings.terms.map((t) => t.label), seasons: seasonsRun(offerings) },
+        ...(offerings.subjects ? { subjectNames: new Map(Object.entries(offerings.subjects)) } : {}),
+      } : {}),
     };
     const data: UgaData = {
       courses,
@@ -1117,6 +1158,7 @@ export function loadUgaData(): Promise<UgaData | null> {
       source: programFile.source,
       fetchedAt: programFile.fetchedAt,
       dualLevelCourses,
+      offerings,
     };
     rawProgramsOf.set(data, programFile.programs);
     return data;
@@ -1465,7 +1507,7 @@ export function loadUgaProgram(
   // the workspace next calls setUgaTrackHours.
   const wanted = trackWanted.get(data);
   if (reset && wanted && wanted.size > 0) setUgaTrackHours(data, wanted);
-  return adaptProgram(selectedProgram, data.byCode);
+  return adaptProgram(selectedProgram, data.byCode, data.context.taken);
 }
 
 export function guessUgaProgram(studying: string, programs: UgaProgram[]): UgaProgram | null {
