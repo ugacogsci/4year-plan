@@ -277,22 +277,33 @@ ratings. `node scripts/professor-ratings/build.mjs` keeps the rated profiles
 duplicate profiles (the same name, and the same department or one inside the
 other). The `professor_ratings` tool, and `student_ratings` on instructors in
 `course_syllabus` and `term_syllabi`, match the planner's instructor names
-(sections, syllabi, "My instructor") to a profile in
+(sections, UGA's Schedule of Classes, syllabi, "My instructor") to a profile in
 `lib/planner/professor-ratings.ts`: the last name and the first name must
 agree (a nickname, or a first name the other starts with, counts); a first
 initial alone needs the only profile at the school with that initial and a
 department that fits the course; two profiles of one name are settled by the
-course's department or reported as "not sure which profile", never guessed.
-The departments a subject's instructors are listed under are learned from
-names that match exactly one profile, and from the catalog's subject names
-and course titles. On the syllabi's instructors, 55% match at UGA (9% not
-sure) and 43% at Illinois (8% not sure); the rest have no profile. The
-answer is a consensus with fixed thresholds: under 5 ratings, too few to say
-much; overall 4.0+ rated highly, 3.5 well, 2.6-3.4 mixed, 2.5 or lower low;
-difficulty 4.0+ hard, 3.0 moderately hard, 2.5 about average, under 2.5 on
-the easier side; would take again 80%+ most, under 50% fewer than half. Every
-answer says it rests on N self-selected ratings across all of the professor's
-courses and links the profile. The data holds no comments, so the bots say
+course's department or reported as "not sure which professor", never
+guessed; a profile that gives only an initial is not sure while the school's
+records name two people it could be. The departments a subject's instructors
+are listed under are learned from names that match exactly one profile (the
+syllabi's, Illinois's grade history's, UGA's Schedule of Classes'), and from
+the catalog's subject names and course titles. On the syllabi's instructors,
+55% match at UGA (8% not sure) and 43% at Illinois (8% not sure); on UGA's
+schedule, 46% of its name-by-subject pairs (10% not sure); the rest have no
+ratings. The answer is a consensus with fixed thresholds: under 5 ratings,
+too few to say much; overall 4.0+ rated highly, 3.5 well, 2.6-3.4 mixed, 2.5
+or lower low; difficulty 4.0+ hard, 3.0 moderately hard, 2.5 about average,
+under 2.5 on the easier side; would take again 80%+ most, under 50% fewer
+than half ("Based on 196 student ratings, students rate ... 4.4 of 5 overall
+(rated highly), difficulty 3.5 of 5 (moderately hard), and most (90%) would
+take the professor again"). The bots call them student ratings and never
+name or link the site they come from, and an answer gives the one caveat
+(self-selected, across all of a professor's courses) once. For a course
+alone, `professor_ratings` is a rundown: its instructors with the terms the
+class schedule names them for, those teaching the term that matters first
+(at UGA the next one students register for, Spring 2027), and the highest
+rated of them as the pick, on 10 ratings or more when anyone has them. The
+data holds no comments, so the bots say
 the ratings do not cover things like email or office hours, and invent
 nothing. At Illinois the Teachers Ranked as Excellent lists stay the official
 signal. The planner's own picks never read these ratings. Checks:
@@ -446,8 +457,12 @@ instructor, for the newest five terms (Spring 2026 to Summer 2027 now, about
 under their course; a lab or discussion booked with its lecture is counted
 apart. `lib/planner/uga-offerings.ts` reads it (`offeredIn`, `enrollmentOf`,
 `instructorsFor`); a term not in the file, or a subject an upcoming term is
-still posting, reads as unknown, never "not offered". Nothing in the planner
-or the bots reads it yet. Check: `lib/planner/__uga-offerings.check.mjs`.
+still posting, reads as unknown, never "not offered". The planner's free
+choices read when a course runs and how many take it (`seasonsRun`,
+`takenPerYear`, `arrangedOnly`); the My instructor picker, `course_syllabus`,
+`term_syllabi` and `professor_ratings` read who teaches it (`instructorsFor`,
+`scheduleTermFor`, `nextRegistrationTerm`). Check:
+`lib/planner/__uga-offerings.check.mjs`.
 
 ### The language requirement is planned, not quoted
 
