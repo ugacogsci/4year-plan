@@ -18,7 +18,7 @@ import type {
   RequirementGroup,
 } from '@/lib/planner/scheduler';
 import type { Course, SemesterSeason } from '@/lib/planner/types';
-import { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
+import { applyUgaProgramOverrides, TERRY_ECONOMICS_LABEL } from '@/lib/planner/uga-program-overrides';
 import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
 import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
 import type { AnyCourseRule } from '@/lib/planner/any-course';
@@ -996,6 +996,17 @@ function adaptProgram(
         return;
       const id = `${areaId}::${groupIndex}`;
       let choices = choicesFor(group, byCode, area.excludePrefixes, taken);
+      /*
+       * Terry's economics requirement, "any 3-hour ECON course" but ECON 2105
+       * and 2106, is planned from ECON 2100 and 2200 and the economics courses
+       * the degree's own rows name; a held course at the 3000 to 5000 level
+       * counts too (heldRanges). From every ECON course it booked ECON 4750
+       * Introduction to Econometrics, the shallowest, on law and startup boards.
+       */
+      if (group.label === TERRY_ECONOMICS_LABEL) {
+        const named = new Set(program.areas.flatMap((other) => (other === area ? [] : other.groups.flatMap((g) => g.courses.map((row) => canonicalUgaCode(row.code))))));
+        choices = choices.filter((choice) => choice.codes.some((code) => !/^ECON 210[56]/.test(code) && (/^ECON 2[12]00/.test(code) || named.has(code))));
+      }
       if (group.choose !== null && area.hours >= group.choose * 3) {
         const ordinary = choices.filter((choice) => (choice.credits ?? 0) >= 3);
         if (ordinary.length >= group.choose) choices = ordinary;

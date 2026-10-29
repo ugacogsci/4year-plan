@@ -2,6 +2,8 @@ type UgaRequirementCourse = {
   code: string;
   title: string;
   credits: number;
+  levelFrom?: number;
+  levelTo?: number;
 };
 
 type UgaRequirementGroup = {
@@ -34,6 +36,8 @@ type UgaProgramRecord = {
   areas: unknown[];
   totalCredits: number | null;
   areaHours: number;
+  college?: string;
+  degree?: string;
 };
 
 const courses = (
@@ -422,6 +426,131 @@ const AI_PHD_AREAS: UgaRequirementArea[] = [
   },
 ];
 
+/**
+ * A subject's 4000- and 5000-level courses as rows ("ACCT course(s) at the
+ * 4000-5000 level"): the 4000 row reads a held 5000-level course too
+ * (levelTo, any-course.ts withHeldInRange), and the 5000 row plans from them.
+ */
+const upperLevelRows = (subjects: string[]): UgaRequirementCourse[] =>
+  subjects.flatMap((subject) => [
+    { code: `${subject} 4XXX`, title: `${subject} 4000-5000-level courses`, credits: 0, levelTo: 5 },
+    { code: `${subject} 5XXX`, title: `${subject} 5000-level courses`, credits: 0 },
+  ]);
+
+const TERRY_PREFIXES = ['ACCT', 'BUSN', 'ECON', 'ENTR', 'FINA', 'ILAD', 'INTB', 'LEGL', 'MARK', 'MBUS', 'MGMT', 'MIST', 'REAL', 'RMIN'];
+
+/*
+ * Verified 2026-10-28 on bulletin.uga.edu/Program/Details/93328 and 46304:
+ * "Major Electives (6 hours)", two courses from the major's own list or any
+ * Terry prefix at the 4000-5000 level. The page prints it after the
+ * optional Business Analytics area of emphasis, and the scraper's
+ * optional-section guard ran on to "General Electives", so neither degree's
+ * boards had the requirement and its hours went to electives "that fill the
+ * 120 credits this degree takes beyond what its page names".
+ */
+const RMIN_MAJOR_ELECTIVES: UgaRequirementArea = {
+  label: 'Major Electives',
+  hours: 6,
+  groups: [{
+    label: 'Risk Management and Insurance Major Related Courses',
+    choose: null,
+    hours: 6,
+    note: 'Choose 2 courses (not counted elsewhere): the RMIN courses listed, or any ACCT, BUSN, ECON, ENTR, FINA, ILAD, INTB, LEGL, MARK, MBUS, MGMT, MIST or REAL course at the 4000-5000 level. A grade of C or higher.',
+    courses: [
+      ...courses([
+        ['RMIN 4100', 'Actuarial Financial Mathematics', 3],
+        ['RMIN 4200', 'Actuarial Probability Concepts', 3],
+        ['RMIN 4800', 'Internship in Risk Management and Insurance', 3],
+        ['RMIN 5510', 'Life Insurance', 3],
+        ['RMIN 5520', 'Alternative and International Risk', 3],
+        ['RMIN 5530', 'Advanced Property Insurance', 3],
+        ['RMIN 5540', 'Advanced Liability Insurance', 3],
+        ['RMIN 5560', 'Risk Management and Fundamentals of Early Career Success', 3],
+        ['RMIN 5570', 'Insurer Operations and Policy', 3],
+      ]),
+      ...upperLevelRows(TERRY_PREFIXES.filter((subject) => subject !== 'RMIN')),
+    ],
+  }],
+};
+
+const REAL_MAJOR_ELECTIVES: UgaRequirementArea = {
+  label: 'Major Electives',
+  hours: 6,
+  groups: [{
+    label: 'Major Electives',
+    choose: null,
+    hours: 6,
+    note: 'Choose 2 courses: REAL courses at the 4000/5000 level not counted elsewhere (REAL 4800, the internship, included), or any ACCT, BUSN, ECON, ENTR, FINA, ILAD, INTB, LEGL, MARK, MBUS, MGMT, MIST or RMIN course at the 4000/5000 level.',
+    courses: upperLevelRows(TERRY_PREFIXES),
+  }],
+};
+
+/*
+ * The Additional Terry College Graduation Requirements every BBA page
+ * prints under Non-Course Requirements (verified 2026-10-28 on 93328, 62927
+ * and 46304): a speech course, a 3-hour ECON course other than ECON 2105 and
+ * 2106, and precalculus or calculus (MATH 1113 is also required to apply to
+ * a Terry major). Some pages' scrape put the speech and precalculus lists
+ * inside "University Wide General Electives (Non-Business)", where the
+ * "any course" row already fills the area and they were never read; the
+ * Risk Management page's scrape has none of them, and none has the
+ * economics course. A course counted elsewhere on the board meets them
+ * (COMM 1110 for Humanities, MATH 1113 for Foundation, ECON 2200 for Social
+ * Sciences): they ask for no hours of their own.
+ */
+/** The Terry economics requirement's group label (uga-source.tsx plans it from the economics courses the degree names). */
+export const TERRY_ECONOMICS_LABEL = 'Terry Economics Requirement';
+
+const TERRY_GRADUATION_LABEL = 'Terry College Graduation Requirements';
+const TERRY_GRADUATION: UgaRequirementArea = {
+  label: TERRY_GRADUATION_LABEL,
+  hours: 9,
+  groups: [
+    { label: 'Terry Speech Requirement', choose: 1, courses: courses([
+      ['BUSN 4900', 'Communicating for Business Effectiveness', 3],
+      ['BUSN 4940', 'Generative AI in Business Communications', 3],
+      ['COMM 1000', 'Introduction to Human Communication', 3],
+      ['COMM 1110', 'Introduction to Public Speaking', 3],
+      ['COMM 1500', 'Introduction to Interpersonal Communication', 3],
+      ['COMM 3200', 'Business and Professional Communication', 3],
+    ]) },
+    { label: TERRY_ECONOMICS_LABEL, choose: 1,
+      note: 'Any 3-hour course with the ECON prefix, including non-equivalent transfer courses (excluding ECON 2105 and ECON 2106).',
+      courses: [
+        ...courses([
+          ['ECON 2100', 'Economics of Environmental Quality', 3],
+          ['ECON 2200', 'Economic Development of the United States', 3],
+        ]),
+        { code: 'ECON 3XXX', title: 'ECON 3000-5000-level courses', credits: 0, levelTo: 5 },
+        { code: 'ECON 4XXX', title: 'ECON 4000-level courses', credits: 0 },
+        { code: 'ECON 5XXX', title: 'ECON 5000-level courses', credits: 0 },
+      ] },
+    { label: 'Precalculus Requirement', choose: 1, courses: courses([
+      ['MATH 1113', 'Precalculus', 3],
+      ['MATH 2110', 'Calculus for Economics', 3],
+      ['MATH 2200', 'Analytic Geometry and Calculus', 4],
+      ['MATH 2250', 'Calculus I for Science and Engineering', 4],
+      ['MATH 2260', 'Calculus II for Science and Engineering', 4],
+    ]) },
+  ],
+};
+
+/** Whether an area is one of a degree's graduation requirements that courses counted elsewhere meet (TERRY_GRADUATION). */
+export function ugaOverlapArea(label: string): boolean {
+  return label === TERRY_GRADUATION_LABEL || label.endsWith(`: ${TERRY_GRADUATION_LABEL}`);
+}
+
+type AreaShape = { label: string; hours: number };
+
+/** `program` with `area` after the area labelled `after` (at the end where none is); `adds` false for one whose hours other areas' courses meet. */
+function withAreaAfter<T extends UgaProgramRecord>(program: T, after: string, area: UgaRequirementArea, adds = true): T {
+  const areas = program.areas as AreaShape[];
+  if (areas.some((existing) => existing.label === area.label)) return program;
+  const at = areas.findIndex((existing) => existing.label === after);
+  const next = at < 0 ? [...areas, area] : [...areas.slice(0, at + 1), area, ...areas.slice(at + 1)];
+  return { ...program, areas: next, areaHours: program.areaHours + (adds ? area.hours : 0) } as T;
+}
+
 /** Apply narrow, source-backed repairs for UGA program pages the generic parser misses. */
 export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
   programs: T[],
@@ -445,6 +574,21 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
         areaHours: 46,
       } as T);
     }
-    return program;
+    let repaired = program;
+    if (program.id === '93328') repaired = withAreaAfter(repaired, 'Risk Management and Insurance Major Required Courses', RMIN_MAJOR_ELECTIVES);
+    if (program.id === '46304') repaired = withAreaAfter(repaired, 'Real Estate Major Required Courses', REAL_MAJOR_ELECTIVES);
+    /*
+     * Economics BBA: "Required Courses (36 hours)" is the Terry core (15),
+     * the Economics required courses (9) and the four ECON electives (12),
+     * and the scrape kept the electives as an area of their own beside the
+     * 36: every board read "Required Courses 24 of 36" (verified 2026-10-28,
+     * bulletin.uga.edu/Program/Details/62927).
+     */
+    if (program.id === '62927') {
+      const areas = (repaired.areas as AreaShape[]).map((area) => (area.label === 'Required Courses' && area.hours === 36 ? { ...area, hours: 24 } : area));
+      repaired = { ...repaired, areas, areaHours: repaired.areaHours - 12 } as T;
+    }
+    if (program.college === 'BUS' && program.degree === 'BBA') repaired = withAreaAfter(repaired, '', TERRY_GRADUATION, false);
+    return repaired;
   });
 }

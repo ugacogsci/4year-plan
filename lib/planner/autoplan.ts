@@ -13,6 +13,7 @@ import { repeatLine, type RepeatAsk } from './repeats';
 import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInput } from './autoplan-release';
 import { withHeldAnyCourse, withHeldInRange, type AnyCourseRule } from './any-course';
 import { calendarYearOf, regularSeasons, requiredSummerOn, runsInSummer, summerOnlyListed, ugaSummerOnlyMessage, type SummerYears } from './summer-offering';
+import { ugaOverlapArea } from './uga-program-overrides';
 
 /**
  * The deterministic half of the planner: build a four-year plan, and check one.
@@ -9520,6 +9521,23 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     }
   }
   const opensRequired = (code: string): number => (askedByRequired.size > 0 && expandEquivalents(code, equivalents).some((c) => askedByRequired.has(c)) ? 0 : 1);
+  /*
+   * And at UGA one another choice of the degree takes too, so one course
+   * meets both: a Terry student's Foundation math, "MATH 1101 or MATH 1113
+   * or ...", takes MATH 1113, which the Terry precalculus requirement (and
+   * admission to the major) asks for, not MATH 1101 and then MATH 1113 as well.
+   */
+  const choiceRows = ctx.schoolId === 'uga' ? input.requirements.filter((r) => r.rule.kind === 'choose') : [];
+  /*
+   * The courses a UGA graduation requirement met by courses counted
+   * elsewhere names (uga-program-overrides.ts ugaOverlapArea: Terry's
+   * speech, economics and precalculus courses), which a core list takes
+   * first where it lists them (poolOrderFor): COMM 1110 for Humanities meets
+   * the speech requirement too, where LAND 2510 left BUSN 4900 to book.
+   */
+  const meetsTwo = new Set(input.requirements.filter((r) => r.rule.kind === 'choose' && ugaOverlapArea(r.areaLabel)).flatMap((r) => (r.rule.kind === 'choose' ? r.rule.choices.flatMap((choice) => choice.codes.map(normaliseCode)) : [])));
+  const inOtherChoice = (code: string, requirementId: string): number =>
+    choiceRows.some((r) => r.id !== requirementId && r.rule.kind === 'choose' && r.rule.choices.some((choice) => choice.codes.some((c) => expandEquivalents(code, equivalents).includes(normaliseCode(c))))) ? 0 : 1;
   /** The area of the requirement a chosen course was booked for: a trimmed row shares only another area's course. */
   const areaOfRequirement = new Map(input.requirements.map((r) => [r.id, r.areaId]));
   /** Whether any of the degree's rows names the course (or a version of it): such a course is never only a prerequisite. */
@@ -9928,7 +9946,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        * Rehabilitation, and Podiatry (9 a year) a Marketing student's
        * Non-Business elective.
        */
-      const schedule = ctx.schoolId === 'uga' ? [signals.offSchedule(code)] : [];
+      const schedule = ctx.schoolId === 'uga' ? [signals.offSchedule(code), breadth.core && meetsTwo.size > 0 && !meetsTwo.has(code) ? 1 : 0] : [];
       const wantedHere = breadth.broad && lastTies && !subjectHere && signals.band(code) === POPULAR_BANDS.length ? 1 : wanted;
       const key = input.goalRows
         ? [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, ...schedule, clash, aside, wantedHere, own, extra, unverifiable, ...offered, ...light, ...common, variable, ...byPriority, chain, ...lastTie]
@@ -10828,11 +10846,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
          * a list's pick reads them.
          */
         const readFor = rememberedBy((code: string): number => (lastTies ? listAudience(code) * 2 : 0) + signals.offSchedule(code));
+        // A UGA graduation requirement met by courses counted elsewhere (ugaOverlapArea) takes one the board already has first.
+        const meetsElsewhere = ctx.schoolId === 'uga' && ugaOverlapArea(requirement.areaLabel);
         const scored = slot.options
           .map((option) => pickFromOption(option))
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) =>
-            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) || readFor(a.code) - readFor(b.code) || opensRequired(a.code) - opensRequired(b.code) : 0) ||
+            (meetsElsewhere ? Number(!a.shared) - Number(!b.shared) : 0) ||
+            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) || readFor(a.code) - readFor(b.code) || opensRequired(a.code) - opensRequired(b.code) || inOtherChoice(a.code, requirement.id) - inOtherChoice(b.code, requirement.id) : 0) ||
             (listOrder ? listOrder(a.code, b.code) : 0) ||
             (have ? (rank(a.code)[0] ?? 0) - (rank(b.code)[0] ?? 0) || extraOf(a.code) - extraOf(b.code) : 0) ||
             // A choice's last ties on its hours (the row asks for a course, not hours: STAT 2000 at four
