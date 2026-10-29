@@ -6427,6 +6427,12 @@ const LANDING_PAST_MOST = 1;
  * freshman's first spring, and MATH 231 stayed in Spring 2028 with a fall of
  * no math between them.
  *
+ * A UGA course is numbered in four digits, and the sequence is read on all
+ * four (sequenceGap): read on the first three, CHEM 2211 and CHEM 2212 were
+ * one number and no sequence, so nothing held Organic Chemistry II to the
+ * term after Organic Chemistry I (a Genetics sophomore's came a year
+ * later), while ECON 2200 read as the course after ECON 2105 (2026-10-29).
+ *
  * `apart`: labs in another term from their lectures (CHEM 103 a term after
  * CHEM 102).
  *
@@ -6457,7 +6463,7 @@ function orderShape(termCodes: Array<{ codes: string[]; regular: boolean }>, ctx
       if (group.confidence !== 'high' && !onBoard.some((c) => (at.get(c) as number) < index || (group.concurrent && at.get(c) === index))) loose.add(`${code}<${named.join('/')}`);
       for (const c of onBoard) {
         const from = at.get(c) as number;
-        const gap = courseLevel(code) - courseLevel(c);
+        const gap = sequenceGap(c, code);
         if (c.split(' ')[0] === code.split(' ')[0] && gap > 0 && gap <= 20 && from < index && ordinal[index] - ordinal[from] >= 2) split.add(`${c}>${code}`);
       }
     }
@@ -6468,6 +6474,13 @@ function orderShape(termCodes: Array<{ codes: string[]; regular: boolean }>, ctx
   const apart = new Set<string>();
   for (const [lab, lecture] of measuredLabs(ctx)) if (at.has(lab) && at.has(lecture) && at.get(lab) !== at.get(lecture)) apart.add(lab);
   return { loose, split, apart };
+}
+/** How many numbers `later` comes after `first` (orderShape): UGA's four-digit numbers whole, otherwise by courseLevel. */
+function sequenceGap(first: string, later: string): number {
+  const four = (code: string) => code.match(/\b(\d{4})[A-Z]?$/)?.[1];
+  const a = four(first);
+  const b = four(later);
+  return a && b ? Number(b) - Number(a) : courseLevel(later) - courseLevel(first);
 }
 const LAB_OF = labPartners();
 /** UGA's lab pairs in every career track, whether or not the student named one (the free choices' check, freeChoicesWorse). */
@@ -6539,6 +6552,29 @@ function askedForBy(prereqs: Map<string, PlanPrereq> | undefined): Map<string, A
   askedForCache.set(prereqs, out);
   return out;
 }
+/**
+ * UGA's labs, lab to lecture: a course of one or two credits whose number is
+ * a lecture's with an L after it (CHEM 1211L and CHEM 1211, CHEM 2300L and
+ * CHEM 2300). The catalog gives these labs no prerequisite line to read the
+ * pair from, so only a career track's pairs were held together, and a
+ * Chemistry freshman's CHEM 2300L came a year before CHEM 2300, an Animal
+ * Science freshman's CHEM 2100L a year before CHEM 2100 and an Electrical
+ * Engineering freshman's CHEM 1211L a term before CHEM 1211 (2026-10-29).
+ * A lab with no lecture of its number (KINS 2470L Practicum in Athletic
+ * Training, CVLE 3450L) is a course of its own.
+ */
+const letteredLabCache = new WeakMap<Map<string, Course>, Map<string, string>>();
+function letteredLabs(byCode: Map<string, Course>): Map<string, string> {
+  const known = letteredLabCache.get(byCode);
+  if (known) return known;
+  const out = new Map<string, string>();
+  for (const [code, course] of byCode) {
+    const lecture = /^([A-Z]{2,4} \d{4})L$/.exec(code)?.[1];
+    if (lecture && byCode.has(lecture) && (course.creditsMax ?? course.credits) <= 2) out.set(code, lecture);
+  }
+  letteredLabCache.set(byCode, out);
+  return out;
+}
 const labCache = new WeakMap<object, Map<string, string>>();
 const namedLabCache = new WeakMap<object, Map<string, string>>();
 /**
@@ -6566,6 +6602,7 @@ function labsOf(ctx: Pick<PlanningContext, 'prereqs' | 'courses' | 'trackLabs'>,
   if (cached) return plusTrackLabs(cached, ctx);
   const out = new Map(LAB_OF);
   const byCode = catalogByCode(ctx.courses);
+  for (const [lab, lecture] of letteredLabs(byCode)) if (!out.has(lab)) out.set(lab, lecture);
   for (const [raw, spec] of ctx.prereqs) {
     const code = normaliseCode(raw);
     const groups = spec.groups ?? [];
@@ -6765,6 +6802,7 @@ function measuredLabs(ctx: Pick<PlanningContext, 'prereqs' | 'courses' | 'trackL
   if (cached) return plusTrackLabs(cached, ctx);
   const out = new Map(LAB_OF);
   const byCode = catalogByCode(ctx.courses);
+  for (const [lab, lecture] of letteredLabs(byCode)) if (!out.has(lab)) out.set(lab, lecture);
   for (const [raw, spec] of ctx.prereqs) {
     const code = normaliseCode(raw);
     const groups = spec.groups ?? [];
