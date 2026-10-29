@@ -186,6 +186,10 @@ const SOCIAL_STUDIES_PEDAGOGY: UgaRequirementCourse[] = [
   row('ESOC 5070', 'Critical Race Theory in Social Studies Education', 3),
 ];
 
+/** Environmental Resource Science's Major Electives (bulletin.uga.edu/Program/Details/27349): these prefixes at the 3000 level and above. */
+const ENVIRONMENTAL_RESOURCE_ELECTIVES: UgaRequirementCourse[] = ['AAEC', 'ADSC', 'AENG', 'AESC', 'AEXT', 'AGCM', 'ALDR', 'ANNU', 'ANTH', 'BCMB', 'BINF', 'BIOL', 'BIOS', 'BTEC', 'CBIO', 'CHEM', 'CRSS', 'ECOL', 'EDES', 'EETH', 'EHSC', 'ENGR', 'ENTO', 'ENVM', 'FANR', 'FDST', 'FORS', 'GENE', 'GEOG', 'GEOL', 'HONS', 'HORT', 'LAND', 'MARS', 'MIBO', 'NUTR', 'PATH', 'PBGG', 'PBIO', 'PHYS', 'PLAN', 'POUL', 'SOCI', 'SUST', 'WASR', 'WILD']
+  .flatMap((subject) => levels(subject, 3));
+
 const WRITTEN: Record<string, WrittenDegree> = {
   /*
    * Plant Biology BS (verified 2026-10-29, bulletin.uga.edu/Program/Details/62409):
@@ -3492,6 +3496,118 @@ const WRITTEN: Record<string, WrittenDegree> = {
         hoursFrom(focus(3, 'Area of Emphasis in History'), 21, [...levels('HIST', 3, 4), ...SOCIAL_STUDIES_PEDAGOGY, row('HIST 4112', 'History for History Teachers: The U.S.-1865 to the Present', 3)], 'HIST courses at the 3000/4000 level; one or more Content Pedagogy courses (ESOC 5010-5070) preferred, which count as emphasis courses.'),
         hoursFrom(focus(4, 'Area of Emphasis in Political Science'), 21, [...levels('POLS', 3, 4), ...SOCIAL_STUDIES_PEDAGOGY], 'POLS courses at the 3000/4000 level; one or more Content Pedagogy courses (ESOC 5010-5070) preferred, which count as emphasis courses.'),
       ]),
+    ],
+  },
+  /*
+   * Environmental Resource Science BSES (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/27349): the Required Courses and Major
+   * Electives headings carry no hour count and the reading skipped both (60
+   * of 120 hours on a board). The General track and the Area of Emphasis in
+   * Water and Soil Resources differ in the soil processes courses (one, or
+   * all four), the analytical course and the Major Electives (12 hours, or
+   * 3): one choice, those rows each path's own.
+   */
+  '27349': {
+    major: [
+      area('Required Courses', 53, [
+        all('Required Courses', [
+          row('CRSS 1200', 'Freshman and Transfer Student Seminar', 1),
+          row('CRSS 2010', 'Crop Science', 3),
+          lab('CRSS 2010L', 'Crop Science Laboratory', 1),
+          row('CRSS 3060', 'Soils and Hydrology', 3),
+          lab('CRSS 3060L', 'Soils and Hydrology Laboratory', 1),
+        ]),
+        hoursFrom('Internship or research', 3, [
+          row('CRSS 3910', 'Crop Science Internship', 3),
+          row('CRSS 3920', 'Environmental Soil Science Internship', 3),
+          row('CRSS 3930', 'Turfgrass Management Internship', 3),
+          row('CRSS 4960R', 'Faculty-Mentored Undergraduate Research I', 3),
+        ]),
+        hoursFrom('Courses to Enhance Knowledge of Fundamental Science', 11, [
+          row('BCMB 3100', 'Introductory Biochemistry and Molecular Biology', 4),
+          row('CHEM 2211', 'Modern Organic Chemistry I', 3),
+          lab('CHEM 2211L', 'Modern Organic Chemistry Laboratory I', 1),
+          row('CSCI 1100', 'Topics in Computing', 3),
+          row('ENVE 2610', 'Introduction to Environmental Engineering and Sustainability', 3),
+          row('GEOG 1112', 'Introduction to Weather and Climate', 3),
+          row('GEOG 1112L', 'Introduction to Weather and Climate Laboratory', 1),
+          row('GEOL 1121', 'Earth Processes and Environments', 3),
+          row('GEOL 1121L', 'Earth Processes and Environments Laboratory', 1),
+          row('GEOL 1250', 'Physical Geology', 4),
+          row('MATH 2200', 'Analytic Geometry and Calculus', 4),
+          row('MATH 2250', 'Calculus I for Science and Engineering', 4),
+          row('MATH 2260', 'Calculus II for Science and Engineering', 4),
+          row('PHYS 1111', 'Introductory Physics-Mechanics, Waves, Thermodynamics', 4),
+          row('PHYS 1251', 'Introductory Studio Physics for Engineers I', 3),
+        ], 'Choose 11 to 12 hours.'),
+        choose('Courses to Enhance Knowledge of Landscape Processes', 1, [
+          row('ATSC 3110', 'Climatology', 3),
+          row('CRSS 4580', 'Soil Erosion and Conservation', 3),
+          row('EHSC 4080', 'Environmental Air Quality', 3),
+          row('GEOG 3010', 'General Geomorphology', 3),
+          row('GEOL 4220', 'Hydrogeology', 3),
+          row('WASR 4110', 'Forest Hydrology', 4),
+          row('WASR 4700L', 'Hydrology, Geology, and Soils of Georgia', 3),
+        ]),
+        choose('Courses to Enhance Knowledge of Earth Systems', 1, [
+          row('CRSS 4400', 'Agro-Ecology', 3),
+          row('CRSS 4930', 'Agroecology of Tropical America', 3),
+          row('ECOL 3500', 'Ecology', 3),
+          lab('ECOL 3500L', 'Ecology Laboratory', 1),
+          row('ECOL 3530', 'Conservation Biology', 3),
+          row('ECOL 3770S', 'Urban Ecology - Service Learning', 3),
+          row('ECOL 4160', 'Ecology of North America', 4),
+          row('FANR 3200W', 'Ecology of Natural Resources', 3),
+          lab('FANR 3200L', 'Ecology of Natural Resources Laboratory', 1),
+        ]),
+        choose('Courses to Enhance Knowledge of Human Dimensions and Policy', 1, [
+          row('ADSC 4000', 'Sustainability of Resilient Global Food Systems', 3),
+          row('AESC 3110', 'Recognizing the Multicultural History of American Agriculture', 3),
+          row('ANTH 4255', 'Culture and Agriculture', 3),
+          row('CRSS 4020S', 'Social Sustainability in Agricultural and Food Systems', 3),
+          row('ECOL 4880', 'Environmental and Natural Resource Policy', 3),
+          row('ENVM 4380', 'Environmental Management and Sustainable Business Practices', 3),
+          row('ENVM 4930', 'Environmental Law and Governmental Regulation', 3),
+          row('FANR 4271', 'People, Planet, and Profit', 3),
+          row('GEOG 4890S', 'Athens Urban Food Collective (AUFC) Service-Learning', 3),
+          row('JURI 4810', 'Natural Resources Law', 3),
+          row('SOCI 3400', 'Environmental Sociology', 3),
+        ]),
+        choose('Courses to Enhance Knowledge of Applied Environmental Management', 1, [
+          row('CRSS 3540', 'Soil Morphology and Interpretation', 3),
+          row('CRSS 4010', 'Principles of Sustainable Management', 3),
+          row('CRSS 4090', 'Turfgrass Physiology and Ecology', 3),
+          row('CRSS 4580', 'Soil Erosion and Conservation', 3),
+          row('CRSS 4590', 'Soil Fertility and Plant Nutrition', 3),
+        ]),
+        choose(focus(1, 'General track'), 1, [
+          row('CRSS 4540', 'Pedology', 4),
+          row('CRSS 4600', 'Soil Physics', 3),
+          row('CRSS 4610', 'Soil Microbiology', 4),
+          row('CRSS 4670', 'Environmental Soil Chemistry', 3),
+        ], 'Courses to Enhance Knowledge of Soil Processes: one course.'),
+        choose(focus(1, 'General track', 'analytical measurements'), 1, [
+          row('CHEM 2300', 'Quantitative Analytical Chemistry', 3),
+          lab('CHEM 2300L', 'Quantitative Analytical Chemistry Laboratory', 1),
+          row('CHEM 3300', 'Modern Instrumental Methods of Analysis', 3),
+          row('CRSS 3050', 'Introduction to Water Quality', 4),
+          row('CRSS 4660', 'Hydrogeochemical Characterization of Environmental Field Sites', 3),
+          row('WASR 4500', 'Quantitative Methods in Hydrology', 3),
+        ]),
+        hoursFrom(focus(1, 'General track', 'Major Electives'), 12, ENVIRONMENTAL_RESOURCE_ELECTIVES, '3000- to 6000-level courses with the prefixes the Bulletin lists.'),
+        all(focus(2, 'Area of Emphasis in Water and Soil Resources'), [
+          row('CRSS 4540', 'Pedology', 4),
+          row('CRSS 4600', 'Soil Physics', 3),
+          row('CRSS 4610', 'Soil Microbiology', 4),
+          row('CRSS 4670', 'Environmental Soil Chemistry', 3),
+        ], 'Courses to Enhance Knowledge of Soil Processes: all four.'),
+        choose(focus(2, 'Area of Emphasis in Water and Soil Resources', 'analytical measurements'), 1, [
+          row('CRSS 3050', 'Introduction to Water Quality', 4),
+          row('CRSS 4660', 'Hydrogeochemical Characterization of Environmental Field Sites', 3),
+        ]),
+        hoursFrom(focus(2, 'Area of Emphasis in Water and Soil Resources', 'Major Electives'), 3, ENVIRONMENTAL_RESOURCE_ELECTIVES, '3000- to 6000-level courses with the prefixes the Bulletin lists.'),
+      ]),
+      generalElectives(3),
     ],
   },
 };
