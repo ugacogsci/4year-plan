@@ -87,6 +87,23 @@ function ugaEquivalents(courses: Course[]): Map<string, string[]> {
     }
   }
 
+  /*
+   * A cross-listed class, as the catalog's own prerequisite lines write it:
+   * "BCMB(BIOL)(CHEM) 3100" is one class under three subjects. The catalog
+   * has a row for each, with titles of its own (CHEM 3100 "Introductory
+   * Biological Chemistry"), so neither the number nor the title linked them,
+   * and a Genetics sophomore's board booked CHEM 3100 two years after BCMB
+   * 3100 (2026-10-28). Only codes the catalog has.
+   */
+  const known = new Set(courses.map((course) => normCode(course.code)));
+  for (const course of courses) {
+    for (const listing of (course.prerequisiteText ?? '').matchAll(/\b([A-Z]{2,5})((?:\([A-Z]{2,5}\))+)\s*(\d{4}[A-Z]?)\b/g)) {
+      const subjects = [listing[1], ...[...listing[2].matchAll(/[A-Z]{2,5}/g)].map((m) => m[0])];
+      const codes = [...new Set(subjects.map((subject) => `${subject} ${listing[3]}`))].filter((code) => known.has(code));
+      if (codes.length > 1) link(codes);
+    }
+  }
+
   const equivalents = new Map<string, string[]>();
   const visited = new Set<string>();
   for (const start of linked.keys()) {
@@ -428,6 +445,120 @@ function adaptCourses(raw: RawUgaCourse): Course[] {
 }
 
 /**
+ * A prerequisite line as the groups a course needs one course of each from.
+ *
+ * UGA's lines bind OR tighter than AND ("PSYC 1101 or PSYC 1101E and BIOL
+ * 1107" is either PSYC course, and BIOL 1107) and bracket alternatives that
+ * are pairs: ENGR 3140's "[(CHEM 1211 and CHEM 1211L) or (CHEM 1311H and
+ * CHEM 1311L)]". Split on every AND regardless of the brackets, that line
+ * read as CHEM 1211, then "CHEM 1211L or CHEM 1311H", then CHEM 1311L, and
+ * the planner booked the honors lab CHEM 1311L for engineers who held CHEM
+ * 1211L (2026-10-28). Read with its brackets, a choice between pairs becomes
+ * one group for each way of taking one course from every pair (CHEM 1211 or
+ * CHEM 1311H; CHEM 1211 or CHEM 1311L; ...), which either pair meets. A
+ * bracket the line never closes ends with the line, and one it never opened
+ * is passed over (PSYC 3980's "[(BIOL 1103 or BIOL 1103E) and BIOL 1103L)
+ * or (BIOL 1104 and BIOL 1104L) ...]"). A number with no subject takes the
+ * last subject read ("(BIOL 1103 or BIOL 1103E) and 1103L"). Words that are
+ * not course numbers ("permission of department") are not courses, as
+ * before.
+ */
+function prerequisiteGroups(text: string, byCode: Map<string, Course>): Array<{ any: string[]; source: string }> {
+  type Token = { kind: 'open' | 'close' | 'and' | 'or'; at: number } | { kind: 'code'; codes: string[]; at: number };
+  const tokens: Token[] = [];
+  let subject = '';
+  const lexeme = /([([])|([)\]])|\b([Aa]nd|AND|[Oo]r|OR)\b|\b(?:([A-Z]{2,5})\s+)?(\d{4}[A-Z]?)(?:-(\d{4}[A-Z]?))?\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = lexeme.exec(text)) !== null) {
+    const at = match.index;
+    if (match[1]) tokens.push({ kind: 'open', at });
+    else if (match[2]) tokens.push({ kind: 'close', at });
+    else if (match[3]) tokens.push({ kind: match[3].toLowerCase() === 'and' ? 'and' : 'or', at });
+    else {
+      if (match[4]) subject = match[4].toUpperCase();
+      if (!subject) continue;
+      const codes = [match[5], match[6]].filter(Boolean).map((number) => `${subject} ${(number as string).toUpperCase()}`).filter((code) => byCode.has(code));
+      if (codes.length > 0) tokens.push({ kind: 'code', codes, at });
+    }
+  }
+  /*
+   * A choice between pairs, group by group: the first courses of each pair
+   * are one group, the second courses another ("CHEM 1211 or CHEM 1311H",
+   * then "CHEM 1211L or CHEM 1311L"). The planner meets each group with a
+   * course of its own (autoplan.ts defaultPrereqMatcher), so one group for
+   * every way of taking one course of each pair would ask CHEM 1211 and its
+   * lab to meet four. Where the choices are not all the same length, the
+   * shortest sets how many groups there are: "(A and B) or C" asks for A or
+   * C, never two courses of a student who took C.
+   */
+  type Clauses = string[][];
+  const anyOf = (parts: Clauses[]): Clauses => {
+    const kept = parts.filter((part) => part.length > 0);
+    if (kept.length === 0) return [];
+    const size = Math.min(...kept.map((part) => part.length));
+    return Array.from({ length: size }, (_, i) => [...new Set(kept.flatMap((part) => part[i]))]);
+  };
+  let index = 0;
+  const parseAnd = (depth: number): Clauses => {
+    const parts: Clauses[] = [parseOr(depth)];
+    while (index < tokens.length && tokens[index].kind === 'and') {
+      index += 1;
+      parts.push(parseOr(depth));
+    }
+    return parts.flat();
+  };
+  const parseOr = (depth: number): Clauses => {
+    const parts: Clauses[] = [];
+    while (index < tokens.length) {
+      const token = tokens[index];
+      if (token.kind === 'and') break;
+      if (token.kind === 'close') {
+        if (depth > 0) break;
+        index += 1;
+        continue;
+      }
+      index += 1;
+      if (token.kind === 'or') continue;
+      if (token.kind === 'code') parts.push([token.codes]);
+      else {
+        parts.push(parseAnd(depth + 1));
+        if (index < tokens.length && tokens[index].kind === 'close') index += 1;
+      }
+    }
+    return anyOf(parts);
+  };
+  // The line's top-level parts, each quoted as the clause its groups came from.
+  const out: Array<{ any: string[]; source: string }> = [];
+  const starts: number[] = [];
+  let depth = 0;
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    if (token.kind === 'open') depth += 1;
+    else if (token.kind === 'close') depth = Math.max(0, depth - 1);
+    else if (token.kind === 'and' && depth === 0) starts.push(i);
+  }
+  const sourceOf = (at: number): string => {
+    const cuts = [0, ...starts.map((i) => tokens[i].at), text.length];
+    for (let i = 0; i < cuts.length - 1; i += 1) if (at >= cuts[i] && at < cuts[i + 1]) return text.slice(cuts[i], cuts[i + 1]).replace(/^\s*and\s+/i, '').trim();
+    return text.trim();
+  };
+  while (index < tokens.length) {
+    if (tokens[index].kind === 'and') {
+      index += 1;
+      continue;
+    }
+    const at = tokens[index].at;
+    for (const any of parseOr(0)) {
+      if (any.length === 0) continue;
+      if (out.some((group) => group.any.length === any.length && group.any.every((code) => any.includes(code)))) continue;
+      out.push({ any, source: sourceOf(at) });
+    }
+  }
+  // A group naming every course of another is met whenever that one is.
+  return out.filter((group) => !out.some((other) => other !== group && other.any.length < group.any.length && other.any.every((code) => group.any.includes(code))));
+}
+
+/**
  * UGA writes prerequisites as ordinary prose, usually with parenthesized OR
  * lists joined by AND. This parser preserves that distinction. A clause it
  * cannot read stays visible in prerequisiteText, but does not become a made-up
@@ -440,26 +571,7 @@ function parsePrerequisite(text: string, byCode: Map<string, Course>): PlanPrere
   const cleaned = firstRule
     .replace(/([A-Z]{2,5})(?:\([A-Z]{2,5}\))+\s*(\d{4}[A-Z]?)/g, '$1 $2')
     .replace(/\s+/g, ' ');
-  const clauses = cleaned.split(/\s+and\s+/i);
-  const groups: PlanPrereqGroup[] = [];
-
-  for (const clause of clauses) {
-    const codes: string[] = [];
-    let subject = '';
-    const token = /\b(?:([A-Z]{2,5})\s+)?(\d{4}[A-Z]?)(?:-(\d{4}[A-Z]?))?\b/g;
-    let match: RegExpExecArray | null;
-    while ((match = token.exec(clause.toUpperCase())) !== null) {
-      if (match[1]) subject = match[1];
-      if (!subject) continue;
-      for (const number of [match[2], match[3]].filter(Boolean) as string[]) {
-        const code = `${subject} ${number}`;
-        if (byCode.has(code) && !codes.includes(code)) codes.push(code);
-      }
-    }
-    if (codes.length > 0) {
-      groups.push({ any: codes, concurrent: false, confidence: 'high', source: clause.trim() });
-    }
-  }
+  const groups: PlanPrereqGroup[] = prerequisiteGroups(cleaned, byCode).map((group) => ({ ...group, concurrent: false, confidence: 'high' as const }));
 
   const standing = /fourth[- ]year|senior/i.test(source)
     ? 'senior'
@@ -480,6 +592,48 @@ function parsePrerequisite(text: string, byCode: Map<string, Course>): PlanPrere
     standing,
     standingText: standing ? source : undefined,
   };
+}
+
+/**
+ * The course each undergraduate course's description says it continues, by
+ * that course's title in the same subject: ACCT 5010 is "A continuation of
+ * Intermediate Accounting I" (ACCT 5000). Its prerequisite line names only
+ * ACCT 2101, and ACCT 5020's "ACCT 2101 or ... or ACCT 5010/7010", so the
+ * planner booked Intermediate Accounting I, II and III in one semester on
+ * every Accounting board (2026-10-28). Only where exactly one course of the
+ * subject has the title.
+ */
+function continuedCourses(courses: Course[]): Map<string, string> {
+  const undergraduate = (code: string) => /^[A-Z]{2,5} [1-5]\d{3}[A-Z]?$/.test(code);
+  const byTitle = new Map<string, string[]>();
+  for (const course of courses) {
+    const code = normCode(course.code);
+    if (!undergraduate(code) || /[EHS]$/.test(code)) continue;
+    const key = `${course.cluster}|${course.title.trim().toLowerCase()}`;
+    byTitle.set(key, [...(byTitle.get(key) ?? []), code]);
+  }
+  const out = new Map<string, string>();
+  for (const course of courses) {
+    const code = normCode(course.code);
+    if (!undergraduate(code)) continue;
+    const named = course.description.match(/^\s*(?:A |The )?continuation of (?:the )?([^.;,]+?)\s*(?:[.;,]|$)/i)?.[1];
+    if (!named) continue;
+    const found = (byTitle.get(`${course.cluster}|${named.trim().toLowerCase()}`) ?? []).filter((other) => other !== code && ugaVariantKey(other) !== ugaVariantKey(code));
+    if (found.length === 1) out.set(code, found[0]);
+  }
+  return out;
+}
+
+/** `prereq` with the course `code` continues (continuedCourses) as a course to take first, where no group already asks for it alone. */
+function withContinuation(prereq: PlanPrereq | null, before: string | undefined, equivalents: Map<string, string[]>): PlanPrereq | null {
+  if (!before) return prereq;
+  const versions = [before, ...(equivalents.get(before) ?? []).filter((code) => ugaVariantKey(code) === ugaVariantKey(before))];
+  if (prereq?.groups.some((group) => group.any.every((code) => versions.includes(code)))) return prereq;
+  const group: PlanPrereqGroup = { any: versions, concurrent: false, confidence: 'high', source: `the catalog describes it as a continuation of ${before}` };
+  if (!prereq) return { groups: [group], escape: null, text: '', parsed: true, confidence: 'high', standing: null };
+  // A group that already offers it among others ("ACCT 2101 or ... or ACCT 5010") is met whenever it is.
+  const others = prereq.groups.filter((existing) => !versions.every((code) => existing.any.includes(code)));
+  return { ...prereq, groups: [...others, group], parsed: true, confidence: 'high' };
 }
 
 function creditChoice(row: RawUgaRequirementCourse): CourseChoice {
@@ -1100,9 +1254,10 @@ export function loadUgaData(): Promise<UgaData | null> {
     const prereqs = new Map<string, PlanPrereq>();
     const creditRanges = new Map<string, { credits: number; min: number; max: number; variable: boolean; known: boolean }>();
     const offeringPublished = new Set<string>();
+    const continues = continuedCourses(courses);
     for (const course of courses) {
       const code = normCode(course.code);
-      const prereq = parsePrerequisite(course.prerequisiteText ?? '', byCode);
+      const prereq = withContinuation(parsePrerequisite(course.prerequisiteText ?? '', byCode), continues.get(code), equivalents);
       if (prereq) prereqs.set(code, prereq);
       creditRanges.set(code, {
         credits: course.credits,
