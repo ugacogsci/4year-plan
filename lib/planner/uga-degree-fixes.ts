@@ -15,6 +15,11 @@
  * the page's areas of emphasis, where one must be picked, are a choice
  * setup asks about: groups labelled "Focus Area <n>: <name>" in one area
  * (uga-source.tsx namedProgramChoices), each emphasis its own rows.
+ *
+ * Where the course catalog the planner reads numbers a Bulletin course
+ * another way (EDSE 5020E, ESOC 4450L, MUSI 4500S, MUSI 5450, ENVM 4650 for
+ * the Bulletin's ENVM 3650), a row uses the catalog's number: a course the
+ * catalog does not have cannot be booked, and its row could never be met.
  */
 
 /**
@@ -169,6 +174,16 @@ const FILM_AREA_SIX: UgaRequirementCourse[] = [
   row('FILM 2550', 'Introduction to Special Effects Makeup', 6),
   ...['ARHI', 'ARST', 'CLAS', 'CMLT', 'COMM', 'DANC', 'EMST', 'ENGL', 'HIST', 'JOUR', 'MUSI', 'NMIX', 'PHIL', 'PSYC', 'WMST'].flatMap((subject) => levels(subject, 1, 3)),
   ...levels('THEA', 1, 2),
+];
+
+/** Social Studies Education's Content Pedagogy courses (bulletin.uga.edu/Program/Details/79831), which count as emphasis courses. */
+const SOCIAL_STUDIES_PEDAGOGY: UgaRequirementCourse[] = [
+  row('ESOC 5010', 'Teaching Geography', 3),
+  row('ESOC 5020', 'Teaching History', 3),
+  row('ESOC 5030', 'Teaching Economics', 3),
+  row('ESOC 5040', 'Teaching Politics, Government, and Citizenship', 3),
+  row('ESOC 5060', 'Teaching World History', 3),
+  row('ESOC 5070', 'Critical Race Theory in Social Studies Education', 3),
 ];
 
 const WRITTEN: Record<string, WrittenDegree> = {
@@ -1396,7 +1411,8 @@ const WRITTEN: Record<string, WrittenDegree> = {
           row('AAEC 3580', 'Intermediate Economic Principles', 4),
           row('AAEC 4610', 'Applied Econometrics', 4),
           row('ENVM 3060', 'Principles of Resource Economics', 3),
-          row('ENVM 3650', 'Environmental Economics', 3),
+          // The Bulletin's ENVM 3650; the course catalog the planner reads has it as ENVM 4650 (and no ENVM 3650).
+          row('ENVM 4650', 'Environmental Economics', 3),
           row('ENVM 4380', 'Environmental Management and Sustainable Business Practices', 3),
           row('JURI 4810', 'Natural Resources Law', 3),
         ]),
@@ -2344,7 +2360,7 @@ const WRITTEN: Record<string, WrittenDegree> = {
           row('EDSE 4441', 'Practicum in Special Education I', 3),
           row('EDSE 4442', 'Practicum in Special Education II', 3),
           row('EDSE 4443', 'Practicum in Special Education III', 3),
-          row('EDSE 5020', 'Assessment of Dyslexia and Other Learning Disabilities', 3),
+          row('EDSE 5020E', 'Assessment of Students with Dyslexia and Other Learning Disabilities', 3),
           row('EDSE 5120', 'Dyslexia and Other Learning Disabilities', 3),
           row('EDSE 5150', 'Designing Reading Interventions for Special Education', 3),
           row('EDSE 5250', 'Teaching Writing to Students with Disabilities', 3),
@@ -2362,7 +2378,7 @@ const WRITTEN: Record<string, WrittenDegree> = {
           row('EDSE 4441', 'Practicum in Special Education I', 3),
           row('EDSE 4442', 'Practicum in Special Education II', 3),
           row('EDSE 4443', 'Practicum in Special Education III', 3),
-          row('EDSE 5020', 'Assessment of Dyslexia and Other Learning Disabilities', 3),
+          row('EDSE 5020E', 'Assessment of Students with Dyslexia and Other Learning Disabilities', 3),
           row('EDSE 5120', 'Dyslexia and Other Learning Disabilities', 3),
           row('EDSE 5150', 'Designing Reading Interventions for Special Education', 3),
           row('EDSE 5250', 'Teaching Writing to Students with Disabilities', 3),
@@ -2376,7 +2392,7 @@ const WRITTEN: Record<string, WrittenDegree> = {
           row('EDSE 4010', 'Instructing Children with Autism Spectrum Disorders', 3),
           row('EDSE 4120', 'Instruction of Individuals with Moderate to Severe Disabilities', 3),
           row('EDSE 4220', 'Instruction of Students with High-Incidence Disabilities', 3),
-          row('EDSE 5020', 'Assessment of Dyslexia and Other Learning Disabilities', 3),
+          row('EDSE 5020E', 'Assessment of Students with Dyslexia and Other Learning Disabilities', 3),
           row('EDSE 5120', 'Dyslexia and Other Learning Disabilities', 3),
           row('EDSE 5150', 'Designing Reading Interventions for Special Education', 3),
           row('EDSE 5160', 'Communication and Language Development in Young Children', 3),
@@ -3290,7 +3306,7 @@ const WRITTEN: Record<string, WrittenDegree> = {
         all('Music Education', [
           row('MUSI 2790', 'Introduction to Music Education', 3),
           row('MUSI 4385S', 'Foundations of Lesson Planning', 1),
-          row('MUSI 4500', 'Music Techniques and Experiences for Children', 3),
+          row('MUSI 4500S', 'Music Techniques and Experiences for Children', 3),
         ]),
         choose('Music Education: choral or instrumental techniques', 1, [
           row('MUSI 4520', 'Choral Techniques and Field Experience', 3),
@@ -3298,7 +3314,7 @@ const WRITTEN: Record<string, WrittenDegree> = {
         ]),
         choose('Music Education: exceptional children', 1, [
           row('EDSE 2000', 'Survey of Special Education', 3),
-          row('MUSI 5450S', 'Music for Exceptional Children', 3),
+          row('MUSI 5450', 'Music for Exceptional Children', 3),
         ], 'A grade of B or higher.'),
         all('Education', [
           row('EDUC 2120', 'Exploring Socio-Cultural Perspectives in Educational Contexts', 3),
@@ -3371,6 +3387,111 @@ const WRITTEN: Record<string, WrittenDegree> = {
         ]),
       ]),
       generalElectives(1),
+    ],
+  },
+  /*
+   * Art BFA - Animation (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/71747): the page's Required Courses
+   * heading has no hour count and the reading skipped the whole section
+   * (63 of 120 hours on a board). Its rows come to 60 hours.
+   */
+  '71747': {
+    major: [
+      area('Required Courses', 60, [
+        all('Animation Requirements', [
+          row('ARST 2010', 'Drawing and Visuality', 3),
+          row('ARST 3800', 'Transmedia', 3),
+          row('FILM 4680', 'Introduction to DV Production', 3),
+          row('FILM 5810', 'Computer Animation for Dramatic Media I', 3),
+          row('FILM 5820', 'Computer Animation for Dramatic Media II', 3),
+          row('FILM 5830', 'Computer Animation for Dramatic Media III', 3),
+          row('THEA 3020', 'Basic Dramatic Writing', 3),
+          row('THEA 3300', 'Design Foundations', 3),
+          row('THEA 5352', 'Lighting Design for the Entertainment Arts', 3),
+        ]),
+        choose('Capstone Project', 1, [
+          row('ARST 4960R', 'Faculty-Mentored Undergraduate Research I', 3),
+          row('THEA 4960R', 'Faculty-Mentored Undergraduate Research I', 3),
+        ]),
+        choose('Animation Electives', 5, [
+          row('ARGD 3050', 'Illustration', 3),
+          row('ARST 2000', 'Introduction to Figure Drawing', 3),
+          row('ARST 2100', 'Introduction to Painting and Visuality', 3),
+          row('ARST 2810', 'Hypermedia', 3),
+          row('ARST 3010', 'Advanced Drawing', 3),
+          row('ARST 3205', 'Video Concepts and Practice', 3),
+          row('ARST 3805', 'Animation - 2D and Experimental Motion Graphics', 3),
+          row('ARST 3810', 'CAD and Fabrication I', 3),
+          row('ARST 4020', 'Figure Drawing/Anatomy', 3),
+          row('ARST 4215', 'Sound in Art', 3),
+          row('ARST 4830', 'Advanced Video', 3),
+          row('FILM 5640', 'Directing for the Cinema', 3),
+          row('FILM 5690', 'Special Effects for Film and Video', 3),
+          row('THEA 3330', 'Costume Crafts', 3),
+          row('THEA 5330', 'Costume Design for the Entertainment Arts', 3),
+          row('THEA 5351', 'Scenic Design for the Entertainment Arts', 3),
+          row('THEA 5700', 'Internship in Theatre/Film/Animation', 3),
+          row('THEA 5840', 'Technical Animation with Computers', 3),
+          row('THEA 5880', 'Sound Effects for Stage and Screen', 3),
+        ]),
+        hoursFrom('Art History', 9, [
+          ...levels('ARHI', 3, 4),
+          row('FILM 4250', 'History of Cinema I (1895-1945)', 3),
+          row('FILM 4260', 'History of Cinema II (1945-1990)', 3),
+          row('FILM 4660', 'History of Animation', 3),
+          row('THEA 4210', 'Theatre and Modernity', 3),
+          row('THEA 4220', 'Theatre and Society', 3),
+        ], 'ARHI courses at the 3000 or 4000 level, or the film and theatre history courses listed.'),
+        hoursFrom('Related Major Courses', 6, [
+          row('ENGL 3410', 'Literature and Media', 3),
+          row('ENGL 3560W', 'Writing Games', 3),
+          row('ENGL 3570', 'Games and Culture', 3),
+          ...['ARGD', 'ARID', 'ARST', 'ARTS', 'FILM', 'THEA'].flatMap((subject) => levels(subject, 2)),
+        ], 'The ENGL courses listed, or ARGD, ARID, ARST, ARTS, FILM or THEA courses at the 2000 level or above.'),
+      ]),
+    ],
+  },
+  /*
+   * Social Studies Education BSED (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/79831): the reading lost Required
+   * Courses (57 hours) whole: 21 hours of content courses in the student's
+   * area of emphasis (Economics, Human Geography, History or Political
+   * Science), the Blocks 1-3 ESOC courses with student teaching (12 hours),
+   * and a foreign language through the third semester where Area IV did not
+   * take it (57 of 120 hours on a board).
+   */
+  '79831': {
+    areaSix: area('VI. Courses Related to the Major', 18, [
+      all('VI. Courses Related to the Major', [
+        row('EDSE 4030', 'Inclusion of Students with Disabilities: Grades 6-12', 3),
+        row('EDUC 2120', 'Exploring Socio-Cultural Perspectives in Educational Contexts', 3),
+        row('EDUC 2130', 'Exploring Learning and Teaching', 3),
+      ], 'A grade of C or higher in Area VI and every major course.'),
+      hoursFromDistinct('VI. Courses Related to the Major: 9 hours', 9, 3, [
+        [row('ECON 2105', 'Principles of Macroeconomics', 3), row('ECON 2106', 'Principles of Microeconomics', 3)],
+        [row('GEOG 1101', 'Human Geography: People, Places, and Cultures', 3), row('GEOG 1103', 'Cultural Geography of the United States', 3)],
+        [row('HIST 2111', 'American History to 1865', 3), row('HIST 2112', 'American History Since 1865', 3)],
+        [row('POLS 1101', 'American Government', 3)],
+      ], 'Courses not taken in Area V. The major asks for a course with each of the ECON, GEOG, HIST and POLS prefixes.'),
+    ]),
+    major: [
+      area('Required Courses', 57, [
+        all('Major Courses (Blocks 1-3)', [
+          row('ESOC 3450', 'Initial Field Experience in Social Studies Education', 3),
+          row('ESOC 3450L', 'Introduction to Social Studies Education Lab', 3),
+          row('ESOC 4350', 'Study of Secondary Social Studies Curricula', 3),
+          row('ESOC 4360', 'Communities, Identities, and Relationships in Secondary Social Studies Education', 3),
+          row('ESOC 4450L', 'Senior Field Experience in Social Studies Education', 6),
+          row('ESOC 4455', 'Planning and Teaching for Equity-Orientated Social Studies Classrooms', 3),
+          row('ESOC 5560', 'Student Teaching Seminar', 3),
+          row('ESOC 5460', 'Student Teaching in Social Science Education', 12),
+        ], 'A grade of C or higher. Core Areas I-VI and every elective done before Block Two.'),
+        choose('Foreign language through the third semester', 1, THIRD_SEMESTER_COURSES, 'If not taken in Area IV: one language through the third semester, C or higher in every semester (AMSL at the third level or above counts).'),
+        hoursFrom(focus(1, 'Area of Emphasis in Economics'), 21, [...levels('ECON', 3, 4), ...SOCIAL_STUDIES_PEDAGOGY, row('FHCE 3200', 'Introduction to Personal Finance', 3)], 'ECON courses at the 3000/4000 level; one or more Content Pedagogy courses (ESOC 5010-5070) preferred, which count as emphasis courses.'),
+        hoursFrom(focus(2, 'Area of Emphasis in Human Geography'), 21, [...levels('GEOG', 3, 4), ...SOCIAL_STUDIES_PEDAGOGY], 'GEOG courses at the 3000/4000 level; one or more Content Pedagogy courses (ESOC 5010-5070) preferred, which count as emphasis courses.'),
+        hoursFrom(focus(3, 'Area of Emphasis in History'), 21, [...levels('HIST', 3, 4), ...SOCIAL_STUDIES_PEDAGOGY, row('HIST 4112', 'History for History Teachers: The U.S.-1865 to the Present', 3)], 'HIST courses at the 3000/4000 level; one or more Content Pedagogy courses (ESOC 5010-5070) preferred, which count as emphasis courses.'),
+        hoursFrom(focus(4, 'Area of Emphasis in Political Science'), 21, [...levels('POLS', 3, 4), ...SOCIAL_STUDIES_PEDAGOGY], 'POLS courses at the 3000/4000 level; one or more Content Pedagogy courses (ESOC 5010-5070) preferred, which count as emphasis courses.'),
+      ]),
     ],
   },
 };
