@@ -13106,6 +13106,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const eligible: string[] = [];
         for (const code of remaining) {
           if (!allowedHere(code)) continue;
+          /*
+           * At UGA a lab waits for its lecture still to be placed, which brings
+           * it into its own term (the pair below): with no prerequisite line,
+           * CHEM 2300L went in a Chemistry freshman's first spring and CHEM
+           * 2300 a term later, behind CHEM 1212 (2026-10-29).
+           */
+          const lectureFirst = ctx.schoolId === 'uga' && !isLastTerm ? labOf.get(code) : undefined;
+          if (lectureFirst !== undefined && remaining.has(lectureFirst)) { debug(code, term.label, `waits for its lecture ${lectureFirst}`); continue; }
           // A lecture goes where its lab fits beside it, and the lab follows it
           // in past the aim: CHEM 102 and CHEM 103 in one term, not a year apart.
           const lab = lectureLab.get(code);
