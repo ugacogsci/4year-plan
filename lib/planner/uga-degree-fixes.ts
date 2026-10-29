@@ -5119,6 +5119,179 @@ const WRITTEN: Record<string, WrittenDegree> = {
       generalElectives(11),
     ],
   },
+  /*
+   * Economics AB (verified 2026-10-29, bulletin.uga.edu/Program/Details/77024):
+   * "Required Courses (30 hours)" is BUSN 5000, ECON 4010 and 4020, four
+   * ECON electives (or an area of emphasis whose courses are among them)
+   * and the Major Electives (9 hours), which the page prints as sections of
+   * their own; the reading counted the 30 and the sections again (129 of
+   * 120 hours) and lost the Major Electives and Area VI's language. The areas
+   * of emphasis (Consulting, Public Policy, Business Analytics) are optional
+   * and their courses count among these rows.
+   */
+  '77024': {
+    areaSix: area('VI. Courses Related to the Major', 16, [
+      all('VI. Courses Related to the Major', [
+        row('BUSN 3000', 'Applied Statistics and Data Analysis for Business', 3),
+        row('ECON 2105', 'Principles of Macroeconomics', 3),
+        row('ECON 2106', 'Principles of Microeconomics', 3),
+      ], 'A grade of C or better in ECON 2105 and ECON 2106.'),
+      choose('Foreign language', 1, THIRD_SEMESTER_COURSES, 'This major requires a foreign language through the third semester.'),
+      choose('Calculus', 1, [
+        row('MATH 2200', 'Analytic Geometry and Calculus', 4),
+        row('MATH 2250', 'Calculus I for Science and Engineering', 4),
+      ]),
+    ]),
+    major: [
+      area('Required Courses', 9, [
+        all('Required Courses', [
+          row('BUSN 5000', 'Introduction to Data Science for Business and Economics', 3),
+          row('ECON 4010', 'Intermediate Microeconomics', 3),
+          row('ECON 4020', 'Intermediate Macroeconomics', 3),
+        ]),
+      ]),
+      area('ECON Electives', 12, [
+        choose('ECON Electives', 4, [
+          row('ECON 4100', 'Monetary Economics', 3),
+          row('ECON 4150', 'Environmental Economics', 3),
+          row('ECON 4160', 'Urban Economics', 3),
+          row('ECON 4200', 'Economic Growth and Development', 3),
+          row('ECON 4250', 'Economics of Education', 3),
+          row('ECON 4300', 'Public Sector Economics', 3),
+          row('ECON 4310', 'Health Economics', 3),
+          row('ECON 4350', 'Industrial Economics', 3),
+          row('ECON 4360', 'Game Theory', 3),
+          row('ECON 4450', 'Economic Analysis of Law', 3),
+          row('ECON 4460', 'Sports Economics', 3),
+          row('ECON 4500', 'Monetary Policy', 3),
+          row('ECON 4550', 'International Trade: Theory and Policy', 3),
+          row('ECON 4600', 'Labor Economics', 3),
+          row('ECON 4650', 'Economics of Organizations and Management', 3),
+          row('ECON 4700', 'Economic History of the United States', 3),
+          row('ECON 4710', 'Topics in Economic History', 3),
+          row('ECON 4750', 'Introduction to Econometrics', 3),
+          row('ECON 4760', 'Time Series Analysis', 3),
+          row('ECON 4850', 'Special Topics for Economics', 3),
+          row('ECON 4950', 'Competitive Strategy', 3),
+          row('ECON 5900', 'Senior Thesis', 3),
+        ], 'Or one area of emphasis (Consulting or Public Policy courses count as ECON electives; Business Analytics courses do not).'),
+      ]),
+      area('Major Electives', 9, [
+        choose('Major Electives', 3, [
+          row('ACCT 1160', 'Survey of Accounting', 3),
+          row('ACCT 2101', 'Principles of Accounting I', 3),
+          row('ACCT 2102', 'Principles of Accounting II', 3),
+          row('AFST 2100', 'Introduction to Africa', 3),
+          row('BUSN 4000', 'Optimization and Applied Regression Analysis', 3),
+          row('BUSN 4650', 'Law, Culture, and Global Business', 3),
+          row('BUSN 4900', 'Communicating for Business Effectiveness', 3),
+          row('BUSN 4940', 'Generative AI in Business Communications', 3),
+          row('COMM 3200', 'Business and Professional Communication', 3),
+          row('ECOL 3070', 'Environment and Humans', 3),
+          row('ENGL 3590W', 'Technical and Professional Communication', 3),
+          row('ENGL 3600W', 'Advanced Composition', 3),
+          row('ENTR 5500', 'Introduction to Entrepreneurship', 3),
+          row('ENTR 5505', 'Funding the Entrepreneurial Venture', 3),
+          row('ENTR 5525', 'Managing the Entrepreneurial Venture', 3),
+          row('FINA 3000', 'Financial Management', 3),
+          row('FINA 3001', 'Financial Management', 3),
+          row('FINA 4050', 'Capitalism', 3),
+          row('GEOG 2610', 'Geography of Georgia', 3),
+          row('GEOG 3620', 'Globalization and the Making of the Modern World', 3),
+          row('GEOG 3630', 'Introduction to Urban Geography', 3),
+          row('GEOG 4610', 'Location Analysis', 3),
+          row('GEOG 4620', 'Advanced Economic Geography', 3),
+          row('GEOG 4630', 'Advanced Urban Geography', 3),
+          row('GEOG 4640', 'Population Geography', 3),
+          row('GEOG 4650', 'Industrial Geography', 3),
+          row('GEOG 4660', 'Urban and Regional Development', 3),
+          row('GEOG 4670', 'Geography of Development', 3),
+          row('GEOG 4710', 'Geography of Sub-Saharan Africa', 3),
+          row('GEOG 4720', 'Geography of Latin America', 3),
+          row('GEOG 4730', 'Geography of China', 3),
+          row('GEOG 4740', 'Geography of East and Southeast Asia', 3),
+          row('HIST 3071', 'Origins of Modern America', 3),
+          row('HIST 3072', 'The United States Between the Wars, 1914-1945', 3),
+          row('HIST 3073', 'Modern America, 1945 to Present', 3),
+          row('HIST 3421', 'History of Ancient and Medieval Science', 3),
+          row('HIST 3432', 'History of Science and Society in the Modern World', 3),
+          row('HIST 4074', 'The South Since Reconstruction', 3),
+          row('INTB 5100', 'Special Topics in International Business', 3),
+          row('LEGL 2700', 'Legal and Regulatory Environment of Business', 3),
+          row('MARK 3000', 'Principles of Marketing', 3),
+          row('MARK 3001', 'Principles of Marketing', 3),
+          row('MBUS 3000', 'Business Fundamentals as Applied to the Music Industry', 3),
+          row('MIST 2090', 'Introduction to Information Systems in Business', 3),
+          row('MGMT 3000', 'Principles of Management', 3),
+          row('REAL 4000', 'Real Estate', 3),
+          row('RMIN 4000', 'Risk Management and Insurance', 3),
+          row('SOCI 3070', 'Juvenile Delinquency', 3),
+          row('SOCI 3290', 'Gender and Work', 3),
+          row('SOCI 3750', 'Sociology of Work and Industry', 3),
+        ]),
+      ]),
+      // 30 hours, and Area VI's last 2.
+      generalElectives(32),
+    ],
+  },
+  /*
+   * Mathematics Education BSED (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/79641): student teaching (EMAT 5460)
+   * is 12 hours, not 1, and EDUC 2140 (C or higher) is a program completion
+   * requirement for certification; the Area of Emphasis in Educational
+   * Studies replaces student teaching with 15 hours of EMAT courses (one
+   * choice). Major Electives (12 hours): a mathematics or statistics course
+   * and EMAT courses at the 4000 level or above; read as two courses.
+   */
+  '79641': {
+    major: [
+      area('Required Content Courses', 12, [
+        all('Required Content Courses', [
+          row('MATH 4000', 'Modern Algebra I', 3),
+          row('MATH 5200', 'Foundations of Geometry I', 3),
+        ]),
+        choose('Linear algebra', 1, [
+          row('MATH 3000', 'Introduction to Linear Algebra', 3),
+          row('MATH 3300', 'Applied Linear Algebra', 3),
+        ]),
+        choose('Probability or statistics', 1, [
+          row('MATH 4600', 'Probability', 3),
+          row('STAT 4070', 'Statistics for Secondary Teachers', 3),
+          row('STAT 4210', 'Statistical Methods', 3),
+        ]),
+      ]),
+      area('Required Professional Courses', 36, [
+        all('Required Professional Courses', [
+          row('EMAT 4800', 'Teaching Secondary School Mathematics I', 3),
+          lab('EMAT 4800L', 'Field Experience in Secondary School Mathematics I', 1),
+          row('EMAT 4810', 'Connections in Secondary Mathematics I', 3),
+          row('EMAT 4850', 'Teaching Secondary School Mathematics II', 3),
+          lab('EMAT 4850L', 'Field Experience in Secondary School Mathematics II', 1),
+          row('EMAT 4860', 'Connections in Secondary Mathematics II', 3),
+          row('EMAT 4900', 'Teaching Secondary School Mathematics III', 3),
+          lab('EMAT 4900L', 'Field Experience in Secondary School Mathematics III', 1),
+          row('EMAT 4910', 'Connections in Secondary Mathematics III', 3),
+          row('EMAT 4950', 'Professional Seminar in Teaching Mathematics', 3),
+        ]),
+        all(focus(1, 'Teacher Certification'), [
+          row('EMAT 5460', 'Student Teaching in Secondary School Mathematics', 12),
+          row('EDUC 2140', 'Foundations of Reading', 3),
+        ], 'EDUC 2140 (C or higher) is a program completion requirement for teacher certification, with the trainings and assessments on the Bulletin page.'),
+        hoursFrom(focus(2, 'Area of Emphasis in Educational Studies in Mathematics Education'), 15, levels('EMAT', 3), 'In place of student teaching: EMAT courses chosen with program faculty. Does not lead to teacher certification.'),
+      ]),
+      area('Major Electives', 12, [
+        choose('Major Electives: mathematics or statistics', 1, [
+          row('MATH 2270', 'Calculus III for Science and Mathematics', 4),
+          row('MATH 2700', 'Elementary Differential Equations', 3),
+          ...levels('MATH', 3),
+          row('STAT 4070', 'Statistics for Secondary Teachers', 3),
+          row('STAT 4210', 'Statistical Methods', 3),
+          row('STAT 4220', 'Applied Experimental Designs', 3),
+        ], 'MATH 2270 preferred (not with MATH 2500); not MATH 3200, the MATH(EMAT) 5000-level courses for teachers, or a course taken for the required courses.'),
+        hoursFrom('Major Electives: EMAT courses', 9, levels('EMAT', 4), 'EMAT courses at the 4000 level or above (not EMAT 5280, 5290 or 5320).'),
+      ]),
+    ],
+  },
 };
 
 /**
@@ -5146,6 +5319,17 @@ const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementAr
     };
     return { ...existing, groups: existing.groups.flatMap((group) => (group === a ? [laboratory] : group === b ? [] : [group])) };
   }),
+  /*
+   * Mechanical Engineering BSME (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/20122): "Required Courses (70 hours)"
+   * holds the Mechanical Engineering Electives (15 hours) the page prints
+   * as a section of its own; read as both, a board carried 14 unnamed
+   * hours on top (about 142 of 130).
+   */
+  '20122': (areas) => {
+    const electives = areas.find((existing) => existing.label === 'Mechanical Engineering Electives');
+    return electives ? areas.map((existing) => (existing.label === 'Required Courses' && existing.hours === 70 ? { ...existing, hours: existing.hours - electives.hours } : existing)) : areas;
+  },
   /*
    * Atmospheric Sciences BS (verified 2026-10-29,
    * bulletin.uga.edu/Program/Details/29248): General Electives (28 hours)
@@ -5259,7 +5443,12 @@ export function fixedUgaDegree<T extends UgaProgramRecord>(program: T, overlap: 
   const written = WRITTEN[program.id];
   const repair = REPAIRED[program.id];
   const areas = foundationRead(program.areas as UgaRequirementArea[]);
-  if (!written) return { ...program, areas: repair ? repair(areas) : areas };
+  if (!written) {
+    if (!repair) return { ...program, areas };
+    const repaired = repair(areas);
+    const hoursOf = (list: UgaRequirementArea[]) => list.reduce((sum, existing) => sum + existing.hours, 0);
+    return { ...program, areas: repaired, areaHours: program.areaHours + hoursOf(repaired) - hoursOf(areas) };
+  }
   const core = areas.filter((existing) => CORE_AREA.test(existing.label));
   const six = written.areaSix === undefined ? areas.find((existing) => AREA_SIX.test(existing.label)) : written.areaSix;
   const kept = areas.filter((existing) => overlap(existing.label));
