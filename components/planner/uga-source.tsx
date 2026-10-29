@@ -677,6 +677,37 @@ function withContinuation(prereq: PlanPrereq | null, before: string | undefined,
   return { ...prereq, groups: [...others, group], parsed: true, confidence: 'high' };
 }
 
+const CORE_AREA = /^(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences)\b/i;
+
+/**
+ * The courses UGA's core curriculum lists for any student (an Area II to V
+ * "Core Courses" list, which every bachelor's page repeats), and how many
+ * bachelor's programs require each course outright: on a take-every-course
+ * row outside the core (PlanningContext.generalEducation,
+ * requiredByPrograms; the free choices read them, autoplan.ts outsiderCost).
+ */
+function coreAndFoundations(programs: UgaProgram[]): { generalEducation: Set<string>; requiredByPrograms: Map<string, number> } {
+  const generalEducation = new Set<string>();
+  const requiredByPrograms = new Map<string, number>();
+  for (const program of programs) {
+    if (!isUgaUndergraduateDegree(program)) continue;
+    const required = new Set<string>();
+    for (const area of program.areas) {
+      const core = CORE_AREA.test(area.label);
+      for (const group of area.groups) {
+        if (core) {
+          if (/core courses?$/i.test(group.label ?? '') && !/foundation/i.test(area.label)) for (const row of group.courses) generalEducation.add(canonicalUgaCode(row.code));
+          continue;
+        }
+        if (group.choose !== null || poolLikeGroup(area, group)) continue;
+        for (const row of group.courses) if (!/\b[1-9]XXX\b/.test(row.code)) required.add(canonicalUgaCode(row.code));
+      }
+    }
+    for (const code of required) requiredByPrograms.set(code, (requiredByPrograms.get(code) ?? 0) + 1);
+  }
+  return { generalEducation, requiredByPrograms };
+}
+
 function creditChoice(row: RawUgaRequirementCourse): CourseChoice {
   return {
     codes: [canonicalUgaCode(row.code)],
@@ -1332,6 +1363,7 @@ export function loadUgaData(): Promise<UgaData | null> {
       prereqs,
       equivalents,
       exclusions: ugaExclusions(courses),
+      ...coreAndFoundations(programs),
       creditRanges,
       offeringPublished,
       snapshotTerm: null,

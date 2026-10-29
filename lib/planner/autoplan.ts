@@ -457,6 +457,15 @@ export interface PlanningContext {
   scheduled?: { terms: string[]; seasons: Map<string, SemesterSeason[]>; arranged?: Set<string> };
   /** UGA: each subject's name by code ("ENTR": "Entrepreneurship"), for the relevance measure (QualityInputs.subjectNames). Absent: Illinois's table. */
   subjectNames?: Map<string, string>;
+  /**
+   * UGA: the courses its core curriculum's lists name (Areas II to V,
+   * uga-source.tsx), courses written for any student, and how many bachelor's
+   * programs require each course outright. The free choices read both
+   * (outsiderCost): a course many programs require and no core list names is
+   * another major's foundation, commonly taken because it is required.
+   */
+  generalEducation?: ReadonlySet<string>;
+  requiredByPrograms?: ReadonlyMap<string, number>;
   /** New course number -> the old number whose offering history it carries. */
   offeringAliases?: Map<string, string>;
   /** The registrar's language table, so the language requirement can be planned rather than quoted. */
@@ -3647,6 +3656,8 @@ interface ElectiveScoring {
   /** With the career matcher: a point for a goal course that leads on to another goal course in its subject (careerFollowOnOf). */
   careerFollowOn?: (code: string) => number;
   /** How commonly taken and whether on this year's schedule (freeChoiceSignals); `common` false when the student asked for the lightest or best-taught courses. */
+  /** UGA: points off a free elective that is another program's course, not the student's (outsiderCost). */
+  outsider?: (code: string) => number;
   free?: FreeChoiceSignals;
   common?: boolean;
   /** 1 for a UGA course the coming year's schedule does not run (FreeChoiceSignals.offSchedule), with or without the free choices' reading. */
@@ -5525,7 +5536,45 @@ function scoreElective(code: string, s: ElectiveScoring): number {
   }
   // Not on UGA's Schedule of Classes in any of its terms, or only as directed study: as the dormant rule above.
   if (s.offSchedule?.(code)) score -= 9;
+  // Another program's own course, unless the student's goal is about it (outsiderCost).
+  if (goal <= 0 && !s.opensGoal?.has(code)) score -= s.outsider?.(code) ?? 0;
   return score;
+}
+
+/** UGA's College of Engineering subjects. */
+const UGA_ENGINEERING_SUBJECTS = new Set(['AENG', 'BCHE', 'BIOE', 'CSEE', 'CVLE', 'ECSE', 'ELEE', 'ENGR', 'ENVE', 'MCHE']);
+/** Subjects of the sciences a degree in them reads calculus "for Science and Engineering" as its own. */
+const UGA_SCIENCE_SUBJECTS = new Set(['ASTR', 'BCMB', 'BIOL', 'CBIO', 'CHEM', 'CSCI', 'ECOL', 'GENE', 'GEOL', 'MARS', 'MATH', 'MIBO', 'PBIO', 'PHYS', 'STAT', 'ATSC', 'FANR', 'FORS', 'CRSS', 'DATA']);
+
+/**
+ * Points off a UGA free elective (scoreElective) that is another program's
+ * own course rather than one for this student: a course the College of
+ * Engineering teaches its majors, for a degree outside it (ENGR 2110
+ * Engineering Decision Making and MCHE 2990 Engineered Systems in Society
+ * were a Sociology freshman's electives); calculus "for Science and
+ * Engineering" for a degree outside the sciences (MATH 2250 in a Public
+ * Relations senior's last term); and a course five or more bachelor's
+ * programs require outright that no core list names, which is commonly
+ * taken because it is required: MIST 2090, ACCT 2101 and LEGL 2700, the
+ * business core, were the free electives of ten of 22 arts and sciences
+ * boards, CBIO 2200 Anatomy and Physiology of three (2026-10-28). Courses of
+ * the degree's own subjects lose nothing.
+ */
+function outsiderCost(ctx: PlanningContext, byCode: Map<string, Course>, degreeSubjects: Set<string>, primary: string | null, college: string | null): ((code: string) => number) | undefined {
+  if (ctx.schoolId !== 'uga') return undefined;
+  const own = new Set([...degreeSubjects, ...(primary ? [primary] : [])]);
+  const engineering = college === 'FENGR' || [...own].some((subject) => UGA_ENGINEERING_SUBJECTS.has(subject));
+  const science = engineering || [...own].some((subject) => UGA_SCIENCE_SUBJECTS.has(subject));
+  return rememberedBy((code: string): number => {
+    const course = byCode.get(code);
+    const subject = course?.cluster ?? code.split(' ')[0];
+    if (!course || own.has(subject)) return 0;
+    let cost = 0;
+    if (!engineering && UGA_ENGINEERING_SUBJECTS.has(subject)) cost += 4;
+    if (!science && /\bfor\s+(?:science\s+and\s+engineering|scientists\s+and\s+engineers|engineers?)\b/i.test(course.title)) cost += 4;
+    if (!ctx.generalEducation?.has(code) && (ctx.requiredByPrograms?.get(code) ?? 0) >= 5) cost += 3;
+    return cost;
+  });
 }
 
 /**
@@ -5811,6 +5860,7 @@ export function electiveOptions(input: {
     goalPoints: goalWeighs(careerProfileOf(input)),
     careerFollowOn: careerFollowOnOf(ctx, input.careerFit),
     free: freeChoiceSignals(ctx),
+    outsider: outsiderCost(ctx, byCode, majors.subjects, majors.primary, input.programCollege ?? null),
     offSchedule: freeChoiceSignals(ctx).offSchedule,
     common: !lightFirst(input.priorities) && (input.priorities ?? DEFAULT_PRIORITIES).teaching !== 2,
     harder: (code) => (ctx.grades?.get(code)?.difficulty ?? 0) >= (ctx.bands ?? FALLBACK_BANDS).harder,
@@ -10282,8 +10332,15 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // A list of forty or more mostly outside the degree's subjects is breadth too (poolOrderFor).
         const outside = slot.options.filter((option) => !option.some((code) => degreeRead.subjects.has(code.split(' ')[0]) || code.split(' ')[0] === degreeRead.primary)).length;
         const broad = broadCore || anyCourse !== undefined || (slot.options.length >= 40 && outside * 2 > slot.options.length);
-        // "Any course" lists hold both halves of the science sequences too (CHEM 1211 and 1212), as a core area does.
-        const sequence = broadCore || anyCourse
+        /*
+         * "Any course" lists hold both halves of the science sequences too
+         * (CHEM 1211 and 1212), as a core area does. Not an upper-level one:
+         * there a course that opens another is no worse a pick, and ENTR
+         * 5500 Introduction to Entrepreneurship, which ENTR 5510 and 5520
+         * follow, went behind four hundred others on every board of a
+         * student who wants to start a company (2026-10-28).
+         */
+        const sequence = broadCore || (anyCourse && anyCourse.minLevel < 3)
           ? genEdSequenceMembers(slot.options.flat())
           : new Set<string>();
         const fill = fillPool(slot, {
@@ -13533,6 +13590,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       goalPoints: goalWeighs(careerProfileOf(input)),
       careerFollowOn: careerFollowOnOf(ctx, input.careerFit),
       free: lastTies ? signals : undefined,
+      outsider: outsiderCost(ctx, byCode, majors.subjects, majors.primary, input.programCollege ?? null),
       offSchedule: signals.offSchedule,
       common: commonFirst,
       harder: (code) => (grades.get(code)?.difficulty ?? 0) >= (ctx.bands ?? FALLBACK_BANDS).harder,
@@ -13776,12 +13834,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     // `termIndex`: where the pick lands, for the career matcher's progression (careerFirstFit).
     const choose = (fits: (code: string) => boolean, tooBig: (hours: number) => boolean, gap: number, heavy: boolean, loose = false, termIndex?: number): string | undefined => {
       const sized = (code: string) => trackWanted.has(code) || creditsOf(code) >= 3 || creditsOf(code) === gap || (loose && creditsOf(code) <= gap);
-      const exact = (code: string) => gap > 0 && gap < 3 && creditsOf(code) === gap;
+      const exact = (code: string) => gap > 0 && gap < 3 && creditsOf(code) === gap && landingReason(code);
       const track = (code: string) => trackWanted.has(code);
       // [what else the pick must be, whether it is the landing course, whether it must be a track's]
+      // A course under three credits only with a reason to be there (landingReason), before any course at all.
+      const reasoned = (code: string) => creditsOf(code) >= 3 || landingReason(code);
       const tries: Array<[(code: string) => boolean, boolean, boolean]> = heavy
-        ? [[(code) => track(code) && lighter(code), false, true], [(code) => exact(code) && lighter(code), true, false], [exact, true, false], [lighter, false, false], [() => true, false, false]]
-        : [[track, false, true], [exact, true, false], [() => true, false, false]];
+        ? [[(code) => track(code) && lighter(code), false, true], [(code) => exact(code) && lighter(code), true, false], [exact, true, false], [(code) => lighter(code) && reasoned(code), false, false], [lighter, false, false], [reasoned, false, false], [() => true, false, false]]
+        : [[track, false, true], [exact, true, false], [reasoned, false, false], [() => true, false, false]];
       for (const [also, landing, trackOnly] of tries) {
         /*
          * Two kinds of try are settled without reading the ranked catalog,
@@ -13800,6 +13860,23 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         if (found) return found;
       }
       return undefined;
+    };
+    /*
+     * At UGA a course of one or two credits lands a plan on its total, or a
+     * term on its minimum, only where it has a reason to be there: a course
+     * of the degree's subjects or the goal's, one the goal names, or one a
+     * row of the degree lists. Otherwise a three-credit elective takes the
+     * seat, a credit or two past the number. FORS 3010 Dendrology, two
+     * credits of forest-tree identification, landed every record with an odd
+     * number of hours on 120 (an Accounting, an Economics and a Risk
+     * Management sophomore's), and DANC 2030 The Pilates Method, HORT 2000
+     * and KINS 2420 Physical Education in Elementary Education topped up
+     * last terms of business and pre-PT boards (2026-10-28).
+     */
+    const landingReason = (code: string): boolean => {
+      if (ctx.schoolId !== 'uga') return true;
+      const subject = byCode.get(code)?.cluster ?? code.split(' ')[0];
+      return majors.subjects.has(subject) || subject === majors.primary || goalSubjects.has(subject) || (scoring.quality(code).interest ?? 0) > 0 || degreeNames(code);
     };
     /**
      * The landing course when lighter workload matters most: it exists only
@@ -14527,11 +14604,18 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       let swapped = false;
       for (const { code: small } of landers) {
         const term = terms.find((t) => (placed.get(t.id) ?? []).includes(small));
-        if (!term || isSummer(term) || yearOne.includes(term.index)) continue;
+        /*
+         * At UGA a landing course with no reason to be there (landingReason:
+         * a full board's last two credits went to AENG 2920 Engineering Design
+         * Methodology on Political Science and Psychology freshmen's boards,
+         * 2026-10-28) goes in year one too, and up to the term's cap.
+         */
+        const reasonless = ctx.schoolId === 'uga' && !landingReason(small);
+        if (!term || isSummer(term) || (yearOne.includes(term.index) && !reasonless)) continue;
         const here = placed.get(term.id) ?? [];
         const rest = here.filter((c) => c !== small);
         const running = planCreditRange(rest, ctx).min;
-        const roof = Math.min(creditCapOf(term) - 1, overallAim + 2, credits.target != null ? credits.target + 1 : Infinity);
+        const roof = reasonless ? creditCapOf(term) : Math.min(creditCapOf(term) - 1, overallAim + 2, credits.target != null ? credits.target + 1 : Infinity);
         if (running + 3 > roof || running + creditsOf(small) < credits.min) continue;
         // Nothing on the board waits on it (an elective never should, but a
         // later pick may have come to lean on it).
@@ -15718,7 +15802,22 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const have = creditsIn(i);
         if (terms[i].season === 'Summer' || have === 0 || have >= credits.min) continue;
         const short = credits.min - have;
-        const pick = smallCourses(i, short, 3).sort((a, b) => creditsOf(a) - creditsOf(b) || commonOrder(a, b) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || takenOrder(a, b) || a.localeCompare(b))[0];
+        /*
+         * At UGA a course with a reason to be there first (the degree's or
+         * the goal's subject, or one of the degree's rows lists it), then one
+         * of the core's lists, and of those a three-credit course before a
+         * smaller one: fewest credits first, the top-up was DANC 2030 The
+         * Pilates Method on four arts and sciences boards, a Political
+         * Science senior's last term among them (2026-10-28).
+         */
+        const reasonFirst = (code: string): number => {
+          if (ctx.schoolId !== 'uga') return 0;
+          const subject = byCode.get(code)?.cluster ?? code.split(' ')[0];
+          const reason = degreeRead.subjects.has(subject) || subject === degreeRead.primary || (qualityAtPlacement(code).interest ?? 0) > 0 || degreeNames(code);
+          return reason ? 0 : ctx.generalEducation?.has(code) ? 1 : 2;
+        };
+        const fewest = ctx.schoolId === 'uga' ? -1 : 1;
+        const pick = smallCourses(i, short, 3).sort((a, b) => reasonFirst(a) - reasonFirst(b) || fewest * (creditsOf(a) - creditsOf(b)) || commonOrder(a, b) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || takenOrder(a, b) || a.localeCompare(b))[0];
         if (!pick) continue;
         placed.set(terms[i].id, [...(placed.get(terms[i].id) ?? []), pick]);
         chosen.set(pick, { requirementId: null, label: 'Elective' });

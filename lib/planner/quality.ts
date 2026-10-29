@@ -576,7 +576,14 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
       const freeTopics = q.legacyTopics || titleHit ? free.filter((word) => !namesMajor(word)) : [];
       const topics = [...new Set([...freeTopics, ...curated.filter((word) => q.legacyTopics || !namesMajor(word))])];
       const description = course.description.toLowerCase();
-      const hits = topics.filter((word) => titleWord(stemOf(word), word.length < 5).test(`${title} ${description}`));
+      /*
+       * One word and its longer form are one word: "entrepreneur" and
+       * "entrepreneurship" in MCHE 1940's description ("creative thinking
+       * strategies, entrepreneurship") made a Mechanical Engineering design
+       * studio a Marketing student's pick for starting a company (2026-10-28).
+       */
+      const matched = topics.filter((word) => titleWord(stemOf(word), word.length < 5).test(`${title} ${description}`));
+      const hits = matched.filter((word, i) => !matched.some((other, j) => j !== i && (stemOf(other).length < stemOf(word).length || (stemOf(other).length === stemOf(word).length && j < i)) && stemOf(word).startsWith(stemOf(other))));
       const meaningful = q.legacyTopics ? hits.some((word) => !LOW_INFORMATION.has(word)) || hits.length >= 2 : hits.length >= 2 && hits.some((word) => !LOW_INFORMATION.has(word));
       if (meaningful) {
         // Coverage distinguishes a broad title match from a course addressing
