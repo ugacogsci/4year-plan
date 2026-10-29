@@ -414,5 +414,8 @@ export function goalReasonOf(
   if (mark.kind === 'gened') return null;
   const said = [...new Set(interestWordsFrom(words.interests))].filter((w) => courseMatchesWord(course, w)).slice(0, 2);
   if (said.length > 0) return `Picked for your interest in ${said.join(' and ')}`;
+  // Its catalog description is what matched (quality.ts RELEVANCE_REASONS.topics): say so, and which words.
+  const topics = mark.detail?.match(/catalog topics match: ([^.;]+)/)?.[1]?.split(/,\s*/).filter(Boolean).slice(0, 2);
+  if (topics?.length) return `Picked because its description mentions ${topics.join(' and ')}`;
   return 'Picked for what you said you want';
 }

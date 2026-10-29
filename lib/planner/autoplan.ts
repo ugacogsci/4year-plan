@@ -3,7 +3,7 @@ import { termLoad, type GradeRow } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
 import { forSchool, interestProfile, labPartners, UGA_CAREER_TRACKS, withHeldVariants, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
 import type { Priorities } from './priorities';
-import { interestWordsFrom, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
+import { interestWordsFrom, saysGoalMatch, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
 import { GOAL_GROUP_CAP, NEAR_SAME, progressionPoints, varietyPenalty, type CareerFit } from './career-embedding';
 import { DEFAULT_PRIORITIES } from './priorities';
 import { weeklyFit, type WeeklySchedule } from './weekly-fit';
@@ -5613,6 +5613,21 @@ function rankedElectivePool(
   return out;
 }
 
+/**
+ * Whether an elective was picked for the student's goal, as its card says
+ * ("Picked for ..."): its relevance came from the goal (QualityResult
+ * interest) and a reason it recorded says how (RELEVANCE_REASONS: the goal
+ * names it, its title or subject matches, the career matcher ranked it). At
+ * UGA a pick whose only recorded reason was its degree's subject wore the
+ * goal line too: ECON 3100 Introduction to Sustainable Development, "Chosen
+ * for: in one of your degree's subjects", read "Picked for what you said you
+ * want" on an investment-banking Finance board (2026-10-28).
+ */
+function pickedForGoal(q: QualityResult, ctx: Pick<PlanningContext, 'schoolId'>): boolean {
+  if ((q.interest ?? 0) <= 0) return false;
+  return ctx.schoolId !== 'uga' || saysGoalMatch(q.reasons.join(' '));
+}
+
 function electiveWhy(course: Course | undefined, degreeSubjects: Set<string>, q?: QualityResult): string {
   const head = course && degreeSubjects.has(course.cluster)
     ? `An elective in ${course.cluster}, one of this degree's own subjects.`
@@ -7294,7 +7309,7 @@ function freeChoicesTraded(kept: GeneratedPlan, from: GeneratedPlan, given: Auto
         if (outOfSeason(course, term, published.has(code)) || !ranInSeason(code, term.season)) continue;
         tries += 1;
         const elective = from.electives.find((e) => normaliseCode(e.code) === code) ?? options.find((o) => normaliseCode(o.code) === code);
-        const trial = withCourseTraded(g, out, code, at, ctx, elective ? { why: elective.why, reasons: elective.reasons } : undefined);
+        const trial = withCourseTraded(g, out, code, at, ctx, elective ? { why: elective.why, reasons: elective.reasons, ...('forGoal' in elective ? { forGoal: elective.forGoal === true } : {}) } : undefined);
         if (!tagsKept && !keepsCategories(trial, out)) continue;
         if (!stands(trial)) continue;
         g = trial;
@@ -7693,7 +7708,7 @@ function tradeSummerOnly(board: GeneratedPlan, given: AutoplanInput, codes: stri
 }
 
 /** `g` with course `out` off the board and `into` in term `to`, wherever the board, its reports and its words name it. */
-function withCourseTraded(g: GeneratedPlan, out: string, into: string, to: number, ctx: PlanningContext, elective?: { why: string; reasons: string[] }): GeneratedPlan {
+function withCourseTraded(g: GeneratedPlan, out: string, into: string, to: number, ctx: PlanningContext, elective?: { why: string; reasons: string[]; forGoal?: boolean }): GeneratedPlan {
   const published = ctx.offeringPublished ?? new Set<string>();
   const swap = (code: string) => (normaliseCode(code) === out ? into : code);
   const escaped = out.replace(/[.*+?^$()|[\]\\{}]/g, (c) => `\\${c}`);
@@ -7718,8 +7733,20 @@ function withCourseTraded(g: GeneratedPlan, out: string, into: string, to: numbe
     addedPrerequisites: g.addedPrerequisites.map((a) => ({ code: swap(a.code), requiredBy: a.requiredBy })),
     ...(bookedFor ? { bookedFor } : {}),
     ...(g.genEdPicks ? { genEdPicks: g.genEdPicks.map((pick) => ({ ...pick, code: swap(pick.code) })) } : {}),
-    // An elective takes the words its option carries (electiveOptions), not the ones of the course it replaces.
-    electives: g.electives.map((e) => (normaliseCode(e.code) === out ? { ...e, code: into, ...(elective ? { why: elective.why, reasons: elective.reasons } : {}) } : e)),
+    /*
+     * An elective takes the words its option carries (electiveOptions), not
+     * the ones of the course it replaces, and is a pick for the goal only
+     * where its own reasons say so: the goal pick it displaced kept
+     * forGoal, and a pre-law History sophomore's HORT 2000, ACCT 2101 and
+     * MIST 2090 read "Picked for what you said you want" (2026-10-28).
+     */
+    electives: g.electives.map((e) => {
+      if (normaliseCode(e.code) !== out) return e;
+      if (into === out) return e;
+      const { forGoal: _was, ...rest } = e;
+      const forGoal = elective?.forGoal ?? (elective ? saysGoalMatch([elective.why, ...elective.reasons].join(' ')) : false);
+      return { ...rest, code: into, ...(elective ? { why: elective.why, reasons: elective.reasons } : {}), ...(forGoal ? { forGoal: true } : {}) };
+    }),
     offering: { ...g.offering, unknown: [...g.offering.unknown.filter((c) => normaliseCode(c) !== out), ...(published.has(into) ? [] : [into])] },
     notes: g.notes.map(say),
   };
@@ -13948,7 +13975,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const subject = byCode.get(pick)?.cluster ?? '';
           perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
           const levelWhy = spendLevel(pick);
-          electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : { forGoal: (scoring.quality(pick).interest ?? 0) > 0 }) });
+          electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : { forGoal: pickedForGoal(scoring.quality(pick), ctx) }) });
           if (creditsOf(pick) < 3 && !trackWanted.has(pick) && !levelWhy) landers.push({ code: pick, termId: term.id });
           if (careerFit && careerFit.strength(pick) > 0) careerPicks.push(pick);
           if (careerFit && !trackWanted.has(pick) && goalPick(pick)) careerGoalPicks.push(pick);
@@ -14161,7 +14188,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const subject = byCode.get(pick)?.cluster ?? '';
         perSubject.set(subject, (perSubject.get(subject) ?? 0) + 1);
         const levelWhy = spendLevel(pick);
-        electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : { forGoal: (scoring.quality(pick).interest ?? 0) > 0 }) });
+        electives.push({ code: pick, why: trackWanted.has(pick) ? `For ${trackWanted.get(pick)!.track}: ${trackWanted.get(pick)!.why}` : `${electiveWhy(byCode.get(pick), scoring.degreeSubjects, scoring.quality(pick))}${levelWhy ? ` ${levelWhy}` : ''}`, reasons: scoring.quality(pick).reasons, ...(trackWanted.has(pick) ? { track: trackWanted.get(pick)!.track } : { forGoal: pickedForGoal(scoring.quality(pick), ctx) }) });
         if (!trackWanted.has(pick) && !levelWhy) padding.set(pick, overTotal() - overBefore);
         if (careerFit && careerFit.strength(pick) > 0) careerPicks.push(pick);
         if (careerFit && !trackWanted.has(pick) && goalPick(pick)) careerGoalPicks.push(pick);
