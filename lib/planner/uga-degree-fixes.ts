@@ -69,6 +69,13 @@ const oneGroup = (label: string, hours: number, groups: UgaRequirementCourse[][]
   courses: groups.flat(),
 });
 
+/** `hours` from named lists in any combination ("any combination of courses from Social Sciences, ..."), a course once. */
+const hoursFromLists = (label: string, hours: number, lists: Record<string, UgaRequirementCourse[]>, note: string): UgaRequirementGroup => ({
+  label, choose: null, hours, note,
+  lists: Object.entries(lists).map(([name, courses]) => ({ label: name, codes: courses.map((course) => course.code) })),
+  courses: [...new Map(Object.values(lists).flat().map((course) => [course.code, course])).values()],
+});
+
 /**
  * `hours` from the courses listed, where "only one of these courses can be
  * used": each such set is one list, every other course a list of its own,
@@ -1306,15 +1313,178 @@ const WRITTEN: Record<string, WrittenDegree> = {
       generalElectives(14),
     ],
   },
+  /*
+   * Environmental Economics and Management BSES (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/66704): Environmental Studies is 12
+   * hours in any combination of its four lists; the reading required three
+   * of the lists whole (about 34 courses) and made the fourth a 1-hour pool.
+   * Major Electives: at least 3 courses at the 4000 level or above. Area
+   * VI's listed courses come to 16 of its 18 hours; the other 2 are general
+   * electives.
+   */
+  '66704': {
+    areaSix: area('VI. Courses Related to the Major', 16, [
+      all('VI. Courses Related to the Major', [
+        row('ECON 2105', 'Principles of Macroeconomics', 3),
+        row('STAT 2000', 'Introductory Statistics', 4),
+      ], 'Any University System of Georgia STAT 1DXX or 2DXX may replace STAT 2000.'),
+      choose('Microeconomics', 1, [
+        row('AAEC 2580', 'Applied Microeconomic Principles', 3),
+        row('ECON 2106', 'Principles of Microeconomics', 3),
+      ]),
+      choose('Computing or accounting', 1, [
+        row('ACCT 1160', 'Survey of Accounting', 3),
+        row('CSCI 1210', 'Computer Modeling and Science', 3),
+        row('CSCI 1301', 'Introduction to Computing and Programming', 4),
+      ]),
+      choose('Quantitative tools', 1, [
+        row('AAEC 3020', 'Analytical and Computational Tools for Applied Economics', 3),
+        row('MATH 2110', 'Calculus for Economics', 3),
+        row('MATH 2260', 'Calculus II for Science and Engineering', 4),
+        row('MATH 2310H', 'Integral Calculus (Honors)', 4),
+        row('MATH 2400H', 'Differential Calculus with Theory (Honors)', 4),
+        row('MATH 2410H', 'Integral Calculus with Theory (Honors)', 4),
+      ]),
+    ]),
+    major: [
+      area('Required Courses', 32, [
+        all('Required Courses', [
+          row('AAEC 3580', 'Intermediate Economic Principles', 4),
+          row('AAEC 4610', 'Applied Econometrics', 4),
+          row('ENVM 3060', 'Principles of Resource Economics', 3),
+          row('ENVM 3650', 'Environmental Economics', 3),
+          row('ENVM 4380', 'Environmental Management and Sustainable Business Practices', 3),
+          row('JURI 4810', 'Natural Resources Law', 3),
+        ]),
+        hoursFromLists('Environmental Studies', 12, {
+          'Social Sciences': [
+            row('ADPR 3850', 'Public Relations', 3),
+            row('ANTH 3090', 'Past Peoples, Present Climates', 3),
+            row('ANTH 3150E', 'Water Worlds', 3),
+            row('ANTH 4075', 'Economic Anthropology', 3),
+            row('CMLT 3210', 'Ecocriticism', 3),
+            row('CRSS 4020S', 'Social Sustainability in Agricultural and Food Systems', 3),
+            row('EDES 4650', 'City Planning', 3),
+            row('EETH 5870', 'Environmental Dispute Resolution', 2),
+            row('EHSC 4400', 'Environmental Issues in the Developing World', 3),
+            row('FANR 3300', 'Economics of Renewable Resources', 2),
+            row('FANR 3400', 'Society and Natural Resources', 2),
+            row('FANR 4020', 'Sustainable Development', 3),
+            row('GEOG 3620', 'Globalization and the Making of the Modern World', 3),
+            row('GEOG 4620', 'Advanced Economic Geography', 3),
+            row('HIST 3725', 'Environmental History of the Modern World', 3),
+            row('PHIL 4220', 'Environmental Ethics', 3),
+            row('PRTM 3310', 'Humans, Nature, and Environmental Awareness', 3),
+            row('PRTM 4400', 'Park Management', 3),
+            row('PRTM 5410', 'Stewardship and Protection of Natural Resources', 3),
+            row('PRTM 5800S', 'Environmental Interpretation', 3),
+            row('PRTM 5900', 'Ecotourism and Sustainable Development', 3),
+          ],
+          'Natural Sciences': [
+            row('ATSC 3110', 'Climatology', 3),
+            row('CRSS 3060', 'Soils and Hydrology', 3),
+            lab('CRSS 3060L', 'Soils and Hydrology Laboratory', 1),
+            row('ECOL 3500', 'Ecology', 3),
+            lab('ECOL 3500L', 'Ecology Laboratory', 1),
+            row('EHSC 3060', 'Foundations in Environmental Health', 3),
+            row('GEOG 3180', 'Global Climate Change: Causes and Consequences', 3),
+            row('GEOG 4330', 'Aerial Photographs and Image Interpretation', 3),
+            row('GEOG 4370', 'Geographic Information Science', 3),
+            row('GEOG 4810', 'Political Ecology and Environmental Governance', 3),
+            row('HORT 4030S', 'Sustainable Community Food Production', 4),
+            row('WASR 4700L', 'Hydrology, Geology, and Soils of Georgia', 3),
+            row('WILD 3000W', 'Introduction to Fish and Wildlife Management', 2),
+          ],
+          Policy: [
+            row('ANTH 4846', 'Environmental Governance', 3),
+            row('FANR 4800W', 'Renewable Resources Policy', 2),
+            row('PADP 3000', 'Public Administration: How Government Works', 3),
+            row('PADP 3100', 'Introduction to Policy Analysis', 3),
+            row('PADP 4630', 'Money and Power: Public Budgets', 3),
+            row('PADP 4640', 'Mission and Meaning: The Nonprofit Sector in Action', 3),
+            row('PADP 4650', 'Policymaking in Action', 3),
+            row('PADP 4660', 'The Power of Evidence: Evaluating Public Programs', 3),
+            row('PADP 4690', 'Administrative Law and the Regulatory State', 3),
+          ],
+          Methods: [
+            row('AAEC 3690', 'Agribusiness Finance', 4),
+            row('CVLE 4660', 'Sustainable Building Design', 3),
+            row('FANR 3000', 'Field Orientation, Measurements, and Sampling in Forestry and Natural Resources', 2),
+            row('FANR 3000L', 'Field Orientation, Measurements, and Sampling in Forestry and Natural Resources Laboratory', 2),
+            row('FANR 3800', 'Spatial Analysis of Natural Resources', 2),
+            row('FHCE 4000S', 'Consumer Analytics: Evidence-Based Strategy', 3),
+            row('GEOG 4370', 'Geographic Information Science', 3),
+            row('GEOG 4385', 'Community GIS (Service Learning)', 3),
+            row('GEOG 4570', 'Advanced Geographic Information Science', 3),
+            row('GEOG 4571', 'Geographic Information Systems for Health and the Environment', 3),
+            row('MIST 4550', 'Energy Informatics', 3),
+            row('SUST 4200', 'Interdisciplinary Sustainability Seminar', 1),
+          ],
+        }, 'Choose 12 hours, in any combination of courses from Social Sciences, Natural Sciences, Policy or Methods.'),
+      ]),
+      area('Major Electives', 15, [
+        {
+          ...hoursFrom('Major Electives', 15, [
+            row('AAEC 3300S', 'Outreach and Service-Learning in Applied Economics', 3),
+            row('AAEC 3600', 'Economics of Food Policy', 3),
+            row('AAEC 3910', 'Internships', 3),
+            row('AAEC 3911', 'International Agribusiness and Environmental Management', 3),
+            row('AAEC 3990', 'Special Topics in Agricultural and Applied Economics', 3),
+            row('AAEC 4510', 'Land Economics', 3),
+            row('AAEC 4710', 'Rural Economic Development and Growth', 3),
+            row('AAEC 4720', 'Applied International Development Economics', 3),
+            row('AAEC 4730', 'The World Food Economy', 3),
+            row('AAEC 4970R', 'Faculty-Mentored Undergraduate Research II', 3),
+            row('ENVM 4150', 'Energy Economics', 3),
+            row('ENVM 4660', 'Environmental Valuation: Methods and Applications', 3),
+            row('ENVM 4800', 'Water Resource Economics and Management', 3),
+            row('ENVM 4960R', 'Faculty-Mentored Undergraduate Research I', 3),
+            row('SUST 4500S', 'Interdisciplinary Sustainability Capstone', 3),
+          ], 'Choose 15 hours; at least 3 of the courses at the 4000 level or above.'),
+          constraints: [{ text: 'At least 3 of the courses must be 4000-level or above.', n: 3, lists: [{ label: '4000-level or above', codes: ['AAEC 4510', 'AAEC 4710', 'AAEC 4720', 'AAEC 4730', 'AAEC 4970R', 'ENVM 4150', 'ENVM 4660', 'ENVM 4800', 'ENVM 4960R', 'SUST 4500S'] }], single: false }],
+        },
+      ]),
+      // 13 hours, and Area VI's last 2.
+      generalElectives(15),
+    ],
+  },
+};
+
+/**
+ * Smaller repairs, where the reading is right but for a row or two: matched
+ * by the rows' Bulletin labels, so they do nothing once a later reading
+ * reads those rows another way.
+ */
+const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementArea[]> = {
+  /*
+   * Regenerative Bioscience BS (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/77774): the Laboratory requirement is
+   * "EITHER Group A OR Group B", 3 to 4 hours of research or of one
+   * laboratory course; the reading asked for 4 hours of Group A and all
+   * eleven Group B labs (38 hours).
+   */
+  '77774': (areas) => areas.map((existing) => {
+    const a = existing.groups.find((group) => group.label.trim() === 'Group A');
+    const b = existing.groups.find((group) => group.label.trim() === 'Group B');
+    if (!a || !b) return existing;
+    const laboratory: UgaRequirementGroup = {
+      label: 'Laboratory', choose: null, hours: 3, completeOneList: true,
+      note: 'EITHER Group A (faculty-mentored research) OR Group B (a laboratory course): 3 to 4 hours from one group.',
+      lists: [{ label: 'Group A', codes: a.courses.map((course) => course.code) }, { label: 'Group B', codes: b.courses.map((course) => course.code) }],
+      courses: [...a.courses, ...b.courses],
+    };
+    return { ...existing, groups: existing.groups.flatMap((group) => (group === a ? [laboratory] : group === b ? [] : [group])) };
+  }),
 };
 
 const CORE_AREA = /^(?:I|II|III|IV|V)\.\s/;
 const AREA_SIX = /^VI\.\s/;
 
-/** `program` with its written areas, where this file writes the degree (`overlap`: an area courses counted elsewhere meet). */
-export function writtenUgaDegree<T extends UgaProgramRecord>(program: T, overlap: (label: string) => boolean): T {
+/** `program` with its written areas, or its repaired rows, where this file has them (`overlap`: an area courses counted elsewhere meet). */
+export function fixedUgaDegree<T extends UgaProgramRecord>(program: T, overlap: (label: string) => boolean): T {
   const written = WRITTEN[program.id];
-  if (!written) return program;
+  const repair = REPAIRED[program.id];
+  if (!written) return repair ? { ...program, areas: repair(program.areas as UgaRequirementArea[]) } : program;
   const areas = program.areas as UgaRequirementArea[];
   const core = areas.filter((existing) => CORE_AREA.test(existing.label));
   const six = written.areaSix ?? areas.find((existing) => AREA_SIX.test(existing.label));
