@@ -883,6 +883,15 @@ function statedGroupHours(group: RawUgaRequirementGroup): number {
 function poolLikeGroup(area: RawUgaRequirementArea, group: RawUgaRequirementGroup): boolean {
   const listedHours = group.courses.reduce((sum, course) => sum + course.credits, 0);
   const poolWords = `${area.label} ${group.label}`;
+  /*
+   * A list the page heads "Required Courses", with no number to choose, is
+   * every course on it, whatever its hours come to: Elementary Education's
+   * eighteen required courses (45 listed hours against the area's 33) were
+   * read as 33 hours to pick from, and its boards had no student teaching
+   * (EDEL 5460) and no field experience labs while the area read 33 of 33
+   * (2026-10-28).
+   */
+  if (group.choose === null && group.hours == null && !(group.lists?.some((list) => list.codes.length > 0) ?? false) && /^required courses?$/i.test((group.label ?? '').trim())) return false;
   return (
     (group.lists?.some((list) => list.codes.length > 0) ?? false) ||
     (/preferred courses?/i.test(group.label) && listedHours > area.hours) ||

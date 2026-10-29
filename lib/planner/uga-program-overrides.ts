@@ -657,6 +657,36 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
       ] } : area));
       repaired = { ...repaired, areas } as T;
     }
+    /*
+     * Sociology AB's General Sociology Track (verified 2026-10-28,
+     * bulletin.uga.edu/Program/Details/77932): SOCI 3220, SOCI 3580, one SOCI
+     * course at any level and at least six numbered 3000 and above, not POLS
+     * (SOCI) 4905, 5500, 5510 or 5520. The scrape kept the two required
+     * courses and two empty choices, so boards planned 6 of the 27 hours.
+     */
+    if (program.id === '77932') {
+      const areas = (repaired.areas as Array<AreaShape & { groups: Array<{ label: string }> }>).map((area) => (area.label === 'Required Courses' && area.hours === 27 && area.groups.some((group) => group.label === 'General Sociology Track') ? {
+        ...area,
+        excludeCodes: ['SOCI 4905', 'SOCI 5500', 'SOCI 5510', 'SOCI 5520', 'POLS 4905', 'POLS 5500', 'POLS 5510', 'POLS 5520'],
+        groups: [
+          { label: 'General Sociology Track', choose: null, courses: courses([['SOCI 3220', 'Development of Sociological Theory', 3], ['SOCI 3580', 'Research Methods in Sociology', 3]]) },
+          { label: 'General Sociology Track: one SOCI course at any level', choose: 1, courses: [
+            { code: 'SOCI 2XXX', title: 'SOCI courses at any level', credits: 0, levelFrom: 1, levelTo: 5 },
+          ] },
+          { label: 'General Sociology Track: six SOCI courses numbered 3000 and above', choose: null, hours: 18, note: 'Choose a minimum of 6 SOCI courses numbered 3000 and above (not POLS(SOCI) 4905, 5500, 5510 or 5520); no more than six hours from SOCI 4900, 4960R, 4970R, 4980R and 4990R.', courses: [
+            { code: 'SOCI 3XXX', title: 'SOCI courses numbered 3000 and above', credits: 0, levelTo: 5 },
+            { code: 'SOCI 4XXX', title: 'SOCI 4000-level courses', credits: 0 },
+          ] },
+        ],
+      } : area));
+      // The track chosen as the degree path is the area above, not the two courses the scrape gave the option.
+      type Emphasis = { id: string; options: Array<{ id: string; courses: unknown[]; parts?: Array<{ courses: unknown[] }> }> };
+      const emphasisGroups = ((repaired as { emphasisGroups?: Emphasis[] }).emphasisGroups ?? []).map((group) => ({
+        ...group,
+        options: group.options.map((option) => (option.id === 'general-sociology-track' ? { ...option, courses: [], parts: (option.parts ?? []).map((part) => ({ ...part, courses: [] })) } : option)),
+      }));
+      repaired = { ...repaired, areas, emphasisGroups } as T;
+    }
     if (program.college === 'BUS' && program.degree === 'BBA') repaired = withAreaAfter(repaired, '', TERRY_GRADUATION, false);
     if (program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree ?? '')) repaired = withAreaAfter(repaired, '', UNIVERSITY_WIDE, false);
     return repaired;
