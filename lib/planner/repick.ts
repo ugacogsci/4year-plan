@@ -1100,14 +1100,25 @@ export function repickBoard(input: RepickInput): RepickResult {
     for (const [lab, lecture] of labPartners(ctx.schoolId === 'uga' ? forSchool(heard, 'uga').tracks : heard.tracks)) if (atStartCodes.has(normaliseCode(lab))) lecturesOfLabs.add(normaliseCode(lecture));
   }
   /*
-   * And at UGA no list's pick goes for a track's lab whose lecture is neither
-   * held nor in that term: a TESOL pre-med board's Physical Sciences lab,
-   * GEOG 1111L, went for CHEM 1211L with no CHEM 1211 on the board (2026-10-29).
+   * And at UGA no swap brings in a lab whose lecture is neither on the board
+   * nor held, a track's or one numbered as its lecture with an L (CHEM
+   * 1211L), and no list's pick goes for a track's lab whose lecture is not
+   * in that term: a TESOL pre-med board's core-list pick GEOG 1111L went for
+   * CHEM 1211L, alone in her first term with no CHEM 1211 on the board
+   * (2026-10-29).
    */
   const ugaTrackLabs = ctx.schoolId === 'uga' ? labPartners(forSchool(heard, 'uga').tracks) : new Map<string, string>();
   const lectureThere = (course: Course, term: PlanTerm) => {
     const lecture = ugaTrackLabs.get(normaliseCode(course.code));
     return lecture === undefined || held.has(normaliseCode(lecture)) || term.courseIds.some((id) => normaliseCode(byId.get(id)?.code ?? '') === normaliseCode(lecture));
+  };
+  const loneLab = (course: Course): boolean => {
+    if (ctx.schoolId !== 'uga') return false;
+    const code = normaliseCode(course.code);
+    const lecture = /^([A-Z]{2,4} \d{4})L$/.exec(code)?.[1];
+    if (!lecture || !byCode.has(lecture)) return false;
+    const onBoard = new Set(working.terms.flatMap((t) => t.courseIds).map(codeOf));
+    return !onBoard.has(lecture) && !held.has(lecture);
   };
   for (const term of board.terms) {
     for (const courseId of term.courseIds) {
@@ -1127,7 +1138,7 @@ export function repickBoard(input: RepickInput): RepickResult {
         if (compositionOne(current, mark)) continue;
         const own = scorer(code);
         const ranked = genEdCandidates({ context: ctx, requirements: input.requirements, board: working, courseId, scorer, exclude: atStart })
-          .filter((c) => c.q.score > own.score + 0.05)
+          .filter((c) => c.q.score > own.score + 0.05 && !loneLab(c.course))
           .filter((c) => genEdSwapEarned(input.priorities, { course: current, q: own }, { course: c.course, q: c.q }, measure, unmetTags))
           .map((c) => ({ course: c.course, why: genEdWhy(c.q, c.categories) }));
         found = firstThatFits(term, current, sameCreditsFirst(ranked, current, credits));
@@ -1141,7 +1152,7 @@ export function repickBoard(input: RepickInput): RepickResult {
         const onBoard = new Set(working.terms.flatMap((t) => t.courseIds));
         const ranked = pool.alternatives
           .map((c) => byCode.get(normaliseCode(c)))
-          .filter((c): c is Course => c !== undefined && !atStart.has(c.id) && !onBoard.has(c.id) && lectureThere(c, term))
+          .filter((c): c is Course => c !== undefined && !atStart.has(c.id) && !onBoard.has(c.id) && lectureThere(c, term) && !loneLab(c))
           .map((c) => ({ course: c, q: scorer(normaliseCode(c.code)) }))
           .filter((c) => c.q.score > own.score + 0.05)
           .sort((a, b) => b.q.score - a.q.score || b.q.known - a.q.known || a.course.code.localeCompare(b.course.code))
@@ -1174,7 +1185,7 @@ export function repickBoard(input: RepickInput): RepickResult {
         const ranked = options
           .filter((o) => normaliseCode(o.code) !== code && (!own || o.fit > own.fit + 0.25))
           .map((o) => ({ course: byCode.get(normaliseCode(o.code)), why: o.reasons.length > 0 ? o.reasons.slice(0, 2).join('; ') : o.why }))
-          .filter((o): o is { course: Course; why: string } => o.course !== undefined && !atStart.has(o.course.id));
+          .filter((o): o is { course: Course; why: string } => o.course !== undefined && !atStart.has(o.course.id) && !loneLab(o.course));
         found = firstThatFits(term, current, sameCreditsFirst(ranked, current, credits));
       }
       if (!found) continue;
