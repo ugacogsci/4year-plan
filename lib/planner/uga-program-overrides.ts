@@ -631,8 +631,9 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
     let repaired = program;
     // Only where the scrape still lacks them (scripts/uga-programs.mjs reads both pages since 2026-10-28).
     const hasMajorElectives = (repaired.areas as AreaShape[]).some((area) => /\bmajor (?:electives|related courses)\b/i.test(area.label));
-    if (program.id === '93328' && !hasMajorElectives) repaired = withAreaAfter(repaired, 'Risk Management and Insurance Major Required Courses', RMIN_MAJOR_ELECTIVES);
-    if (program.id === '46304' && !hasMajorElectives) repaired = withAreaAfter(repaired, 'Real Estate Major Required Courses', REAL_MAJOR_ELECTIVES);
+    // At the end, so the page's own areas keep their block ids (93328::10::0 is Upper Division General Electives on saved boards).
+    if (program.id === '93328' && !hasMajorElectives) repaired = withAreaAfter(repaired, '', RMIN_MAJOR_ELECTIVES);
+    if (program.id === '46304' && !hasMajorElectives) repaired = withAreaAfter(repaired, '', REAL_MAJOR_ELECTIVES);
     /*
      * Economics BBA: "Required Courses (36 hours)" is the Terry core (15),
      * the Economics required courses (9) and the four ECON electives (12),

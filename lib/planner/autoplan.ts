@@ -16015,9 +16015,13 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * raised to it.
      */
     if (input.degreeTotal != null) {
+      // The last term of a board already at its degree total is what is left to finish (validatePlan says so): a Risk Management senior's last spring took COMM 1500 to reach 12 at 140 hours (2026-10-28).
+      const lastUsed = terms.reduce((last, term, i) => (creditsIn(i) > 0 ? i : last), -1);
+      const plannedTotal = priorCreditTotal + terms.reduce((sum, _, i) => sum + creditsIn(i), 0);
       for (let i = 0; i < terms.length; i += 1) {
         const have = creditsIn(i);
         if (terms[i].season === 'Summer' || have === 0 || have >= credits.min) continue;
+        if (ctx.schoolId === 'uga' && i === lastUsed && plannedTotal >= input.degreeTotal) continue;
         const short = credits.min - have;
         /*
          * At UGA a course with a reason to be there first (the degree's or
