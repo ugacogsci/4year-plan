@@ -13280,7 +13280,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   /** "8 terms", or "8 fall and spring terms and 2 summers" when there are summers. */
   const termsPhrase = (count: number): string => {
     const s = shapeOf(count);
-    return s.summers === 0 ? `${s.regular} terms` : `${s.regular} fall and spring ${s.regular === 1 ? 'term' : 'terms'} and ${s.summers} ${s.summers === 1 ? 'summer' : 'summers'}`;
+    return s.summers === 0 ? `${s.regular} ${s.regular === 1 ? 'term' : 'terms'}` : `${s.regular} fall and spring ${s.regular === 1 ? 'term' : 'terms'} and ${s.summers} ${s.summers === 1 ? 'summer' : 'summers'}`;
   };
   /**
    * Never fewer falls and springs than come before the last semester abroad
@@ -16067,7 +16067,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const slotsNote = (): string =>
       typeof input.electiveHoursLimit === 'number' && !input.fillToDegreeTotal
         ? `${electives.length} elective slots fill the open elective hours published for this degree. Other unresolved requirements still need review.`
-        : `${electives.length} ${electives.length === 1 ? 'slot is an elective' : 'slots are electives'} that fill the ${degreeTotalPublished} credits this degree takes beyond what its page names. Each holds a suggested course; tap it to choose from everything you could take that term.`;
+        : `${electives.length} ${electives.length === 1 ? 'slot is an elective that fills' : 'slots are electives that fill'} the ${degreeTotalPublished} credits this degree takes beyond what its page names. Each holds a suggested course; tap it to choose from everything you could take that term.`;
     // Said again by landThreeHour when a pad it made unneeded goes.
     slotsSaid = electives.length > 0 ? slotsNote() : null;
     if (slotsSaid) notes.push(slotsSaid);

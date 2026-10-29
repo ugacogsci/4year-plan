@@ -116,9 +116,10 @@ export function ElectivePools({
             </ul>
           )}
 
+          {/* Taken from the list, not counted here: a held class the core's other areas or the major spend is still on it. */}
           {pool.fromPriorCredit.length > 0 && (
             <p className="pool-asked">
-              Already taken and counted here: {pool.fromPriorCredit.join(', ')}.
+              Already taken from this list: {pool.fromPriorCredit.join(', ')}.
             </p>
           )}
 
