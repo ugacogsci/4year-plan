@@ -424,17 +424,30 @@ function explainedByForfeit(rows: TriageRow[]): void {
  */
 function explainedByUnreadAreas(rows: TriageRow[]): void {
   if (rows.some((r) => r.issue.id === 'uga-total')) return;
-  const unread = new Set(
-    rows
-      .filter((r) => r.issue.id.startsWith('uga-unverified-'))
-      .map((r) => r.issue.message.match(/^(.+?): the snapshot does not identify\b/)?.[1]?.trim())
-      .filter((label): label is string => Boolean(label)),
-  );
+  /*
+   * The unread hours of each area, where the row says how many ("(20
+   * credit hours unnamed)"): an area short by more than that is short for
+   * another reason, and stays on the bar. Health Promotion's Required
+   * Courses read 40 of 60 with no emphasis chosen and the bar said
+   * "Nothing needs attention" (2026-10-28).
+   */
+  const unread = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.issue.id.startsWith('uga-unverified-')) continue;
+    const label = r.issue.message.match(/^(.+?): the snapshot does not identify\b/)?.[1]?.trim();
+    if (!label) continue;
+    const hours = Number(r.issue.message.match(/\((\d+(?:\.\d+)?) credit hours? unnamed\)/)?.[1] ?? Infinity);
+    unread.set(label, (unread.get(label) ?? 0) + hours);
+  }
   if (unread.size === 0) return;
   let moved = 0;
   for (const row of rows) {
     if (row.kind.key !== 'degree' || !row.issue.id.startsWith('uga-area-')) continue;
-    if (!unread.has(row.issue.id.slice('uga-area-'.length).trim())) continue;
+    const label = row.issue.id.slice('uga-area-'.length).trim();
+    if (!unread.has(label)) continue;
+    const count = row.issue.message.match(/:\s*(\d+(?:\.\d+)?) of (\d+(?:\.\d+)?) credits/);
+    const short = count ? Number(count[2]) - Number(count[1]) : 0;
+    if (short > (unread.get(label) ?? Infinity)) continue;
     row.kind = { ...UNREAD_KIND };
     moved += 1;
   }

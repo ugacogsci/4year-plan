@@ -294,7 +294,7 @@ export function auditUgaBoard(input: UgaAuditInput) {
         severity: 'info',
         termId: '',
         title: 'Requirement needs advisor review',
-        message: `${block.areaLabel}: the snapshot does not identify all required courses. Credit totals alone cannot verify this requirement.`,
+        message: `${block.areaLabel}: the snapshot does not identify all required courses${block.rule.kind === 'hours' ? ` (${block.rule.hours} credit ${block.rule.hours === 1 ? 'hour' : 'hours'} unnamed)` : ''}. Credit totals alone cannot verify this requirement.`,
       });
   }
   const summary = transcriptCreditSummary(transcript);
