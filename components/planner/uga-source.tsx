@@ -19,6 +19,7 @@ import type {
 } from '@/lib/planner/scheduler';
 import type { Course, SemesterSeason } from '@/lib/planner/types';
 import { applyUgaProgramOverrides, TERRY_ECONOMICS_LABEL } from '@/lib/planner/uga-program-overrides';
+import { applyUgaUniversityRules, ugaLabPairs, ugaLanguageTable, withUgaLanguageOrder } from '@/lib/planner/uga-university-rules';
 import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
 import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
 import type { AnyCourseRule } from '@/lib/planner/any-course';
@@ -1457,6 +1458,8 @@ export function loadUgaData(): Promise<UgaData | null> {
     for (const course of courses) if (/^GRSC 7001E?$/.test(course.code)) { course.credits = 1; course.creditsMax = 1; }
     // The First-Year Odyssey Seminar is one hour (each four-year program of study prints FYOS 1001 at 1); the catalog file's rows say 3.
     for (const course of courses) if (/^FYOS 1001$/.test(course.code)) { course.credits = 1; course.creditsMax = 1; }
+    // Physical education (PEDB 1010-1990) is outside the degree's hours ("This total does not include the 1-hour P.E. requirement"), as the record prices it (transcript.ts).
+    for (const course of courses) if (/^PEDB /.test(course.code)) { course.credits = 0; course.creditsMax = 0; }
     const dualLevelCourses = new Map<string, string>();
     for (const raw of rawCourses) {
       const codes = listedUgaCourseCodes(raw.code);
@@ -1486,7 +1489,11 @@ export function loadUgaData(): Promise<UgaData | null> {
       if (course.offeringKnown || summerOnlyListed(course)) offeringPublished.add(code);
     }
 
-    const programs = applyUgaProgramOverrides(programFile.programs)
+    // A language's semesters in order where the catalog file gives no prerequisite (uga-university-rules.ts).
+    const languages = ugaLanguageTable(courses);
+    withUgaLanguageOrder(prereqs, languages);
+    // The university-wide and college-wide rules no program page's table carries (uga-university-rules.ts).
+    const programs = applyUgaUniversityRules(applyUgaProgramOverrides(programFile.programs), courses)
       .filter(
         (program) =>
           (isUgaGraduateDegree(program) &&
@@ -1509,6 +1516,10 @@ export function loadUgaData(): Promise<UgaData | null> {
       ...coreAndFoundations(programs),
       creditRanges,
       offeringPublished,
+      // UGA's language sequences, which a degree's foreign language requirement is planned from (uga-university-rules.ts expandUgaLanguage).
+      languages,
+      // Each lab held to its lecture's term (autoplan.ts trackLabs; the catalog gives UGA's labs no prerequisite).
+      trackLabs: ugaLabPairs(courses),
       snapshotTerm: null,
       gradeFootnote: null,
       // What is commonly taken and what is on this year's schedule, for the

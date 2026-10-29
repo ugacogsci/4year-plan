@@ -27,7 +27,7 @@ import {
 import type { PlanIssue, PlanState } from '@/lib/planner/types';
 import { requiredSummerOn, summerOnlyListed, ugaRequiredSummerOnlyMessage, ugaSummerOnlyMessage } from '@/lib/planner/summer-offering';
 import { livePools, poolShortfalls } from './live-pools';
-import { ugaAreaFamily } from '@/lib/planner/uga-program-overrides';
+import { ugaLanguageArea, ugaLanguagePlaced, ugaRuleFamily, ugaUniversityIssues } from '@/lib/planner/uga-university-rules';
 
 export interface UgaAuditInput {
   board: PlanState;
@@ -42,6 +42,8 @@ export interface UgaAuditInput {
   coreCredit?: Array<{ area: string; hours: number }>;
   /** Which row each course on the board was booked for (GeneratedPlan.bookedFor), where the caller has it. */
   bookedFor?: Record<string, string | null>;
+  /** The language level the student said they place past (setup's answer, PriorCredit.languageSemesters), which meets a language area of that level. */
+  languagePlaced?: number | null;
 }
 
 /**
@@ -83,8 +85,11 @@ function withHeldOpenBlocks(source: CombinedDegreeSource, priorCodes: string[], 
   const programOf = (id: string) => id.split('::')[0];
   const openPrograms = new Set(source.blocks.filter((b) => b.rule.kind === 'pool' && b.rule.anyCourse).map((b) => programOf(b.id)));
   const otherRows = source.blocks.filter((b) => b.id.includes('::') && !openPrograms.has(programOf(b.id)));
-  const others = openPrograms.size === 0 ? [] : planned.filter((code) => otherRows.some((b) => (b.rule.kind === 'all' || b.rule.kind === 'choose' || b.rule.kind === 'pool') && b.rule.choices.some((choice) => choice.codes.includes(code))));
-  const ownRows = new Set(source.blocks.filter((b) => openPrograms.has(programOf(b.id)) && !(b.rule.kind === 'pool' && b.rule.anyCourse)).map((b) => b.id));
+  // The language sequence's courses too (uga-university-rules.ts): a requirement met by courses counted elsewhere, whose hours the open blocks may hold, as the build counts them.
+  const languageRow = new Set(source.blocks.filter((b) => ugaLanguageArea(b.areaLabel)).map((b) => b.id));
+  const sequence = bookedFor ? planned.filter((code) => languageRow.has(bookedFor[code.replace(/\s+/g, ' ').trim().toUpperCase()] ?? '')) : [];
+  const others = openPrograms.size === 0 ? [] : [...planned.filter((code) => otherRows.some((b) => (b.rule.kind === 'all' || b.rule.kind === 'choose' || b.rule.kind === 'pool') && b.rule.choices.some((choice) => choice.codes.includes(code)))), ...sequence];
+  const ownRows = new Set(source.blocks.filter((b) => openPrograms.has(programOf(b.id)) && !(b.rule.kind === 'pool' && b.rule.anyCourse) && !languageRow.has(b.id)).map((b) => b.id));
   const counted = bookedFor ? planned.filter((code) => !others.includes(code) && ownRows.has(bookedFor[code.replace(/\s+/g, ' ').trim().toUpperCase()] ?? '')) : [];
   const { requirements: open } = withHeldAnyCourse(source.blocks, [...priorCodes, ...others], {
     creditsOf,
@@ -187,7 +192,7 @@ export function auditUgaBoard(input: UgaAuditInput) {
       : areaProgress(undergraduate.program, have, context.equivalents, {
           allowCrossAreaOverlap: true,
           creditsByCode,
-          familyOf: ugaAreaFamily,
+          familyOf: ugaRuleFamily,
           ownerOf: ((areaOfBlock) => (code: string) => {
             const block = input.bookedFor?.[code.replace(/\s+/g, ' ').trim().toUpperCase()];
             return block ? areaOfBlock.get(block) ?? null : null;
@@ -197,6 +202,8 @@ export function auditUgaBoard(input: UgaAuditInput) {
   areas = areas.filter(
     (row) => !/(?:^|: )(?:general|free) electives?\b/i.test(row.area.label),
   );
+  // A placement past the level the degree's foreign language asks for meets it with no course (uga-university-rules.ts).
+  areas = areas.map((row) => (!row.satisfied && ugaLanguagePlaced(row.area, input.languagePlaced) ? { ...row, earned: row.area.hours, percent: 100, satisfied: true } : row));
   areas = areas.map((row) => {
     const added = (input.coreCredit ?? [])
       .filter((credit) => row.area.label.endsWith(credit.area))
@@ -237,6 +244,11 @@ export function auditUgaBoard(input: UgaAuditInput) {
         )
       : []),
   ];
+  // The board's hours, all at UGA, and the record's from another school or with no course behind them, for where the last 60 hours are earned.
+  const plannedHours = planCreditRange(planned.filter((code) => !prior.has(code)), context).min;
+  const transferHours = transcript
+    ? transcript.courses.filter((line) => line.use && line.counts !== 'none' && (lineIsForeign(transcript, line) || line.counts === 'hours')).reduce((sum, line) => sum + (line.equivalentCredits ?? line.credits ?? line.assumedCredits ?? 0), 0)
+    : 0;
   const issues: PlanIssue[] = [
     ...validatePlan(board, context, input.validation).filter(
       (issue) =>
@@ -269,6 +281,17 @@ export function auditUgaBoard(input: UgaAuditInput) {
       title: `${row.areaLabel}: ${row.label}`,
       message: row.message,
     })),
+    // UGA's physical education, upper-division hours, residence and college lines (uga-university-rules.ts).
+    ...ugaUniversityIssues({
+      areaLabels: undergraduate.program.areas.map((area) => area.label),
+      boardCodes: planned,
+      priorCodes,
+      creditsOf: (code) => creditsByCode.get(code) ?? 3,
+      transferHours,
+      residentHeldHours: Math.max(0, total - plannedHours - transferHours),
+      plannedHours,
+      college: undergraduate.program.college,
+    }),
   ];
   if (target && total < target)
     issues.push({

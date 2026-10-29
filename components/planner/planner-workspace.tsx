@@ -1615,7 +1615,7 @@ export function PlannerWorkspace({
       const hours = planCreditRange(distinctHeld(held, context).codes, context).min + priorHours;
       return ugaUnmetRows(auditUgaBoard({ board, context, undergraduate: loaded, graduate: loaded.doubleDawgsGraduate, priorCodes: held, bookedFor,
         extraCredits: hours - planCreditRange(held, context).min + horizon.assumedHours,
-        transcript: answers?.transcript, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used,
+        transcript: answers?.transcript, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used, languagePlaced: answers?.languageYears ?? null,
         validation: { ...validateOptions(), programName: loaded.program.name, priorCredits: hours + horizon.assumedHours } }));
     };
     let planInput: AutoplanInput = {
@@ -2261,11 +2261,11 @@ export function PlannerWorkspace({
     // toward the degree total here as on Illinois's headline: the plan was
     // built counting them, so leaving them out read as "credits are short".
     priorCodes: [...completedCodes], extraCredits: priorCreditHours - planCreditRange([...completedCodes], context).min + assumedCredit.hours,
-    transcript: transcriptRecord, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used,
+    transcript: transcriptRecord, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used, languagePlaced: answers?.languageYears ?? null,
     // Class standing counts the assumed terms too: the plan was placed counting them, and
     // without them a freshman's Spring 2027 read 15 hours behind ("Class standing not reached").
     validation: { minimumTermCredits, priorCredits: priorCreditHours + assumedCredit.hours, standingHours: isGraduatePlan ? gradSettings.standingHours : undefined },
-  }) : null, [isUga, plan, context, loaded, report?.bookedFor, completedCodes, priorCreditHours, transcriptRecord, uga, coreCredit, minimumTermCredits, isGraduatePlan, gradSettings.standingHours, assumedCredit.hours]);
+  }) : null, [isUga, plan, context, loaded, report?.bookedFor, completedCodes, priorCreditHours, transcriptRecord, uga, coreCredit, minimumTermCredits, isGraduatePlan, gradSettings.standingHours, assumedCredit.hours, answers?.languageYears]);
 
   /**
    * The pools, counted off the board rather than off the generation.
@@ -3880,7 +3880,7 @@ export function PlannerWorkspace({
     return auditUgaBoard({ board, context: L.context, undergraduate: L.loaded,
       graduate: L.loaded.doubleDawgsGraduate, priorCodes: [...L.completedCodes], bookedFor: L.report?.bookedFor,
       extraCredits: L.priorCreditHours - planCreditRange([...L.completedCodes], L.context).min + L.assumedCredit.hours,
-      transcript: L.answers?.transcript, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used,
+      transcript: L.answers?.transcript, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used, languagePlaced: L.answers?.languageYears ?? null,
       validation: { ...validateOptions(), priorCredits: L.priorCreditHours + L.assumedCredit.hours } });
   }
 
@@ -4074,7 +4074,8 @@ export function PlannerWorkspace({
     const reason = (reasons: string[], fallback: string) => (reasons.length > 0 ? reasons.slice(0, 2).join('; ') : fallback);
     if (mark.kind === 'language') {
       const lang = L.language;
-      const table = L.core?.languages;
+      // UGA's sequences are its context's (uga-university-rules.ts ugaLanguageTable).
+      const table = L.core?.languages ?? L.context?.languages;
       const me = L.courseIndex.get(courseId);
       if (!lang || !table || !me) return [];
       const level = lang.completed + lang.codes.findIndex((code) => normCode(code) === normCode(me.code));
@@ -4156,7 +4157,7 @@ export function PlannerWorkspace({
    */
   function switchLanguage(courseId: string, replacementId: string) {
     const lang = report?.language;
-    const table = core?.languages;
+    const table = core?.languages ?? context?.languages;
     const replacement = courseIndex.get(replacementId);
     if (!plan || !lang || !table || !replacement) return;
     const other = table.languages.find((l) => l.levels.some((lv) => lv.flat().some((c) => normCode(c) === normCode(replacement.code))));

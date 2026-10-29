@@ -275,8 +275,10 @@ export interface OnboardingAnswers {
    * Years of one language other than English in high school, and which one.
    * The university counts a year as a semester toward its language
    * requirement, so three years means no language courses are planned and
-   * one year means two or three are. Optional: answers saved before the
-   * question existed have neither.
+   * one year means two or three are. At UGA, which counts no high school
+   * years, the semesters its placement test puts the student past (0 starts
+   * at 1001; uga-university-rules.ts expandUgaLanguage). Optional: answers
+   * saved before the question existed have neither.
    */
   languageYears?: number | null;
   language?: string;

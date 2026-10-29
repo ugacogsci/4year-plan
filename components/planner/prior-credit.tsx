@@ -5,6 +5,7 @@ import { examCreditUrl, useExamCredit, matchDocumentExams } from './exam-credit'
 import { TranscriptUpload } from './transcript-upload';
 import type { TranscriptRecord } from '@/lib/planner/transcript';
 import { searchCourseCatalog } from '@/lib/planner/course-search';
+import { UGA_LANGUAGE_NAMES } from '@/lib/planner/uga-university-rules';
 import {
   applyExamCredit,
   type PriorExam,
@@ -280,6 +281,53 @@ export function PriorCredit({
             />
             <datalist id="onb-language-names">
               {languageNames.map((name) => (
+                <option key={name} value={name} label={name}>
+                  {name}
+                </option>
+              ))}
+            </datalist>
+          </div>
+        </div>
+      )}
+
+      {school?.id === 'uga' && !graduate && (
+        <div className="onb-q">
+          <span className="onb-q-label">Foreign language</span>
+          <p className="onb-q-help">
+            Most UGA arts and sciences, public and international affairs, ecology and journalism degrees ask for one
+            language through its third semester (International Business co-majors through the 3000 level). UGA does
+            not count years of high school: its placement test decides where you start. Say where you start and the
+            plan books the rest of the language in order.
+          </p>
+          <div className="onb-lang-row">
+            <select
+              id="onb-language-years"
+              aria-label="Where you start in the language"
+              title="Where you start in the language"
+              value={languageYears === null ? '' : String(Math.min(4, languageYears))}
+              onChange={(event) => {
+                const raw = event.target.value;
+                onChange({ exams, transferText, languageYears: raw === '' ? null : Number(raw), language });
+              }}
+            >
+              <option value="">Not sure yet (the plan starts at 1001; take the placement test)</option>
+              <option value="0">First semester (1001)</option>
+              <option value="1">Second semester (1002)</option>
+              <option value="2">Third semester (2001)</option>
+              <option value="3">Fourth semester (2002)</option>
+              <option value="4">Past the fourth semester (placed out)</option>
+            </select>
+            <input
+              id="onb-language-name"
+              list="onb-language-names"
+              aria-label="Which language"
+              title="Which language"
+              placeholder="Which language (Spanish, French, ...)"
+              value={language}
+              onChange={(event) => onChange({ exams, transferText, languageYears, language: event.target.value })}
+            />
+            <datalist id="onb-language-names">
+              {UGA_LANGUAGE_NAMES.map((name) => (
                 <option key={name} value={name} label={name}>
                   {name}
                 </option>

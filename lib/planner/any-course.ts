@@ -24,6 +24,7 @@
  */
 import type { PlanCourseChoice, PlanRequirement } from './autoplan';
 import type { ProgramRequirements, RequirementGroup } from './scheduler';
+import { ugaLanguageArea, ugaRuleArea } from './uga-university-rules';
 
 /**
  * "Any upper level course 3000-5999": the first digit's range, and the
@@ -167,8 +168,9 @@ export function withHeldAnyCourse(
   // could take first (ECON 2105 before PSYC 1101 for Social Sciences), so the
   // rest are left for the electives whatever order the record lists them in.
   const programs = new Set(open.map(programOf));
+  // Not UGA's university-wide and college rules or its language sequence, which courses counted elsewhere meet (uga-university-rules.ts): a held cultural diversity course is still an elective's.
   const spent = spentBy(
-    requirements.filter((r) => programs.has(programOf(r)) && !(r.rule.kind === 'pool' && r.rule.anyCourse)),
+    requirements.filter((r) => programs.has(programOf(r)) && !(r.rule.kind === 'pool' && r.rule.anyCourse) && !ugaRuleArea(r.areaLabel) && !ugaLanguageArea(r.areaLabel)),
     held,
     { listed, creditsOf: opts.creditsOf, last: openTo },
   );

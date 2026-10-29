@@ -11,9 +11,10 @@ import { PLANNED_AS_RELEASED } from './held-degrees';
 import { compareSampleCourses } from './uga-planning-guidance';
 import { repeatLine, type RepeatAsk } from './repeats';
 import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInput } from './autoplan-release';
-import { withHeldAnyCourse, withHeldInRange, type AnyCourseRule } from './any-course';
+import { anyCourseTakes, withHeldAnyCourse, withHeldInRange, type AnyCourseRule } from './any-course';
 import { calendarYearOf, regularSeasons, requiredSummerOn, runsInSummer, summerOnlyListed, ugaSummerOnlyMessage, type SummerYears } from './summer-offering';
-import { ugaAreaFamily, ugaOverlapArea } from './uga-program-overrides';
+import { ugaOverlapArea } from './uga-program-overrides';
+import { expandUgaLanguage, ugaLabArea, ugaLabOf, ugaLanguageArea, ugaLanguageCourse, ugaRuleArea, ugaRuleFamily, ugaUpperDivisionShort, withUgaUniversityRows } from './uga-university-rules';
 
 /**
  * The deterministic half of the planner: build a four-year plan, and check one.
@@ -487,8 +488,8 @@ export interface PlanningContext {
    * Lab to lecture for the career tracks the student named that LAB_OF does
    * not hold (UGA's: BIOL 1107L with BIOL 1107), set by generatePlan
    * (withTrackLabs) and read wherever LAB_OF is. Absent, the pairs are
-   * LAB_OF's alone, so a UGA board with no pre-health goal is placed as
-   * before.
+   * LAB_OF's alone. UGA's context starts with every lab beside its lecture
+   * (uga-university-rules.ts ugaLabPairs), which a track's pairs join.
    */
   trackLabs?: Map<string, string>;
 }
@@ -4468,6 +4469,8 @@ function degreeSubjectsOf(
     // degree's own subjects, and the elective fill then booked four more
     // Spanish courses as though the major asked for them.
     if (requirement.label.startsWith('Language other than English')) continue;
+    // Nor, at UGA (whose program ids are numbers), its university-wide and college rules and the language sequence (uga-university-rules.ts): Franklin's biology list made BIOL and MARS a Psychology degree's subjects.
+    if (/^\d+::/.test(requirement.id) && (ugaRuleArea(requirement.areaLabel) || ugaLanguageArea(requirement.areaLabel))) continue;
     const here = new Map<string, number>();
     let total = 0;
     for (const choice of rule.choices) {
@@ -5937,7 +5940,8 @@ export function electiveOptions(input: {
 
 export interface LanguagePlan {
   name: string;
-  semesters: 3 | 4;
+  /** Semesters the degree asks for: 3 or 4 at Illinois; at UGA up to 5, the conversation level (uga-university-rules.ts). */
+  semesters: number;
   /** Semesters already behind the student, from high school years or held courses. */
   completed: number;
   /** 'assumed' when the student has not said and the plan took the admission minimum of two years. */
@@ -6502,7 +6506,8 @@ function withTrackLabs(ctx: PlanningContext, profile: InterestProfile): Planning
   trackLabsCache.set(ctx, byKey);
   const known = byKey.get(key);
   if (known) return known;
-  const made = { ...ctx, trackLabs: pairs };
+  // Beside the pairs the context already holds (UGA's labs with their lectures, uga-university-rules.ts ugaLabPairs).
+  const made = { ...ctx, trackLabs: new Map([...(ctx.trackLabs ?? []), ...pairs]) };
   byKey.set(key, made);
   return made;
 }
@@ -8034,12 +8039,14 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
   }
   // A UGA pre-health student's lab pairs (withTrackLabs); any other context as it is.
   const context = withTrackLabs(withTitleStanding(given.context), careerProfileOf(given));
-  const requirements = withFirstYearSeminar(resolveBundles(given.requirements, given.prior, context), given);
+  // At UGA, its university-wide and college rules' rows as the planner reads them, and physical education (uga-university-rules.ts).
+  const requirements = withUgaUniversityRows(withFirstYearSeminar(resolveBundles(given.requirements, given.prior, context), given), given);
   const college = collegeCreditRule(given.programCollege, requirements);
   const counted = college ? countTowardDegree(given.prior, college) : null;
   // A degree total of 0 is a page with no readable total, not a degree of no credits.
   const raw: AutoplanInput = { ...given, context, requirements, prior: counted?.prior ?? given.prior, notTowardDegree: college?.excluded, degreeTotal: given.degreeTotal || null };
-  const expansion = expandLanguageRequirement(raw);
+  // UGA's foreign language is planned from the level the student starts at, not from high school years (uga-university-rules.ts).
+  const expansion = context.schoolId === 'uga' ? expandUgaLanguage(raw) : expandLanguageRequirement(raw);
   const prior = expansion.exempt.length > 0
     ? { ...raw.prior, exemptCodes: [...new Set([...raw.prior.exemptCodes, ...expansion.exempt])] }
     : raw.prior;
@@ -9595,7 +9602,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * or ...", takes MATH 1113, which the Terry precalculus requirement (and
    * admission to the major) asks for, not MATH 1101 and then MATH 1113 as well.
    */
-  const choiceRows = ctx.schoolId === 'uga' ? input.requirements.filter((r) => r.rule.kind === 'choose') : [];
+  // Not UGA's university-wide and college rules (uga-university-rules.ts), whose lists name half the catalog: Landscape Architecture's required choice took LAND 4090, on its cultural diversity list, and could not place it.
+  const choiceRows = ctx.schoolId === 'uga' ? input.requirements.filter((r) => r.rule.kind === 'choose' && !ugaRuleArea(r.areaLabel)) : [];
   /*
    * The courses a UGA graduation requirement met by courses counted
    * elsewhere names (uga-program-overrides.ts ugaOverlapArea: Terry's
@@ -9605,6 +9613,26 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    */
   const coreOutsider = outsiderCost(ctx, byCode, degreeRead.subjects, degreeRead.primary, input.programCollege ?? null, input.programName);
   const meetsTwo = new Set(input.requirements.filter((r) => r.rule.kind === 'choose' && ugaOverlapArea(r.areaLabel)).flatMap((r) => (r.rule.kind === 'choose' ? r.rule.choices.flatMap((choice) => choice.codes.map(normaliseCode)) : [])));
+  /*
+   * UGA's university-wide and college rules (uga-university-rules.ts): a
+   * core list takes a course one of them still wants first, so one course
+   * meets both and the rule books nothing of its own: a Franklin student's
+   * Humanities a literature course, a business student's Life Sciences an
+   * environmental-awareness one. Counted against what the board holds when
+   * the list fills, so a rule already met asks for nothing.
+   */
+  // Not the Area II lab, which the lab of a lecture the list books meets (the rule's choice takes it): asked of the list itself, Life Sciences booked three one-hour labs.
+  const ruleRows = ctx.schoolId === 'uga' ? input.requirements.filter((r) => r.rule.kind === 'choose' && ugaRuleArea(r.areaLabel) && !ugaLabArea(r.areaLabel)) : [];
+  const ruleWantsFor = (have: Set<string>): Map<string, number> => {
+    const wants = new Map<string, number>();
+    for (const r of ruleRows) {
+      if (r.rule.kind !== 'choose') continue;
+      const met = r.rule.choices.filter((choice) => choice.codes.some((code) => have.has(normaliseCode(code)) || earned.has(normaliseCode(code)))).length;
+      if (met >= r.rule.n) continue;
+      for (const choice of r.rule.choices) for (const code of choice.codes) wants.set(normaliseCode(code), (wants.get(normaliseCode(code)) ?? 0) + 1);
+    }
+    return wants;
+  };
   const inOtherChoice = (code: string, requirementId: string): number =>
     choiceRows.some((r) => r.id !== requirementId && r.rule.kind === 'choose' && r.rule.choices.some((choice) => choice.codes.some((c) => expandEquivalents(code, equivalents).includes(normaliseCode(c))))) ? 0 : 1;
   /** The area of the requirement a chosen course was booked for: a trimmed row shares only another area's course. */
@@ -9891,6 +9919,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    */
   const poolOrderFor = (have: Set<string>, together?: Map<string, string[]>, sequence = new Set<string>(), breadth: { broad: boolean; core: boolean; hours?: number | null; upper?: boolean } = { broad: false, core: false }) => {
     const memo = new Map<string, number>();
+    const ruleWants = breadth.broad && ruleRows.length > 0 ? ruleWantsFor(have) : null;
     // Remembered by code (rememberedBy) for the pool's sorts, as its
     // prerequisite cost already is: nothing it reads changes while the pool
     // fills, `have` included, and the comparator asked for each key a dozen
@@ -10025,11 +10054,22 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        * Non-Business elective.
        */
       // And in a core list, another program's own course behind (outsiderCost): MATH 2200, not MATH 2250 "for Science and Engineering", for a business major's Quantitative Reasoning.
-      const schedule = ctx.schoolId === 'uga' ? [signals.offSchedule(code), breadth.core && meetsTwo.size > 0 && !meetsTwo.has(code) ? 1 : 0, breadth.core && (coreOutsider?.(code) ?? 0) > 0 ? 1 : 0] : [];
+      /*
+       * Nor is a core list's pick a language's sequence course apart from
+       * the sequence the degree books (uga-university-rules.ts
+       * expandUgaLanguage): one semester of Portuguese and one of Korean for
+       * World Languages, with no second semester of either (2026-10-28).
+       * And in a broad list, among courses alike on the goal, the degree's
+       * subjects, the courses they drag in and the schedule, one a rule
+       * still waits for (ruleWantsFor) before the commonly taken.
+       */
+      const rules = ruleWants ? [-(ruleWants.get(code) ?? 0)] : [];
+      const lone = ctx.schoolId === 'uga' && breadth.core && ugaLanguageCourse(ctx.languages, code) ? 1 : 0;
+      const schedule = ctx.schoolId === 'uga' ? [signals.offSchedule(code), lone, breadth.core && meetsTwo.size > 0 && !meetsTwo.has(code) ? 1 : 0, breadth.core && (coreOutsider?.(code) ?? 0) > 0 ? 1 : 0] : [];
       const wantedHere = breadth.broad && lastTies && !subjectHere && signals.band(code) === POPULAR_BANDS.length ? 1 : wanted;
       const key = input.goalRows
-        ? [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, ...schedule, clash, aside, wantedHere, own, extra, unverifiable, ...offered, ...light, ...common, variable, ...byPriority, chain, ...lastTie]
-        : [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, ...schedule, unverifiable, clash, aside, wantedHere, own, extra, ...offered, ...light, ...common, variable, ...byPriority, chain, ...lastTie];
+        ? [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, ...schedule, clash, aside, wantedHere, own, extra, unverifiable, ...offered, ...rules, ...light, ...common, variable, ...byPriority, chain, ...lastTie]
+        : [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, ...schedule, unverifiable, clash, aside, wantedHere, own, extra, ...offered, ...rules, ...light, ...common, variable, ...byPriority, chain, ...lastTie];
       const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
       if (traced && normaliseCode(traced) === code) console.error(`  [PLAN_DEBUG] ${code} list-pick key [inCatalog, audience, gated, shutsTrack, ${pickServe ? 'servesTrack, ' : ''}unverifiable, clash, aside, wanted, own, extra, ${light.length ? 'light, ' : ''}variable, unknown, -score, -known, chain] = ${JSON.stringify(key)}`);
       return key;
@@ -10342,9 +10382,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * or earlier list of the family counted, and a choose row does not count
    * a course another row of its family booked or counted.
    */
-  const familyOfRow = (r: PlanRequirement): string | null => (ctx.schoolId === 'uga' ? ugaAreaFamily(r.areaLabel) : null);
+  const familyOfRow = (r: PlanRequirement): string | null => (ctx.schoolId === 'uga' ? ugaRuleFamily(r.areaLabel) : null);
   /** Courses a row counted that another requirement booked (a shared listing): the list that booked one keeps it. */
   const countedByRows = new Set<string>();
+  /** Those a UGA university-wide or college rule counted (uga-university-rules.ts), by the rule rows that counted each. */
+  const countedByRules = new Map<string, string[]>();
   const familyUsed = new Map<string, Set<string>>();
   const useInFamily = (family: string | null, codes: string[]): void => {
     if (family === null) return;
@@ -11021,7 +11063,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
          */
         const readFor = rememberedBy((code: string): number => (lastTies ? listAudience(code) * 2 : 0) + signals.offSchedule(code));
         // A UGA graduation requirement met by courses counted elsewhere (ugaOverlapArea) takes one the board already has first.
-        const meetsElsewhere = ctx.schoolId === 'uga' && ugaOverlapArea(requirement.areaLabel);
+        // So does one of its university-wide or college rules (uga-university-rules.ts), and its lab takes the one whose lecture the board has.
+        const meetsElsewhere = ctx.schoolId === 'uga' && (ugaOverlapArea(requirement.areaLabel) || ugaRuleArea(requirement.areaLabel));
+        const lectureHere = (code: string): number => { const lecture = ugaLabOf(code); return lecture !== null && (chosen.has(lecture) || earned.has(lecture)) ? 0 : 1; };
         /*
          * And a UGA choice leaves to a take-every-course row of its family the
          * course that row requires (requiredInFamily): Agricultural and Applied
@@ -11035,7 +11079,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           .map((option) => pickFromOption(option))
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) =>
-            (meetsElsewhere ? Number(!a.shared) - Number(!b.shared) : 0) ||
+            (meetsElsewhere ? Number(!a.shared) - Number(!b.shared) || lectureHere(a.code) - lectureHere(b.code) : 0) ||
             (choosing ? leftToRow(a.code) - leftToRow(b.code) : 0) ||
             (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) || readFor(a.code) - readFor(b.code) || opensRequired(a.code) - opensRequired(b.code) || inOtherChoice(a.code, requirement.id) - inOtherChoice(b.code, requirement.id) : 0) ||
             (listOrder ? listOrder(a.code, b.code) : 0) ||
@@ -11078,9 +11122,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (entry.shared) {
             // A trimmed UGA row does not count a course its own area booked: the audit spends it there once.
             if (slot.sharedFirst && areaOfRequirement.get(chosen.get(entry.code)?.requirementId ?? '') === requirement.areaId) continue;
-            // Nor, at UGA, one another row of its family booked (familyUsed).
-            if (rowFamily !== null && rowFamily === familyOfChosen(entry.code)) continue;
-            countedByRows.add(entry.code);
+            // Nor, at UGA, one another row of its family booked or counted (familyUsed): Franklin's biology and social science rows both counted ANTH 2045.
+            if (rowFamily !== null && (rowFamily === familyOfChosen(entry.code) || usedInFamily(rowFamily, entry.code))) continue;
+            useInFamily(rowFamily, [entry.code]);
+            if (ctx.schoolId === 'uga' && ugaRuleArea(requirement.areaLabel)) countedByRules.set(entry.code, [...(countedByRules.get(entry.code) ?? []), requirement.id]);
+            else countedByRows.add(entry.code);
             sharedListings += 1;
             heldHere.add(entry.code);
             filled += 1;
@@ -11472,11 +11518,25 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const majorOwn = (code: string): boolean => {
       const id = chosen.get(code)?.requirementId ?? null;
       const label = areaOfRow.get(id ?? '') ?? '';
-      return id !== null && !coreArea(label) && !/^vi\. /i.test(label.replace(/^.*:\s*/, '')) && !ugaOverlapArea(label);
+      return id !== null && !coreArea(label) && !/^vi\. /i.test(label.replace(/^.*:\s*/, '')) && !ugaOverlapArea(label) && !ugaRuleArea(label);
     };
+    /*
+     * A UGA rule that counted a list's pick (countedByRules) holds it only
+     * where nothing else on the board meets the rule: Psychology's
+     * Life Sciences pick BIOL 1103, which environmental awareness counted,
+     * stayed beside the BIOL 1107 the major requires though GEOG 1125 meets
+     * that rule too (2026-10-29).
+     */
+    const heldByRule = (code: string): boolean => (countedByRules.get(code) ?? []).some((id) => {
+      const rule = input.requirements.find((r) => r.id === id)?.rule;
+      if (!rule || rule.kind !== 'choose') return false;
+      const versions = new Set(expandEquivalents(code, equivalents));
+      const others = rule.choices.filter((choice) => !choice.codes.some((c) => versions.has(normaliseCode(c))) && choice.codes.some((c) => chosen.has(normaliseCode(c)) || earned.has(normaliseCode(c)))).length;
+      return others < rule.n;
+    });
     const countedElsewhere = (code: string, requirementId: string): boolean =>
       (uga
-        ? ((chosen.get(code)?.requirementId ?? requirementId) !== requirementId || countedByRows.has(code) || poolFills.some((other) => other.slot.requirementId !== requirementId && (other.fill.picked.includes(code) || other.fill.free.includes(code))))
+        ? ((chosen.get(code)?.requirementId ?? requirementId) !== requirementId || countedByRows.has(code) || heldByRule(code) || poolFills.some((other) => other.slot.requirementId !== requirementId && (other.fill.picked.includes(code) || other.fill.free.includes(code))))
         : input.requirements.some((r) => r.id !== requirementId && (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool') && r.rule.choices.some((choice) => choice.codes.some((c) => normaliseCode(c) === code)))) ||
       [...genEdSpent.values()].some((spent) => spent.has(code));
     /*
@@ -11496,10 +11556,25 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const prerequisitesHere = [...new Set(addedPrerequisites.map((a) => a.code))].filter(
         (code) => listed.has(code) && !creditedToPool.has(code) && (chosen.get(code)?.requirementId ?? null) === null && !fill.picked.includes(code) && !fill.free.includes(code),
       );
+      // Not one a row of the list's family counted (familyUsed): Political Science's Area VI language row counts SPAN 2001, so World Languages does not.
+      const slotRow = uga ? input.requirements.find((r) => r.id === slot.requirementId) : undefined;
+      const slotFamily = slotRow ? familyOfRow(slotRow) : null;
       const majorHere = uga && coreArea(slot.areaLabel)
-        ? [...chosen.keys()].filter((code) => listed.has(code) && majorOwn(code) && !creditedToPool.has(code) && !fill.picked.includes(code) && !fill.free.includes(code))
+        ? [...chosen.keys()].filter((code) => listed.has(code) && majorOwn(code) && !creditedToPool.has(code) && !fill.picked.includes(code) && !fill.free.includes(code) && !(slotFamily !== null && usedInFamily(slotFamily, code)))
         : [];
-      const extras = [...prerequisitesHere, ...majorHere];
+      /*
+       * And an open elective block ("Any course", "Any upper level course
+       * 3000-5999") a course of the language sequence its rule takes
+       * (uga-university-rules.ts expandUgaLanguage): an International Business
+       * co-major's SPAN 2002 and SPAN 3010 are her electives, as the four-year
+       * program prints them, and booked beside them, the blocks' own picks
+       * left MATH 2200 no room (2026-10-29).
+       */
+      const openRule = slotRow?.rule.kind === 'pool' ? slotRow.rule.anyCourse : undefined;
+      const languageHere = openRule
+        ? [...chosen.keys()].filter((code) => ugaLanguageArea(areaOfRow.get(chosen.get(code)?.requirementId ?? '') ?? '') && anyCourseTakes(openRule, code) && !creditedToPool.has(code) && !fill.picked.includes(code) && !fill.free.includes(code))
+        : [];
+      const extras = [...prerequisitesHere, ...majorHere, ...languageHere];
       if (extras.length === 0) continue;
       const counted = () => [...fill.free, ...fill.picked, ...extras];
       const met = (codes: string[]) =>
@@ -11517,8 +11592,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       // A major's course stays its row's (bookedFor); the list counts it beside, as a nested row's are (fillPool), and as the audit does.
       const used = prerequisitesHere.filter((code) => !fill.picked.includes(code));
       fill.picked = [...fill.picked, ...used];
-      fill.nested = [...fill.nested, ...majorHere.filter((code) => !fill.nested.includes(code))];
-      for (const code of [...used, ...majorHere]) creditedToPool.add(code);
+      fill.nested = [...fill.nested, ...[...majorHere, ...languageHere].filter((code) => !fill.nested.includes(code))];
+      for (const code of [...used, ...majorHere, ...languageHere]) creditedToPool.add(code);
       fill.alternatives = [...released.reverse(), ...fill.alternatives.filter((c) => !released.includes(c))];
       const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
       if (traced && [...released, ...extras].includes(normaliseCode(traced))) console.error(`  [PLAN_DEBUG] pool "${(slot.label ?? '').slice(0, 50)}": ${extras.join(', ')} (booked elsewhere) count here, ${released.join(', ')} released`);
@@ -13886,6 +13961,18 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       if (rule.kind !== 'hours' || (rule.genEd && rule.genEd.length > 0) || !rule.minLevel) continue;
       levelLeft.set(rule.minLevel, (levelLeft.get(rule.minLevel) ?? 0) + rule.hours);
     }
+    /*
+     * And UGA's 39 hours of upper-division work a bachelor's degree takes
+     * (Degree Hour Requirements), which no page's table prints: 7 of 24
+     * incoming freshmen's boards held fewer (2026-10-29). The rules mark a
+     * bachelor's degree (uga-university-rules.ts).
+     */
+    const levelReason = new Map<number, string>();
+    if (ctx.schoolId === 'uga' && input.requirements.some((r) => ugaRuleArea(r.areaLabel))) {
+      const short = ugaUpperDivisionShort([...input.prior.courseCodes, ...[...placed.values()].flat()], creditsOf);
+      if (short > 0 && !levelLeft.has(300)) levelReason.set(300, 'Toward the 39 hours numbered 3000 and above every UGA bachelor\'s degree takes.');
+      if (short > 0) levelLeft.set(300, (levelLeft.get(300) ?? 0) + short);
+    }
     const floorWanted = (): number | null => {
       let best: number | null = null;
       for (const [floor, left] of levelLeft) if (left > 0 && (best === null || floor > best)) best = floor;
@@ -13895,7 +13982,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const floor = floorWanted();
       if (floor === null || courseLevel(code) < floor) return null;
       levelLeft.set(floor, (levelLeft.get(floor) ?? 0) - creditsOf(code));
-      return `Toward the ${floor}-level hours the degree page asks for.`;
+      return levelReason.get(floor) ?? `Toward the ${floor}-level hours the degree page asks for.`;
     };
     /**
      * A pre-professional track the student named, from the Illinois Career

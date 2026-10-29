@@ -674,7 +674,8 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
         : byCourses
           ? `The plan starts you at semester ${lang.completed + 1} of ${lang.semesters} of ${lang.name}, after the ${lang.name} courses it counts you as holding.${books} That holds only if those courses count as the plan counts them.`
           : `The plan assumes you place into semester ${lang.completed + 1} of ${lang.semesters} of ${lang.name}, from ${
-              input.languageYears === null ? 'the two years of high school language Illinois requires for admission, because you have not said how many you took' : `your ${years} ${plural(years, 'year')} of high school ${lang.name}`
+              // UGA counts no high school years: the setup asks where its placement test puts the student (uga-university-rules.ts).
+              input.school.id === 'uga' ? 'the level you said you start at' : input.languageYears === null ? 'the two years of high school language Illinois requires for admission, because you have not said how many you took' : `your ${years} ${plural(years, 'year')} of high school ${lang.name}`
             }.${books} The placement test decides where you start.`;
     const exempt = coursesOf(board.exemptCourseIds ?? []).map((c) => c.code);
     assumptions.push({
