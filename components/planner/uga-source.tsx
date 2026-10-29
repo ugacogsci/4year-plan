@@ -925,6 +925,21 @@ function adaptProgram(
         courses: [...new Map(rows.map((row) => [row.code, row])).values()] },
     ] };
   }) };
+  /*
+   * A subject-wide row inside a take-every-course row is one course of that
+   * subject and level, not every course of it: Communication Studies'
+   * "COMM 3300, COMM 3700, COMM 2XXX" made all ten COMM 2000-level courses
+   * required, honors-only and summer-only ones among them, and a senior's
+   * last term five of them (2026-10-28). Such a row becomes a choice of one.
+   */
+  program = { ...program, areas: program.areas.map((area) => ({ ...area, groups: area.groups.flatMap((group) => {
+    const wildcard = (row: RawUgaRequirementCourse) => /^[A-Z]{2,5} [1-9]XXX$/.test(canonicalUgaCode(row.code)) && !canonicalUgaCode(row.code).startsWith('ANY ');
+    if (group.choose !== null || poolLikeGroup(area, group) || !group.courses.some(wildcard) || group.courses.every(wildcard)) return [group];
+    return [
+      { ...group, courses: group.courses.filter((row) => !wildcard(row)) },
+      ...group.courses.filter(wildcard).map((row) => ({ label: group.label ? `${group.label}: ${row.title}` : row.title, choose: 1, hours: null, note: group.note ?? '', courses: [row] })),
+    ];
+  }) })) };
   const blocks: RequirementBlock[] = [];
   const areas: RequirementArea[] = [];
   const fixedRequirementCodes = new Set<string>();
