@@ -535,9 +535,33 @@ const TERRY_GRADUATION: UgaRequirementArea = {
   ],
 };
 
-/** Whether an area is one of a degree's graduation requirements that courses counted elsewhere meet (TERRY_GRADUATION). */
+/*
+ * Georgia's legislative requirements, which UGA asks of every bachelor's
+ * degree (Bulletin, University-Wide Requirements): United States and Georgia
+ * history (HIST 2111 or HIST 2112, or the exam) and United States and
+ * Georgia constitution (POLS 1101, or the exam). The program pages do not
+ * list them, and nothing planned them: an Area V pick happened to be one or
+ * it was missing (7 of 22 arts and social science review boards, 33 of 136
+ * business boards, 2026-10-28). The Social Sciences list counts them too.
+ */
+const UNIVERSITY_WIDE_LABEL = 'University-Wide Requirements';
+const UNIVERSITY_WIDE: UgaRequirementArea = {
+  label: UNIVERSITY_WIDE_LABEL,
+  hours: 6,
+  groups: [
+    { label: 'United States and Georgia History', choose: 1, note: 'HIST 2111 or HIST 2112, or the United States and Georgia history exam.', courses: courses([
+      ['HIST 2111', 'American History to 1865', 3],
+      ['HIST 2112', 'American History Since 1865', 3],
+    ]) },
+    { label: 'United States and Georgia Constitution', choose: 1, note: 'POLS 1101, or the United States and Georgia constitution exam.', courses: courses([
+      ['POLS 1101', 'American Government', 3],
+    ]) },
+  ],
+};
+
+/** Whether an area is one of a degree's graduation requirements that courses counted elsewhere meet (TERRY_GRADUATION, UNIVERSITY_WIDE). */
 export function ugaOverlapArea(label: string): boolean {
-  return label === TERRY_GRADUATION_LABEL || label.endsWith(`: ${TERRY_GRADUATION_LABEL}`);
+  return [TERRY_GRADUATION_LABEL, UNIVERSITY_WIDE_LABEL].some((own) => label === own || label.endsWith(`: ${own}`));
 }
 
 const UGA_CORE_AREA = /^(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences|vi\. courses related to the major)\b/i;
@@ -614,6 +638,7 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
       repaired = { ...repaired, areas, areaHours: repaired.areaHours - 12 } as T;
     }
     if (program.college === 'BUS' && program.degree === 'BBA') repaired = withAreaAfter(repaired, '', TERRY_GRADUATION, false);
+    if (program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree ?? '')) repaired = withAreaAfter(repaired, '', UNIVERSITY_WIDE, false);
     return repaired;
   });
 }

@@ -7,6 +7,7 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { ProgramPicker, type ProgramOption } from './program-picker';
 import { PriorCredit } from './prior-credit';
 import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
+import { ugaOverlapArea } from '@/lib/planner/uga-program-overrides';
 import {
   isUgaGraduateDegree,
   isUgaUndergraduateDegree,
@@ -124,7 +125,8 @@ function ugaMajorCredits(program: UgaProgram): number {
       (area) =>
         !/^(?:I|II|III|IV|V)\./.test(area.label.trim()) &&
         !/^(?:general|free) electives?\b/i.test(area.label.trim()) &&
-        !/general education|core curriculum/i.test(area.label),
+        !/general education|core curriculum/i.test(area.label) &&
+        !ugaOverlapArea(area.label),
     )
     .reduce((sum, area) => sum + Math.max(0, area.hours), 0);
 }

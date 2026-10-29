@@ -1325,6 +1325,8 @@ export function loadUgaData(): Promise<UgaData | null> {
     // GradFIRST is one credit, additional to the graduate program of study.
     // https://ai.uga.edu/ms-artificial-intelligence#degree-requirements
     for (const course of courses) if (/^GRSC 7001E?$/.test(course.code)) { course.credits = 1; course.creditsMax = 1; }
+    // The First-Year Odyssey Seminar is one hour (each four-year program of study prints FYOS 1001 at 1); the catalog file's rows say 3.
+    for (const course of courses) if (/^FYOS 1001$/.test(course.code)) { course.credits = 1; course.creditsMax = 1; }
     const dualLevelCourses = new Map<string, string>();
     for (const raw of rawCourses) {
       const codes = listedUgaCourseCodes(raw.code);

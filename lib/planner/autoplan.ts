@@ -7966,6 +7966,42 @@ function ugaDegreeFirst(built: GeneratedPlan, given: AutoplanInput): GeneratedPl
   return bare;
 }
 
+/** A UGA code without its online, honors or service-learning suffix (ENGL 1101E -> ENGL 1101). */
+function ugaBaseCode(code: string): string {
+  return normaliseCode(code).replace(/^([A-Z]{2,5} \d{4})[EHS]$/, '$1');
+}
+
+/**
+ * UGA's First-Year Odyssey Seminar (FYOS 1001, one hour), which every
+ * first-year student takes in the first year (Bulletin, University-Wide
+ * Requirements; each degree's four-year program puts it in Fall Year 1).
+ * Since the seminar stopped filling broad lists (poolOrderFor), no incoming
+ * freshman's board had it (2026-10-28). Booked as a row of its own for a
+ * student who holds nothing yet: no course, exam or transfer credit, no
+ * terms in, and not a graduate plan. A degree that lists it books it as
+ * its own.
+ */
+function withFirstYearSeminar(requirements: PlanRequirement[], input: AutoplanInput): PlanRequirement[] {
+  const ctx = input.context;
+  if (ctx.schoolId !== 'uga' || input.prior.courseCodes.length > 0 || input.prior.exemptCodes.length > 0 || input.prior.unmatchedCredits > 0) return requirements;
+  if (input.arrival?.transfer === true || (input.electiveLevelRange?.min ?? 0) >= 500) return requirements;
+  const code = 'FYOS 1001';
+  const course = ctx.courses.find((c) => normaliseCode(c.code) === code);
+  if (!course) return requirements;
+  const names = (r: PlanRequirement) => (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool') && r.rule.choices.some((choice) => choice.codes.some((c) => normaliseCode(c) === code));
+  if (requirements.some(names)) return requirements;
+  return [...requirements, {
+    id: 'uga::first-year-odyssey',
+    areaId: 'uga::first-year-odyssey',
+    areaLabel: 'First-Year Odyssey Seminar',
+    label: 'First-Year Odyssey Seminar',
+    hours: null,
+    rule: { kind: 'all', choices: [{ codes: [code], title: course.title, credits: 1, creditsMax: 1, substitutes: [] }] },
+    note: 'UGA requires every first-year student to take a First-Year Odyssey Seminar in the first year.',
+    url: 'https://bulletin.uga.edu/',
+  }];
+}
+
 function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
   // A degree held at the release (held-degrees.ts PLANNED_AS_RELEASED) is planned by the release's engine.
   if (given.programId && given.asReleased !== false && PLANNED_AS_RELEASED.has(given.programId)) {
@@ -7975,7 +8011,7 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
   }
   // A UGA pre-health student's lab pairs (withTrackLabs); any other context as it is.
   const context = withTrackLabs(withTitleStanding(given.context), careerProfileOf(given));
-  const requirements = resolveBundles(given.requirements, given.prior, context);
+  const requirements = withFirstYearSeminar(resolveBundles(given.requirements, given.prior, context), given);
   const college = collegeCreditRule(given.programCollege, requirements);
   const counted = college ? countTowardDegree(given.prior, college) : null;
   // A degree total of 0 is a page with no readable total, not a degree of no credits.
@@ -10264,6 +10300,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * a course another row of its family booked or counted.
    */
   const familyOfRow = (r: PlanRequirement): string | null => (ctx.schoolId === 'uga' ? ugaAreaFamily(r.areaLabel) : null);
+  /** Courses a row counted that another requirement booked (a shared listing): the list that booked one keeps it. */
+  const countedByRows = new Set<string>();
   const familyUsed = new Map<string, Set<string>>();
   const useInFamily = (family: string | null, codes: string[]): void => {
     if (family === null) return;
@@ -10970,6 +11008,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             if (slot.sharedFirst && areaOfRequirement.get(chosen.get(entry.code)?.requirementId ?? '') === requirement.areaId) continue;
             // Nor, at UGA, one another row of its family booked (familyUsed).
             if (rowFamily !== null && rowFamily === familyOfChosen(entry.code)) continue;
+            countedByRows.add(entry.code);
             sharedListings += 1;
             heldHere.add(entry.code);
             filled += 1;
@@ -11357,13 +11396,15 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      */
     const coreArea = (label: string) => /(?:^|:\s*)(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences)\b/i.test(label);
     const areaOfRow = new Map(input.requirements.map((r) => [r.id, r.areaLabel]));
+    // A graduation requirement met by courses counted elsewhere (ugaOverlapArea) is no major area: its course is a core list's own pick.
     const majorOwn = (code: string): boolean => {
       const id = chosen.get(code)?.requirementId ?? null;
-      return id !== null && !coreArea(areaOfRow.get(id) ?? '') && !/^vi\. /i.test((areaOfRow.get(id) ?? '').replace(/^.*:\s*/, ''));
+      const label = areaOfRow.get(id ?? '') ?? '';
+      return id !== null && !coreArea(label) && !/^vi\. /i.test(label.replace(/^.*:\s*/, '')) && !ugaOverlapArea(label);
     };
     const countedElsewhere = (code: string, requirementId: string): boolean =>
       (uga
-        ? ((chosen.get(code)?.requirementId ?? requirementId) !== requirementId || poolFills.some((other) => other.slot.requirementId !== requirementId && (other.fill.picked.includes(code) || other.fill.free.includes(code))))
+        ? ((chosen.get(code)?.requirementId ?? requirementId) !== requirementId || countedByRows.has(code) || poolFills.some((other) => other.slot.requirementId !== requirementId && (other.fill.picked.includes(code) || other.fill.free.includes(code))))
         : input.requirements.some((r) => r.id !== requirementId && (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool') && r.rule.choices.some((choice) => choice.codes.some((c) => normaliseCode(c) === code)))) ||
       [...genEdSpent.values()].some((spent) => spent.has(code));
     /*
@@ -11985,6 +12026,20 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   if (terms.length >= 2) {
     for (const code of selected) {
       if (byCode.get(code)?.tags.includes('Composition I')) dueByTerm[code] = Math.min(dueByTerm[code] ?? 1, 1);
+    }
+  }
+  /*
+   * At UGA, English Composition I in the first term and II in the second,
+   * and the First-Year Odyssey Seminar in the first, as every four-year
+   * program of study prints them: ENGL 1101 went to a Nutritional Sciences
+   * freshman's third term and a Psychology freshman's second, and FYOS 1001
+   * to year two (2026-10-28).
+   */
+  if (ctx.schoolId === 'uga' && terms.length >= 2) {
+    const firstTerms: Record<string, number> = { 'ENGL 1101': 0, 'ENGL 1102': 1, 'FYOS 1001': 0 };
+    for (const code of selected) {
+      const due = firstTerms[ugaBaseCode(code)];
+      if (due !== undefined) dueByTerm[code] = Math.min(dueByTerm[code] ?? due, due);
     }
   }
   /**
