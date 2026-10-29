@@ -54,6 +54,7 @@ type UgaRequirementGroup = {
   note?: string;
   lists?: Array<{ label: string; codes: string[] }>;
   completeOneList?: boolean;
+  bundleSize?: number;
   constraints?: Array<{ text: string; n: number; lists: Array<{ label: string; codes: string[] }>; single: boolean; distinctLists?: boolean }>;
   courses: UgaRequirementCourse[];
 };
@@ -82,9 +83,9 @@ const all = (label: string, courses: UgaRequirementCourse[], note?: string): Uga
 const choose = (label: string, n: number, courses: UgaRequirementCourse[], note?: string): UgaRequirementGroup => ({ label, choose: n, ...(note ? { note } : {}), courses });
 /** `hours` of credit from the courses listed. */
 const hoursFrom = (label: string, hours: number, courses: UgaRequirementCourse[], note?: string): UgaRequirementGroup => ({ label, choose: null, hours, ...(note ? { note } : {}), courses });
-/** One of the course groups listed ("Choose 1 group(s)"), each a course and its lab. */
-const oneGroup = (label: string, hours: number, groups: UgaRequirementCourse[][], note = 'Choose one complete course group.'): UgaRequirementGroup => ({
-  label, choose: null, hours, note, completeOneList: true,
+/** One of the course groups listed ("Choose 1 group(s)"), each a course and its lab; `bundleSize` courses from the one group. */
+const oneGroup = (label: string, hours: number, groups: UgaRequirementCourse[][], note = 'Choose one complete course group.', bundleSize?: number): UgaRequirementGroup => ({
+  label, choose: null, hours, note, completeOneList: true, ...(bundleSize ? { bundleSize } : {}),
   lists: groups.map((courses) => ({ label: courses.map((course) => course.code).join(' and '), codes: courses.map((course) => course.code) })),
   courses: groups.flat(),
 });
@@ -4461,6 +4462,161 @@ const WRITTEN: Record<string, WrittenDegree> = {
           row('PRTM 3900', 'Parks, Recreation, and Tourism Management Internship', 3),
           row('WILD 3900', 'Wildlife Internship', 3),
         ], 'Not WILD(FISH) 3000W; at most 3 hours of one internship course.'),
+      ]),
+    ],
+  },
+  /*
+   * Health Promotion BSHP (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/33197): Area VI and the Required
+   * Courses' last part depend on the student's Area of Emphasis (Health
+   * Promotion, Health Services or Behavioral Medicine); the reading left the
+   * choice optional, so a board without a pick had no Area VI, and misread
+   * all three. PBHL 3100 and HPRB 5560S are required for the Health
+   * Promotion and Health Services emphases only. Each emphasis's Area VI
+   * courses are with its rows.
+   */
+  '33197': {
+    areaSix: area('VI. Courses Related to the Major', 6, [
+      all('VI. Courses Related to the Major', [
+        row('HPRB 1710', 'Health and Wellness', 3),
+      ], 'A grade of C or better in every Area VI course; see a Health Promotion advisor before completing Area VI.'),
+      choose('Biostatistics', 1, [
+        row('BIOS 2010', 'Elementary Biostatistics', 4),
+        row('BIOS 7010', 'Fundamentals of Biostatistical Reasoning', 3),
+      ], 'BIOS 7010 for Double Dawgs students.'),
+    ]),
+    major: [
+      area('Required Courses', 69, [
+        choose('Core - College of Public Health: biostatistics', 1, [
+          row('BIOS 3000', 'Intermediate Biostatistics', 3),
+          row('BIOS 7020', 'Intermediate Biostatistical Reasoning', 3),
+        ]),
+        choose('Core - College of Public Health: environmental health', 1, [
+          row('EHSC 3060', 'Foundations in Environmental Health', 3),
+          row('EHSC 7010', 'Fundamentals of Environmental Health Science', 3),
+        ]),
+        choose('Core - College of Public Health: epidemiology', 1, [
+          row('EPID 4070', 'Fundamentals of Epidemiology', 3),
+          row('EPID 7010', 'Fundamentals of Epidemiology', 3),
+        ]),
+        choose('Core - College of Public Health: health policy', 1, [
+          row('HPAM 3600', 'Introduction to Health Policy', 3),
+          row('HPAM 7010', 'Fundamentals of Health Policy and Management', 3),
+        ], 'The graduate-level courses are preferred only for Double Dawgs students.'),
+        all('Core - Health Promotion and Behavior', [
+          row('HPRB 3020', 'Foundations of Health Promotion Professional Practice', 3),
+          row('HPRB 3700', 'Community Health', 3),
+          row('HPRB 3850', 'Chronic Disease Prevention', 3),
+          row('HPRB 4400', 'Health Promotion Program Development', 3),
+          row('HPRB 5010', 'Research Design and Methods in Health Promotion', 3),
+          row('HPRB 5410W', 'Professional Writing for Health Promotion', 3),
+          row('HPRB 5900', 'Capstone in Health Promotion and Behavior', 1),
+        ]),
+        all(focus(1, 'Area of Emphasis in Health Promotion'), [
+          row('PBHL 3100', 'Introduction to Public Health', 3),
+          row('HPRB 5560S', 'Field Experience in Health Promotion', 6),
+          row('COMM 1110', 'Introduction to Public Speaking', 3),
+        ], 'COMM 1110 is an Area VI course.'),
+        oneGroup(focus(1, 'Area of Emphasis in Health Promotion', 'Area VI pair'), 6, [
+          [row('CBIO 2200', 'Anatomy and Physiology I', 4), row('CBIO 2210', 'Anatomy and Physiology II', 4)],
+          [row('EPID 2100', 'Health Data Literacy for Public Health Research and Practice', 3), row('EPID 3100', 'Health Data Fluency and Management for Public Health Research and Practice', 3)],
+          [row('PSYC 1101', 'Elementary Psychology', 3), row('PSYC 3230', 'Psychopathology', 3)],
+        ], 'Area VI: one group of two courses.', 2),
+        hoursFrom(focus(1, 'Area of Emphasis in Health Promotion', 'electives'), 20, [
+          ...levels('HPRB', 3),
+          ...['BIOS', 'DMAN', 'EHSC', 'EPID', 'GLOB', 'GRNT', 'HPAM'].flatMap((subject) => levels(subject, 3)),
+          row('AFAM 4500', 'Psychology of Prejudice', 3),
+          row('ANTH 3540', 'Multicultural Health Care', 3),
+          row('COMM 3320', 'Environmental Communication', 3),
+          row('COMM 3820', 'Ethnicity-Race Communication', 3),
+          row('ECHD 3170', 'Drug and Alcohol Abuse Issues', 3),
+          row('HIST 3740', 'Disease and Human History', 3),
+          row('HORT 3440', 'Herbs, Spices, and Medicinal Plants', 3),
+          row('IDIS 3100', 'People, Parasites, and Plagues', 3),
+          row('KINS 3700', 'Applied Exercise Physiology', 3),
+          row('KINS 4310', 'Exercise Prescription for Special Populations', 3),
+          row('KINS 4320', 'Habitual Movement and Successful Aging', 3),
+          row('KINS 4640', 'Scientific Principles of Conditioning and Fitness', 4),
+          row('LAND 4120', 'Designing Healthy Places', 3),
+          row('NUTR 4050', 'Optimal Nutrition for the Life Span', 3),
+          row('NUTR 4510', 'Nutrition Related to the Human Life Cycle', 3),
+          row('NUTR 4540', 'Public Health Nutrition', 3),
+          row('NUTR 4560', 'Nutrition, Health, and Aging', 3),
+          row('NUTR 4600', 'Food and Nutrition Policy', 2),
+          row('NUTR 4630', 'Cultural Aspects of Foods and Nutrition', 3),
+          row('NUTR 5710S', 'Study Tour in Nutritional Sciences', 3),
+          row('PSYC 3230', 'Psychopathology', 3),
+          row('PSYC 3260', 'Human Sexuality', 3),
+          row('PSYC 3810', 'Health Psychology', 3),
+          row('SOCI 3100', 'Medical Sociology', 3),
+          row('SOCI 3110', 'Sociology of Health Care', 3),
+          row('SOCI 3280', 'Sociology of Gender', 3),
+          row('SOCI 3860', 'Sociology of Alcohol and Drug Use', 3),
+          row('SOCI 4280', 'Global Perspectives on Gender', 3),
+        ], 'At least 9 hours of upper-level HPRB (not HPRB 3010 or 3010E); 3000-5999-level BIOS, DMAN, EHSC, EPID, GLOB, GRNT or HPAM courses (not research, independent study or internship courses without an advisor); or the pre-approved courses outside the college. Chosen with the major advisor, to prepare for the internship.'),
+        all(focus(2, 'Area of Emphasis in Health Services'), [
+          row('PBHL 3100', 'Introduction to Public Health', 3),
+          row('HPRB 5560S', 'Field Experience in Health Promotion', 6),
+          row('COMM 1110', 'Introduction to Public Speaking', 3),
+          row('BIOL 1108', 'Principles of Biology II', 3),
+          lab('BIOL 1108L', 'Principles of Biology II Laboratory', 1),
+          row('CHEM 1212', 'General Chemistry II', 3),
+          lab('CHEM 1212L', 'General Chemistry Laboratory II', 1),
+          row('CHEM 2211', 'Modern Organic Chemistry I', 3),
+          lab('CHEM 2211L', 'Modern Organic Chemistry Laboratory I', 1),
+        ], 'COMM 1110 is an Area VI course.'),
+        oneGroup(focus(2, 'Area of Emphasis in Health Services', 'Area VI pair'), 8, [
+          [row('CBIO 2200', 'Anatomy and Physiology I', 4), row('CBIO 2210', 'Anatomy and Physiology II', 4)],
+          [row('PHYS 1111', 'Introductory Physics-Mechanics, Waves, Thermodynamics', 4), row('PHYS 1112', 'Introductory Physics-Electricity and Magnetism, Optics, Modern Physics', 4)],
+          [row('PHYS 1211', 'Principles of Physics for Scientists and Engineers-Mechanics, Waves, Thermodynamics', 4), row('PHYS 1212', 'Principles of Physics for Scientists and Engineers-Electricity and Magnetism, Optics, Modern Physics', 4)],
+          [row('PHYS 1311', 'Advanced Introductory Physics I', 4), row('PHYS 1312', 'Advanced Introductory Physics II', 4)],
+        ], 'Area VI: one group of two courses.', 2),
+        hoursFrom(focus(2, 'Area of Emphasis in Health Services', 'electives'), 8, [
+          row('BCMB 3100', 'Introductory Biochemistry and Molecular Biology', 4),
+          row('CBIO 3000', 'Comparative Vertebrate Anatomy', 4),
+          row('CBIO 3010', 'Functional Human Anatomy', 4),
+          row('CBIO 3200L', 'Medical Anatomy', 3),
+          row('CBIO 3400', 'Cell Biology', 4),
+          row('GENE 3200', 'Genetics', 4),
+          row('HPRB 3150', "Women's Health", 3),
+          row('HPRB 3480S', 'Practicum in Health Promotion and Services', 3),
+          row('HPRB 3750', 'Injury and Violence Prevention', 3),
+          row('HPRB 4960R', 'Faculty-Mentored Undergraduate Research I', 3),
+          row('HPRB 5060', 'Educational Strategies in Human Sexuality', 3),
+          row('HPRB 5210', 'Substance Use and Misuse', 3),
+          row('HPRB 5310', 'Strategies for Effective Public Health Communication', 3),
+          row('IDIS 3100', 'People, Parasites, and Plagues', 3),
+          row('MIBO 3500', 'Introductory Microbiology', 3),
+          row('MIBO 3500L', 'Introductory Microbiology Laboratory I', 1),
+          row('MIBO 3510L', 'Introductory Microbiology Laboratory II', 3),
+          row('PMCY 4020', 'Human Physiology', 3),
+          row('VPHY 3100', 'Elements of Physiology', 3),
+        ], 'Chosen with the major advisor; only one of each marked pair counts.'),
+        all(focus(3, 'Area of Emphasis in Behavioral Medicine'), [
+          row('CHEM 1212', 'General Chemistry II', 3),
+          lab('CHEM 1212L', 'General Chemistry Laboratory II', 1),
+          row('BCMB 3100', 'Introductory Biochemistry and Molecular Biology', 4),
+          row('BIOL 1108', 'Principles of Biology II', 3),
+          lab('BIOL 1108L', 'Principles of Biology II Laboratory', 1),
+          row('CHEM 2211', 'Modern Organic Chemistry I', 3),
+          lab('CHEM 2211L', 'Modern Organic Chemistry Laboratory I', 1),
+          row('CHEM 2212', 'Modern Organic Chemistry II', 3),
+          lab('CHEM 2212L', 'Modern Organic Chemistry Laboratory II', 1),
+          row('GENE 3200', 'Genetics', 4),
+          row('HPRB 3100', 'Introduction to Behavioral Medicine', 3),
+          row('HPRB 3480S', 'Practicum in Health Promotion and Services', 3),
+          row('VPHY 3100', 'Elements of Physiology', 3),
+        ], 'CHEM 1212 and its lab are Area VI courses.'),
+        choose(focus(3, 'Area of Emphasis in Behavioral Medicine', 'physics I'), 1, [
+          row('PHYS 1111', 'Introductory Physics-Mechanics, Waves, Thermodynamics', 4),
+          row('PHYS 1211', 'Principles of Physics for Scientists and Engineers-Mechanics, Waves, Thermodynamics', 4),
+          row('PHYS 1311', 'Advanced Introductory Physics I', 4),
+        ], 'An Area VI course.'),
+        choose(focus(3, 'Area of Emphasis in Behavioral Medicine', 'physics II'), 1, [
+          row('PHYS 1112', 'Introductory Physics-Electricity and Magnetism, Optics, Modern Physics', 4),
+          row('PHYS 1212', 'Principles of Physics for Scientists and Engineers-Electricity and Magnetism, Optics, Modern Physics', 4),
+          row('PHYS 1312', 'Advanced Introductory Physics II', 4),
+        ], 'An Area VI course.'),
       ]),
     ],
   },
