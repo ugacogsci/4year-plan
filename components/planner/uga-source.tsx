@@ -123,6 +123,47 @@ function ugaEquivalents(courses: Course[]): Map<string, string[]> {
   return equivalents;
 }
 
+/**
+ * Courses a student earns credit for only one of (PlanningContext.exclusions).
+ * UGA's catalog file prints no such line, so two kinds the planner booked
+ * side by side are named here:
+ *
+ *   - the algebra-based and the calculus-based physics sequences, which UGA
+ *     counts once (PHYS 1111, 1211 and 1311 for the first half; 1112, 1212
+ *     and 1312 for the second). An Exercise and Sport Science board booked
+ *     PHYS 1112 and PHYS 1212 for one list (2026-10-28);
+ *   - a lecture the catalog lists on its own beside the course with its lab,
+ *     the same description under a title that adds "Lecture": ENTO 3645
+ *     Medical Entomology Lecture and ENTO 3650 Medical Entomology were both
+ *     on a Biology board, 10 hours on a 7-hour list.
+ */
+function ugaExclusions(courses: Course[]): Map<string, string[]> {
+  const known = new Set(courses.map((course) => normCode(course.code)));
+  const out = new Map<string, string[]>();
+  const exclude = (codes: string[]): void => {
+    const present = codes.filter((code) => known.has(code));
+    for (const code of present) out.set(code, [...new Set([...(out.get(code) ?? []), ...present.filter((other) => other !== code)])]);
+  };
+  exclude(['PHYS 1111', 'PHYS 1211', 'PHYS 1311']);
+  exclude(['PHYS 1112', 'PHYS 1212', 'PHYS 1312']);
+  const byDescription = new Map<string, Course[]>();
+  for (const course of courses) {
+    const description = course.description.trim().toLowerCase();
+    if (description.length < 40) continue;
+    const key = `${course.cluster}|${description}`;
+    byDescription.set(key, [...(byDescription.get(key) ?? []), course]);
+  }
+  for (const group of byDescription.values()) {
+    for (const lecture of group) {
+      const base = lecture.title.match(/^(.+?)\s+Lecture$/i)?.[1]?.trim().toLowerCase();
+      if (!base) continue;
+      const whole = group.filter((other) => other !== lecture && other.title.trim().toLowerCase() === base);
+      if (whole.length > 0) exclude([normCode(lecture.code), ...whole.map((other) => normCode(other.code))]);
+    }
+  }
+  return out;
+}
+
 interface RawUgaCourse extends Partial<Course> {
   id: string;
   code: string;
@@ -1290,6 +1331,7 @@ export function loadUgaData(): Promise<UgaData | null> {
       courses,
       prereqs,
       equivalents,
+      exclusions: ugaExclusions(courses),
       creditRanges,
       offeringPublished,
       snapshotTerm: null,

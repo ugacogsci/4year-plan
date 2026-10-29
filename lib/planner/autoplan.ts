@@ -9455,6 +9455,21 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     }
   }
   const requiredElsewhere = (code: string, areaId: string): number => ([...(requiredByArea.get(code) ?? [])].some((a) => a !== areaId) ? 0 : 1);
+  /*
+   * At UGA, among a choice's courses, one a course the degree requires asks
+   * for first: Chemistry's "PHYS 1112 or PHYS 1212" took PHYS 1112, the one
+   * more students take, and CHEM 3300, which reads "PHYS 1212-1212L or PHYS
+   * 1252", then had PHYS 1212 booked as a prerequisite as well: two second
+   * semesters of physics (2026-10-28).
+   */
+  const askedByRequired = new Set<string>();
+  if (ctx.schoolId === 'uga') {
+    for (const r of input.requirements) {
+      if (r.rule.kind !== 'all') continue;
+      for (const choice of r.rule.choices) for (const code of choice.codes) for (const group of ctx.prereqs?.get(normaliseCode(code))?.groups ?? []) for (const raw of group.any) askedByRequired.add(normaliseCode(raw));
+    }
+  }
+  const opensRequired = (code: string): number => (askedByRequired.size > 0 && expandEquivalents(code, equivalents).some((c) => askedByRequired.has(c)) ? 0 : 1);
   /** The area of the requirement a chosen course was booked for: a trimmed row shares only another area's course. */
   const areaOfRequirement = new Map(input.requirements.map((r) => [r.id, r.areaId]));
   /** Whether any of the degree's rows names the course (or a version of it): such a course is never only a prerequisite. */
@@ -10760,7 +10775,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           .map((option) => pickFromOption(option))
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) =>
-            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) || readFor(a.code) - readFor(b.code) : 0) ||
+            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) || readFor(a.code) - readFor(b.code) || opensRequired(a.code) - opensRequired(b.code) : 0) ||
             (listOrder ? listOrder(a.code, b.code) : 0) ||
             (have ? (rank(a.code)[0] ?? 0) - (rank(b.code)[0] ?? 0) || extraOf(a.code) - extraOf(b.code) : 0) ||
             // A choice's last ties on its hours (the row asks for a course, not hours: STAT 2000 at four
@@ -11159,24 +11174,62 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * room left. A pick goes only where nothing else in the plan names it, no
    * other requirement or general education category counts it, and it
    * brought no prerequisite of its own; the pool keeps its hours and its
-   * count. Only on the boards built for a goal's rows (AutoplanInput.goalRows).
+   * count. On the boards built for a goal's rows (AutoplanInput.goalRows),
+   * and at UGA on every board, the plain engine's too (its board is often
+   * the one the gate keeps): a Biology freshman's II. Physical Sciences
+   * took CHEM 1210 Basics of Chemistry, "for students without prior
+   * experience with chemistry", beside the CHEM 1211 the closure booked for
+   * CHEM 1212, and II. Life Sciences BIOL 1104 beside BIOL 1107 and 1108;
+   * Dietetics and Nutrition boards then ran 12 credits past the degree, and
+   * their notes blamed the required courses (2026-10-28).
    */
-  if (!plainEngine && input.goalRows) {
+  if (ctx.schoolId === 'uga' || (!plainEngine && input.goalRows)) {
+    const uga = ctx.schoolId === 'uga';
     const creditedToPool = new Set<string>();
+    /*
+     * At UGA a course counts in a core area and in a major area both (the
+     * board's audit reads it so: uga-board-audit.ts), and the core's lists
+     * fill first, in page order, before the major's rows: so the major's own
+     * courses count for a core list too, as its booked prerequisites do. A
+     * Mechanical Engineering freshman's II. Physical Sciences took PHYS 1010
+     * Physical Science beside the PHYS 1251 the major requires, and III.
+     * Quantitative Reasoning MATH 1060 beside its calculus (2026-10-28). At
+     * UGA a pick is held where another row or list actually booked or
+     * counted it, not where another list merely names it: UGA's core lists
+     * share hundreds of courses.
+     */
+    const coreArea = (label: string) => /(?:^|:\s*)(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences)\b/i.test(label);
+    const areaOfRow = new Map(input.requirements.map((r) => [r.id, r.areaLabel]));
+    const majorOwn = (code: string): boolean => {
+      const id = chosen.get(code)?.requirementId ?? null;
+      return id !== null && !coreArea(areaOfRow.get(id) ?? '') && !/^vi\. /i.test((areaOfRow.get(id) ?? '').replace(/^.*:\s*/, ''));
+    };
     const countedElsewhere = (code: string, requirementId: string): boolean =>
-      input.requirements.some((r) => r.id !== requirementId && (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool') && r.rule.choices.some((choice) => choice.codes.some((c) => normaliseCode(c) === code))) ||
+      (uga
+        ? ((chosen.get(code)?.requirementId ?? requirementId) !== requirementId || poolFills.some((other) => other.slot.requirementId !== requirementId && (other.fill.picked.includes(code) || other.fill.free.includes(code))))
+        : input.requirements.some((r) => r.id !== requirementId && (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool') && r.rule.choices.some((choice) => choice.codes.some((c) => normaliseCode(c) === code)))) ||
       [...genEdSpent.values()].some((spent) => spent.has(code));
+    /*
+     * A course a course of the plan asks for first. At UGA only where it is
+     * the plan's one way into that group: Biology's ENTO 3645 reads "BIOL
+     * 1104 or BIOL 1108-1108L", and BIOL 1108 is required.
+     */
     const namedInPlan = (code: string): boolean => {
       const names = new Set(expandEquivalents(code, equivalents));
-      return [...chosen.keys()].some((other) => other !== code && (ctx.prereqs?.get(other)?.groups ?? []).some((group) => group.any.some((raw) => names.has(normaliseCode(raw)))));
+      const otherWay = (group: PlanPrereqGroup) => group.any.some((raw) => !names.has(normaliseCode(raw)) && expandEquivalents(normaliseCode(raw), equivalents).some((c) => (chosen.has(c) && c !== code) || satisfiedForPrereq.has(c)));
+      return [...chosen.keys()].some((other) => other !== code && (ctx.prereqs?.get(other)?.groups ?? []).some((group) => group.any.some((raw) => names.has(normaliseCode(raw))) && !(uga && otherWay(group))));
     };
     for (const { slot, fill } of poolFills) {
       if (slot.hoursTarget === null && slot.picks === null) continue;
       if ((slot.constraints ?? []).length > 0 || fill.nested.length > 0 || nestedParent.has(slot.requirementId) || [...nestedParent.values()].includes(slot.requirementId)) continue;
       const listed = new Set(slot.options.flat().map(normaliseCode));
-      const extras = [...new Set(addedPrerequisites.map((a) => a.code))].filter(
+      const prerequisitesHere = [...new Set(addedPrerequisites.map((a) => a.code))].filter(
         (code) => listed.has(code) && !creditedToPool.has(code) && (chosen.get(code)?.requirementId ?? null) === null && !fill.picked.includes(code) && !fill.free.includes(code),
       );
+      const majorHere = uga && coreArea(slot.areaLabel)
+        ? [...chosen.keys()].filter((code) => listed.has(code) && majorOwn(code) && !creditedToPool.has(code) && !fill.picked.includes(code) && !fill.free.includes(code))
+        : [];
+      const extras = [...prerequisitesHere, ...majorHere];
       if (extras.length === 0) continue;
       const counted = () => [...fill.free, ...fill.picked, ...extras];
       const met = (codes: string[]) =>
@@ -11191,12 +11244,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         released.push(code);
       }
       if (released.length === 0) continue;
-      const used = extras.filter((code) => !fill.picked.includes(code));
+      // A major's course stays its row's (bookedFor); the list counts it beside, as a nested row's are (fillPool), and as the audit does.
+      const used = prerequisitesHere.filter((code) => !fill.picked.includes(code));
       fill.picked = [...fill.picked, ...used];
-      for (const code of used) creditedToPool.add(code);
+      fill.nested = [...fill.nested, ...majorHere.filter((code) => !fill.nested.includes(code))];
+      for (const code of [...used, ...majorHere]) creditedToPool.add(code);
       fill.alternatives = [...released.reverse(), ...fill.alternatives.filter((c) => !released.includes(c))];
       const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
-      if (traced && [...released, ...used].includes(normaliseCode(traced))) console.error(`  [PLAN_DEBUG] pool "${(slot.label ?? '').slice(0, 50)}": ${used.join(', ')} (booked as prerequisites) count here, ${released.join(', ')} released`);
+      if (traced && [...released, ...extras].includes(normaliseCode(traced))) console.error(`  [PLAN_DEBUG] pool "${(slot.label ?? '').slice(0, 50)}": ${extras.join(', ')} (booked elsewhere) count here, ${released.join(', ')} released`);
     }
   }
 
