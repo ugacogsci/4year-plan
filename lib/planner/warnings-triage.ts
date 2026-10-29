@@ -99,6 +99,11 @@ const KIND_RULES: KindRule[] = [
   { key: 'comp1', match: /^ap-comp1-late-/, tier: 'now', text: 'Composition I after the first year', rank: 42, record: true },
   { key: 'seminar', match: /^ap-seminar-late-/, tier: 'now', text: 'First-term course after the first year', rank: 43, record: true },
   { key: 'language', match: /^ap-language-gap-/, tier: 'now', text: 'No language course after 60 hours', rank: 44, record: true },
+  // UGA's university-wide and college rules no requirement row holds (uga-university-rules.ts ugaUniversityIssues): classes the record lacks may meet them.
+  { key: 'uga-upper-division', match: /^uga-rule-upper-division$/, tier: (i) => (i.severity === 'info' ? 'later' : 'now'), text: null, rank: 13, record: true },
+  { key: 'uga-residence', match: /^uga-rule-residence$/, tier: 'now', text: null, rank: 14, record: true },
+  { key: 'uga-pe', match: /^uga-rule-pe$/, tier: 'now', text: null, rank: 15, record: true },
+  { key: 'uga-franklin', match: /^uga-rule-franklin-departments$/, tier: 'now', text: null, rank: 16, record: true },
   { key: 'residency', match: /^residency$/, tier: 'now', text: null, rank: 45 },
   // A route the student cannot take, or none, makes the degree itself unreachable; an application with a route is information.
   { key: 'admission', match: /^admission-route$/, tier: (i) => (/\bclosed\b|no published route/i.test(i.title) ? 'now' : 'later'), text: null, rank: 46 },

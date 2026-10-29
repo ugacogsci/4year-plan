@@ -235,10 +235,11 @@ const WARNELL_CALCULUS_LABEL = label('Warnell Calculus Requirement');
 const PUBLIC_HEALTH_SPEECH_LABEL = label('Public Health Speech Requirement');
 const PUBLIC_HEALTH_STATISTICS_LABEL = label('Public Health Statistics Requirement');
 
-/** The area label without a second program's "Program name: " prefix. */
+/** The area label without a second program's "Program name: " prefix (none for a row built without one, as the minors check's are). */
 const ownLabel = (areaLabel: string) => {
-  const cut = areaLabel.lastIndexOf(': ');
-  return cut >= 0 ? areaLabel.slice(cut + 2) : areaLabel;
+  const label = areaLabel ?? '';
+  const cut = label.lastIndexOf(': ');
+  return cut >= 0 ? label.slice(cut + 2) : label;
 };
 
 /** Whether an area is one of this module's rules that courses counted elsewhere meet (not the language sequence). */
@@ -500,9 +501,17 @@ function physicalEducation(input: AutoplanInput): PlanRequirement | null {
     .filter((course) => /^PEDB 1\d{3}$/.test(course.code) && course.code !== 'PEDB 1010')
     .map((course) => ({ codes: [course.code], credits: course.credits, substitutes: [] }));
   if (choices.length === 0) return null;
+  /*
+   * A row of the degree's own program (its rows' "program::" prefix): read
+   * as a second program's, it sent the degree's open elective blocks after
+   * every other row (autoplan.ts openLast), and a Risk Management transfer
+   * student's Terry speech and economics rows then booked COMM 1110 and
+   * ECON 2100 of their own, 125 hours of 120 (2026-10-29).
+   */
+  const program = input.programId ?? input.requirements[0]?.id.split('::')[0] ?? 'uga';
   return {
-    id: 'uga::physical-education',
-    areaId: 'uga::physical-education',
+    id: `${program}::physical-education`,
+    areaId: `${program}::physical-education`,
     areaLabel: 'Physical Education',
     label: 'Physical Education (one hour, outside the 120)',
     hours: null,
@@ -510,6 +519,21 @@ function physicalEducation(input: AutoplanInput): PlanRequirement | null {
     note: 'UGA requires one hour of basic physical education (PEDB 1010-1990) for a first bachelor\'s degree. It does not count toward the 120 hours; any PEDB course meets it.',
     url: UNIVERSITY_PAGE,
   };
+}
+
+/*
+ * The Area II lab rule's labs with their lectures, as pairs (PlanCourseChoice
+ * bundles): a lab booked where its lecture is not on the board books the
+ * lecture with it. Booked alone, CHEM 1211L stayed on a TESOL pre-med's
+ * board after a re-pick took the track's CHEM 1211 off (2026-10-29).
+ */
+function withLectures(requirement: PlanRequirement): PlanRequirement {
+  if (!ugaLabArea(requirement.areaLabel) || requirement.rule.kind !== 'choose') return requirement;
+  const choices = requirement.rule.choices.map((choice) => {
+    const lecture = ugaLabOf(norm(choice.codes[0] ?? ''));
+    return lecture ? { ...choice, bundles: [[choice.codes[0], lecture]] } : choice;
+  });
+  return { ...requirement, rule: { ...requirement.rule, choices } };
 }
 
 /**
@@ -522,7 +546,7 @@ export function withUgaUniversityRows(requirements: PlanRequirement[], input: Au
   if (input.context.schoolId !== 'uga' || !requirements.some((r) => ugaRuleArea(r.areaLabel))) return requirements;
   const named = new Set(requirements.filter((r) => !ugaRuleArea(r.areaLabel) && (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool')).flatMap((r) => ('choices' in r.rule ? r.rule.choices.flatMap((choice) => choice.codes.map(norm)) : [])));
   const held = new Set(input.prior.courseCodes.flatMap((code) => [norm(code), baseCode(code)]));
-  const rows = requirements.map((r) => (ugaRuleArea(r.areaLabel) ? plannable(r, named, held) : r));
+  const rows = requirements.map((r) => (ugaRuleArea(r.areaLabel) ? withLectures(plannable(r, named, held)) : r));
   const pe = physicalEducation(input);
   return pe ? [...rows, pe] : rows;
 }
@@ -619,7 +643,7 @@ export function expandUgaLanguage(input: AutoplanInput): { requirements: PlanReq
     }
   }
   if (!chosen) {
-    // The degree's own language: the one its other rows name most, in rows of one language only (FREN for a French AB, GREK where a Classics emphasis books GREK 1001; a row of every language, "any foreign language at the 2000-level", names none), so the board holds one language.
+    // The degree's own language: the one its other rows name most, in rows of one or two languages (FREN for a French AB, GREK or LATN for Classics; a row of every language, "any foreign language at the 2000-level", names none), so the board holds one language.
     const count = new Map<string, number>();
     const languageOf = (code: string) => {
       const subject = norm(code).split(' ')[0];
@@ -628,8 +652,9 @@ export function expandUgaLanguage(input: AutoplanInput): { requirements: PlanReq
     for (const r of rest) {
       if (!('choices' in r.rule) || ugaRuleArea(r.areaLabel) || r.rule.choices.length > 40) continue;
       const names = r.rule.choices.flatMap((choice) => choice.codes.map(languageOf)).filter((name): name is string => Boolean(name));
-      if (new Set(names).size !== 1) continue;
-      count.set(names[0], (count.get(names[0]) ?? 0) + names.length);
+      // One language, or two (Classics' Greek and Latin rows); a row of more is any language.
+      if (new Set(names).size === 0 || new Set(names).size > 2) continue;
+      for (const name of names) count.set(name, (count.get(name) ?? 0) + 1);
     }
     const top = [...count].sort((a, b) => b[1] - a[1])[0];
     if (top && top[1] >= 2) {
@@ -733,6 +758,8 @@ export function ugaUniversityIssues(input: {
   plannedHours: number;
   /** The board's free electives (booked for no requirement), which the student may choose at another level. */
   electiveCodes?: string[];
+  /** Hours counted with no course the plan can read (terms assumed with nothing recorded, exam or transfer hours): of no known level. */
+  unknownHours?: number;
   college?: string;
 }): PlanIssue[] {
   const own = input.areaLabels.map(ownLabel);
@@ -750,10 +777,14 @@ export function ugaUniversityIssues(input: {
      * hours, choosing them at the 3000 level or above is the whole fix, and
      * the line is the student's to act on when they pick electives (good to
      * know); where they do not, the degree's own rows leave too little room,
-     * which matters now.
+     * which matters now. So are hours whose classes the plan cannot read (a
+     * junior's assumed terms): they may be upper-division already, and the
+     * line is good to know until the record is added.
      */
     const room = (input.electiveCodes ?? []).filter((code) => numberOf(norm(code)) < 3000).reduce((sum, code) => sum + input.creditsOf(code), 0);
-    issues.push({ id: 'uga-rule-upper-division', severity: room >= short ? 'info' : 'warning', termId: '', title: 'Upper-division hours', message: `UGA's bachelor's degrees need at least 39 hours of upper-division work (courses numbered 3000-5999). This plan has ${have}. Make ${short} more ${short === 1 ? 'hour' : 'hours'} of electives 3000-level or above${room >= short ? ': the plan\'s electives below the 3000 level leave room for it' : ''}.` });
+    const unknown = Math.max(0, input.unknownHours ?? 0);
+    const why = room >= short ? ': the plan\'s electives below the 3000 level leave room for it' : unknown > 0 ? `, unless the ${unknown} hours the plan counts without their classes hold them` : '';
+    issues.push({ id: 'uga-rule-upper-division', severity: room + unknown >= short ? 'info' : 'warning', termId: '', title: 'Upper-division hours', message: `UGA's bachelor's degrees need at least 39 hours of upper-division work (courses numbered 3000-5999). This plan has ${have}. Make ${short} more ${short === 1 ? 'hour' : 'hours'} of electives 3000-level or above${why}.` });
   }
   if (own.includes(FRANKLIN_LABELS.socialSciences)) {
     const subjects = new Set(all.filter((code) => /^(?:ANTH|ECON|POLS|PSYC|SOCI|GEOG|AFAM|AFST|CLAS|LACS|WMST) /.test(code)).map((code) => code.split(' ')[0]));

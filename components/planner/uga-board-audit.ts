@@ -292,6 +292,7 @@ export function auditUgaBoard(input: UgaAuditInput) {
       plannedHours,
       // Booked for no row: the board's free electives, where the caller says which row each course was booked for.
       electiveCodes: input.bookedFor ? planned.filter((code) => !prior.has(code) && (input.bookedFor?.[code.replace(/\s+/g, ' ').trim().toUpperCase()] ?? null) === null) : undefined,
+      unknownHours: extraCredits,
       college: undergraduate.program.college,
     }),
   ];

@@ -1099,6 +1099,16 @@ export function repickBoard(input: RepickInput): RepickResult {
     const atStartCodes = new Set(working.terms.flatMap((t) => t.courseIds.map((id) => normaliseCode(byId.get(id)?.code ?? ''))));
     for (const [lab, lecture] of labPartners(ctx.schoolId === 'uga' ? forSchool(heard, 'uga').tracks : heard.tracks)) if (atStartCodes.has(normaliseCode(lab))) lecturesOfLabs.add(normaliseCode(lecture));
   }
+  /*
+   * And at UGA no list's pick goes for a track's lab whose lecture is neither
+   * held nor in that term: a TESOL pre-med board's Physical Sciences lab,
+   * GEOG 1111L, went for CHEM 1211L with no CHEM 1211 on the board (2026-10-29).
+   */
+  const ugaTrackLabs = ctx.schoolId === 'uga' ? labPartners(forSchool(heard, 'uga').tracks) : new Map<string, string>();
+  const lectureThere = (course: Course, term: PlanTerm) => {
+    const lecture = ugaTrackLabs.get(normaliseCode(course.code));
+    return lecture === undefined || held.has(normaliseCode(lecture)) || term.courseIds.some((id) => normaliseCode(byId.get(id)?.code ?? '') === normaliseCode(lecture));
+  };
   for (const term of board.terms) {
     for (const courseId of term.courseIds) {
       if (settled.has(courseId) || trackIds.has(courseId)) continue;
@@ -1131,7 +1141,7 @@ export function repickBoard(input: RepickInput): RepickResult {
         const onBoard = new Set(working.terms.flatMap((t) => t.courseIds));
         const ranked = pool.alternatives
           .map((c) => byCode.get(normaliseCode(c)))
-          .filter((c): c is Course => c !== undefined && !atStart.has(c.id) && !onBoard.has(c.id))
+          .filter((c): c is Course => c !== undefined && !atStart.has(c.id) && !onBoard.has(c.id) && lectureThere(c, term))
           .map((c) => ({ course: c, q: scorer(normaliseCode(c.code)) }))
           .filter((c) => c.q.score > own.score + 0.05)
           .sort((a, b) => b.q.score - a.q.score || b.q.known - a.q.known || a.course.code.localeCompare(b.course.code))

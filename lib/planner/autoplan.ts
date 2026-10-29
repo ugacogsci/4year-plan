@@ -11630,7 +11630,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the fill, which takes only the planner's own lesser picks; a recommended
    * one is left to the fill.
    */
-  const labOf = plainEngine ? plusTrackLabs(LAB_OF, ctx) : labsOf(ctx, input.pairings !== false);
+  // Not const: UGA's Area II lab its rule booked joins it once placed in its lecture's term (below).
+  let labOf = plainEngine ? plusTrackLabs(LAB_OF, ctx) : labsOf(ctx, input.pairings !== false);
   const lectureLab = new Map<string, string>();
   for (const [lab, lecture] of labOf) if (!lectureLab.has(lecture)) lectureLab.set(lecture, lab);
   /** Track rows this plan books itself, with the tier the placer orders them by: 1 required, 2 recommended. */
@@ -13402,6 +13403,22 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       if (planCreditRange([...(placed.get(lectureTerm.id) ?? []), code], ctx).min > creditCapOf(lectureTerm)) continue;
       placed.set(labTerm.id, (placed.get(labTerm.id) ?? []).filter((c) => c !== code));
       placed.set(lectureTerm.id, [...(placed.get(lectureTerm.id) ?? []), code]);
+    }
+    /*
+     * There, a pair as the catalog's are (labOf), so no later pass moves one
+     * off the other's term: year one's pace sent Anthropology's ANTH 2045L
+     * two years past its ANTH 2045 (2026-10-29). Not before placement, where
+     * the pair's term must hold the lab's hour too: on a Marketing and
+     * International Business student's six full terms it cost a required
+     * course its seat.
+     */
+    const pairs = [...chosen].flatMap(([code, why]): Array<[string, string]> => {
+      const lecture = ugaLabOf(code);
+      return lecture && !labOf.has(code) && termOf(code) !== undefined && termOf(code) === termOf(lecture) && ugaLabArea(input.requirements.find((r) => r.id === why.requirementId)?.areaLabel ?? '') ? [[code, lecture]] : [];
+    });
+    if (pairs.length > 0) {
+      labOf = new Map([...labOf, ...pairs]);
+      for (const [lab, lecture] of pairs) if (!lectureLab.has(lecture)) lectureLab.set(lecture, lab);
     }
   }
 
@@ -18195,6 +18212,37 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   if (prePairs !== null) spreadHard(2);
   // The last repair, once every other move is made (AutoplanInput.repairBoard).
   if (input.repairBoard === true) repairBoard();
+
+  /*
+   * Then at UGA a lab apart from its lecture (uga-university-rules.ts
+   * ugaLabOf: the catalog gives UGA's labs no prerequisite to pair them by)
+   * joins it where the lecture's term has room for its hour and the board's
+   * faults do not grow: the placer fills each term to its aim, and once the
+   * foreign language sequence took a seat in each of a science freshman's
+   * first terms, Biology's CHEM 1211L sat a term after its CHEM 1211, with
+   * room beside it (2026-10-29).
+   */
+  if (ctx.schoolId === 'uga') {
+    const labs = terms.flatMap((t) => placed.get(t.id) ?? []).flatMap((code): Array<[string, string]> => { const lecture = ugaLabOf(code); return lecture ? [[code, lecture]] : []; });
+    for (const [lab, lecture] of labs) {
+      const from = terms.find((t) => (placed.get(t.id) ?? []).includes(lab));
+      const to = terms.find((t) => (placed.get(t.id) ?? []).includes(lecture));
+      if (!from || !to || from === to) continue;
+      const here = placed.get(from.id) ?? [];
+      const there = placed.get(to.id) ?? [];
+      const left = here.filter((c) => c !== lab);
+      if (sizeOf([...there, lab]) > creditCapOf(to) || (left.length > 0 && sizeOf(left) < Math.min(credits.min, sizeOf(here)))) continue;
+      // Nor into a season the Schedule of Classes does not run the lab in, which the board's audit flags.
+      const ran = ctx.scheduled?.seasons.get(lab);
+      if (ran && !ran.includes(to.season)) continue;
+      const faults = boardFaults();
+      placed.set(from.id, left);
+      placed.set(to.id, [...there, lab]);
+      if (boardFaults() <= faults) continue;
+      placed.set(from.id, here);
+      placed.set(to.id, there);
+    }
+  }
 
   const termOfCode = (code: string): number => terms.findIndex((t) => (placed.get(t.id) ?? []).includes(code));
   const lateWhy = (code: string, due: number): string => {
