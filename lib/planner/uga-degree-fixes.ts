@@ -5292,6 +5292,45 @@ const WRITTEN: Record<string, WrittenDegree> = {
       ]),
     ],
   },
+  /*
+   * Sociology AB (verified 2026-10-29, bulletin.uga.edu/Program/Details/77932):
+   * Required Courses (27 hours) are the General Sociology Track or the Area
+   * of Emphasis in Sociological Methodology. Picked, the methodology
+   * emphasis was one 27-hour pool of its eight listed courses (24 hours),
+   * which could never be met; it is SOCI 3220, SOCI 3580, three methods
+   * courses, one SOCI course at any level and three at 3000 and above.
+   * (The General Sociology Track is as uga-program-overrides.ts read it.)
+   */
+  '77932': {
+    major: [
+      {
+        ...area('Required Courses', 27, [
+          all('Required Courses', [
+            row('SOCI 3220', 'Development of Sociological Theory', 3),
+            row('SOCI 3580', 'Research Methods in Sociology', 3),
+          ]),
+          choose(focus(1, 'General Sociology Track'), 1, [
+            { code: 'SOCI 2XXX', title: 'SOCI courses at any level', credits: 0, levelFrom: 1, levelTo: 5 },
+          ], 'One SOCI course at any level.'),
+          hoursFrom(focus(1, 'General Sociology Track', 'six SOCI courses numbered 3000 and above'), 18, levels('SOCI', 3), 'A minimum of 6 SOCI courses numbered 3000 and above (not POLS(SOCI) 4905, 5500, 5510 or 5520); no more than six hours from SOCI 4900, 4960R, 4970R, 4980R and 4990R.'),
+          choose(focus(2, 'Area of Emphasis in Sociological Methodology'), 3, [
+            row('POLS 3700', 'Research Methods in Criminal Justice', 3),
+            row('SOCI 3590', 'Qualitative Methods of Social Research', 3),
+            row('SOCI 3610', 'Quantitative Methods of Social Research', 3),
+            row('SOCI 4055', 'Social Policy Storytelling: In and Around Athens', 3),
+            row('SOCI 4250', 'Social Networks', 3),
+            row('SOCI 4930', 'Experimental Research in Sociology', 3),
+          ], 'With the advisor\'s and instructor\'s approval, SOCI 6600, 6620, 6630 or 6750 may count.'),
+          choose(focus(2, 'Area of Emphasis in Sociological Methodology', 'one SOCI course at any level'), 1, [
+            { code: 'SOCI 2XXX', title: 'SOCI courses at any level', credits: 0, levelFrom: 1, levelTo: 5 },
+          ]),
+          hoursFrom(focus(2, 'Area of Emphasis in Sociological Methodology', 'three SOCI courses numbered 3000 and above'), 9, levels('SOCI', 3), 'A minimum of 3 SOCI courses numbered 3000 and above (not POLS(SOCI) 4905, 5500, 5510 or 5520); no more than six hours from SOCI 4900, 4960R, 4970R, 4980R and 4990R.'),
+        ]),
+        excludeCodes: ['SOCI 4905', 'SOCI 5500', 'SOCI 5510', 'SOCI 5520', 'POLS 4905', 'POLS 5500', 'POLS 5510', 'POLS 5520'],
+      },
+      generalElectives(33),
+    ],
+  },
 };
 
 /**
