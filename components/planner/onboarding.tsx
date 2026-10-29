@@ -8,6 +8,7 @@ import { ProgramPicker, type ProgramOption } from './program-picker';
 import { PriorCredit } from './prior-credit';
 import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
 import { ugaOverlapArea } from '@/lib/planner/uga-program-overrides';
+import { UGA_COMING_SOON, ugaComingSoonNote } from '@/lib/planner/uga-degree-fixes';
 import {
   isUgaGraduateDegree,
   isUgaUndergraduateDegree,
@@ -264,6 +265,11 @@ export function Onboarding({
         : catalog?.undergraduateDegrees ?? [UNDECIDED_PROGRAM],
     [answers.programLevel, catalog],
   );
+  // The UGA degrees the picker leaves out for now, named under it.
+  const comingSoonNote = useMemo(
+    () => ugaComingSoonNote((catalog?.ugaPrograms ?? []).filter((program) => UGA_COMING_SOON.has(program.id)).map((program) => program.name)),
+    [catalog],
+  );
   const certificateOptions = useMemo(
     () =>
       answers.programLevel === 'graduate'
@@ -397,7 +403,8 @@ export function Onboarding({
                   kind === 'degree' ? ugaMajorCredits(program) : program.areaHours,
               }))
               .sort((a, b) => a.name.localeCompare(b.name));
-          const undergraduateDegrees = rows.filter(isUgaUndergraduateDegree);
+          // Not the degrees still coming soon (uga-degree-fixes.ts UGA_COMING_SOON); a saved plan of one still loads from ugaPrograms.
+          const undergraduateDegrees = rows.filter((program) => isUgaUndergraduateDegree(program) && !UGA_COMING_SOON.has(program.id));
           const graduateDegrees = rows.filter(isUgaGraduateDegree);
           setCatalog({
             undergraduateDegrees: [
@@ -702,6 +709,9 @@ export function Onboarding({
                   loading={catalog === null}
                   kindLabel={answers.programLevel === 'graduate' ? 'degree' : 'major'}
                 />
+                {answers.schoolId === 'uga' && answers.programLevel === 'undergraduate' && comingSoonNote && (
+                  <p className="onb-q-hint">{comingSoonNote}</p>
+                )}
               </section>
               {answers.schoolId === 'illinois' && answers.programLevel === 'undergraduate' && (
                 <details className="onb-optional-programs" open={answers.minorIds.length > 0 || undefined}>

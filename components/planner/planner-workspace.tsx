@@ -72,6 +72,7 @@ import { defaultGraduateFinish, degreeTermOrder, doubleDawgsContext, doubleDawgs
 import { pathwaysFor, sampleCoursesFor, samplePlansFor } from '@/lib/planner/uga-planning-guidance';
 import { holdMaybe, maybeCodes, maybeIssues, maybeLines, openMaybeOnBoard, withoutMaybe } from '@/lib/planner/transfer-maybe';
 import { ProgramPicker } from './program-picker';
+import { UGA_COMING_SOON } from '@/lib/planner/uga-degree-fixes';
 import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
 import {
   buildContext,
@@ -1071,11 +1072,12 @@ export function PlannerWorkspace({
         .sort((a, b) => a.name.localeCompare(b.name))];
     }
     if (isUga) {
+      // A degree still coming soon (uga-degree-fixes.ts) stays in the menu only for a plan already on it.
       return [UNDECIDED_PROGRAM, ...(uga?.programs ?? [])
         .filter((program) =>
           programLevel === 'graduate'
             ? isUgaGraduateDegree(program)
-            : isUgaUndergraduateDegree(program),
+            : isUgaUndergraduateDegree(program) && (!UGA_COMING_SOON.has(program.id) || programIds.includes(program.id)),
         )
         .map((program) => ({ id: program.id, name: program.name }))
         .sort((left, right) => left.name.localeCompare(right.name))];
