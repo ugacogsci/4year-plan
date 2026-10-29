@@ -7344,7 +7344,10 @@ function freeChoicesGated(given: AutoplanInput): GeneratedPlan {
  * the floor left off add theirs (the owner's rule, 2026-10-06). And a later
  * last term is worse only past the student's graduation term: the floor
  * finished a pre-law Accounting freshman a term early, at 18 credits a
- * term, where the board with the reading finished in her Spring 2031.
+ * term, where the board with the reading finished in her Spring 2031. A
+ * track row later is worse only where the board places no more of the
+ * degree: the floor left a pre-med MIS freshman's ECON 4030 off to keep
+ * BIOL 1107L on time.
  */
 const UGA_SHAPE_MEASURES = new Set(['atCap', 'thin', 'stack2', 'crowded', 'seminar', 'math', 'yearOneHeavy', 'yearOneLight', 'yearOneMajor', 'overTarget']);
 function ugaRequirementMeasure(worse: string, a: GateMeasure, b: GateMeasure): boolean {
@@ -7352,6 +7355,8 @@ function ugaRequirementMeasure(worse: string, a: GateMeasure, b: GateMeasure): b
   // A pre-health track's rows past the total stay as the owner left them (the pending decision): no more slack there.
   if (worse === 'beyond') return a.rowLate.size > 0 || a.beyond > b.beyond + 2 + Math.max(0, b.offHours - a.offHours);
   if (worse === 'terms') return a.lastUsed > Math.max(b.lastUsed, a.targetLast);
+  // The degree beats a pre-health track (the owner's rule, 2026-10-06): a track row later is worse only where the board places no more of the degree.
+  if (worse === 'track') return !(a.unsatisfied.size < b.unsatisfied.size || a.requiredOff.size < b.requiredOff.size || a.offCount < b.offCount);
   if (worse !== 'sequence') return true;
   const lower = (m: GateMeasure) => [...m.split].filter((pair) => Number(pair.split('>')[1]?.match(/\d{4}/)?.[0] ?? 0) < 3000).length;
   return lower(a) > lower(b);
