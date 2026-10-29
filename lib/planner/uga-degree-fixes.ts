@@ -170,6 +170,8 @@ const focus = (n: number, name: string, rows?: string) => `Focus Area ${n}: ${na
 type WrittenDegree = {
   /** Area VI as the page prints it, where the reading lost or mangled it (null: the degree's paths each carry their own, in the major). */
   areaSix?: UgaRequirementArea | null;
+  /** A core area (Areas I to V) as the page prints it, where the reading mangled it: in place of the read area of the same label. */
+  core?: UgaRequirementArea[];
   /** Every area after the core: the major, its electives. */
   major: UgaRequirementArea[];
   /** The page's "Total Major Hours", where the reading lost it. */
@@ -5554,6 +5556,15 @@ const WRITTEN: Record<string, WrittenDegree> = {
    * they are the Bulletin reader's.)
    */
   '42194': {
+    // Area IV's preferred courses are the emphasis language's 1001, 1002 and 2001; read as every language's (44 hours in a 9-hour area).
+    core: [area('IV. World Languages and Global Culture', 9, [
+      fromOneList(hoursFromLists('World Languages and Global Culture', 9, {
+        French: [row('FREN 1001', 'Elementary French I', 4), row('FREN 1002', 'Elementary French II', 4), row('FREN 2001', 'Intermediate French I', 3)],
+        German: [row('GRMN 1001', 'Elementary German I', 4), row('GRMN 1002', 'Elementary German II', 4), row('GRMN 2001', 'Intermediate German I', 3)],
+        Latin: [row('LATN 1001', 'Elementary Latin I', 4), row('LATN 1002', 'Elementary Latin II', 4), row('LATN 2001', 'Intermediate Latin I', 3)],
+        Spanish: [row('SPAN 1001', 'Elementary Spanish I', 4), row('SPAN 1002', 'Elementary Spanish II', 4), row('SPAN 2001', 'Intermediate Spanish I', 3)],
+      }, 'Preferred: 1001, 1002 and 2001 of the emphasis language (or the courses that place past them).'), 2, 'Courses of one language.'),
+    ])],
     areaSix: area('VI. Courses Related to the Major', 15, [
       all('VI. Courses Related to the Major', [
         row('EDUC 2120', 'Exploring Socio-Cultural Perspectives in Educational Contexts', 3),
@@ -5889,7 +5900,7 @@ export function fixedUgaDegree<T extends UgaProgramRecord>(program: T, overlap: 
     const hoursOf = (list: UgaRequirementArea[]) => list.reduce((sum, existing) => sum + existing.hours, 0);
     return { ...program, areas: repaired, areaHours: program.areaHours + hoursOf(repaired) - hoursOf(areas) };
   }
-  const core = areas.filter((existing) => CORE_AREA.test(existing.label));
+  const core = areas.filter((existing) => CORE_AREA.test(existing.label)).map((existing) => written.core?.find((own) => own.label === existing.label) ?? existing);
   const six = written.areaSix === undefined ? areas.find((existing) => AREA_SIX.test(existing.label)) : written.areaSix;
   const kept = areas.filter((existing) => overlap(existing.label));
   const next = [...core, ...(six ? [six] : []), ...written.major, ...kept];
