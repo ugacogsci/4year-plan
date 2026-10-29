@@ -295,6 +295,30 @@ export function parseDetail(html) {
    * planner and by prerequisites; the full title still makes the joint listing
    * visible to a student.
    */
+  /*
+   * The level words of a subject-wide row's second cell: "4000/6000-level
+   * courses", "3000-level or above", and the forms the 2026-10-28 review
+   * found the scrape dropping, whole requirements with them: "prefix
+   * courses numbered 3000-5999" (Communication Studies), "prefix course
+   * numbered 3000 and above" (Sociology), "prefix course at any level",
+   * "course(s) at the 4000-5000 level" (Risk Management, Real Estate).
+   */
+  const levelWords = (title) => {
+    const text = clean(title);
+    let m = text.match(/^(?:prefix\s+)?(\d)000(?:\/(\d)000)?-level(?:\s+or\s+(higher|above|below))?/i);
+    if (m) return { level: m[1], range: levelRange(m[1], m[2] && Number(m[2]) <= 5 ? m[2] : null, m[3]) };
+    m = text.match(/^(?:prefix\s+)?courses?(?:\(s\))?\s+numbered\s+(\d)000\s*-\s*(\d)999\b/i);
+    if (m) return { level: m[1], range: levelRange(m[1], m[2], null) };
+    m = text.match(/^(?:prefix\s+)?courses?(?:\(s\))?\s+numbered\s+(\d)000\s+(?:and|or)\s+(above|higher)\b/i);
+    if (m) return { level: m[1], range: levelRange(m[1], null, m[2]) };
+    m = text.match(/^(?:prefix\s+)?courses?(?:\(s\))?\s+at\s+the\s+(\d)000\s*[-\/]\s*(\d)000[-\s]level\b/i);
+    if (m) return { level: m[1], range: levelRange(m[1], Number(m[2]) <= 5 ? m[2] : null, null) };
+    m = text.match(/^(?:prefix\s+)?courses?(?:\(s\))?\s+at\s+the\s+(\d)000[-\s]level(?:\s+or\s+(higher|above|below))?/i);
+    if (m) return { level: m[1], range: levelRange(m[1], null, m[2]) };
+    if (/^(?:prefix\s+)?courses?(?:\(s\))?\s+at\s+any\s+level\b/i.test(text)) return { level: '2', range: { levelFrom: 1, levelTo: 5 } };
+    return null;
+  };
+
   const courseCode = (rawCode, title = '') => {
     const raw = clean(rawCode)
       .replace(/\s*\*+\s*$/, '')
@@ -308,17 +332,12 @@ export function parseDetail(html) {
     // The major-elective row is split across two cells: "CSCI" and
     // "4000/6000-level courses". It is a real twelve-hour pool, not one course.
     const subject = raw.match(/^([A-Z]{2,5})$/)?.[1];
-    const level = clean(title).match(
-      /^(?:prefix\s+)?(\d)000(?:\/\d000)?-level(?:\s+or\s+(?:higher|above|below))?\s*(?:courses?)?/i,
-    )?.[1];
+    const level = levelWords(title)?.level;
     return subject && level ? `${subject} ${level}XXX` : null;
   };
   /** The level range a two-cell subject row's title words ("4000/6000-level courses", "3000-level or above"). */
-  const titleRange = (code, title) => {
-    const m = code.match(/ (\d)XXX$/) ? clean(title).match(/^(?:prefix\s+)?(\d)000(?:\/(\d)000)?-level(?:\s+or\s+(higher|above|below))?/i) : null;
-    // "4000/6000-level" is an undergraduate course and its graduate number, not two levels.
-    return m ? levelRange(m[1], m[2] && Number(m[2]) <= 5 ? m[2] : null, m[3]) : {};
-  };
+  // "4000/6000-level" is an undergraduate course and its graduate number, not two levels (levelWords).
+  const titleRange = (code, title) => (code.match(/ (\d)XXX$/) ? levelWords(title)?.range ?? {} : {});
 
   // Course rows: each course is its own one-row table, "CODE | Title | Hours".
   // Keep whether the Bulletin printed AND immediately before the row. A
@@ -362,8 +381,9 @@ export function parseDetail(html) {
 
   // A subject-wide elective is rendered as a linked subject followed by prose,
   // not as a normal course code cell: "CSCI 4000/6000-level courses".
+  // Not past the next linked subject, nor past a row the loop below reads: Communication Studies' "COMM prefix courses numbered 3000-5999" read the "2000-level credit" of the note after it.
   for (const m of html.matchAll(
-    /<a[^>]*>\s*([A-Z]{2,5})\s*<\/a>[\s\S]{0,240}?(?:prefix\s+)?(\d)000(?:\/(\d)000)?-level(?:\s+or\s+(higher|above|below))?/gi,
+    /<a[^>]*>\s*([A-Z]{2,5})\s*<\/a>(?:(?!<a[\s>]|numbered\s+\d|at\s+any\s+level|at\s+the\s+\d)[\s\S]){0,240}?(?:prefix\s+)?(\d)000(?:\/(\d)000)?-level(?:\s+or\s+(higher|above|below))?/gi,
   )) {
     const second = m[3] && Number(m[3]) <= 5 ? m[3] : null;
     marks.push({
@@ -374,6 +394,15 @@ export function parseDetail(html) {
       title: `${m[1].toUpperCase()} ${m[2]}000${second ? `/${second}000` : ''}-level${m[4] ? ` or ${m[4].toLowerCase()}` : ''} courses`,
       credits: 0,
     });
+  }
+
+  // The forms that loop does not read ("numbered 3000-5999", "numbered 3000 and above", "at any level", "at the 4000-5000 level"), from the words right after the subject (levelWords).
+  for (const m of html.matchAll(/<a[^>]*>\s*([A-Z]{2,5})\s*<\/a>/g)) {
+    const after = clean(html.slice((m.index ?? 0) + m[0].length, (m.index ?? 0) + m[0].length + 400)).replace(/^[|\s]+/, '');
+    if (/^(?:prefix\s+)?(?:courses?\s+)?\d000(?:\/\d000)?-level/i.test(after)) continue;
+    const read = levelWords(after);
+    if (!read) continue;
+    marks.push({ kind: 'course', at: m.index ?? 0, code: `${m[1].toUpperCase()} ${read.level}XXX`, ...read.range, title: `${m[1].toUpperCase()} ${after.split('|')[0].trim().slice(0, 80)}`, credits: 0 });
   }
 
   // Some elective buckets are intentionally campus-wide and therefore have
@@ -525,6 +554,21 @@ export function parseDetail(html) {
     });
   }
 
+  /*
+   * "Choose 5 to 7 courses from the following" and "Choose 12 to 18 credit
+   * hours": the least they ask for. "Choose a maximum of 2 course(s)" is a
+   * list a student may take from, not a requirement: a group of its own
+   * that asks for none, so its subject row does not join the take-every-
+   * course row above it (Communication Studies' COMM 2XXX).
+   */
+  for (const m of html.matchAll(/Choose\s+(\d+)\s+to\s+\d+\s+(courses?|credit\s+hours?)\b/gi)) {
+    const inHours = /credit/i.test(m[2]);
+    marks.push({ kind: 'rule', at: m.index ?? 0, choose: inHours ? null : Number(m[1]), hours: inHours ? Number(m[1]) : null, minimum: true, upperDivisionHours: null, minimumAreas: null, note: clean(html.slice(m.index ?? 0, (m.index ?? 0) + 300)).match(/^Choose\b.*?(?:\.(?=\s)|:|$)/i)?.[0] ?? '', grouped: false, structured: false });
+  }
+  for (const m of html.matchAll(/Choose\s+a\s+maximum\s+of\s+(\d+)\s+(?:course|credit\s+hour)\(s\)/gi)) {
+    marks.push({ kind: 'rule', at: m.index ?? 0, choose: 0, hours: null, minimum: false, upperDivisionHours: null, minimumAreas: null, note: clean(m[0]), grouped: false, structured: false });
+  }
+
   // Minor and certificate pages write the rule as prose over named groups:
   // "Choose a total of 4 courses from Group 1 and Group 2." One rule for the
   // area, its groups the lists it draws on (structured, as "Choose a minimum
@@ -572,8 +616,9 @@ export function parseDetail(html) {
       // required degree areas. Do not let each one reset the optional-section
       // guard. "Total Major Hours" is the reliable boundary at the end of an
       // optional emphasis and still needs to be captured as the degree total.
+      // And "Major Electives", printed after an optional area of emphasis on the Risk Management and Real Estate pages (2026-10-28).
       const resumesRequiredDegree =
-        /^(?:general|free) electives?\b/i.test(mk.label) ||
+        /^(?:general|free|major) electives?\b/i.test(mk.label) ||
         /^total\b/i.test(mk.label);
       if (skipOptional && !resumesRequiredDegree) {
         area = null;
