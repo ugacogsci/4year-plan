@@ -559,6 +559,11 @@ const UNIVERSITY_WIDE: UgaRequirementArea = {
   ],
 };
 
+/** The languages UGA's "Any foreign language course" rows list, and the third semester course of each the catalog has. */
+const LANGUAGE_SUBJECTS = ['AMHA', 'ARAB', 'BENG', 'CHNS', 'FREN', 'GRMN', 'GREK', 'HAUS', 'HEBR', 'HNDI', 'INDO', 'ITAL', 'JPNS', 'KREN', 'LATN', 'PASH', 'PERS', 'PORT', 'QUEC', 'RUSS', 'SCAN', 'SLAV', 'SPAN', 'SWAH', 'TURK', 'URDU', 'VIET', 'YORB', 'ZULU'];
+// The languages most students bring from high school first: with every language's, the row took KREN 2001, whose line names no KREN 1002, for a freshman with no Korean.
+const THIRD_SEMESTER_LANGUAGE = ['SPAN 2001', 'FREN 2001', 'GRMN 2001', 'ITAL 2001', 'LATN 2001', 'CHNS 2001', 'JPNS 2001', 'PORT 2001', 'RUSS 2001', 'ARAB 2003'].map((code) => ({ code, title: `${code.split(' ')[0]} third semester`, credits: 3 }));
+
 /** Whether an area is one of a degree's graduation requirements that courses counted elsewhere meet (TERRY_GRADUATION, UNIVERSITY_WIDE). */
 export function ugaOverlapArea(label: string): boolean {
   return [TERRY_GRADUATION_LABEL, UNIVERSITY_WIDE_LABEL].some((own) => label === own || label.endsWith(`: ${own}`));
@@ -731,6 +736,28 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
       });
       repaired = { ...repaired, areas } as T;
     }
+    /*
+     * Area VI's language row, a choice of one whose courses the scrape
+     * lost (a list of subjects or a sentence, no course table), so the row
+     * could never be met and complete seniors read "VI 15 of 18" (verified
+     * 2026-10-28 on bulletin.uga.edu/Program/Details/46524 and 35426):
+     * Political Science asks for the third semester course of a foreign
+     * language, History for any foreign language course.
+     */
+    const languageRow = (rows: UgaRequirementCourse[], note: string) => {
+      const areas = (repaired.areas as Array<AreaShape & { groups: Array<{ choose: number | null; courses: unknown[] }> }>).map((area) => {
+        if (!/^VI\./.test(area.label)) return area;
+        let done = false;
+        return { ...area, groups: area.groups.map((group) => {
+          if (done || group.choose !== 1 || group.courses.length > 0) return group;
+          done = true;
+          return { ...group, label: 'Foreign language', note, courses: rows };
+        }) };
+      });
+      repaired = { ...repaired, areas } as T;
+    };
+    if (program.id === '46524') languageRow(THIRD_SEMESTER_LANGUAGE, 'The third semester course of a foreign language.');
+    if (program.id === '35426') languageRow(LANGUAGE_SUBJECTS.map((subject) => ({ code: `${subject} 1XXX`, title: `${subject} courses`, credits: 0, levelTo: 4 })), 'Any foreign language course.');
     if (program.college === 'BUS' && program.degree === 'BBA') repaired = withAreaAfter(repaired, '', TERRY_GRADUATION, false);
     if (program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree ?? '')) repaired = withAreaAfter(repaired, '', UNIVERSITY_WIDE, false);
     return repaired;
