@@ -5251,7 +5251,8 @@ function barReading(ctx: Pick<PlanningContext, 'prereqs' | 'sections'>, code: st
     // "Enrollment restricted to students with permanent disabilities" (HK 108).
     if (/\b(honors|merit program|lab)\s+(lab\s+)?discussion\b/i.test(title)) return 'a discussion that goes with the honors or merit section of its lecture';
     if (/\bgrad(uate)?\b/i.test(title) || /\b(thesis|dissertation)\b/i.test(title) || /^\s*graduate standing|\bgraduate students only\b|\brequired of all (first[- ]year )?graduate students\b/i.test(text)) return 'a graduate or thesis course';
-    if (/\b(independent study|individual study|research project|undergrad(uate)? research|introduction to research|practicum|internship|open seminar)\b/i.test(title)) return 'arranged with a faculty member or an agency';
+    // And UGA's "Directed Reading" and "Directed Study" (ECOL 3900 was a pre-med Biology freshman's last two credits, 2026-10-29).
+    if (/\b(independent study|individual study|directed (?:readings?|stud(?:y|ies))|research project|undergrad(uate)? research|introduction to research|practicum|internship|open seminar)\b/i.test(title)) return 'arranged with a faculty member or an agency';
     if (/\bstudy abroad\b/i.test(title)) return 'for students studying abroad';
     // "Induction into the Finance Academy." (FIN 390) too: the fill kept it
     // out by its own filter, and the card's dropdown and the finder, which
