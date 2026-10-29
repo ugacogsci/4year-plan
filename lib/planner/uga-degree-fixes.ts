@@ -1448,6 +1448,64 @@ const WRITTEN: Record<string, WrittenDegree> = {
       generalElectives(15),
     ],
   },
+  /*
+   * Art: Interdisciplinary Art AB (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/86044): Area VI is five foundations
+   * courses and "Choose 2 course(s)" from ten studio groups; the reading
+   * required all 22. Required Courses (48 hours): 24 hours of art at the
+   * 3000 level or above, a required studio, 6 hours of art history and a
+   * 15-hour interdisciplinary elective; the reading left 24 hours unnamed.
+   */
+  '86044': {
+    areaSix: area('VI. Courses Related to the Major', 18, [
+      all('VI. Courses Related to the Major', [
+        row('ARST 1040', 'Proseminar in Studio Art', 1),
+        row('ARST 1050', 'Drawing I: Observation and Visual Language', 3),
+        row('ARST 1060', 'Color/Composition', 3),
+        row('ARST 1080', 'Three-Dimensional Design', 3),
+        row('ARST 2020', 'Ideation and Methodologies', 3),
+      ]),
+      choose('Two studio courses', 2, [
+        row('ARST 2000', 'Introduction to Figure Drawing', 3),
+        row('ARST 2010', 'Drawing and Visuality', 3),
+        row('ARST 2100', 'Introduction to Painting and Visuality', 3),
+        row('ARST 2110', 'Intermediate Painting', 3),
+        row('ARST 2210', 'Introduction to Photography and Image Culture', 3),
+        row('ARST 2810', 'Hypermedia', 3),
+        row('ARST 2350', 'Introduction to Printmaking', 3),
+        row('ARST 2400', 'Fundamentals of Sculpture', 3),
+        row('ARST 2500', 'Introduction to Ceramics', 3),
+        row('ARST 2550', 'Ceramics - Introductory Pottery', 3),
+        row('ARST 2600', 'Jewelry and Metals: Design and Construction', 3),
+        row('ARST 2700', 'Textile Foundations', 3),
+        row('ARST 2710', 'Surface Design', 3),
+        row('ARGD 2010', 'Graphic Design Survey', 3),
+        row('ARGD 2030', 'Introduction to Typography in Visual Communication', 3),
+        row('ARID 2110', 'Studio I: Single Family Residential Design', 3),
+        row('ARID 2210', 'Concepts in Design', 3),
+        row('ARST 2800', 'Introduction to Digital Imaging', 3),
+      ], 'From Drawing and Painting, Photography and Expanded Media, Printmaking, Sculpture and Technology, Ceramics, Jewelry/Metalwork, Fabric Design, Graphic Design, Interior Design or Scientific Illustration (ARST 2205 with its lab may replace ARST 2210; only one counts).'),
+    ]),
+    major: [
+      area('Required Courses', 48, [
+        hoursFrom('Studio and design courses', 24, ['ARGD', 'ARHI', 'ARID', 'ARST', 'ARTS'].flatMap((subject) => levels(subject, 3)), 'ARGD, ARHI, ARID, ARST or ARTS courses at the 3000 level or above. A grade of C or better in major courses.'),
+        choose('Required Studio', 1, [
+          row('ARST 4915', 'Thematic Inquiry in Contemporary Art', 3),
+          row('ARST 4920', 'IDEA Seminar: Innovation, Design, Entrepreneurship, and Art', 3),
+          row('ARTS 4100', 'Art and Design in the City Intensive Field Study', 3),
+        ]),
+        hoursFrom('Art History', 6, [
+          ...levels('ARHI', 3),
+          row('ARGD 3070', 'The History of Graphic Design', 3),
+          row('ARID 3210', 'Design History I', 3),
+          row('ARID 3220', 'Design History II', 3),
+        ]),
+        hoursFrom('Interdisciplinary Elective: 3000-level or above', 9, [ANY_UPPER_COURSE], 'A certificate, minor or additional degree in a field outside the School of Art, or 15 hours of general electives, at least 9 of them at the 3000 level or above.'),
+        hoursFrom('Interdisciplinary Elective', 6, [ANY_COURSE]),
+      ]),
+      generalElectives(12),
+    ],
+  },
 };
 
 /**
@@ -1480,12 +1538,31 @@ const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementAr
 const CORE_AREA = /^(?:I|II|III|IV|V)\.\s/;
 const AREA_SIX = /^VI\.\s/;
 
+/**
+ * Area I as the pages print it: ENGL 1101 and ENGL 1102, then "Choose
+ * course(s) from the following" (no number) and the mathematics courses.
+ * Read as one list of 9 hours, four degrees' boards (71747, 75605, 86044,
+ * 99676) took MATH 1101, MATH 1113 and STAT 2000 and no English
+ * composition (2026-10-29). Nothing changes where the list was read apart.
+ */
+function foundationRead(areas: UgaRequirementArea[]): UgaRequirementArea[] {
+  return areas.map((existing) => {
+    if (!/^I\.\s/.test(existing.label)) return existing;
+    return { ...existing, groups: existing.groups.flatMap((group) => {
+      const codes = group.courses.map((course) => course.code);
+      if (group.choose !== null || group.hours != null || !codes.includes('ENGL 1101') || !codes.includes('ENGL 1102') || !codes.some((code) => /^(?:MATH|STAT) /.test(code))) return [group];
+      const english = group.courses.filter((course) => /^ENGL 110[12]$/.test(course.code));
+      return [{ ...group, courses: english }, { label: '', choose: 1, courses: group.courses.filter((course) => !english.includes(course)) }];
+    }) };
+  });
+}
+
 /** `program` with its written areas, or its repaired rows, where this file has them (`overlap`: an area courses counted elsewhere meet). */
 export function fixedUgaDegree<T extends UgaProgramRecord>(program: T, overlap: (label: string) => boolean): T {
   const written = WRITTEN[program.id];
   const repair = REPAIRED[program.id];
-  if (!written) return repair ? { ...program, areas: repair(program.areas as UgaRequirementArea[]) } : program;
-  const areas = program.areas as UgaRequirementArea[];
+  const areas = foundationRead(program.areas as UgaRequirementArea[]);
+  if (!written) return { ...program, areas: repair ? repair(areas) : areas };
   const core = areas.filter((existing) => CORE_AREA.test(existing.label));
   const six = written.areaSix ?? areas.find((existing) => AREA_SIX.test(existing.label));
   const kept = areas.filter((existing) => overlap(existing.label));
