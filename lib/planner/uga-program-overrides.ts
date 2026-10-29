@@ -637,6 +637,26 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
       const areas = (repaired.areas as AreaShape[]).map((area) => (area.label === 'Required Courses' && area.hours === 36 ? { ...area, hours: 24 } : area));
       repaired = { ...repaired, areas, areaHours: repaired.areaHours - 12 } as T;
     }
+    /*
+     * Communication Studies AB: Required Courses (27 hours) is COMM 3300,
+     * COMM 3700, at most two COMM 2000-level courses and five to seven COMM
+     * courses numbered 3000-5999 (verified 2026-10-28,
+     * bulletin.uga.edu/Program/Details/52209). The scrape kept the first
+     * three rows as courses to take and lost the 3000-5999 choice, so every
+     * board read 9 of 27 and a senior's thirteen COMM 3000+ courses counted
+     * for nothing.
+     */
+    if (program.id === '52209') {
+      const areas = (repaired.areas as Array<AreaShape & { groups: unknown[] }>).map((area) => (area.label === 'Required Courses' && area.hours === 27 ? { ...area, groups: [
+        { label: 'Required Courses', choose: null, courses: courses([['COMM 3300', 'Introduction to Rhetorical Criticism', 3], ['COMM 3700', 'Empirical Research Methods in Communication', 3]]) },
+        { label: 'COMM courses', choose: null, hours: 21, note: 'Choose 5 to 7 COMM courses numbered 3000-5999 and at most 2 numbered 2000-2999 (at most 6 hours of 2000-level credit).', courses: [
+          { code: 'COMM 3XXX', title: 'COMM courses numbered 3000-5999', credits: 0, levelTo: 5 },
+          { code: 'COMM 4XXX', title: 'COMM 4000-level courses', credits: 0 },
+          { code: 'COMM 2XXX', title: 'COMM courses numbered 2000-2999 (at most two)', credits: 0 },
+        ] },
+      ] } : area));
+      repaired = { ...repaired, areas } as T;
+    }
     if (program.college === 'BUS' && program.degree === 'BBA') repaired = withAreaAfter(repaired, '', TERRY_GRADUATION, false);
     if (program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree ?? '')) repaired = withAreaAfter(repaired, '', UNIVERSITY_WIDE, false);
     return repaired;
