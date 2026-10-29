@@ -941,6 +941,17 @@ function adaptProgram(
    * required, honors-only and summer-only ones among them, and a senior's
    * last term five of them (2026-10-28). Such a row becomes a choice of one.
    */
+  /*
+   * Nor is a general-elective area's hours a list of the one or two courses
+   * the page happens to name in it: Journalism's "General Electives (15
+   * hours)" read as 15 hours from JOUR 5010, a one-credit internship, and the
+   * bar's first item was "General Electives: 15 hours from this list, 1 hour
+   * in the plan" on a board with fourteen electives (2026-10-28). Such a
+   * group is left out, and the area's hours are the electives the fill books.
+   */
+  program = { ...program, areas: program.areas.map((area) => (/^(?:general|free) electives?\b/i.test(area.label)
+    ? { ...area, groups: area.groups.filter((group) => !(group.courses.length > 0 && group.courses.every((row) => !/\b[1-9]XXX\b/.test(row.code)) && group.courses.reduce((sum, row) => sum + row.credits, 0) < (group.hours ?? area.hours))) }
+    : area)) };
   program = { ...program, areas: program.areas.map((area) => ({ ...area, groups: area.groups.flatMap((group) => {
     const wildcard = (row: RawUgaRequirementCourse) => /^[A-Z]{2,5} [1-9]XXX$/.test(canonicalUgaCode(row.code)) && !canonicalUgaCode(row.code).startsWith('ANY ');
     if (group.choose !== null || poolLikeGroup(area, group) || !group.courses.some(wildcard) || group.courses.every(wildcard)) return [group];

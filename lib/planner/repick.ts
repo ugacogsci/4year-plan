@@ -1089,9 +1089,20 @@ export function repickBoard(input: RepickInput): RepickResult {
   // Over the board as it was when the call began, so a course swapped in is
   // never looked at again: Sofia's Spring 2029 chain of five swaps (PSYC 339
   // to PSYC 420, HDFS 330 to PSYC 339, ...) was one course out and one in.
+  /*
+   * Nor a lecture whose lab is on the board: a TESOL pre-med board's CHEM
+   * 1211, a core list's pick, went for an easier course and left CHEM 1211L
+   * alone (2026-10-28).
+   */
+  const lecturesOfLabs = new Set<string>();
+  {
+    const atStartCodes = new Set(working.terms.flatMap((t) => t.courseIds.map((id) => normaliseCode(byId.get(id)?.code ?? ''))));
+    for (const [lab, lecture] of labPartners(ctx.schoolId === 'uga' ? forSchool(heard, 'uga').tracks : heard.tracks)) if (atStartCodes.has(normaliseCode(lab))) lecturesOfLabs.add(normaliseCode(lecture));
+  }
   for (const term of board.terms) {
     for (const courseId of term.courseIds) {
       if (settled.has(courseId) || trackIds.has(courseId)) continue;
+      if (lecturesOfLabs.has(normaliseCode(byId.get(courseId)?.code ?? ''))) continue;
       const mark = input.marks.get(courseId);
       // The language course meets the language requirement, a booked
       // prerequisite is there for a later course, and a track course is
