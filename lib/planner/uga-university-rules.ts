@@ -572,6 +572,46 @@ function levelsByCode(table: LanguageTable): Map<string, { name: string; level: 
   return out;
 }
 
+/**
+ * Whether a course is an accelerated one, two semesters of a sequence in
+ * one (SPAN 1110): no list's pick, beside a sequence that books those
+ * semesters or a placement past them. Picked for Spanish's Area VI
+ * "Related courses", SPAN 1110 sat beside SPAN 1001 in a freshman's first
+ * fall, and SPAN 2001 then went beside SPAN 1002 (2026-10-29).
+ */
+export function ugaAcceleratedCourse(code: string): boolean {
+  return norm(code) in ACCELERATED || baseCode(code) in ACCELERATED;
+}
+
+/**
+ * Whether a course is a semester of a language the student is already past:
+ * one below the highest they hold (an accelerated course counts its last
+ * level) or, in the language they named, below the level they said they
+ * start at. A Spanish freshman taking SPAN 1110 had SPAN 1001 and SPAN 1002
+ * picked for her Area VI "Related courses" (2026-10-29).
+ */
+export function ugaLanguageBehind(table: LanguageTable | undefined, code: string, held: Iterable<string>, placed?: number | null, named?: string | null): boolean {
+  if (!table) return false;
+  const levels = levelsByCode(table);
+  const at = levels.get(baseCode(code)) ?? levels.get(norm(code));
+  if (!at) return false;
+  let top = 0;
+  for (const raw of held) {
+    const level = levels.get(baseCode(raw)) ?? levels.get(norm(raw));
+    if (level && level.name === at.name) top = Math.max(top, level.level + 1);
+  }
+  if (placed && named && at.name.toLowerCase() === named.trim().toLowerCase()) top = Math.max(top, placed);
+  return at.level < top;
+}
+
+/** The language a board's sequence is planned in (expandUgaLanguage's row, its courses in order), or null. */
+export function ugaPlannedLanguage(table: LanguageTable | undefined, requirements: ReadonlyArray<PlanRequirement>): string | null {
+  if (!table) return null;
+  const row = requirements.find((r) => ugaLanguageArea(r.areaLabel) && r.rule.kind === 'all');
+  const first = row && row.rule.kind === 'all' ? row.rule.choices[0]?.codes[0] : undefined;
+  return first ? levelsByCode(table).get(baseCode(first))?.name ?? null : null;
+}
+
 /** Whether a course is one of a language's sequence courses (SPAN 1001, ARAB 2003), for the core lists' picks; not one of `named`, the language the student said in setup. */
 export function ugaLanguageCourse(table: LanguageTable | undefined, code: string, named?: string | null): boolean {
   if (!table) return false;
@@ -644,13 +684,14 @@ export function expandUgaLanguage(input: AutoplanInput): { requirements: PlanReq
   }
   if (!chosen) {
     // The degree's own language: the one its other rows name most, in rows of one or two languages (FREN for a French AB, GREK or LATN for Classics; a row of every language, "any foreign language at the 2000-level", names none), so the board holds one language.
+    // A row of up to eighty: Classics' Classical Culture emphasis, read as its own row (scripts/uga-programs.mjs withSections), is 66 courses of CLAS, GREK and LATN, and under forty the board planned Spanish beside the Greek and Latin its picks brought in (2026-10-29).
     const count = new Map<string, number>();
     const languageOf = (code: string) => {
       const subject = norm(code).split(' ')[0];
       return table.languages.find((l) => l.levels.some((options) => options.some((option) => option.some((c) => c.startsWith(`${subject} `)))))?.name;
     };
     for (const r of rest) {
-      if (!('choices' in r.rule) || ugaRuleArea(r.areaLabel) || r.rule.choices.length > 40) continue;
+      if (!('choices' in r.rule) || ugaRuleArea(r.areaLabel) || r.rule.choices.length > 80) continue;
       const names = r.rule.choices.flatMap((choice) => choice.codes.map(languageOf)).filter((name): name is string => Boolean(name));
       // One language, or two (Classics' Greek and Latin rows); a row of more is any language.
       if (new Set(names).size === 0 || new Set(names).size > 2) continue;
@@ -660,6 +701,20 @@ export function expandUgaLanguage(input: AutoplanInput): { requirements: PlanReq
     if (top && top[1] >= 2) {
       chosen = byName(top[0]);
       if (chosen) why = `Your degree's own courses are in ${chosen.name}.`;
+    }
+  }
+  if (!chosen) {
+    // Else the one the degree's Four-Year Program of Study books (its sample plan): Latin for Classics, whose Classical Culture
+    // emphasis names Greek, Latin and Hebrew courses alike, and whose board planned Spanish beside them (2026-10-29).
+    const count = new Map<string, number>();
+    for (const code of input.context.samplePlanCourses ?? []) {
+      const at = levels.get(baseCode(code));
+      if (at) count.set(at.name, (count.get(at.name) ?? 0) + 1);
+    }
+    const top = [...count].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+    if (top && top[1] >= 2) {
+      chosen = byName(top[0]);
+      if (chosen) why = `Your degree's four-year program of study plans ${chosen.name}.`;
     }
   }
   if (!chosen) {

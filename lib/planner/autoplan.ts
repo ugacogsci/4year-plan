@@ -14,7 +14,7 @@ import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInp
 import { anyCourseTakes, withHeldAnyCourse, withHeldInRange, type AnyCourseRule } from './any-course';
 import { calendarYearOf, regularSeasons, requiredSummerOn, runsInSummer, summerOnlyListed, ugaSummerOnlyMessage, type SummerYears } from './summer-offering';
 import { ugaOverlapArea } from './uga-program-overrides';
-import { expandUgaLanguage, ugaLabArea, ugaLabOf, ugaLanguageArea, ugaLanguageCourse, ugaRuleArea, ugaRuleFamily, ugaUpperDivisionShort, withUgaUniversityRows } from './uga-university-rules';
+import { expandUgaLanguage, ugaAcceleratedCourse, ugaLabArea, ugaLabOf, ugaLanguageArea, ugaLanguageBehind, ugaLanguageCourse, ugaPlannedLanguage, ugaRuleArea, ugaRuleFamily, ugaUpperDivisionShort, withUgaUniversityRows } from './uga-university-rules';
 
 /**
  * The deterministic half of the planner: build a four-year plan, and check one.
@@ -9742,6 +9742,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    */
   // Not UGA's university-wide and college rules (uga-university-rules.ts), whose lists name half the catalog: Landscape Architecture's required choice took LAND 4090, on its cultural diversity list, and could not place it.
   const choiceRows = ctx.schoolId === 'uga' ? input.requirements.filter((r) => r.rule.kind === 'choose' && !ugaRuleArea(r.areaLabel)) : [];
+  // The language of the board's UGA sequence (expandUgaLanguage), for the choices (otherLanguage).
+  const planLanguage = ctx.schoolId === 'uga' ? ugaPlannedLanguage(ctx.languages, input.requirements) : null;
   /*
    * The courses a UGA graduation requirement met by courses counted
    * elsewhere names (uga-program-overrides.ts ugaOverlapArea: Terry's
@@ -9771,8 +9773,16 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     }
     return wants;
   };
+  /*
+   * Not a row the student's record already meets: a senior holding RMIN 5540
+   * and FINA 4200 for Risk Management's Major Related Courses took ECON 4150
+   * for Terry's economics requirement as one course for both rows, booked
+   * ECON 4010 before it in her one term left, and had no seat for her two
+   * World Languages courses (2026-10-29).
+   */
+  const metByRecord = (r: PlanRequirement): boolean => r.rule.kind === 'choose' && r.rule.choices.filter((choice) => choice.codes.some((c) => earned.has(normaliseCode(c)))).length >= r.rule.n;
   const inOtherChoice = (code: string, requirementId: string): number =>
-    choiceRows.some((r) => r.id !== requirementId && r.rule.kind === 'choose' && r.rule.choices.some((choice) => choice.codes.some((c) => expandEquivalents(code, equivalents).includes(normaliseCode(c))))) ? 0 : 1;
+    choiceRows.some((r) => r.id !== requirementId && r.rule.kind === 'choose' && !metByRecord(r) && r.rule.choices.some((choice) => choice.codes.some((c) => expandEquivalents(code, equivalents).includes(normaliseCode(c))))) ? 0 : 1;
   /** The area of the requirement a chosen course was booked for: a trimmed row shares only another area's course. */
   const areaOfRequirement = new Map(input.requirements.map((r) => [r.id, r.areaId]));
   /** Whether any of the degree's rows names the course (or a version of it): such a course is never only a prerequisite. */
@@ -10059,6 +10069,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const poolOrderFor = (have: Set<string>, together?: Map<string, string[]>, sequence = new Set<string>(), breadth: { broad: boolean; core: boolean; hours?: number | null; upper?: boolean } = { broad: false, core: false }) => {
     const memo = new Map<string, number>();
     const ruleWants = breadth.broad && ruleRows.length > 0 ? ruleWantsFor(have) : null;
+    // At UGA the language courses the student holds and the board has booked, for ugaLanguageBehind (SPAN 1110 booked: SPAN 1001 is behind it).
+    const languageHad = ctx.schoolId === 'uga' ? [...input.prior.courseCodes, ...have] : [];
     // Remembered by code (rememberedBy) for the pool's sorts, as its
     // prerequisite cost already is: nothing it reads changes while the pool
     // fills, `have` included, and the comparator asked for each key a dozen
@@ -10209,7 +10221,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        * consulting goal) (2026-10-29).
        */
       const rules = ruleWants ? [-(ruleWants.get(code) ?? 0)] : [];
-      const lone = ctx.schoolId === 'uga' && breadth.core && ugaLanguageCourse(ctx.languages, code, input.prior.languageName) ? 1 : 0;
+      // And on any UGA list an accelerated course (ugaAcceleratedCourse), the named language's too, or a semester the student is past or the board books past (ugaLanguageBehind): a held one is the student's, never a pick.
+      const lone = ctx.schoolId === 'uga' && ((breadth.core && ugaLanguageCourse(ctx.languages, code, input.prior.languageName)) || ugaAcceleratedCourse(code) || ugaLanguageBehind(ctx.languages, code, languageHad, input.prior.languageSemesters, input.prior.languageName)) ? 1 : 0;
       const schedule = ctx.schoolId === 'uga' ? [signals.offSchedule(code), lone, breadth.core && meetsTwo.size > 0 && !meetsTwo.has(code) ? 1 : 0, (breadth.core && (coreOutsider?.(code) ?? 0) > 0) || (breadth.broad && (coreOutsider?.(code) ?? 0) >= 4) ? 1 : 0] : [];
       const wantedHere = breadth.broad && lastTies && !subjectHere && signals.band(code) === POPULAR_BANDS.length ? 1 : wanted;
       const key = input.goalRows
@@ -11214,6 +11227,23 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // And any UGA choice the language sequence's own course (expandUgaLanguage): Political Science's "third semester course" row took FREN 2001, and FREN 1001 and 1002 with it, beside the Spanish the sequence booked.
         const ofSequence = (code: string): number => (ctx.schoolId === 'uga' && ugaLanguageArea(input.requirements.find((r) => r.id === chosen.get(code)?.requirementId)?.areaLabel ?? '') ? 0 : 1);
         /*
+         * A course another choice of the degree also takes (inOtherChoice)
+         * goes first only where it brings in no course the board does not
+         * hold: a Risk Management freshman's Terry economics requirement
+         * took ECON 4150, also one of her Major Related Courses, which then
+         * took two others, and ECON 4010 came in for it (2026-10-29).
+         */
+        const readyMemo = new Map<string, number>();
+        let readyHave: Set<string> | null = null;
+        const otherChoice = rememberedBy((code: string): number => {
+          if (inOtherChoice(code, requirement.id) === 1) return 1;
+          readyHave ??= new Set([...satisfiedForPrereq, ...chosen.keys()]);
+          return prerequisiteCost(code, readyHave, ctx.prereqs, equivalents, byCode, readyMemo, new Set()) > 0 ? 1 : 0;
+        });
+        // And a semester of another language than the board's sequence, which drags that language's semesters before it in: Classics' Classical Culture took GREK 2003 and HEBR 2003 beside the Latin sequence (2026-10-29).
+        // So does an accelerated course (SPAN 1110), two semesters the sequence books: Latin American and Caribbean Studies' Area VI took it beside SPAN 1001.
+        const otherLanguage = (code: string): number => (ctx.schoolId === 'uga' && !earned.has(code) && ((planLanguage !== null && ugaLanguageCourse(ctx.languages, code, planLanguage)) || ugaAcceleratedCourse(code)) ? 1 : 0);
+        /*
          * And a UGA choice leaves to a take-every-course row of its family the
          * course that row requires (requiredInFamily): Agricultural and Applied
          * Economics' Foundation math took STAT 2000, which its Area VI requires,
@@ -11237,9 +11267,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) =>
             (meetsElsewhere ? Number(!a.shared) - Number(!b.shared) || lectureHere(a.code) - lectureHere(b.code) : 0) ||
-            (ctx.schoolId === 'uga' ? ofSequence(a.code) - ofSequence(b.code) : 0) ||
+            (ctx.schoolId === 'uga' ? ofSequence(a.code) - ofSequence(b.code) || otherLanguage(a.code) - otherLanguage(b.code) : 0) ||
             (choosing ? leftToRow(a.code) - leftToRow(b.code) : 0) ||
-            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) || readFor(a.code) - readFor(b.code) || elsewhere(a.code) - elsewhere(b.code) || opensRequired(a.code) - opensRequired(b.code) || inOtherChoice(a.code, requirement.id) - inOtherChoice(b.code, requirement.id) : 0) ||
+            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) || readFor(a.code) - readFor(b.code) || elsewhere(a.code) - elsewhere(b.code) || opensRequired(a.code) - opensRequired(b.code) || otherChoice(a.code) - otherChoice(b.code) : 0) ||
             (listOrder ? listOrder(a.code, b.code) : 0) ||
             (have ? (rank(a.code)[0] ?? 0) - (rank(b.code)[0] ?? 0) || extraOf(a.code) - extraOf(b.code) : 0) ||
             // A choice's last ties on its hours (the row asks for a course, not hours: STAT 2000 at four
@@ -18110,10 +18140,18 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * may not grow (below).
      */
     const onBoardNow = (code: string) => terms.some((t) => (placed.get(t.id) ?? []).includes(normaliseCode(code)));
+    /*
+     * Named by a row of the degree's own, not only by an open elective
+     * block's sample of the catalog ("Any upper level course 3000-5999"):
+     * the Marketing and International Business board's FINA 4310 was one of
+     * its Upper Division General Electives' three hundred, so it never read
+     * as booked only for FINA 4340 (2026-10-29).
+     */
+    const namedOutright = ctx.schoolId !== 'uga' ? new Set<string>() : new Set(input.requirements.flatMap((r) => ((r.rule.kind === 'all' || r.rule.kind === 'choose' || (r.rule.kind === 'pool' && !r.rule.anyCourse && r.rule.choices.length <= 60)) && !ugaRuleArea(r.areaLabel) ? r.rule.choices.flatMap((c) => c.codes.map(normaliseCode)) : [])));
     const deadPrereq = (code: string) => {
       if (ctx.schoolId !== 'uga') return false;
       const forWhom = addedPrerequisites.filter((a) => a.code === code);
-      return forWhom.length > 0 && forWhom.every((a) => !onBoardNow(a.requiredBy)) && !degreeNames(code) && (chosen.get(code)?.requirementId ?? null) === null && !pinned.has(code) && !genEdPick.has(code) && !forTrack(code) && !trackRowOf.has(code) && !labOf.has(code) && !lectureLab.has(code);
+      return forWhom.length > 0 && forWhom.every((a) => !onBoardNow(a.requiredBy)) && !expandEquivalents(code, equivalents).some((c) => namedOutright.has(c)) && (chosen.get(code)?.requirementId ?? null) === null && !pinned.has(code) && !genEdPick.has(code) && !forTrack(code) && !trackRowOf.has(code) && !labOf.has(code) && !lectureLab.has(code);
     };
     const leftOff = notPlaced
       .filter((n) => n.requirementId !== null && (n.reason === 'no-room' || n.reason === 'standing-unmet') && byCode.has(normaliseCode(n.code)) && !labOf.has(normaliseCode(n.code)) && !lectureLab.has(normaliseCode(n.code)))
