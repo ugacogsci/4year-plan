@@ -652,6 +652,13 @@ function parsePrerequisite(text: string, byCode: Map<string, Course>): PlanPrere
  * planner booked Intermediate Accounting I, II and III in one semester on
  * every Accounting board (2026-10-28). Only where exactly one course of the
  * subject has the title.
+ *
+ * A research course numbered II or III continues the one before it too:
+ * GENE 4970R Faculty-Mentored Undergraduate Research II follows GENE 4960R
+ * (Research I), under the same mentor, and GENE 4980R follows GENE 4970R.
+ * Their line reads only "Permission of department", so a Genetics
+ * sophomore's board took all three in one spring, where the degree's
+ * four-year program puts them in three terms (2026-10-29).
  */
 function continuedCourses(courses: Course[]): Map<string, string> {
   const undergraduate = (code: string) => /^[A-Z]{2,5} [1-5]\d{3}[A-Z]?$/.test(code);
@@ -666,7 +673,8 @@ function continuedCourses(courses: Course[]): Map<string, string> {
   for (const course of courses) {
     const code = normCode(course.code);
     if (!undergraduate(code)) continue;
-    const named = course.description.match(/^\s*(?:A |The )?continuation of (?:the )?([^.;,]+?)\s*(?:[.;,]|$)/i)?.[1];
+    const step = /R$/.test(code) ? /^(.*\S)\s+(II|III)$/.exec(course.title.trim()) : null;
+    const named = course.description.match(/^\s*(?:A |The )?continuation of (?:the )?([^.;,]+?)\s*(?:[.;,]|$)/i)?.[1] ?? (step ? `${step[1]} ${step[2] === 'II' ? 'I' : 'II'}` : undefined);
     if (!named) continue;
     const found = (byTitle.get(`${course.cluster}|${named.trim().toLowerCase()}`) ?? []).filter((other) => other !== code && ugaVariantKey(other) !== ugaVariantKey(code));
     if (found.length === 1) out.set(code, found[0]);
@@ -679,7 +687,7 @@ function withContinuation(prereq: PlanPrereq | null, before: string | undefined,
   if (!before) return prereq;
   const versions = [before, ...(equivalents.get(before) ?? []).filter((code) => ugaVariantKey(code) === ugaVariantKey(before))];
   if (prereq?.groups.some((group) => group.any.every((code) => versions.includes(code)))) return prereq;
-  const group: PlanPrereqGroup = { any: versions, concurrent: false, confidence: 'high', source: `the catalog describes it as a continuation of ${before}` };
+  const group: PlanPrereqGroup = { any: versions, concurrent: false, confidence: 'high', source: /R$/.test(before) ? `it follows ${before} in its research sequence` : `the catalog describes it as a continuation of ${before}` };
   if (!prereq) return { groups: [group], escape: null, text: '', parsed: true, confidence: 'high', standing: null };
   // A group that already offers it among others ("ACCT 2101 or ... or ACCT 5010") is met whenever it is.
   const others = prereq.groups.filter((existing) => !versions.every((code) => existing.any.includes(code)));
