@@ -9311,6 +9311,15 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const prefs = input.preferences ?? {};
   /** How the free choices read how commonly a course is taken (AutoplanInput.freeChoices): ahead of the score, as the last tie, or not at all. */
   const freeMode = input.freeChoices ?? 'common';
+  /*
+   * The relevance measure as it read before (QualityInputs.legacyTopics) on
+   * the board without the free choices' reading, except at UGA: there one
+   * word of a catalog description made a course a goal's, and the board
+   * the safety rule fell back to on 8 of 18 science review boards brought
+   * AENG 2920 back "for your interest in engineer" for a software engineer
+   * (2026-10-28).
+   */
+  const legacyReading = freeMode === 'off' && ctx.schoolId !== 'uga';
   const credits = { ...DEFAULT_CREDITS, ...prefs.creditsPerTerm };
   const maxHard = prefs.maxHardCourses ?? DEFAULT_MAX_HARD;
   const hardCut = prefs.hardDifficulty === undefined
@@ -9403,7 +9412,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     primarySubject: majorsForRank.primary,
     degreeSubjects: majorsForRank.subjects,
     wantedTags: genEdTagsOf(input.requirements),
-    legacy: freeMode === 'off',
+    legacy: legacyReading,
   }, input.qualityMemo);
   const rank = makeRanker(ctx, byCode, rankDepth, policy, qualityAtPlacement, input.programName, input.programCollege);
   /** How a list's pick weighs the track the student named (AutoplanInput.trackPicks). */
@@ -9445,7 +9454,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     primarySubject: majorsForRank.primary,
     degreeSubjects: majorsForRank.subjects,
     wantedTags: new Set(),
-    legacy: freeMode === 'off',
+    legacy: legacyReading,
   }, input.qualityMemo), input.programName, input.programCollege);
 
   const chosen = new Map<string, { requirementId: string | null; label: string }>();
@@ -10526,7 +10535,24 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           nested: nestedCounted.get(requirement.id),
         });
         poolFills.push({ slot, fill });
-        useInFamily(family, fill.free);
+        /*
+         * Only the held courses the list needs are its family's: it counts
+         * every held course it names, and a History senior's three-region
+         * list took all eleven of her upper-level HIST courses, so Major
+         * Courses after it booked four more in her last term (2026-10-28).
+         */
+        {
+          let hours = 0;
+          let count = 0;
+          const needed: string[] = [];
+          for (const code of fill.free) {
+            if ((slot.hoursTarget === null || hours >= slot.hoursTarget) && (slot.picks === null || count >= slot.picks)) break;
+            needed.push(code);
+            hours += creditsOf(code);
+            count += 1;
+          }
+          useInFamily(family, needed);
+        }
         free.push(...fill.free);
         picked.push(...fill.picked);
       } else if (slot.kind === 'gened') {
@@ -13793,7 +13819,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         primarySubject: majors.primary,
         degreeSubjects: majors.subjects,
         wantedTags: stillWanted,
-        legacy: freeMode === 'off',
+        legacy: legacyReading,
       }, input.qualityMemo),
     };
     const plannedAll = new Set<string>([...placed.values()].flat());

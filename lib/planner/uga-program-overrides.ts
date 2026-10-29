@@ -706,6 +706,31 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
       } : area));
       repaired = { ...repaired, areas } as T;
     }
+    /*
+     * History AB's Required Courses (verified 2026-10-28,
+     * bulletin.uga.edu/Program/Details/35426): HIST 4990, then "Choose 9
+     * credit hours ... (At least one 3000/4000-level course in each of three
+     * geographical areas.)" over seven regional lists, then 12 hours of major
+     * courses. Each region was read as a list of its own owing one hour, so
+     * every board took a course from all seven (a senior was sent to two
+     * more) and the hours read 24 of 24 with a row still missing.
+     */
+    if (program.id === '35426') {
+      type Group = { label: string; choose: number | null; hours?: number | null; courses: UgaRequirementCourse[] };
+      const areas = (repaired.areas as Array<AreaShape & { groups: Group[] }>).map((area) => {
+        if (area.label !== 'Required Courses' || area.hours !== 24) return area;
+        const regions = area.groups.filter((group) => /^\d\.\s/.test(group.label) && group.courses.length > 0);
+        if (regions.length < 3) return area;
+        const rest = area.groups.filter((group) => !regions.includes(group) && !(group.courses.length === 0 && group.hours === 9));
+        const union = [...new Map(regions.flatMap((group) => group.courses).map((row) => [row.code, row])).values()];
+        // A constraint, not minimumAreas: that would ask the student to pick three areas in setup.
+        const lists = regions.map((group) => ({ label: group.label, codes: group.courses.map((row) => row.code) }));
+        const geography = { label: 'Three geographical areas', choose: null, hours: 9, note: 'Choose 9 hours: at least one 3000/4000-level course in each of three geographical areas.', lists, constraints: [{ text: 'At least one 3000/4000-level course in each of three geographical areas.', n: 3, lists, single: false, distinctLists: true }], courses: union };
+        const at = rest.findIndex((group) => /major courses/i.test(group.label));
+        return { ...area, groups: at < 0 ? [...rest, geography] : [...rest.slice(0, at), geography, ...rest.slice(at)] };
+      });
+      repaired = { ...repaired, areas } as T;
+    }
     if (program.college === 'BUS' && program.degree === 'BBA') repaired = withAreaAfter(repaired, '', TERRY_GRADUATION, false);
     if (program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree ?? '')) repaired = withAreaAfter(repaired, '', UNIVERSITY_WIDE, false);
     return repaired;
