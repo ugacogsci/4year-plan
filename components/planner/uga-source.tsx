@@ -949,6 +949,14 @@ function adaptProgram(
    * in the plan" on a board with fourteen electives (2026-10-28). Such a
    * group is left out, and the area's hours are the electives the fill books.
    */
+  /*
+   * An area or list the page marks optional is the student's to take, not
+   * the degree's: International Affairs' two "OPTIONAL" emphasis lists were
+   * planned as required (nine INTL 4000-level courses for a sophomore), and
+   * Political Science's "Optional" area and Dance's teacher certification
+   * read as rows to meet (2026-10-28).
+   */
+  program = { ...program, areas: program.areas.filter((area) => !/^optional\b/i.test(area.label.trim())).map((area) => ({ ...area, groups: area.groups.filter((group) => !/^optional\b/i.test((group.label ?? '').trim())) })) };
   program = { ...program, areas: program.areas.map((area) => (/^(?:general|free) electives?\b/i.test(area.label)
     ? { ...area, groups: area.groups.filter((group) => !(group.courses.length > 0 && group.courses.every((row) => !/\b[1-9]XXX\b/.test(row.code)) && group.courses.reduce((sum, row) => sum + row.credits, 0) < (group.hours ?? area.hours))) }
     : area)) };
