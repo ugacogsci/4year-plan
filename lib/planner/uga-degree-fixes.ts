@@ -197,6 +197,9 @@ const SOCIAL_STUDIES_PEDAGOGY: UgaRequirementCourse[] = [
 const CAES_ELECTIVE_SUBJECTS: UgaRequirementCourse[] = ['AAEC', 'ADSC', 'AENG', 'AESC', 'AEXT', 'AGCM', 'ALDR', 'ANNU', 'ANTH', 'BCMB', 'BINF', 'BIOL', 'BIOS', 'BTEC', 'CBIO', 'CHEM', 'CRSS', 'ECOL', 'EDES', 'EETH', 'EHSC', 'ENGR', 'ENTO', 'ENVM', 'FANR', 'FDST', 'FORS', 'GENE', 'GEOG', 'GEOL', 'HONS', 'HORT', 'LAND', 'MARS', 'MIBO', 'NUTR', 'PATH', 'PBGG', 'PBIO', 'PHYS', 'PLAN', 'POUL', 'SOCI', 'SUST', 'WASR', 'WILD']
   .flatMap((subject) => levels(subject, 3));
 
+/** Theatre AB's "Course should be 3 credit hours and numbered 3000 and above: FILM prefix courses, THEA prefix courses" (bulletin.uga.edu/Program/Details/93915). */
+const THEATRE_ELECTIVE: UgaRequirementCourse[] = [...levels('THEA', 3), ...levels('FILM', 3)];
+
 const WRITTEN: Record<string, WrittenDegree> = {
   /*
    * Plant Biology BS (verified 2026-10-29, bulletin.uga.edu/Program/Details/62409):
@@ -4618,6 +4621,202 @@ const WRITTEN: Record<string, WrittenDegree> = {
           row('PHYS 1312', 'Advanced Introductory Physics II', 4),
         ], 'An Area VI course.'),
       ]),
+    ],
+  },
+  /*
+   * Theatre AB (verified 2026-10-29, bulletin.uga.edu/Program/Details/93915):
+   * Major Electives (15-21 hours) are one group: Group One (five FILM or
+   * THEA courses at the 3000 level and above) or one of six areas of
+   * emphasis; the reading left them off a board without a pick and made a
+   * picked emphasis require every course listed.
+   */
+  '93915': {
+    major: [
+      area('Required Courses', 18, [
+        all('Required Courses', [
+          row('THEA 3300', 'Design Foundations', 3),
+          row('THEA 3340', 'Stagecraft', 3),
+          row('THEA 3500', 'Acting I: Foundations of Acting', 3),
+        ], 'At least 21 major hours in residence; no non-equivalent transfer credit counts toward the major.'),
+        choose('Theatre history', 1, [
+          row('THEA 4210', 'Theatre and Modernity', 3),
+          row('THEA 4220', 'Theatre and Society', 3),
+          row('THEA 4230', 'Theatre and Ritual', 3),
+        ]),
+        choose('Stage management or play direction', 1, [
+          row('THEA 5110', 'Stage Management', 3),
+          row('THEA 5600', 'Play Direction', 3),
+        ]),
+        choose('One more theatre history or theory course', 1, [
+          row('THEA 4210', 'Theatre and Modernity', 3),
+          row('THEA 4220', 'Theatre and Society', 3),
+          row('THEA 4230', 'Theatre and Ritual', 3),
+          row('THEA 4280', 'Women in Performance', 3),
+          row('THEA 4300', 'Queer Theatre and Film', 3),
+          row('THEA 4400', 'Asian Theatre and Drama', 3),
+          row('THEA 4460', 'History of Dramatic Art: Special Topics', 3),
+          row('THEA 4470', 'African Theatre: An Historical Overview', 3),
+          row('THEA 4480', 'History of African American Drama and Theatre', 3),
+          row('THEA 4490', 'Latin American and Caribbean Theatre and Performance', 3),
+          row('THEA 4500', 'The Broadway Musical and American Culture', 3),
+          row('THEA 4700', 'Dramaturgy', 3),
+          row('THEA 4750', 'Performance Studies', 3),
+          row('THEA 4800', 'Topics in History', 3),
+          row('THEA 5710S', 'Community-Based Theatre', 3),
+          row('THEA 5870', 'Performing with Media', 3),
+        ], 'A 3000-5999-level course not already taken (not THEA 4700 with the Dramatic Writing emphasis).'),
+      ]),
+      area('Major Electives', 15, [
+        hoursFrom(focus(1, 'Group One'), 15, THEATRE_ELECTIVE, 'Five FILM or THEA courses of 3 hours, numbered 3000 and above.'),
+        // A choice of every course listed: a list with no number to choose, in an area of electives, is read as hours to draw from.
+        choose(focus(2, 'Area of Emphasis in Acting'), 2, [
+          row('THEA 5010', 'Acting II: Scene Study', 3),
+          row('THEA 5053', 'Senior Seminar', 1),
+        ]),
+        hoursFrom(focus(2, 'Area of Emphasis in Acting', 'a FILM or THEA course'), 3, THEATRE_ELECTIVE, 'A FILM or THEA course of 3 hours, numbered 3000 and above.'),
+        choose(focus(2, 'Area of Emphasis in Acting', 'acting courses'), 4, [
+          row('THEA 5080', 'Production Practicum', 3),
+          row('THEA 5331', 'Shakespeare', 3),
+          row('THEA 5335', 'Shakespeare Practicum', 3),
+          row('THEA 5500', 'Acting III: Advanced Acting', 3),
+          row('THEA 5510', 'Actor Training I: Physical Actor', 3),
+          row('THEA 5530', 'Actor Training II: Voice for the Actor', 3),
+          row('THEA 5550', 'Musical Theatre Performance Styles', 3),
+          row('THEA 5565', 'The Meisner Technique', 3),
+          row('THEA 5570', 'Acting for the Camera', 3),
+        ]),
+        choose(focus(3, 'Area of Emphasis in Design'), 1, [
+          row('THEA 5970', 'Design Portfolio', 1),
+        ]),
+        choose(focus(3, 'Area of Emphasis in Design', 'design'), 1, [
+          row('THEA 5330', 'Costume Design for the Entertainment Arts', 3),
+          row('THEA 5351', 'Scenic Design for the Entertainment Arts', 3),
+          row('THEA 5352', 'Lighting Design for the Entertainment Arts', 3),
+        ]),
+        hoursFrom(focus(3, 'Area of Emphasis in Design', 'a FILM or THEA course'), 3, THEATRE_ELECTIVE, 'A FILM or THEA course of 3 hours, numbered 3000 and above.'),
+        choose(focus(3, 'Area of Emphasis in Design', 'design and technology courses'), 4, [
+          row('THEA 3330', 'Costume Crafts', 3),
+          row('THEA 3350', 'Lighting Technology', 3),
+          row('THEA 3520', 'Makeup for the Entertainment Arts', 3),
+          row('THEA 5310', 'Technical Problems', 3),
+          row('THEA 5315', 'CAD 2-D, Drafting for Stage and Production Design', 3),
+          row('THEA 5320', 'CAD, 3-D, Modeling, and Visualization for Stage and Production Design', 3),
+          row('THEA 5330', 'Costume Design for the Entertainment Arts', 3),
+          row('THEA 5340', 'History of Costume and Adornment', 3),
+          row('THEA 5341', 'History of Architecture and Decoration', 3),
+          row('THEA 5351', 'Scenic Design for the Entertainment Arts', 3),
+          row('THEA 5352', 'Lighting Design for the Entertainment Arts', 3),
+          row('THEA 5372', 'Scenic Painting', 3),
+          row('THEA 5380', 'Design 3D Manufacturing and Technology for the Entertainment Arts', 3),
+          row('THEA 5381', 'Entertainment Technology and Skills: Metals and Plastics', 3),
+          row('THEA 5382', 'Entertainment Technology and Skills: Rigging, Facilities, and Safety', 3),
+          row('THEA 5383', 'Management and Production for Theatre', 3),
+          row('THEA 5480', 'Topics in Design', 3),
+          row('THEA 5730', 'Advanced Costume Design for the Performance Arts', 3),
+          row('THEA 5732', 'Cutting and Draping Patterns for Costuming', 3),
+          row('THEA 5733', 'Millinery', 3),
+          row('THEA 5734', 'Stage and Screen Fabric Modification', 3),
+          row('THEA 5751', 'Advanced Scenic Design for the Entertainment Arts', 3),
+          row('THEA 5752', 'Advanced Lighting Design for the Entertainment Arts', 3),
+          row('THEA 5756', 'Lighting Controls and Previsualization', 3),
+          row('THEA 5757', 'Lighting Design Outside the Theatre', 3),
+          row('THEA 5758', 'Architectural and Themed Lighting', 3),
+          row('THEA 5880', 'Sound Effects for Stage and Screen', 3),
+          row('THEA 5110', 'Stage Management', 3),
+        ]),
+        choose(focus(4, 'Area of Emphasis in Directing and Stage Management'), 1, [
+          row('THEA 5080', 'Production Practicum', 3),
+        ]),
+        choose(focus(4, 'Area of Emphasis in Directing and Stage Management', 'project or seminar'), 1, [
+          row('THEA 4960', 'Directed Readings or Projects', 3),
+          row('THEA 4960R', 'Faculty-Mentored Undergraduate Research I', 3),
+          row('THEA 5053', 'Senior Seminar', 1),
+        ]),
+        choose(focus(4, 'Area of Emphasis in Directing and Stage Management', 'stage management or play direction'), 1, [
+          row('THEA 5110', 'Stage Management', 3),
+          row('THEA 5600', 'Play Direction', 3),
+        ]),
+        hoursFrom(focus(4, 'Area of Emphasis in Directing and Stage Management', 'a FILM or THEA course'), 3, THEATRE_ELECTIVE, 'A FILM or THEA course of 3 hours, numbered 3000 and above.'),
+        choose(focus(4, 'Area of Emphasis in Directing and Stage Management', 'directing and production courses'), 3, [
+          row('FILM 4680', 'Introduction to DV Production', 3),
+          row('FILM 5640', 'Directing for the Cinema', 3),
+          row('THEA 4700', 'Dramaturgy', 3),
+          row('THEA 5010', 'Acting II: Scene Study', 3),
+          row('THEA 5330', 'Costume Design for the Entertainment Arts', 3),
+          row('THEA 5352', 'Lighting Design for the Entertainment Arts', 3),
+          row('THEA 5565', 'The Meisner Technique', 3),
+          row('THEA 5570', 'Acting for the Camera', 3),
+          row('THEA 5610', 'Play Direction Laboratory', 3),
+          row('THEA 5630', 'Producing the New Script', 3),
+          row('THEA 5710S', 'Community-Based Theatre', 3),
+          row('THEA 5880', 'Sound Effects for Stage and Screen', 3),
+        ]),
+        choose(focus(5, 'Area of Emphasis in Dramatic Media'), 1, [
+          row('THEA 5590', 'Special Projects in Drama', 3),
+        ]),
+        hoursFrom(focus(5, 'Area of Emphasis in Dramatic Media', 'a FILM or THEA course'), 3, THEATRE_ELECTIVE, 'A FILM or THEA course of 3 hours, numbered 3000 and above.'),
+        choose(focus(5, 'Area of Emphasis in Dramatic Media', 'media courses'), 5, [
+          row('FILM 4680', 'Introduction to DV Production', 3),
+          row('FILM 5640', 'Directing for the Cinema', 3),
+          row('FILM 5810', 'Computer Animation for Dramatic Media I', 3),
+          row('FILM 5820', 'Computer Animation for Dramatic Media II', 3),
+          row('FILM 5830', 'Computer Animation for Dramatic Media III', 3),
+          row('THEA 4750', 'Performance Studies', 3),
+          row('THEA 5310', 'Technical Problems', 3),
+          row('THEA 5700', 'Internship in Theatre/Film/Animation', 3),
+          row('THEA 5780', 'Topics in Computer Technology', 3),
+          row('THEA 5840', 'Technical Animation with Computers', 3),
+          row('THEA 5850', 'Motion Capture for Animation and Media', 3),
+          row('THEA 5860', 'Interactive Media as Drama I', 3),
+          row('THEA 5861', 'Interactive Media as Drama II', 3),
+          row('THEA 5870', 'Performing with Media', 3),
+          row('THEA 5880', 'Sound Effects for Stage and Screen', 3),
+        ]),
+        choose(focus(6, 'Area of Emphasis in Dramatic Writing'), 4, [
+          row('THEA 3020', 'Basic Dramatic Writing', 3),
+          row('THEA 4000', 'Intermediate Dramatic Writing: The Short Script', 3),
+          row('THEA 4700', 'Dramaturgy', 3),
+          row('THEA 5630', 'Producing the New Script', 3),
+        ]),
+        choose(focus(6, 'Area of Emphasis in Dramatic Writing', 'advanced writing'), 1, [
+          row('THEA 5620', 'Advanced Dramatic Writing: The Full-Length Script', 3),
+          row('THEA 5680', 'Topics in Dramatic Writing', 3),
+        ]),
+        hoursFrom(focus(6, 'Area of Emphasis in Dramatic Writing', 'a FILM or THEA course'), 3, THEATRE_ELECTIVE, 'A FILM or THEA course of 3 hours, numbered 3000 and above.'),
+        choose(focus(7, 'Area of Emphasis in Theatre Theory and History'), 1, [
+          row('THEA 4960', 'Directed Readings or Projects', 3),
+          row('THEA 4970R', 'Faculty-Mentored Undergraduate Research II', 3),
+          row('THEA 4980R', 'Faculty-Mentored Undergraduate Research III', 3),
+        ], 'Directed readings or faculty-mentored research.'),
+        hoursFrom(focus(7, 'Area of Emphasis in Theatre Theory and History', 'a FILM or THEA course'), 3, THEATRE_ELECTIVE, 'A FILM or THEA course of 3 hours, numbered 3000 and above.'),
+        choose(focus(7, 'Area of Emphasis in Theatre Theory and History', 'theory and history courses'), 4, [
+          row('THEA 4230', 'Theatre and Ritual', 3),
+          row('THEA 4280', 'Women in Performance', 3),
+          row('THEA 4300', 'Queer Theatre and Film', 3),
+          row('THEA 4400', 'Asian Theatre and Drama', 3),
+          row('THEA 4460', 'History of Dramatic Art: Special Topics', 3),
+          row('THEA 4470', 'African Theatre: An Historical Overview', 3),
+          row('THEA 4480', 'History of African American Drama and Theatre', 3),
+          row('THEA 4490', 'Latin American and Caribbean Theatre and Performance', 3),
+          row('THEA 4500', 'The Broadway Musical and American Culture', 3),
+          row('THEA 4700', 'Dramaturgy', 3),
+          row('THEA 4750', 'Performance Studies', 3),
+          row('THEA 4800', 'Topics in History', 3),
+          row('THEA 5710S', 'Community-Based Theatre', 3),
+          row('FILM 4250', 'History of Cinema I (1895-1945)', 3),
+          row('FILM 4260', 'History of Cinema II (1945-1990)', 3),
+          row('FILM 4270', 'History of Cinema III (1990-Present)', 3),
+          row('FILM 4600', 'Women and Film', 3),
+          row('FILM 4620', 'Genre Cinema', 3),
+          row('FILM 4640', 'Latin American Film and Media', 3),
+          row('FILM 4650', 'French Film History', 3),
+          row('FILM 4660', 'History of Animation', 3),
+          row('FILM 4670', 'Film Technology and Style', 3),
+          row('FILM 5481', 'Topics in Cinema', 3),
+          row('FILM 5900', 'Film Theory', 3),
+        ], 'Up to two of them from the courses outside THEA the Bulletin lists.'),
+      ]),
+      generalElectives(21),
     ],
   },
 };
