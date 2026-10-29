@@ -195,6 +195,9 @@ const LOW_INFORMATION = new Set([
   'research', 'physical', 'change', 'public', 'experience', 'company', 'management', 'design', 'policy', 'health',
   'writing', 'science', 'systems', 'system', 'development', 'business', 'social', 'global', 'international', 'modern',
   'theory', 'practice', 'analysis', 'introduction', 'advanced', 'special', 'topics', 'human', 'world', 'culture',
+  // "State Department" and "elementary school teacher" name a goal, not a course: PHRM 3750 read "Picked for your
+  // interest in state" and SPAN 1001 Elementary Spanish I "in elementary" (2026-10-28).
+  'state', 'states', 'elementary', 'department',
 ]);
 
 /**

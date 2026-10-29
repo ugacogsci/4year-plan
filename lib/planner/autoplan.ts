@@ -4927,9 +4927,18 @@ const GATED_BY_DESCRIPTION: Record<string, string> = {
 /** "Admission by application only.", "Acceptance into the Risk Management Academy.", "Admission to the Elementary Teacher Education Program." */
 const APPLICATION_GATE =
   /\bby application\b|\bapplication (only|required|is required)\b|\b(admission|admitted|acceptance|accepted) (to|into|in) (the |a |an )?[^.;]*?\b(academy|program|cohort|fellows|scholars|fellowship|major)\b|\bacceptance into\b|\baccepted into the\b/i;
-/** "Instructor approval required.", "Departmental approval is required.", "Consent of instructor required.", "By permission only." */
+/**
+ * "Instructor approval required.", "Departmental approval is required.",
+ * "Consent of instructor required.", "By permission only."; and UGA's
+ * standing "Permission of major" (EDSE 3040E Professional Practice in
+ * Special Education, a pre-law History student's elective), "Permission of
+ * Honors" (COMM 2150H) and "Doctor of Pharmacy student or permission of
+ * major" (PHRM 3750, a State Department hopeful's), where a course takes it
+ * in place of courses rather than beside them ("... or permission of
+ * department" stays an alternative, below).
+ */
 const APPROVAL_GATE =
-  /\b(instructor|instructor's|departmental|department|program|director)( approval| permission| consent)( is)? required\b|\bconsent of (the )?instructor( is)? required\b|\bby permission only\b/i;
+  /\b(instructor|instructor's|departmental|department|program|director)( approval| permission| consent)( is)? required\b|\bconsent of (the )?instructor( is)? required\b|\bby permission only\b|^\s*permission of (?:the )?(?:major|department|honors|school|college|program)\b|\bdoctor of pharmacy students?\b/i;
 
 /**
  * The sentence that puts a course behind an application, an admission or
