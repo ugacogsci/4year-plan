@@ -6951,6 +6951,8 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
     offHours: planCreditRange(off.map((n) => normaliseCode(n.code)), ctx).min,
     unsatisfied: new Set(g.unsatisfied.map((u) => u.requirementId)),
     lastUsed: used.length > 0 ? used[used.length - 1].index : -1,
+    // The student's graduation term, the last of the horizon (ugaRequirementMeasure).
+    targetLast: horizon.length - 1,
     // Every hour past the total, a landing course's included (the rule is hours, whatever made them).
     beyond: input.degreeTotal == null ? 0 : Math.max(0, g.credits.total.min - input.degreeTotal),
     // For ranking only: the hours a landing course added do not decide between boards (landedPastOf).
@@ -7339,12 +7341,17 @@ function freeChoicesGated(given: AutoplanInput): GeneratedPlan {
  * 1001 leaves 119, and the floor's SOWK 2157S, one credit of Service
  * Learning in Social Work, was a Communication Studies, an Economics and a
  * Finance freshman's last class), and the courses the board places that
- * the floor left off add theirs (the owner's rule, 2026-10-06).
+ * the floor left off add theirs (the owner's rule, 2026-10-06). And a later
+ * last term is worse only past the student's graduation term: the floor
+ * finished a pre-law Accounting freshman a term early, at 18 credits a
+ * term, where the board with the reading finished in her Spring 2031.
  */
 const UGA_SHAPE_MEASURES = new Set(['atCap', 'thin', 'stack2', 'crowded', 'seminar', 'math', 'yearOneHeavy', 'yearOneLight', 'yearOneMajor', 'overTarget']);
 function ugaRequirementMeasure(worse: string, a: GateMeasure, b: GateMeasure): boolean {
   if (UGA_SHAPE_MEASURES.has(worse)) return false;
-  if (worse === 'beyond') return a.beyond > b.beyond + 2 + Math.max(0, b.offHours - a.offHours);
+  // A pre-health track's rows past the total stay as the owner left them (the pending decision): no more slack there.
+  if (worse === 'beyond') return a.rowLate.size > 0 || a.beyond > b.beyond + 2 + Math.max(0, b.offHours - a.offHours);
+  if (worse === 'terms') return a.lastUsed > Math.max(b.lastUsed, a.targetLast);
   if (worse !== 'sequence') return true;
   const lower = (m: GateMeasure) => [...m.split].filter((pair) => Number(pair.split('>')[1]?.match(/\d{4}/)?.[0] ?? 0) < 3000).length;
   return lower(a) > lower(b);
