@@ -5543,6 +5543,126 @@ const WRITTEN: Record<string, WrittenDegree> = {
       ]),
     ],
   },
+  /*
+   * TESOL and World Language Education BSED (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/42194): Required Courses (39-60
+   * hours) are the LLED sequence and one area of emphasis (French, German,
+   * Latin or Spanish Education, TESOL, or Educational Studies, which
+   * replaces LLED 5560 and 5570 and does not lead to certification), each
+   * with its own Area VI course; the reading required every language and
+   * every emphasis. (The reading also lost core Areas IV Humanities and V;
+   * they are the Bulletin reader's.)
+   */
+  '42194': {
+    areaSix: area('VI. Courses Related to the Major', 15, [
+      all('VI. Courses Related to the Major', [
+        row('EDUC 2120', 'Exploring Socio-Cultural Perspectives in Educational Contexts', 3),
+        row('EDUC 2130', 'Exploring Learning and Teaching', 3),
+        row('EDUC 2140', 'Foundations of Reading', 3),
+        row('LING 2100', 'The Study of Language', 3),
+      ], 'EDUC 2140 (C or higher) is also a program completion requirement for certification.'),
+      choose('Inclusion', 1, [
+        row('EDSE 4020', 'Inclusion of Students with Disabilities: PreK-Grade 5', 3),
+        row('EDSE 4030', 'Inclusion of Students with Disabilities: Grades 6-12', 3),
+      ]),
+    ]),
+    major: [
+      area('Required Courses', 42, [
+        all('Required Courses', [
+          row('LLED 4530', 'TESOL and World Language Curriculum and Methods, Grades P-5', 3),
+          row('LLED 4531', 'TESOL and World Language Curriculum and Methods, Grades 6-12', 3),
+          row('LLED 5040', 'Language and Culture in the Classroom', 3),
+          row('LLED 5530', 'Introduction to Language Teaching', 3),
+          row('LLED 5540', 'Culture in the TESOL and World Language Classroom', 3),
+          row('LLED 5550', 'Field-Based Practicum in TESOL or World Language Education, Grades P-12', 3),
+          row('LLED 5730', 'First and Second Language Acquisition and Development', 3),
+        ], 'A grade of C or higher; a 2.6 GPA overall and in the teaching field, and 6 of 9 teaching field courses before the TE courses. LLED 5040 and LLED 5730 before the major classes.'),
+        ...([
+          [1, 'French Education', [row('FREN 2002', 'Intermediate French', 3)], [row('FREN 3010', 'Culture and Communication I', 3), row('FREN 3020', 'Culture and Communication II', 3), row('FREN 3030', 'Texts and Contexts', 3)], levels('FREN', 3, 4), 'Five FREN courses at the 3000/4000 level.'],
+          [2, 'German Education', [row('GRMN 2002', 'Intermediate German II', 3), row('GRMN 2110', 'Accelerated Intermediate German', 3)], [row('GRMN 3010', 'Language: Culture and Society I', 3), row('GRMN 3020', 'Language: Culture and Society II', 3), row('GRMN 4001', 'Advanced German Conversation and Composition', 3)], [row('GRMN 4380', 'Contrastive Grammar: German-English', 3), ...levels('GRMN', 3, 4)], 'Five GRMN courses at the 3000/4000 level (not GRMN 3500; one may be taught in translation; GRMN 4380 strongly encouraged).'],
+          [3, 'Spanish Education', [row('SPAN 2002', 'Intermediate Spanish II', 3), row('SPAN 3011', 'Cultural Dialogues and Critical Reading and Writing for Spanish Heritage Speakers I', 3)], [row('SPAN 3030', 'Texts in Global Contexts', 3), row('SPAN 3050', 'Introduction to Spanish Linguistics', 3), row('SPAN 3020', 'Writing Critically in Spanish', 3)], levels('SPAN', 4, 4), 'Four SPAN courses at the 4000 level (with SPAN 3010 or 3011 below).'],
+        ] as Array<[number, string, UgaRequirementCourse[], UgaRequirementCourse[], UgaRequirementCourse[], string]>).flatMap(([n, name, six, required, electives, note]) => [
+          all(focus(n, `Area of Emphasis in ${name}`), [
+            row('LLED 5560', 'Full-Time Clinical Practice in TESOL or World Language Education, Grades P-12', 12),
+            row('LLED 5570', 'Student Teaching Seminar in World Language and TESOL Education Grades P-12', 3),
+            ...required,
+          ]),
+          ...(name === 'Spanish Education' ? [choose(focus(n, `Area of Emphasis in ${name}`, 'cultural dialogues'), 1, [row('SPAN 3010', 'Spanish Cultural Dialogues', 3), row('SPAN 3011', 'Cultural Dialogues and Critical Reading and Writing for Spanish Heritage Speakers I', 3)])] : []),
+          hoursFrom(focus(n, `Area of Emphasis in ${name}`, 'electives'), name === 'Spanish Education' ? 12 : 15, electives, note),
+          choose(focus(n, `Area of Emphasis in ${name}`, 'Area VI'), 1, six, 'An Area VI course.'),
+        ]),
+        all(focus(4, 'Area of Emphasis in Latin Education'), [
+          row('LLED 5560', 'Full-Time Clinical Practice in TESOL or World Language Education, Grades P-12', 12),
+          row('LLED 5570', 'Student Teaching Seminar in World Language and TESOL Education Grades P-12', 3),
+          row('LATN 2002', 'Intermediate Latin II: Golden Age Latin Literature', 3),
+        ], 'LATN 2002 is an Area VI course.'),
+        hoursFrom(focus(4, 'Area of Emphasis in Latin Education', 'LATN courses'), 12, levels('LATN', 4, 4), 'Four LATN courses at the 4000 level.'),
+        hoursFrom(focus(4, 'Area of Emphasis in Latin Education', 'classics courses'), 12, [...levels('CLAS', 4, 4), ...levels('GREK', 4, 4), ...levels('LATN', 4, 4)], 'Four more CLAS, GREK or LATN courses at the 4000 level.'),
+        all(focus(5, 'Area of Emphasis in TESOL'), [
+          row('LLED 5560', 'Full-Time Clinical Practice in TESOL or World Language Education, Grades P-12', 12),
+          row('LLED 5570', 'Student Teaching Seminar in World Language and TESOL Education Grades P-12', 3),
+          row('LING 3150', 'Generative Syntax', 3),
+          row('LLED 5630', 'ESOL, Grades P-12', 3),
+          row('LING 3060', 'Phonetics and Phonology', 3),
+        ], 'LING 3060 is an Area VI course.'),
+        choose(focus(5, 'Area of Emphasis in TESOL', 'linguistics and ESOL'), 2, [
+          row('CMSD 3120', 'Study of Language Development', 3),
+          row('ENGL 4170', 'Second Language Acquisition', 3),
+          row('LING 3250', 'Morphology', 3),
+          row('LING 3830', 'Languages of the World', 3),
+          row('LING 4022', 'Advanced Phonetics and Phonology', 3),
+          row('LING 4400', 'Quantitative Methods in Linguistics', 3),
+          row('LING 4710', 'Languages in Contact', 3),
+          row('LING 4860', 'Sociolinguistics', 3),
+          row('LLED 4620E', 'ESOL Service Learning', 3),
+          row('LLED 4620S', 'ESOL Service Learning', 3),
+          row('LLED 5502', 'ESOL and World Language Assessment', 3),
+        ]),
+        hoursFrom(focus(5, 'Area of Emphasis in TESOL', 'LING courses'), 6, levels('LING', 3, 4), 'Two LING courses at the 3000/4000 level.'),
+        hoursFrom(focus(5, 'Area of Emphasis in TESOL', 'language courses'), 6, ['AMHA', 'AMSL', 'ARAB', 'BENG', 'CHNS', 'FREN', 'GREK', 'GRMN', 'HEBR', 'HNDI', 'INDO', 'ITAL', 'JPNS', 'KREN', 'LATN', 'PASH', 'PERS', 'PORT', 'QUEC', 'RUSS', 'SCAN', 'SEMI', 'SLAV', 'SPAN', 'SWAH', 'TURK', 'URDU', 'VIET', 'YORB', 'ZULU'].flatMap((subject) => levels(subject, 2, 4)), 'Two language courses at the 2001 level or higher.'),
+        all(focus(6, 'Area of Emphasis in Educational Studies in Language Education'), [
+          row('EPSY 4061', 'Motivational Foundations for Education', 3),
+          row('LLED 4620E', 'ESOL Service Learning', 3),
+          row('LLED 5630', 'ESOL, Grades P-12', 3),
+        ], 'In place of LLED 5560 and LLED 5570; does not lead to teacher certification.'),
+        choose(focus(6, 'Area of Emphasis in Educational Studies in Language Education', 'linguistics'), 2, [
+          row('CMSD 3120', 'Study of Language Development', 3),
+          row('ENGL 4170', 'Second Language Acquisition', 3),
+          row('LING 3250', 'Morphology', 3),
+          row('LING 3830', 'Languages of the World', 3),
+          row('LING 4022', 'Advanced Phonetics and Phonology', 3),
+          row('LING 4400', 'Quantitative Methods in Linguistics', 3),
+          row('LING 4710', 'Languages in Contact', 3),
+          row('LING 4860', 'Sociolinguistics', 3),
+        ]),
+        choose(focus(6, 'Area of Emphasis in Educational Studies in Language Education', 'history'), 1, [
+          row('HIST 3010', 'United States Immigration History', 3),
+          row('HIST 3020', 'United States Foreign Relations Since 1914', 3),
+          row('HIST 3220', 'History of Mexico', 3),
+          row('HIST 3230', 'History of Brazil', 3),
+          row('HIST 3270', 'History of Argentina and Chile in the 20th Century', 3),
+          row('HIST 3311', 'Society and Culture of Ancient Greece', 3),
+          row('HIST 3312', 'Society and Culture in the Roman World', 3),
+          row('HIST 3321', 'History of Women in the Ancient World', 3),
+          row('HIST 3381', 'Old Regime and Revolutionary France', 3),
+          row('HIST 3382', 'Modern France Since 1799', 3),
+          row('HIST 3390', 'Germany Since 1789', 3),
+          row('HIST 3443', 'Spain in the Age of Cervantes', 3),
+          row('HIST 4211', 'Cuba from Emancipation to Revolution', 3),
+          row('HIST 4220', 'The United States and Latin America', 3),
+          row('HIST 4225', 'Medicine, Healing, and the Body in Ancient Greece and Rome', 3),
+          row('HIST 4230', 'Supernatural Latin America: Readings on Witchcraft, Shamanism, and Popular Religion', 3),
+          row('HIST 4240', 'Citizenship and Social Movements in Latin America and the Caribbean', 3),
+          row('HIST 4250', 'Race, Nation, and Popular Culture in Latin America', 3),
+          row('HIST 4320', 'Law and Society in the Greco-Roman World', 3),
+          row('HIST 4329', 'Studies in Ancient Greek and Roman History', 3),
+          row('HIST 4391', 'The French Revolution and the First Empire', 3),
+          row('HIST 4392', 'Twentieth-Century France', 3),
+        ]),
+        hoursFrom(focus(6, 'Area of Emphasis in Educational Studies in Language Education', 'Area VI'), 3, ['FREN', 'GRMN', 'ITAL', 'LATN', 'PORT', 'SPAN', 'CHNS', 'JPNS', 'KREN', 'ARAB', 'RUSS'].flatMap((subject) => levels(subject, 3, 4)), 'Area VI: a 3000-level or higher language course.'),
+      ]),
+    ],
+  },
 };
 
 /**
