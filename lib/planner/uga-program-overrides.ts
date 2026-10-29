@@ -624,8 +624,10 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
       } as T);
     }
     let repaired = program;
-    if (program.id === '93328') repaired = withAreaAfter(repaired, 'Risk Management and Insurance Major Required Courses', RMIN_MAJOR_ELECTIVES);
-    if (program.id === '46304') repaired = withAreaAfter(repaired, 'Real Estate Major Required Courses', REAL_MAJOR_ELECTIVES);
+    // Only where the scrape still lacks them (scripts/uga-programs.mjs reads both pages since 2026-10-28).
+    const hasMajorElectives = (repaired.areas as AreaShape[]).some((area) => /\bmajor (?:electives|related courses)\b/i.test(area.label));
+    if (program.id === '93328' && !hasMajorElectives) repaired = withAreaAfter(repaired, 'Risk Management and Insurance Major Required Courses', RMIN_MAJOR_ELECTIVES);
+    if (program.id === '46304' && !hasMajorElectives) repaired = withAreaAfter(repaired, 'Real Estate Major Required Courses', REAL_MAJOR_ELECTIVES);
     /*
      * Economics BBA: "Required Courses (36 hours)" is the Terry core (15),
      * the Economics required courses (9) and the four ECON electives (12),
@@ -686,6 +688,23 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
         options: group.options.map((option) => (option.id === 'general-sociology-track' ? { ...option, courses: [], parts: (option.parts ?? []).map((part) => ({ ...part, courses: [] })) } : option)),
       }));
       repaired = { ...repaired, areas, emphasisGroups } as T;
+    }
+    /*
+     * Electrical and Electronics Engineering BSEE: "Major Electives (12
+     * hours). Choose at least four elective courses": at least one CSEE,
+     * ECSE, ELEE or INFO course at the 3000 level or higher and at most three
+     * of the other subjects listed (verified 2026-10-28,
+     * bulletin.uga.edu/Program/Details/81996). Read as "choose 1", boards
+     * planned 3 of the 12 hours. Twelve hours from both lists, the degree's
+     * own subjects first.
+     */
+    if (program.id === '81996') {
+      type Group = { courses: UgaRequirementCourse[] };
+      const areas = (repaired.areas as Array<AreaShape & { groups: Group[] }>).map((area) => (area.label === 'Major Electives' && area.hours === 12 ? {
+        ...area,
+        groups: [{ label: 'Major Electives', choose: null, hours: 12, note: 'Choose at least four elective courses: at least one CSEE, ECSE, ELEE or INFO course at the 3000 level or higher, and at most three from the other subjects listed. At most 3 hours of undergraduate research and 3 of co-operative work or internship.', courses: [...new Map(area.groups.flatMap((group) => group.courses).map((row) => [row.code, row])).values()] }],
+      } : area));
+      repaired = { ...repaired, areas } as T;
     }
     if (program.college === 'BUS' && program.degree === 'BBA') repaired = withAreaAfter(repaired, '', TERRY_GRADUATION, false);
     if (program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree ?? '')) repaired = withAreaAfter(repaired, '', UNIVERSITY_WIDE, false);
