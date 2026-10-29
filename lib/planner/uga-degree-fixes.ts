@@ -5295,11 +5295,27 @@ const WRITTEN: Record<string, WrittenDegree> = {
 };
 
 /**
+ * EDUC 2140 Foundations of Reading (C or higher), which the education
+ * pages list among the program completion requirements for teacher
+ * certification and their four-year plans book (verified 2026-10-29 on
+ * bulletin.uga.edu/Program/Details/90610, 68952 and 93788); no row named it.
+ */
+const withFoundationsOfReading = (areas: UgaRequirementArea[]): UgaRequirementArea[] =>
+  areas.some((existing) => existing.groups.some((group) => group.courses.some((course) => course.code === 'EDUC 2140')))
+    ? areas
+    : [...areas, area('Program Completion Requirements', 3, [
+      all('Program Completion Requirements', [row('EDUC 2140', 'Foundations of Reading', 3)], 'A grade of C or higher, for teacher certification; with the trainings and assessments the Bulletin page lists.'),
+    ])];
+
+/**
  * Smaller repairs, where the reading is right but for a row or two: matched
  * by the rows' Bulletin labels, so they do nothing once a later reading
  * reads those rows another way.
  */
 const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementArea[]> = {
+  '90610': withFoundationsOfReading,
+  '68952': withFoundationsOfReading,
+  '93788': withFoundationsOfReading,
   /*
    * Regenerative Bioscience BS (verified 2026-10-29,
    * bulletin.uga.edu/Program/Details/77774): the Laboratory requirement is
@@ -5319,6 +5335,21 @@ const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementAr
     };
     return { ...existing, groups: existing.groups.flatMap((group) => (group === a ? [laboratory] : group === b ? [] : [group])) };
   }),
+  /*
+   * Computer Science BS (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/73962): CSCI 2610 is an entrance
+   * requirement and one of the courses of the 19-hour rule ("CSCI 2610,
+   * MATH 2250, and the Major Related Electives"); no row named it, so no
+   * board had it. (The Teamwork Requirement, one of CSCI 4050, 4300, 4370,
+   * 4530 or 4800, is met by most boards' Application Design Group course.)
+   */
+  '73962': (areas) => areas.map((existing) => (existing.label === 'Major Related Electives' && !existing.groups.some((group) => group.courses.some((course) => course.code === 'CSCI 2610'))
+    ? { ...existing, groups: [
+      // A choice of the one course: a list with no number to choose, in an area of electives, is read as hours to draw from.
+      choose('Discrete Mathematics', 1, [row('CSCI 2610', 'Discrete Mathematics for Computer Science', 4)], 'An entrance requirement for the major (C or better, within two attempts); with MATH 2250 and the Major Related Electives, at least 19 hours.'),
+      ...existing.groups,
+    ] }
+    : existing)),
   /*
    * Mechanical Engineering BSME (verified 2026-10-29,
    * bulletin.uga.edu/Program/Details/20122): "Required Courses (70 hours)"
