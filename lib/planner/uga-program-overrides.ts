@@ -1,4 +1,4 @@
-import { fixedUgaDegree } from './uga-degree-fixes.ts';
+import { fixedUgaDegree, ugaCampusCore } from './uga-degree-fixes.ts';
 
 type UgaRequirementCourse = {
   code: string;
@@ -611,6 +611,8 @@ function withAreaAfter<T extends UgaProgramRecord>(program: T, after: string, ar
 export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
   programs: T[],
 ): T[] {
+  // The campus core lists, for a degree whose page reading lost a core area (uga-degree-fixes.ts).
+  const campusCore = ugaCampusCore(programs);
   return programs.map((program) => {
     if (program.id === '28375') return { ...program, areas: AI_CERTIFICATE_AREAS, totalCredits: 16, areaHours: 16 } as T;
     if (program.id === '67412') return { ...program, areas: CS_MINOR_AREAS, totalCredits: 17, areaHours: 17 } as T;
@@ -631,7 +633,7 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
       } as T);
     }
     // The degrees written out from their Bulletin page, and smaller repairs (uga-degree-fixes.ts).
-    let repaired = fixedUgaDegree(program, ugaOverlapArea);
+    let repaired = fixedUgaDegree(program, ugaOverlapArea, campusCore);
     // Only where the scrape still lacks them (scripts/uga-programs.mjs reads both pages since 2026-10-28).
     const hasMajorElectives = (repaired.areas as AreaShape[]).some((area) => /\bmajor (?:electives|related courses)\b/i.test(area.label));
     // At the end, so the page's own areas keep their block ids (93328::10::0 is Upper Division General Electives on saved boards).

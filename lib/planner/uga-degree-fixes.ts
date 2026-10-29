@@ -172,6 +172,8 @@ type WrittenDegree = {
   areaSix?: UgaRequirementArea | null;
   /** A core area (Areas I to V) as the page prints it, where the reading mangled it: in place of the read area of the same label. */
   core?: UgaRequirementArea[];
+  /** Core areas the reading lost, by label: the campus's own list for each (ugaCampusCore), as every other degree's page prints it. */
+  campusCore?: string[];
   /** Every area after the core: the major, its electives. */
   major: UgaRequirementArea[];
   /** The page's "Total Major Hours", where the reading lost it. */
@@ -5556,6 +5558,7 @@ const WRITTEN: Record<string, WrittenDegree> = {
    * they are the Bulletin reader's.)
    */
   '42194': {
+    campusCore: ['IV. Humanities and the Arts', 'V. Social Sciences'],
     // Area IV's preferred courses are the emphasis language's 1001, 1002 and 2001; read as every language's (44 hours in a 9-hour area).
     core: [area('IV. World Languages and Global Culture', 9, [
       fromOneList(hoursFromLists('World Languages and Global Culture', 9, {
@@ -5889,8 +5892,25 @@ function foundationRead(areas: UgaRequirementArea[]): UgaRequirementArea[] {
   });
 }
 
-/** `program` with its written areas, or its repaired rows, where this file has them (`overlap`: an area courses counted elsewhere meet). */
-export function fixedUgaDegree<T extends UgaProgramRecord>(program: T, overlap: (label: string) => boolean): T {
+/**
+ * The campus core areas every degree page repeats (Areas II to V, each its
+ * "Core Courses" list), read from the degrees whose page has them: for a
+ * degree whose reading lost one (WrittenDegree.campusCore).
+ */
+export function ugaCampusCore(programs: UgaProgramRecord[]): Map<string, UgaRequirementArea> {
+  const found = new Map<string, UgaRequirementArea>();
+  for (const program of programs) {
+    for (const existing of program.areas as UgaRequirementArea[]) {
+      if (!CORE_AREA.test(existing.label) || found.has(existing.label)) continue;
+      const list = existing.groups.find((group) => /core courses$/i.test(group.label.trim()));
+      if (list) found.set(existing.label, { label: existing.label, hours: existing.hours, groups: [list] });
+    }
+  }
+  return found;
+}
+
+/** `program` with its written areas, or its repaired rows, where this file has them (`overlap`: an area courses counted elsewhere meet; `campusCore`: ugaCampusCore). */
+export function fixedUgaDegree<T extends UgaProgramRecord>(program: T, overlap: (label: string) => boolean, campusCore: Map<string, UgaRequirementArea> = new Map()): T {
   const written = WRITTEN[program.id];
   const repair = REPAIRED[program.id];
   const areas = foundationRead(program.areas as UgaRequirementArea[]);
@@ -5900,7 +5920,11 @@ export function fixedUgaDegree<T extends UgaProgramRecord>(program: T, overlap: 
     const hoursOf = (list: UgaRequirementArea[]) => list.reduce((sum, existing) => sum + existing.hours, 0);
     return { ...program, areas: repaired, areaHours: program.areaHours + hoursOf(repaired) - hoursOf(areas) };
   }
-  const core = areas.filter((existing) => CORE_AREA.test(existing.label)).map((existing) => written.core?.find((own) => own.label === existing.label) ?? existing);
+  const read = areas.filter((existing) => CORE_AREA.test(existing.label)).map((existing) => written.core?.find((own) => own.label === existing.label) ?? existing);
+  const lost = (written.campusCore ?? []).filter((label) => !read.some((existing) => existing.label === label)).flatMap((label) => campusCore.get(label) ?? []);
+  // In the core's own order (I to V), as the pages print it.
+  const order = (label: string) => ['I.', 'II. Physical', 'II. Life', 'III.', 'IV. World', 'IV. Humanities', 'V.'].findIndex((start) => label.startsWith(start));
+  const core = [...read, ...lost].sort((a, b) => order(a.label) - order(b.label));
   const six = written.areaSix === undefined ? areas.find((existing) => AREA_SIX.test(existing.label)) : written.areaSix;
   const kept = areas.filter((existing) => overlap(existing.label));
   const next = [...core, ...(six ? [six] : []), ...written.major, ...kept];
