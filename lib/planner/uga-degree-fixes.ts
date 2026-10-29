@@ -83,9 +83,14 @@ const all = (label: string, courses: UgaRequirementCourse[], note?: string): Uga
 const choose = (label: string, n: number, courses: UgaRequirementCourse[], note?: string): UgaRequirementGroup => ({ label, choose: n, ...(note ? { note } : {}), courses });
 /** `hours` of credit from the courses listed. */
 const hoursFrom = (label: string, hours: number, courses: UgaRequirementCourse[], note?: string): UgaRequirementGroup => ({ label, choose: null, hours, ...(note ? { note } : {}), courses });
-/** One of the course groups listed ("Choose 1 group(s)"), each a course and its lab; `bundleSize` courses from the one group. */
-const oneGroup = (label: string, hours: number, groups: UgaRequirementCourse[][], note = 'Choose one complete course group.', bundleSize?: number): UgaRequirementGroup => ({
-  label, choose: null, hours, note, completeOneList: true, ...(bundleSize ? { bundleSize } : {}),
+/**
+ * One of the course groups listed ("Choose 1 group(s)"), each a course and
+ * its lab. Where every group has two courses, both come from the one group
+ * (bundleSize): with one, a board took CHEM 2100 and CHEM 2211 for "organic
+ * chemistry with its lab" and no lab.
+ */
+const oneGroup = (label: string, hours: number, groups: UgaRequirementCourse[][], note = 'Choose one complete course group.', bundleSize = Math.min(...groups.map((courses) => courses.length))): UgaRequirementGroup => ({
+  label, choose: null, hours, note, completeOneList: true, ...(bundleSize > 1 ? { bundleSize } : {}),
   lists: groups.map((courses) => ({ label: courses.map((course) => course.code).join(' and '), codes: courses.map((course) => course.code) })),
   courses: groups.flat(),
 });
@@ -163,8 +168,8 @@ const generalElectives = (hours: number, upper = 0): UgaRequirementArea =>
 const focus = (n: number, name: string, rows?: string) => `Focus Area ${n}: ${name}${rows ? `: ${rows}` : ''}`;
 
 type WrittenDegree = {
-  /** Area VI as the page prints it, where the reading lost or mangled it. */
-  areaSix?: UgaRequirementArea;
+  /** Area VI as the page prints it, where the reading lost or mangled it (null: the degree's paths each carry their own, in the major). */
+  areaSix?: UgaRequirementArea | null;
   /** Every area after the core: the major, its electives. */
   major: UgaRequirementArea[];
   /** The page's "Total Major Hours", where the reading lost it. */
@@ -199,6 +204,14 @@ const CAES_ELECTIVE_SUBJECTS: UgaRequirementCourse[] = ['AAEC', 'ADSC', 'AENG', 
 
 /** Theatre AB's "Course should be 3 credit hours and numbered 3000 and above: FILM prefix courses, THEA prefix courses" (bulletin.uga.edu/Program/Details/93915). */
 const THEATRE_ELECTIVE: UgaRequirementCourse[] = [...levels('THEA', 3), ...levels('FILM', 3)];
+
+/**
+ * A major the student designs with a faculty advisor and committee
+ * (Franklin's Interdisciplinary Studies and its Honors versions): its rows
+ * hold the page's rules, and the courses the board books for them are
+ * placeholders until the program of study is approved.
+ */
+const DESIGNED = 'A course the student chooses with the faculty advisor and advisory committee; the planned course is a placeholder to change.';
 
 const WRITTEN: Record<string, WrittenDegree> = {
   /*
@@ -4524,7 +4537,7 @@ const WRITTEN: Record<string, WrittenDegree> = {
           [row('CBIO 2200', 'Anatomy and Physiology I', 4), row('CBIO 2210', 'Anatomy and Physiology II', 4)],
           [row('EPID 2100', 'Health Data Literacy for Public Health Research and Practice', 3), row('EPID 3100', 'Health Data Fluency and Management for Public Health Research and Practice', 3)],
           [row('PSYC 1101', 'Elementary Psychology', 3), row('PSYC 3230', 'Psychopathology', 3)],
-        ], 'Area VI: one group of two courses.', 2),
+        ], 'Area VI: one group of two courses.'),
         hoursFrom(focus(1, 'Area of Emphasis in Health Promotion', 'electives'), 20, [
           ...levels('HPRB', 3),
           ...['BIOS', 'DMAN', 'EHSC', 'EPID', 'GLOB', 'GRNT', 'HPAM'].flatMap((subject) => levels(subject, 3)),
@@ -4573,7 +4586,7 @@ const WRITTEN: Record<string, WrittenDegree> = {
           [row('PHYS 1111', 'Introductory Physics-Mechanics, Waves, Thermodynamics', 4), row('PHYS 1112', 'Introductory Physics-Electricity and Magnetism, Optics, Modern Physics', 4)],
           [row('PHYS 1211', 'Principles of Physics for Scientists and Engineers-Mechanics, Waves, Thermodynamics', 4), row('PHYS 1212', 'Principles of Physics for Scientists and Engineers-Electricity and Magnetism, Optics, Modern Physics', 4)],
           [row('PHYS 1311', 'Advanced Introductory Physics I', 4), row('PHYS 1312', 'Advanced Introductory Physics II', 4)],
-        ], 'Area VI: one group of two courses.', 2),
+        ], 'Area VI: one group of two courses.'),
         hoursFrom(focus(2, 'Area of Emphasis in Health Services', 'electives'), 8, [
           row('BCMB 3100', 'Introductory Biochemistry and Molecular Biology', 4),
           row('CBIO 3000', 'Comparative Vertebrate Anatomy', 4),
@@ -4819,6 +4832,181 @@ const WRITTEN: Record<string, WrittenDegree> = {
       generalElectives(21),
     ],
   },
+  /*
+   * Interdisciplinary Studies BS and Honors Interdisciplinary Studies BS
+   * (verified 2026-10-29, bulletin.uga.edu/Program/Details/21398 and
+   * 70139): a program of study the student plans with a faculty advisor
+   * and committee, at least 24 hours of courses (15 of them in Franklin
+   * College departments) and a Fourth-year Thesis (3 hours); Area VI is
+   * 1000-2999-level courses chosen to prepare for them. The pages name no
+   * course, so boards held only the core.
+   */
+  '21398': {
+    areaSix: area('VI. Courses Related to the Major', 18, [
+      hoursFrom('VI. Courses Related to the Major', 18, [ANY_COURSE], `Courses numbered 1000-2999 that prepare for the major. ${DESIGNED}`),
+    ]),
+    major: [
+      area('Required Courses', 27, [
+        hoursFrom('Interdisciplinary Studies major courses', 24, [ANY_UPPER_COURSE], `At least 24 hours, 15 of them from Franklin College departments; at least 21 upper division. ${DESIGNED} Applicants need 30 to 75 college hours and a 3.0 GPA.`),
+        choose('Fourth-year Thesis', 1, [row('IDIS 4990R', 'Undergraduate Research Thesis (or Final Project)', 3)], 'A thesis on a topic of special interest, planned with the faculty advisor.'),
+      ]),
+      generalElectives(33),
+    ],
+  },
+  '70139': {
+    areaSix: area('VI. Courses Related to the Major', 18, [
+      hoursFrom('VI. Courses Related to the Major', 18, [ANY_COURSE], `Courses numbered 1000-2999 that prepare for the major, chosen with the major professor. ${DESIGNED}`),
+    ]),
+    major: [
+      area('Required Courses', 27, [
+        hoursFrom('Interdisciplinary Studies major courses', 24, [ANY_UPPER_COURSE], `Major courses chosen with the major professor; open to Honors Program participants. ${DESIGNED}`),
+        choose('Fourth-year Thesis', 1, [row('IDIS 4990R', 'Undergraduate Research Thesis (or Final Project)', 3)], 'A thesis on a topic of special interest, planned with the faculty advisor.'),
+      ]),
+      generalElectives(33),
+    ],
+  },
+  /*
+   * Honors Interdisciplinary Studies AB (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/71506): Required Courses (30 hours)
+   * are four 3000-level courses in one department and six related courses
+   * at that level from at least two other departments; the reading kept
+   * neither (69 of 120 hours on a board).
+   */
+  '71506': {
+    areaSix: area('VI. Courses Related to the Major', 18, [
+      hoursFrom('VI. Courses Related to the Major', 18, [ANY_COURSE], `Courses numbered 1000-2999 that prepare for the major, chosen with the major professor. ${DESIGNED}`),
+    ]),
+    major: [
+      area('Required Courses', 30, [
+        hoursFrom('Primary Subject', 12, [ANY_UPPER_COURSE], `Four courses at the 3000 level and above in one department; a grade of C or better. ${DESIGNED}`),
+        hoursFrom('Secondary Subjects', 18, [ANY_UPPER_COURSE], `Six related courses at the 3000 level and above (research and thesis may count; at least two other departments represented). ${DESIGNED}`),
+      ]),
+      generalElectives(30),
+    ],
+  },
+  /*
+   * Interdisciplinary Studies BFA (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/73709): 12 hours of senior-division
+   * courses in one primary subject, 18 hours of related subjects (9 of them
+   * senior division) and 30 hours of general electives (18 upper division).
+   */
+  '73709': {
+    areaSix: area('VI. Courses Related to the Major', 18, [
+      hoursFrom('VI. Courses Related to the Major', 18, [ANY_COURSE], `Courses that prepare for the major. ${DESIGNED}`),
+    ]),
+    major: [
+      area('Required Courses', 12, [
+        hoursFrom('Primary Subject', 12, [ANY_UPPER_COURSE], `Senior-division courses in one subject, chosen with the department in which the major is taken. ${DESIGNED}`),
+      ]),
+      area('Major Electives', 18, [
+        hoursFrom('Related Subjects: senior division', 9, [ANY_UPPER_COURSE], DESIGNED),
+        hoursFrom('Related Subjects', 9, [ANY_COURSE], DESIGNED),
+      ]),
+      generalElectives(30, 18),
+    ],
+  },
+  /*
+   * Honors Interdisciplinary Studies BSA (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/92067): Area VI's lower-division
+   * science courses, 12 hours of senior-division courses in one primary
+   * subject, 18 hours of related subjects (9 senior division) and 30 hours
+   * of general electives.
+   */
+  '92067': {
+    areaSix: area('VI. Courses Related to the Major', 18, [
+      hoursFrom('VI. Courses Related to the Major', 18, lowerLevels(['AAEC', 'ADSC', 'CHEM', 'CRSS', 'CSCI', 'EHSC', 'ENGR', 'FDST', 'GENE', 'GEOL', 'HORT', 'PBIO', 'PHYS', 'POUL', 'STAT']), `Lower-division science courses related to the major, such as those with these prefixes. ${DESIGNED}`),
+    ]),
+    major: [
+      area('Required Courses', 12, [
+        hoursFrom('Primary Subject', 12, [ANY_UPPER_COURSE], `Senior-division courses in one subject, chosen with the department in which the major is taken. ${DESIGNED}`),
+      ]),
+      area('Major Electives', 18, [
+        hoursFrom('Related Subjects: senior division', 9, [ANY_UPPER_COURSE], DESIGNED),
+        hoursFrom('Related Subjects', 9, [ANY_COURSE], DESIGNED),
+      ]),
+      generalElectives(30, 18),
+    ],
+  },
+  /*
+   * Interdisciplinary Studies AB (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/76673): the Athens campus major (a
+   * designed program of study and thesis) or a Griffin campus Psychology or
+   * Sociology concentration, each with its own Area VI, major and elective
+   * hours; the reading put all three on the board at once. One choice, each
+   * path its own Area VI.
+   */
+  '76673': {
+    areaSix: null,
+    major: [
+      area('Program of Study', 57, [
+        hoursFrom(focus(1, 'Athens Campus'), 24, [ANY_UPPER_COURSE], `At least 24 hours, 15 of them from Franklin College departments; at least 21 upper division. ${DESIGNED}`),
+        hoursFrom(focus(1, 'Athens Campus', 'Area VI'), 18, [ANY_COURSE], `Courses that prepare for the major. ${DESIGNED}`),
+        choose(focus(1, 'Athens Campus', 'Fourth-year Thesis'), 1, [row('IDIS 4990R', 'Undergraduate Research Thesis (or Final Project)', 3)]),
+        hoursFrom(focus(1, 'Athens Campus', 'general electives'), 12, [ANY_COURSE], 'With the general electives below: 33 hours, chosen with the academic advisor.'),
+        all(focus(2, 'Griffin Campus - Psychology Concentration'), [
+          row('PSYC 3980', 'Research Design in Psychology', 3),
+          row('PSYC 3990', 'Research Analysis in Psychology', 4),
+        ]),
+        choose(focus(2, 'Griffin Campus - Psychology Concentration', 'cognitive or biological psychology'), 1, [
+          row('PSYC 4100', 'Cognitive Psychology', 3),
+          row('PSYC 4110', 'Learning', 3),
+          row('PSYC 4120', 'Sensation and Perception', 3),
+          row('PSYC 4130', 'Physiological and Comparative Psychology', 3),
+          row('PSYC 4140', 'Cognitive Neuroscience', 3),
+          row('PSYC 4150', 'Biological Foundations of Health Psychology', 3),
+        ]),
+        choose(focus(2, 'Griffin Campus - Psychology Concentration', 'social or clinical psychology'), 1, [
+          row('PSYC 3230', 'Psychopathology', 3),
+          row('PSYC 3260', 'Human Sexuality', 3),
+          row('PSYC 3300', 'Social and Personality Development', 3),
+          row('PSYC 4200', 'Social Psychology', 3),
+          row('PSYC 4210', 'Psychological Testing', 3),
+          row('PSYC 4220', 'Developmental Psychology', 3),
+          row('PSYC 4230', 'Psychology of the Workplace', 3),
+        ]),
+        hoursFrom(focus(2, 'Griffin Campus - Psychology Concentration', 'PSYC courses'), 9, levels('PSYC', 3), 'Three PSYC courses numbered 3000 and above.'),
+        all(focus(2, 'Griffin Campus - Psychology Concentration', 'Area VI'), [
+          row('COMM 1110', 'Introduction to Public Speaking', 3),
+          row('PSYC 1101', 'Elementary Psychology', 3),
+          row('STAT 2000', 'Introductory Statistics', 4),
+        ]),
+        choose(focus(2, 'Griffin Campus - Psychology Concentration', 'Area VI foreign language'), 1, THIRD_SEMESTER_COURSES, 'A foreign language course.'),
+        oneGroup(focus(2, 'Griffin Campus - Psychology Concentration', 'Area VI biology'), 4, [
+          [row('BIOL 1103', 'Concepts in Biology', 3), lab('BIOL 1103L', 'Concepts in Biology Laboratory', 1)],
+          [row('BIOL 1107', 'Principles of Biology I', 3), lab('BIOL 1107L', 'Principles of Biology I Laboratory', 1)],
+        ], 'Choose 1 course (with its lab).'),
+        choose(focus(2, 'Griffin Campus - Psychology Concentration', 'Area VI economics'), 1, [
+          row('ECON 2105', 'Principles of Macroeconomics', 3),
+          row('ECON 2106', 'Principles of Microeconomics', 3),
+        ]),
+        hoursFrom(focus(2, 'Griffin Campus - Psychology Concentration', 'Major Electives'), 12, [ANY_COURSE], 'Major electives chosen with the academic advisor.'),
+        hoursFrom(focus(2, 'Griffin Campus - Psychology Concentration', 'general electives numbered 3000 and above'), 5, [ANY_UPPER_COURSE], '5 of the 26 general elective hours at the 3000 level or above.'),
+        all(focus(3, 'Griffin Campus - Sociology Concentration'), [
+          row('SOCI 3220', 'Development of Sociological Theory', 3),
+        ]),
+        choose(focus(3, 'Griffin Campus - Sociology Concentration', 'research methods'), 1, [
+          row('SOCI 3580', 'Research Methods in Sociology', 3),
+          row('SOCI 3590', 'Qualitative Methods of Social Research', 3),
+        ]),
+        hoursFrom(focus(3, 'Griffin Campus - Sociology Concentration', 'SOCI courses'), 15, levels('SOCI', 3), 'Five SOCI courses numbered 3000 and above.'),
+        all(focus(3, 'Griffin Campus - Sociology Concentration', 'Area VI'), [
+          row('COMM 1110', 'Introduction to Public Speaking', 3),
+          row('PSYC 1101', 'Elementary Psychology', 3),
+          row('SOCI 1101', 'Introductory Sociology', 3),
+          row('STAT 2000', 'Introductory Statistics', 4),
+        ]),
+        choose(focus(3, 'Griffin Campus - Sociology Concentration', 'Area VI foreign language'), 1, THIRD_SEMESTER_COURSES, 'A foreign language course.'),
+        choose(focus(3, 'Griffin Campus - Sociology Concentration', 'Area VI economics'), 1, [
+          row('ECON 2105', 'Principles of Macroeconomics', 3),
+          row('ECON 2106', 'Principles of Microeconomics', 3),
+        ]),
+        hoursFrom(focus(3, 'Griffin Campus - Sociology Concentration', 'Major Electives'), 12, [ANY_COURSE], 'Major electives chosen with the academic advisor.'),
+        hoursFrom(focus(3, 'Griffin Campus - Sociology Concentration', 'general electives numbered 3000 and above'), 6, [ANY_UPPER_COURSE], '6 of the 27 general elective hours at the 3000 level or above.'),
+      ]),
+      // The Griffin concentrations' other general elective hours (21 of 26 or 27), and 21 of the Athens campus's 33.
+      generalElectives(21),
+    ],
+  },
 };
 
 /**
@@ -4877,7 +5065,7 @@ export function fixedUgaDegree<T extends UgaProgramRecord>(program: T, overlap: 
   const areas = foundationRead(program.areas as UgaRequirementArea[]);
   if (!written) return { ...program, areas: repair ? repair(areas) : areas };
   const core = areas.filter((existing) => CORE_AREA.test(existing.label));
-  const six = written.areaSix ?? areas.find((existing) => AREA_SIX.test(existing.label));
+  const six = written.areaSix === undefined ? areas.find((existing) => AREA_SIX.test(existing.label)) : written.areaSix;
   const kept = areas.filter((existing) => overlap(existing.label));
   const next = [...core, ...(six ? [six] : []), ...written.major, ...kept];
   const hours = next.filter((existing) => !overlap(existing.label)).reduce((sum, existing) => sum + existing.hours, 0);
