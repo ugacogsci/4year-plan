@@ -15976,7 +15976,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         if (!pick) continue;
         placed.set(terms[i].id, [...(placed.get(terms[i].id) ?? []), pick]);
         chosen.set(pick, { requirementId: null, label: 'Elective' });
-        electives.push({ code: pick, why: `An elective that keeps ${terms[i].label} at the ${credits.min} credits you set as a minimum.`, reasons: [] });
+        electives.push({ code: pick, why: `An elective that keeps ${terms[i].label} at the ${credits.min}-credit minimum for a term.`, reasons: [] });
         pinned.add(pick);
       }
     }
@@ -18820,13 +18820,34 @@ export function validatePlan(
     // is not away is still reported: that is a term with no enrolment.
     const awayHere = at !== null && awayList.some((a) => calendarOrd(a.season, a.year) === at);
     if (options?.minimumTermCredits && termCredits.max < options.minimumTermCredits && term.season !== 'Summer' && !awayHere) {
-      issues.push({
-        id: `ap-minimum-${term.id}`,
-        severity: 'warning',
-        title: 'Below your credit target',
-        message: `${term.label} is ${describeCreditTotal(termCredits)}, under the ${options.minimumTermCredits} you set.`,
-        termId: term.id,
-      });
+      /*
+       * The plan's last term is what is left to finish, and a light last term
+       * is normal: a senior's 3-credit spring read "Below your credit target
+       * ... under the 12 you set", which the student never set (it is the
+       * default), and one whose record already finishes the degree was told
+       * an empty spring was under it. Said for what it is, as information.
+       * Every later fall and spring of the board is empty.
+       */
+      const index = plan.terms.indexOf(term);
+      const last = plan.terms.slice(index + 1).every((later) => later.season === 'Summer' || later.courseIds.length === 0);
+      const finishedBefore = last && termCredits.max === 0 ? [...plan.terms.slice(0, index)].reverse().find((earlier) => earlier.courseIds.length > 0) : undefined;
+      issues.push(last
+        ? {
+          id: `ap-minimum-${term.id}`,
+          severity: 'info',
+          title: termCredits.max === 0 ? 'Nothing left for this term' : 'A light last term',
+          message: termCredits.max === 0
+            ? `Nothing is planned for ${term.label}: the courses on the board and on the record already finish the plan${finishedBefore ? ` by ${finishedBefore.label}` : ''}. Ask your advisor whether you can graduate a term early, and apply to graduate for that term.`
+            : `${term.label}, the last term, is ${describeCreditTotal(termCredits)}. That is what is left to finish; under ${options.minimumTermCredits} credits is part-time, which can matter for financial aid, scholarships and housing.`,
+          termId: term.id,
+        }
+        : {
+          id: `ap-minimum-${term.id}`,
+          severity: 'warning',
+          title: 'Below your credit target',
+          message: `${term.label} is ${describeCreditTotal(termCredits)}, under the ${options.minimumTermCredits}-credit minimum for a term.`,
+          termId: term.id,
+        });
     }
     /**
      * Only the term right after year one holds a sequence's second half: a
