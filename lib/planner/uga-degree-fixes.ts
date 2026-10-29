@@ -213,6 +213,9 @@ const THEATRE_ELECTIVE: UgaRequirementCourse[] = [...levels('THEA', 3), ...level
  */
 const DESIGNED = 'A course the student chooses with the faculty advisor and advisory committee; the planned course is a placeholder to change.';
 
+/** FACS, FHCE, HDFS, NUTR and TXMI courses at the 3000 level and above (Social Entrepreneurship for Consumer Well-Being, 77137). */
+const FAMILY_CONSUMER_UPPER: UgaRequirementCourse[] = ['FACS', 'FHCE', 'HDFS', 'NUTR', 'TXMI'].flatMap((subject) => levels(subject, 3));
+
 const WRITTEN: Record<string, WrittenDegree> = {
   /*
    * Plant Biology BS (verified 2026-10-29, bulletin.uga.edu/Program/Details/62409):
@@ -5007,6 +5010,115 @@ const WRITTEN: Record<string, WrittenDegree> = {
       generalElectives(21),
     ],
   },
+  /*
+   * Art BFA - Photography and Expanded Media (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/74546): Required Courses (60 hours)
+   * with the Studio Electives (18 hours of ARGD, ARID, ARST or ARTS at the
+   * 2000 level or above), which the reading lost, and Art History as ARHI
+   * courses at the 3000 or 4000 level (read as 9 hours from two courses,
+   * which could never be met).
+   */
+  '74546': {
+    major: [
+      area('Required Courses', 60, [
+        all('Required Studio Courses', [
+          row('ARST 4200', 'Advanced Workshop in Photography and Expanded Media', 3),
+          row('ARST 4201', 'Advanced Workshop in Photography and Expanded Media II', 3),
+          row('ARST 4915', 'Thematic Inquiry in Contemporary Art', 3),
+          row('ARST 4995', 'Capstone Exhibition and Professional Practices', 3),
+        ], 'A grade of C or better.'),
+        hoursFromDistinct('Photography and Expanded Media Courses', 15, 5, [
+          [row('ARST 2810', 'Hypermedia', 3)],
+          [row('ARST 3200', 'Black and White Photography', 3)],
+          [row('ARST 3205', 'Video Concepts and Practice', 3)],
+          [row('ARST 3210', 'Color Photography', 3)],
+          [row('ARST 3220', 'Advanced Film and Camera', 3)],
+          [row('ARST 3250', 'Constructed Image in Photography', 3), row('ARST 4250', 'Constructed Image in Photography', 3)],
+          [row('ARST 3800', 'Transmedia', 3)],
+          [row('ARST 4830', 'Advanced Video', 3)],
+        ], 'Choose 15 hours. Only one of ARST 3250 and ARST 4250.'),
+        hoursFrom('Photography and Expanded Media Electives', 6, [
+          row('ARST 2810', 'Hypermedia', 3),
+          row('ARST 3200', 'Black and White Photography', 3),
+          row('ARST 3210', 'Color Photography', 3),
+          row('ARST 3220', 'Advanced Film and Camera', 3),
+          row('ARST 3221', 'Large Format Photography II', 3),
+          row('ARST 3250', 'Constructed Image in Photography', 3),
+          row('ARST 3345', 'Digital Printmaking', 3),
+          row('ARST 3800', 'Transmedia', 3),
+          row('ARST 3840', 'Interdisciplinary Art I', 3),
+          row('ARST 3850', 'Interactive Art I', 3),
+          row('ARST 3870', 'E-Gadgets for Experimental Media', 3),
+          row('ARST 4210', 'Special Topics in Photography', 3),
+          row('ARST 4215', 'Sound in Art', 3),
+          row('ARST 4225', 'Photography Practice and Theory', 3),
+          row('ARST 4251', 'Constructed Image in Photograpy II', 3),
+          row('ARST 4270', 'Social Documentary Photography and Video', 3),
+          row('ARST 4280', 'Directed Study in Photography', 3),
+          row('ARST 4285', 'Alternative Photography', 3),
+          row('ARST 4290', 'Landscape Photography', 3),
+          row('ARST 4800', 'Special Topics in Art and Technology', 3),
+          row('ARST 4810', 'CAD and Fabrication', 3),
+          row('ARST 4830', 'Advanced Video', 3),
+          row('ARST 4840', 'Interdisciplinary Art II', 3),
+          row('ARST 4850', 'Interactive Art II', 3),
+          row('ARST 4860', 'Video Installation', 3),
+          row('ARST 4865', 'Internet Art Studio', 3),
+          row('ARST 4870', 'Web Site Design for Artists', 3),
+          row('ARST 4930', 'Internship in Art', 3),
+          row('ARTS 4000', "Artist's Research Methods", 3),
+          row('ARTS 4100', 'Art and Design in the City Intensive Field Study', 3),
+          row('ARTS 4900', 'Professional Practices: The Business Side of Art', 3),
+          row('ARTS 4920', 'Seminar in Contemporary Art', 3),
+        ]),
+        hoursFrom('Studio Electives', 18, ['ARGD', 'ARID', 'ARST', 'ARTS'].flatMap((subject) => levels(subject, 2)), 'ARGD, ARID, ARST or ARTS courses at the 2000 level or above.'),
+        hoursFrom('Art History', 9, [
+          ...levels('ARHI', 3, 4),
+          row('ARGD 3070', 'The History of Graphic Design', 3),
+          row('ARST 4225', 'Photography Practice and Theory', 3),
+        ], 'ARHI courses at the 3000 or 4000 level (two 3000-level ARHI courses before any 4000-level one), ARGD 3070 or ARST 4225.'),
+      ]),
+    ],
+  },
+  /*
+   * Social Entrepreneurship for Consumer Well-Being BSFCS (verified
+   * 2026-10-29, bulletin.uga.edu/Program/Details/77137): the reading left
+   * Area VI's open rows and 24 of the 37 required hours unnamed, and read
+   * Major Electives' "6 hours of 3000-level or above courses" as 6 hours
+   * from IDEA 4000 (a 3-hour course: a row that could never be met).
+   */
+  '77137': {
+    areaSix: area('VI. Courses Related to the Major', 18, [
+      all('VI. Courses Related to the Major', [
+        row('FHCE 2100', 'Introduction to Consumer Economics', 3),
+        row('HDFS 2100', 'Relationship Development, Maintenance, and Dissolution', 3),
+      ]),
+      choose('Nutrition or textiles', 1, [
+        row('NUTR 2100', 'Fundamentals of Human Nutrition', 3),
+        row('TXMI 2100', 'Textiles for Consumers', 3),
+      ]),
+      hoursFrom('A W-suffix course', 3, [ANY_COURSE], 'Any 3-hour W-suffix (writing intensive) course.'),
+      hoursFrom('Perspective and Professional Innovation courses', 6, [ANY_COURSE], 'Two 3-hour courses at the 2000 level or higher: a Perspective course (a topic from multiple perspectives) and a Professional Innovation course (a skill for your professional interest).'),
+    ]),
+    major: [
+      area('Required Courses', 37, [
+        all('Required Courses', [
+          row('FACS 2000', 'Introduction to Family and Consumer Sciences', 1),
+          row('FHCE 4010', 'Introduction to Social Entrepreneurship', 3),
+          row('FHCE 4011', 'Social Entrepreneurship: Strategic Storytelling', 3),
+          row('FHCE 4051', 'Social Entrepreneurship: Social Impact Communication', 3),
+          row('FHCE 5011', 'Social Entrepreneurship Capstone', 3),
+        ], 'A grade of C or higher in each course.'),
+        hoursFrom('Focus area courses', 15, [ANY_UPPER_COURSE], '3000-level or above courses in your chosen focus area.'),
+        hoursFrom('Family and consumer sciences courses', 9, FAMILY_CONSUMER_UPPER, 'FACS, FHCE, HDFS, NUTR or TXMI courses at the 3000 level or above.'),
+      ]),
+      area('Major Electives', 12, [
+        hoursFrom('Major Electives: family and consumer sciences', 6, FAMILY_CONSUMER_UPPER, 'FACS, FHCE, HDFS, NUTR or TXMI courses at the 3000 level or above.'),
+        hoursFrom('Major Electives: 3000-level or above', 6, [row('IDEA 4000', 'Innovation Catalyst and Design', 3), ANY_UPPER_COURSE], 'Any courses at the 3000 level or above (IDEA 4000 suggested); they may count toward a minor.'),
+      ]),
+      generalElectives(11),
+    ],
+  },
 };
 
 /**
@@ -5033,6 +5145,90 @@ const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementAr
       courses: [...a.courses, ...b.courses],
     };
     return { ...existing, groups: existing.groups.flatMap((group) => (group === a ? [laboratory] : group === b ? [] : [group])) };
+  }),
+  /*
+   * Atmospheric Sciences BS (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/29248): General Electives (28 hours)
+   * are electives; the list under them is the major courses'
+   * prerequisites (calculus and physics), which the reading made a 28-hour
+   * pool of 23 hours of courses that could never be met. The planner books
+   * a major course's prerequisites as it does any course's.
+   */
+  '29248': (areas) => areas.map((existing) => (/^General Electives\b/.test(existing.label) && existing.groups.some((group) => group.courses.some((course) => /^(?:MATH|PHYS) /.test(course.code)))
+    ? { ...existing, groups: [] }
+    : existing)),
+  /*
+   * Biochemistry and Molecular Biology BS (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/95737): Major Electives (12 hours) are
+   * CHEM 2212 with its lab, MATH 2260 or STAT 2000, and a second semester of
+   * physics. A list with no number to choose, in an area of electives, is
+   * read as hours to draw from, so CHEM 2212 and its lab were a 12-hour
+   * pool of 4 hours that could never be met: they are a choice of both.
+   */
+  '95737': (areas) => areas.map((existing) => (existing.label === 'Major Electives'
+    ? { ...existing, groups: existing.groups.map((group) => (group.choose === null && group.hours == null && group.courses.length === 2 && group.courses.every((course) => /^CHEM 2212L?$/.test(course.code))
+      ? { ...group, label: 'Organic Chemistry II', choose: 2 }
+      : group)) }
+    : existing)),
+  /*
+   * Civil Engineering BSCE (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/79689): Major Electives are six courses
+   * from at least two of the four tracks, at least three of them design
+   * courses (ENVE 4410 or ENVE 6430, only one); the reading made each track
+   * a pool of its own (20, 2, 1 and 1 hours, the 20 from 18 hours of
+   * courses: never met). The heading's 20 hours are the six courses' 18.
+   */
+  '79689': (areas) => areas.map((existing) => {
+    if (existing.label !== 'Major Electives' || !existing.groups.some((group) => /^Geotechnical/.test(group.label))) return existing;
+    const tracks = {
+      Geotechnical: [
+        row('CVLE 4420', 'Advanced Soil Mechanics', 3),
+        row('CVLE 4430', 'Groundwater Engineering', 3),
+        row('CVLE 4440', 'Design with Geosynthetics', 3),
+        row('CVLE 4450', 'Geotechnical Structures – Foundations and Retaining Walls', 3),
+        row('CVLE 4470', 'Pavement Design', 3),
+        row('GEOL 4360', 'Introduction to Rock Mechanics', 3),
+      ],
+      Hydraulics: [
+        row('CVLE 3440', 'Hydraulics of Closed Conduit Flow', 3),
+        row('ENVE 4410', 'Open Channel Hydraulics', 3),
+        row('ENVE 6430', 'Advanced Open Channel Design', 3),
+        row('WASR 4500', 'Quantitative Methods in Hydrology', 3),
+      ],
+      'Infrastructure Engineering': [
+        row('CVLE 4220', 'Highway Design and Traffic Safety', 3),
+        row('CVLE 4660', 'Sustainable Building Design', 3),
+        row('CVLE 4730', 'Project Estimating and Planning', 3),
+        row('CVLE 4750', 'Building Information Modeling (BIM)', 3),
+        row('CVLE 4760', 'Commercial Building Systems', 3),
+        row('CVLE 4780', 'Advanced Computer-Aided Design Civil 3D', 3),
+        row('ENGR 3620', 'Introduction to E-Mobility', 3),
+        row('ENVE 4470', 'Environmental Engineering Unit Operations', 3),
+        row('ENVE 4550', 'Environmental Life Cycle Analysis', 3),
+        row('ENVE 4710', 'GIS for Urban Engineering, Planning, and Development', 3),
+        row('ENVE 4720', 'Urban Infrastructure Planning and Development', 3),
+        row('MCHE 4400', 'Air Pollution Engineering', 3),
+      ],
+      'Structural Engineering': [
+        row('CVLE 4330', 'Advanced Structural Analysis', 3),
+        row('CVLE 4340', 'Design of Bridges', 3),
+        row('CVLE 4530', 'Design of Reinforced Concrete Structures', 3),
+        row('CVLE 4610', 'Design of Steel Structures', 3),
+        row('CVLE 4720', 'Engineering Design of Residential Structures', 3),
+        row('CVLE 4810', 'Design of Wood Structures', 3),
+        row('ENGR 4350', 'Introduction to Finite Element Analysis', 3),
+      ],
+    };
+    const group = hoursFromLists('Major Electives', 18, tracks, 'Six courses from at least two of the tracks (Geotechnical, Hydraulics, Infrastructure Engineering, Structural Engineering), at least three of them design courses; only one of ENVE 4410 and ENVE 6430.');
+    const design = ['CVLE 4440', 'CVLE 4450', 'CVLE 4470', 'CVLE 3440', 'ENVE 4410', 'ENVE 6430', 'CVLE 4760', 'CVLE 4780', 'MCHE 4400', 'CVLE 4340', 'CVLE 4530', 'CVLE 4610', 'CVLE 4720', 'CVLE 4810'];
+    const lists = group.lists ?? [];
+    return { ...existing, hours: 18, groups: [{
+      ...group,
+      constraints: [
+        { text: 'From at least two of the tracks.', n: 2, lists, single: false, distinctLists: true },
+        { text: 'At least 3 design courses.', n: 3, lists: [{ label: 'Design courses', codes: design }], single: false },
+      ],
+    }] };
   }),
 };
 
