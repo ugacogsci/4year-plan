@@ -246,6 +246,34 @@ function stemOf(word: string): string {
 }
 
 /**
+ * A UGA title as a goal reads it: without a closing "for Teachers" (who it is
+ * for, not what it teaches), and none for a course of one field's teacher
+ * preparation (a subject "<field> Education": Agricultural, Art, Science,
+ * Special Education) outside the degree's subjects when the student names
+ * another field, its description unread too. ETES 4030
+ * Robotics for Teachers and AGED 4350E Curriculum Planning in Agricultural
+ * Education were future English and History teachers' picks "for your goal:
+ * education/teaching" (2026-10-29).
+ */
+function goalTitleOf(course: QualityCourse, names: ReadonlyMap<string, string>, words: string[]): string | null {
+  const field = /^(.+?)\s+education$/i.exec((names.get(course.cluster) ?? '').trim())?.[1]?.toLowerCase();
+  if (field && !field.split(/[^a-z]+/).some((part) => part.length >= 4 && words.some((w) => sameWordFamily(w, part) || w === part))) return null;
+  return course.title.toLowerCase().replace(/\s+for\s+(?:teachers?|educators?)\s*$/, '');
+}
+
+/**
+ * Whether two of a student's words are one word with different endings: the
+ * first six letters alike, or five where both are seven or longer
+ * (politics, political; medicine, medical; teacher, teaching).
+ */
+function sameWordFamily(a: string, b: string): boolean {
+  if (a.includes(' ') || b.includes(' ')) return false;
+  let n = 0;
+  while (n < a.length && n < b.length && a[n] === b[n]) n += 1;
+  return n >= 6 || (n >= 5 && Math.min(a.length, b.length) >= 7);
+}
+
+/**
  * Whether a word the student said names a subject: a whole word of the
  * department's name, or the first six or more letters of one. Substring
  * matching made "mental" name Environmental Studies and "company"
@@ -526,8 +554,9 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     take(p.relevance, v, 'relevance');
   } else if (p.relevance > 0) {
     let v = 0;
-    const title = course.title.toLowerCase();
     const free = q.interestWords.filter((w) => w.length >= 5 && !INTEREST_STOPWORDS.has(w));
+    const goalTitle = q.subjectNames !== undefined && course.cluster !== q.primarySubject && !q.degreeSubjects.has(course.cluster) ? goalTitleOf(course, q.subjectNames, q.interestWords) : course.title.toLowerCase();
+    const title = goalTitle ?? '';
     /*
      * A goal whose own subject is the major (software engineering's CS, for a
      * Computer Science major) reads another department's courses past their
@@ -561,7 +590,7 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     else if (subjectHit) { v = 0.75; reasons.push(RELEVANCE_REASONS.subject); }
     else if (course.cluster === q.primarySubject) { v = 0.6; reasons.push('in your major'); }
     else if (q.degreeSubjects.has(course.cluster)) { v = 0.4; reasons.push("in one of your degree's subjects"); }
-    if (course.description && !courseHit) {
+    if (course.description && !courseHit && goalTitle !== null) {
       /*
        * A catalog description is three hundred words; one word the student
        * wrote turns up in it by chance. "I want to start my own business"
@@ -586,7 +615,15 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
        * studio a Marketing student's pick for starting a company (2026-10-28).
        */
       const matched = topics.filter((word) => titleWord(stemOf(word), word.length < 5).test(`${title} ${description}`));
-      const hits = matched.filter((word, i) => !matched.some((other, j) => j !== i && (stemOf(other).length < stemOf(word).length || (stemOf(other).length === stemOf(word).length && j < i)) && stemOf(word).startsWith(stemOf(other))));
+      const longerForm = (word: string, i: number) => matched.some((other, j) => j !== i && (stemOf(other).length < stemOf(word).length || (stemOf(other).length === stemOf(word).length && j < i)) && stemOf(word).startsWith(stemOf(other)));
+      /*
+       * At UGA two forms of one word with another ending are one word too
+       * (sameWordFamily): "politics" and "political" in WMST 2300
+       * Introduction to LGBTQ Studies made it a pick for working in
+       * government, "for your interest" on two words (2026-10-29).
+       */
+      const otherEnding = (word: string, i: number) => q.subjectNames !== undefined && matched.some((other, j) => j < i && sameWordFamily(word, other));
+      const hits = matched.filter((word, i) => !longerForm(word, i) && !otherEnding(word, i));
       const meaningful = q.legacyTopics ? hits.some((word) => !LOW_INFORMATION.has(word)) || hits.length >= 2 : hits.length >= 2 && hits.some((word) => !LOW_INFORMATION.has(word));
       if (meaningful) {
         // Coverage distinguishes a broad title match from a course addressing
