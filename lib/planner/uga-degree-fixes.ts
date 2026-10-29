@@ -3610,6 +3610,72 @@ const WRITTEN: Record<string, WrittenDegree> = {
       generalElectives(3),
     ],
   },
+  /*
+   * Food Science BSA (verified 2026-10-29, bulletin.uga.edu/Program/Details/35947):
+   * Major Electives (25-26 hours) are the Area of Emphasis in Business or
+   * the Area of Emphasis in Science, Technology, and Engineering; the
+   * reading required both, with rows shifted between them. The Science,
+   * Technology, and Engineering emphasis also asks for CHEM 2211 and MIBO
+   * 3500 among Area VI's choices.
+   */
+  '35947': {
+    major: [
+      area('Required Courses', 22, [
+        all('Required Courses', [
+          row('FDST 1001', 'Careers in Food Science', 1),
+          row('FDST 3000', 'Introduction to Food Science and Technology', 3),
+          row('FDST 4011', 'Fundamentals of Food Process Engineering', 3),
+          row('FDST 4030', 'Food Microbiology', 4),
+          row('FDST 4040', 'Food Chemistry', 4),
+          row('FDST 4090', 'Food Quality Control', 1),
+          row('FDST 4240', 'Sensory and Consumer Sciences in Agriculture', 3),
+          row('FDST 4250', 'Food Product Development', 3),
+        ]),
+      ]),
+      area('Major Electives', 25, [
+        // A choice of every course listed: a list with no number to choose, in an area of electives, is read as hours to draw from.
+        choose(focus(1, 'Area of Emphasis in Business'), 2, [
+          row('FDST 4100', 'Governmental Regulation of Food Safety and Quality', 2),
+          row('FDST 4320', 'Food Safety Control Programs', 3),
+        ]),
+        choose(focus(1, 'Area of Emphasis in Business', 'microeconomics'), 1, [
+          row('AAEC 2580', 'Applied Microeconomic Principles', 3),
+          row('ECON 2106', 'Principles of Microeconomics', 3),
+        ]),
+        choose(focus(1, 'Area of Emphasis in Business', 'marketing'), 1, [
+          row('AAEC 3100', 'Food and Fiber Marketing', 3),
+          row('MARK 3001', 'Principles of Marketing', 3),
+        ]),
+        choose(focus(1, 'Area of Emphasis in Business', 'management'), 1, [
+          row('AAEC 3980', 'Introduction to Agribusiness Management', 3),
+          row('MGMT 3001', 'Principles of Management', 3),
+        ]),
+        choose(focus(1, 'Area of Emphasis in Business', 'accounting'), 1, [
+          row('ACCT 1160', 'Survey of Accounting', 3),
+          row('ACCT 2101', 'Principles of Accounting I', 3),
+        ]),
+        choose(focus(1, 'Area of Emphasis in Business', 'food processing'), 1, [
+          row('FDST 4012', 'Processing of Liquid Foods and Beverages', 3),
+          row('FDST 4013', 'Food Processing', 3),
+        ]),
+        hoursFrom(focus(1, 'Area of Emphasis in Business', 'AAEC or FDST courses'), 6, [
+          ...levels('AAEC', 3),
+          ...levels('FDST', 2),
+        ], 'AAEC courses at the 3000 level or above, or FDST courses (not FDST 2010): up to 3 hours at the 2000 level, the rest at 3000 or above.'),
+        choose(focus(2, 'Area of Emphasis in Science, Technology, and Engineering'), 3, [
+          row('BCMB 3100', 'Introductory Biochemistry and Molecular Biology', 4),
+          row('FDST 4070', 'Nutritional Quality and the Effect of Technology', 3),
+          row('FDST 4080', 'Instrumental Methods of Food Analysis', 3),
+        ], 'With CHEM 2211 and MIBO 3500 in Area VI.'),
+        choose(focus(2, 'Area of Emphasis in Science, Technology, and Engineering', 'food processing'), 1, [
+          row('FDST 4012', 'Processing of Liquid Foods and Beverages', 3),
+          row('FDST 4013', 'Food Processing', 3),
+        ]),
+        hoursFrom(focus(2, 'Area of Emphasis in Science, Technology, and Engineering', 'FDST courses'), 12, levels('FDST', 2), 'FDST courses (not FDST 2010): up to 3 hours at the 2000 level, the rest at 3000 or above.'),
+      ]),
+      generalElectives(11),
+    ],
+  },
 };
 
 /**
