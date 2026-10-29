@@ -5814,9 +5814,12 @@ const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementAr
    * courses (ENVE 4410 or ENVE 6430, only one); the reading made each track
    * a pool of its own (20, 2, 1 and 1 hours, the 20 from 18 hours of
    * courses: never met). The heading's 20 hours are the six courses' 18.
+   * The reader since 2026-10-29 reads one "choose 6" over all four tracks,
+   * which loses the two-track and design rules and asks 20 hours of six
+   * three-hour courses: the same repair applies to either reading.
    */
   '79689': (areas) => areas.map((existing) => {
-    if (existing.label !== 'Major Electives' || !existing.groups.some((group) => /^Geotechnical/.test(group.label))) return existing;
+    if (existing.label !== 'Major Electives' || !existing.groups.some((group) => /^Geotechnical/.test(group.label) || group.courses.some((course) => course.code === 'CVLE 4420'))) return existing;
     const tracks = {
       Geotechnical: [
         row('CVLE 4420', 'Advanced Soil Mechanics', 3),
