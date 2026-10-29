@@ -8008,7 +8008,7 @@ function withFirstYearSeminar(requirements: PlanRequirement[], input: AutoplanIn
     areaLabel: 'First-Year Odyssey Seminar',
     label: 'First-Year Odyssey Seminar',
     hours: null,
-    rule: { kind: 'all', choices: [{ codes: [code], title: course.title, credits: 1, creditsMax: 1, substitutes: [] }] },
+    rule: { kind: 'all', choices: [{ codes: [code], credits: 1 }] },
     note: 'UGA requires every first-year student to take a First-Year Odyssey Seminar in the first year.',
     url: 'https://bulletin.uga.edu/',
   }];
