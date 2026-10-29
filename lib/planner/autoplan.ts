@@ -5586,7 +5586,9 @@ function outsiderCost(ctx: PlanningContext, byCode: Map<string, Course>, degreeS
     const subject = course?.cluster ?? code.split(' ')[0];
     if (!course) return 0;
     let cost = 0;
-    if (!science && /\bfor\s+(?:science\s+and\s+engineering|scientists\s+and\s+engineers|engineers?)\b/i.test(course.title)) cost += 4;
+    if (!science && /\bfor\s+(?:science\s+and\s+engineering|scientists\s+and\s+engineers)\b/i.test(course.title)) cost += 4;
+    // A course "for Engineers" alone is the College of Engineering's: PHYS 1251 Introductory Studio Physics for Engineers I was a Genetics sophomore's physics (2026-10-29).
+    if (!engineering && /\bfor\s+engineers?\b/i.test(course.title)) cost += 4;
     if (own.has(subject)) return cost;
     if (!engineering && UGA_ENGINEERING_SUBJECTS.has(subject)) cost += 4;
     if (!ctx.generalEducation?.has(code) && (ctx.requiredByPrograms?.get(code) ?? 0) >= 5) cost += 3;
@@ -10140,10 +10142,16 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        * And in a broad list, among courses alike on the goal, the degree's
        * subjects, the courses they drag in and the schedule, one a rule
        * still waits for (ruleWantsFor) before the commonly taken.
+       * And in a broad list (University Wide General Electives
+       * (Non-Business)), a course for another program's students (its
+       * title's audience or the College of Engineering's): MATH 2250 was a
+       * Finance and an MIS freshman's last-spring pick there. Not a course
+       * many programs require, which a goal may want (MGMT 5560 for a
+       * consulting goal) (2026-10-29).
        */
       const rules = ruleWants ? [-(ruleWants.get(code) ?? 0)] : [];
       const lone = ctx.schoolId === 'uga' && breadth.core && ugaLanguageCourse(ctx.languages, code, input.prior.languageName) ? 1 : 0;
-      const schedule = ctx.schoolId === 'uga' ? [signals.offSchedule(code), lone, breadth.core && meetsTwo.size > 0 && !meetsTwo.has(code) ? 1 : 0, breadth.core && (coreOutsider?.(code) ?? 0) > 0 ? 1 : 0] : [];
+      const schedule = ctx.schoolId === 'uga' ? [signals.offSchedule(code), lone, breadth.core && meetsTwo.size > 0 && !meetsTwo.has(code) ? 1 : 0, (breadth.core && (coreOutsider?.(code) ?? 0) > 0) || (breadth.broad && (coreOutsider?.(code) ?? 0) >= 4) ? 1 : 0] : [];
       const wantedHere = breadth.broad && lastTies && !subjectHere && signals.band(code) === POPULAR_BANDS.length ? 1 : wanted;
       const key = input.goalRows
         ? [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, ...schedule, clash, aside, wantedHere, own, extra, unverifiable, ...offered, ...rules, ...light, ...common, variable, ...byPriority, chain, ...lastTie]
@@ -11155,6 +11163,16 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const rowFamilyHere = familyOfRow(requirement);
         const ownRow = new Set(requirement.rule.kind === 'all' ? requirement.rule.choices.flatMap((choice) => choice.codes.map(normaliseCode)) : []);
         const leftToRow = (code: string): number => (rowFamilyHere !== null && requirement.rule.kind === 'choose' && !ownRow.has(code) && (requiredInFamily.get(rowFamilyHere)?.has(code) ?? false) ? 1 : 0);
+        /*
+         * And at UGA, behind the rest, an option another program's students
+         * take (outsiderCost: calculus "for Science and Engineering" for a
+         * degree outside the sciences, a course "for Engineers" or of the
+         * College of Engineering outside it): MATH 2250 was an Economics BBA
+         * freshman's Foundation math, where Terry asks for MATH 2200, and PHYS
+         * 1251 Studio Physics for Engineers a Genetics sophomore's physics
+         * (2026-10-29).
+         */
+        const elsewhere = rememberedBy((code: string): number => ((coreOutsider?.(code) ?? 0) >= 4 ? 1 : 0));
         const scored = slot.options
           .map((option) => pickFromOption(option))
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
@@ -11162,7 +11180,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             (meetsElsewhere ? Number(!a.shared) - Number(!b.shared) || lectureHere(a.code) - lectureHere(b.code) : 0) ||
             (ctx.schoolId === 'uga' ? ofSequence(a.code) - ofSequence(b.code) : 0) ||
             (choosing ? leftToRow(a.code) - leftToRow(b.code) : 0) ||
-            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) || readFor(a.code) - readFor(b.code) || opensRequired(a.code) - opensRequired(b.code) || inOtherChoice(a.code, requirement.id) - inOtherChoice(b.code, requirement.id) : 0) ||
+            (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) || readFor(a.code) - readFor(b.code) || elsewhere(a.code) - elsewhere(b.code) || opensRequired(a.code) - opensRequired(b.code) || inOtherChoice(a.code, requirement.id) - inOtherChoice(b.code, requirement.id) : 0) ||
             (listOrder ? listOrder(a.code, b.code) : 0) ||
             (have ? (rank(a.code)[0] ?? 0) - (rank(b.code)[0] ?? 0) || extraOf(a.code) - extraOf(b.code) : 0) ||
             // A choice's last ties on its hours (the row asks for a course, not hours: STAT 2000 at four
