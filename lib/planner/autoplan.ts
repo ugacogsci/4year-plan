@@ -7916,7 +7916,8 @@ function withCourseTraded(g: GeneratedPlan, out: string, into: string, to: numbe
       ? { ...t, notes: t.notes.map(say) }
       : { ...t, codes: termCodes[i], credits: planCreditRange(termCodes[i], ctx), load: { ...t.load, hard: t.load.hard.filter((c) => normaliseCode(c) !== out) }, notes: t.notes.map(say) })),
     pools: g.pools.map((p) => ({ ...p, picked: p.picked.map(swap), alternatives: p.alternatives.filter((c) => normaliseCode(c) !== into), constraints: p.constraints.map((c) => ({ ...c, picked: c.picked.map(swap) })) })),
-    notPlaced: g.notPlaced.map((n) => ({ ...n, message: say(n.message) })),
+    // At UGA a course traded in is placed, and its notes say so (withoutMissing).
+    notPlaced: g.notPlaced.filter((n) => ctx.schoolId !== 'uga' || normaliseCode(n.code) !== into).map((n) => ({ ...n, message: say(n.message) })),
     addedPrerequisites: g.addedPrerequisites.map((a) => ({ code: swap(a.code), requiredBy: a.requiredBy })),
     ...(bookedFor ? { bookedFor } : {}),
     ...(g.genEdPicks ? { genEdPicks: g.genEdPicks.map((pick) => ({ ...pick, code: swap(pick.code) })) } : {}),
@@ -7935,8 +7936,39 @@ function withCourseTraded(g: GeneratedPlan, out: string, into: string, to: numbe
       return { ...rest, code: into, ...(elective ? { why: elective.why, reasons: elective.reasons } : {}), ...(forGoal ? { forGoal: true } : {}) };
     }),
     offering: { ...g.offering, unknown: [...g.offering.unknown.filter((c) => normaliseCode(c) !== out), ...(published.has(into) ? [] : [into])] },
-    notes: g.notes.map(say),
+    notes: g.notes.map((note) => (ctx.schoolId === 'uga' ? withoutMissing(say(note), into) : say(note))),
   };
+}
+
+/**
+ * A note with `code` struck from the courses it says did not fit or need a
+ * summer session, for a trade that brought `code` onto the board: a pre-med
+ * Biology freshman's note read "CBIO 3710 did not fit ... needs a summer
+ * session or an extra term" with CBIO 3710 traded into Fall 2030 (2026-10-28).
+ * The track notes' own sentences (generatePlanInner degreeFirst), a sentence
+ * left naming nothing dropped.
+ */
+function withoutMissing(text: string, code: string): string {
+  if (!text.includes(code)) return text;
+  const one = '[A-Z]{2,5} \\d{3,4}[A-Z]?';
+  const listOf = (raw: string) => raw.split(/, | and /);
+  const join = (codes: string[]) => (codes.length <= 1 ? codes.join('') : `${codes.slice(0, -1).join(', ')} and ${codes[codes.length - 1]}`);
+  const gone = '\u0000';
+  const struck = text
+    .replace(new RegExp(`; (${one}(?:, ${one})*) did not fit, so plan (?:them|it) with your advisor`, 'g'), (all, list: string) => {
+      const left = list.split(', ').filter((c) => c !== code);
+      if (left.length === list.split(', ').length) return all;
+      return left.length === 0 ? '' : `; ${left.join(', ')} did not fit, so plan ${left.length === 1 ? 'it' : 'them'} with your advisor`;
+    })
+    .replace(new RegExp(`(${one}(?:, ${one})*(?: and ${one})?) needs? a summer session (or an extra term|before [^,.]+ to be on time)`, 'g'), (all, list: string, rest: string) => {
+      const left = listOf(list).filter((c) => c !== code);
+      if (left.length === listOf(list).length) return all;
+      return left.length === 0 ? gone : `${join(left)} ${left.length === 1 ? 'needs' : 'need'} a summer session ${rest}`;
+    });
+  // A part joined to another goes with its ", and"; a part alone takes its sentence.
+  return struck
+    .replace(new RegExp(`, and ${gone}|${gone}, and `, 'g'), '')
+    .replace(new RegExp(` The degree's own courses come first, so for [^${gone}.]*?${gone}\\.`, 'g'), '');
 }
 
 /**
