@@ -1,3 +1,5 @@
+import { writtenUgaDegree } from './uga-degree-fixes';
+
 type UgaRequirementCourse = {
   code: string;
   title: string;
@@ -628,7 +630,8 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
         areaHours: 46,
       } as T);
     }
-    let repaired = program;
+    // The degrees written out from their Bulletin page (uga-degree-fixes.ts).
+    let repaired = writtenUgaDegree(program, ugaOverlapArea);
     // Only where the scrape still lacks them (scripts/uga-programs.mjs reads both pages since 2026-10-28).
     const hasMajorElectives = (repaired.areas as AreaShape[]).some((area) => /\bmajor (?:electives|related courses)\b/i.test(area.label));
     // At the end, so the page's own areas keep their block ids (93328::10::0 is Upper Division General Electives on saved boards).
