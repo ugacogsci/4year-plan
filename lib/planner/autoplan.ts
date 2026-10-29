@@ -3989,6 +3989,8 @@ function freeChoiceSignals(ctx: PlanningContext): FreeChoiceSignals {
       if (!scheduled) return 0;
       const seasons = scheduled.seasons.get(code);
       if (!seasons || scheduled.arranged?.has(code)) return 1;
+      // Or one the schedule runs in summer alone, where the Bulletin printed no season: MIST 4620E and MARK 4600E, online summer sections, were Upper Division picks in falls and springs (2026-10-28).
+      if (!seasons.some((season) => season !== 'Summer') && !ctx.offeringPublished?.has(code)) return 1;
       // Or one the Bulletin publishes for a fall or a spring the schedule runs it in neither of (ARID 2020, ARHI 3022).
       const course = catalogByCode(ctx.courses).get(code);
       const listed = course && ctx.offeringPublished?.has(code) ? regularSeasons(course.offeredIn) : [];
@@ -7490,8 +7492,18 @@ function withScheduledSeasons(given: AutoplanInput): AutoplanInput {
   const courses = ctx.courses.map((course) => {
     const code = normaliseCode(course.code);
     const seasons = scheduled.seasons.get(code);
-    // A season the Bulletin publishes stands: the board's warnings read it (validatePlan).
-    if (!seasons || keep.has(code) || published.has(code) || summerOnlyListed(course)) return course;
+    /*
+     * A season the Bulletin publishes stands: the board's warnings read it
+     * (validatePlan). A course the degree or a track requires keeps every
+     * fall and spring too, except where the schedule runs it in one only:
+     * there that one, since the board warns about the other
+     * (uga-board-audit.ts) and a Dietetics freshman's NUTR 4070 and 4600,
+     * spring only, sat in a fall with springs that had room (2026-10-28).
+     * Where that season cannot hold it, the board without the schedule is
+     * the floor that stands (freeChoicesGated).
+     */
+    if (!seasons || published.has(code) || summerOnlyListed(course)) return course;
+    if (keep.has(code) && !(regularSeasons(seasons).length === 1 && [...given.prior.courseCodes, ...given.prior.exemptCodes, ...(given.prior.inProgressCodes ?? [])].every((held) => !expandEquivalents(normaliseCode(held), equivalents).includes(code)))) return course;
     // One of fall and spring there: that one, and the summer where the schedule has one too.
     const regular = regularSeasons(seasons);
     if (regular.length !== 1) return course;

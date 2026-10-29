@@ -96,6 +96,13 @@ function withHeldOpenBlocks(source: CombinedDegreeSource, priorCodes: string[], 
   return { ...source, blocks: requirements, program: programWithHeldAnyCourse(source.program, source.blocks, requirements, (code) => byCode.get(code)?.title) };
 }
 
+/** The first and last of the schedule's terms, in calendar order: "Spring 2026 to Summer 2027". */
+function scheduleSpan(terms: string[]): string {
+  const order = (label: string) => Number(label.match(/(\d{4})/)?.[1] ?? 0) * 3 + (/^Spring/.test(label) ? 0 : /^Summer/.test(label) ? 1 : 2);
+  const sorted = [...terms].sort((a, b) => order(a) - order(b));
+  return sorted.length > 1 ? `${sorted[0]} to ${sorted[sorted.length - 1]}` : sorted[0] ?? '';
+}
+
 /** Rebuild pool membership from the curriculum, including repairs to older saved plans. */
 function poolsFor(
   blocks: PlanRequirement[],
@@ -354,6 +361,39 @@ export function auditUgaBoard(input: UgaAuditInput) {
         title: 'Not offered this term',
         message,
       });
+    }
+  }
+
+  /*
+   * A course the Bulletin gives no season for, in a fall or spring UGA's
+   * Schedule of Classes did not run it in (PlanningContext.scheduled): the
+   * validator reads the Bulletin's seasons alone, so a Dietetics board's
+   * NUTR 4070 and 4600, on the schedule in spring only, sat in a fall, and
+   * an MIS board's MIST 4620E, online in summer only, in a fall, with
+   * "Nothing needs attention" (2026-10-28). The schedule is one year of
+   * sections, so the card says to check, not that the course never runs.
+   */
+  const scheduled = context.scheduled;
+  if (scheduled) {
+    for (const term of board.terms) {
+      if (term.season === 'Summer') continue;
+      for (const id of term.courseIds) {
+        const course = byId.get(id);
+        if (!course || prior.has(course.code) || context.offeringPublished?.has(course.code)) continue;
+        const seasons = scheduled.seasons.get(course.code);
+        if (!seasons || seasons.length === 0 || seasons.includes(term.season)) continue;
+        const issueId = `ap-offering-${term.id}-${id}`;
+        if (issues.some((issue) => issue.id === issueId)) continue;
+        const ran = [...new Set(seasons)].map((season) => season.toLowerCase());
+        issues.push({
+          id: issueId,
+          severity: 'warning',
+          termId: term.id,
+          courseId: id,
+          title: 'Not offered this term',
+          message: `${course.code} ran in the ${ran.length === 1 ? ran[0] : `${ran.slice(0, -1).join(', ')} and ${ran[ran.length - 1]}`} only on UGA's Schedule of Classes (${scheduleSpan(scheduled.terms)}), not in a ${term.season.toLowerCase()}. Check that it runs in ${term.label}, or move it to a term it runs in.`,
+        });
+      }
     }
   }
 
