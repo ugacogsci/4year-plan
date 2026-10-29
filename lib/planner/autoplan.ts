@@ -12162,6 +12162,24 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const second = first ? titled.get(titleKey(code, `${first[1]} II`)) : undefined;
       if (second) pair(code, second);
     }
+    /*
+     * At UGA, a course and one of its subject a few numbers on that names it
+     * (sequenceGap, as orderShape reads a sequence): MATH 2250 and MATH 2260,
+     * Calculus I and II "for Science and Engineering", whose titles do not
+     * end in I and II. A pre-med Biology freshman's MATH 2260 waited a year
+     * behind core courses with room to wait (2026-10-29).
+     */
+    if (ctx.schoolId === 'uga') {
+      for (const code of toPlace) {
+        for (const group of ctx.prereqs?.get(code)?.groups ?? []) {
+          if (group.priorLearning) continue;
+          for (const raw of group.any) {
+            const before = normaliseCode(raw);
+            if (before.split(' ')[0] === code.split(' ')[0] && sequenceGap(before, code) > 0 && sequenceGap(before, code) <= 20) pair(before, code);
+          }
+        }
+      }
+    }
   }
 
   // --- place them ----------------------------------------------------------
@@ -12483,8 +12501,24 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   };
   /** What the pass placing now has still to place, for the second half of a sequence whose first is already in. */
   let remainingNow = new Set<string>();
-  /** 1 when the other half of this course's sequence is on the board already, this term or earlier. */
+  /**
+   * At UGA, the next course of a sequence whose course before it the record
+   * holds or the student is taking now: one of its subject a few numbers on
+   * (sequenceGap) that names it. A Genetics sophomore taking CHEM 2211 this
+   * fall had CHEM 2212 placed two years on, behind courses with room to
+   * wait (2026-10-29).
+   */
+  const continuesHeld = new Set<string>();
+  if (ctx.schoolId === 'uga') {
+    for (const code of toPlace) {
+      const groups = (ctx.prereqs?.get(code)?.groups ?? []).filter((group) => !group.priorLearning);
+      const before = groups.flatMap((group) => group.any.map(normaliseCode)).filter((c) => c.split(' ')[0] === code.split(' ')[0] && sequenceGap(c, code) > 0 && sequenceGap(c, code) <= 20);
+      if (before.some((c) => earned.has(c))) continuesHeld.add(code);
+    }
+  }
+  /** 1 when the other half of this course's sequence is on the board already, this term or earlier, or held (continuesHeld). */
   const followsPartner = (code: string): number => {
+    if (continuesHeld.has(code)) return 1;
     for (const partner of sequencePartners.get(code) ?? []) if (!remainingNow.has(partner)) return 1;
     return 0;
   };
