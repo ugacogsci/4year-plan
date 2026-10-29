@@ -5352,7 +5352,25 @@ const withFoundationsOfReading = (areas: UgaRequirementArea[]): UgaRequirementAr
  * reads those rows another way.
  */
 const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementArea[]> = {
-  '90610': withFoundationsOfReading,
+  /*
+   * Elementary Education BSED (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/90610): "EDEL 5460 (12 hours)", read
+   * at its catalog minimum of 3 (a board about 15 hours short of the degree).
+   */
+  '90610': (areas) => withFoundationsOfReading(areas.map((existing) => ({
+    ...existing,
+    groups: existing.groups.map((group) => ({ ...group, courses: group.courses.map((course) => (course.code === 'EDEL 5460' && course.credits < 12 ? { ...course, credits: 12 } : course)) })),
+  }))),
+  /*
+   * Computer Systems Engineering BSCSE (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/45516): "Major Electives (12 hours).
+   * Choose at least four elective courses" from its subject lists, as
+   * Electrical Engineering's (uga-program-overrides.ts, 81996); read as
+   * "choose 1", boards planned 3 of the 12 hours.
+   */
+  '45516': (areas) => areas.map((existing) => (existing.label === 'Major Electives' && existing.hours === 12
+    ? { ...existing, groups: [hoursFrom('Major Electives', 12, [...new Map(existing.groups.flatMap((group) => group.courses).map((course) => [course.code, course])).values()], 'Choose at least four elective courses, at least one with the CSEE, ECSE, ELEE or INFO prefix at the 3000 level or above. At most 3 hours of undergraduate research and 3 of co-operative work or internship.')] }
+    : existing)),
   '68952': withFoundationsOfReading,
   '93788': withFoundationsOfReading,
   /*
