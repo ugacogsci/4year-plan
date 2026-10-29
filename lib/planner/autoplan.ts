@@ -6930,6 +6930,8 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
     warnings: new Set([...watched.filter((i) => !i.id.startsWith('ap-language-gap-')).map(keyOf), ...Array.from({ length: gaps }, (_, n) => `ap-language-gap-${n + 1}`)]),
     requiredOff: new Set(off.filter(required).map((n) => normaliseCode(n.code))),
     offCount: off.length,
+    // The hours of those courses, for the hours a board that places more may run past the total (ugaRequirementMeasure).
+    offHours: planCreditRange(off.map((n) => normaliseCode(n.code)), ctx).min,
     unsatisfied: new Set(g.unsatisfied.map((u) => u.requirementId)),
     lastUsed: used.length > 0 ? used[used.length - 1].index : -1,
     // Every hour past the total, a landing course's included (the rule is hours, whatever made them).
@@ -7253,7 +7255,10 @@ function freeChoicesGated(given: AutoplanInput): GeneratedPlan {
     const unmet = given.boardAudit(g);
     return unmet < floorAudit.unmet || (unmet === floorAudit.unmet && g.notPlaced.length <= floorAudit.notPlaced);
   };
-  const measureStands = (g: GeneratedPlan): boolean => freeChoicesWorse(gateMeasure(g, given, g.language ?? null), floor).length === 0;
+  const measureStands = (g: GeneratedPlan): boolean => {
+    const m = gateMeasure(g, given, g.language ?? null);
+    return freeChoicesWorse(m, floor).filter((worse) => given.context.schoolId !== 'uga' || ugaRequirementMeasure(worse, m, floor)).length === 0;
+  };
   const stands = (g: GeneratedPlan): boolean => measureStands(g) && auditStands(g);
   // The other boards book their own picks in the seasons UGA's schedule runs them (withScheduledSeasons).
   const scheduled = withScheduledSeasons(shared);
@@ -7293,6 +7298,39 @@ function freeChoicesGated(given: AutoplanInput): GeneratedPlan {
     if (stands(off)) return { ...traded(off, common), freeChoices: 'off' };
   }
   return { ...traded(before, common), freeChoices: unscheduled !== shared ? 'unscheduled' : 'off' };
+}
+
+/**
+ * At UGA a board is judged by its requirements: a required course left off,
+ * a requirement met before and unmet now, more hours, a later finish, a
+ * prerequisite or a lab out of order, a track row later, or a warning about
+ * a course. The measures of a term's shape alone (falls and springs at the
+ * cap or light, year one's load and courses of the major, one subject
+ * crowding the last terms, two hardest-band courses in a term, the first
+ * math, an upper-level course a term or more after the one it follows) do
+ * not keep the floor's board: on 22 of the 59 round-one review boards they
+ * did, and with it the floor's picks the reading had fixed (ADSC 1050 The
+ * Meat We Eat on no schedule, AFST 4620 and ARHI 2300 for a Finance major,
+ * MATH 2300H Honors calculus for a Mechanical Engineering freshman), for a
+ * 14-credit first fall, a 9-credit last spring or ENTR 5505 a term after
+ * ENTR 5500 (2026-10-29). A lower-division sequence run a term or more
+ * apart (MATH 2250 and MATH 2260) still does.
+ *
+ * Hours past the floor's are the hours a course or two takes: the free
+ * electives land a total with a three-credit course where only a one- or
+ * two-credit one with no reason to be there would land it exactly (FYOS
+ * 1001 leaves 119, and the floor's SOWK 2157S, one credit of Service
+ * Learning in Social Work, was a Communication Studies, an Economics and a
+ * Finance freshman's last class), and the courses the board places that
+ * the floor left off add theirs (the owner's rule, 2026-10-06).
+ */
+const UGA_SHAPE_MEASURES = new Set(['atCap', 'thin', 'stack2', 'crowded', 'seminar', 'math', 'yearOneHeavy', 'yearOneLight', 'yearOneMajor', 'overTarget']);
+function ugaRequirementMeasure(worse: string, a: GateMeasure, b: GateMeasure): boolean {
+  if (UGA_SHAPE_MEASURES.has(worse)) return false;
+  if (worse === 'beyond') return a.beyond > b.beyond + 2 + Math.max(0, b.offHours - a.offHours);
+  if (worse !== 'sequence') return true;
+  const lower = (m: GateMeasure) => [...m.split].filter((pair) => Number(pair.split('>')[1]?.match(/\d{4}/)?.[0] ?? 0) < 3000).length;
+  return lower(a) > lower(b);
 }
 
 /**
