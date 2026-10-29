@@ -1,4 +1,4 @@
-import { fixedUgaDegree } from './uga-degree-fixes';
+import { fixedUgaDegree } from './uga-degree-fixes.ts';
 
 type UgaRequirementCourse = {
   code: string;
