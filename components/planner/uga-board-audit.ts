@@ -1,4 +1,5 @@
 import {
+  distinctHeld,
   planCreditRange,
   validatePlan,
   type PlanRequirement,
@@ -218,10 +219,11 @@ export function auditUgaBoard(input: UgaAuditInput) {
     shared,
   );
   const pools = [
+    // Each held class once (distinctHeld): the board's held codes carry every version and dual-level number of a class, and a Political Science senior's American Studies list read "Already taken and counted here: ... POLS 6440, POLS 8140" (2026-10-28).
     ...poolsFor(
       ugBlocks,
       ugCodes.filter((code) => !prior.has(code)),
-      ugCodes.filter((code) => prior.has(code)),
+      distinctHeld(ugCodes.filter((code) => prior.has(code) && !prior.has(context.undergraduateCounterparts?.get(code) ?? '')), context).codes,
       context,
       false,
     ),

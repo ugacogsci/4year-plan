@@ -10493,6 +10493,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             ),
             // At UGA, a course a take-every-course row of another area of this list's family requires (requiredInFamily).
             ...(family === null ? [] : [...(requiredInFamily.get(family) ?? [])].filter((code) => !input.requirements.some((r) => r.areaId === requirement.areaId && r.rule.kind === 'all' && r.rule.choices.some((choice) => choice.codes.map(normaliseCode).includes(code))))),
+            // Nor a held course the family counted elsewhere: the student has it, and it is not this list's to book again.
+            ...[...earned].filter((code) => !earnedHere.has(code)),
           ]),
           creditsOf,
           order: ((inOrder) => (a: string, b: string) => seasonless(a) - seasonless(b) || inOrder(a, b))(poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()]), slot.together, sequence, { broad, core: broadCore, hours: slot.hoursTarget, upper: (anyCourse?.minLevel ?? 0) >= 3 })),

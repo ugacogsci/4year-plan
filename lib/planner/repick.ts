@@ -185,21 +185,35 @@ export function planMarks(
      * total. The list Approved core courses already has its 1" (2026-10-28).
      */
     const prerequisite = new Set(picks.addedPrerequisites.map((a) => normaliseCode(a.code)));
-    let counted = 0;
+    /*
+     * A list asking for hours is full when its courses' hours reach them, the
+     * record's included, not after hours / 3 courses: Exercise and Sport
+     * Science's three hours of one-credit practica "already had its 1" after
+     * one, and the card told a senior a practicum she needs to graduate
+     * counted only toward the total; and an Advertising sophomore's HORT 2000
+     * read "For II. Life Sciences" where her record had filled it
+     * (2026-10-28).
+     */
+    const priorHere = [...new Set((pool.fromPriorCredit ?? []).map(normaliseCode))];
+    const priorHours = priorHere.reduce((sum, code) => sum + (find(code)?.credits ?? 3), 0);
+    let counted = pool.countTarget !== null ? priorHere.length : 0;
+    let hoursSoFar = priorHours;
+    const full = () => (pool.countTarget !== null ? counted >= pool.countTarget : pool.hoursTarget !== null ? hoursSoFar >= pool.hoursTarget : false);
     for (const code of own) {
       const course = find(code);
       if (!course) continue;
-      if (want !== null && counted >= want && prerequisite.has(normaliseCode(code))) continue;
-      if (want !== null && counted >= want) {
+      if (want !== null && full() && prerequisite.has(normaliseCode(code))) continue;
+      if (want !== null && full()) {
         map.set(course.id, {
           label: 'Elective',
-          detail: `Counts toward the degree total. The list ${pool.label} already has its ${want} from earlier terms.`,
+          detail: `Counts toward the degree total. The list ${pool.label} already has its ${wanted || `${want}`}${priorHere.length > 0 ? ', your record included' : ' from earlier terms'}.`,
           kind: 'elective',
         });
         continue;
       }
       map.set(course.id, { label: pool.label.trim() || 'Unlabelled catalog requirement', detail: `${shown}${facts(code)}`, kind: 'pool', ...(picks.bookedFor ? { requirementId: pool.requirementId } : {}) });
       counted += 1;
+      hoursSoFar += course.credits;
     }
   }
   // The language sequence: required, but the language is the student's to pick.
@@ -254,9 +268,14 @@ export function planMarks(
   for (const added of picks.addedPrerequisites) {
     const course = find(added.code);
     if (!course || map.has(course.id)) continue;
+    // A course on one of the degree's lists is on its page: ECON 4750 is on Marketing's Major Related Courses list, CHEM 1211 on II. Physical Sciences.
+    const code = normaliseCode(added.code);
+    const listed = picks.pools.find((pool) => [...pool.picked, ...pool.alternatives].some((c) => normaliseCode(c) === code));
     map.set(course.id, {
       label: 'Prerequisite',
-      detail: `The degree page does not list it; the catalog requires it before ${added.requiredBy}.`,
+      detail: listed
+        ? `The catalog requires it before ${added.requiredBy}. It is also on this degree's list ${listed.areaLabel && listed.areaLabel !== listed.label ? `${listed.areaLabel}: ` : ''}${listed.label}.`
+        : `The degree page does not list it; the catalog requires it before ${added.requiredBy}.`,
       kind: 'prerequisite',
     });
   }
