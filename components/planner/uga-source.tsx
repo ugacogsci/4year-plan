@@ -180,6 +180,8 @@ interface RawUgaRequirementCourse {
   code: string;
   title: string;
   credits: number;
+  /** The page prints "AND" before this row: it is taken with the row above it, a lecture's lab (choicesFor). */
+  andPrevious?: boolean;
   /**
    * A subject-wide row's levels where the page gives more than its first
    * ("POLS 3XXX", "3000-level or higher": levelTo 5; "2000-level or below":
@@ -205,7 +207,11 @@ interface RawUgaRequirementGroup {
     lists: Array<{ label: string; codes: string[] }>;
     single: boolean;
     distinctLists?: boolean;
+    /** At least this many hours from `lists` (scripts/uga-programs.mjs: "at least 9 hours from the first list"). */
+    hours?: number;
   }>;
+  /** An emphasis's part with hours of its own ("Open Major Electives (9 hours)"): its area when the emphasis is picked (selectedUgaProgram). */
+  part?: { label: string; hours: number };
   courses: RawUgaRequirementCourse[];
 }
 
@@ -253,6 +259,8 @@ export interface UgaEmphasisOption {
     hours: number | null;
     replaceArea: boolean;
     courses: RawUgaRequirementCourse[];
+    /** The emphasis's own rows as its section on the page prints them (scripts/uga-programs.mjs withSections): its required courses and its own choose rows. */
+    groups?: RawUgaRequirementGroup[];
   }>;
 }
 
@@ -794,12 +802,28 @@ function broadElectiveCourses(
   return { sample: selected, common: commonOnes.slice(0, 200) };
 }
 
-/** Expand a subject- or campus-level wildcard into real catalog choices. */
+/**
+ * Expand a subject- or campus-level wildcard into real catalog choices.
+ *
+ * With `pairs`, a row the page joins to the one above it with "AND" is part
+ * of that row's choice, not a choice of its own: "ADSC 3410 AND ADSC 3410L"
+ * is one option of a choose row, both booked (CourseChoice.bundles, the
+ * engine's PlanSlot.together). Read apart, the three-hour filter dropped the
+ * one-hour lab and a board booked the lecture alone: Animal Biosciences'
+ * Major Electives read 15 of 16 hours (2026-10-29 audit, 23 degrees).
+ *
+ * With `widen`, a subject-wide row plans from every level its words allow,
+ * not its first alone (heldRangesFor): for a row that cannot be met from its
+ * first level (Entomology's 21 hours of "ENTO prefix courses", read at any
+ * level and planned from the one ENTO 2000-level course).
+ */
 function choicesFor(
   group: RawUgaRequirementGroup,
   byCode: Map<string, Course>,
   excludePrefixes: string[] = [],
   taken?: ReadonlyMap<string, number>,
+  widen = false,
+  pairs = false,
 ): CourseChoice[] {
   const choices: CourseChoice[] = [];
   const seen = new Set<string>();
@@ -816,9 +840,11 @@ function choicesFor(
     const rows = wildcard
       ? (broad
           ? [...broad.sample, ...broad.common]
-          : [...byCode.values()].filter((course) =>
-              course.code.startsWith(`${wildcard[1]} ${wildcard[2]}`),
-            ))
+          : [...byCode.values()].filter((course) => {
+              if (!widen || (row.levelFrom === undefined && row.levelTo === undefined)) return course.code.startsWith(`${wildcard[1]} ${wildcard[2]}`);
+              const level = Number(course.code.match(/^([A-Z]{2,5}) (\d)/)?.[2] ?? 0);
+              return course.code.startsWith(`${wildcard[1]} `) && level >= (row.levelFrom ?? Number(wildcard[2])) && level <= (row.levelTo ?? Number(wildcard[2]));
+            }))
           .map((course) => ({
             code: course.code,
             title: course.title,
@@ -841,6 +867,20 @@ function choicesFor(
       choices.push(kept);
     }
   }
+  if (!pairs) return choices;
+  // Each "AND" row joins the choice of the row above it.
+  const choiceOf = (code: string) => choices.find((choice) => choice.codes.includes(canonicalUgaCode(code)) || (choice.bundles?.[0] ?? []).includes(canonicalUgaCode(code)));
+  group.courses.forEach((row, index) => {
+    const above = group.courses[index - 1];
+    if (!row.andPrevious || !above || /XXX$/.test(row.code) || /XXX$/.test(above.code)) return;
+    const lecture = choiceOf(above.code);
+    const lab = choiceOf(row.code);
+    if (!lecture || !lab || lecture === lab) return;
+    lecture.bundles = [[...(lecture.bundles?.[0] ?? [lecture.codes[0]]), lab.codes[0]]];
+    lecture.credits = (lecture.credits ?? 0) + (lab.credits ?? 0);
+    lecture.creditsMax = lecture.credits;
+    choices.splice(choices.indexOf(lab), 1);
+  });
   return choices;
 }
 
@@ -1038,7 +1078,16 @@ function adaptProgram(
       if (/core courses?/i.test(group.label) && representedBefore >= area.hours)
         return;
       const id = `${areaId}::${groupIndex}`;
-      let choices = choicesFor(group, byCode, area.excludePrefixes, taken);
+      /*
+       * A choose row's lecture and lab are one option (choicesFor `pairs`),
+       * in the degree's own areas. Not in the core's Areas I to VI, whose
+       * science picks the re-pick trades for easier ones course by course
+       * (repick.ts knows no bundles, and a pre-med board kept CHEM 1211L
+       * without CHEM 1211); nor in a pool, whose hours count each course and
+       * whose report counts a choice's first course alone.
+       */
+      const pairs = group.choose !== null && !poolLikeGroup(area, group) && !group.completeOneList && !CORE_AREA.test(area.label) && !/^VI\./.test(area.label);
+      let choices = choicesFor(group, byCode, area.excludePrefixes, taken, false, pairs);
       /*
        * Terry's economics requirement, "any 3-hour ECON course" but ECON 2105
        * and 2106, is planned from ECON 2100 and 2200 and the economics courses
@@ -1055,6 +1104,12 @@ function adaptProgram(
         if (ordinary.length >= group.choose) choices = ordinary;
       }
       const isPool = poolLikeGroup(area, group);
+      // A row its subject-wide rows' first level cannot meet plans from all their levels (choicesFor `widen`).
+      const listedHours = choices.reduce((sum, choice) => sum + (choice.credits ?? 0), 0);
+      if ((group.choose !== null && group.choose > choices.length) || (isPool && (group.hours ?? 0) > listedHours)) {
+        const wider = choicesFor(group, byCode, area.excludePrefixes, taken, true, pairs);
+        if (wider.length > choices.length) choices = wider;
+      }
       // A required course cannot also fill a later elective pool. UGA repeats
       // those codes inside broad campus and subject lists, so remove them before
       // the pool reaches the scheduler instead of relying on display-time math.
@@ -1105,27 +1160,42 @@ function adaptProgram(
         rule = { kind: 'choose', n: Math.min(group.choose, choices.length), choices, ...(trimmed ? { sharedFirst: true } : {}), ...(heldRanges.length ? { heldRanges } : {}) };
       } else if (isPool) {
         const allowed = new Set(choices.flatMap((choice) => choice.codes));
+        /*
+         * A list's codes among the pool's choices, a subject-wide row's
+         * ("ADSC 3XXX", levels 3 to 5) as the choices it expanded to: kept
+         * as the row's code alone, a list of subject rows had none and its
+         * constraint was dropped (Biological Science's "at least 9 hours
+         * from the first list").
+         */
+        const listCodes = (codes: string[]): string[] => [...new Set(codes.map(canonicalUgaCode).flatMap((code) => {
+          const subjectWide = code.match(/^([A-Z]{2,5}) ([1-9])XXX$/);
+          if (!subjectWide || subjectWide[1] === 'ANY') return allowed.has(code) ? [code] : [];
+          const row = group.courses.find((course) => canonicalUgaCode(course.code) === code);
+          const from = row?.levelFrom ?? Number(subjectWide[2]);
+          const to = row?.levelTo ?? Number(subjectWide[2]);
+          // Over the catalog, the row's whole range: a held 4000-level POLS course is one of "POLS 3000-level or higher" too (heldRangesFor).
+          return [...byCode.keys()].filter((choice) => choice.startsWith(`${subjectWide[1]} `) && Number(choice.split(' ')[1]?.[0] ?? 0) >= from && Number(choice.split(' ')[1]?.[0] ?? 0) <= to);
+        }))];
         const lists = (group.lists ?? [])
           .map((list) => ({
             label: list.label,
-            codes: list.codes.map(canonicalUgaCode).filter((code) => allowed.has(code)),
+            codes: listCodes(list.codes),
           }))
           .filter((list) => list.codes.length > 0);
         const poolLists = lists.length
           ? lists
           : [{ label: group.label || area.label, codes: [...allowed] }];
         const explicitConstraints = (group.constraints ?? [])
-          .map((constraint) => ({
-            ...constraint,
-            lists: constraint.lists
+          .map((constraint) => {
+            const constraintLists = constraint.lists
               .map((list) => ({
                 label: list.label,
-                codes: list.codes
-                  .map(canonicalUgaCode)
-                  .filter((code) => allowed.has(code)),
+                codes: listCodes(list.codes),
               }))
-              .filter((list) => list.codes.length > 0),
-          }))
+              .filter((list) => list.codes.length > 0);
+            // An hours floor over its lists ("at least 9 hours from the first list"): their courses count toward it.
+            return { ...constraint, lists: constraintLists, ...(constraint.hours ? { hourCodes: constraintLists.flatMap((list) => list.codes) } : {}) };
+          })
           .filter((constraint) => constraint.lists.length > 0);
         const constraints = explicitConstraints.length
           ? explicitConstraints
@@ -1185,6 +1255,23 @@ function adaptProgram(
         url: `https://bulletin.uga.edu/Program/Details/${program.id}?IDc=${program.college}`,
       });
 
+      /*
+       * The labs a choice books with its lectures (choicesFor `pairs`), as a
+       * group of the area that asks nothing of its own: the audit counts a
+       * row's one course, and with the lecture alone the area read an hour
+       * short of the board's.
+       */
+      const partners = choices.flatMap((choice) => (choice.bundles?.[0] ?? []).filter((code) => code !== choice.codes[0]));
+      if (partners.length > 0) {
+        progressGroups.push({
+          label: group.label,
+          choose: null,
+          required: false,
+          minimumCourses: 0,
+          courses: partners.map((code) => ({ code, title: byCode.get(code)?.title ?? code, credits: byCode.get(code)?.credits ?? 1, alternatives: [] })),
+          cap: null,
+        });
+      }
       progressGroups.push({
         label: group.label,
         choose: group.choose,
@@ -1213,7 +1300,7 @@ function adaptProgram(
       });
 
       for (const choice of choices) {
-        for (const code of choice.codes) {
+        for (const code of new Set([...choice.codes, ...(choice.bundles ?? []).flat()])) {
           const course = byCode.get(code);
           if (course && !course.requirementIds.includes(areaId)) course.requirementIds.push(areaId);
           if (course && group.choose !== null) course.pathwayRole = 'choice';
@@ -1664,7 +1751,14 @@ function selectedUgaProgram(
 
   for (const emphasis of program.emphasisGroups ?? []) {
     const selectedIds = new Set(selections[`${program.id}::${emphasis.id}`] ?? []);
-    const chosen = emphasis.options.filter((option) => selectedIds.has(option.id));
+    let chosen = emphasis.options.filter((option) => selectedIds.has(option.id));
+    /*
+     * A path the degree requires that nobody has picked (a board built
+     * without setup's answer): its first option, the one setup offers
+     * first, where its own rows were read. Without one, Special Education
+     * and Science Education boards had no major at all (2026-10-29 audit).
+     */
+    if (chosen.length === 0 && emphasis.minimum > 0) chosen = emphasis.options.slice(0, emphasis.minimum).filter((option) => option.parts?.some((part) => (part.groups?.length ?? 0) > 0));
     if (chosen.length === 0) continue;
     const label = chosen.map((option) => option.label).join(' + ');
     const parts = chosen.flatMap((option) => option.parts ?? [{
@@ -1686,6 +1780,49 @@ function selectedUgaProgram(
       );
       if (courses.length === 0) continue;
       const target = areas.find((area) => area.label === areaLabel);
+      /*
+       * The emphasis's own rows (its required courses, then its "choose"
+       * rows) beside the area's: read as one take-every-course row, a
+       * picked Terry Data Analytics emphasis asked for all nine of its
+       * courses, 27 hours for a 12-hour emphasis, and Plant Biology's
+       * every course of the emphasis's choice lists (2026-10-29 audit).
+       */
+      const ownGroups = selectedParts.flatMap((part) => part.groups ?? []);
+      if (ownGroups.length > 0) {
+        const named = ownGroups.map((group) => ({
+          ...group,
+          label: `${emphasis.label}: ${label}${group.label && group.label !== label ? ` - ${group.label}` : ''}`,
+          courses: [...group.courses],
+          lists: group.lists?.map((list) => ({ ...list, codes: [...list.codes] })),
+        }));
+        /*
+         * Printed in an area its own rows leave room in (areaLabel): added
+         * to that area. Printed where the area's rows already fill it, as
+         * a degree path's other track (Sociology's Methodology emphasis
+         * beside the General track's rows): the area the path replaces, its
+         * rows the emphasis's alone. Otherwise an area of its own.
+         */
+        const replaced = !target && emphasis.replacesArea ? areas.find((area) => area.label === emphasis.replacesArea) : undefined;
+        // Its parts with hours of their own are areas of their own, as the page heads them.
+        const own = named.filter((group) => !group.part);
+        for (const group of named.filter((candidate) => candidate.part)) {
+          const part = group.part as { label: string; hours: number };
+          const existing = areas.find((area) => area.label === part.label);
+          if (existing) existing.groups.push(group);
+          else areas.push({ label: part.label, hours: part.hours, groups: [group] });
+        }
+        if (own.length === 0) continue;
+        if (target) target.groups.push(...own);
+        else if (replaced) replaced.groups = own;
+        else {
+          const statedHours = Math.max(...selectedParts.map((part) => part.hours ?? 0), 0);
+          const areaHours = statedHours || own.reduce((sum, group) => sum + statedGroupHours(group), 0);
+          if (areaHours > 0) areas.push({ label: `${emphasis.label}: ${label}`, hours: areaHours, groups: own });
+        }
+        continue;
+      }
+      // A track whose rows the area already holds as the page prints them (Animal Biosciences' General track): nothing to add.
+      if (target && courses.every((course) => target.groups.some((group) => group.courses.some((row) => canonicalUgaCode(row.code) === canonicalUgaCode(course.code))))) continue;
       const areaStartsWithAnEmphasis = emphasis.options.some((option) =>
         option.parts?.some(
           (part) => part.areaLabel === areaLabel && part.replaceArea,
