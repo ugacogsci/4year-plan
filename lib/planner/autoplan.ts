@@ -4517,9 +4517,40 @@ function careerProfileOf(input: { interests?: string; career?: string; context?:
     // degree-first check's own build none at all (ugaDegreeFirst).
     if (input.tracksOff === true || (input.electiveLevelRange?.min ?? 0) >= 500) return { ...profile, tracks: [] };
     const own = forSchool(profile, 'uga');
-    return own.tracks.length > 0 ? withHeldVariants(own, new Set((input.prior?.courseCodes ?? []).map(normaliseCode))) : own;
+    return own.tracks.length > 0 ? withoutHeldRows(withHeldVariants(own, new Set((input.prior?.courseCodes ?? []).map(normaliseCode))), input) : own;
   }
   return withHeldSameMaterial(profile, input);
+}
+
+/**
+ * The profile without the codes of track rows the student's record already
+ * meets, as courses the goal names (QualityInputs.interestCourses). A row is
+ * one requirement with alternatives ("BCMB 3100, or BCMB 4010 with BCMB
+ * 4020"); met, its other alternatives are not what the goal still asks for.
+ * A Biochemistry senior holding BCMB 4010 and 4020 had BCMB 3100 booked in
+ * her last term as "named for the goal you gave", and a Psychology sophomore
+ * holding STAT 2000 had BIOS 2010 booked the same way (2026-10-28). A code
+ * an unmet row or a topic still names stays.
+ */
+const heldRowsMemo = new WeakMap<InterestProfile, Map<string, InterestProfile>>();
+function withoutHeldRows(profile: InterestProfile, input: { context?: PlanningContext; prior?: PriorCredit }): InterestProfile {
+  const priorCodes = input.prior?.courseCodes ?? [];
+  if (priorCodes.length === 0) return profile;
+  const equivalents = input.context?.equivalents ?? new Map<string, string[]>();
+  const held = new Set(priorCodes.flatMap((code) => expandEquivalents(normaliseCode(code), equivalents)));
+  const rows = profile.tracks.flatMap((track) => track.courses);
+  const metRow = (row: TrackCourse) => row.codes.some((code) => held.has(normaliseCode(code)));
+  const stillNamed = new Set([...rows.filter((row) => !metRow(row)).flatMap((row) => row.codes), ...profile.topics.flatMap((topic) => topic.courses)].map(normaliseCode));
+  const drop = new Set(rows.filter(metRow).flatMap((row) => row.codes.map(normaliseCode)).filter((code) => !stillNamed.has(code) && !held.has(code)));
+  if (drop.size === 0) return profile;
+  const key = [...drop].sort().join('|');
+  const memo = heldRowsMemo.get(profile) ?? new Map<string, InterestProfile>();
+  heldRowsMemo.set(profile, memo);
+  const hit = memo.get(key);
+  if (hit) return hit;
+  const made: InterestProfile = { ...profile, courses: profile.courses.filter((code) => !drop.has(normaliseCode(code))) };
+  memo.set(key, made);
+  return made;
 }
 
 /**
@@ -13549,6 +13580,21 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       if (!plannedAll.has(left.code) && !trackWanted.has(left.code)) trackWanted.set(left.code, { track: left.track.name, why: left.row.why });
     }
     /*
+     * A course a goal's track row names, where every row naming it is met by
+     * a course the board or the record holds: not a free pick "named for
+     * the goal you gave". A Microbiology pre-dental board booked BCMB 3100
+     * beside its BCMB 4010 and 4020, and PHYS 1111 after PHYS 1211 and 1212
+     * (2026-10-28). UGA's tracks only; a course a topic names stays.
+     */
+    const trackRows = ctx.schoolId === 'uga' ? careerProfileOf(input).tracks.flatMap((track) => track.courses) : [];
+    const topicCodes = new Set(trackRows.length ? careerProfileOf(input).topics.flatMap((topic) => topic.courses.map(normaliseCode)) : []);
+    const rowHeld = (codes: string[]) => codes.some((raw) => expandEquivalents(normaliseCode(raw), equivalents).some((c) => plannedAll.has(c) || earned.has(c)));
+    const rowAlreadyMet = (code: string): boolean => {
+      if (trackRows.length === 0 || trackWanted.has(code) || topicCodes.has(code)) return false;
+      const naming = trackRows.filter((row) => row.codes.some((c) => normaliseCode(c) === code));
+      return naming.length > 0 && naming.every((row) => rowHeld(row.codes));
+    };
+    /*
      * Each candidate's credits, read once for the scans below. The fill scans
      * the whole ranked catalog from the top for every term it tries, in every
      * round, and a term with no room left used to reject all five thousand
@@ -13947,6 +13993,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             const course = byCode.get(code);
             if (!course) return false;
             if (!trackWanted.has(code) && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga', goalSubjects)) return false;
+            if (rowAlreadyMet(code)) return false;
             if (tooBig(creditsOf(code))) return false;
             if (outOfSeason(course, term, published.has(code))) return false;
             // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
@@ -14114,6 +14161,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const course = byCode.get(code);
           if (!course) return false;
           if (!trackWanted.has(code) && !row && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga', goalSubjects)) return false;
+          if (!row && rowAlreadyMet(code)) return false;
           if (tooBig(creditsOf(code))) return false;
           if (outOfSeason(course, term, published.has(code))) return false;
           // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
