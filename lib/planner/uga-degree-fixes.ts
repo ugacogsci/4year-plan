@@ -216,6 +216,149 @@ const DESIGNED = 'A course the student chooses with the faculty advisor and advi
 /** FACS, FHCE, HDFS, NUTR and TXMI courses at the 3000 level and above (Social Entrepreneurship for Consumer Well-Being, 77137). */
 const FAMILY_CONSUMER_UPPER: UgaRequirementCourse[] = ['FACS', 'FHCE', 'HDFS', 'NUTR', 'TXMI'].flatMap((subject) => levels(subject, 3));
 
+/** Romance Languages AB's language courses (bulletin.uga.edu/Program/Details/58425), each language's upper-division list. */
+const ROMANCE_LISTS = {
+  French: [
+    row('FREN 3030', 'Texts and Contexts', 3),
+    row('FREN 3040', 'Graphic Novel and Visual Culture', 3),
+    row('FREN 3080', 'Topics in French Cultural Studies', 3),
+    row('FREN 3090', 'Introduction to French Linguistics', 3),
+    row('FREN 3100', 'Business French', 3),
+    row('FREN 3150', 'French for International Affairs', 3),
+    row('FREN 4050', 'From Chivalry to Enlightenment', 3),
+    row('FREN 4060', 'Revolutions, Romanticism, and Reinvention', 3),
+    row('FREN 4070', 'World Literature in French', 3),
+    row('FREN 4080', 'Studies in French Literature and Culture', 3),
+    row('FREN 4120', 'Topics in French Culture, Language, and Literature', 3),
+    row('FREN 4150', 'French for the Global Economy', 3),
+    row('FREN 4170', 'Francophone Literature, Film, and Culture', 3),
+    row('FREN 4180I', 'Topics in French Studies', 3),
+    row('FREN 4185I', 'Franco-American Exchange and Mutual (Mis-)Understanding', 3),
+    row('FREN 4190', 'Internship in French', 3),
+    row('FREN 4300', 'Studies in Medieval Literature and Culture', 3),
+    row('FREN 4350', 'Studies in the French Renaissance', 3),
+    row('FREN 4600', 'Studies in French-Language Film and Media', 3),
+    row('FREN 4630', 'French Phonetics', 3),
+    row('FREN 4800', 'French Syntax and Meaning', 3),
+  ],
+  Spanish: [
+    row('SPAN 4003', 'Medical Spanish', 3),
+    row('SPAN 4004', 'Introduction to Medical Interpreting, Ethics, and Intercultural Communication', 3),
+    row('SPAN 4004S', 'Introduction to Medical Interpreting, Ethics, and Intercultural Communication', 3),
+    row('SPAN 4005', 'Introduction to Translation', 3),
+    row('SPAN 4005S', 'Introduction to Translation', 3),
+    row('SPAN 4030', 'Latinx in the United States', 3),
+    row('SPAN 4040', 'Literary Adventures from Spain', 3),
+    row('SPAN 4050', 'Exploring Modern Spain', 3),
+    row('SPAN 4060', 'Cultures in Contact After 1492', 3),
+    row('SPAN 4070', 'Latin American Voices of Change', 3),
+    row('SPAN 4080', 'Discovering Cultural Formation', 3),
+    row('SPAN 4081', 'Spanish Film', 3),
+    row('SPAN 4082', 'Latin American Film', 3),
+    row('SPAN 4083S', 'Diversity Through Dance', 3),
+    row('SPAN 4085', 'Studies in Hispanic Digital Culture', 3),
+    row('SPAN 4090S', 'Practicum in Service Learning', 3),
+    row('SPAN 4092', 'Archival and Special Collections Studies in Spanish', 3),
+    row('SPAN 4100', 'Spanish Topics Across the Disciplines', 3),
+    row('SPAN 4120', 'Exploring Cultures in Spanish', 3),
+    row('SPAN 4121', 'Topics in Spanish-American Studies', 3),
+    row('SPAN 4150', 'Business Spanish', 3),
+    row('SPAN 4190', 'Internship in Spanish', 3),
+    row('SPAN 4191', 'Internship in Spanish', 3),
+    row('SPAN 4250', 'Advanced Business Spanish', 3),
+    row('SPAN 4550', 'Introduction to the History of Spanish', 3),
+    row('SPAN 4650', 'Spanish Phonetics and Language Variation', 3),
+    row('SPAN 4651', 'Advanced Spanish Grammar', 3),
+    row('SPAN 4652', 'Spanish Dialectology and Language Variation', 3),
+    row('SPAN 4750', 'Spanish Syntax', 3),
+  ],
+  Italian: [
+    row('ITAL 3010', 'Italian Conversation and Composition', 3),
+    row('ITAL 3030', 'Introduction to Italian Literature and Culture', 3),
+    row('ITAL 4010', 'Advanced Conversation and Composition', 3),
+    row('ITAL 4030', 'Topics in the Literature and Culture of Italy', 3),
+    row('ITAL 4040', 'Topics in Italian Cinema', 3),
+    row('ITAL 4050', 'Italian Literature and Culture from its Origins to 1400', 3),
+    row('ITAL 4060', 'Italian Literature and Culture from 1400 to 1700', 3),
+    row('ITAL 4070', 'Italian Literature and Culture from 1700 to the Present', 3),
+    row('ITAL 4090', 'Internship in Italy', 3),
+    row('ITAL 4120', 'Topics in Italian Culture, Language, and Literature', 3),
+    row('ITAL 4150', 'Italian for Professional Uses', 3),
+  ],
+  Portuguese: [
+    row('PORT 4010', 'Advanced Language, Literature, and Culture of the Portuguese-Speaking World', 3),
+    row('PORT 4030', 'Brazilian Popular Music and the Invention of Brazil', 3),
+    row('PORT 4040', 'Topics in Cinema, Music, Culture, and Literature in the Portuguese-Speaking World', 3),
+    row('PORT 4045', 'Brazilian Culture and Society', 3),
+    row('PORT 4050', 'Prose of the Portuguese-Speaking World', 3),
+    row('PORT 4060', 'Poetry of the Portuguese-Speaking World', 3),
+    row('PORT 4070', 'Theater of the Portuguese-Speaking World', 3),
+    row('PORT 4080', 'Studies in Culture and Literature of the Portuguese-Speaking World', 3),
+    row('PORT 4150', 'Business Portuguese', 3),
+    row('PORT 4550', 'History of the Portuguese Language', 3),
+    row('PORT 4950', 'Directed Reading and/or Projects', 3),
+  ],
+};
+
+type RomanceLanguage = keyof typeof ROMANCE_LISTS;
+
+const ROMANCE_SUBJECTS: Record<RomanceLanguage, string> = { French: 'FREN', Spanish: 'SPAN', Italian: 'ITAL', Portuguese: 'PORT' };
+
+/** A Romance Languages major language's 18 hours. */
+function romanceMajor(n: number, name: string, language: RomanceLanguage): UgaRequirementGroup[] {
+  const label = (rows?: string) => focus(n, name, rows ? `major language, ${rows}` : undefined);
+  if (language === 'French') {
+    return [
+      all(label(), [row('FREN 3010', 'Culture and Communication I', 3), row('FREN 3020', 'Culture and Communication II', 3)], 'Major language: French (18 hours). A grade of C or better in every major course; at least 15 major hours in residence.'),
+      choose(label('four FREN courses'), 4, ROMANCE_LISTS.French, 'FREN 3080 only once; FREN 3030 and FREN 3090 are prerequisites for many upper-level FREN courses. ROML 4092 or 4120 may replace one.'),
+    ];
+  }
+  if (language === 'Spanish') {
+    return [
+      all(label(), [row('SPAN 3020', 'Writing Critically in Spanish', 3), row('SPAN 3030', 'Texts in Global Contexts', 3), row('SPAN 3050', 'Introduction to Spanish Linguistics', 3)], 'Major language: Spanish (18 hours). A grade of C or better in every major course; at least 15 major hours in residence.'),
+      choose(label('cultural dialogues'), 1, [row('SPAN 3010', 'Spanish Cultural Dialogues', 3), row('SPAN 3011', 'Cultural Dialogues and Critical Reading and Writing for Spanish Heritage Speakers I', 3)]),
+      hoursFrom(label('SPAN 4000-level courses'), 6, [...ROMANCE_LISTS.Spanish, row('ROML 3000', 'Introduction to Romance Linguistics', 3), row('ROML 4092', 'Archival and Special Collections Studies', 3)], '3 to 6 hours of SPAN courses, and up to 3 of ROML or AFAM 4860.'),
+    ];
+  }
+  if (language === 'Italian') {
+    return [choose(label(), 6, ROMANCE_LISTS.Italian, 'Major language: Italian (18 hours). A grade of C or better in every major course; at least 15 major hours in residence.')];
+  }
+  return [
+    all(label(), [row('PORT 3010', 'Portuguese Conversation and Composition', 3), row('PORT 3030', 'Introduction to Language, Literature, and Culture of the Portuguese-Speaking World', 3)], 'Major language: Portuguese (18 hours). A grade of C or better in every major course; at least 15 major hours in residence.'),
+    hoursFrom(label('PORT 4000-level courses'), 12, [...ROMANCE_LISTS.Portuguese, row('ROML 4092', 'Archival and Special Collections Studies', 3)], '9 to 12 hours of PORT courses (at most 9 of any one repeatable course), and up to 3 of PORT 4040, ROML or AFAM 4860.'),
+  ];
+}
+
+/** A Romance Languages minor language's 12 hours. */
+function romanceMinor(n: number, name: string, language: RomanceLanguage): UgaRequirementGroup[] {
+  const label = (rows: string) => focus(n, name, `minor language, ${rows}`);
+  if (language === 'French') return [all(label('French'), [row('FREN 3010', 'Culture and Communication I', 3), row('FREN 3020', 'Culture and Communication II', 3)]), choose(label('two FREN courses'), 2, ROMANCE_LISTS.French)];
+  if (language === 'Spanish') return [all(label('Spanish'), [row('SPAN 3020', 'Writing Critically in Spanish', 3), row('SPAN 3030', 'Texts in Global Contexts', 3), row('SPAN 3050', 'Introduction to Spanish Linguistics', 3)]), choose(label('cultural dialogues'), 1, [row('SPAN 3010', 'Spanish Cultural Dialogues', 3), row('SPAN 3011', 'Cultural Dialogues and Critical Reading and Writing for Spanish Heritage Speakers I', 3)])];
+  if (language === 'Italian') return [choose(label('Italian'), 4, ROMANCE_LISTS.Italian)];
+  return [all(label('Portuguese'), [row('PORT 3010', 'Portuguese Conversation and Composition', 3), row('PORT 3030', 'Introduction to Language, Literature, and Culture of the Portuguese-Speaking World', 3)]), choose(label('two PORT courses'), 2, ROMANCE_LISTS.Portuguese)];
+}
+
+const ROMANCE_AREA_SIX_SUBJECTS = ['AFAM', 'AFST', 'AMHA', 'ANTH', 'ARAB', 'ARGD', 'ARHI', 'ARID', 'ARST', 'ARTS', 'BENG', 'CHNS', 'CLAS', 'CMLT', 'COMM', 'ECON', 'ENGL', 'FILM', 'FREN', 'GEOG', 'GRMN', 'HEBR', 'HIST', 'HNDI', 'INDO', 'ITAL', 'JPNS', 'KREN', 'LACS', 'LATN', 'LING', 'LLED', 'MUSI', 'PASH', 'PERS', 'PHIL', 'POLS', 'PORT', 'PTSP', 'QUEC', 'RELI', 'ROML', 'RUSS', 'SCAN', 'SEMI', 'SLAV', 'SPAN', 'THEA', 'TURK', 'URDU', 'VIET', 'WMST', 'YORB', 'ZULU'];
+
+/** Options I to V's Area VI: the major and minor languages' 2001 and 2002, and 6 hours from the page's prefixes. */
+function romanceAreaSix(n: number, name: string, languages: RomanceLanguage[]): UgaRequirementGroup[] {
+  return [
+    all(focus(n, name, 'Area VI'), languages.flatMap((language) => [
+      row(`${ROMANCE_SUBJECTS[language]} 2001`, `Intermediate ${language} I`, 3),
+      row(`${ROMANCE_SUBJECTS[language]} 2002`, `Intermediate ${language} II`, 3),
+    ]), 'Area VI: 2001 and 2002 in both languages.'),
+    hoursFrom(focus(n, name, 'Area VI, 6 more hours'), 6, lowerLevels(ROMANCE_AREA_SIX_SUBJECTS), 'Area VI: courses with these prefixes.'),
+  ];
+}
+
+/** Options I to IV: a major and a minor language, by the option's own rules. */
+const ROMANCE_PAIRS: Array<[option: string, major: RomanceLanguage, minor: RomanceLanguage]> = [
+  ['Option I', 'French', 'Spanish'], ['Option I', 'Spanish', 'French'],
+  ['Option II', 'Italian', 'French'], ['Option II', 'Italian', 'Spanish'], ['Option II', 'Portuguese', 'French'], ['Option II', 'Portuguese', 'Spanish'],
+  ['Option III', 'French', 'Italian'], ['Option III', 'French', 'Portuguese'], ['Option III', 'Spanish', 'Italian'], ['Option III', 'Spanish', 'Portuguese'],
+  ['Option IV', 'Italian', 'Portuguese'], ['Option IV', 'Portuguese', 'Italian'],
+];
+
 const WRITTEN: Record<string, WrittenDegree> = {
   /*
    * Plant Biology BS (verified 2026-10-29, bulletin.uga.edu/Program/Details/62409):
@@ -5329,6 +5472,75 @@ const WRITTEN: Record<string, WrittenDegree> = {
         excludeCodes: ['SOCI 4905', 'SOCI 5500', 'SOCI 5510', 'SOCI 5520', 'POLS 4905', 'POLS 5500', 'POLS 5510', 'POLS 5520'],
       },
       generalElectives(33),
+    ],
+  },
+  /*
+   * Romance Languages AB (verified 2026-10-29, bulletin.uga.edu/Program/Details/58425):
+   * Required Courses are one of seven options: a major and a minor language
+   * (Options I to IV, French, Spanish, Italian or Portuguese by the
+   * option's rules), Ibero-American Comparative Studies (V), Italian
+   * Studies (VI) or Portuguese and Brazilian Studies (VII), each with its
+   * own Area VI. The reading put eight language blocks on every board (183
+   * of 120 hours) and lost Area VI. One choice, each path its own Area VI.
+   */
+  '58425': {
+    areaSix: null,
+    major: [
+      area('Required Courses', 45, [
+        ...ROMANCE_PAIRS.flatMap(([option, major, minor], index) => {
+          const name = `${option}: ${major} major, ${minor} minor`;
+          return [...romanceMajor(index + 1, name, major), ...romanceMinor(index + 1, name, minor), ...romanceAreaSix(index + 1, name, [major, minor])];
+        }),
+        all(focus(13, 'Option V: Ibero-American Comparative Studies'), [
+          row('PORT 3010', 'Portuguese Conversation and Composition', 3),
+          row('PORT 3030', 'Introduction to Language, Literature, and Culture of the Portuguese-Speaking World', 3),
+          row('SPAN 3010', 'Spanish Cultural Dialogues', 3),
+          row('SPAN 3030', 'Texts in Global Contexts', 3),
+          row('AFAM 4860', 'Topics in Afro-Hispanic Identity', 3),
+          row('PTSP 4900', 'Ibero-American Senior Seminar', 3),
+        ], 'Core and comparative courses.'),
+        hoursFrom(focus(13, 'Option V: Ibero-American Comparative Studies', 'focus courses'), 9, [...levels('PORT', 4, 4), ...levels('SPAN', 4, 4), ...levels('LING', 4, 4)], 'Three 4000-level courses: one PORT, one SPAN (or LING cross-listed with SPAN), and one more of either.'),
+        choose(focus(13, 'Option V: Ibero-American Comparative Studies', 'elective'), 1, [
+          row('ANTH 4460', 'The Aztecs and the Maya', 3),
+          row('CMLT 4010', 'Approaches in Comparative Literature', 3),
+          row('GEOG 4720', 'Geography of Latin America', 3),
+          row('HIST 3220', 'History of Mexico', 3),
+          row('HIST 3240', 'The Caribbean Area', 3),
+          row('HIST 3270', 'History of Argentina and Chile in the 20th Century', 3),
+          row('HIST 3443', 'Spain in the Age of Cervantes', 3),
+          row('HIST 4200', 'Studies in Latin American History', 3),
+          row('HIST 4211', 'Cuba from Emancipation to Revolution', 3),
+          row('HIST 4214', 'Introduction to the Religions of the Caribbean', 3),
+          row('HIST 4220', 'The United States and Latin America', 3),
+          row('HIST 4230', 'Supernatural Latin America: Readings on Witchcraft, Shamanism, and Popular Religion', 3),
+          row('HIST 4250', 'Race, Nation, and Popular Culture in Latin America', 3),
+          row('INTL 4270', 'Inter-American Relations', 3),
+          row('INTL 4380', 'Latin American Politics', 3),
+          row('LACS 4900', 'Special Topics in Latin American and Caribbean Studies', 3),
+          row('LLED 4530', 'TESOL and World Language Curriculum and Methods, Grades P-5', 3),
+          row('LLED 4531', 'TESOL and World Language Curriculum and Methods, Grades 6-12', 3),
+          row('LLED 4730', 'Methods and Material for Community-Based Language Teaching', 3),
+          row('SOCI 4290', 'Sociology of Latin America', 3),
+          row('WMST 3500', 'Women in the Caribbean', 3),
+        ]),
+        ...romanceAreaSix(13, 'Option V: Ibero-American Comparative Studies', ['Spanish', 'Portuguese']),
+        all(focus(14, 'Option VI: Italian Studies'), [
+          row('ITAL 2001', 'Intermediate Italian', 3),
+          row('ITAL 2002', 'Intermediate Italian', 3),
+        ]),
+        choose(focus(14, 'Option VI: Italian Studies', 'ITAL courses'), 7, ROMANCE_LISTS.Italian),
+        hoursFrom(focus(14, 'Option VI: Italian Studies', 'Area VI'), 18, lowerLevels(ROMANCE_AREA_SIX_SUBJECTS), 'Area VI: 18 hours of courses with these prefixes (not ITAL 2001, 2002 or 2600).'),
+        all(focus(15, 'Option VII: Portuguese and Brazilian Studies'), [
+          row('PORT 3010', 'Portuguese Conversation and Composition', 3),
+          row('PORT 3030', 'Introduction to Language, Literature, and Culture of the Portuguese-Speaking World', 3),
+        ]),
+        oneGroup(focus(15, 'Option VII: Portuguese and Brazilian Studies', 'intermediate Portuguese'), 6, [
+          [row('PORT 2001', 'Intermediate Portuguese', 3), row('PORT 2002', 'Intermediate Portuguese', 3)],
+          [row('PORT 2030', 'Practical Portuguese Conversation', 2), row('PORT 2120', 'Accelerated Intermediate Portuguese', 4)],
+        ]),
+        hoursFrom(focus(15, 'Option VII: Portuguese and Brazilian Studies', 'PORT courses'), 15, ROMANCE_LISTS.Portuguese, 'At most 9 hours of any one repeatable course (6 of PORT 4040).'),
+        hoursFrom(focus(15, 'Option VII: Portuguese and Brazilian Studies', 'Area VI'), 18, lowerLevels(ROMANCE_AREA_SIX_SUBJECTS), 'Area VI: 18 hours of courses with these prefixes (not PORT 2001, 2002, 2030 or 2120).'),
+      ]),
     ],
   },
 };
