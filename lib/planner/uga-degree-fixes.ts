@@ -3234,6 +3234,145 @@ const WRITTEN: Record<string, WrittenDegree> = {
       ]),
     ],
   },
+  /*
+   * Music BMus - Music Education (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/22148): Required Courses (63 hours),
+   * Major Electives (4) and a general elective hour make the 128 with the
+   * core. The reading ran into the Four-Year Program of Study and the
+   * second-year review list, and four of its 1-hour rows could never be met.
+   * MUSI 2810 is 4 hours (two semesters of 2); student teaching (EMUS 5460)
+   * 12.
+   */
+  '22148': {
+    areaSix: area('VI. Courses Related to the Major', 18, [
+      all('VI. Courses Related to the Major', [
+        row('MUSI 1100', 'Music Theory I', 2),
+        row('MUSI 1110', 'Aural Skills I', 2),
+        row('MUSI 1120', 'Music Theory II', 2),
+        row('MUSI 1130', 'Aural Skills II', 2),
+        row('MUSI 1810', 'Freshman Applied Instruction', 4),
+        row('MUSI 2500', 'Piano Class I', 1),
+        row('MUSI 2510', 'Piano Class II', 1),
+      ], 'MUSI 1810 is 4 hours: two semesters of 2.'),
+      hoursFrom('Large Ensembles', 4, [
+        row('MUSI 4700', 'The UGA Glee Club', 1),
+        row('MUSI 4710', 'The Georgia Treble Choir', 1),
+        row('MUSI 4740', 'University Symphony Orchestra', 1),
+        row('MUSI 4750', 'Georgia Choral Union', 1),
+        row('MUSI 4755', 'Guitar Ensemble', 1),
+        row('MUSI 4760', 'UGA Hodgson Singers', 1),
+        row('MUSI 4838', 'Symphonic Band', 1),
+        row('MUSI 4839', 'Wind Symphony', 1),
+        row('MUSI 4840', 'Wind Ensemble', 1),
+      ]),
+    ]),
+    major: [
+      area('Required Courses', 63, [
+        all('Applied Study', [
+          row('MUSI 2810', 'Sophomore Applied Instruction', 4),
+          row('MUSI 3810', 'Junior Applied Instruction', 2),
+          row('MUSI 3820', 'Junior Applied Instruction and Recital', 2),
+          row('MUSI 4810', 'Senior Applied Instruction', 2),
+        ], 'MUSI 2810 is 4 hours: two semesters of 2.'),
+        all('Music Theory/Ear Training', [
+          row('MUSI 2100', 'Music Theory III', 2),
+          row('MUSI 2110', 'Aural Skills III', 2),
+        ]),
+        all('Music History', [
+          row('MUSI 3030', 'Music in the United States', 3),
+        ]),
+        choose('Music History: a survey', 1, [
+          row('MUSI 3020', 'World Music Survey: Africa, Europe, and the Americas', 3),
+          row('MUSI 3021', 'World Music Survey: Asia, Australia, and Oceania', 3),
+          row('MUSI 3210', 'Music in the Western Tradition Pre-1750', 3),
+          row('MUSI 3220', 'Music in the Western Tradition Post-1750', 3),
+        ]),
+        all('Music Education', [
+          row('MUSI 2790', 'Introduction to Music Education', 3),
+          row('MUSI 4385S', 'Foundations of Lesson Planning', 1),
+          row('MUSI 4500', 'Music Techniques and Experiences for Children', 3),
+        ]),
+        choose('Music Education: choral or instrumental techniques', 1, [
+          row('MUSI 4520', 'Choral Techniques and Field Experience', 3),
+          row('MUSI 4530', 'Instrumental Techniques and Field Experience', 3),
+        ]),
+        choose('Music Education: exceptional children', 1, [
+          row('EDSE 2000', 'Survey of Special Education', 3),
+          row('MUSI 5450S', 'Music for Exceptional Children', 3),
+        ], 'A grade of B or higher.'),
+        all('Education', [
+          row('EDUC 2120', 'Exploring Socio-Cultural Perspectives in Educational Contexts', 3),
+          row('EDUC 2130', 'Exploring Learning and Teaching', 3),
+        ], 'Music Education students take the section of EDUC 2120 reserved for them.'),
+        all('Keyboard Competency', [
+          row('MUSI 2520', 'Piano Class III', 1),
+        ]),
+        hoursFrom('Keyboard Competency: one more hour', 1, [
+          row('MUSI 4510', 'Piano for Choral Music Educators', 1),
+          ...levels('MUSI', 3),
+        ], 'MUSI 4510 (choral education) or a MUSI upper-division elective of 1 hour (instrumental education).'),
+        hoursFrom('Secondary Methods', 6, [
+          row('MUSI 2400', 'Voice Class I', 1),
+          row('MUSI 3240', 'Instrumentation and Arranging', 2),
+          row('MUSI 3441', 'Jazz Pedagogy', 1),
+          row('MUSI 3445', 'Vocal Pedagogy', 2),
+          row('MUSI 4090', 'Vocal Diction Methods', 1),
+          row('MUSI 4330', 'Guitar Techniques', 1),
+          row('MUSI 4350', 'String Instrumental Techniques', 1),
+          row('MUSI 4360', 'Woodwind Instrumental Techniques', 1),
+          row('MUSI 4370', 'Brass Instrumental Techniques', 1),
+          row('MUSI 4380', 'Percussion Techniques for Music Educators', 1),
+          row('MUSI 4390', 'Pre-College Music Theory Pedagogy', 2),
+          row('MUSI 4515', 'Piano for Music Therapists', 1),
+        ], 'Two of these are part of the second-year review.'),
+        all('Conducting', [
+          row('MUSI 3480', 'Introduction to Conducting', 2),
+        ]),
+        choose('Conducting: one more', 1, [
+          row('MUSI 3490', 'Choral Conducting', 2),
+          row('MUSI 3500', 'Band Conducting', 2),
+          row('MUSI 3510', 'Orchestra Conducting', 2),
+        ]),
+        all('Student Teaching Practicum', [
+          row('EMUS 5460', 'Senior Practicum', 12),
+        ], 'Teacher certification also asks for the program completion requirements on the Bulletin page.'),
+      ]),
+      area('Major Electives', 4, [
+        hoursFrom('Large Ensembles', 3, [
+          row('MUSI 4700', 'The UGA Glee Club', 1),
+          row('MUSI 4710', 'The Georgia Treble Choir', 1),
+          row('MUSI 4740', 'University Symphony Orchestra', 1),
+          row('MUSI 4750', 'Georgia Choral Union', 1),
+          row('MUSI 4755', 'Guitar Ensemble', 1),
+          row('MUSI 4760', 'UGA Hodgson Singers', 1),
+          row('MUSI 4838', 'Symphonic Band', 1),
+          row('MUSI 4839', 'Wind Symphony', 1),
+          row('MUSI 4840', 'Wind Ensemble', 1),
+        ]),
+        hoursFrom('Small Ensembles', 1, [
+          row('MUSI 2860', 'African Music Ensemble', 1),
+          row('MUSI 4730', 'African American Choral Ensemble', 1),
+          row('MUSI 4775', 'Piano Ensemble', 1),
+          row('MUSI 4781', 'Jazz Ensemble I', 1),
+          row('MUSI 4785', 'Jazz Ensemble II', 1),
+          row('MUSI 4790', 'Chamber Music Ensemble', 1),
+          row('MUSI 4800', 'Contemporary Chamber Ensemble', 1),
+          row('MUSI 4850', 'Opera Ensemble', 1),
+          row('MUSI 4855', 'Opera Theater', 1),
+          row('MUSI 4861', 'Applied Ethnomusicology: African Music', 1),
+          row('MUSI 4870', 'Asian Music Ensemble', 1),
+          row('MUSI 4880', 'Latin American Music Ensemble', 1),
+          row('MUSI 4890', 'Middle East Music Ensemble', 1),
+          row('MUSI 4900', 'British Brass Band', 1),
+          row('MUSI 4910', 'Chamber Orchestra', 1),
+          row('MUSI 5106', 'Jazz Combos', 1),
+          row('MUSI 5200', 'Repertory Singers', 1),
+          row('MUSI 5250', 'UGA Choral Project', 1),
+        ]),
+      ]),
+      generalElectives(1),
+    ],
+  },
 };
 
 /**
