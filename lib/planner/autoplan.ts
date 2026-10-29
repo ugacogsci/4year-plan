@@ -14277,9 +14277,18 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       // [what else the pick must be, whether it is the landing course, whether it must be a track's]
       // A course under three credits only with a reason to be there (landingReason), before any course at all.
       const reasoned = (code: string) => creditsOf(code) >= 3 || landingReason(code);
+      /*
+       * And at UGA without one only in the last, loose round: before it, the
+       * rounds over the aim seat a three-credit course a credit or two past
+       * the number. Any course at all took a first fall of 14 credits (FYOS
+       * 1001 is one) to 15 with DANC 2030 The Pilates Method on a Political
+       * Science freshman's board, and a Finance, a Management and an MIS
+       * freshman's last spring (2026-10-29).
+       */
+      const any = (code: string) => loose || reasoned(code);
       const tries: Array<[(code: string) => boolean, boolean, boolean]> = heavy
-        ? [[(code) => track(code) && lighter(code), false, true], [(code) => exact(code) && lighter(code), true, false], [exact, true, false], [(code) => lighter(code) && reasoned(code), false, false], [lighter, false, false], [reasoned, false, false], [() => true, false, false]]
-        : [[track, false, true], [exact, true, false], [reasoned, false, false], [() => true, false, false]];
+        ? [[(code) => track(code) && lighter(code), false, true], [(code) => exact(code) && lighter(code), true, false], [exact, true, false], [(code) => lighter(code) && reasoned(code), false, false], [(code) => lighter(code) && any(code), false, false], [reasoned, false, false], [any, false, false]]
+        : [[track, false, true], [exact, true, false], [reasoned, false, false], [any, false, false]];
       for (const [also, landing, trackOnly] of tries) {
         /*
          * Two kinds of try are settled without reading the ranked catalog,
@@ -16092,6 +16101,21 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * Illinois boards.
      */
     const commonOrder = (a: string, b: string) => (commonFirst ? Number(signals.band(a) >= 3) - Number(signals.band(b) >= 3) : 0);
+    /*
+     * At UGA a course with a reason to be there first (the degree's or
+     * the goal's subject, or one of the degree's rows lists it), then one
+     * of the core's lists, and of those a three-credit course before a
+     * smaller one: fewest credits first, the top-up was DANC 2030 The
+     * Pilates Method on four arts and sciences boards, a Political
+     * Science senior's last term among them (2026-10-28). The small course
+     * a class standing asks for is chosen the same way.
+     */
+    const reasonFirst = (code: string): number => {
+      if (ctx.schoolId !== 'uga') return 0;
+      const subject = byCode.get(code)?.cluster ?? code.split(' ')[0];
+      const reason = degreeRead.subjects.has(subject) || subject === degreeRead.primary || (qualityAtPlacement(code).interest ?? 0) > 0 || degreeNames(code);
+      return reason ? 0 : ctx.generalEducation?.has(code) ? 1 : 2;
+    };
     const move = (code: string, from: number, to: number) => {
       placed.set(terms[from].id, (placed.get(terms[from].id) ?? []).filter((c) => c !== code));
       placed.set(terms[to].id, [...(placed.get(terms[to].id) ?? []), code]);
@@ -16177,7 +16201,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             for (let k = i - 1; k >= 0 && !done; k -= 1) {
               const room = creditCapOf(terms[k]) - creditsIn(k);
               if (room < short) continue;
-              const pick = smallCourses(k, short, room).sort((a, b) => creditsOf(a) - creditsOf(b) || commonOrder(a, b) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || takenOrder(a, b) || a.localeCompare(b))[0];
+              const pick = smallCourses(k, short, room).sort((a, b) => reasonFirst(a) - reasonFirst(b) || creditsOf(a) - creditsOf(b) || commonOrder(a, b) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || takenOrder(a, b) || a.localeCompare(b))[0];
               if (!pick) continue;
               placed.set(terms[k].id, [...(placed.get(terms[k].id) ?? []), pick]);
               chosen.set(pick, { requirementId: null, label: 'Elective' });
@@ -16200,7 +16224,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             for (let k = i - 1; k >= 0 && left > 0; k -= 1) {
               const room = Math.min(creditCapOf(terms[k]) - creditsIn(k), left);
               if (room <= 0) continue;
-              const pick = smallCourses(k, 1, room).sort((a, b) => creditsOf(b) - creditsOf(a) || commonOrder(a, b) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || takenOrder(a, b) || a.localeCompare(b))[0];
+              const pick = smallCourses(k, 1, room).sort((a, b) => reasonFirst(a) - reasonFirst(b) || creditsOf(b) - creditsOf(a) || commonOrder(a, b) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || takenOrder(a, b) || a.localeCompare(b))[0];
               if (!pick) continue;
               placed.set(terms[k].id, [...(placed.get(terms[k].id) ?? []), pick]);
               added.push({ pick, k });
@@ -16244,20 +16268,6 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         if (terms[i].season === 'Summer' || have === 0 || have >= credits.min) continue;
         if (ctx.schoolId === 'uga' && i === lastUsed && plannedTotal >= input.degreeTotal) continue;
         const short = credits.min - have;
-        /*
-         * At UGA a course with a reason to be there first (the degree's or
-         * the goal's subject, or one of the degree's rows lists it), then one
-         * of the core's lists, and of those a three-credit course before a
-         * smaller one: fewest credits first, the top-up was DANC 2030 The
-         * Pilates Method on four arts and sciences boards, a Political
-         * Science senior's last term among them (2026-10-28).
-         */
-        const reasonFirst = (code: string): number => {
-          if (ctx.schoolId !== 'uga') return 0;
-          const subject = byCode.get(code)?.cluster ?? code.split(' ')[0];
-          const reason = degreeRead.subjects.has(subject) || subject === degreeRead.primary || (qualityAtPlacement(code).interest ?? 0) > 0 || degreeNames(code);
-          return reason ? 0 : ctx.generalEducation?.has(code) ? 1 : 2;
-        };
         const fewest = ctx.schoolId === 'uga' ? -1 : 1;
         const pick = smallCourses(i, short, 3).sort((a, b) => reasonFirst(a) - reasonFirst(b) || fewest * (creditsOf(a) - creditsOf(b)) || commonOrder(a, b) || qualityAtPlacement(b).score - qualityAtPlacement(a).score || takenOrder(a, b) || a.localeCompare(b))[0];
         if (!pick) continue;
