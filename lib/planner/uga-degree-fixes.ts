@@ -5351,6 +5351,25 @@ const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementAr
     ] }
     : existing)),
   /*
+   * Electrical and Electronics Engineering BSEE (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/81996): the core's starred courses are
+   * "required for this major": MATH 2250 in Area I, MATH 2260 in Area III,
+   * COMM 1110 in Area IV. Read as preferred choices inside the core lists,
+   * a board could leave each out (MATH 2260 is a prerequisite for the
+   * upper-division courses).
+   */
+  '81996': (areas) => areas.map((existing) => {
+    if (/^I\.\s/.test(existing.label)) {
+      return { ...existing, groups: existing.groups.map((group) => (group.choose === 1 && group.courses.some((course) => course.code === 'MATH 2250')
+        ? { ...group, label: 'Calculus I', choose: null, note: 'MATH 2250 is required for this major.', courses: group.courses.filter((course) => course.code === 'MATH 2250') }
+        : group)) };
+    }
+    if (!/^III\.\s|^IV\. Humanities/.test(existing.label)) return existing;
+    return { ...existing, groups: existing.groups.map((group) => (/^preferred courses?/i.test(group.label.trim()) && group.courses.every((course) => /^(?:MATH 2260|COMM 1110)$/.test(course.code))
+      ? { ...group, label: 'Required for this major', note: 'This course is required for this major.' }
+      : group)) };
+  }),
+  /*
    * Mechanical Engineering BSME (verified 2026-10-29,
    * bulletin.uga.edu/Program/Details/20122): "Required Courses (70 hours)"
    * holds the Mechanical Engineering Electives (15 hours) the page prints
@@ -5462,7 +5481,8 @@ function foundationRead(areas: UgaRequirementArea[]): UgaRequirementArea[] {
     if (!/^I\.\s/.test(existing.label)) return existing;
     return { ...existing, groups: existing.groups.flatMap((group) => {
       const codes = group.courses.map((course) => course.code);
-      if (group.choose !== null || group.hours != null || !codes.includes('ENGL 1101') || !codes.includes('ENGL 1102') || !codes.some((code) => /^(?:MATH|STAT) /.test(code))) return [group];
+      // Not the campus's Foundation Core Courses list, which the page repeats after its own rows (the adapter reads it as a reference list).
+      if (/core courses?/i.test(group.label) || group.choose !== null || group.hours != null || !codes.includes('ENGL 1101') || !codes.includes('ENGL 1102') || !codes.some((code) => /^(?:MATH|STAT) /.test(code))) return [group];
       const english = group.courses.filter((course) => /^ENGL 110[12]$/.test(course.code));
       return [{ ...group, courses: english }, { label: '', choose: 1, courses: group.courses.filter((course) => !english.includes(course)) }];
     }) };
