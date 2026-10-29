@@ -532,24 +532,6 @@ export function ugaLabOf(code: string): string | null {
   return /^[A-Z]{2,5} \d{4}L$/.test(code) ? code.slice(0, -1) : null;
 }
 
-/*
- * UGA's laboratories with their lectures (BIOL 1103L with BIOL 1103), for
- * the placer to keep in one term (PlanningContext.trackLabs): the
- * catalog gives a lab no prerequisite, so nothing held ECOL 1000L to ECOL
- * 1000, and the Area II lab rule's lab sat two years before its lecture
- * (2026-10-29).
- */
-export function ugaLabPairs(catalog: ReadonlyArray<{ code: string; title: string }>): Map<string, string> {
-  const codes = new Set(catalog.map((course) => norm(course.code)));
-  const out = new Map<string, string>();
-  for (const course of catalog) {
-    const code = norm(course.code);
-    const lecture = ugaLabOf(code);
-    if (lecture && codes.has(lecture) && /\blab(?:oratory)?\b/i.test(course.title)) out.set(code, lecture);
-  }
-  return out;
-}
-
 const levelsRead = new WeakMap<LanguageTable, Map<string, { name: string; level: number }>>();
 /** Each language's levels (0 is the first semester) by course, accelerated courses at the last level they cover. */
 function levelsByCode(table: LanguageTable): Map<string, { name: string; level: number }> {
@@ -566,11 +548,11 @@ function levelsByCode(table: LanguageTable): Map<string, { name: string; level: 
   return out;
 }
 
-/** Whether a course is one of a language's sequence courses (SPAN 1001, ARAB 2003), for the core lists' picks. */
-export function ugaLanguageCourse(table: LanguageTable | undefined, code: string): boolean {
+/** Whether a course is one of a language's sequence courses (SPAN 1001, ARAB 2003), for the core lists' picks; not one of `named`, the language the student said in setup. */
+export function ugaLanguageCourse(table: LanguageTable | undefined, code: string, named?: string | null): boolean {
   if (!table) return false;
   const level = levelsByCode(table).get(baseCode(code));
-  return level !== undefined;
+  return level !== undefined && !(named && level.name.toLowerCase() === named.trim().toLowerCase());
 }
 
 const LANGUAGE_WORDS: Array<[RegExp, string]> = [
@@ -749,6 +731,8 @@ export function ugaUniversityIssues(input: {
   residentHeldHours: number;
   /** The board's planned hours, all at UGA. */
   plannedHours: number;
+  /** The board's free electives (booked for no requirement), which the student may choose at another level. */
+  electiveCodes?: string[];
   college?: string;
 }): PlanIssue[] {
   const own = input.areaLabels.map(ownLabel);
@@ -761,7 +745,15 @@ export function ugaUniversityIssues(input: {
   const short = ugaUpperDivisionShort(all, input.creditsOf);
   if (short > 0) {
     const have = UPPER_DIVISION_HOURS - short;
-    issues.push({ id: 'uga-rule-upper-division', severity: 'warning', termId: '', title: 'Upper-division hours', message: `UGA's bachelor's degrees need at least 39 hours of upper-division work (courses numbered 3000-5999). This plan has ${have}. Make ${short} more ${short === 1 ? 'hour' : 'hours'} of electives 3000-level or above.` });
+    /*
+     * Where the plan's own free electives below the 3000 level hold the
+     * hours, choosing them at the 3000 level or above is the whole fix, and
+     * the line is the student's to act on when they pick electives (good to
+     * know); where they do not, the degree's own rows leave too little room,
+     * which matters now.
+     */
+    const room = (input.electiveCodes ?? []).filter((code) => numberOf(norm(code)) < 3000).reduce((sum, code) => sum + input.creditsOf(code), 0);
+    issues.push({ id: 'uga-rule-upper-division', severity: room >= short ? 'info' : 'warning', termId: '', title: 'Upper-division hours', message: `UGA's bachelor's degrees need at least 39 hours of upper-division work (courses numbered 3000-5999). This plan has ${have}. Make ${short} more ${short === 1 ? 'hour' : 'hours'} of electives 3000-level or above${room >= short ? ': the plan\'s electives below the 3000 level leave room for it' : ''}.` });
   }
   if (own.includes(FRANKLIN_LABELS.socialSciences)) {
     const subjects = new Set(all.filter((code) => /^(?:ANTH|ECON|POLS|PSYC|SOCI|GEOG|AFAM|AFST|CLAS|LACS|WMST) /.test(code)).map((code) => code.split(' ')[0]));

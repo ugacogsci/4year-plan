@@ -27,7 +27,7 @@ import {
 import type { PlanIssue, PlanState } from '@/lib/planner/types';
 import { requiredSummerOn, summerOnlyListed, ugaRequiredSummerOnlyMessage, ugaSummerOnlyMessage } from '@/lib/planner/summer-offering';
 import { livePools, poolShortfalls } from './live-pools';
-import { ugaLanguageArea, ugaLanguagePlaced, ugaRuleFamily, ugaUniversityIssues } from '@/lib/planner/uga-university-rules';
+import { ugaLanguageArea, ugaLanguagePlaced, ugaRuleArea, ugaRuleFamily, ugaUniversityIssues } from '@/lib/planner/uga-university-rules';
 
 export interface UgaAuditInput {
   board: PlanState;
@@ -85,11 +85,11 @@ function withHeldOpenBlocks(source: CombinedDegreeSource, priorCodes: string[], 
   const programOf = (id: string) => id.split('::')[0];
   const openPrograms = new Set(source.blocks.filter((b) => b.rule.kind === 'pool' && b.rule.anyCourse).map((b) => programOf(b.id)));
   const otherRows = source.blocks.filter((b) => b.id.includes('::') && !openPrograms.has(programOf(b.id)));
-  // The language sequence's courses too (uga-university-rules.ts): a requirement met by courses counted elsewhere, whose hours the open blocks may hold, as the build counts them.
-  const languageRow = new Set(source.blocks.filter((b) => ugaLanguageArea(b.areaLabel)).map((b) => b.id));
-  const sequence = bookedFor ? planned.filter((code) => languageRow.has(bookedFor[code.replace(/\s+/g, ' ').trim().toUpperCase()] ?? '')) : [];
+  // The language sequence's and the university-wide and college rules' courses too (uga-university-rules.ts): requirements met by courses counted elsewhere, whose hours the open blocks may hold, as the build counts them.
+  const metElsewhere = new Set(source.blocks.filter((b) => ugaLanguageArea(b.areaLabel) || ugaRuleArea(b.areaLabel)).map((b) => b.id));
+  const sequence = bookedFor ? planned.filter((code) => metElsewhere.has(bookedFor[code.replace(/\s+/g, ' ').trim().toUpperCase()] ?? '')) : [];
   const others = openPrograms.size === 0 ? [] : [...planned.filter((code) => otherRows.some((b) => (b.rule.kind === 'all' || b.rule.kind === 'choose' || b.rule.kind === 'pool') && b.rule.choices.some((choice) => choice.codes.includes(code)))), ...sequence];
-  const ownRows = new Set(source.blocks.filter((b) => openPrograms.has(programOf(b.id)) && !(b.rule.kind === 'pool' && b.rule.anyCourse) && !languageRow.has(b.id)).map((b) => b.id));
+  const ownRows = new Set(source.blocks.filter((b) => openPrograms.has(programOf(b.id)) && !(b.rule.kind === 'pool' && b.rule.anyCourse) && !metElsewhere.has(b.id)).map((b) => b.id));
   const counted = bookedFor ? planned.filter((code) => !others.includes(code) && ownRows.has(bookedFor[code.replace(/\s+/g, ' ').trim().toUpperCase()] ?? '')) : [];
   const { requirements: open } = withHeldAnyCourse(source.blocks, [...priorCodes, ...others], {
     creditsOf,
@@ -290,6 +290,8 @@ export function auditUgaBoard(input: UgaAuditInput) {
       transferHours,
       residentHeldHours: Math.max(0, total - plannedHours - transferHours),
       plannedHours,
+      // Booked for no row: the board's free electives, where the caller says which row each course was booked for.
+      electiveCodes: input.bookedFor ? planned.filter((code) => !prior.has(code) && (input.bookedFor?.[code.replace(/\s+/g, ' ').trim().toUpperCase()] ?? null) === null) : undefined,
       college: undergraduate.program.college,
     }),
   ];

@@ -19,7 +19,7 @@ import type {
 } from '@/lib/planner/scheduler';
 import type { Course, SemesterSeason } from '@/lib/planner/types';
 import { applyUgaProgramOverrides, TERRY_ECONOMICS_LABEL } from '@/lib/planner/uga-program-overrides';
-import { applyUgaUniversityRules, ugaLabPairs, ugaLanguageTable, withUgaLanguageOrder } from '@/lib/planner/uga-university-rules';
+import { applyUgaUniversityRules, ugaLanguageTable, withUgaLanguageOrder } from '@/lib/planner/uga-university-rules';
 import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
 import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
 import type { AnyCourseRule } from '@/lib/planner/any-course';
@@ -1518,8 +1518,6 @@ export function loadUgaData(): Promise<UgaData | null> {
       offeringPublished,
       // UGA's language sequences, which a degree's foreign language requirement is planned from (uga-university-rules.ts expandUgaLanguage).
       languages,
-      // Each lab held to its lecture's term (autoplan.ts trackLabs; the catalog gives UGA's labs no prerequisite).
-      trackLabs: ugaLabPairs(courses),
       snapshotTerm: null,
       gradeFootnote: null,
       // What is commonly taken and what is on this year's schedule, for the

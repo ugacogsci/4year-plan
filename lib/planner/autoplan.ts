@@ -488,8 +488,8 @@ export interface PlanningContext {
    * Lab to lecture for the career tracks the student named that LAB_OF does
    * not hold (UGA's: BIOL 1107L with BIOL 1107), set by generatePlan
    * (withTrackLabs) and read wherever LAB_OF is. Absent, the pairs are
-   * LAB_OF's alone. UGA's context starts with every lab beside its lecture
-   * (uga-university-rules.ts ugaLabPairs), which a track's pairs join.
+   * LAB_OF's alone, so a UGA board with no pre-health goal is placed as
+   * before.
    */
   trackLabs?: Map<string, string>;
 }
@@ -6506,8 +6506,7 @@ function withTrackLabs(ctx: PlanningContext, profile: InterestProfile): Planning
   trackLabsCache.set(ctx, byKey);
   const known = byKey.get(key);
   if (known) return known;
-  // Beside the pairs the context already holds (UGA's labs with their lectures, uga-university-rules.ts ugaLabPairs).
-  const made = { ...ctx, trackLabs: new Map([...(ctx.trackLabs ?? []), ...pairs]) };
+  const made = { ...ctx, trackLabs: pairs };
   byKey.set(key, made);
   return made;
 }
@@ -8052,6 +8051,8 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
     : raw.prior;
   const route = raw.admissionRoute ?? null;
   const admission = route ? admissionRequirements(route, expansion.requirements, raw) : { added: [], codes: [] };
+  // UGA's language sequence one semester a term from the first (expandUgaLanguage): placed by chain alone, a Political Science freshman's SPAN 2001 waited a term behind a full fall.
+  const ugaLanguageDue = context.schoolId === 'uga' && expansion.language ? Object.fromEntries(expansion.language.codes.map((code, index) => [code, index])) : undefined;
   /**
    * How one board is built: the trials, the plain engine, the placer's
    * inferred pairings (AutoplanInput), and `asRead`, the requirements as
@@ -8095,7 +8096,7 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
     sequenceFirst: [...admission.codes, ...(expansion.language?.codes ?? [])],
     languageExempt: expansion.exempt,
     earlyTags: route ? route.required.map((item) => item.genEd).filter((t): t is string => Boolean(t)) : [],
-    dueByTerm: route && route.dueTermIndex !== undefined ? Object.fromEntries(admission.codes.map((c) => [c, route.dueTermIndex as number])) : undefined,
+    dueByTerm: route && route.dueTermIndex !== undefined ? Object.fromEntries(admission.codes.map((c) => [c, route.dueTermIndex as number])) : ugaLanguageDue,
     pageSubjects: degreeSubjectsOf(build.asRead ? asReadBefore(given.requirements) : given.requirements, given.programName),
     paceYearOne: build.pace,
     soonerDates: build.sooner,
@@ -9638,7 +9639,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   /** The area of the requirement a chosen course was booked for: a trimmed row shares only another area's course. */
   const areaOfRequirement = new Map(input.requirements.map((r) => [r.id, r.areaId]));
   /** Whether any of the degree's rows names the course (or a version of it): such a course is never only a prerequisite. */
-  const namedRows = new Set(input.requirements.flatMap((r) => (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool' ? r.rule.choices.flatMap((c) => c.codes.map(normaliseCode)) : [])));
+  // Not UGA's university-wide and college rules' lists (uga-university-rules.ts), which are no degree page's own.
+  const namedRows = new Set(input.requirements.flatMap((r) => ((r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool') && !ugaRuleArea(r.areaLabel) ? r.rule.choices.flatMap((c) => c.codes.map(normaliseCode)) : [])));
   const degreeNames = (code: string): boolean => expandEquivalents(code, equivalents).some((c) => namedRows.has(c));
   /**
    * Courses already spent inside one exclusive gen-ed group.
@@ -10064,7 +10066,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        * still waits for (ruleWantsFor) before the commonly taken.
        */
       const rules = ruleWants ? [-(ruleWants.get(code) ?? 0)] : [];
-      const lone = ctx.schoolId === 'uga' && breadth.core && ugaLanguageCourse(ctx.languages, code) ? 1 : 0;
+      const lone = ctx.schoolId === 'uga' && breadth.core && ugaLanguageCourse(ctx.languages, code, input.prior.languageName) ? 1 : 0;
       const schedule = ctx.schoolId === 'uga' ? [signals.offSchedule(code), lone, breadth.core && meetsTwo.size > 0 && !meetsTwo.has(code) ? 1 : 0, breadth.core && (coreOutsider?.(code) ?? 0) > 0 ? 1 : 0] : [];
       const wantedHere = breadth.broad && lastTies && !subjectHere && signals.band(code) === POPULAR_BANDS.length ? 1 : wanted;
       const key = input.goalRows
@@ -11066,6 +11068,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // So does one of its university-wide or college rules (uga-university-rules.ts), and its lab takes the one whose lecture the board has.
         const meetsElsewhere = ctx.schoolId === 'uga' && (ugaOverlapArea(requirement.areaLabel) || ugaRuleArea(requirement.areaLabel));
         const lectureHere = (code: string): number => { const lecture = ugaLabOf(code); return lecture !== null && (chosen.has(lecture) || earned.has(lecture)) ? 0 : 1; };
+        // And any UGA choice the language sequence's own course (expandUgaLanguage): Political Science's "third semester course" row took FREN 2001, and FREN 1001 and 1002 with it, beside the Spanish the sequence booked.
+        const ofSequence = (code: string): number => (ctx.schoolId === 'uga' && ugaLanguageArea(input.requirements.find((r) => r.id === chosen.get(code)?.requirementId)?.areaLabel ?? '') ? 0 : 1);
         /*
          * And a UGA choice leaves to a take-every-course row of its family the
          * course that row requires (requiredInFamily): Agricultural and Applied
@@ -11080,6 +11084,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) =>
             (meetsElsewhere ? Number(!a.shared) - Number(!b.shared) || lectureHere(a.code) - lectureHere(b.code) : 0) ||
+            (ctx.schoolId === 'uga' ? ofSequence(a.code) - ofSequence(b.code) : 0) ||
             (choosing ? leftToRow(a.code) - leftToRow(b.code) : 0) ||
             (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) || readFor(a.code) - readFor(b.code) || opensRequired(a.code) - opensRequired(b.code) || inOtherChoice(a.code, requirement.id) - inOtherChoice(b.code, requirement.id) : 0) ||
             (listOrder ? listOrder(a.code, b.code) : 0) ||
@@ -11528,11 +11533,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * that rule too (2026-10-29).
      */
     const heldByRule = (code: string): boolean => (countedByRules.get(code) ?? []).some((id) => {
-      const rule = input.requirements.find((r) => r.id === id)?.rule;
-      if (!rule || rule.kind !== 'choose') return false;
+      const row = input.requirements.find((r) => r.id === id);
+      if (!row || row.rule.kind !== 'choose') return false;
       const versions = new Set(expandEquivalents(code, equivalents));
-      const others = rule.choices.filter((choice) => !choice.codes.some((c) => versions.has(normaliseCode(c))) && choice.codes.some((c) => chosen.has(normaliseCode(c)) || earned.has(normaliseCode(c)))).length;
-      return others < rule.n;
+      // Another course meets it only where no other rule of its family counted that one (Franklin's literature row has LING 2100, which its fine arts row also lists).
+      const family = familyOfRow(row);
+      const takenByKin = (c: string) => (countedByRules.get(c) ?? []).some((other) => other !== id && familyOfRow(input.requirements.find((r) => r.id === other) as PlanRequirement) === family);
+      const others = row.rule.choices.filter((choice) => !choice.codes.some((c) => versions.has(normaliseCode(c))) && choice.codes.some((c) => (chosen.has(normaliseCode(c)) || earned.has(normaliseCode(c))) && !takenByKin(normaliseCode(c)))).length;
+      return others < row.rule.n;
     });
     const countedElsewhere = (code: string, requirementId: string): boolean =>
       (uga
@@ -11564,15 +11572,18 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         : [];
       /*
        * And an open elective block ("Any course", "Any upper level course
-       * 3000-5999") a course of the language sequence its rule takes
-       * (uga-university-rules.ts expandUgaLanguage): an International Business
-       * co-major's SPAN 2002 and SPAN 3010 are her electives, as the four-year
-       * program prints them, and booked beside them, the blocks' own picks
-       * left MATH 2200 no room (2026-10-29).
+       * 3000-5999") a course of the language sequence or a university-wide
+       * or college rule its rule takes (uga-university-rules.ts): an
+       * International Business co-major's SPAN 2002 and SPAN 3010 are her
+       * electives, as the four-year program prints them, and booked beside
+       * them, the blocks' own picks left MATH 2200 no room; so are a business
+       * junior's environmental awareness and cultural diversity courses
+       * (2026-10-29).
        */
       const openRule = slotRow?.rule.kind === 'pool' ? slotRow.rule.anyCourse : undefined;
+      const ruleBooked = (code: string) => { const label = areaOfRow.get(chosen.get(code)?.requirementId ?? '') ?? ''; return ugaLanguageArea(label) || ugaRuleArea(label); };
       const languageHere = openRule
-        ? [...chosen.keys()].filter((code) => ugaLanguageArea(areaOfRow.get(chosen.get(code)?.requirementId ?? '') ?? '') && anyCourseTakes(openRule, code) && !creditedToPool.has(code) && !fill.picked.includes(code) && !fill.free.includes(code))
+        ? [...chosen.keys()].filter((code) => ruleBooked(code) && anyCourseTakes(openRule, code) && !creditedToPool.has(code) && !fill.picked.includes(code) && !fill.free.includes(code))
         : [];
       const extras = [...prerequisitesHere, ...majorHere, ...languageHere];
       if (extras.length === 0) continue;
@@ -13373,6 +13384,26 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     }
   }
   const { placed, termNotes, remaining, earlier, hoursBefore } = placement;
+
+  /*
+   * UGA's Area II lab, booked by its rule (uga-university-rules.ts), in its
+   * lecture's term: the catalog gives UGA's labs no prerequisite, so the
+   * placer put ECOL 1000L two years before ECOL 1000 (2026-10-29). Moved
+   * where the lecture's term has room for its hour, else left where it is.
+   */
+  if (ctx.schoolId === 'uga') {
+    const termOf = (code: string) => terms.find((t) => (placed.get(t.id) ?? []).includes(code));
+    for (const [code, why] of chosen) {
+      const lecture = ugaLabOf(code);
+      if (!lecture || !ugaLabArea(input.requirements.find((r) => r.id === why.requirementId)?.areaLabel ?? '')) continue;
+      const labTerm = termOf(code);
+      const lectureTerm = termOf(lecture);
+      if (!labTerm || !lectureTerm || labTerm === lectureTerm) continue;
+      if (planCreditRange([...(placed.get(lectureTerm.id) ?? []), code], ctx).min > creditCapOf(lectureTerm)) continue;
+      placed.set(labTerm.id, (placed.get(labTerm.id) ?? []).filter((c) => c !== code));
+      placed.set(lectureTerm.id, [...(placed.get(lectureTerm.id) ?? []), code]);
+    }
+  }
 
   /**
    * A list pick that did not fit is swapped for the next course on the same
