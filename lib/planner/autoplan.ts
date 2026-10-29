@@ -11783,8 +11783,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the fill, which takes only the planner's own lesser picks; a recommended
    * one is left to the fill.
    */
+  // UGA's lettered labs on the plain engine's board too (letteredLabs): the board it builds is the floor every UGA board is held to, and its CHEM 2300L went a term before CHEM 2300.
   // Not const: UGA's Area II lab its rule booked joins it once placed in its lecture's term (below).
-  let labOf = plainEngine ? plusTrackLabs(LAB_OF, ctx) : labsOf(ctx, input.pairings !== false);
+  let labOf = plainEngine ? new Map([...letteredLabs(catalogByCode(ctx.courses)), ...plusTrackLabs(LAB_OF, ctx)]) : labsOf(ctx, input.pairings !== false);
   const lectureLab = new Map<string, string>();
   for (const [lab, lecture] of labOf) if (!lectureLab.has(lecture)) lectureLab.set(lecture, lab);
   /** Track rows this plan books itself, with the tier the placer orders them by: 1 required, 2 recommended. */
