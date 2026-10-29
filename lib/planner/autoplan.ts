@@ -14427,6 +14427,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const heldForLecture = new Set<string>();
     const apartFromLecture = (code: string, here: string[]): boolean => {
       const lecture = fillLabs.get(code) ?? labOf.get(code);
+      // At UGA a lab is no elective without its lecture on the board or held: BIOL 1103L Concepts in Biology Laboratory alone was a pre-law Psychology freshman's first fall (2026-10-29).
+      if (ctx.schoolId === 'uga' && lecture !== undefined && !trackWanted.has(code) && !plannedAll.has(lecture) && !earned.has(lecture)) return true;
       if (lecture === undefined || !plannedAll.has(lecture) || here.includes(lecture)) return false;
       // A lab the goal requires, which the completion pass (pastTotal) seats
       // beside its lecture, still goes apart where the lecture's term has no
@@ -16126,6 +16128,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      * may add to a term: never hard, needing no standing, below the 300 level,
      * not written for another group of students, placeable there.
      */
+    // At UGA, a lab whose lecture is neither on the board nor held (apartFromLecture, in the fill).
+    const loneLab = (c: string, onBoard: Set<string>): boolean => {
+      const lecture = labOf.get(c);
+      return ctx.schoolId === 'uga' && lecture !== undefined && !onBoard.has(lecture) && !earned.has(lecture);
+    };
     const smallCourses = (index: number, least: number, most: number): string[] => {
       const onBoard = new Set([...placed.values()].flat());
       // Nor another version of a course on the board or held (AAEC 2580E beside AAEC 2580), or a UGA
@@ -16140,7 +16147,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           return worth >= least && worth <= most && worth <= 3 && !onBoard.has(c) && !earned.has(c) && !exempt.has(c) && !isHard(c) &&
             needFor(c) === null && courseLevel(c) < 300 && !reallyVariable(ctx.creditRanges?.get(c)) &&
             !(input.notTowardDegree?.(c)) && electiveBarred(c) === null && titleClosesTo(byCode.get(c), who) === false &&
-            !versionHeld(c) && !signals.offSchedule(c) && !introductionPast(c, past) &&
+            !versionHeld(c) && !signals.offSchedule(c) && !introductionPast(c, past) && !loneLab(c, onBoard) &&
             conflictWith(c, conflicts, [earned, onBoard]) === null && fitsAt(c, index);
         });
     };
