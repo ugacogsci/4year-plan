@@ -540,6 +540,31 @@ export function ugaOverlapArea(label: string): boolean {
   return label === TERRY_GRADUATION_LABEL || label.endsWith(`: ${TERRY_GRADUATION_LABEL}`);
 }
 
+const UGA_CORE_AREA = /^(?:i\. foundation courses|ii\. physical sciences|ii\. life sciences|iii\. quantitative reasoning|iv\. world languages|iv\. humanities|v\. social sciences|vi\. courses related to the major)\b/i;
+
+/**
+ * Which of a UGA degree's areas may count one course between them: the
+ * same family may not. The core curriculum's Areas I to VI are one family
+ * (a course counts in one core area: held ECON 2105 and 2106, Area VI's,
+ * made V. Social Sciences read 9 of 9 on business sophomores' boards with 3
+ * of its hours taken, 2026-10-28), a program's major areas another (a
+ * Psychology Major Elective counted PSYC 3980 and 3990 already spent on
+ * Methods and Group B), and a core area and a major area may share one, as
+ * UGA allows. A graduation requirement met by courses counted elsewhere
+ * (ugaOverlapArea), an area of emphasis and an optional area are each a
+ * family of their own. `label` as the board audits it, a second program's
+ * areas prefixed "Program name: ".
+ */
+export function ugaAreaFamily(label: string): string {
+  const cut = label.lastIndexOf(': ');
+  const own = cut >= 0 ? label.slice(cut + 2) : label;
+  const program = cut >= 0 ? label.slice(0, cut) : '';
+  if (UGA_CORE_AREA.test(own.trim())) return `${program}|core`;
+  // A co-major's International Business Curriculum shares its required courses with the field of study (MARK 4700, FINA 4810).
+  if (ugaOverlapArea(label) || /\b(?:emphasis|optional|concentration)\b|international business curriculum/i.test(label)) return `${label}|own`;
+  return `${program}|major`;
+}
+
 type AreaShape = { label: string; hours: number };
 
 /** `program` with `area` after the area labelled `after` (at the end where none is); `adds` false for one whose hours other areas' courses meet. */

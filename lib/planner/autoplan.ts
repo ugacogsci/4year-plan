@@ -13,7 +13,7 @@ import { repeatLine, type RepeatAsk } from './repeats';
 import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInput } from './autoplan-release';
 import { withHeldAnyCourse, withHeldInRange, type AnyCourseRule } from './any-course';
 import { calendarYearOf, regularSeasons, requiredSummerOn, runsInSummer, summerOnlyListed, ugaSummerOnlyMessage, type SummerYears } from './summer-offering';
-import { ugaOverlapArea } from './uga-program-overrides';
+import { ugaAreaFamily, ugaOverlapArea } from './uga-program-overrides';
 
 /**
  * The deterministic half of the planner: build a four-year plan, and check one.
@@ -10251,6 +10251,73 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   /** Courses each "to include" pool's nested rows have counted, by the pool's id. */
   const nestedCounted = new Map<string, Set<string>>();
 
+  /*
+   * At UGA a course counts once within a family of areas (uga-program-
+   * overrides.ts ugaAreaFamily: the core's Areas I to VI, a program's major
+   * areas), as the board's audit counts it. A held course was free in every
+   * list naming it: a Marketing sophomore's ECON 2105 and 2106, held for
+   * VI. Courses Related to the Major, filled V. Social Sciences too, and the
+   * board booked no social science and no POLS 1101 (2026-10-28). The held
+   * courses a take-every-course or choose row lists are that row's family's
+   * first; a list (pool) of the family then counts only held courses no row
+   * or earlier list of the family counted, and a choose row does not count
+   * a course another row of its family booked or counted.
+   */
+  const familyOfRow = (r: PlanRequirement): string | null => (ctx.schoolId === 'uga' ? ugaAreaFamily(r.areaLabel) : null);
+  const familyUsed = new Map<string, Set<string>>();
+  const useInFamily = (family: string | null, codes: string[]): void => {
+    if (family === null) return;
+    const used = familyUsed.get(family) ?? new Set<string>();
+    for (const code of codes) for (const version of expandEquivalents(code, equivalents)) used.add(version);
+    familyUsed.set(family, used);
+  };
+  const usedInFamily = (family: string | null, code: string): boolean => family !== null && (familyUsed.get(family)?.has(code) ?? false);
+  /** The row (all or choose) of its family each held course is first that row's, by the row's id. */
+  const heldOwner = new Map<string, string>();
+  if (ctx.schoolId === 'uga') {
+    // Take-every-course rows first, then choose rows, each in page order.
+    for (const kind of ['all', 'choose'] as const) {
+      for (const r of input.requirements) {
+        if (r.rule.kind !== kind) continue;
+        const family = familyOfRow(r);
+        const held = r.rule.choices
+          .map((choice) => choice.codes.map(normaliseCode).find((code) => earned.has(code) && !expandEquivalents(code, equivalents).some((v) => { const owner = heldOwner.get(v); return owner !== undefined && owner !== r.id && familyOfRow(input.requirements.find((x) => x.id === owner) as PlanRequirement) === family; })))
+          .filter((code): code is string => code !== undefined);
+        const mine = r.rule.kind === 'choose' ? held.slice(0, r.rule.n) : held;
+        for (const code of mine) for (const version of expandEquivalents(code, equivalents)) if (!heldOwner.has(version)) heldOwner.set(version, r.id);
+        useInFamily(family, mine);
+      }
+    }
+  }
+  /*
+   * The courses a take-every-course row requires, by its family: a list of
+   * the family leaves them to the row (fillPool's `taken`). Communication
+   * Studies' VI. Courses Related to the Major requires COMM 1110, and IV.
+   * Humanities and the Arts, filled first, took it (2026-10-28).
+   */
+  const requiredInFamily = new Map<string, Set<string>>();
+  if (ctx.schoolId === 'uga') {
+    for (const r of input.requirements) {
+      if (r.rule.kind !== 'all') continue;
+      const family = familyOfRow(r);
+      if (family === null) continue;
+      const set = requiredInFamily.get(family) ?? new Set<string>();
+      for (const choice of r.rule.choices) for (const code of choice.codes) for (const version of expandEquivalents(normaliseCode(code), equivalents)) set.add(version);
+      requiredInFamily.set(family, set);
+    }
+  }
+  const ownedElsewhere = (code: string, r: PlanRequirement): boolean => {
+    const owner = heldOwner.get(code);
+    if (owner === undefined || owner === r.id) return false;
+    const other = input.requirements.find((x) => x.id === owner);
+    return other !== undefined && familyOfRow(other) === familyOfRow(r);
+  };
+  const familyOfChosen = (code: string): string | null => {
+    const id = chosen.get(code)?.requirementId ?? null;
+    const r = id === null ? undefined : input.requirements.find((x) => x.id === id);
+    return r ? familyOfRow(r) : null;
+  };
+
   for (const ordered of orderedRequirements) {
     const requirement = openWithShared(ordered);
     if (requirement.rule.kind === 'unparsed' || requirement.rule.kind === 'language') {
@@ -10361,16 +10428,22 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const sequence = broadCore || (anyCourse && anyCourse.minLevel < 3)
           ? genEdSequenceMembers(slot.options.flat())
           : new Set<string>();
+        const family = familyOfRow(requirement);
+        const ownHeld = new Set(slot.options.flat().map(normaliseCode));
+        // The held courses a row of this list's family claimed, or an earlier list of it counted, are not this list's (familyUsed).
+        const earnedHere = family === null ? earned : new Set([...earned].filter((code) => !usedInFamily(family, code) || !ownHeld.has(code)));
         const fill = fillPool(slot, {
           byCode,
-          earned,
+          earned: earnedHere,
           // A pool must not choose the online or honors version of a course
           // already committed elsewhere on the board.
-          taken: new Set(
-            [...chosen.keys()].flatMap((code) =>
+          taken: new Set([
+            ...[...chosen.keys()].flatMap((code) =>
               expandEquivalents(code, equivalents),
             ),
-          ),
+            // At UGA, a course a take-every-course row of another area of this list's family requires (requiredInFamily).
+            ...(family === null ? [] : [...(requiredInFamily.get(family) ?? [])].filter((code) => !input.requirements.some((r) => r.areaId === requirement.areaId && r.rule.kind === 'all' && r.rule.choices.some((choice) => choice.codes.map(normaliseCode).includes(code))))),
+          ]),
           creditsOf,
           order: ((inOrder) => (a: string, b: string) => seasonless(a) - seasonless(b) || inOrder(a, b))(poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()]), slot.together, sequence, { broad, core: broadCore, hours: slot.hoursTarget, upper: (anyCourse?.minLevel ?? 0) >= 3 })),
           reachable: (code) => (rankDepth.get(code) ?? 0) < terms.length,
@@ -10379,6 +10452,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           nested: nestedCounted.get(requirement.id),
         });
         poolFills.push({ slot, fill });
+        useInFamily(family, fill.free);
         free.push(...fill.free);
         picked.push(...fill.picked);
       } else if (slot.kind === 'gened') {
@@ -10871,9 +10945,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const heldHere = new Set<string>();
         const excludedHere: Array<{ code: string; by: string }> = [];
         let filled = 0;
+        const rowFamily = familyOfRow(requirement);
         for (const entry of scored) {
           if (!earned.has(entry.code)) continue;
           if (filled >= want) break;
+          // A held course another row of this row's family has (heldOwner) is that row's.
+          if (ownedElsewhere(entry.code, requirement)) continue;
           // Held credit counts once, under whichever version the rows name first (fillPool).
           if (expandEquivalents(entry.code, equivalents).some((version) => version !== entry.code && heldHere.has(version))) continue;
           free.push(entry.code);
@@ -10891,6 +10968,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (entry.shared) {
             // A trimmed UGA row does not count a course its own area booked: the audit spends it there once.
             if (slot.sharedFirst && areaOfRequirement.get(chosen.get(entry.code)?.requirementId ?? '') === requirement.areaId) continue;
+            // Nor, at UGA, one another row of its family booked (familyUsed).
+            if (rowFamily !== null && rowFamily === familyOfChosen(entry.code)) continue;
             sharedListings += 1;
             heldHere.add(entry.code);
             filled += 1;

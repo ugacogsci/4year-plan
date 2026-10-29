@@ -26,6 +26,7 @@ import {
 import type { PlanIssue, PlanState } from '@/lib/planner/types';
 import { requiredSummerOn, summerOnlyListed, ugaRequiredSummerOnlyMessage, ugaSummerOnlyMessage } from '@/lib/planner/summer-offering';
 import { livePools, poolShortfalls } from './live-pools';
+import { ugaAreaFamily } from '@/lib/planner/uga-program-overrides';
 
 export interface UgaAuditInput {
   board: PlanState;
@@ -178,6 +179,11 @@ export function auditUgaBoard(input: UgaAuditInput) {
       : areaProgress(undergraduate.program, have, context.equivalents, {
           allowCrossAreaOverlap: true,
           creditsByCode,
+          familyOf: ugaAreaFamily,
+          ownerOf: ((areaOfBlock) => (code: string) => {
+            const block = input.bookedFor?.[code.replace(/\s+/g, ' ').trim().toUpperCase()];
+            return block ? areaOfBlock.get(block) ?? null : null;
+          })(new Map(undergraduate.blocks.map((block) => [block.id, block.areaLabel]))),
         });
   // Free electives are residual degree hours, not another mandatory named list.
   areas = areas.filter(

@@ -157,6 +157,14 @@ export function areaProgress(
     allowCrossAreaOverlap?: boolean;
     /** Actual earned/transfer hours; catalog hours remain the default for future courses. */
     creditsByCode?: ReadonlyMap<string, number>;
+    /**
+     * With allowCrossAreaOverlap, the areas that may not share a course
+     * have the same family (uga-program-overrides.ts ugaAreaFamily): each
+     * spends the courses the areas of its family before it did not.
+     */
+    familyOf?: (label: string) => string;
+    /** The area label a board course was booked for, where the caller knows it: an area of its family leaves it to that one. */
+    ownerOf?: (code: string) => string | null;
   },
 ): Array<{ area: RequirementArea; earned: number; percent: number; satisfied: boolean }> {
   const spend = (code: string, spent: Set<string>): void => {
@@ -190,13 +198,14 @@ export function areaProgress(
    * and can never overstate it, which is the only safe direction when the
    * number is read as how close somebody is to graduating.
    */
-  const earnOf = (group: RequirementGroup, spent: Set<string>, largestFirst = false, satisfied = groupSatisfied, sharedBy?: (code: string) => boolean): number => {
+  const earnOf = (group: RequirementGroup, spent: Set<string>, largestFirst = false, satisfied = groupSatisfied, sharedBy?: (code: string) => boolean, booked?: (code: string) => boolean): number => {
     const hits: Array<{ code: string; credits: number }> = [];
     for (const row of group.courses) {
-      const hit = rowMatch(row, spent);
+      // A course the board booked for this area first (ownerOf), then any held or other one.
+      const hit = (booked ? rowMatch(row, new Set([...spent, ...[...haveCodes].filter((code) => !booked(code))])) : null) ?? rowMatch(row, spent);
       if (hit) hits.push(hit);
     }
-    hits.sort((a, b) => Number(sharedBy?.(a.code) ?? false) - Number(sharedBy?.(b.code) ?? false) || (largestFirst ? b.credits - a.credits : a.credits - b.credits) || a.code.localeCompare(b.code));
+    hits.sort((a, b) => Number(!(booked?.(a.code) ?? false)) - Number(!(booked?.(b.code) ?? false)) || Number(sharedBy?.(a.code) ?? false) - Number(sharedBy?.(b.code) ?? false) || (largestFirst ? b.credits - a.credits : a.credits - b.credits) || a.code.localeCompare(b.code));
 
     const hoursCap = group.cap?.hours ?? null;
     const countCap = group.cap?.courses ?? null;
@@ -220,7 +229,29 @@ export function areaProgress(
   // Printed lists first, campus categories second. See RequirementGroup.broad
   // for the course this ordering stops the gen-ed area from taking.
   if (options?.allowCrossAreaOverlap) {
-    program.areas.forEach((area, index) => {
+    const familySpent = new Map<string, Set<string>>();
+    const familyOf = options.familyOf;
+    /*
+     * Within a family, an area of rows (take-every-course and choose rows)
+     * spends before an area of lists: VI. Courses Related to the Major's
+     * required ECON 2105 is that area's, not a course for V. Social
+     * Sciences' list. A board course the build booked for one area is left
+     * to that area by the others of its family.
+     */
+    const listArea = (area: RequirementArea) => area.groups.some((group) => group.cap?.hours != null);
+    const order = familyOf
+      ? program.areas.map((area, index) => ({ area, index })).sort((a, b) => Number(listArea(a.area)) - Number(listArea(b.area)) || a.index - b.index).map((x) => x.index)
+      : program.areas.map((_, index) => index);
+    order.forEach((index) => {
+      const area = program.areas[index];
+      const family = familyOf?.(area.label) ?? null;
+      const before = new Set<string>(family === null ? [] : familySpent.get(family) ?? []);
+      if (family !== null && options.ownerOf) {
+        for (const code of haveCodes) {
+          const owner = options.ownerOf(code);
+          if (owner !== null && owner !== area.label && familyOf?.(owner) === family) before.add(code);
+        }
+      }
       /*
        * A group spends the courses no other group of its area lists before
        * one another group lists too: a Consumer Economics freshman's FHCE
@@ -228,22 +259,30 @@ export function areaProgress(
        * and left the four-hour one short (2026-10-28).
        */
       const listed = area.groups.map((group) => new Set(group.courses.flatMap((row) => [row, ...(row.alternatives ?? [])].map((r) => r.code))));
+      /*
+       * And, where areas form families, one the family's areas still to
+       * spend list too: V. Social Sciences spends a held SOCI 1101 its own
+       * list alone names before a HIST 2111 that VI. Courses Related to the
+       * Major's "HIST 2000-level or below" also takes.
+       */
+      const later = family === null ? [] : order.slice(order.indexOf(index) + 1).filter((i) => familyOf?.(program.areas[i].label) === family).flatMap((i) => program.areas[i].groups.map((group) => new Set(group.courses.flatMap((row) => [row, ...(row.alternatives ?? [])].map((r) => r.code)))));
       const elsewhere = (group: RequirementGroup) => {
-        const others = listed.filter((_, i) => area.groups[i] !== group);
+        const others = [...listed.filter((_, i) => area.groups[i] !== group), ...later];
         return (code: string) => others.some((codes) => codes.has(code) || (equivalents?.get(code) ?? []).some((alias) => codes.has(alias)));
       };
+      const bookedHere = family !== null && options.ownerOf ? (code: string) => options.ownerOf?.(code) === area.label : undefined;
       const run = (largestFirst: boolean) => {
-        const spent = new Set<string>();
+        const spent = new Set<string>(before);
         const satisfied = new Map<RequirementGroup, boolean>();
         let earned = 0;
         for (const broadPass of [false, true]) {
           for (const group of area.groups) {
             if ((group.broad ?? false) !== broadPass) continue;
-            earned += earnOf(group, spent, largestFirst, satisfied, elsewhere(group));
+            earned += earnOf(group, spent, largestFirst, satisfied, elsewhere(group), bookedHere);
           }
         }
         const met = area.hours > 0 && Math.min(earned, area.hours) >= area.hours && area.groups.every((group) => satisfied.get(group) !== false);
-        return { earned, satisfied, met };
+        return { earned, satisfied, met, spent };
       };
       /*
        * Cheapest match first, and where that leaves the area short, the
@@ -261,6 +300,7 @@ export function areaProgress(
       }
       earnedBy[index] = best.earned;
       for (const [group, ok] of best.satisfied) groupSatisfied.set(group, ok);
+      if (family !== null) familySpent.set(family, new Set([...(familySpent.get(family) ?? []), ...[...best.spent].filter((code) => !before.has(code) || (familySpent.get(family)?.has(code) ?? false))]));
     });
   } else {
     const spent = new Set<string>();
