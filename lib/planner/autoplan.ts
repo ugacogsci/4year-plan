@@ -5572,18 +5572,20 @@ const UGA_SCIENCE_SUBJECTS = new Set(['ASTR', 'BCMB', 'BIOL', 'CBIO', 'CHEM', 'C
  * boards, CBIO 2200 Anatomy and Physiology of three (2026-10-28). Courses of
  * the degree's own subjects lose nothing.
  */
-function outsiderCost(ctx: PlanningContext, byCode: Map<string, Course>, degreeSubjects: Set<string>, primary: string | null, college: string | null): ((code: string) => number) | undefined {
+function outsiderCost(ctx: PlanningContext, byCode: Map<string, Course>, degreeSubjects: Set<string>, primary: string | null, college: string | null, programName?: string): ((code: string) => number) | undefined {
   if (ctx.schoolId !== 'uga') return undefined;
   const own = new Set([...degreeSubjects, ...(primary ? [primary] : [])]);
   const engineering = college === 'FENGR' || [...own].some((subject) => UGA_ENGINEERING_SUBJECTS.has(subject));
-  const science = engineering || [...own].some((subject) => UGA_SCIENCE_SUBJECTS.has(subject));
+  // A science degree by its name (BS, BSA, BSFCS, ...) or its subjects; a business degree's rows name MATH too, which makes it no science degree.
+  const science = engineering || /\bBS[A-Z]*$/.test((programName ?? '').trim()) || (!programName && [...own].some((subject) => UGA_SCIENCE_SUBJECTS.has(subject)));
   return rememberedBy((code: string): number => {
     const course = byCode.get(code);
     const subject = course?.cluster ?? code.split(' ')[0];
-    if (!course || own.has(subject)) return 0;
+    if (!course) return 0;
     let cost = 0;
-    if (!engineering && UGA_ENGINEERING_SUBJECTS.has(subject)) cost += 4;
     if (!science && /\bfor\s+(?:science\s+and\s+engineering|scientists\s+and\s+engineers|engineers?)\b/i.test(course.title)) cost += 4;
+    if (own.has(subject)) return cost;
+    if (!engineering && UGA_ENGINEERING_SUBJECTS.has(subject)) cost += 4;
     if (!ctx.generalEducation?.has(code) && (ctx.requiredByPrograms?.get(code) ?? 0) >= 5) cost += 3;
     return cost;
   });
@@ -5872,7 +5874,7 @@ export function electiveOptions(input: {
     goalPoints: goalWeighs(careerProfileOf(input)),
     careerFollowOn: careerFollowOnOf(ctx, input.careerFit),
     free: freeChoiceSignals(ctx),
-    outsider: outsiderCost(ctx, byCode, majors.subjects, majors.primary, input.programCollege ?? null),
+    outsider: outsiderCost(ctx, byCode, majors.subjects, majors.primary, input.programCollege ?? null, input.programName),
     offSchedule: freeChoiceSignals(ctx).offSchedule,
     common: !lightFirst(input.priorities) && (input.priorities ?? DEFAULT_PRIORITIES).teaching !== 2,
     harder: (code) => (ctx.grades?.get(code)?.difficulty ?? 0) >= (ctx.bands ?? FALLBACK_BANDS).harder,
@@ -9592,6 +9594,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * first where it lists them (poolOrderFor): COMM 1110 for Humanities meets
    * the speech requirement too, where LAND 2510 left BUSN 4900 to book.
    */
+  const coreOutsider = outsiderCost(ctx, byCode, degreeRead.subjects, degreeRead.primary, input.programCollege ?? null, input.programName);
   const meetsTwo = new Set(input.requirements.filter((r) => r.rule.kind === 'choose' && ugaOverlapArea(r.areaLabel)).flatMap((r) => (r.rule.kind === 'choose' ? r.rule.choices.flatMap((choice) => choice.codes.map(normaliseCode)) : [])));
   const inOtherChoice = (code: string, requirementId: string): number =>
     choiceRows.some((r) => r.id !== requirementId && r.rule.kind === 'choose' && r.rule.choices.some((choice) => choice.codes.some((c) => expandEquivalents(code, equivalents).includes(normaliseCode(c))))) ? 0 : 1;
@@ -9964,8 +9967,17 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        * Art and Design Majors" does not, and ARTS 243 came with it.
        */
       const track = [shutsTrackRow(code, together?.get(code)), ...(pickServe ? [servesTrack(code)] : [])];
-      // UGA only: a course in the slot's own sequence comes first.
-      const inSequence = ctx.schoolId === 'uga' ? [sequence.has(code) ? 1 : 0] : [];
+      /*
+       * UGA only: a course of a sequence inside the list goes behind the
+       * rest, but not the second of the pair where the first is already in
+       * the plan and the course meets a graduation requirement too
+       * (meetsTwo): III. Quantitative Reasoning put MATH 2200 behind every
+       * other course for the MATH 1113 it asks for, though Foundation had
+       * booked MATH 1113, and booked MATH 1060 Mathematics of Decision Making
+       * on 97 business boards (2026-10-28).
+       */
+      const asksWithin = sequence.has(code) && (ctx.prereqs?.get(code)?.groups ?? []).some((group) => group.any.some((raw) => normaliseCode(raw) !== code && sequence.has(normaliseCode(raw))));
+      const inSequence = ctx.schoolId === 'uga' ? [sequence.has(code) && !(asksWithin && extra === 0 && meetsTwo.has(code)) ? 1 : 0] : [];
       /*
        * A broad list (a UGA core area, a general-elective list, "any upper
        * level course") once the goal, the degree's subjects and the
@@ -10003,7 +10015,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        * Rehabilitation, and Podiatry (9 a year) a Marketing student's
        * Non-Business elective.
        */
-      const schedule = ctx.schoolId === 'uga' ? [signals.offSchedule(code), breadth.core && meetsTwo.size > 0 && !meetsTwo.has(code) ? 1 : 0] : [];
+      // And in a core list, another program's own course behind (outsiderCost): MATH 2200, not MATH 2250 "for Science and Engineering", for a business major's Quantitative Reasoning.
+      const schedule = ctx.schoolId === 'uga' ? [signals.offSchedule(code), breadth.core && meetsTwo.size > 0 && !meetsTwo.has(code) ? 1 : 0, breadth.core && (coreOutsider?.(code) ?? 0) > 0 ? 1 : 0] : [];
       const wantedHere = breadth.broad && lastTies && !subjectHere && signals.band(code) === POPULAR_BANDS.length ? 1 : wanted;
       const key = input.goalRows
         ? [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, ...schedule, clash, aside, wantedHere, own, extra, unverifiable, ...offered, ...light, ...common, variable, ...byPriority, chain, ...lastTie]
@@ -13768,7 +13781,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       goalPoints: goalWeighs(careerProfileOf(input)),
       careerFollowOn: careerFollowOnOf(ctx, input.careerFit),
       free: lastTies ? signals : undefined,
-      outsider: outsiderCost(ctx, byCode, majors.subjects, majors.primary, input.programCollege ?? null),
+      outsider: outsiderCost(ctx, byCode, majors.subjects, majors.primary, input.programCollege ?? null, input.programName),
       offSchedule: signals.offSchedule,
       common: commonFirst,
       harder: (code) => (grades.get(code)?.difficulty ?? 0) >= (ctx.bands ?? FALLBACK_BANDS).harder,

@@ -202,7 +202,17 @@ export function planMarks(
     for (const code of own) {
       const course = find(code);
       if (!course) continue;
-      if (want !== null && full() && prerequisite.has(normaliseCode(code))) continue;
+      /*
+       * A prerequisite the closure booked counts for the list, and its card
+       * says both (below), as a prerequisite: marked as the list's pick, a
+       * re-pick for easier classes traded BIOL 1107 and CHEM 1211 away and
+       * left their labs on the board alone (2026-10-28).
+       */
+      if (prerequisite.has(normaliseCode(code))) {
+        counted += 1;
+        hoursSoFar += course.credits;
+        continue;
+      }
       if (want !== null && full()) {
         map.set(course.id, {
           label: 'Elective',
