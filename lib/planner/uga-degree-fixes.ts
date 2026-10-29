@@ -34,6 +34,7 @@ type UgaRequirementGroup = {
   note?: string;
   lists?: Array<{ label: string; codes: string[] }>;
   completeOneList?: boolean;
+  constraints?: Array<{ text: string; n: number; lists: Array<{ label: string; codes: string[] }>; single: boolean; distinctLists?: boolean }>;
   courses: UgaRequirementCourse[];
 };
 
@@ -69,6 +70,17 @@ const oneGroup = (label: string, hours: number, groups: UgaRequirementCourse[][]
 });
 
 /**
+ * `hours` from the courses listed, where "only one of these courses can be
+ * used": each such set is one list, every other course a list of its own,
+ * and the picks come from `n` different lists (autoplan.ts distinctLists),
+ * so a board does not book MATH 2200 and MATH 2250 for one requirement.
+ */
+const hoursFromDistinct = (label: string, hours: number, n: number, sets: UgaRequirementCourse[][], note: string): UgaRequirementGroup => {
+  const lists = sets.map((courses) => ({ label: courses.map((course) => course.code).join(' or '), codes: courses.map((course) => course.code) }));
+  return { label, choose: null, hours, note, lists, constraints: [{ text: note, n, lists, single: false, distinctLists: true }], courses: sets.flat() };
+};
+
+/**
  * A subject's courses from one level up ("ENTO courses at the 3000 level or
  * above"): the first row reads a held course at any of the levels
  * (levelTo, any-course.ts withHeldInRange), the others plan from each.
@@ -81,7 +93,21 @@ const levels = (subject: string, from: number, to = 5): UgaRequirementCourse[] =
     ...(index === 0 && to > from ? { levelTo: to } : {}),
   }));
 
+/** A subject's 1000- and 2000-level courses, as Area VI's lists of prefixes plan them; a held course of the subject at any level counts. */
+const lowerLevels = (subjects: string[]): UgaRequirementCourse[] =>
+  subjects.flatMap((subject) => [
+    { code: `${subject} 1XXX`, title: `${subject} courses`, credits: 0, levelTo: 5 },
+    { code: `${subject} 2XXX`, title: `${subject} 2000-level courses`, credits: 0 },
+  ]);
+
+const ANY_COURSE: UgaRequirementCourse = { code: 'ANY 1XXX', title: 'Any undergraduate course', credits: 0 };
+const ANY_UPPER_COURSE: UgaRequirementCourse = { code: 'ANY 3XXX', title: 'Any upper-level course (3000-5999)', credits: 0 };
+
 const area = (label: string, hours: number, groups: UgaRequirementGroup[]): UgaRequirementArea => ({ label, hours, groups });
+
+/** "General Electives (N hours)", `upper` of them numbered 3000 or above. */
+const generalElectives = (hours: number, upper = 0): UgaRequirementArea =>
+  area('General Electives', hours, upper > 0 ? [hoursFrom('Upper-division general electives', upper, [ANY_UPPER_COURSE], `${upper} of the general elective hours numbered 3000 or above.`)] : []);
 
 /** The label of one emphasis's rows inside an area of emphasis (uga-source.tsx namedChoiceFromLabel). */
 const focus = (n: number, name: string, rows?: string) => `Focus Area ${n}: ${name}${rows ? `: ${rows}` : ''}`;
@@ -567,6 +593,462 @@ const WRITTEN: Record<string, WrittenDegree> = {
       ]),
       // Area VI's last hour.
       area('General Electives', 1, []),
+    ],
+  },
+  /*
+   * Music BMus - Music Performance (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/16876): the Elective Track is one of
+   * Instrumental, Piano or Vocal Performance ("Choose 1 group"); the reading
+   * required the Piano and Vocal tracks both and left 8 hours unnamed (132 of
+   * 120 hours). MUSI 1810 is 4 hours (two semesters of 2).
+   */
+  '16876': {
+    areaSix: area('VI. Courses Related to the Major', 18, [
+      all('VI. Courses Related to the Major', [
+        row('MUSI 1100', 'Music Theory I', 2),
+        row('MUSI 1110', 'Aural Skills I', 2),
+        row('MUSI 1120', 'Music Theory II', 2),
+        row('MUSI 1130', 'Aural Skills II', 2),
+        row('MUSI 1810', 'Freshman Applied Instruction', 4),
+        row('MUSI 2500', 'Piano Class I', 1),
+        row('MUSI 2510', 'Piano Class II', 1),
+      ]),
+      hoursFrom('Large Ensembles', 4, [
+        row('MUSI 4700', 'The UGA Glee Club', 1),
+        row('MUSI 4710', 'The Georgia Treble Choir', 1),
+        row('MUSI 4740', 'University Symphony Orchestra', 1),
+        row('MUSI 4750', 'Georgia Choral Union', 1),
+        row('MUSI 4755', 'Guitar Ensemble', 1),
+        row('MUSI 4760', 'UGA Hodgson Singers', 1),
+        row('MUSI 4838', 'Symphonic Band', 1),
+        row('MUSI 4839', 'Wind Symphony', 1),
+        row('MUSI 4840', 'Wind Ensemble', 1),
+      ]),
+    ]),
+    major: [
+      area('Required Courses', 40, [
+        all('Applied Study', [
+          row('MUSI 2810', 'Sophomore Applied Instruction', 2),
+          row('MUSI 2820', 'Sophomore Applied Instruction and Recital', 2),
+          row('MUSI 3810', 'Junior Applied Instruction', 2),
+          row('MUSI 3820', 'Junior Applied Instruction and Recital', 2),
+          row('MUSI 4280', 'Instrumental/Vocal/Wind/Choral Literature', 2),
+          row('MUSI 4810', 'Senior Applied Instruction', 2),
+          row('MUSI 4820', 'Senior Applied Instruction and Recital', 2),
+        ]),
+        choose('Pedagogy', 1, [
+          row('MUSI 3831', 'Instrumental Pedagogy', 2),
+          row('MUSI 3450S', 'Vocal Pedagogy', 2),
+          row('MUSI 3460', 'Piano Pedagogy I', 2),
+        ]),
+        all('Music Theory/Ear Training', [
+          row('MUSI 2100', 'Music Theory III', 2),
+          row('MUSI 2110', 'Aural Skills III', 2),
+        ]),
+        choose('Upper Theory Elective', 1, [
+          row('MUSI 4100', 'Interpreting Popular Music', 3),
+          row('MUSI 4110', 'Modal Counterpoint', 3),
+          row('MUSI 4120', 'Form and Analysis', 3),
+          row('MUSI 4135', 'Jazz Theory', 3),
+          row('MUSI 4140', 'Tonal Counterpoint', 3),
+          row('MUSI 4145', 'Model Composition', 3),
+          row('MUSI 4150', 'Analysis of Non-Tonal Music', 3),
+          row('MUSI 4160', 'Analysis of Texted Music', 3),
+          row('MUSI 4170', 'Dissolution of Tonality', 3),
+          row('MUSI 4175', 'Exploring Math and Music', 3),
+          row('MUSI 4190', 'Special Topics in Music Theory and Analysis', 3),
+        ]),
+        all('Music History', [
+          row('MUSI 3030', 'Music in the United States', 3),
+        ]),
+        choose('Music History: two surveys', 2, [
+          row('MUSI 3020', 'World Music Survey: Africa, Europe, and the Americas', 3),
+          row('MUSI 3021', 'World Music Survey: Asia, Australia, and Oceania', 3),
+          row('MUSI 3210', 'Music in the Western Tradition Pre-1750', 3),
+          row('MUSI 3220', 'Music in the Western Tradition Post-1750', 3),
+        ]),
+        all('Conducting', [
+          row('MUSI 3480', 'Introduction to Conducting', 2),
+        ]),
+        choose('Conducting: one more', 1, [
+          row('MUSI 3490', 'Choral Conducting', 2),
+          row('MUSI 3500', 'Band Conducting', 2),
+          row('MUSI 3510', 'Orchestra Conducting', 2),
+        ]),
+        all('Keyboard Competency and Career Preparedness', [
+          row('MUSI 2520', 'Piano Class III', 1),
+          row('MUSI 4010', 'Introduction to Music Technology', 2),
+          row('MUSI 4060', 'Music in the Real World', 1),
+        ]),
+      ]),
+      area('Major Electives', 16, [
+        hoursFrom('Large Ensembles', 4, [
+          row('MUSI 4700', 'The UGA Glee Club', 1),
+          row('MUSI 4710', 'The Georgia Treble Choir', 1),
+          row('MUSI 4740', 'University Symphony Orchestra', 1),
+          row('MUSI 4750', 'Georgia Choral Union', 1),
+          row('MUSI 4755', 'Guitar Ensemble', 1),
+          row('MUSI 4760', 'UGA Hodgson Singers', 1),
+          row('MUSI 4838', 'Symphonic Band', 1),
+          row('MUSI 4839', 'Wind Symphony', 1),
+          row('MUSI 4840', 'Wind Ensemble', 1),
+        ]),
+        hoursFrom('Small Ensembles', 4, [
+          row('MUSI 2860', 'African Music Ensemble', 1),
+          row('MUSI 4730', 'African American Choral Ensemble', 1),
+          row('MUSI 4775', 'Piano Ensemble', 1),
+          row('MUSI 4781', 'Jazz Ensemble I', 1),
+          row('MUSI 4785', 'Jazz Ensemble II', 1),
+          row('MUSI 4790', 'Chamber Music Ensemble', 1),
+          row('MUSI 4800', 'Contemporary Chamber Ensemble', 1),
+          row('MUSI 4850', 'Opera Ensemble', 1),
+          row('MUSI 4855', 'Opera Theater', 1),
+          row('MUSI 4861', 'Applied Ethnomusicology: African Music', 1),
+          row('MUSI 4870', 'Asian Music Ensemble', 1),
+          row('MUSI 4880', 'Latin American Music Ensemble', 1),
+          row('MUSI 4890', 'Middle East Music Ensemble', 1),
+          row('MUSI 4910', 'Chamber Orchestra', 1),
+          row('MUSI 5106', 'Jazz Combos', 1),
+          row('MUSI 5200', 'Repertory Singers', 1),
+          row('MUSI 5250', 'UGA Choral Project', 1),
+        ]),
+        hoursFrom(focus(1, 'Instrumental Performance'), 8, levels('MUSI', 3), 'MUSI courses 3000-level and above (8 hours).'),
+        // A choice of every course listed: a list with no number to choose, in an area of electives, is read as hours to draw from.
+        choose(focus(2, 'Piano Performance'), 1, [
+          row('MUSI 3470', 'Keyboard Musicianship', 1),
+        ]),
+        hoursFrom(focus(2, 'Piano Performance', 'MUSI courses 3000-level and above'), 7, levels('MUSI', 3)),
+        choose(focus(3, 'Vocal Performance'), 3, [
+          row('MUSI 4461', 'English and Italian Lyric Diction', 2),
+          row('MUSI 4463', 'French Lyric Diction', 1),
+          row('MUSI 4464', 'German Lyric Diction', 1),
+        ]),
+        hoursFrom(focus(3, 'Vocal Performance', 'MUSI courses 3000-level and above'), 4, levels('MUSI', 3)),
+      ]),
+      area('General Electives', 4, []),
+    ],
+  },
+  /*
+   * Spanish AB (verified 2026-10-29, bulletin.uga.edu/Program/Details/21871):
+   * Required Courses are the General Spanish Track or the Area of Emphasis in
+   * Spanish Interdisciplinary Studies; the reading required both. Area VI's
+   * "SPAN 2001 AND SPAN 2002" was read as one course and its 9 to 12 hours
+   * from related prefixes left unnamed. General electives: 9 of the 30
+   * hours upper division.
+   */
+  '21871': {
+    areaSix: area('VI. Courses Related to the Major', 18, [
+      all('VI. Courses Related to the Major', [
+        row('SPAN 2550', 'Latino Literature, Language, and Culture', 3),
+        row('SPAN 2001', 'Intermediate Spanish I', 3),
+        row('SPAN 2002', 'Intermediate Spanish II', 3),
+      ], 'SPAN 2120H (Honors) may replace SPAN 2001 and 2002, with 12 hours of related courses instead of 9.'),
+      hoursFrom('Related courses', 9, lowerLevels(['AFAM', 'AFST', 'AMHA', 'ANTH', 'ARGD', 'ARHI', 'ARAB', 'ARID', 'ARST', 'ARTS', 'BENG', 'CHNS', 'CLAS', 'CMLT', 'COMM', 'ECON', 'ENGL', 'FILM', 'FREN', 'GEOG', 'GRMN', 'GREK', 'HIST', 'HEBR', 'HNDI', 'INDO', 'ITAL', 'JPNS', 'KREN', 'LACS', 'LATN', 'LING', 'LLED', 'MUSI', 'PASH', 'PERS', 'PHIL', 'POLS', 'PORT', 'PTSP', 'QUEC', 'RELI', 'ROML', 'RUSS', 'SCAN', 'SEMI', 'SLAV', 'SPAN', 'SWAH', 'THEA', 'TURK', 'URDU', 'VIET', 'WMST', 'YORB', 'ZULU']), 'Courses with these prefixes.'),
+    ]),
+    major: [
+      area('Required Courses', 30, [
+        all('Required Courses', [
+          row('SPAN 3030', 'Texts in Global Contexts', 3),
+          row('SPAN 3050', 'Introduction to Spanish Linguistics', 3),
+          row('SPAN 3010', 'Spanish Cultural Dialogues', 3),
+          row('SPAN 3020', 'Writing Critically in Spanish', 3),
+        ], 'A grade of C or better in every major course; at least 15 major hours in residence. Heritage speakers may take SPAN 3011 in place of SPAN 3010 and 3020 (a SPAN 4000-level course instead where SPAN 3011 counted in Area IV).'),
+        choose(focus(1, 'General Spanish Track'), 3, [
+          row('SPAN 4030', 'Latinx in the United States', 3),
+          row('SPAN 4040', 'Literary Adventures from Spain', 3),
+          row('SPAN 4050', 'Exploring Modern Spain', 3),
+          row('SPAN 4060', 'Cultures in Contact After 1492', 3),
+          row('SPAN 4070', 'Latin American Voices of Change', 3),
+          row('SPAN 4550', 'Introduction to the History of Spanish', 3),
+          row('SPAN 4650', 'Spanish Phonetics and Language Variation', 3),
+          row('SPAN 4651', 'Advanced Spanish Grammar', 3),
+          row('SPAN 4652', 'Spanish Dialectology and Language Variation', 3),
+        ], 'Fundamental courses in linguistics, literature and cultural studies.'),
+        choose(focus(1, 'General Spanish Track', 'three more SPAN 4000-level courses'), 3, [
+          row('SPAN 4003', 'Medical Spanish', 3),
+          row('SPAN 4004', 'Introduction to Medical Interpreting, Ethics, and Intercultural Communication', 3),
+          row('SPAN 4004S', 'Introduction to Medical Interpreting, Ethics, and Intercultural Communication', 3),
+          row('SPAN 4005', 'Introduction to Translation', 3),
+          row('SPAN 4005S', 'Introduction to Translation', 3),
+          row('SPAN 4030', 'Latinx in the United States', 3),
+          row('SPAN 4040', 'Literary Adventures from Spain', 3),
+          row('SPAN 4050', 'Exploring Modern Spain', 3),
+          row('SPAN 4060', 'Cultures in Contact After 1492', 3),
+          row('SPAN 4070', 'Latin American Voices of Change', 3),
+          row('SPAN 4080', 'Discovering Cultural Formation', 3),
+          row('SPAN 4081', 'Spanish Film', 3),
+          row('SPAN 4082', 'Latin American Film', 3),
+          row('SPAN 4083S', 'Diversity Through Dance', 3),
+          row('SPAN 4085', 'Studies in Hispanic Digital Culture', 3),
+          row('SPAN 4090S', 'Practicum in Service Learning', 3),
+          row('SPAN 4092', 'Archival and Special Collections Studies in Spanish', 3),
+          row('SPAN 4100', 'Spanish Topics Across the Disciplines', 3),
+          row('SPAN 4120', 'Exploring Cultures in Spanish', 3),
+          row('SPAN 4121', 'Topics in Spanish-American Studies', 3),
+          row('SPAN 4150', 'Business Spanish', 3),
+          row('SPAN 4190', 'Internship in Spanish', 3),
+          row('SPAN 4191', 'Internship in Spanish', 3),
+          row('SPAN 4250', 'Advanced Business Spanish', 3),
+          row('SPAN 4550', 'Introduction to the History of Spanish', 3),
+          row('SPAN 4650', 'Spanish Phonetics and Language Variation', 3),
+          row('SPAN 4651', 'Advanced Spanish Grammar', 3),
+          row('SPAN 4652', 'Spanish Dialectology and Language Variation', 3),
+          row('SPAN 4750', 'Spanish Syntax', 3),
+        ], 'SPAN 4003 and SPAN 4250 are equivalent, as are SPAN 4004, 4004S and 4150: credit for one of each.'),
+        choose(focus(2, 'Spanish Interdisciplinary Studies'), 2, [
+          row('SPAN 4030', 'Latinx in the United States', 3),
+          row('SPAN 4040', 'Literary Adventures from Spain', 3),
+          row('SPAN 4050', 'Exploring Modern Spain', 3),
+          row('SPAN 4060', 'Cultures in Contact After 1492', 3),
+          row('SPAN 4070', 'Latin American Voices of Change', 3),
+          row('SPAN 4550', 'Introduction to the History of Spanish', 3),
+          row('SPAN 4650', 'Spanish Phonetics and Language Variation', 3),
+          row('SPAN 4651', 'Advanced Spanish Grammar', 3),
+          row('SPAN 4652', 'Spanish Dialectology and Language Variation', 3),
+        ], 'Fundamental courses in linguistics, literature and cultural studies. The emphasis also asks for an immersion experience: an approved study abroad program in a Spanish-speaking country, the Mary Lyndon Residential Language Community (SPAN 2030), a SPAN service-learning course (SPAN 4090S, 4004S, 4005S or 4083S), or mentored research (SPAN 4960R, started two semesters before graduation).'),
+        choose(focus(2, 'Spanish Interdisciplinary Studies', 'two more SPAN 4000-level courses'), 2, [
+          row('SPAN 4003', 'Medical Spanish', 3),
+          row('SPAN 4004', 'Introduction to Medical Interpreting, Ethics, and Intercultural Communication', 3),
+          row('SPAN 4004S', 'Introduction to Medical Interpreting, Ethics, and Intercultural Communication', 3),
+          row('SPAN 4005', 'Introduction to Translation', 3),
+          row('SPAN 4005S', 'Introduction to Translation', 3),
+          row('SPAN 4030', 'Latinx in the United States', 3),
+          row('SPAN 4040', 'Literary Adventures from Spain', 3),
+          row('SPAN 4050', 'Exploring Modern Spain', 3),
+          row('SPAN 4060', 'Cultures in Contact After 1492', 3),
+          row('SPAN 4070', 'Latin American Voices of Change', 3),
+          row('SPAN 4080', 'Discovering Cultural Formation', 3),
+          row('SPAN 4081', 'Spanish Film', 3),
+          row('SPAN 4082', 'Latin American Film', 3),
+          row('SPAN 4083S', 'Diversity Through Dance', 3),
+          row('SPAN 4085', 'Studies in Hispanic Digital Culture', 3),
+          row('SPAN 4090S', 'Practicum in Service Learning', 3),
+          row('SPAN 4092', 'Archival and Special Collections Studies in Spanish', 3),
+          row('SPAN 4100', 'Spanish Topics Across the Disciplines', 3),
+          row('SPAN 4120', 'Exploring Cultures in Spanish', 3),
+          row('SPAN 4121', 'Topics in Spanish-American Studies', 3),
+          row('SPAN 4150', 'Business Spanish', 3),
+          row('SPAN 4190', 'Internship in Spanish', 3),
+          row('SPAN 4191', 'Internship in Spanish', 3),
+          row('SPAN 4250', 'Advanced Business Spanish', 3),
+          row('SPAN 4550', 'Introduction to the History of Spanish', 3),
+          row('SPAN 4650', 'Spanish Phonetics and Language Variation', 3),
+          row('SPAN 4651', 'Advanced Spanish Grammar', 3),
+          row('SPAN 4652', 'Spanish Dialectology and Language Variation', 3),
+          row('SPAN 4750', 'Spanish Syntax', 3),
+        ], 'SPAN 4003 and SPAN 4250 are equivalent, as are SPAN 4004, 4004S and 4150: credit for one of each.'),
+        hoursFrom(focus(2, 'Spanish Interdisciplinary Studies', 'interdisciplinary courses'), 6, [
+          ...levels('ROML', 3),
+          ...levels('SPAN', 4),
+          ...levels('LACS', 3),
+          row('ACCT 4900', 'International Accounting', 3),
+          row('ANTH 3540', 'Multicultural Health Care', 3),
+          row('ARHI 3020', 'Renaissance Art', 3),
+          row('ARHI 3030', 'Baroque Art', 3),
+          row('ARHI 3077', 'Latin American Modern Art', 3),
+          row('ARHI 3940', 'Gender and Feminism and Art History', 3),
+          row('ARHI 4060', 'Image in Space: Mural Painting and Architecture in Byzantium', 3),
+          row('ARHI 4125', 'Intellectual Foundations of Medieval Art and Architecture', 3),
+          row('ARHI 4230', 'Art of the Early Modern Hispanic World', 3),
+          row('ARHI 4400', 'The Natural History of Art', 3),
+          row('ARHI 4500', 'Realism and Impressionism', 3),
+          row('BUSN 4650', 'Law, Culture, and Global Business', 3),
+          row('CMLT 3200', 'Contemporary World Literature', 3),
+          row('CRSS 4931', 'Agroecology of Tropical America Field Trip', 3),
+          row('CMSD 3020', 'Language Science', 3),
+          row('CMSD 3120', 'Study of Language Development', 3),
+          row('CMSD 4010', 'Phonetics for Communication Sciences and Disorders', 3),
+          row('CMSD 4110', 'Speech Disorders', 3),
+          row('CMSD 4170', 'Language Disorders of Children and Adults', 3),
+          row('ECON 4040', 'The International Business Environment', 3),
+          row('ECON 4550', 'International Trade: Theory and Policy', 3),
+          row('FINA 4810', 'International Finance', 3),
+          row('FILM 4100', 'Latinx Film and Visual Culture', 3),
+          row('GEOG 3640', 'The Geography of Human Rights', 3),
+          row('GEOG 4694', 'Politics and the Modern European State', 3),
+          row('GLOB 3100', 'Introduction to Global Health', 3),
+          row('GLOB 3150', 'Culture and Global Health', 3),
+          row('GLOB 3200', 'Global Health and the Links Among Food, Culture, and Disease', 3),
+          row('HIST 3010', 'United States Immigration History', 3),
+          row('HIST 3020', 'United States Foreign Relations Since 1914', 3),
+          row('HIST 3056H', 'Multicultural America (Honors)', 3),
+          row('HIST 3224', 'The U.S.-Mexico Border: From NAFTA to El Chapo', 3),
+          row('HIST 3240', 'The Caribbean Area', 3),
+          row('HIST 3242', 'Disasters in the Caribbean and Latin America', 3),
+          row('HIST 3270', 'History of Argentina and Chile in the 20th Century', 3),
+          row('HIST 3443', 'Spain in the Age of Cervantes', 3),
+          row('HIST 3490', 'European Encounter with Islam', 3),
+          row('HIST 3710', 'The Atlantic World, 1450-1750: Exchange, Conquest, and Empire', 3),
+          row('HIST 4091', 'Problems in American Foreign Policy, 1776-Present', 3),
+          row('HIST 4110', 'Multicultural Georgia', 3),
+          row('HIST 4211', 'Cuba from Emancipation to Revolution', 3),
+          row('HIST 4214', 'Introduction to the Religions of the Caribbean', 3),
+          row('HIST 4220', 'The United States and Latin America', 3),
+          row('HIST 4222', 'Mexico and the United States since 1821: Two Centuries of Entwined History', 3),
+          row('HIST 4235', 'Pirates of the Caribbean', 3),
+          row('ILAD 5610S', 'Inclusive Leadership', 3),
+          row('INTB 4800', 'Internship and/or Cooperative Education in International Business', 3),
+          row('INTL 4215', 'International Humanitarian Law', 3),
+          row('INTL 4280', 'Nationalism and Ethnic Conflict', 3),
+          row('INTL 4390', 'European Politics', 3),
+          row('INTL 4410', 'Terrorism', 3),
+          row('INTL 4620', 'Human Rights', 3),
+          row('INTL 4630', 'Population, Immigration, and Politics', 3),
+          row('INTL 4640', 'European Union', 3),
+          row('INTL 4644', 'Human Rights in the European Union', 3),
+          row('INTL 4650', 'Women and World Politics', 3),
+          row('INTL 4675E', 'Music and Politics Around the World', 3),
+          row('JOUR 5320', 'Journalism Ethics and Diversity', 3),
+          row('JRLC 5080', 'International Mass Communication', 3),
+          row('JRLC 5400', 'Race, Gender, and the Media', 3),
+          row('JURI 3821', 'Race and Law', 3),
+          row('LEGL 4900', 'International Legal Transactions for Business', 3),
+          row('LING 3830', 'Languages of the World', 3),
+          row('LING 3850', 'Language, Politics, and Identity', 3),
+          row('LING 4015', 'Language, Race, and Ethnicity in the U.S.', 3),
+          row('LING 4175', 'Second Language Acquisition', 3),
+          row('LING 4870', 'Language, Gender, and Sexuality', 3),
+          row('LLED 5040', 'Language and Culture in the Classroom', 3),
+          row('LLED 5318', "Diverse Children's Literature, Grades P-8", 3),
+          row('LLED 5540', 'Culture in the TESOL and World Language Classroom', 3),
+          row('LLED 5730', 'First and Second Language Acquisition and Development', 3),
+          row('MARK 4550', 'Multicultural Marketing', 3),
+          row('MARK 4700', 'International Marketing', 3),
+          row('MGMT 5560', 'International Strategic Management', 3),
+          row('MIST 5780', 'Globalization and Information Systems', 3),
+          row('MUSI 3020', 'World Music Survey: Africa, Europe, and the Americas', 3),
+          row('SOCI 4040', 'Global Inequality and Social Change', 3),
+          row('SOCI 3650', 'Colorism and Hairism in Communities of Color', 3),
+        ], 'ROML or LACS courses at the 3000 level or above, SPAN at the 4000 level or above, or related international, cultural or linguistic courses with Romance Languages approval.'),
+      ]),
+      generalElectives(30, 9),
+    ],
+  },
+  /*
+   * Housing Management and Policy BSFCS (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/28344): Major Electives (33 hours) are
+   * Option I (Housing Management and Policy) or Option II (Residential
+   * Property Management); the reading required both. "Choose 1 credit
+   * hour(s)" of FHCE 3200 or 3250 is one course.
+   */
+  '28344': {
+    areaSix: area('VI. Courses Related to the Major', 18, [
+      all('VI. Courses Related to the Major', [
+        row('ECON 2106', 'Principles of Microeconomics', 3),
+        row('FHCE 2100', 'Introduction to Consumer Economics', 3),
+      ]),
+      hoursFromDistinct('VI. Courses Related to the Major: 12 hours', 12, 4, [
+        [row('ACCT 2101', 'Principles of Accounting I', 3)],
+        [row('ACCT 2102', 'Principles of Accounting II', 3)],
+        [row('BUSN 3000', 'Applied Statistics and Data Analysis for Business', 3), row('STAT 2000', 'Introductory Statistics', 4), row('STAT 2100H', 'Introduction to Statistics and Computing (Honors)', 4)],
+        [row('CSCI 1301', 'Introduction to Computing and Programming', 4)],
+        [row('FHCE 1110', 'Consumers In Our Society', 3)],
+        [row('HDFS 2100', 'Relationship Development, Maintenance, and Dissolution', 3)],
+        [row('LEGL 2700', 'Legal and Regulatory Environment of Business', 3)],
+        [row('MATH 1113', 'Precalculus', 3)],
+        [row('MATH 2200', 'Analytic Geometry and Calculus', 4), row('MATH 2250', 'Calculus I for Science and Engineering', 4)],
+        [row('MATH 2310H', 'Integral Calculus (Honors)', 4), row('MATH 2400', 'Differential Calculus with Theory', 4), row('MATH 2410', 'Integral Calculus with Theory', 4)],
+        [row('NUTR 2100', 'Fundamentals of Human Nutrition', 3)],
+        [row('PSYC 1101', 'Elementary Psychology', 3)],
+        [row('SOCI 1101', 'Introductory Sociology', 3)],
+        [row('TXMI 2100', 'Textiles for Consumers', 3)],
+      ], 'Choose 12 hours. Only one of BUSN 3000, STAT 2000 and STAT 2100H counts; one of MATH 2200 and 2250; one of MATH 2310H, 2400 and 2410.'),
+    ]),
+    major: [
+      area('Required Courses', 13, [
+        all('Required Courses', [
+          row('FACS 2000', 'Introduction to Family and Consumer Sciences', 1),
+          row('FHCE 3100', 'Consumer Decision Making', 3),
+        ]),
+        choose('Personal finance', 1, [
+          row('FHCE 3200', 'Introduction to Personal Finance', 3),
+          row('FHCE 3250', 'Survey of Financial Planning', 3),
+        ]),
+        choose('Housing', 1, [
+          row('FHCE 3300', 'Housing in Contemporary Society', 3),
+          row('FHCE 3305', 'Housing in International Contemporary Societies', 3),
+        ]),
+        choose('Housing theory or policy', 1, [
+          row('FHCE 4300', 'Advanced Housing Theories', 3),
+          row('FHCE 4310', 'Housing Policy', 3),
+          row('FHCE 4400', 'Family Demographics and Policy', 3),
+        ]),
+      ]),
+      area('Major Electives', 33, [
+        hoursFrom(focus(1, 'Housing Management and Policy'), 15, [
+          row('FACS 5711', 'Study Tour in Family and Consumer Sciences', 3),
+          row('FACS 5910', 'Internship in Family and Consumer Sciences', 3),
+          row('FACS 5915', 'International Internship in Family and Consumer Sciences', 3),
+          row('FACS 5950', 'International Study in Family and Consumer Sciences', 3),
+          row('FHCE 3000', 'Family Resource Management', 3),
+          row('FHCE 3005', 'International Family Resource Management', 3),
+          row('FHCE 3305', 'Housing in International Contemporary Societies', 3),
+          row('FHCE 3350', 'Introduction to Residential Property Management', 3),
+          row('FHCE 4150', 'Women in the Global Economy', 3),
+          row('FHCE 4300', 'Advanced Housing Theories', 3),
+          row('FHCE 4310', 'Housing Policy', 3),
+          row('FHCE 4320', 'Legal Issues in Residential Property Management', 3),
+          row('FHCE 4330', 'Leasing Strategies for Residential Property Management', 3),
+          row('FHCE 4340S', 'Housing and Community Development', 3),
+          row('FHCE 4360', 'Rural Housing and Economic Development', 3),
+          row('FHCE 4400', 'Family Demographics and Policy', 3),
+          row('FHCE 4810', 'Housing for an Aging Population', 3),
+          row('FHCE 5175', 'Poverty in America', 3),
+          row('FHCE 5305', 'Housing Management and Policy Practicum', 3),
+          row('FHCE 5310', 'Affordable Housing Development and Management', 3),
+          row('FHCE 5320', 'Residential Property Management Technology and Simulation', 3),
+          row('FHCE 5350S', 'Housing Counseling', 3),
+          row('FHCE 5360S', 'Topics in Sustainable Housing', 3),
+        ]),
+        hoursFrom(focus(1, 'Housing Management and Policy', 'related courses'), 18, [
+          row('BUSN 3000', 'Applied Statistics and Data Analysis for Business', 3),
+          row('FACS 5711', 'Study Tour in Family and Consumer Sciences', 3),
+          row('FACS 5910', 'Internship in Family and Consumer Sciences', 3),
+          row('FACS 5915', 'International Internship in Family and Consumer Sciences', 3),
+          row('FACS 5950', 'International Study in Family and Consumer Sciences', 3),
+          row('GEOG 2011', 'Maps, Data, and Society', 3),
+          row('HDFS 4500', 'Aging and the Family', 3),
+          ...['ECON', 'ENTR', 'FHCE', 'GEOG', 'HIPR', 'INTL', 'LEGL', 'POLS', 'REAL', 'SOCI', 'STAT', 'TXMI'].flatMap((subject) => levels(subject, 3)),
+        ], 'Or courses with the ECON, ENTR, FHCE, GEOG, HIPR, INTL, LEGL, POLS, REAL, SOCI, STAT or TXMI prefix at the 3000 level or above.'),
+        // A choice of every course listed: a list with no number to choose, in an area of electives, is read as hours to draw from.
+        choose(focus(2, 'Area of Emphasis in Residential Property Management'), 3, [
+          row('FHCE 3350', 'Introduction to Residential Property Management', 3),
+          row('FHCE 4320', 'Legal Issues in Residential Property Management', 3),
+          row('FHCE 4330', 'Leasing Strategies for Residential Property Management', 3),
+        ]),
+        choose(focus(2, 'Area of Emphasis in Residential Property Management', 'affordable housing or technology'), 1, [
+          row('FHCE 5310', 'Affordable Housing Development and Management', 3),
+          row('FHCE 5320', 'Residential Property Management Technology and Simulation', 3),
+        ]),
+        hoursFrom(focus(2, 'Area of Emphasis in Residential Property Management', 'housing course'), 3, [
+          row('FHCE 3000', 'Family Resource Management', 3),
+          row('FHCE 3005', 'International Family Resource Management', 3),
+          row('FHCE 3305', 'Housing in International Contemporary Societies', 3),
+          row('FHCE 4300', 'Advanced Housing Theories', 3),
+          row('FHCE 4310', 'Housing Policy', 3),
+          row('FHCE 4340S', 'Housing and Community Development', 3),
+          row('FHCE 4360', 'Rural Housing and Economic Development', 3),
+          row('FHCE 4400', 'Family Demographics and Policy', 3),
+          row('FHCE 4810', 'Housing for an Aging Population', 3),
+          row('FHCE 5175', 'Poverty in America', 3),
+          row('FHCE 5305', 'Housing Management and Policy Practicum', 3),
+          row('FHCE 5310', 'Affordable Housing Development and Management', 3),
+          row('FHCE 5320', 'Residential Property Management Technology and Simulation', 3),
+          row('FHCE 5350S', 'Housing Counseling', 3),
+          row('FHCE 5360S', 'Topics in Sustainable Housing', 3),
+        ]),
+        hoursFrom(focus(2, 'Area of Emphasis in Residential Property Management', 'related courses'), 18, [
+          row('BUSN 3000', 'Applied Statistics and Data Analysis for Business', 3),
+          row('FACS 5711', 'Study Tour in Family and Consumer Sciences', 3),
+          row('FACS 5910', 'Internship in Family and Consumer Sciences', 3),
+          row('FACS 5915', 'International Internship in Family and Consumer Sciences', 3),
+          row('FACS 5950', 'International Study in Family and Consumer Sciences', 3),
+          row('GEOG 2011', 'Maps, Data, and Society', 3),
+          row('HDFS 4500', 'Aging and the Family', 3),
+          ...['ECON', 'ENTR', 'FHCE', 'GEOG', 'HIPR', 'INTL', 'LEGL', 'POLS', 'REAL', 'SOCI', 'STAT', 'TXMI'].flatMap((subject) => levels(subject, 3)),
+        ], 'Or courses with the ECON, ENTR, FHCE, GEOG, HIPR, INTL, LEGL, POLS, REAL, SOCI, STAT or TXMI prefix at the 3000 level or above.'),
+      ]),
+      generalElectives(14),
     ],
   },
 };
