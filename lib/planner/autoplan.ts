@@ -11022,11 +11022,21 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const readFor = rememberedBy((code: string): number => (lastTies ? listAudience(code) * 2 : 0) + signals.offSchedule(code));
         // A UGA graduation requirement met by courses counted elsewhere (ugaOverlapArea) takes one the board already has first.
         const meetsElsewhere = ctx.schoolId === 'uga' && ugaOverlapArea(requirement.areaLabel);
+        /*
+         * And a UGA choice leaves to a take-every-course row of its family the
+         * course that row requires (requiredInFamily): Agricultural and Applied
+         * Economics' Foundation math took STAT 2000, which its Area VI requires,
+         * and Area VI then read 16 of 18 (2026-10-28).
+         */
+        const rowFamilyHere = familyOfRow(requirement);
+        const ownRow = new Set(requirement.rule.kind === 'all' ? requirement.rule.choices.flatMap((choice) => choice.codes.map(normaliseCode)) : []);
+        const leftToRow = (code: string): number => (rowFamilyHere !== null && requirement.rule.kind === 'choose' && !ownRow.has(code) && (requiredInFamily.get(rowFamilyHere)?.has(code) ?? false) ? 1 : 0);
         const scored = slot.options
           .map((option) => pickFromOption(option))
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) =>
             (meetsElsewhere ? Number(!a.shared) - Number(!b.shared) : 0) ||
+            (choosing ? leftToRow(a.code) - leftToRow(b.code) : 0) ||
             (choosing ? seasonless(a.code) - seasonless(b.code) || gatedPick(a.code) - gatedPick(b.code) || shutsTrackRow(a.code, slot.together?.get(a.code)) - shutsTrackRow(b.code, slot.together?.get(b.code)) || (slot.sharedFirst ? requiredElsewhere(a.code, requirement.areaId) - requiredElsewhere(b.code, requirement.areaId) : 0) || servesTrack(a.code) - servesTrack(b.code) || readFor(a.code) - readFor(b.code) || opensRequired(a.code) - opensRequired(b.code) || inOtherChoice(a.code, requirement.id) - inOtherChoice(b.code, requirement.id) : 0) ||
             (listOrder ? listOrder(a.code, b.code) : 0) ||
             (have ? (rank(a.code)[0] ?? 0) - (rank(b.code)[0] ?? 0) || extraOf(a.code) - extraOf(b.code) : 0) ||
