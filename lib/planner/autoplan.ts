@@ -6342,6 +6342,15 @@ function countTowardDegree(prior: PriorCredit, rule: CollegeCreditRule): { prior
 
 const titleStandingCache = new WeakMap<object, PlanningContext>();
 const SENIOR_TITLE = /\b(senior|capstone)\b/i;
+/*
+ * At UGA an internship numbered 3000 or above is a last-year course, taken
+ * once the major's other courses are: its line reads "Permission of
+ * department" or a 1000-level course, and a Criminal Justice sophomore's
+ * board put POLS 5500, 5510 and 5520, the full-semester internship the
+ * Bulletin has the major take "during the final semester", in her
+ * sophomore fall (2026-10-29).
+ */
+const UGA_INTERNSHIP_TITLE = /\binternships?\b/i;
 
 export function withTitleStanding(ctx: PlanningContext): PlanningContext {
   const cached = titleStandingCache.get(ctx);
@@ -6349,14 +6358,19 @@ export function withTitleStanding(ctx: PlanningContext): PlanningContext {
   const prereqs = new Map(ctx.prereqs ?? []);
   let changed = false;
   for (const course of ctx.courses) {
-    if (!SENIOR_TITLE.test(course.title)) continue;
+    const senior = SENIOR_TITLE.test(course.title);
+    const internship = !senior && ctx.schoolId === 'uga' && UGA_INTERNSHIP_TITLE.test(course.title) && courseLevel(normaliseCode(course.code)) >= 300;
+    if (!senior && !internship) continue;
     const code = normaliseCode(course.code);
     const spec = prereqs.get(code);
     if (spec?.standing) continue;
-    const standingText = `The course title, "${course.title}", marks it for seniors; the catalog states no standing.`;
+    const standing: PlanStanding = 'senior';
+    const standingText = senior
+      ? `The course title, "${course.title}", marks it for seniors; the catalog states no standing.`
+      : `The course title, "${course.title}", marks it as an internship, taken in the last year once the major's other courses are; the catalog states no standing.`;
     prereqs.set(code, spec
-      ? { ...spec, standing: 'senior', standingText }
-      : { groups: [], escape: null, text: '', parsed: false, confidence: 'none', standing: 'senior', standingText });
+      ? { ...spec, standing, standingText }
+      : { groups: [], escape: null, text: '', parsed: false, confidence: 'none', standing, standingText });
     changed = true;
   }
   const out = changed ? { ...ctx, prereqs } : ctx;
