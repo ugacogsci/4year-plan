@@ -306,12 +306,12 @@
   ],
   "artifacts": {
     "index.json": {
-      "raw": 1238758,
-      "gzip": 202364
+      "raw": 1236792,
+      "gzip": 201982
     },
     "prereqs.json": {
-      "raw": 1225923,
-      "gzip": 100748
+      "raw": 1218444,
+      "gzip": 100483
     },
     "grades.json": {
       "raw": 282596,

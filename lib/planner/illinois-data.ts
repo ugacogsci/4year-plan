@@ -1033,8 +1033,14 @@ export function exclusionsIn(description: string, selfCode: string, known: Set<s
 
 const ONE_OF_SPLIT =
   /(?:\band\s+)?\b(?:any one of the following|one of the following|at least one of|any one of|any of|one of|either)\b\s*:?\s*/i;
+/**
+ * "should consider" is a suggestion too: MATH 220's "Students with previous
+ * calculus experience should consider MATH 221" read as a second prerequisite,
+ * and four Illinois boards told the student "MATH 220 lists MATH 221 as a
+ * prerequisite ... Ask your advisor whether that clears" (2026-10-29).
+ */
 const ADVISORY =
-  /\b(recommend\w*|encouraged|helpful|preferred|desirable|suggested|may be taken|should also enroll|is useful|not required)\b/i;
+  /\b(recommend\w*|encouraged|helpful|preferred|desirable|suggested|may be taken|should also enroll|should consider|is useful|not required)\b/i;
 /**
  * A recommendation joined onto a requirement by a connective. ACCY 301 reads
  * "ACCY 202 or equivalent and recommend concurrent enrollment in ACCY 302", and
@@ -1063,6 +1069,16 @@ const ABBREV = /(?:\be\.g|\bi\.e|\betc|\bvs|\bDr|\bMr|\bMs|\bJr|\bSr|\bPh\.D|\bU
 
 /** School work done before university, which no crawl of the catalog can see. */
 const PRIOR_LEARNING = /\bhigh school\b/i;
+
+/**
+ * "CS 101 or equivalent programming experience" (MATH 257, IS 477, ASTR
+ * 404-414): the programming courses a student holds or the plan books are that
+ * experience. Read as CS 101 alone, a Computer Science board booked CS 101
+ * after CS 124 and CS 128, and an Electrical Engineering board beside ECE 220,
+ * to unlock MATH 257 (2026-10-29). A board with none of them still books one.
+ */
+const PROGRAMMING_EXPERIENCE = /\bor equivalent programming experience\b/i;
+const PROGRAMMING_COURSES = ['CS 101', 'CS 105', 'CS 124', 'CS 128', 'ECE 220'];
 
 /**
  * The clause offering school work instead of the course, or null.
@@ -1363,11 +1379,16 @@ export function parsePrerequisites(
           previous.source = `${previous.source}, ${trimmed}`;
           continue;
         }
+        // The programming courses that are "equivalent programming experience" (PROGRAMMING_EXPERIENCE).
+        const experience = PROGRAMMING_EXPERIENCE.test(trimmed)
+          ? PROGRAMMING_COURSES.filter((c) => known.has(c) && c !== self && !itemCodes.includes(c))
+          : [];
+        const any = [...itemCodes, ...experience];
         groups.push({
-          any: itemCodes,
+          any,
           concurrent,
           confidence: 'high',
-          shape: itemCodes.length > 1 ? 'or' : 'single',
+          shape: any.length > 1 ? 'or' : 'single',
           source: trimmed,
           priorLearning: null,
         });
@@ -1430,7 +1451,35 @@ export function parsePrerequisites(
         produced.every((g) => g.any.length === 1) &&
         !/\band\b/i.test(seg.replace(ESCAPE_TAIL, ''));
 
-      if (orMenu) {
+      /**
+       * Step 5c. The same menu with its last "or" on a course, or on "or
+       * equivalent" with no comma: ECON 302's "MATH 220, MATH 221, MATH 234 or
+       * equivalent" was three required courses, CS 434's "ECE 391, CS 241, CS
+       * 341 or ECE 310" ECE 391 and one of the other two, AE 352's "MATH 225,
+       * MATH 257, or MATH 415" MATH 225 and one of two, and boards said "ECON
+       * 302 lists MATH 221 as a prerequisite ... Ask your advisor whether that
+       * clears" beside the MATH 220 it booked (2026-10-29). Only a plain list:
+       * every item before the last one course and no "or" of its own ("CEE 350
+       * or NRES 401, CEE 380 or NRES 201" is two choices), and no "and".
+       */
+      const menuItems = head
+        .replace(ESCAPE_TAIL, '')
+        .replace(/\bcredit or concurrent (?:registration|enrollment)\b/gi, '')
+        .split(/,\s*/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const commaMenu =
+        !orMenu &&
+        !tail &&
+        produced.length > 1 &&
+        menuItems.length > 1 &&
+        !/\band\b/i.test(seg.replace(ESCAPE_TAIL, '')) &&
+        /\bor\b/i.test(menuItems[menuItems.length - 1]) &&
+        // "ANSC 221, ANSC 222, ANSC 450 or equivalents" is each course or its equivalent, all three.
+        !/\bequivalents\b/i.test(menuItems[menuItems.length - 1]) &&
+        menuItems.slice(0, -1).every((item) => !/\bor\b/i.test(item) && codesIn(item, known, self).length <= 1);
+
+      if (orMenu || commaMenu) {
         const merged: PrereqGroup = {
           any: produced.flatMap((g) => g.any),
           concurrent: produced.every((g) => g.concurrent),
