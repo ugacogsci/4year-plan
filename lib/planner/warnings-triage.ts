@@ -237,10 +237,12 @@ export const CURRENT_CLASSES_ID = 'current-classes';
  * The semester in progress shown empty with nothing assumed for it: a
  * student who picked "First year" in setup without saying it in words, or a
  * record that stops a term early. The plan counts nothing for that fall, so
- * what its classes would fill reads as missing. Asked for only when a
- * shortfall like that is on the board (the caller checks): an empty column
- * already invites the classes, and a plan with nothing to settle needs no
- * second ask.
+ * what its classes would fill reads as missing, or is booked again in the
+ * terms after it. Always asked for: once only when a shortfall was on the
+ * board, two first-year plans with the same empty Fall 2026 were told "Plan
+ * built. Nothing needs attention." and "Draft built. Your Fall 2026 classes
+ * are not added yet." (2026-10-30), and the one told nothing was planning
+ * the classes she is taking now for the spring.
  */
 function emptyCurrent(gap: CreditGap | null | undefined): string | null {
   if (!gap || gap.said !== null || gap.assumed > 0 || !gap.currentTerm || (gap.currentClasses ?? 0) > 0) return null;
@@ -349,8 +351,7 @@ export function triageIssues(
   explainedByForfeit(rows);
   explainedByUnreadAreas(rows);
   const empty = emptyCurrent(options.credit);
-  const settles = rows.some((r) => r.kind.tier === 'now' && r.kind.record);
-  const promptText = recordPrompt(options.credit) ?? (empty && settles ? `Your ${empty} classes are not added yet. Add them in the ${empty} column to get an accurate check.` : null);
+  const promptText = recordPrompt(options.credit) ?? (empty ? `Your ${empty} classes are not added yet. Add them in the ${empty} column to get an accurate check.` : null);
   const stated = rows.filter((r) => r.kind.key === 'record');
   let prompt: AttentionKind | null = null;
   if (promptText) {
