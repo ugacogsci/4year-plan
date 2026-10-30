@@ -1033,8 +1033,14 @@ export function exclusionsIn(description: string, selfCode: string, known: Set<s
 
 const ONE_OF_SPLIT =
   /(?:\band\s+)?\b(?:any one of the following|one of the following|at least one of|any one of|any of|one of|either)\b\s*:?\s*/i;
+/**
+ * "should consider" is a suggestion too: MATH 220's "Students with previous
+ * calculus experience should consider MATH 221" read as a second prerequisite,
+ * and Illinois boards told the student "MATH 220 lists MATH 221 as a
+ * prerequisite ... Ask your advisor whether that clears" (2026-10-29).
+ */
 const ADVISORY =
-  /\b(recommend\w*|encouraged|helpful|preferred|desirable|suggested|may be taken|should also enroll|is useful|not required)\b/i;
+  /\b(recommend\w*|encouraged|helpful|preferred|desirable|suggested|may be taken|should also enroll|should consider|is useful|not required)\b/i;
 /**
  * A recommendation joined onto a requirement by a connective. ACCY 301 reads
  * "ACCY 202 or equivalent and recommend concurrent enrollment in ACCY 302", and
