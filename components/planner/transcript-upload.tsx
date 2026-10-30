@@ -25,6 +25,7 @@ import { loadTransferGenEd, type CatalogLite } from '@/lib/planner/transfer-matc
 import { loadUgaTransfer } from '@/lib/planner/transfer-official';
 import { loadUgaOfferings } from '@/lib/planner/uga-offerings';
 import { declineMaybe, maybeLines } from '@/lib/planner/transfer-maybe';
+import { aiUnavailable } from '@/lib/planner/ai-unavailable';
 
 /**
  * "Upload what you have."
@@ -131,7 +132,8 @@ export function TranscriptUpload({
       });
       const json = (await res.json().catch(() => ({}))) as { reading?: TranscriptReading; error?: string };
       if (!res.ok || !json.reading) {
-        setError(json.error ?? `The transcript reader answered ${res.status}.`);
+        // The route words every failure for the student; a proxy's error page has none (ai-unavailable.ts).
+        setError(typeof json.error === 'string' && json.error.trim() ? json.error : `${aiUnavailable('The transcript reader')} You can add your classes by hand meanwhile.`);
         return;
       }
       sent = true;

@@ -17,6 +17,7 @@
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import { CLUBS_RULES, FIND_CLUBS_TOOL } from './clubs-tool';
+import { aiUnavailable } from './ai-unavailable';
 
 export type AdvisorMessage = Anthropic.Beta.BetaMessageParam;
 export type AdvisorBlock = Anthropic.Beta.BetaContentBlock;
@@ -1015,15 +1016,25 @@ async function advisorStep(
   onText: ((delta: string) => void) | undefined,
   signal: AbortSignal | undefined,
 ): Promise<AdvisorStep> {
-  const res = await fetch('/api/advisor', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages, board, bot, schoolName, schoolShort }),
-    signal,
-  });
+  // A dropped connection, a proxy's HTML error page or a broken stream reads as the route's own
+  // sentence (ai-unavailable.ts), never "Failed to fetch" or a JSON parser's complaint.
+  const who = /^[A-Z]/.test(bot) ? bot : 'The advisor';
+  const unavailable = () => new AdvisorUnavailableError(aiUnavailable(who));
+  let res: Response;
+  try {
+    res = await fetch('/api/advisor', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages, board, bot, schoolName, schoolShort }),
+      signal,
+    });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw unavailable();
+  }
   if (!res.ok || !res.body) {
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(data.error ?? `The advisor answered ${res.status}.`);
+    const data = (await res.json().catch(() => ({}))) as { error?: unknown };
+    throw typeof data.error === 'string' && data.error.trim() ? new AdvisorUnavailableError(data.error) : unavailable();
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -1032,16 +1043,28 @@ async function advisorStep(
   let failure: string | null = null;
   const handle = (line: string) => {
     if (!line.startsWith('data: ')) return;
-    const event = JSON.parse(line.slice(6)) as
+    let event:
       | { type: 'text'; delta: string }
       | { type: 'final'; message: AdvisorStep }
       | { type: 'error'; error: string };
+    try {
+      event = JSON.parse(line.slice(6));
+    } catch {
+      throw unavailable();
+    }
     if (event.type === 'text') onText?.(event.delta);
     else if (event.type === 'final') final = event.message;
     else failure = event.error;
   };
   for (;;) {
-    const { value, done } = await reader.read();
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw unavailable();
+    }
+    const { value, done } = chunk;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     let at = buffer.indexOf('\n\n');
@@ -1052,9 +1075,17 @@ async function advisorStep(
     }
   }
   if (buffer.trim()) handle(buffer.trim());
-  if (failure) throw new Error(failure);
-  if (!final) throw new Error('The advisor stopped without answering.');
+  if (failure) throw new AdvisorUnavailableError(failure);
+  if (!final) throw unavailable();
   return final;
+}
+
+/** A failure already worded for the student (app/api/advisor/route.ts, ai-unavailable.ts): the panel shows it as it is. */
+export class AdvisorUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AdvisorUnavailableError';
+  }
 }
 
 /**

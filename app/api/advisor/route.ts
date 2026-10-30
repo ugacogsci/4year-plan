@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { ADVISOR_TOOLS, advisorSystem, type AdvisorMessage } from '@/lib/planner/advisor';
 import { ADVISOR_MAX_TOKENS, advisorModel, advisorRequest } from '@/lib/planner/advisor-request';
 import { dailyCapUsd, LIMITS, parseJson, readBodyCapped, sharedGuard, tokensForChars, visitorKey, worstCaseUsd } from '@/lib/planner/spend-guard';
+import { aiBusy, aiFailureForLog, aiUnavailable } from '@/lib/planner/ai-unavailable';
 
 /**
  * One step of the advisor's loop.
@@ -35,10 +36,9 @@ const FIXED_CHARS = advisorSystem('ALMA').length + JSON.stringify(ADVISOR_TOOLS)
 
 export async function POST(req: Request) {
   if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json(
-      { error: 'The advisor is not set up on this server. Add ANTHROPIC_API_KEY to .env.local and restart.' },
-      { status: 503 },
-    );
+    // The log names the setting; the student reads that the plan still works.
+    console.warn('[advisor] ANTHROPIC_API_KEY is not set; the advisor is off.');
+    return NextResponse.json({ error: aiUnavailable() }, { status: 503 });
   }
   const raw = await readBodyCapped(req, LIMITS.advisor.maxBodyBytes);
   if (raw === null) {
@@ -117,17 +117,10 @@ export async function POST(req: Request) {
         // (an overload or a dropped connection mid-stream, thinking included) may have spent some: keep the worst case.
         const rejected = error instanceof Anthropic.APIError && typeof error.status === 'number' && error.status < 500;
         ticket.settle(null, { keepReservation: !rejected });
-        const text =
-          error instanceof Anthropic.AuthenticationError
-            ? 'The advisor cannot sign in to its model. Check ANTHROPIC_API_KEY.'
-            : error instanceof Anthropic.RateLimitError
-              ? 'The advisor is getting a lot of questions right now. Try again in a minute.'
-              : error instanceof Anthropic.APIError
-                ? `The advisor's model answered ${error.status}: ${error.message}`
-                : error instanceof Error
-                  ? error.message
-                  : 'The advisor failed.';
-        send({ type: 'error', error: text });
+        // Never the API's own words (an out-of-credit account read "answered 400: Your credit balance is too
+        // low..."): the student gets ai-unavailable.ts's sentence, the server log the detail.
+        console.warn(`[advisor] the model call failed: ${aiFailureForLog(error)}`);
+        send({ type: 'error', error: error instanceof Anthropic.RateLimitError ? aiBusy() : aiUnavailable() });
       } finally {
         // A no-op when the step already settled; otherwise the worst case stays counted.
         ticket.settle(null, { keepReservation: true });

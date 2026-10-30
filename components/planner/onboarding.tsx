@@ -670,7 +670,7 @@ export function Onboarding({
         )}
 
         {step === 1 && guided && <GuidedSetup key={answers.schoolId} answers={answers} catalog={catalog} onChange={setAnswers}
-          onManual={() => { setGraduationEdited(Boolean(answers.graduationYear)); setGuided(false); }} onBack={() => setStep(0)} onFinish={finish} />}
+          onManual={(carried) => { setAnswers(carried); setGraduationEdited(Boolean(carried.graduationYear)); setGuided(false); }} onBack={() => setStep(0)} onFinish={finish} />}
 
         {step === 1 && !guided && (
           <section className="onb-step">

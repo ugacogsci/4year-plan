@@ -10,6 +10,7 @@ import {
   type TranscriptUploadFile,
 } from '@/lib/planner/transcript';
 import { dailyCapUsd, LIMITS, parseJson, readBodyCapped, sharedGuard, tokensForChars, visitorKey, worstCaseUsd } from '@/lib/planner/spend-guard';
+import { aiBusy, aiFailureForLog, aiUnavailable, isOutOfCredit } from '@/lib/planner/ai-unavailable';
 
 /**
  * The transcript reader.
@@ -158,7 +159,7 @@ export async function POST(req: Request) {
   // The sentence a student sees names no environment variable; the log does.
   if (!process.env.ANTHROPIC_API_KEY) {
     console.warn('[transcript] ANTHROPIC_API_KEY is not set; transcript reading is off.');
-    return json({ error: 'Transcript reading is not configured on this build.' }, 503);
+    return json({ error: `${aiUnavailable('The transcript reader')} You can add your classes by hand meanwhile.` }, 503);
   }
 
   const content: Anthropic.ContentBlockParam[] = [];
@@ -243,19 +244,15 @@ export async function POST(req: Request) {
   } catch (error) {
     // A 4xx was refused before any tokens were made; anything else may have spent some.
     ticket.settle(null, { keepReservation: !(error instanceof Anthropic.APIError && typeof error.status === 'number' && error.status < 500) });
-    if (error instanceof Anthropic.AuthenticationError) {
-      console.warn('[transcript] the API key was rejected.');
-      return json({ error: 'Transcript reading is not configured correctly on this build.' }, 503);
-    }
+    console.warn(`[transcript] the model call failed: ${aiFailureForLog(error)}`);
+    // An out-of-credit account answers 400 too: that is not the file's fault (ai-unavailable.ts).
+    const unavailable = `${aiUnavailable('The transcript reader')} You can add your classes by hand meanwhile.`;
     if (error instanceof Anthropic.RateLimitError) {
-      return json({ error: 'The transcript reader is busy. Try again in a minute.' }, 429);
+      return json({ error: aiBusy('The transcript reader') }, 429);
     }
-    if (error instanceof Anthropic.BadRequestError) {
+    if (error instanceof Anthropic.BadRequestError && !isOutOfCredit(error)) {
       return json({ error: 'The reader could not accept this file. A PDF export or a PNG screenshot works best.' }, 400);
     }
-    if (error instanceof Anthropic.APIError) {
-      return json({ error: `The transcript reader returned ${error.status ?? 'an error'}.` }, 502);
-    }
-    return json({ error: 'The transcript could not be read. Try again.' }, 500);
+    return json({ error: unavailable }, 503);
   }
 }

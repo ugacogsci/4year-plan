@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
-import { type OnboardingAnswers, defaultProgramYears, suggestGraduationTarget, isGraduationTermPast, schoolById, withSetupResponse } from '@/lib/planner/onboarding';
+import { type OnboardingAnswers, defaultProgramYears, suggestGraduationTarget, isGraduationTermPast, schoolById, setupResponse, withSetupResponse } from '@/lib/planner/onboarding';
 import { setupReplySchema, validatedSetupPatch, type SetupCatalog, type SetupMessage } from '@/lib/planner/setup-agent';
 import { loadUgaPlanningGuidance, type DoubleDawgsPathway } from '@/lib/planner/uga-planning-guidance';
 import { normalizeUgaCollegeId, UGA_COLLEGES } from '@/lib/planner/uga-colleges';
@@ -12,11 +12,22 @@ import { type UgaProgram } from './uga-source';
 import { PriorCredit } from './prior-credit';
 import { doubleDawgsTimingValid } from './double-dawgs-timing';
 
+/** What a student reads when the setup assistant cannot answer: the form still works, with their answers. */
+const SETUP_UNAVAILABLE = 'The setup assistant is unavailable right now. Your answers are kept: choose "Enter my details manually" to go on, or try again in a bit.';
+
+/** A failure already worded for the student by app/api/setup/route.ts, or the plain sentence. */
+class SetupUnavailable extends Error {
+  constructor(message: unknown) {
+    super(typeof message === 'string' && message.trim() ? message : SETUP_UNAVAILABLE);
+  }
+}
+
 export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFinish }: {
   answers: OnboardingAnswers;
   catalog: (SetupCatalog & { ugaPrograms: UgaProgram[] }) | null;
   onChange: (answers: OnboardingAnswers) => void;
-  onManual: () => void;
+  /** With what the conversation has learned so far, the words the student typed included, for the form to start from. */
+  onManual: (answers: OnboardingAnswers) => void;
   onBack: () => void;
   onFinish: (answers: OnboardingAnswers) => void;
 }) {
@@ -50,7 +61,21 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
   const newStudent = !answers.academicYear || answers.academicYear === 'first';
   const creditStep = newStudent
     ? 'add any AP, IB, dual-enrollment or transfer credit under "Add prior credit or upload a transcript" below, or choose "I have no prior credit"'
-    : 'upload your transcript or add the classes you have taken under "Add prior credit or upload a transcript" below, or tell the assistant what you have taken';
+    : 'upload your transcript or add the classes you have taken under "Add prior credit or upload a transcript" below, tell the assistant what you have taken, or choose "I\'ll add my classes later"';
+  /**
+   * Into the form with everything said so far (2026-10-30): the assistant's
+   * facts are already in the answers, but a reply it never read (the
+   * assistant was unavailable) and the unsent draft were left behind, so the
+   * form started blank. They join the open response, where the form reads
+   * the year, the graduation term and the goals from the words.
+   */
+  const manual = () => {
+    const current = setupResponse(answers);
+    const said = [...messages.filter((m) => m.role === 'user').map((m) => m.content), draft.trim()]
+      .map((text) => text.trim())
+      .filter((text, i, all) => text && all.indexOf(text) === i && !current.includes(text));
+    onManual(said.length > 0 ? withSetupResponse(answers, [current, ...said].filter(Boolean).join('\n')) : answers);
+  };
   const send = async () => {
     if (!draft.trim() || !catalog || !answers.schoolId || busy) return;
     setBusy(true); setError('');
@@ -68,9 +93,12 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
       });
       const response = await fetch('/api/setup', { method: 'POST', headers: { 'content-type': 'application/json' }, signal: controller.signal,
         body: JSON.stringify({ school: answers.schoolId, messages: nextMessages, context }) });
-      const body = await response.json();
-      if (!response.ok) throw new Error((body as { error?: string }).error || 'Could not read your answer. Please try again.');
-      const result = setupReplySchema.parse(body);
+      const body = await response.json().catch(() => null) as unknown;
+      // The route words its failures for the student; anything else (no answer, a proxy's page) gets the plain sentence below.
+      if (!response.ok) throw new SetupUnavailable((body as { error?: unknown } | null)?.error);
+      const parsed = setupReplySchema.safeParse(body);
+      if (!parsed.success) throw new SetupUnavailable(null);
+      const result = parsed.data;
       const candidatePrograms = result.patch.programIds ?? answers.programIds;
       const allowedPathways = pathways.filter((row) => row.undergraduateProgramIds.some((id) => candidatePrograms.includes(id)) && row.graduateProgramIds.length === 1);
       const patch = validatedSetupPatch(answers, result.patch, catalog, allowedPathways.map((p) => p.id), UGA_COLLEGES.map((c) => c.id));
@@ -100,7 +128,8 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
       onChange(next); setMessages(history); setDraft('');
       trackContent('setup', draft.trim()); trackContent('assistant', result.reply);
     } catch (error) {
-      if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Please try again or enter your details manually.');
+      // Never a parser's or the network's own words: a failed fetch read "Failed to fetch" (2026-10-30).
+      if (!controller.signal.aborted) setError(error instanceof SetupUnavailable ? error.message : SETUP_UNAVAILABLE);
     } finally { setBusy(false); abort.current = null; }
   };
   return <section className="onb-step guided-setup">
@@ -117,6 +146,8 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
         {answers.graduationYear && <span>{answers.graduationSeason} {answers.graduationYear}{!graduationConfirmed ? ' (suggested)' : ''}</span>}
         {!graduationConfirmed && answers.graduationYear && <button onClick={() => { const content = `My intended graduation is ${answers.graduationSeason} ${answers.graduationYear}.`; const history: SetupMessage[] = [...messages, { role: 'user', content }]; setMessages(history); onChange({ ...answers, setupConversation: history, setupConfirmations: { programConfirmed, creditReviewed, graduationConfirmed: true } }); }}>Use this graduation term</button>}
         {!creditReviewed && newStudent && <button onClick={() => { const content = 'I have no AP, IB, dual-enrollment or transfer credit.'; const history: SetupMessage[] = [...messages, { role: 'user', content }]; setMessages(history); onChange({ ...answers, setupConversation: history, setupConfirmations: { programConfirmed, graduationConfirmed, creditReviewed: true } }); }}>I have no prior credit</button>}
+        {/* A later year has a record; without it now, the board assumes a usual load for the earlier terms and asks for the record (warnings-triage.ts recordPrompt). */}
+        {!creditReviewed && !newStudent && <button onClick={() => { const content = 'I will add the classes I have taken later.'; const history: SetupMessage[] = [...messages, { role: 'user', content }]; setMessages(history); onChange({ ...answers, setupConversation: history, setupConfirmations: { programConfirmed, graduationConfirmed, creditReviewed: true } }); }}>I&apos;ll add my classes later</button>}
       </div>
       {/*
         * The buttons answer without the assistant, which would have asked for what is left:
@@ -124,7 +155,7 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
         */}
       {!busy && missing.length > 0 && <p className="onb-q-hint">{missing.length === 1 && !creditReviewed
         ? `Last step: ${creditStep}.`
-        : `Still needed before your plan: ${missing.join(', ')}. Tell the assistant here${!creditReviewed ? `, and ${creditStep}` : ''}.`}</p>}
+        : `Still needed before your plan: ${missing.join(', ')}. Tell the assistant here or choose "Edit details manually"${!creditReviewed ? `, and ${creditStep}` : ''}.`}</p>}
     </>}
     <form className="guided-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
       <textarea aria-label={messages.length ? 'Reply to the setup assistant' : 'Describe yourself'} maxLength={6000} rows={messages.length ? 3 : 5} value={draft} disabled={busy}
@@ -133,7 +164,7 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
       {busy ? <button type="button" aria-label="Stop" onClick={() => abort.current?.abort()}><Square size={18} fill="currentColor" /></button> : <button aria-label="Send description" disabled={!catalog || !draft.trim()}><ArrowUp size={20} /></button>}
     </form>
     <p className="onb-q-hint">Replies are sent to AI to help plan your degree. No student ID or other identifying details are needed.</p>
-    {error && <p role="alert" className="onb-feasibility">{error}</p>}
+    {error && <p role="alert" className="onb-feasibility">{error}{' '}<button type="button" className="setup-mode-link" disabled={busy} onClick={manual}>Enter my details manually</button></p>}
     <details open={creditOpen} onToggle={(event) => setCreditOpen(event.currentTarget.open)} className="guided-credit">
       <summary>Add prior credit or upload a transcript</summary>
       {creditOpen && <>
@@ -146,7 +177,7 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
     </details>
     <div className="onb-actions guided-navigation">
       <button className="onb-back" disabled={busy} onClick={onBack}>Back</button>
-      <button className="setup-mode-link" disabled={busy} onClick={onManual}>{messages.length ? 'Edit details manually' : 'Skip the assistant and enter details manually'}</button>
+      <button className="setup-mode-link" disabled={busy} onClick={manual}>{messages.length ? 'Edit details manually' : 'Skip the assistant and enter details manually'}</button>
       {missing.length === 0 && <button className="onb-next" disabled={busy} onClick={() => onFinish(answers)}>Build my plan</button>}
     </div>
   </section>;

@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Image from 'next/image';
 import { ArrowUp, Check, CircleAlert, Loader2, Square, Undo2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { aiUnavailable } from '@/lib/planner/ai-unavailable';
 import {
+  AdvisorUnavailableError,
   isBoardNote,
   lastAssistantText,
   runAdvisorTurn,
@@ -541,7 +543,8 @@ export function BotPanel({
       if (controller.signal.aborted) {
         setError('Stopped.');
       } else {
-        setError(caught instanceof Error ? caught.message : 'The advisor failed.');
+        // Only a sentence written for the student; anything else (a failed fetch, a parser error) gets the plain one.
+        setError(caught instanceof AdvisorUnavailableError ? caught.message : aiUnavailable(botName || 'The advisor'));
       }
     } finally {
       turns?.end();
