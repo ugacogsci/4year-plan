@@ -7245,6 +7245,58 @@ function ranksAbove(a: number[], b: number[]): boolean {
 }
 
 export function generatePlan(input: AutoplanInput): GeneratedPlan {
+  const out = generatePlanGated(input);
+  return input.context?.schoolId === 'uga' ? out : withClosedPrereqNotes(out, input);
+}
+
+/**
+ * Illinois: a booked course whose prerequisite only the "not both" rule
+ * closes, said the way the prerequisite closure says it (closedPrereqs), for
+ * the courses the closure never saw because the elective fill, a trade or the
+ * release's engine booked them. Mechanical Engineering booked ME 446 Robot
+ * Dynamics and Control, whose catalog line is "SE 320.", beside ME 340, which
+ * SE 320 does not count with, and the board said nothing about SE 320
+ * (2026-10-30). Words only: nothing is booked or moved.
+ */
+function withClosedPrereqNotes(out: GeneratedPlan, input: AutoplanInput): GeneratedPlan {
+  const ctx = input.context;
+  if (!ctx?.prereqs || !ctx.exclusions) return out;
+  const conflicts = buildConflicts(ctx.exclusions);
+  if (conflicts.size === 0) return out;
+  const equivalents = ctx.equivalents ?? new Map<string, string[]>();
+  const before = new Set<string>();
+  for (const raw of input.prior.courseCodes) for (const e of expandEquivalents(normaliseCode(raw), equivalents)) before.add(e);
+  const prior = new Set(before);
+  const added: string[] = [];
+  for (const term of out.terms) {
+    const here = term.codes.map(normaliseCode);
+    const sameTerm = new Set(here.flatMap((code) => expandEquivalents(code, equivalents)));
+    for (const code of here) {
+      const spec = ctx.prereqs.get(code);
+      if (!spec?.parsed) continue;
+      for (const group of spec.groups) {
+        if (group.confidence === 'low' || group.any.length === 0) continue;
+        const held = group.concurrent ? new Set([...before, ...sameTerm]) : before;
+        if (group.any.some((raw) => expandEquivalents(normaliseCode(raw), equivalents).some((alt) => held.has(alt)))) continue;
+        const by = groupClosedByExclusion(group, conflicts, [held, new Set([code])], equivalents);
+        if (by === null || by === code) continue;
+        const needs = group.any.join(' or ');
+        const opening = `${code} lists ${needs} as a prerequisite.`;
+        if (out.notes.some((note) => note.startsWith(opening)) || added.some((note) => note.startsWith(opening))) continue;
+        const source = prior.has(by) ? `You have ${by}` : `This plan books ${by}`;
+        added.push(
+          group.any.length === 1
+            ? `${opening} ${notBoth(needs, by)} ${source}, so nothing was booked for it. Ask your advisor whether that clears.`
+            : `${opening} ${source}, and none of those count alongside it. Nothing was booked for it. Ask your advisor whether that clears.`,
+        );
+      }
+    }
+    for (const code of sameTerm) before.add(code);
+  }
+  return added.length > 0 ? { ...out, notes: [...out.notes, ...added] } : out;
+}
+
+function generatePlanGated(input: AutoplanInput): GeneratedPlan {
   const held = withHeldOpenBlocks(input);
   if (held.freeChoices === undefined) return freeChoicesGated(held);
   const given = held.freeChoices === 'off' ? withoutCommonSample(held) : held;
