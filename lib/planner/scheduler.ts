@@ -198,14 +198,14 @@ export function areaProgress(
    * and can never overstate it, which is the only safe direction when the
    * number is read as how close somebody is to graduating.
    */
-  const earnOf = (group: RequirementGroup, spent: Set<string>, largestFirst = false, satisfied = groupSatisfied, sharedBy?: (code: string) => boolean, booked?: (code: string) => boolean): number => {
+  const earnOf = (group: RequirementGroup, spent: Set<string>, largestFirst = false, satisfied = groupSatisfied, sharedBy?: (code: string) => number, booked?: (code: string) => boolean): number => {
     const hits: Array<{ code: string; credits: number }> = [];
     for (const row of group.courses) {
       // A course the board booked for this area first (ownerOf), then any held or other one.
       const hit = (booked ? rowMatch(row, new Set([...spent, ...[...haveCodes].filter((code) => !booked(code))])) : null) ?? rowMatch(row, spent);
       if (hit) hits.push(hit);
     }
-    hits.sort((a, b) => Number(!(booked?.(a.code) ?? false)) - Number(!(booked?.(b.code) ?? false)) || Number(sharedBy?.(a.code) ?? false) - Number(sharedBy?.(b.code) ?? false) || (largestFirst ? b.credits - a.credits : a.credits - b.credits) || a.code.localeCompare(b.code));
+    hits.sort((a, b) => Number(!(booked?.(a.code) ?? false)) - Number(!(booked?.(b.code) ?? false)) || (sharedBy?.(a.code) ?? 0) - (sharedBy?.(b.code) ?? 0) || (largestFirst ? b.credits - a.credits : a.credits - b.credits) || a.code.localeCompare(b.code));
 
     const hoursCap = group.cap?.hours ?? null;
     const countCap = group.cap?.courses ?? null;
@@ -266,9 +266,18 @@ export function areaProgress(
        * Major's "HIST 2000-level or below" also takes.
        */
       const later = family === null ? [] : order.slice(order.indexOf(index) + 1).filter((i) => familyOf?.(program.areas[i].label) === family).flatMap((i) => program.areas[i].groups.map((group) => new Set(group.courses.flatMap((row) => [row, ...(row.alternatives ?? [])].map((r) => r.code)))));
+      /*
+       * And a short row of a later area of the family (a choice or a named
+       * course, not an hours list) above all: V. Social Sciences spent a
+       * Journalism junior's held ECON 2105 and booked ECON 2106, which Area
+       * VI's "ECON 2105 or ECON 2106" alone takes, over the HIST 2111 and 2112
+       * Area VI's 9-hour list also takes, and VI read 15 of 18 (2026-10-29).
+       */
+      const laterRows = family === null ? [] : order.slice(order.indexOf(index) + 1).filter((i) => familyOf?.(program.areas[i].label) === family).flatMap((i) => program.areas[i].groups.filter((group) => group.cap?.hours == null && group.courses.length <= 8).map((group) => new Set(group.courses.flatMap((row) => [row, ...(row.alternatives ?? [])].map((r) => r.code)))));
       const elsewhere = (group: RequirementGroup) => {
         const others = [...listed.filter((_, i) => area.groups[i] !== group), ...later];
-        return (code: string) => others.some((codes) => codes.has(code) || (equivalents?.get(code) ?? []).some((alias) => codes.has(alias)));
+        const hits = (sets: Set<string>[], code: string) => sets.some((codes) => codes.has(code) || (equivalents?.get(code) ?? []).some((alias) => codes.has(alias)));
+        return (code: string) => (hits(laterRows, code) ? 2 : hits(others, code) ? 1 : 0);
       };
       const bookedHere = family !== null && options.ownerOf ? (code: string) => options.ownerOf?.(code) === area.label : undefined;
       const run = (largestFirst: boolean) => {
