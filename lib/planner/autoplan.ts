@@ -14,6 +14,7 @@ import { generatePlan as generateReleasedPlan, type AutoplanInput as ReleasedInp
 import { anyCourseTakes, withHeldAnyCourse, withHeldInRange, type AnyCourseRule } from './any-course';
 import { calendarYearOf, regularSeasons, requiredSummerOn, runsInSummer, summerOnlyListed, ugaSummerOnlyMessage, type SummerYears } from './summer-offering';
 import { ugaOverlapArea } from './uga-program-overrides';
+import { ugaLegalStudiesNote, ugaTerryAdmission } from './uga-terry-admission';
 import { expandUgaLanguage, ugaAcceleratedCourse, ugaLabArea, ugaLabOf, ugaLanguageArea, ugaLanguageBehind, ugaLanguageCourse, ugaPlannedLanguage, ugaRuleArea, ugaRuleFamily, ugaUpperDivisionShort, withUgaUniversityRows } from './uga-university-rules';
 
 /**
@@ -4471,6 +4472,19 @@ function degreeSubjectsOf(
     if (requirement.label.startsWith('Language other than English')) continue;
     // Nor, at UGA (whose program ids are numbers), its university-wide and college rules and the language sequence (uga-university-rules.ts): Franklin's biology list made BIOL and MARS a Psychology degree's subjects.
     if (/^\d+::/.test(requirement.id) && (ugaRuleArea(requirement.areaLabel) || ugaLanguageArea(requirement.areaLabel))) continue;
+    /*
+     * Nor a Terry BBA's Area VI, nor the graduation rules a course counted
+     * elsewhere meets (ugaOverlapArea: Terry's speech, economics and
+     * precalculus lists, the university-wide history and constitution
+     * rows). Their ECON 2105, 2106 and "any ECON course" made ECON one of a
+     * Risk Management degree's own subjects, and their four COMM speech
+     * courses COMM: free picks were ECON 4760 Time Series Analysis,
+     * spring-only and taken by too few to show, on six of eleven Terry
+     * boards, ECON 3100 the last elective whatever the goal, and COMM 3200
+     * and COMM 3320 beside the COMM 1500 that met the speech rule
+     * (2026-10-29).
+     */
+    if (/^\d+::/.test(requirement.id) && (ugaOverlapArea(requirement.areaLabel) || (/\bBBA\b/.test(programName ?? '') && /(?:^|:\s*)vi\. courses related to the major/i.test(requirement.areaLabel)))) continue;
     const here = new Map<string, number>();
     let total = 0;
     for (const choice of rule.choices) {
@@ -4772,6 +4786,8 @@ const DESCRIPTION_ONLY_GROUP: Record<string, string> = {
 const DESCRIPTION_ONLY_MAJORS: Record<string, string> = {
   'HIST 498': 'the capstone History majors take',
   'MUS 335': 'for music education majors, taken beside an early field experience',
+  // UGA's Legal Studies Certificate page: "Admitted students are eligible to enroll in the 4000-level LEGL prefix courses and BUSN 4650" (uga-terry-admission.ts). It was a Risk Management freshman's free elective (2026-10-29).
+  'BUSN 4650': 'for students admitted to the Legal Studies Certificate',
 };
 
 /** Subjects that are a college's own programming rather than a department's, by the catalog's college code. */
@@ -5549,6 +5565,8 @@ function scoreElective(code: string, s: ElectiveScoring): number {
     }
     // In only one of fall and spring there: as a rare course.
     if (s.common && s.uga && s.free.oneSeason(code)) score -= 1;
+    // At UGA a 4000-level free pick nobody's enrollment shows (no count on the Schedule of Classes) as a rare one, in the degree's subjects too: ECON 4760 Time Series Analysis was a Finance freshman's free elective.
+    if (s.common && s.uga && courseLevel(code) >= 400 && s.free.band(code) === POPULAR_BANDS.length + 1 && goal <= 0 && !s.opensGoal?.has(code)) score -= 6;
   }
   // Not on UGA's Schedule of Classes in any of its terms, or only as directed study: as the dormant rule above.
   if (s.offSchedule?.(code)) score -= 9;
@@ -5735,7 +5753,9 @@ function electiveWhy(course: Course | undefined, degreeSubjects: Set<string>, q?
       ? `An elective that also carries ${course.tags[0]}.`
       : 'An elective toward the degree total.';
   if (!q) return head;
-  const chosen = q.reasons.length > 0 ? ` Chosen for: ${q.reasons.slice(0, 3).join('; ')}.` : '';
+  // Not the subject again in the reasons: "An elective in ECON, one of this degree's own subjects. Chosen for: in one of your degree's subjects." (2026-10-29).
+  const reasons = head.includes("one of this degree's own subjects") ? q.reasons.filter((reason) => reason !== "in one of your degree's subjects") : q.reasons;
+  const chosen = reasons.length > 0 ? ` Chosen for: ${reasons.slice(0, 3).join('; ')}.` : '';
   const against = [...(q.conflicts ?? []), ...(q.cautions ?? [])];
   return `${head}${chosen}${against.length > 0 ? ` Keep in mind: ${against.slice(0, 2).join('; ')}.` : ''}`;
 }
@@ -8174,7 +8194,15 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
     return released;
   }
   // A UGA pre-health student's lab pairs (withTrackLabs); any other context as it is.
-  const context = withTrackLabs(withTitleStanding(given.context), careerProfileOf(given));
+  const tracked = withTrackLabs(withTitleStanding(given.context), careerProfileOf(given));
+  // A Terry major's courses wait for admission to it (uga-terry-admission.ts).
+  const terry = tracked.schoolId === 'uga' && given.plainEngine !== true ? (() => {
+    const held = [...given.prior.courseCodes, ...(given.prior.inProgressCodes ?? [])].map(normaliseCode);
+    const credits = new Map(tracked.courses.map((course) => [normaliseCode(course.code), course.credits ?? 0]));
+    const heldHours = [...new Set(held)].reduce((sum, code) => sum + (credits.get(code) ?? 3), 0) + (given.prior.unmatchedCredits ?? 0);
+    return ugaTerryAdmission({ programName: given.programName, programCollege: given.programCollege, startSeason: given.horizon.startSeason, startYear: given.horizon.startYear, gradSeason: given.horizon.gradSeason, gradYear: given.horizon.gradYear, degreeTotal: given.degreeTotal, held, heldHours, courses: tracked.courses });
+  })() : null;
+  const context = terry && terry.notBefore.size > 0 ? { ...tracked, courseNotBefore: new Map([...(tracked.courseNotBefore ?? []), ...terry.notBefore]) } : tracked;
   // At UGA, its university-wide and college rules' rows as the planner reads them, and physical education (uga-university-rules.ts).
   const requirements = withUgaUniversityRows(withFirstYearSeminar(resolveBundles(given.requirements, given.prior, context), given), given);
   const college = collegeCreditRule(given.programCollege, requirements);
@@ -9000,6 +9028,19 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
   if (given.plainEngine !== true) spreadExamTerm(result, measuredAt(fitted.horizon), expansion.language);
   result.residency = raw.residency ? residencyReport(raw.residency, result, raw.context) : null;
   if (result.residency?.shortfall) result.notes.push(result.residency.shortfall);
+  if (terry) {
+    result.notes.push(terry.note);
+    const card = terry.apply ? result.terms.find((term) => term.label === terry.apply?.label) : undefined;
+    if (card && terry.termNote) card.notes.push(terry.termNote);
+  }
+  if (context.schoolId === 'uga' && given.plainEngine !== true) {
+    const legal = ugaLegalStudiesNote(result.terms.flatMap((term) => term.codes), given.prior.courseCodes.map(normaliseCode));
+    if (legal) {
+      result.notes.push(legal);
+      const first = result.terms.find((term) => term.codes.some((code) => /^LEGL 4\d{3}/.test(code) || code === 'BUSN 4650'));
+      if (first) first.notes.push(legal);
+    }
+  }
   return result;
 }
 
@@ -16128,7 +16169,17 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     if (credits.target !== null && overallAim > credits.target) {
       notes.push(`Terms aim for about ${overallAim} credits rather than the ${credits.target} you asked for, because ${remainingDegree} credits are left toward the ${degreeTotalPublished} this degree takes, over ${termsPhrase(fillTerms.length)} before ${input.horizon.gradSeason} ${input.horizon.gradYear}${summerShare}.${threes}`);
     } else if (credits.target === null) {
-      notes.push(`Terms aim for about ${overallAim} credits, an even share of the ${remainingDegree} credits left toward the ${degreeTotalPublished} this degree takes, over ${termsPhrase(fillTerms.length)}${summerShare}.${threes} Set a number in Preferences to aim higher or lower.`);
+      /*
+       * What the terms come to where they part from the aim, and no "even
+       * share of the 0 credits left" for a record past the degree's total: a
+       * senior's note read that beside 10 planned credits, and a junior's
+       * "about 12" beside terms of 12, 13 and 6 (2026-10-29).
+       */
+      const loads = regularLoads.map((x) => x.load);
+      const spread = ctx.schoolId === 'uga' && loads.length > 1 && Math.max(...loads) - Math.min(...loads) >= 4 ? ` As planned they come to ${loads.join(', ')} credits${loads[loads.length - 1] === Math.min(...loads) ? ': the last holds what is left' : ''}.` : '';
+      notes.push(ctx.schoolId === 'uga' && remainingDegree <= 0
+        ? `Your record already reaches the ${degreeTotalPublished} credits this degree takes; the ${termsPhrase(fillTerms.length)} left ${fillTerms.length === 1 ? 'holds' : 'hold'} the requirements still open.${spread}`
+        : `Terms aim for about ${overallAim} credits, an even share of the ${remainingDegree} credits left toward the ${degreeTotalPublished} this degree takes, over ${termsPhrase(fillTerms.length)}${summerShare}.${threes}${spread} Set a number in Preferences to aim higher or lower.`);
     }
     const slotsNote = (): string =>
       typeof input.electiveHoursLimit === 'number' && !input.fillToDegreeTotal
