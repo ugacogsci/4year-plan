@@ -13671,6 +13671,68 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       placed.set(lectureTerm.id, [...(placed.get(lectureTerm.id) ?? []), code]);
     }
     /*
+     * Never a lone one-hour lab for the rule or an Area II list: a pre-med
+     * freshman's board held ANTH 2045L, its lecture gone to the track's
+     * BIOL 1107, beside BIOL 1107 and 1107L; a Fashion Merchandising
+     * freshman's held ECOL 1000L and no ECOL 1000 (2026-10-30). Where the
+     * board already meets the rule another way (a listed lab with its
+     * lecture, or a four-hour science), the lone lab goes; otherwise its
+     * lecture joins it, in its term where there is room, else both in the
+     * lightest term that holds them.
+     */
+    const labRule = input.requirements.find((r) => r.rule.kind === 'choose' && ugaLabArea(r.areaLabel));
+    const areaTwo = new Set(input.requirements.filter((r) => /(^|: )II\. /.test(r.areaLabel) && r.rule.kind !== 'all').map((r) => r.id));
+    {
+      const onBoard = () => new Set([...placed.values()].flat());
+      const options = labRule && labRule.rule.kind === 'choose' ? labRule.rule.choices.flatMap((choice) => choice.codes.map(normaliseCode)) : [];
+      const here = (c: string, board: Set<string>) => board.has(c) || earned.has(c);
+      const loadOf = (t: (typeof terms)[number]) => planCreditRange(placed.get(t.id) ?? [], ctx).min;
+      for (const [code, why] of [...chosen]) {
+        const forRule = labRule !== undefined && why.requirementId === labRule.id;
+        if (!forRule && !(why.requirementId !== null && areaTwo.has(why.requirementId))) continue;
+        const lecture = ugaLabOf(code);
+        const board = onBoard();
+        if (!lecture || !board.has(code) || here(lecture, board) || chosen.has(lecture)) continue;
+        const labTerm = terms.find((t) => (placed.get(t.id) ?? []).includes(code));
+        if (!labTerm) continue;
+        if (forRule && options.some((c) => c !== code && here(c, board) && (ugaLabOf(c) === null || here(ugaLabOf(c) as string, board)))) {
+          placed.set(labTerm.id, (placed.get(labTerm.id) ?? []).filter((c) => c !== code));
+          chosen.delete(code);
+          continue;
+        }
+        // Or the rule's lab of a lecture the board does hold, in that lecture's term where it has the hour, else in this one's seat: BIOL 1103L for ECOL 1000L beside BIOL 1103.
+        const partner = forRule ? options.find((c) => c !== code && !here(c, board) && !chosen.has(c) && byCode.has(c) && ugaLabOf(c) !== null && here(ugaLabOf(c) as string, board)) : undefined;
+        if (partner) {
+          const lectureTerm = terms.find((t) => (placed.get(t.id) ?? []).includes(ugaLabOf(partner) as string));
+          const seatOk = (t: (typeof terms)[number]) => !outOfSeason(byCode.get(partner), t, published.has(partner)) && planCreditRange([...(placed.get(t.id) ?? []).filter((c) => c !== code), partner], ctx).min <= creditCapOf(t);
+          const seat = lectureTerm && seatOk(lectureTerm) ? lectureTerm : seatOk(labTerm) ? labTerm : undefined;
+          if (seat) {
+            placed.set(labTerm.id, (placed.get(labTerm.id) ?? []).filter((c) => c !== code));
+            placed.set(seat.id, [...(placed.get(seat.id) ?? []), partner]);
+            chosen.delete(code);
+            chosen.set(partner, { ...why });
+            continue;
+          }
+        }
+        const course = byCode.get(lecture);
+        const lab = byCode.get(code);
+        // Only a lecture with nothing to take first (ANTH 2045, ECOL 1000, GEOG 1111): one with prerequisites is the placer's to seat.
+        if (!course || !lab || (ctx.prereqs?.get(lecture)?.groups ?? []).length > 0) continue;
+        const lastUsed = Math.max(-1, ...terms.filter((t) => (placed.get(t.id) ?? []).length > 0).map((t) => t.index));
+        const fits = (t: (typeof terms)[number], codes: string[]) => !isSummer(t) && t.index <= lastUsed && codes.every((c) => !outOfSeason(byCode.get(c), t, published.has(c))) && planCreditRange([...(placed.get(t.id) ?? []).filter((c) => c !== code), ...codes], ctx).min <= creditCapOf(t);
+        if (fits(labTerm, [lecture])) {
+          placed.set(labTerm.id, [...(placed.get(labTerm.id) ?? []), lecture]);
+          chosen.set(lecture, { ...why });
+          continue;
+        }
+        const into = terms.filter((t) => t !== labTerm && fits(t, [lecture, code])).sort((a, b) => loadOf(a) - loadOf(b) || a.index - b.index)[0];
+        if (!into) continue;
+        placed.set(labTerm.id, (placed.get(labTerm.id) ?? []).filter((c) => c !== code));
+        placed.set(into.id, [...(placed.get(into.id) ?? []), lecture, code]);
+        chosen.set(lecture, { ...why });
+      }
+    }
+    /*
      * There, a pair as the catalog's are (labOf), so no later pass moves one
      * off the other's term: year one's pace sent Anthropology's ANTH 2045L
      * two years past its ANTH 2045 (2026-10-29). Not before placement, where
@@ -13680,7 +13742,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
      */
     const pairs = [...chosen].flatMap(([code, why]): Array<[string, string]> => {
       const lecture = ugaLabOf(code);
-      return lecture && !labOf.has(code) && termOf(code) !== undefined && termOf(code) === termOf(lecture) && ugaLabArea(input.requirements.find((r) => r.id === why.requirementId)?.areaLabel ?? '') ? [[code, lecture]] : [];
+      return lecture && !labOf.has(code) && termOf(code) !== undefined && termOf(code) === termOf(lecture) && (ugaLabArea(input.requirements.find((r) => r.id === why.requirementId)?.areaLabel ?? '') || (why.requirementId !== null && areaTwo.has(why.requirementId) && chosen.get(lecture)?.requirementId === why.requirementId)) ? [[code, lecture]] : [];
     });
     if (pairs.length > 0) {
       labOf = new Map([...labOf, ...pairs]);
@@ -13718,6 +13780,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       // TE 360 ("instructor approval required") stood in for TE 450 on a
       // Physics business track: a substitute is the planner's pick too.
       if (gatedPick(alt)) return false;
+      // At UGA, not an Area II lab without its lecture: Biological Engineering's Life Sciences pick ANTH 2045 gave way to a lone ECOL 1000L (2026-10-30).
+      // Only Area II's lists: a Computer Systems Engineering major-electives list that took MIBO 3500L lost its MATH 3220 without it.
+      if (ctx.schoolId === 'uga' && alt !== code && /(^|: )II\. /.test(slot.areaLabel ?? '')) {
+        const lecture = ugaLabOf(alt);
+        if (lecture !== null && !placedAll().has(lecture) && !earned.has(lecture)) return false;
+      }
       return byCode.has(alt);
     };
     /** The earliest term `alt` fits in, by every check the placer makes, or undefined. */
