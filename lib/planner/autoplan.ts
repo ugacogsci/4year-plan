@@ -8258,6 +8258,18 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
   const admission = route ? admissionRequirements(route, expansion.requirements, raw) : { added: [], codes: [] };
   // UGA's language sequence one semester a term from the first (expandUgaLanguage): placed by chain alone, a Political Science freshman's SPAN 2001 waited a term behind a full fall.
   const ugaLanguageDue = context.schoolId === 'uga' && expansion.language ? Object.fromEntries(expansion.language.codes.map((code, index) => [code, index])) : undefined;
+  /*
+   * Terry reads the grades in MATH 2200, 2250 and 2260 among its admission
+   * criteria (uga-terry-admission.ts): a calculus course the board books is
+   * due by the application term. Quantitative Reasoning's MATH 2200 was the
+   * last-term course of three incoming Terry boards (2026-10-30). Not on a
+   * plan at more than fifteen a term: dated, it took MGMT 5560's seat on a
+   * three-year Marketing and International Business board.
+   */
+  const terryMathDue = terry?.apply && terry.applyIndex !== null && terry.steady && !given.horizon.summers?.length
+    ? Object.fromEntries(['MATH 2200', 'MATH 2250', 'MATH 2260'].filter((code) => !given.prior.courseCodes.map(normaliseCode).includes(code)).map((code) => [code, terry.applyIndex as number]))
+    : undefined;
+  const ugaDue = ugaLanguageDue || terryMathDue ? { ...terryMathDue, ...ugaLanguageDue } : undefined;
   /**
    * How one board is built: the trials, the plain engine, the placer's
    * inferred pairings (AutoplanInput), and `asRead`, the requirements as
@@ -8301,7 +8313,7 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
     sequenceFirst: [...admission.codes, ...(expansion.language?.codes ?? [])],
     languageExempt: expansion.exempt,
     earlyTags: route ? route.required.map((item) => item.genEd).filter((t): t is string => Boolean(t)) : [],
-    dueByTerm: route && route.dueTermIndex !== undefined ? Object.fromEntries(admission.codes.map((c) => [c, route.dueTermIndex as number])) : ugaLanguageDue,
+    dueByTerm: route && route.dueTermIndex !== undefined ? Object.fromEntries(admission.codes.map((c) => [c, route.dueTermIndex as number])) : ugaDue,
     pageSubjects: degreeSubjectsOf(build.asRead ? asReadBefore(given.requirements) : given.requirements, given.programName),
     paceYearOne: build.pace,
     soonerDates: build.sooner,

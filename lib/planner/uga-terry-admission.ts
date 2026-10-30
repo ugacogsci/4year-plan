@@ -43,6 +43,10 @@ export interface TerryAdmission {
   /** The application term, "Spring 2029" (no admission at all where the record reads admitted already). */
   apply: { season: SemesterSeason; year: number; label: string } | null;
   admitted: { season: SemesterSeason; year: number; label: string } | null;
+  /** The application term's place among the plan's falls and springs (0 the first). */
+  applyIndex: number | null;
+  /** The plan keeps a full load of fifteen or less: a three-year plan, at eighteen and more, has no seat to spare. */
+  steady: boolean;
   /** Courses the plan keeps to the admission term or later. */
   notBefore: Map<string, { season: SemesterSeason; year: number }>;
   note: string;
@@ -84,7 +88,8 @@ export function ugaTerryAdmission(args: {
   if (args.gradSeason && args.gradYear) for (let t = { ...at }; terms < 16 && (t.year < args.gradYear || (t.year === args.gradYear && (t.season === 'Spring' || args.gradSeason !== 'Spring'))); t = nextRegular(t.season, t.year)) terms += 1;
   const pace = terms > 0 && args.degreeTotal ? Math.max(LOAD, Math.ceil((args.degreeTotal - args.heldHours) / terms)) : LOAD;
   const forHours = Math.max(0, Math.ceil((HOURS_TO_APPLY - args.heldHours) / pace) - 1);
-  for (let i = 0; i < Math.max(forCourses, forHours); i += 1) at = nextRegular(at.season, at.year);
+  const applyIndex = Math.max(forCourses, forHours);
+  for (let i = 0; i < applyIndex; i += 1) at = nextRegular(at.season, at.year);
   const apply = { ...at, label: `${at.season} ${at.year}` };
   const next = nextRegular(at.season, at.year);
   const admitted = { ...next, label: `${next.season} ${next.year}` };
@@ -94,7 +99,7 @@ export function ugaTerryAdmission(args: {
   const what = 'MATH 1113 (or higher) and ACCT 2101 on your record by the application deadline, BUSN 3000 done or in progress that term, and Area VI with 58 hours (or Areas I to VI); ACT/SAT scores and a statement of purpose go with it';
   const termNote = `Apply to the Terry ${major} major this term: ${what}.`;
   const note = `Terry admission: apply to the ${major} major in ${apply.label}${lacking && held.size > 0 ? `, once ${lacking} (which your record does not show yet) is done` : ''}: ${what}. This plan keeps ${prefix ? `${prefix} major courses` : 'major courses'} to ${admitted.label} or later, the term after. Admission is competitive; see the Entrance Requirements on your degree's Bulletin page.`;
-  return { apply, admitted, notBefore, note, termNote };
+  return { apply, admitted, applyIndex, steady: pace <= LOAD, notBefore, note, termNote };
 }
 
 /** The Legal Studies Certificate's limit on its courses, for a board that books one (null when it books none or holds the certificate's courses). */
