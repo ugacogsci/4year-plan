@@ -703,7 +703,20 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
         ...group,
         options: group.options.map((option) => (option.id === 'general-sociology-track' ? { ...option, courses: [], parts: (option.parts ?? []).map((part) => ({ ...part, courses: [] })) } : option)),
       }));
-      repaired = { ...repaired, areas, emphasisGroups } as T;
+      /*
+       * Area VI (18 hours, verified 2026-10-30): SOCI 1101, SOCI 3610 or
+       * STAT 2000 (4 hours), and "11 credit hours" from the list, which is
+       * 18 only with STAT 2000. With SOCI 3610 (3 hours) the area takes 12
+       * from the list (four of its 3-hour courses either way); read as 11,
+       * every board that booked SOCI 3610 read 17 of 18.
+       */
+      const sixAreas = (areas as Array<AreaShape & { groups: Array<{ label: string; choose: number | null; hours?: number | null; note?: string; courses: UgaRequirementCourse[] }> }>).map((area) => (/^VI\./.test(area.label) && area.hours === 18 ? {
+        ...area,
+        groups: area.groups.map((group) => (group.choose === null && group.hours === 11 && group.courses.some((course) => course.code === 'SOCI 2820')
+          ? { ...group, hours: 12, note: '11 credit hours with STAT 2000 (4 hours); with SOCI 3610 (3 hours), 12, so the area comes to 18. If a course here was used for Areas II to V, general electives may be taken here.' }
+          : group)),
+      } : area));
+      repaired = { ...repaired, areas: sixAreas, emphasisGroups } as T;
     }
     /*
      * Electrical and Electronics Engineering BSEE: "Major Electives (12

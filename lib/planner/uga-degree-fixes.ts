@@ -5716,6 +5716,86 @@ const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementAr
   '45516': (areas) => areas.map((existing) => (existing.label === 'Major Electives' && existing.hours === 12
     ? { ...existing, groups: [hoursFrom('Major Electives', 12, [...new Map(existing.groups.flatMap((group) => group.courses).map((course) => [course.code, course])).values()], 'Choose at least four elective courses, at least one with the CSEE, ECSE, ELEE or INFO prefix at the 3000 level or above. At most 3 hours of undergraduate research and 3 of co-operative work or internship.')] }
     : existing)),
+  /*
+   * Arabic AB (verified 2026-10-30, bulletin.uga.edu/Program/Details/98747):
+   * Required Courses (21 hours) are "a minimum of 9 credit hours" of ARAB
+   * 3005, 3006, 4960R or ARAB courses at the 3000 level or above, and "a
+   * maximum of 12 credit hours" from the second list. Read as one 21-hour
+   * pool with "three courses from the first list", boards booked ARAB 3005,
+   * 3006 and a 1-hour ARAB 4960R (7 of the 9 hours) and never met it.
+   */
+  '98747': (areas) => areas.map((existing) => {
+    if (existing.label !== 'Required Courses' || existing.hours !== 21) return existing;
+    const pool = existing.groups.find((group) => group.hours === 21 && (group.lists ?? []).length === 2);
+    if (!pool) return existing;
+    const [first, second] = pool.lists!;
+    const of = (codes: string[]) => pool.courses.filter((course) => codes.includes(course.code) && !/XXX$/.test(course.code));
+    const arab = [
+      ...of(first.codes).filter((course) => course.code !== 'ARAB 4960R'),
+      ...levels('ARAB', 3),
+      ...of(['ARAB 4960R']),
+    ];
+    return {
+      ...existing,
+      groups: [
+        hoursFrom('ARAB courses numbered 3000 and above', 9, arab, 'A minimum of 9 hours from ARAB 3005, ARAB 3006, ARAB 4960R or ARAB courses at the 3000 level or above.'),
+        hoursFrom('More ARAB courses or the second list', 12, [...levels('ARAB', 3), ...of(second.codes)], 'The other 12 hours: more ARAB courses at the 3000 level or above, or at most 12 hours from the second list.'),
+      ],
+    };
+  }),
+  /*
+   * Animal Health BSA (verified 2026-10-30, bulletin.uga.edu/Program/Details/18956):
+   * "Major Electives (13 hours). Choose 13 credit hour(s) from the
+   * following: Major Elective courses", with no list; the page says the
+   * coursework of the first year of the UGA D.V.M. program completes the
+   * Major Electives and General Electives. Read as a 13-hour row with no
+   * courses, every board left it 0 of 13.
+   */
+  '18956': (areas) => areas.map((existing) => (existing.label === 'Major Electives' && existing.groups.every((group) => group.courses.length === 0)
+    ? { ...existing, groups: [hoursFrom('Major Electives', existing.hours, [ANY_UPPER_COURSE], 'The page lists no Major Elective courses: the first year of the UGA D.V.M. program completes these hours. Until then, upper-level courses chosen with your advisor.')] }
+    : existing)),
+  /*
+   * Human Development and Family Science BSFCS (verified 2026-10-30,
+   * bulletin.uga.edu/Program/Details/67554): "Required Courses (60 hours)"
+   * is the whole major: the required courses proper (one experiential
+   * option, 7 hours; Development Courses, 6; one Focus Area, 21: 34
+   * hours), Major Electives (9 hours from the page's HDFS and FACS list)
+   * and General Electives (17 hours). The reading kept the 60-hour heading
+   * on the 34 hours of rows and lost the other two, so every board read
+   * Required Courses 34 of 60.
+   */
+  '67554': (areas) => {
+    if (areas.some((existing) => existing.label === 'Major Electives')) return areas;
+    const at = areas.findIndex((existing) => existing.label === 'Required Courses' && existing.hours === 60);
+    if (at < 0) return areas;
+    const hdfs = (number: string, title: string) => row(`HDFS ${number}`, title, 3);
+    const majorElectives = area('Major Electives', 9, [hoursFrom('Major Electives', 9, [
+      hdfs('3000', 'Introduction to Behavioral Health'), hdfs('3010', 'Directed Study in Human Development and Family Science'),
+      hdfs('3200', 'Substance Use and Other Addictive Behaviors within Family Systems'), hdfs('3700', 'Adolescent Development'),
+      hdfs('3900', 'Infant and Toddler Development'), hdfs('3920', 'Issues in Family Systems'),
+      hdfs('3930', 'It’s Complicated: Intimate Relationships in the 21st Century'), hdfs('4130', 'Family Policy: Bridging Theory and Practice'),
+      hdfs('4140E', 'Medical Terminology for Healthcare Professionals'), hdfs('4200', 'Health Technology, Ethics, and Human Development'),
+      hdfs('4610', 'The Family'), hdfs('4620', 'Women in the Family and Society'),
+      hdfs('4700', 'Creativity and Mindfulness in Behavioral Health'), hdfs('4810', 'Hospitalized Child and the Family'),
+      hdfs('4820', 'Child Life Theory and Practice'), hdfs('4830', 'Grief, Loss, and Bereavement'),
+      hdfs('4860', 'Parenting and Child Guidance'), hdfs('4880', 'Family Life Education Methodology'),
+      hdfs('4890S', 'More than a Four-Legged Friend: The Benefits of Animal-Assisted Interventions'), hdfs('4900', 'Seminar in Human Development and Family Science'),
+      hdfs('4910', 'Early and Middle Childhood Development'), hdfs('4960R', 'Faculty-Mentored Undergraduate Research I'),
+      hdfs('4970R', 'Faculty-Mentored Undergraduate Research II'), hdfs('4980R', 'Faculty-Mentored Undergraduate Research III'),
+      hdfs('4990R', 'Undergraduate Research Thesis (or Final Project)'), hdfs('5100', 'Prevention and Intervention in Human Development and Family Science'),
+      hdfs('5110', 'Research Methods in Human Development and Family Science'), hdfs('5130', 'Therapeutic Benefits of Play'),
+      hdfs('5150', 'Families, Schools, and Communities'), hdfs('5710', 'Study Tour in Human Development and Family Science'),
+      row('FACS 5711', 'Study Tour in Family and Consumer Sciences', 3), row('FACS 5910', 'Internship in Family and Consumer Sciences', 3),
+      row('FACS 5915', 'International Internship in Family and Consumer Sciences', 3), row('FACS 5950', 'International Study in Family and Consumer Sciences', 3),
+    ], 'Choose 9 credit hours from the page\'s Major Electives list (a course counts once: not one taken for the required courses).')]);
+    return [
+      ...areas.slice(0, at),
+      { ...areas[at], hours: 34 },
+      majorElectives,
+      ...(areas.some((existing) => /^General Electives/.test(existing.label)) ? [] : [generalElectives(17)]),
+      ...areas.slice(at + 1),
+    ];
+  },
   '68952': withFoundationsOfReading,
   '93788': withFoundationsOfReading,
   /*
