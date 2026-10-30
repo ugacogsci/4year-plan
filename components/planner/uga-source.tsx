@@ -19,12 +19,12 @@ import type {
 } from '@/lib/planner/scheduler';
 import type { Course, SemesterSeason } from '@/lib/planner/types';
 import { applyUgaProgramOverrides, TERRY_ECONOMICS_LABEL } from '@/lib/planner/uga-program-overrides';
-import { applyUgaUniversityRules, ugaLanguageTable, withUgaLanguageOrder } from '@/lib/planner/uga-university-rules';
+import { applyUgaUniversityRules, ugaLanguageTable, withUgaLanguageOrder, withUgaProgramOrder } from '@/lib/planner/uga-university-rules';
 import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
 import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
 import type { AnyCourseRule } from '@/lib/planner/any-course';
 import { canonicalUgaCode, listedUgaCourseCodes } from '@/lib/planner/uga-course-codes';
-import { arrangedOnly, loadUgaOfferings, seasonsRun, takenPerYear, type UgaOfferingsFile } from '@/lib/planner/uga-offerings';
+import { arrangedOnly, loadUgaOfferings, offeringsFor, seasonsRun, takenPerYear, type UgaOfferingsFile } from '@/lib/planner/uga-offerings';
 
 export { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
 
@@ -757,9 +757,10 @@ function broadElectiveCourses(
   minimumLevel: number,
   excludePrefixes: string[],
   taken?: ReadonlyMap<string, number>,
+  levelTo?: number,
 ): { sample: Course[]; common: Course[] } {
   const bySubject = new Map<string, Course[]>();
-  const maximumLevel = minimumLevel >= 6 ? 9 : 5;
+  const maximumLevel = levelTo ?? (minimumLevel >= 6 ? 9 : 5);
   const score = (code: string) => {
     let hash = 2166136261;
     for (const char of code) {
@@ -842,7 +843,7 @@ function choicesFor(
       /^([A-Z]{2,5})\s+([1-9])XXX$/,
     );
     const broad = wildcard?.[1] === 'ANY'
-      ? broadElectiveCourses([...byCode.values()], Number(wildcard[2]), excludePrefixes, taken)
+      ? broadElectiveCourses([...byCode.values()], Number(wildcard[2]), excludePrefixes, taken, row.levelTo)
       : null;
     // The most taken courses the sample adds for the free choices' reading (CourseChoice.common).
     const common = new Set(broad?.common.map((course) => course.code) ?? []);
@@ -1245,7 +1246,8 @@ function adaptProgram(
           constraints,
           from: 'group',
           label: group.label || area.label,
-          ...(any ? { anyCourse: { minLevel: Number(any[1]), maxLevel: Number(any[1]) >= 6 ? 9 : 5, excludeSubjects: area.excludePrefixes ?? [] } } : {}),
+          // An ANY row's own top level where it prints one ("1000/2000-level electives": levelTo 2).
+          ...(any ? { anyCourse: { minLevel: Number(any[1]), maxLevel: group.courses.find((row) => /^ANY\s/.test(canonicalUgaCode(row.code)))?.levelTo ?? (Number(any[1]) >= 6 ? 9 : 5), excludeSubjects: area.excludePrefixes ?? [] } } : {}),
           ...(heldRanges.length ? { heldRanges } : {}),
         };
       } else {
@@ -1285,7 +1287,8 @@ function adaptProgram(
         label: group.label,
         choose: group.choose,
         required: rule.kind === 'all',
-        minimumCourses: group.choose ?? undefined,
+        // No more than the choices left once each lecture carries its lab: Biochemistry's "CHEM 2212 and CHEM 2212L", a choice of both, is one choice, and the row read 12 of 12 and not met (2026-10-29).
+        minimumCourses: group.choose === null ? undefined : Math.min(group.choose, Math.max(1, choices.length)),
         minimumHours: isPool ? (group.hours ?? (group.choose === null ? poolHours : undefined)) : undefined,
         courses: choices.map((choice) => ({
           code: choice.codes[0] ?? '',
@@ -1441,7 +1444,7 @@ export function loadUgaData(): Promise<UgaData | null> {
       return null;
     }
 
-    const courses = rawCourses.flatMap(adaptCourses);
+    const courses = [...rawCourses, ...(offerings ? scheduledCatalogGaps(rawCourses, programFile.programs, offerings) : [])].flatMap(adaptCourses);
     /*
      * Every row of public/uga-catalog.json says 3 credits: a placeholder
      * (CHEM 1211L is 1 hour, PHYS 1111 4). A loaded degree's table repairs the
@@ -1500,6 +1503,8 @@ export function loadUgaData(): Promise<UgaData | null> {
     // A language's semesters in order where the catalog file gives no prerequisite (uga-university-rules.ts).
     const languages = ugaLanguageTable(courses);
     withUgaLanguageOrder(prereqs, languages);
+    // The order some degrees' own courses take where the catalog gives none (uga-university-rules.ts UGA_PROGRAM_ORDER).
+    withUgaProgramOrder(prereqs, (code) => byCode.has(code));
     // The university-wide and college-wide rules no program page's table carries (uga-university-rules.ts).
     const programs = applyUgaUniversityRules(applyUgaProgramOverrides(programFile.programs), courses)
       .filter(
@@ -1629,6 +1634,49 @@ export function ugaRowHours(data: UgaData): Map<string, number> {
   const out = rowHoursOf(rawProgramsOf.get(data) ?? data.programs);
   rowHoursCache.set(data, out);
   return out;
+}
+
+/*
+ * A course a degree's table names that public/uga-catalog.json lacks but
+ * UGA's Schedule of Classes runs, as the table prints it, in the seasons
+ * the schedule shows. The crawl missed some (Elementary Education's
+ * practicums EDEL 4021 and 4031, Pharmaceutical Sciences' PMCY 4800): the
+ * plan skipped them ("not in the catalog snapshot") and the boards read
+ * "Required Courses 33 of 33" and not met at once (2026-10-29). Its
+ * prerequisites are unknown, so it is placed as a course with none, at
+ * the hours the degree's table prints (3 where it prints none).
+ */
+export function scheduledCatalogGaps(rawCourses: readonly RawUgaCourse[], programs: readonly UgaProgram[], offerings: UgaOfferingsFile): RawUgaCourse[] {
+  const known = new Set(rawCourses.flatMap((raw) => listedUgaCourseCodes(raw.code)).map(canonicalUgaCode));
+  const out = new Map<string, RawUgaCourse>();
+  // A degree's own rows only: the core lists (Areas I to V) name honors and other versions the catalog folds into one course, and a new course there would change every degree's core picks.
+  for (const program of programs) for (const area of program.areas) for (const group of area.groups) for (const row of group.courses) {
+    if (/^(?:I|II|III|IV|V)\.\s/.test(area.label)) continue;
+    if (/\b[1-9]XXX\b/.test(row.code) || !/^[A-Z]{4} \d{4}[A-Z]?$/.test(row.code)) continue;
+    const code = canonicalUgaCode(row.code);
+    if (known.has(code) || out.has(code)) continue;
+    const ran = offeringsFor(offerings, code);
+    if (!ran) continue;
+    const seasons = new Set<SemesterSeason>();
+    for (const [label, term] of Object.entries(ran.byTerm)) {
+      const sections = ran.version ? term.versions?.[ran.version]?.sections ?? 0 : term.sections;
+      const season = /^(Fall|Spring|Summer) /.exec(label)?.[1] as SemesterSeason | undefined;
+      if (season && sections > 0) seasons.add(season);
+    }
+    if (seasons.size === 0) continue;
+    out.set(code, {
+      id: code.toLowerCase().replace(/\s+/g, '-'),
+      code,
+      title: row.title || code,
+      credits: Number.isFinite(row.credits) && row.credits > 0 ? row.credits : 3,
+      description: '',
+      cluster: code.split(' ')[0],
+      prerequisites: [],
+      prerequisiteText: '',
+      offeredIn: (['Fall', 'Spring', 'Summer'] as const).filter((season) => seasons.has(season)),
+    });
+  }
+  return [...out.values()];
 }
 
 /** The hours most rows of these program tables print for each course (ties to the larger). */

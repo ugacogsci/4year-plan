@@ -565,6 +565,11 @@ const UNIVERSITY_WIDE: UgaRequirementArea = {
 const LANGUAGE_SUBJECTS = ['AMHA', 'ARAB', 'BENG', 'CHNS', 'FREN', 'GRMN', 'GREK', 'HAUS', 'HEBR', 'HNDI', 'INDO', 'ITAL', 'JPNS', 'KREN', 'LATN', 'PASH', 'PERS', 'PORT', 'QUEC', 'RUSS', 'SCAN', 'SLAV', 'SPAN', 'SWAH', 'TURK', 'URDU', 'VIET', 'YORB', 'ZULU'];
 // The languages most students bring from high school first: with every language's, the row took KREN 2001, whose line names no KREN 1002, for a freshman with no Korean.
 const THIRD_SEMESTER_LANGUAGE = ['SPAN 2001', 'FREN 2001', 'GRMN 2001', 'ITAL 2001', 'LATN 2001', 'CHNS 2001', 'JPNS 2001', 'PORT 2001', 'RUSS 2001', 'ARAB 2003'].map((code) => ({ code, title: `${code.split(' ')[0]} third semester`, credits: 3 }));
+const FOURTH_SEMESTER_LANGUAGE = ['SPAN 2002', 'FREN 2002', 'GRMN 2002', 'ITAL 2002', 'LATN 2002', 'CHNS 2002', 'JPNS 2002', 'PORT 2002', 'RUSS 2002', 'ARAB 2004'].map((code) => ({ code, title: `${code.split(' ')[0]} fourth semester`, credits: 3 }));
+// A second semester, for Linguistics' "second semester course in a different foreign language": not Spanish, the language a board plans when none is given (expandUgaLanguage).
+const SECOND_SEMESTER_OTHER_LANGUAGE = ['FREN 1002', 'GRMN 1002', 'ITAL 1002', 'LATN 1002', 'CHNS 1002', 'JPNS 1002', 'PORT 1002', 'RUSS 1002', 'ARAB 1002', 'KREN 1002', 'GREK 1002', 'HEBR 1002'].map((code) => ({ code, title: `${code.split(' ')[0]} second semester`, credits: 4 }));
+// Any language at the 2000 level or above, American Sign Language too (the Grady ABs' Area VI).
+const LANGUAGE_2000_OR_ABOVE = [...LANGUAGE_SUBJECTS, 'AMSL'].map((subject) => ({ code: `${subject} 2XXX`, title: `${subject} courses at the 2000 level or above`, credits: 0, levelTo: 5 }));
 
 /** Whether an area is one of a degree's graduation requirements that courses counted elsewhere meet (TERRY_GRADUATION, UNIVERSITY_WIDE). */
 export function ugaOverlapArea(label: string): boolean {
@@ -763,6 +768,76 @@ export function applyUgaProgramOverrides<T extends UgaProgramRecord>(
       repaired = { ...repaired, areas } as T;
     };
     if (program.id === '46524') languageRow(THIRD_SEMESTER_LANGUAGE, 'The third semester course of a foreign language.');
+    /*
+     * Political Science AB's 12 hours of related courses take "POLS prefix
+     * courses 2000-level excluding 2000" (verified 2026-10-29,
+     * bulletin.uga.edu/Program/Details/46524): the reading kept POLS 2XXX
+     * and lost the exclusion, so a law-school board booked POLS 2000 there
+     * and read the area met 3 hours short.
+     */
+    if (program.id === '46524') {
+      const areas = (repaired.areas as Array<AreaShape & { excludeCodes?: string[] }>).map((area) => (/^VI\./.test(area.label) ? { ...area, excludeCodes: [...new Set([...(area.excludeCodes ?? []), 'POLS 2000'])] } : area));
+      repaired = { ...repaired, areas } as T;
+    }
+    /*
+     * The Grady ABs' Area VI language row, "Any foreign language course at
+     * the 2000-level or above, including AMSL" (verified 2026-10-29 on
+     * bulletin.uga.edu/Program/Details/84144, 98779 and 63054): Journalism's
+     * reading kept only "AMSL prefix courses", so every Journalism freshman
+     * was planned American Sign Language I to IV; Advertising's and Public
+     * Relations' kept nothing, so the row could never be met (VI 15 of 18).
+     * A choice of one course, so the language sequence's third semester
+     * counts (expandUgaLanguage).
+     */
+    if (['84144', '98779', '63054'].includes(program.id)) {
+      const areas = (repaired.areas as Array<AreaShape & { groups: Array<{ label: string; choose: number | null; hours?: number | null; courses: UgaRequirementCourse[] }> }>).map((area) => {
+        if (!/^VI\./.test(area.label)) return area;
+        let done = false;
+        return { ...area, groups: area.groups.map((group) => {
+          if (done || group.hours !== 3 || !group.courses.every((course) => /^AMSL /.test(course.code))) return group;
+          done = true;
+          return { ...group, label: 'Foreign language', choose: 1, hours: null, note: 'Any foreign language course at the 2000 level or above, American Sign Language (AMSL) included.', courses: LANGUAGE_2000_OR_ABOVE };
+        }) };
+      });
+      repaired = { ...repaired, areas } as T;
+    }
+    /*
+     * Area VI's language lines, printed as text with no course table, which
+     * the reading dropped (verified 2026-10-29): International Affairs AB
+     * (24662) "3rd term of a foreign language" and "4th term of a foreign
+     * language", Classics AB (82769) "3rd semester foreign language" and
+     * "4th semester foreign language", Linguistics AB (84398) "A fourth
+     * semester course in one foreign language" and "A second semester course
+     * in a different foreign language" (two empty rows). The area read 12 of
+     * 18 on complete boards that booked the whole Spanish sequence.
+     */
+    const withLanguageLines = (lines: Array<{ label: string; rows: UgaRequirementCourse[]; note: string }>, fill: boolean) => {
+      const areas = (repaired.areas as Array<AreaShape & { groups: Array<{ label: string; choose: number | null; hours?: number | null; courses: UgaRequirementCourse[] }> }>).map((area) => {
+        if (!/^VI\./.test(area.label)) return area;
+        const groups = [...area.groups];
+        const made = lines.map((line) => ({ label: line.label, choose: 1, hours: null, note: line.note, courses: line.rows }));
+        if (fill) {
+          // In place of the empty rows the reading kept.
+          let at = 0;
+          return { ...area, groups: groups.map((group) => (group.courses.length === 0 && at < made.length ? made[at++] : group)) };
+        }
+        if (groups.some((group) => group.label === made[0].label)) return area;
+        return { ...area, groups: [...groups.slice(0, 1), ...made, ...groups.slice(1)] };
+      });
+      repaired = { ...repaired, areas } as T;
+    };
+    if (program.id === '24662') withLanguageLines([
+      { label: 'Foreign language: third term', rows: THIRD_SEMESTER_LANGUAGE, note: '3rd term of a foreign language (school-wide requirement).' },
+      { label: 'Foreign language: fourth term', rows: FOURTH_SEMESTER_LANGUAGE, note: '4th term of a foreign language (major requirement).' },
+    ], false);
+    if (program.id === '82769') withLanguageLines([
+      { label: 'Foreign language: third semester', rows: [...THIRD_SEMESTER_LANGUAGE, { code: 'GREK 2001', title: 'GREK third semester', credits: 3 }], note: '3rd semester foreign language.' },
+      { label: 'Foreign language: fourth semester', rows: [...FOURTH_SEMESTER_LANGUAGE, { code: 'GREK 2002', title: 'GREK fourth semester', credits: 3 }], note: '4th semester foreign language.' },
+    ], false);
+    if (program.id === '84398') withLanguageLines([
+      { label: 'Foreign language: fourth semester', rows: FOURTH_SEMESTER_LANGUAGE, note: 'A fourth semester course in one foreign language.' },
+      { label: 'Second foreign language: second semester', rows: SECOND_SEMESTER_OTHER_LANGUAGE, note: 'A second semester course in a different foreign language, preferably from a different language family or subfamily. Students who take LING 4880/6880 may waive it; see your advisor.' },
+    ], true);
     if (program.id === '35426') languageRow(LANGUAGE_SUBJECTS.map((subject) => ({ code: `${subject} 1XXX`, title: `${subject} courses`, credits: 0, levelTo: 4 })), 'Any foreign language course.');
     if (program.college === 'BUS' && program.degree === 'BBA') repaired = withAreaAfter(repaired, '', TERRY_GRADUATION, false);
     if (program.degree === 'AB' || /^B[A-Z]+$/.test(program.degree ?? '')) repaired = withAreaAfter(repaired, '', UNIVERSITY_WIDE, false);

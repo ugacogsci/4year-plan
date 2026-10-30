@@ -148,6 +148,56 @@ export function withUgaLanguageOrder(prereqs: Map<string, PlanPrereq>, table: La
   }
 }
 
+/*
+ * Orders the Bulletin sets for a degree's own courses that the catalog
+ * file gives none for ("Permission of major", "Permission of
+ * department"), so the term sequencer saw them as unordered:
+ *
+ * - Special Education BSED (verified 2026-10-29,
+ *   bulletin.uga.edu/Program/Details/90477): its four-year plan runs
+ *   Practicum I (EDSE 4441), II (4442) and III (4443), then student teaching
+ *   (EDSE 5460). A board booked Practicum II a term before Practicum I.
+ * - Elementary Education BSED (verified 2026-10-29,
+ *   bulletin.uga.edu/Program/Details/90610): its Entrance Requirements ask
+ *   for EDUC 2110 (or LLED 5040), EDUC 2120, EDUC 2130 and MATH 2003 or
+ *   MATH 5001 before the first block (EDEL 4010 and 4015), and its
+ *   four-year plan runs the blocks in order (4010 and 4015; 4020 and 4021;
+ *   4030, 4031 and 4040; student teaching, EDEL 5460). A board booked MATH
+ *   5001 a year after EDEL 4010, and one EDEL 4010 after EDEL 4030.
+ *
+ * (TESOL and World Language Education's seminar and LLED 5730 orders were
+ * tried on 2026-10-30 and left out: a sophomore's board lost its core.)
+ */
+const UGA_PROGRAM_ORDER: Array<[string, string[][], string, boolean?]> = [
+  ['EDSE 4442', [['EDSE 4441']], 'EDSE 4441 (Practicum I comes before Practicum II on the Special Education four-year plan)'],
+  ['EDSE 4443', [['EDSE 4442']], 'EDSE 4442 (Practicum II comes before Practicum III on the Special Education four-year plan)'],
+  ['EDSE 5460', [['EDSE 4443']], 'EDSE 4443 (the practica come before student teaching on the Special Education four-year plan)'],
+  ['EDEL 4010', [['MATH 5001', 'MATH 2003'], ['EDUC 2110', 'LLED 5040'], ['EDUC 2120'], ['EDUC 2130']], 'MATH 2003 or MATH 5001, EDUC 2110 (or LLED 5040), EDUC 2120 and EDUC 2130 (the Elementary Education entrance requirements)'],
+  ['EDEL 4015', [['MATH 5001', 'MATH 2003'], ['EDUC 2110', 'LLED 5040'], ['EDUC 2120'], ['EDUC 2130']], 'MATH 2003 or MATH 5001, EDUC 2110 (or LLED 5040), EDUC 2120 and EDUC 2130 (the Elementary Education entrance requirements)'],
+  ['EDEL 4020', [['EDEL 4010'], ['EDEL 4015']], 'EDEL 4010 and EDEL 4015 (the first block comes before the second on the Elementary Education four-year plan)'],
+  ['EDEL 4021', [['EDEL 4010'], ['EDEL 4015']], 'EDEL 4010 and EDEL 4015 (the first block comes before the second on the Elementary Education four-year plan)'],
+  ['EDEL 4030', [['EDEL 4020']], 'EDEL 4020 (the second block comes before the third on the Elementary Education four-year plan)'],
+  ['EDEL 4031', [['EDEL 4020']], 'EDEL 4020 (the second block comes before the third on the Elementary Education four-year plan)'],
+  ['EDEL 4040', [['EDEL 4020']], 'EDEL 4020 (the second block comes before the third on the Elementary Education four-year plan)'],
+  ['EDEL 5460', [['EDEL 4030'], ['EDEL 4040']], 'EDEL 4030 and EDEL 4040 (the blocks come before student teaching on the Elementary Education four-year plan)'],
+];
+
+/** The program orders above, added to the catalog's prerequisites where a course and what it waits for are in the catalog. */
+export function withUgaProgramOrder(prereqs: Map<string, PlanPrereq>, known: (code: string) => boolean): void {
+  for (const [code, groups, source, concurrent] of UGA_PROGRAM_ORDER) {
+    if (!known(code)) continue;
+    const before = prereqs.get(code);
+    const added = groups
+      .map((any) => any.filter(known))
+      .filter((any) => any.length > 0 && !(before?.groups.some((group) => any.every((alt) => group.any.includes(alt))) ?? false))
+      .map((any) => ({ any, concurrent: concurrent === true, confidence: 'high' as const, source }));
+    if (added.length === 0) continue;
+    prereqs.set(code, before
+      ? { ...before, groups: [...before.groups, ...added], parsed: true }
+      : { groups: added, escape: null, text: source, parsed: true, confidence: 'high', standing: null });
+  }
+}
+
 /** The language names, for the setup's picker. */
 export const UGA_LANGUAGE_NAMES: readonly string[] = UGA_LANGUAGE_ROWS.map(([name]) => name);
 

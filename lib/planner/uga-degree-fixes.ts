@@ -2017,7 +2017,8 @@ const WRITTEN: Record<string, WrittenDegree> = {
           row('THEA 4000', 'Intermediate Dramatic Writing: The Short Script', 3),
           row('THEA 5620', 'Advanced Dramatic Writing: The Full-Length Script', 3),
         ], 'Only one of the courses marked on the Bulletin page counts.'),
-        hoursFrom(focus(1, 'General Program of Study', 'general electives numbered 3000 and above'), 21, [ANY_UPPER_COURSE], '21 of the 33 general elective hours numbered 3000 and above.'),
+        hoursFrom(focus(1, 'General Program of Study', 'general electives numbered 3000 and above'), 12, [ANY_UPPER_COURSE], '12 of the 33 general elective hours numbered 3000 and above; the other 21 at any level (Bulletin, checked again 2026-10-30).'),
+        hoursFrom(focus(1, 'General Program of Study', 'general electives at any level'), 9, [ANY_COURSE], '9 more of the 21 general elective hours at any level (the rest are the plan\'s general electives).'),
         all(focus(2, 'Area of Emphasis in Film Studies'), [
           row('FILM 4250', 'History of Cinema I (1895-1945)', 3),
           row('FILM 4260', 'History of Cinema II (1945-1990)', 3),
@@ -2048,7 +2049,8 @@ const WRITTEN: Record<string, WrittenDegree> = {
           row('FILM 4670', 'Film Technology and Style', 3),
           row('FILM 5481', 'Topics in Cinema', 3),
         ]),
-        hoursFrom(focus(2, 'Area of Emphasis in Film Studies', 'general electives numbered 3000 and above'), 21, [ANY_UPPER_COURSE], '21 of the 33 general elective hours numbered 3000 and above.'),
+        hoursFrom(focus(2, 'Area of Emphasis in Film Studies', 'general electives numbered 3000 and above'), 12, [ANY_UPPER_COURSE], '12 of the 33 general elective hours numbered 3000 and above; the other 21 at any level (Bulletin, checked again 2026-10-30).'),
+        hoursFrom(focus(2, 'Area of Emphasis in Film Studies', 'general electives at any level'), 9, [ANY_COURSE], '9 more of the 21 general elective hours at any level (the rest are the plan\'s general electives).'),
         all(focus(3, 'Area of Emphasis in Film Production'), [
           row('FILM 4250', 'History of Cinema I (1895-1945)', 3),
           row('FILM 4260', 'History of Cinema II (1945-1990)', 3),
@@ -3828,7 +3830,8 @@ const WRITTEN: Record<string, WrittenDegree> = {
           row('FDST 4250', 'Food Product Development', 3),
         ]),
       ]),
-      area('Major Electives', 25, [
+      // FDST 2010 counts in neither emphasis's FDST hours, the page says (a board booked it for the Business emphasis, 2026-10-30).
+      { ...area('Major Electives', 25, [
         // A choice of every course listed: a list with no number to choose, in an area of electives, is read as hours to draw from.
         choose(focus(1, 'Area of Emphasis in Business'), 2, [
           row('FDST 4100', 'Governmental Regulation of Food Safety and Quality', 2),
@@ -3868,7 +3871,7 @@ const WRITTEN: Record<string, WrittenDegree> = {
           row('FDST 4013', 'Food Processing', 3),
         ]),
         hoursFrom(focus(2, 'Area of Emphasis in Science, Technology, and Engineering', 'FDST courses'), 12, levels('FDST', 2), 'FDST courses (not FDST 2010): up to 3 hours at the 2000 level, the rest at 3000 or above.'),
-      ]),
+      ]), excludeCodes: ['FDST 2010'] },
       generalElectives(11),
     ],
   },
@@ -4655,20 +4658,16 @@ const WRITTEN: Record<string, WrittenDegree> = {
       area('Required Courses', 69, [
         choose('Core - College of Public Health: biostatistics', 1, [
           row('BIOS 3000', 'Intermediate Biostatistics', 3),
-          row('BIOS 7020', 'Intermediate Biostatistical Reasoning', 3),
-        ]),
+        ], 'Double Dawgs students may take BIOS 7020 instead; the graduate-level choices of the college core are left off the plan (a freshman board booked EHSC 7010, 2026-10-30).'),
         choose('Core - College of Public Health: environmental health', 1, [
           row('EHSC 3060', 'Foundations in Environmental Health', 3),
-          row('EHSC 7010', 'Fundamentals of Environmental Health Science', 3),
-        ]),
+        ], 'Double Dawgs students may take EHSC 7010 instead.'),
         choose('Core - College of Public Health: epidemiology', 1, [
           row('EPID 4070', 'Fundamentals of Epidemiology', 3),
-          row('EPID 7010', 'Fundamentals of Epidemiology', 3),
-        ]),
+        ], 'Double Dawgs students may take EPID 7010 instead.'),
         choose('Core - College of Public Health: health policy', 1, [
           row('HPAM 3600', 'Introduction to Health Policy', 3),
-          row('HPAM 7010', 'Fundamentals of Health Policy and Management', 3),
-        ], 'The graduate-level courses are preferred only for Double Dawgs students.'),
+        ], 'Double Dawgs students may take HPAM 7010 instead (the graduate-level courses are preferred only for them).'),
         all('Core - Health Promotion and Behavior', [
           row('HPRB 3020', 'Foundations of Health Promotion Professional Practice', 3),
           row('HPRB 3700', 'Community Health', 3),
@@ -5781,8 +5780,41 @@ const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementAr
    */
   '20122': (areas) => {
     const electives = areas.find((existing) => existing.label === 'Mechanical Engineering Electives');
-    return electives ? areas.map((existing) => (existing.label === 'Required Courses' && existing.hours === 70 ? { ...existing, hours: existing.hours - electives.hours } : existing)) : areas;
+    const read = electives ? areas.map((existing) => (existing.label === 'Required Courses' && existing.hours === 70 ? { ...existing, hours: existing.hours - electives.hours } : existing)) : areas;
+    /*
+     * Area VI's heading says 18 hours, its rows 16: ENGR 1120 (2), ENGR 1140
+     * (2), MATH 2500 (3), MATH 2700 (3) and two physics courses, which the
+     * Bulletin's own four-year plan takes as PHYS 1251 and 1252, three hours
+     * each (verified 2026-10-29, bulletin.uga.edu/Program/Details/20122).
+     * Every board that booked exactly that read "VI 16 of 18".
+     */
+    return read.map((existing) => (AREA_SIX.test(existing.label) && existing.hours === 18 ? { ...existing, hours: 16 } : existing));
   },
+  /*
+   * Art BFA - Graphic Design (verified 2026-10-29,
+   * bulletin.uga.edu/Program/Details/79344). Design Focus Tracks /
+   * Professional Electives: "a second major, certificate, or minor OR a
+   * minimum of nine (9) credit hours in one of the following associated
+   * subject areas", read as "choose 9 courses" over every subject's list,
+   * 27 hours from three subjects: 9 hours from the first list (Art, Design,
+   * and Architectural History) unless the student names another. And Area
+   * VI's photography, "ARST 2205 with its lab, or ARST 2210", never reached
+   * a term: the three-hour ARST 2210.
+   */
+  '79344': (areas) => areas.map((existing) => {
+    if (AREA_SIX.test(existing.label)) {
+      return { ...existing, groups: existing.groups.map((group) => (group.choose === 1 && group.courses.some((course) => course.code === 'ARST 2210') && group.courses.some((course) => course.code === 'ARST 2205')
+        ? { ...group, label: 'Photography', choose: null, courses: group.courses.filter((course) => course.code === 'ARST 2210'), note: 'ARST 2210, or ARST 2205 with its lab ARST 2205L.' }
+        : group)) };
+    }
+    if (existing.label !== 'Major Electives') return existing;
+    return { ...existing, groups: existing.groups.map((group) => {
+      if (!/^Design Focus Tracks/.test(group.label) || group.choose !== 9) return group;
+      const end = group.courses.findIndex((course) => course.code === 'TXMI 4360');
+      if (end < 0) return group;
+      return { ...group, label: 'Design Focus: Art, Design, and Architectural History', choose: null, hours: 9, courses: group.courses.slice(0, end + 1), note: 'A second major, certificate or minor, or at least 9 hours in one associated subject area (at least 6 at the 2000 level or above). Planned from Art, Design, and Architectural History; Communications and Media, Cultural Studies, Interaction and Computing, Marketing and Strategy and the others on the Bulletin page count as well.' };
+    }) };
+  }),
   /*
    * Atmospheric Sciences BS (verified 2026-10-29,
    * bulletin.uga.edu/Program/Details/29248): General Electives (28 hours)
@@ -5802,11 +5834,47 @@ const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementAr
    * read as hours to draw from, so CHEM 2212 and its lab were a 12-hour
    * pool of 4 hours that could never be met: they are a choice of both.
    */
+  /*
+   * And Area VI's last line, "Choose 2 credit hours: 1000/2000-level
+   * electives", came out a 2-hour group of no courses: every board read VI
+   * 16 of 18 (2026-10-29). Any course numbered 1000 to 2999.
+   */
   '95737': (areas) => areas.map((existing) => (existing.label === 'Major Electives'
     ? { ...existing, groups: existing.groups.map((group) => (group.choose === null && group.hours == null && group.courses.length === 2 && group.courses.every((course) => /^CHEM 2212L?$/.test(course.code))
       ? { ...group, label: 'Organic Chemistry II', choose: 2 }
       : group)) }
-    : existing)),
+    : AREA_SIX.test(existing.label)
+      ? { ...existing, groups: existing.groups.map((group) => (group.courses.length === 0 && group.hours === 2 ? hoursFrom('1000/2000-level electives', 2, [{ ...ANY_COURSE, levelTo: 2 } as UgaRequirementCourse], 'Any course numbered 1000 to 2999.') : group)) }
+      : existing)),
+  /*
+   * English AB (verified 2026-10-30, bulletin.uga.edu/Program/Details/86328):
+   * Major Electives are "five 3-hour ENGL electives at the 3000/4000 levels,
+   * at least one course at the 4000 level"; the reading kept one 15-hour
+   * pool, and a board booked five 3000-level courses. One of the five at the
+   * 4000 level, the other four at either.
+   */
+  /*
+   * Political Science BS (verified 2026-10-30,
+   * bulletin.uga.edu/Program/Details/12235): Area VI asks for one of HIST
+   * 2111 and 2112 (with ECON 2105 and 2106, a statistics course, calculus
+   * and a PHIL course). Area V's social sciences took both histories, so
+   * Area VI had none left and every board read "VI 16 of 18" and "does not
+   * finish". Area V plans its social sciences from the rest of its list;
+   * the history Area VI books also meets the U.S. and Georgia history
+   * requirement.
+   */
+  '12235': (areas) => areas.map((existing) => (/^V\.\s/.test(existing.label) ? { ...existing, excludeCodes: [...new Set([...(existing.excludeCodes ?? []), 'HIST 2111', 'HIST 2112'])] } : existing)),
+  '86328': (areas) => areas.map((existing) => {
+    if (existing.label !== 'Major Electives') return existing;
+    const pool = existing.groups.find((group) => group.choose === null && group.hours === 15 && group.courses.some((course) => course.code === 'ENGL 4XXX'));
+    if (!pool) return existing;
+    const upper = pool.courses.filter((course) => /^ENGL 4/.test(course.code));
+    return { ...existing, groups: [
+      hoursFrom('Major Electives: one at the 4000 level', 3, upper, 'At least one of the five major electives at the 4000 level.'),
+      hoursFrom('Major Electives', 12, pool.courses, 'Four more 3-hour ENGL electives at the 3000 or 4000 level.'),
+      ...existing.groups.filter((group) => group !== pool),
+    ] };
+  }),
   /*
    * Civil Engineering BSCE (verified 2026-10-29,
    * bulletin.uga.edu/Program/Details/79689): Major Electives are six courses
