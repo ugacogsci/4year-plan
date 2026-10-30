@@ -8186,6 +8186,46 @@ function withFirstYearSeminar(requirements: PlanRequirement[], input: AutoplanIn
   }];
 }
 
+/**
+ * A UGA degree's numbered series in its order: "Practicum in Special
+ * Education I", "II" and "III" (EDSE 4441-4443) carry only "Permission of
+ * major" in the catalog, no prerequisite, and the Special Education board
+ * booked II a term before I (2026-10-29). Where a degree requires by name
+ * two or more courses of one subject whose titles differ only by a closing
+ * I, II, III or IV, starting at I, each after the first that lists no
+ * course before it takes the one before it as a prerequisite.
+ */
+function withUgaSeriesOrder(ctx: PlanningContext, requirements: readonly PlanRequirement[]): PlanningContext {
+  const ROMAN: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4 };
+  const required = new Set(requirements.flatMap((r) => (r.rule.kind === 'all' ? r.rule.choices.filter((c) => c.codes.length === 1).map((c) => normaliseCode(c.codes[0])) : [])));
+  const series = new Map<string, Array<{ code: string; n: number }>>();
+  for (const course of ctx.courses) {
+    const code = normaliseCode(course.code);
+    if (!required.has(code)) continue;
+    const m = /^(.*\S)\s+(I{1,3}|IV)$/.exec(course.title.trim());
+    if (!m) continue;
+    const key = `${code.split(' ')[0]}|${m[1].toLowerCase()}`;
+    series.set(key, [...(series.get(key) ?? []), { code, n: ROMAN[m[2]] }]);
+  }
+  const before = new Map<string, string>();
+  for (const members of series.values()) {
+    const inOrder = [...members].sort((a, b) => a.n - b.n);
+    if (inOrder.length < 2 || inOrder[0].n !== 1 || new Set(inOrder.map((m) => m.n)).size !== inOrder.length) continue;
+    for (let k = 1; k < inOrder.length; k += 1) {
+      const listed = ctx.prereqs?.get(inOrder[k].code);
+      if (!listed || listed.groups.length === 0) before.set(inOrder[k].code, inOrder[k - 1].code);
+    }
+  }
+  if (before.size === 0 || !ctx.prereqs) return ctx;
+  const prereqs = new Map(ctx.prereqs);
+  for (const [code, earlier] of before) {
+    const listed = prereqs.get(code);
+    const group: PlanPrereqGroup = { any: [earlier], concurrent: false, confidence: 'high', source: `${earlier} before ${code}, the series' order` };
+    prereqs.set(code, listed ? { ...listed, groups: [group], parsed: true } : { groups: [group], escape: null, text: group.source, parsed: true, confidence: 'high', standing: null } as PlanPrereq);
+  }
+  return { ...ctx, prereqs };
+}
+
 function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
   // A degree held at the release (held-degrees.ts PLANNED_AS_RELEASED) is planned by the release's engine.
   if (given.programId && given.asReleased !== false && PLANNED_AS_RELEASED.has(given.programId)) {
@@ -8194,7 +8234,7 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
     return released;
   }
   // A UGA pre-health student's lab pairs (withTrackLabs); any other context as it is.
-  const tracked = withTrackLabs(withTitleStanding(given.context), careerProfileOf(given));
+  const tracked = withTrackLabs(withTitleStanding(given.context.schoolId === 'uga' && given.plainEngine !== true ? withUgaSeriesOrder(given.context, given.requirements) : given.context), careerProfileOf(given));
   // A Terry major's courses wait for admission to it (uga-terry-admission.ts).
   const terry = tracked.schoolId === 'uga' && given.plainEngine !== true ? (() => {
     const held = [...given.prior.courseCodes, ...(given.prior.inProgressCodes ?? [])].map(normaliseCode);
