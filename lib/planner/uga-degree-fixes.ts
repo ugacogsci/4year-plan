@@ -5747,13 +5747,19 @@ const REPAIRED: Record<string, (areas: UgaRequirementArea[]) => UgaRequirementAr
    * Animal Health BSA (verified 2026-10-30, bulletin.uga.edu/Program/Details/18956):
    * "Major Electives (13 hours). Choose 13 credit hour(s) from the
    * following: Major Elective courses", with no list; the page says the
-   * coursework of the first year of the UGA D.V.M. program completes the
-   * Major Electives and General Electives. Read as a 13-hour row with no
-   * courses, every board left it 0 of 13.
+   * coursework of the first year of the UGA D.V.M. program completes "the
+   * remaining hours of the Major Electives and General Electives". Read as
+   * a 13-hour row with no courses, every board left it 0 of 13. Planned
+   * instead as the General Electives are (filled by electives toward the
+   * degree total), with the page's 13 hours named in that area.
    */
-  '18956': (areas) => areas.map((existing) => (existing.label === 'Major Electives' && existing.groups.every((group) => group.courses.length === 0)
-    ? { ...existing, groups: [hoursFrom('Major Electives', existing.hours, [ANY_UPPER_COURSE], 'The page lists no Major Elective courses: the first year of the UGA D.V.M. program completes these hours. Until then, upper-level courses chosen with your advisor.')] }
-    : existing)),
+  '18956': (areas) => {
+    const major = areas.find((existing) => existing.label === 'Major Electives' && existing.groups.every((group) => group.courses.length === 0));
+    const general = areas.find((existing) => existing.label === 'General Electives');
+    if (!major || !general) return areas;
+    const named: UgaRequirementGroup = { label: 'Major Electives', choose: null, hours: major.hours, note: `The page's Major Electives (${major.hours} hours) list no courses: the first year of the UGA D.V.M. program completes them and the General Electives. Until then, electives chosen with your advisor.`, courses: [] };
+    return areas.flatMap((existing) => (existing === major ? [] : existing === general ? [{ ...general, hours: general.hours + major.hours, groups: [...general.groups, named] }] : [existing]));
+  },
   /*
    * Human Development and Family Science BSFCS (verified 2026-10-30,
    * bulletin.uga.edu/Program/Details/67554): "Required Courses (60 hours)"
