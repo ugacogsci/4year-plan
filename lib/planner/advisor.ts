@@ -22,8 +22,13 @@ import { aiUnavailable } from './ai-unavailable';
 export type AdvisorMessage = Anthropic.Beta.BetaMessageParam;
 export type AdvisorBlock = Anthropic.Beta.BetaContentBlock;
 
-/** The model the advisor runs on unless PLANNER_ADVISOR_MODEL names another (advisor-request.ts). */
-export const ADVISOR_MODEL = 'claude-opus-5';
+/**
+ * The model the advisor runs on unless PLANNER_ADVISOR_MODEL names another (advisor-request.ts).
+ * Claude Opus 5.5 since 2026-10-31: the newer Opus, a fifth cheaper per token than Opus 5 and its
+ * cache reads 60% cheaper, at the same high effort (advisor-request.ts). The setup assistant stays
+ * on Opus 5 (app/api/setup/route.ts).
+ */
+export const ADVISOR_MODEL = 'claude-opus-5-5';
 
 // ---------------------------------------------------------------------------
 // The tools, as the model sees them

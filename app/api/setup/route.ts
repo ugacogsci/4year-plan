@@ -1,7 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { setupReplySchema } from '@/lib/planner/setup-agent';
-import { advisorModel } from '@/lib/planner/advisor-request';
 import { sharedGuard, dailyCapUsd, readBodyCapped, visitorKey, worstCaseUsd, tokensForChars } from '@/lib/planner/spend-guard';
 import { aiFailureForLog } from '@/lib/planner/ai-unavailable';
 
@@ -17,6 +16,31 @@ Return a patch with ONLY newly stated or corrected facts; lists are the complete
 Use programConfirmed only if the student has explicitly chosen a program or undecided at some point. Use creditReviewed only if they have said what credit they have, said none, skipped credit, or reviewed/uploaded a record. Do not infer completed courses from their year. If they mention credits without codes, offer uploading a transcript or adding credit manually; don't invent codes or silently ignore the credit.
 Only ask about missing essentials: degree choice and required emphases, academic year, graduation term, and prior credit. The UI may suggest a graduation date based on degree duration; ask whether that suggested term works, do not present it as their stated intent. College can follow the catalog automatically. Do not re-ask facts already supplied or confirmed. Optional interests/minors are not mandatory. For transcripts/AP/transfer evaluation or complex shared-course choices, suggest the Add prior credit or Edit details controls.
 Speak briefly, at most one question per turn. If all required facts are known, say the draft is ready to build. The UI, not your reply, decides readiness. Never say a plan was generated already. Current date is supplied in context. No personal identifiers are needed.`;
+/**
+ * The setup assistant's model. It forces the record_setup tool (tool_choice), which Claude Opus 5.5
+ * refuses, so setup stays on Opus 5 while the advisor (ADVISOR_MODEL) moved to Opus 5.5.
+ */
+const SETUP_MODEL = 'claude-opus-5';
+/**
+ * The keys of the browser's context (guided-setup.tsx) that are the same for every student of a
+ * school: about 188,000 of UGA's 189,000 characters and 130,500 of Illinois's 131,000. They go
+ * first in the system prompt with a cache mark, so a student's next turn and other students reuse
+ * them at the cache price; the student's own facts (date, answers, what is missing) follow after
+ * the mark. The model reads the same JSON as before, in two parts.
+ */
+const SHARED_CONTEXT_KEYS = new Set(['catalog', 'colleges', 'pathways']);
+function setupSystem(school: string, context: string): { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }[] {
+  let parsed: unknown = null;
+  try { parsed = JSON.parse(context); } catch { /* sent as it came, below */ }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return [{ type: 'text', text: `${system}\nUniversity: ${school}\nContext:\n${context}` }];
+  const shared: Record<string, unknown> = {};
+  const student: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(parsed)) (SHARED_CONTEXT_KEYS.has(key) ? shared : student)[key] = value;
+  return [
+    { type: 'text', text: `${system}\nUniversity: ${school}\nContext, the school's catalog (the same for every student):\n${JSON.stringify(shared)}`, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: `Context, this student:\n${JSON.stringify(student)}` },
+  ];
+}
 /** Any failure the student cannot fix: the form still works, and the answers so far go with them (guided-setup.tsx). */
 const SETUP_UNAVAILABLE = 'The setup assistant is unavailable right now. Your answers are kept: choose "Enter my details manually" to go on, or try again in a bit.';
 export async function POST(req: Request) {
@@ -27,12 +51,12 @@ export async function POST(req: Request) {
   if (raw === null) return json({ error: 'This conversation is too large. Continue with manual setup; your answers are kept.' }, 413);
   let input;
   try { input = inputSchema.parse(JSON.parse(raw)); } catch { return json({ error: 'Please send a shorter description or use manual setup.' }, 400); }
-  const model = advisorModel();
-  const ticket = sharedGuard().admit('advisor', visitorKey(req.headers), { model, estimateUsd: worstCaseUsd(model, tokensForChars(raw.length + system.length + 6000), 2400), capUsd: dailyCapUsd(), names: { who: 'The setup assistant' } });
+  const model = SETUP_MODEL;
+  const ticket = sharedGuard().admit('advisor', visitorKey(req.headers), { model, estimateUsd: worstCaseUsd(model, tokensForChars(raw.length + system.length + 6000), 2400, { cacheWrites: true }), capUsd: dailyCapUsd(), names: { who: 'The setup assistant' } });
   if (!ticket.ok) return json({ error: ticket.error }, ticket.status);
   try {
     const response = await new Anthropic().messages.create({ model, max_tokens: 2400,
-      system: `${system}\nUniversity: ${input.school}\nContext:\n${input.context}`,
+      system: setupSystem(input.school, input.context),
       messages: input.messages,
       tools: [{ name: 'record_setup', description: 'Record explicit facts and the next helpful question.', input_schema: z.toJSONSchema(setupReplySchema) as Anthropic.Tool.InputSchema }],
       tool_choice: { type: 'tool', name: 'record_setup' },

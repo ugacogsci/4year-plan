@@ -60,8 +60,9 @@ export function advisorModel(env: Record<string, string | undefined> = typeof pr
  * whose earlier messages changed. Attaching the board to the newest message
  * and dropping it next step is such a change, so for these models the
  * earlier steps' thinking blocks are left out, the same way on every step
- * (which keeps the cache valid). Claude Opus 5, the default, does not bind
- * them and keeps its earlier thinking.
+ * (which keeps the cache valid). Claude Opus 5.5, the default since
+ * 2026-10-31, is one of them; Claude Opus 5 does not bind them and keeps its
+ * earlier thinking.
  */
 const BINDS_THINKING = /^claude-(opus-5-5|sonnet-5-5|fable-5-1|mythos-5-1)/;
 
