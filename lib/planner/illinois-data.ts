@@ -1071,6 +1071,22 @@ const ABBREV = /(?:\be\.g|\bi\.e|\betc|\bvs|\bDr|\bMr|\bMs|\bJr|\bSr|\bPh\.D|\bU
 const PRIOR_LEARNING = /\bhigh school\b/i;
 
 /**
+ * "CS 101 or equivalent programming experience" (MATH 257, IS 477, ASTR
+ * 404-414): a programming course that builds on an introductory one is that
+ * experience. Read as CS 101 alone, every Computer Science board booked CS 101
+ * (intro computing for non-CS engineers) after CS 124 and CS 128 to unlock
+ * MATH 257 (79 fall boards, 2026-11-02), and an Electrical Engineering board
+ * beside ECE 220. A board with none of them still books CS 101.
+ *
+ * Not CS 124 alone, which is an introduction itself: read as the
+ * experience, it let MATH 257 into an Engineering Mechanics or Materials
+ * Science freshman's second term ahead of chemistry, and those boards, full
+ * at every term, lost ME 470 or split MCB 251 from MCB 250 (Nov 2 sweep).
+ */
+const PROGRAMMING_EXPERIENCE = /\bor equivalent programming experience\b/i;
+const PROGRAMMING_COURSES = ['CS 128', 'CS 225', 'ECE 220'];
+
+/**
  * The clause offering school work instead of the course, or null.
  *
  * Read off the whole segment rather than off one item, because the catalog
@@ -1369,11 +1385,16 @@ export function parsePrerequisites(
           previous.source = `${previous.source}, ${trimmed}`;
           continue;
         }
+        // The programming courses that are "equivalent programming experience" (PROGRAMMING_EXPERIENCE).
+        const experience = PROGRAMMING_EXPERIENCE.test(trimmed)
+          ? PROGRAMMING_COURSES.filter((c) => known.has(c) && c !== self && !itemCodes.includes(c))
+          : [];
+        const any = [...itemCodes, ...experience];
         groups.push({
-          any: itemCodes,
+          any,
           concurrent,
           confidence: 'high',
-          shape: itemCodes.length > 1 ? 'or' : 'single',
+          shape: any.length > 1 ? 'or' : 'single',
           source: trimmed,
           priorLearning: null,
         });
@@ -1436,7 +1457,48 @@ export function parsePrerequisites(
         produced.every((g) => g.any.length === 1) &&
         !/\band\b/i.test(seg.replace(ESCAPE_TAIL, ''));
 
-      if (orMenu) {
+      /**
+       * Step 5c. The same menu ending "or equivalent" with no comma: ECON
+       * 302's "MATH 220, MATH 221, MATH 234 or equivalent" was three required
+       * courses, and 807 of 1,848 fall boards said "ECON 302 lists MATH 221 as
+       * a prerequisite ... Ask your advisor whether that clears" beside the
+       * MATH 220 they booked (2026-11-02). Only a plain list: every item
+       * before the last one course and no "or" of its own ("CEE 350 or NRES
+       * 401, CEE 380 or NRES 201" is two choices), and no "and".
+       *
+       * Two shapes stay as they were. "ANSC 221, ANSC 222, ANSC 450 or
+       * equivalents" is each course or its equivalent, all three. And a list
+       * of one subject's consecutive numbers is a sequence, not a menu: CHBE
+       * 472's "CHEM 202, CHEM 203, CHEM 204 or equivalent" is the accelerated
+       * chemistry sequence or its equivalent. Lists whose last "or" is on a
+       * course ("CS 101, CS 124, or ECE 220", TAM 211) read the same way to
+       * a person, but as one choice they moved Engineering Mechanics, Materials
+       * Science and Bioengineering boards backwards (a required ME 470 off,
+       * labs apart from their lectures) in the Oct 30 and Nov 2 sweeps, so
+       * they wait for that engine work.
+       */
+      const menuItems = head
+        .replace(ESCAPE_TAIL, '')
+        .replace(/\bcredit or concurrent (?:registration|enrollment)\b/gi, '')
+        .split(/,\s*/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const menuCodes = produced.flatMap((g) => g.any);
+      const sequence =
+        menuCodes.length > 1 &&
+        menuCodes.every((c) => c.split(' ')[0] === menuCodes[0].split(' ')[0]) &&
+        menuCodes.every((c, i) => i === 0 || Number(c.split(' ')[1]) === Number(menuCodes[i - 1].split(' ')[1]) + 1);
+      const commaMenu =
+        !orMenu &&
+        !tail &&
+        !sequence &&
+        produced.length > 1 &&
+        menuItems.length > 1 &&
+        !/\band\b/i.test(seg.replace(ESCAPE_TAIL, '')) &&
+        /\bor equivalent\.?$/i.test(menuItems[menuItems.length - 1]) &&
+        menuItems.slice(0, -1).every((item) => !/\bor\b/i.test(item) && codesIn(item, known, self).length <= 1);
+
+      if (orMenu || commaMenu) {
         const merged: PrereqGroup = {
           any: produced.flatMap((g) => g.any),
           concurrent: produced.every((g) => g.concurrent),

@@ -7562,6 +7562,7 @@ function withUgaLabsPaired(g: GeneratedPlan, input: AutoplanInput): GeneratedPla
   return { ...board, notes: [...board.notes, ...said.filter((n) => !board.notes.includes(n))] };
 }
 
+
 /**
  * Illinois: a booked course whose prerequisite only the "not both" rule
  * closes, said the way the prerequisite closure says it (closedPrereqs), for
@@ -12200,7 +12201,15 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     // group has one: MATH 2260's calculus was MATH 2300H, the honors one, for an Agribusiness freshman.
     const fitting = lastTies ? open.filter((alt) => listAudience(alt) === 0 && signals.offSchedule(alt) === 0) : open;
     const among = fitting.length > 0 ? fitting : open;
-    const pick = trackPreferred(open) ?? (holdsTwins(among) ? among.slice().sort(twinPreference)[0] : (best(among) ?? among[0]));
+    /*
+     * "CS 101 or equivalent programming experience" (MATH 257): the other
+     * courses of the group are that experience when the board has one; with
+     * none, the course the catalog names, not CS 128 and the CS 124 it asks
+     * for (an Engineering Undeclared freshman, 2026-11-02).
+     */
+    const experience = /\bor equivalent programming experience\b/i.test(group.source ?? '');
+    const named = experience ? among.filter((alt) => new RegExp(`\\b${alt.replace(' ', '\\s?')}\\b`, 'i').test(group.source ?? '')) : [];
+    const pick = (named.length > 0 ? (best(named) ?? named[0]) : null) ?? trackPreferred(open) ?? (holdsTwins(among) ? among.slice().sort(twinPreference)[0] : (best(among) ?? among[0]));
     chosen.set(pick, { requirementId: null, label: `Prerequisite for ${code}` });
     addedPrerequisites.push({ code: pick, requiredBy: code });
     return pick;
