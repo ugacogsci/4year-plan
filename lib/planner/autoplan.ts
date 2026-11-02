@@ -7717,7 +7717,8 @@ function freeChoicesGated(given: AutoplanInput): GeneratedPlan {
  * the degree's own board with the reading, the track named as ugaDegreeFirst
  * names it: an Entomology pre-med freshman's board with the track and every
  * degree course came to 135 hours and was turned down, and the floor kept
- * the track but left PBIO 3600 off (2026-11-02).
+ * the track but left PBIO 3600 off (2026-11-02). Classes off decide it, not
+ * a row short by an hour (below).
  */
 function ugaDegreeOverTrack(fallback: GeneratedPlan, turnedDown: GeneratedPlan, given: AutoplanInput, buildBare: () => GeneratedPlan): GeneratedPlan | null {
   if (given.context.schoolId !== 'uga' || given.tracksOff === true || given.plainEngine === true) return null;
@@ -7727,7 +7728,13 @@ function ugaDegreeOverTrack(fallback: GeneratedPlan, turnedDown: GeneratedPlan, 
   const worse = (a: { unmet: number; off: number }, b: { unmet: number; off: number }) => a.unmet > b.unmet || (a.unmet === b.unmet && a.off > b.off);
   const fb = short(fallback);
   const down = short(turnedDown);
-  if (!worse(fb, down)) return null;
+  /*
+   * Only where the fallback leaves more classes off: a pre-med Classics
+   * freshman's fallback kept the whole track, sixteen courses, with World
+   * Languages an hour short, and the degree's board would have dropped them
+   * all for that hour (2026-11-02). Career goals shape the plan.
+   */
+  if (fb.off <= down.off) return null;
   const bare = buildBare();
   const br = short(bare);
   if (worse(br, down) || !worse(fb, br)) return null;
