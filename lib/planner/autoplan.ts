@@ -4969,19 +4969,21 @@ const APPROVAL_GATE =
 /**
  * The same approval written beside the courses rather than in place of them,
  * anywhere in the sentence: ADPR 3515 "(ADPR 3100 or ...) and permission of
- * major and permission of department", JRLC 5040 "(ADPR 3100 or ...) and
- * permission of school", which a Marketing student's social-media goal booked
- * as free electives (2026-11-02); and KINS 3430 "Students must be enrolled in
- * a professional program to register", which the same goal then booked with
- * KINS 4810 and 4850 after it. "... or permission of department" stays an
- * alternative, and "and permission of department" alone is not read here
- * (280 UGA courses): read as a gate it took SPAN 2030 Practical Spanish
- * Conversation off fourteen Data Science, Genetics, Biochemistry and Music
- * Composition boards' World Languages rows, and the course the list gave
- * next was left unplaced. In the student's own subject the permission is
- * the student's own.
+ * major and permission of department", which a Marketing student's
+ * social-media goal booked as a free elective (2026-11-02); and KINS 3430
+ * "Students must be enrolled in a professional program to register", which
+ * the same goal then booked with KINS 4810 and 4850 after it. In the
+ * student's own subject the permission is the student's own. "... or
+ * permission of department" stays an alternative, and two wordings are not
+ * read here. "and permission of department" alone (280 UGA courses): read
+ * as a gate it took SPAN 2030 Practical Spanish Conversation off fourteen
+ * Data Science, Genetics, Biochemistry and Music Composition boards' World
+ * Languages rows, and the course the list gave next was left unplaced. And
+ * "and permission of school": JRLC 5040 is a Public Relations or
+ * Advertising student's own Grady course, and gated it went off every board
+ * of both degrees; nothing here knows which school a subject belongs to.
  */
-const APPROVAL_BESIDE = /\band\s+(?:the\s+)?permission of (?:the )?(major|school|college|program)\b|\bmust be enrolled in a (professional) program\b/i;
+const APPROVAL_BESIDE = /\band\s+(?:the\s+)?permission of (?:the )?(major|program)\b|\bmust be enrolled in a (professional) program\b/i;
 
 /**
  * The sentence that puts a course behind an application, an admission or
