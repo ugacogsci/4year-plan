@@ -191,6 +191,46 @@ export function defaultProgramYears(level: ProgramLevel, degrees: readonly strin
     : 2;
 }
 
+/**
+ * What a transfer student's suggested finish counts from (transfer-finish.ts
+ * transferFinishInput): the hours they hold, the degree's published total,
+ * and the term they start here.
+ */
+export interface TransferFinishInput {
+  heldHours: number;
+  degreeHours: number;
+  arrival: { season: 'Spring' | 'Summer' | 'Fall'; year: number };
+}
+
+/**
+ * The most a term is counted at, on average, when a transfer student's
+ * finish is suggested from their hours: about 15 is the usual load (start-
+ * term.ts ASSUMED_TERM_HOURS), and a term more is offered only when the hours
+ * left need more than 16 a term, so 76 hours left read as five terms (15 or
+ * 16 each), not six. A planning assumption, not a school rule; the student
+ * can always change the date.
+ */
+export const TRANSFER_TERM_HOURS = 16;
+
+/**
+ * A transfer student's finish from the hours still to earn, not from a year
+ * of study: the falls and springs from the term they start here that the
+ * degree's hours left take at about 15 a term (TRANSFER_TERM_HOURS).
+ *
+ * The year-of-study default gave the made-up 60-hour Georgia State
+ * Perimeter transfers who start at UGA in Spring 2027 (Finance 28543,
+ * Psychology 69115, Political Science 46524; review-fresh-w3 T6) "third
+ * year": Spring 2028, three terms at 18 for 57-60 hours, and each board
+ * stopped at 116-117 of 120 with rows unmet. From the hours: Fall 2028.
+ */
+export function transferFinish(t: TransferFinishInput): { season: 'Spring' | 'Fall'; year: number } {
+  const left = Math.max(0, t.degreeHours - t.heldHours);
+  const terms = Math.max(1, Math.ceil(left / TRANSFER_TERM_HOURS));
+  const from = t.arrival.season === 'Summer' ? { season: 'Fall' as const, year: t.arrival.year } : t.arrival;
+  const k = from.year * 2 + (from.season === 'Spring' ? 0 : 1) + terms - 1;
+  return { season: k % 2 ? 'Fall' : 'Spring', year: Math.floor(k / 2) };
+}
+
 export function suggestGraduationTarget(
   academicYear: AcademicYear,
   programYears: number,
@@ -203,17 +243,29 @@ export function suggestGraduationTarget(
    * not finish their degree (2026-10-28).
    */
   firstFall: number | null = null,
+  /**
+   * A transfer student's hours and start here (transfer-finish.ts), or null
+   * for everyone else, whose default is the year of study as before. With
+   * it, the later of the year-of-study finish and the hours' finish
+   * (transferFinish): never earlier than before, one or more terms later
+   * when the hours left need them.
+   */
+  transfer: TransferFinishInput | null = null,
 ): { season: GraduationSeason; year: number | null } {
-  if (!academicYear) return { season: '', year: null };
+  if (!academicYear) return transfer ? transferFinish(transfer) : { season: '', year: null };
   const currentYear = { first: 1, second: 2, third: 3, fourth: 4, 'fifth-plus': 5 }[academicYear];
   // The current academic year ends next spring in fall, or this spring otherwise.
   const academicEnd = now.getFullYear() + (currentAcademicSeason(now) === 'Fall' ? 1 : 0);
   // An incoming student's first year ends the spring after the fall they start.
   const year = (firstFall !== null ? Math.max(academicEnd, firstFall + 1) : academicEnd) + Math.max(0, programYears - currentYear);
-  return {
+  const byYear = {
     season: isGraduationTermPast('Spring', year, now) ? currentAcademicSeason(now) : 'Spring',
     year,
-  };
+  } as const;
+  if (!transfer) return byYear;
+  const byHours = transferFinish(transfer);
+  const ord = (t: { season: Exclude<GraduationSeason, ''>; year: number }) => t.year * 3 + GRADUATION_SEASON_ORDER[t.season];
+  return ord(byHours) > ord(byYear) ? byHours : byYear;
 }
 
 export interface OnboardingAnswers {

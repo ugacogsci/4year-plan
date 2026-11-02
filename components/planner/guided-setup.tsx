@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
-import { type OnboardingAnswers, defaultProgramYears, suggestGraduationTarget, isGraduationTermPast, schoolById, setupResponse, withSetupResponse } from '@/lib/planner/onboarding';
+import { type OnboardingAnswers, defaultProgramYears, isGraduationTermPast, schoolById, setupResponse, withSetupResponse } from '@/lib/planner/onboarding';
+import { pickedDegreeHours, suggestedGraduationFor } from '@/lib/planner/transfer-finish';
 import { setupReplySchema, validatedSetupPatch, type SetupCatalog, type SetupMessage } from '@/lib/planner/setup-agent';
 import { loadUgaPlanningGuidance, type DoubleDawgsPathway } from '@/lib/planner/uga-planning-guidance';
 import { normalizeUgaCollegeId, UGA_COLLEGES } from '@/lib/planner/uga-colleges';
@@ -117,7 +118,8 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
       const selectedDegrees = (next.programLevel === 'graduate' ? catalog.graduateDegrees : catalog.undergraduateDegrees).filter((row) => next.programIds.includes(row.id));
       if (next.academicYear && !next.graduationYear) {
         const said = nextMessages.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
-        const target = suggestGraduationTarget(next.academicYear, defaultProgramYears(next.programLevel, selectedDegrees.flatMap((p) => p.degree ?? [])), new Date(), firstFallOf(said, new Date()));
+        // A transfer student's hours, not their year, when they decide it (transfer-finish.ts).
+        const target = suggestedGraduationFor(next, next.academicYear, defaultProgramYears(next.programLevel, selectedDegrees.flatMap((p) => p.degree ?? [])), new Date(), firstFallOf(said, new Date()), pickedDegreeHours(selectedDegrees, next.programIds));
         next = { ...next, graduationSeason: target.season, graduationYear: target.year };
       }
       const colleges = [...new Set(catalog.ugaPrograms.filter((p) => next.programIds.includes(p.id)).map((p) => normalizeUgaCollegeId(p.college)).filter(Boolean))];

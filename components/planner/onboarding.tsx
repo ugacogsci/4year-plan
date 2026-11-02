@@ -43,6 +43,7 @@ import {
   type SchoolId,
 } from '@/lib/planner/onboarding';
 import { transcriptCodes, transcriptHours } from '@/lib/planner/transcript';
+import { pickedDegreeHours, suggestedGraduationFor, transferFinishInput } from '@/lib/planner/transfer-finish';
 import { clearPlannerStorage, createSetupResetSequence } from '@/lib/planner/setup-reset';
 import { setInsightScreen, track, trackContent, trackTranscript } from '@/lib/insights/client';
 import { SCREENS } from '@/lib/insights/schema';
@@ -283,6 +284,16 @@ export function Onboarding({
       .filter((program) => answers.programIds.includes(program.id) && program.degree)
       .map((program) => program.degree!),
   );
+  // The degree's published total, for a transfer student's suggested finish (transfer-finish.ts).
+  const degreeHours = pickedDegreeHours(degreeOptions, answers.programIds);
+  // A transfer student whose hours, not their year, set the suggested finish: the hint says so.
+  const hoursFinish = useMemo(() => {
+    const input = transferFinishInput(answers, degreeHours, today);
+    if (!input) return null;
+    const byHours = suggestedGraduationFor(answers, answers.academicYear, programYears, today, firstFallOf(answers.timeline, today), degreeHours);
+    const byYear = suggestGraduationTarget(answers.academicYear, programYears, today, firstFallOf(answers.timeline, today));
+    return byHours.season !== byYear.season || byHours.year !== byYear.year ? input : null;
+  }, [answers, degreeHours, programYears, today]);
   const emphasesComplete = emphasisSelectionsComplete(
     emphasisRequirements,
     answers.emphasisSelections,
@@ -546,7 +557,7 @@ export function Onboarding({
     setAnswers((current) => {
       const text = [current.studying, current.timeline, current.after].join(' ');
       const academicYear = current.academicYear || inferAcademicYear(current.timeline);
-      const suggestedGraduation = suggestGraduationTarget(academicYear, programYears, today, firstFallOf(current.timeline, today));
+      const suggestedGraduation = suggestedGraduationFor(current, academicYear, programYears, today, firstFallOf(current.timeline, today), degreeHours);
       const selectedPrograms = (catalog?.ugaPrograms ?? []).filter((program) =>
         current.programIds.includes(program.id),
       );
@@ -582,7 +593,14 @@ export function Onboarding({
     setStep(3);
   }
 
-  function finish(next = answers) {
+  function finish(given = answers) {
+    let next = given;
+    // A transfer student's record, added after the finish was suggested, decides it
+    // (transfer-finish.ts), unless the student set or confirmed the date themselves.
+    if (!graduationEdited && !next.setupConfirmations?.graduationConfirmed && transferFinishInput(next, degreeHours, today)) {
+      const target = suggestedGraduationFor(next, next.academicYear, programYears, today, firstFallOf(next.timeline, today), degreeHours);
+      if (target.season && target.year) next = { ...next, graduationSeason: target.season, graduationYear: target.year };
+    }
     if (next.transcript) trackTranscript(next.transcript);
     track('setup_submitted', { level: next.programLevel, majors: next.programIds.filter((id) => id !== UNDECIDED_PROGRAM_ID).length, minors: next.minorIds.length, certificates: next.certificateIds.length });
     setStep(5);
@@ -851,7 +869,7 @@ export function Onboarding({
                   value={answers.academicYear}
                   onChange={(event) => {
                     const academicYear = event.target.value as AcademicYear;
-                    const target = suggestGraduationTarget(academicYear, programYears, today, firstFallOf(answers.timeline, today));
+                    const target = suggestedGraduationFor(answers, academicYear, programYears, today, firstFallOf(answers.timeline, today), degreeHours);
                     setGraduationEdited(false);
                     setAnswers((current) => ({
                       ...current,
@@ -906,7 +924,9 @@ export function Onboarding({
               <fieldset className="onb-graduation">
                 <legend>{answers.doubleDawgsPathwayId ? "When do you intend to finish your bachelor's degree?" : 'When do you intend to graduate?'}</legend>
                 <span className="onb-q-hint">
-                  {!graduationEdited && answers.academicYear
+                  {!graduationEdited && hoursFinish
+                    ? `Suggested from the ${hoursFinish.heldHours} hours you hold, at about 15 a term from ${hoursFinish.arrival.season} ${hoursFinish.arrival.year}, your first term here. Adjust for your pace.`
+                    : !graduationEdited && answers.academicYear
                     ? `Suggested using a ${programYears}-year program. Adjust for your pace.`
                     : answers.doubleDawgsPathwayId ? "The master's stage starts after this term." : 'The planner will not schedule courses beyond this term.'}
                 </span>
