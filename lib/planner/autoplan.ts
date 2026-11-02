@@ -7320,8 +7320,52 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   // At UGA the finished board's lone Area II labs, once, on the board the student gets (the gates' own builds pass freeChoices).
   // A track's course past the total takes a list seat of the planner's own pick (withUgaTrackPastSeated).
   // Then the notes that name where a course went are read again against that board (withBoardTrueNotes).
-  if (input.context?.schoolId === 'uga') return withBoardTrueNotes(input.freeChoices === undefined && input.plainEngine !== true ? withUgaGraduateNote(withUgaLabsPaired(withUgaTrackPastSeated(withUgaTrackListSeats(out, input), input), input)) : out);
+  // A transfer student's Terry note (withTerryTransferNote) is added last, against that finished board.
+  if (input.context?.schoolId === 'uga') {
+    const told = withBoardTrueNotes(input.freeChoices === undefined && input.plainEngine !== true ? withUgaGraduateNote(withUgaLabsPaired(withUgaTrackPastSeated(withUgaTrackListSeats(out, input), input), input)) : out);
+    return input.freeChoices === undefined && input.plainEngine !== true ? withTerryTransferNote(told, input) : told;
+  }
   return withClosedPrereqNotes(withLabsRejoined(out, input), input);
+}
+
+/**
+ * UGA: what a student transferring in should know about applying to a Terry
+ * major, under the board's Terry admission note (uga-terry-admission.ts).
+ * Words only: nothing is booked or moved.
+ *
+ * Every Terry BBA page's Entrance Requirements (bulletin.uga.edu/Program/
+ * Details/28543 and the other ten Terry BBA pages, read 2026-10-29) hold
+ * three things for a transfer: "Applicants must be eligible for enrollment
+ * at the University of Georgia in the semester in which they apply to a
+ * Terry major"; "good academic standing" is a 2.0 UGA GPA "or no UGA GPA for
+ * a new transfer student", with "a 2.6 or higher earned overall GPA
+ * (transfer and UGA coursework combined)"; and "Terry Departments require
+ * individual review of non-equivalent transfer courses before they can be
+ * used to satisfy Area VI or major requirements". Applicants "need to have
+ * completed or be in the process of completing" Area VI (or Areas I to VI).
+ * Terry's own external-transfer pages (terry.uga.edu) could not be read
+ * (2026-11-02: the site refused the request), so nothing beyond the
+ * Bulletin is modelled: the note sends the student to Terry to confirm.
+ *
+ * Why: a made-up Georgia State Perimeter Finance transfer (review-fresh-w3
+ * T7) was told to apply in Spring 2027, their first UGA term, while the
+ * board booked LEGL 2700, an Area VI course (GSU BUSA 2106 is LEGL 2TXX on
+ * UGA's list), in Spring 2028, a year later, and nothing said so.
+ */
+function withTerryTransferNote(out: GeneratedPlan, input: AutoplanInput): GeneratedPlan {
+  if (!input.arrival?.transfer) return out;
+  const at = out.notes.findIndex((note) => note.startsWith('Terry admission: apply to the '));
+  const apply = at >= 0 ? /^Terry admission: apply to the .+? major in (\S+ \d{4})/.exec(out.notes[at])?.[1] : undefined;
+  if (!apply) return out;
+  const applyAt = out.terms.findIndex((term) => term.label === apply);
+  const areaSix = new Set(input.requirements.filter((r) => /^VI\.\s/.test(r.areaLabel)).map((r) => r.id));
+  const late = applyAt < 0 ? [] : out.terms.slice(applyAt + 1).flatMap((term) => term.codes
+    .filter((code) => areaSix.has(out.bookedFor?.[code] ?? out.bookedFor?.[normaliseCode(code)] ?? ''))
+    .map((code) => `${code} (${term.label})`));
+  const lateText = late.length === 0 ? ''
+    : ` ${late.join(', ')} ${late.length === 1 ? 'is an Area VI course' : 'are Area VI courses'} on this plan after ${apply}, and the Bulletin asks applicants to have completed or be in the process of completing Area VI: ask Terry whether you can still apply in ${apply}, or take ${late.length === 1 ? 'it' : 'them'} by then.`;
+  const note = `Terry admission as a transfer student: you apply once you are at UGA (the Bulletin asks applicants to be eligible to enroll at UGA in the term they apply); a new transfer student has no UGA GPA yet, so the 2.6 overall GPA, transfer and UGA work combined, is the one read. Terry departments review transfer courses that are not exact UGA equivalents one by one before they count for Area VI or the major, so confirm with Terry which of yours count before you apply.${lateText}`;
+  return { ...out, notes: [...out.notes.slice(0, at + 1), note, ...out.notes.slice(at + 1)] };
 }
 
 /**
