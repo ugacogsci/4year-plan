@@ -7475,14 +7475,20 @@ function withUgaTrackListSeats(g: GeneratedPlan, input: AutoplanInput): Generate
     }
   }
   if (!traded) return g;
-  const swaps = [...said].map(([name, list]) => `${name}: in lists the degree counts them for, this plan takes ${list.join('; ')}, at the same hours.`);
-  board = { ...board, notes: [...board.notes, ...swaps] };
   // The track's own words, for the board as it now is.
   if (degreeFirst(g)) {
     const fresh = ugaDegreeFirstNotes(board, input);
     board = { ...board, notes: [...board.notes.filter((n) => !tracks.some((track) => n.startsWith(`${track.name}: the degree's own courses come first.`))), ...fresh] };
   }
-  return board;
+  // And the seats it took, in the track's own note (the one the plan dialog shows, uga-plan-notes.ts).
+  const notes = [...board.notes];
+  for (const [name, list] of said) {
+    const sentence = `In lists the degree counts them for, this plan takes ${list.join('; ')}, at the same hours.`;
+    const at = notes.findIndex((n) => n.startsWith(`${name}: `));
+    if (at >= 0) notes[at] = `${notes[at]} ${sentence}`;
+    else notes.push(`${name}: ${sentence}`);
+  }
+  return { ...board, notes };
 }
 
 /**
