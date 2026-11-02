@@ -33,7 +33,7 @@
  * there (checked on 2026-09-24; the check script lives outside the repo).
  */
 
-import { UGA_PAIR_FIRST, UGA_TRACKS } from './uga-career-tracks.ts';
+import { UGA_PAIR_FIRST, UGA_TOPIC_CODES, UGA_TRACKS } from './uga-career-tracks.ts';
 
 /** A page a list was taken from, and the day it was read. */
 export interface TrackSource {
@@ -826,6 +826,25 @@ export const INTEREST_TOPICS: InterestTopic[] = [
     subjects: [],
     courses: ['ECE 470', 'ME 445', 'AE 482', 'CS 452', 'ECE 484', 'SE 423', 'AE 483', 'ECE 486'],
   },
+  // A Mechanical Engineering student who said "automotive engineer" got the
+  // board a student with no goal gets: no topic heard the word, and no title
+  // has it, though ME 403 Internal Combustion Engines and ABE 466 Engineering
+  // Off-Road Vehicles are there (2026-11-01).
+  {
+    id: 'automotive',
+    label: 'automotive engineering',
+    detect: [
+      r`\bautomotive\b`,
+      r`\b(car|cars|vehicle|vehicles|automobile|automobiles|auto|electric\s+vehicles?|evs?)\s+(engineer|engineers|engineering|design|designer|industry|company|companies|manufacturer|manufacturers|manufacturing)\b`,
+      r`\bmotorsports?\b`,
+      r`\bformula\s+(one|1|sae)\b`,
+      r`\bpowertrains?\b`,
+    ],
+    // "vehicle" also opens CS 588 Autonomous Vehicle System Engineering, a graduate course the level rules keep out.
+    words: ['internal combustion', 'vehicle', 'automotive', 'energy conversion'],
+    subjects: [],
+    courses: ['ME 403', 'ME 400', 'ABE 466', 'ME 471', 'ME 461'],
+  },
   // Added after the scenario runs: a Computer Engineering student who said
   // "hardware and embedded systems" got graphics, networks and security as
   // technical electives, because no topic named the hardware side.
@@ -1159,6 +1178,23 @@ export const INTEREST_TOPICS: InterestTopic[] = [
     subjects: ['RST'],
     courses: ['RST 130', 'RST 238', 'RST 301', 'RST 325', 'RST 354', 'RST 407', 'RST 240', 'ADV 214'],
   },
+  /*
+   * Sports on the air and in print. "Sports broadcaster" was heard as
+   * journalism alone, and its "sports" went on as a word of its own: ATTR
+   * 3100 Prevention and Care of Conditions in Sports Medicine was a UGA
+   * Journalism student's major elective "for" the goal (2026-11-01). UGA has
+   * a subject for it, Sports Media (SPTM, UGA_TOPIC_CODES).
+   */
+  {
+    id: 'sports-media',
+    label: 'sports media/broadcasting',
+    detect: [
+      r`\bsports?\s*(media|broadcast(s|ing|er|ers)?|journalis(m|t|ts)|report(er|ers|ing)|writ(er|ers|ing)|announc(er|ers|ing)|commentat(or|ors|ing)|anchors?|caster|casters|casting|podcast(s|ing|er|ers)?|radio|television|tv|production|storytelling)\b`,
+    ],
+    words: ['sports journalism', 'sportsmedia', 'sports media', 'sports, media', 'sport documentar', 'sports public relations', 'sports broadcast', 'sports reporting', 'sports communication', 'sport and the mass media'],
+    subjects: [],
+    courses: ['JOUR 161', 'JOUR 361', 'MACS 224', 'MACS 324', 'ADV 314'],
+  },
   {
     id: 'public-health',
     label: 'public health',
@@ -1337,6 +1373,27 @@ export const INTEREST_TOPICS: InterestTopic[] = [
     words: ['politics', 'political', 'international relations', 'congress', 'elections'],
     subjects: ['PS'],
     courses: ['PS 100', 'PS 101', 'PS 220', 'PS 280', 'PS 301', 'PS 303', 'PS 319'],
+  },
+  /*
+   * The foreign service, heard as politics alone, kept the politics words:
+   * a UGA International Affairs freshman's free slots went to Latin American
+   * and Middle Eastern Politics and Politics, Film, and Literature, American
+   * Foreign Policy left the board, and so did Macroeconomics, which the
+   * Foreign Service Officer Test covers (2026-11-01). Politics still hears
+   * the same words; this topic adds what diplomacy is about.
+   */
+  {
+    id: 'diplomacy',
+    label: 'diplomacy/foreign service',
+    detect: [
+      r`\b(diplomat|diplomats|diplomacy|diplomatic|ambassadors?|embass(y|ies)|consulates?)\b`,
+      r`\bforeign\s+(service|policy|affairs)\b`,
+      r`\bstate\s+department\b`,
+      r`\b(national|international)\s+security\b`,
+    ],
+    words: ['foreign policy', 'diplomacy', 'diplomatic', 'international relations', 'international law', 'international political economy', 'national security', 'international organization', 'international security', 'world politics'],
+    subjects: [],
+    courses: ['PS 280', 'PS 390', 'PS 394', 'PS 395', 'PS 386', 'GLBL 392', 'ECON 103'],
   },
   {
     id: 'journalism',
@@ -1705,6 +1762,51 @@ export function interestProfile(text: string): InterestProfile {
   return { tracks, topics, words, subjects, courses, apply, heard };
 }
 
+/**
+ * The words of what the student wrote that a topic heard as part of a phrase,
+ * and that the rest of the sentence does not use on its own: "foreign" and
+ * "service" in "I want to work in the foreign service", "investment" and
+ * "banking" in "investment banking". The topic says what the phrase means
+ * (politics, investment banking), so its halves are no words of their own
+ * for titles: "service" alone booked ECHD 3020 Introduction to Counseling
+ * and Human Development Services and ALDR 3900S Leadership and Service for a
+ * future diplomat, and "investment" FIN 445 Real Estate Investment for a
+ * future investment banker (2026-11-01). Topics only: a track's phrase
+ * ("medical school") books its own list and keeps its words as they were.
+ */
+const phraseWordsCache = new Map<string, string[]>();
+export function phraseWordsOf(text: string | undefined): string[] {
+  const key = (text ?? '').trim();
+  const known = phraseWordsCache.get(key);
+  if (known) return known;
+  const t = masked(afterChangeOfMind(normalize(key)), NOT_A_GOAL);
+  const spans: Array<[number, number]> = [];
+  for (const topic of INTEREST_TOPICS) {
+    if (firstMention(t, topic.detect, topic.unless) < 0) continue;
+    const own = masked(t, topic.unless);
+    for (const source of topic.detect) {
+      for (const m of own.matchAll(compiled(source))) {
+        if (m[0].length === 0) continue;
+        const at = m.index ?? 0;
+        if (!stance(own, at, at + m[0].length).negated) spans.push([at, at + m[0].length]);
+      }
+    }
+  }
+  const inside = new Set<string>();
+  const outside = new Set<string>();
+  if (spans.length > 0) {
+    for (const m of t.matchAll(/[a-z]+/g)) {
+      const at = m.index ?? 0;
+      const end = at + m[0].length;
+      (spans.some(([a, b]) => at < b && end > a) ? inside : outside).add(m[0]);
+    }
+  }
+  const made = [...inside].filter((w) => !outside.has(w));
+  if (phraseWordsCache.size > 200) phraseWordsCache.clear();
+  phraseWordsCache.set(key, made);
+  return made;
+}
+
 /** How ALMA's set_priorities writes the student's new words into the stored career words. */
 export type InterestsMode = 'add' | 'replace' | 'clear';
 
@@ -1772,36 +1874,54 @@ export function trackRequiredStatus(
  * a UGA student gets the UGA track of the same id instead, and a goal with no
  * UGA list (pre-law) books nothing at UGA, as before.
  *
- * Only the tracks change, and what they bring: their title words and course
- * codes in `words` and `courses`. With no UGA track heard the profile is
- * returned exactly as it was, so a UGA board with no pre-health goal is built
- * as before. Illinois (or no school) gets the profile untouched.
+ * The tracks change, and what they bring: their title words and course
+ * codes in `words` and `courses`; and a topic UGA_TOPIC_CODES lists takes
+ * UGA's subjects and courses in place of Illinois's. With neither, the
+ * profile is returned exactly as it was, so a UGA board with no goal is
+ * built as before. Illinois (or no school) gets the profile untouched.
  */
 const forUga = new WeakMap<InterestProfile, InterestProfile>();
+const ugaTopics = new Map<string, InterestTopic>();
+/** The topic with UGA's subjects and courses (UGA_TOPIC_CODES), or the topic itself where UGA has none listed. */
+function ugaTopicOf(topic: InterestTopic): InterestTopic {
+  const codes = UGA_TOPIC_CODES[topic.id];
+  if (!codes) return topic;
+  const known = ugaTopics.get(topic.id);
+  if (known) return known;
+  const made = { ...topic, subjects: codes.subjects, courses: codes.courses };
+  ugaTopics.set(topic.id, made);
+  return made;
+}
 export function forSchool(profile: InterestProfile, schoolId: string | null | undefined): InterestProfile {
   if (schoolId !== 'uga') return profile;
   const known = forUga.get(profile);
   if (known) return known;
   const tracks = profile.tracks.map((t) => UGA_BY_ID.get(t.id)).filter((t): t is CareerTrack => t !== undefined);
+  const topics = profile.topics.map(ugaTopicOf);
+  const ownTopics = topics.some((topic, i) => topic !== profile.topics[i]);
   let made: InterestProfile;
-  if (tracks.length === 0) {
+  if (tracks.length === 0 && !ownTopics) {
     made = { ...profile, tracks: [] };
   } else {
     // The same order interestProfile adds them in: each track's words and codes, then the topics'.
     const own = profile.tracks.map((t) => UGA_BY_ID.get(t.id) ?? t);
     const words: string[] = [];
+    const subjects: string[] = [];
     const courses: string[] = [];
     const seenWords = new Set<string>();
+    const seenSubjects = new Set<string>();
     const seenCourses = new Set<string>();
     for (const tr of own) {
       pushAll(words, seenWords, tr.words);
-      pushAll(courses, seenCourses, tr.courses.flatMap((x) => x.codes));
+      // A track with no UGA list (pre-law) keeps its title words; its Illinois codes name nothing here.
+      if (UGA_BY_ID.has(tr.id)) pushAll(courses, seenCourses, tr.courses.flatMap((x) => x.codes));
     }
-    for (const topic of profile.topics) {
+    for (const topic of topics) {
       pushAll(words, seenWords, topic.words);
+      pushAll(subjects, seenSubjects, topic.subjects);
       pushAll(courses, seenCourses, topic.courses);
     }
-    made = { ...profile, tracks, words, courses };
+    made = ownTopics ? { ...profile, tracks, topics, words, subjects, courses } : { ...profile, tracks, words, courses };
   }
   forUga.set(profile, made);
   return made;

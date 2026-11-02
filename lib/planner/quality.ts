@@ -208,7 +208,22 @@ const LOW_INFORMATION = new Set([
  * and in a title it counts only in the degree's own subjects (a UGA Computer
  * Science student's "Calculus II for Science and Engineering").
  */
-const JOB_WORDS = new Set(['engineer', 'engineers', 'engineering']);
+const JOB_WORDS = new Set([
+  'engineer', 'engineers', 'engineering',
+  /*
+   * The other job nouns a goal is written with name who the student will be,
+   * not what they study: "brand manager" read "manage" into Management and
+   * Disaster Management (DMAN 3750 How to Survive the Apocalypse was a
+   * Marketing student's elective), and "physician assistant" read "physic"
+   * into Physics and Physical Ed (PHYS 4000 Physics Seminar, PEDB 1020
+   * Beginning Badminton) (2026-11-01). The field beside them ("brand",
+   * "software") is what names the courses.
+   */
+  'manager', 'managers', 'physician', 'physicians', 'assistant', 'assistants', 'specialist', 'specialists',
+  'programmer', 'programmers', 'executive', 'executives', 'director', 'directors', 'officer', 'officers',
+  'analyst', 'analysts', 'consultant', 'consultants', 'technician', 'technicians', 'coordinator', 'coordinators',
+  'administrator', 'administrators', 'broadcaster', 'broadcasters',
+]);
 
 const escapeWord = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -284,7 +299,9 @@ function namesSubject(cluster: string, word: string, names?: ReadonlyMap<string,
   if (LOW_INFORMATION.has(word)) return false;
   const name = ((names ? names.get(cluster) : ILLINOIS_SUBJECT_NAMES[cluster]) ?? '').toLowerCase();
   const stem = word.slice(0, Math.max(6, word.length - 3));
-  return name.split(/[^a-z]+/).some((part) => part === word || (part.length >= 6 && part.startsWith(stem) && stem.length >= 6));
+  // A broad word of the department's name (LOW_INFORMATION) is named only
+  // whole: "physicist" is not Physical Ed, nor "specialist" Special Education.
+  return name.split(/[^a-z]+/).some((part) => part === word || (part.length >= 6 && !LOW_INFORMATION.has(part) && part.startsWith(stem) && stem.length >= 6));
 }
 
 /**
@@ -301,6 +318,16 @@ export const RELEVANCE_REASONS = {
   titleAndSubject: 'its title and subject match what you said you want',
   title: 'its title matches what you said you want',
   subject: 'in a subject you said you want',
+  /*
+   * The same matches made by the field a goal names, not by the student's own
+   * words: "brand manager" names marketing, whose words found MARK 4910
+   * Sustainable Marketing Strategy, and "foreign service" politics. The card
+   * said "its title matches what you said you want" of a word the student
+   * never wrote (2026-11-01).
+   */
+  goalTitleAndSubject: 'its title and subject are in the field of your goal',
+  goalTitle: 'its title is in the field of your goal',
+  goalSubject: "in a subject of your goal's field",
   topics: 'catalog topics match: ',
   /** The career matcher's reason (career-embedding.ts reasonFor): "closest to your goal (dentist): 3rd of ...". */
   meaning: 'closest to your goal (',
@@ -315,7 +342,7 @@ export const RELEVANCE_REASONS = {
  * earns no goal points there, so it says nothing about the goal.
  */
 export function saysGoalMatch(why: string): boolean {
-  return [RELEVANCE_REASONS.named, RELEVANCE_REASONS.titleAndSubject, RELEVANCE_REASONS.title, RELEVANCE_REASONS.topics, RELEVANCE_REASONS.meaning].some((reason) => why.includes(reason));
+  return [RELEVANCE_REASONS.named, RELEVANCE_REASONS.titleAndSubject, RELEVANCE_REASONS.title, RELEVANCE_REASONS.goalTitleAndSubject, RELEVANCE_REASONS.goalTitle, RELEVANCE_REASONS.topics, RELEVANCE_REASONS.meaning].some((reason) => why.includes(reason));
 }
 
 /**
@@ -331,7 +358,7 @@ export function courseMatchesWord(course: { title: string; cluster: string }, wo
   const title = course.title.toLowerCase();
   const stem = stemOf(w);
   const inTitle = titleWord(w, false).test(title) || (stem !== w && titleWord(stem, false).test(title));
-  return (inTitle && !LOW_INFORMATION.has(w)) || (!JOB_WORDS.has(w) && namesSubject(course.cluster, w));
+  return !JOB_WORDS.has(w) && ((inTitle && !LOW_INFORMATION.has(w)) || namesSubject(course.cluster, w));
 }
 
 /**
@@ -578,16 +605,20 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
     // the hardware courses the student asked about.
     const ownSubject = course.cluster === q.primarySubject || q.degreeSubjects.has(course.cluster);
     const freeHits = free.filter((w) => !namesMajor(w) && (ownSubject || !JOB_WORDS.has(w)) && (inTitle(w, false) || (stemOf(w) !== w && inTitle(stemOf(w), false))));
-    const strongFree = freeHits.filter((w) => !LOW_INFORMATION.has(w));
-    const titleHit = curatedHits.length > 0 || strongFree.length > 0 || freeHits.length >= 2;
-    const subjectHit =
-      Boolean(q.interestSubjects?.has(course.cluster)) ||
-      free.some((w) => !namesMajor(w) && !JOB_WORDS.has(w) && namesSubject(course.cluster, w, names));
+    // A job word counts in the degree's own titles only beside another word the student said: "software
+    // engineer" made MATH 2500 Accelerated Calculus III for Engineering a UGA Computer Science student's
+    // pick over MATH 3000 Linear Algebra (2026-11-01); "Software Engineering" still matches on "software".
+    const strongFree = freeHits.filter((w) => !LOW_INFORMATION.has(w) && !JOB_WORDS.has(w));
+    const saidTitle = strongFree.length > 0 || freeHits.length >= 2;
+    const titleHit = curatedHits.length > 0 || saidTitle;
+    const saidSubject = free.some((w) => !namesMajor(w) && !JOB_WORDS.has(w) && namesSubject(course.cluster, w, names));
+    const subjectHit = Boolean(q.interestSubjects?.has(course.cluster)) || saidSubject;
     const courseHit = Boolean(q.interestCourses?.has(code));
+    // The student's own words, or the field their goal names (RELEVANCE_REASONS.goalTitle): the reason says which.
     if (courseHit) { v = 1; reasons.push(RELEVANCE_REASONS.named); }
-    else if (titleHit && subjectHit) { v = 1; reasons.push(RELEVANCE_REASONS.titleAndSubject); }
-    else if (titleHit) { v = 0.9; reasons.push(RELEVANCE_REASONS.title); }
-    else if (subjectHit) { v = 0.75; reasons.push(RELEVANCE_REASONS.subject); }
+    else if (titleHit && subjectHit) { v = 1; reasons.push(saidTitle && saidSubject ? RELEVANCE_REASONS.titleAndSubject : RELEVANCE_REASONS.goalTitleAndSubject); }
+    else if (titleHit) { v = 0.9; reasons.push(saidTitle ? RELEVANCE_REASONS.title : RELEVANCE_REASONS.goalTitle); }
+    else if (subjectHit) { v = 0.75; reasons.push(saidSubject ? RELEVANCE_REASONS.subject : RELEVANCE_REASONS.goalSubject); }
     else if (course.cluster === q.primarySubject) { v = 0.6; reasons.push('in your major'); }
     else if (q.degreeSubjects.has(course.cluster)) { v = 0.4; reasons.push("in one of your degree's subjects"); }
     if (course.description && !courseHit && goalTitle !== null) {

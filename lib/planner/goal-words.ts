@@ -1,4 +1,4 @@
-import { interestProfile, type InterestProfile } from './career-tracks';
+import { interestProfile, phraseWordsOf, type InterestProfile } from './career-tracks';
 import { courseMatchesWord, interestWordsFrom } from './quality';
 import type { PlanMark } from './repick';
 import type { OnboardingAnswers } from './onboarding';
@@ -412,7 +412,9 @@ export function goalReasonOf(
   const named = goalNamed(course, words.career);
   if (named) return `Picked for your goal: ${named}`;
   if (mark.kind === 'gened') return null;
-  const said = [...new Set(interestWordsFrom(words.interests))].filter((w) => courseMatchesWord(course, w)).slice(0, 2);
+  // Not half of a phrase a topic heard ("service" of "foreign service"): the planner reads no such word (autoplan.ts interestWordsOf).
+  const phrase = phraseWordsOf(words.career);
+  const said = [...new Set(interestWordsFrom(words.interests))].filter((w) => !phrase.includes(w) && courseMatchesWord(course, w)).slice(0, 2);
   if (said.length > 0) return `Picked for your interest in ${said.join(' and ')}`;
   // Its catalog description is what matched (quality.ts RELEVANCE_REASONS.topics): say so, and which words.
   const topics = mark.detail?.match(/catalog topics match: ([^.;]+)/)?.[1]?.split(/,\s*/).filter(Boolean).slice(0, 2);

@@ -1,7 +1,7 @@
 import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from './types';
 import { termLoad, type GradeRow } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
-import { forSchool, interestProfile, labPartners, UGA_CAREER_TRACKS, withHeldVariants, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
+import { forSchool, interestProfile, labPartners, phraseWordsOf, UGA_CAREER_TRACKS, withHeldVariants, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
 import type { Priorities } from './priorities';
 import { interestWordsFrom, saysGoalMatch, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
 import { GOAL_GROUP_CAP, NEAR_SAME, progressionPoints, varietyPenalty, type CareerFit } from './career-embedding';
@@ -4202,7 +4202,7 @@ export function qualityScorer(input: {
   const wantedTags = new Set([...genEdTagsOf(input.requirements)].filter((t) => !carried.has(t)));
   return qualityFor(ctx, byCode, {
     priorities: input.priorities,
-    interestWords: interestWordsOf(input.interests),
+    interestWords: interestWordsOf(input),
     profile: careerProfileOf(input),
     careerFit: input.careerFit,
     primarySubject: majors.primary,
@@ -4513,9 +4513,17 @@ function degreeSubjectsOf(
   return { subjects, primary };
 }
 
-/** Words a student wrote that could name a department or a topic. */
-function interestWordsOf(text: string | undefined): string[] {
-  return interestWordsFrom(text);
+/**
+ * Words a student wrote that could name a department or a topic: the free
+ * words, less the halves of a phrase a topic heard
+ * (career-tracks.ts phraseWordsOf): "service" of "foreign service" is the
+ * politics topic's, not a title word of its own. Read from the career words,
+ * as the goal is (careerProfileOf).
+ */
+function interestWordsOf(input: { interests?: string; career?: string }): string[] {
+  const words = interestWordsFrom(input.interests);
+  const heard = phraseWordsOf(input.career ?? input.interests);
+  return heard.length === 0 ? words : words.filter((w) => !heard.includes(w));
 }
 
 /** The career goals and topics in a student's words, read once per text. */
@@ -5885,7 +5893,7 @@ export function electiveOptions(input: {
     byCode,
     primarySubject: majors.primary,
     degreeSubjects: majors.subjects,
-    interestWords: interestWordsOf(input.interests),
+    interestWords: interestWordsOf(input),
     sectionCount,
     isHard,
     prereqs: ctx.prereqs,
@@ -5906,7 +5914,7 @@ export function electiveOptions(input: {
     harder: (code) => (ctx.grades?.get(code)?.difficulty ?? 0) >= (ctx.bands ?? FALLBACK_BANDS).harder,
     quality: input.quality ?? qualityFor(ctx, byCode, {
       priorities: input.priorities,
-      interestWords: interestWordsOf(input.interests),
+      interestWords: interestWordsOf(input),
     profile: careerProfileOf(input),
     careerFit: input.careerFit,
       primarySubject: majors.primary,
@@ -8035,7 +8043,15 @@ function withCourseTraded(g: GeneratedPlan, out: string, into: string, to: numbe
       return { ...rest, code: into, ...(elective ? { why: elective.why, reasons: elective.reasons } : {}), ...(forGoal ? { forGoal: true } : {}) };
     }),
     offering: { ...g.offering, unknown: [...g.offering.unknown.filter((c) => normaliseCode(c) !== out), ...(published.has(into) ? [] : [into])] },
-    notes: g.notes.map((note) => (ctx.schoolId === 'uga' ? withoutMissing(say(note), into) : say(note))),
+    /*
+     * A trade that brings back the course a class-time swap took off leaves
+     * that swap's note saying the course took its own place: "Class times:
+     * ACE 221 takes ACE 221's place in Spring 2027" on an Illinois Psychology
+     * board (2026-11-01). The swap is undone, so its note goes.
+     */
+    notes: g.notes
+      .map((note) => (ctx.schoolId === 'uga' ? withoutMissing(say(note), into) : say(note)))
+      .filter((note) => !/^Class times: ([A-Z]{2,5} \d{3,4}[A-Z]?) takes \1's place\b/.test(note)),
   };
 }
 
@@ -8063,6 +8079,11 @@ function withoutMissing(text: string, code: string): string {
       const left = listOf(list).filter((c) => c !== code);
       if (left.length === listOf(list).length) return all;
       return left.length === 0 ? gone : `${join(left)} ${left.length === 1 ? 'needs' : 'need'} a summer session ${rest}`;
+    })
+    .replace(new RegExp(`(${one}(?:, ${one})*(?: and ${one})?) fits? in ([^,.(]+) if you add (?:it|them) \\(\\d+ more hours?\\)`, 'g'), (all, list: string, where: string) => {
+      const left = listOf(list).filter((c) => c !== code);
+      if (left.length === listOf(list).length) return all;
+      return left.length === 0 ? gone : `${join(left)} ${left.length === 1 ? 'fits' : 'fit'} in ${where}if you add ${left.length === 1 ? 'it' : 'them'}`;
     });
   // A part joined to another goes with its ", and"; a part alone takes its sentence.
   return struck
@@ -9737,7 +9758,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const majorsForRank = degreeSubjectsOf(input.requirements, input.programName);
   const qualityAtPlacement = qualityFor(ctx, byCode, {
     priorities: prefs.priorities,
-    interestWords: interestWordsOf(input.interests),
+    interestWords: interestWordsOf(input),
     profile: careerProfileOf(input),
     careerFit: input.careerFitScope === 'electives' ? undefined : input.careerFit,
     primarySubject: majorsForRank.primary,
@@ -9779,7 +9800,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const genEdPriorities = prefs.priorities ?? DEFAULT_PRIORITIES;
   const rankGenEd = makeRanker(ctx, byCode, rankDepth, policy, qualityFor(ctx, byCode, {
     priorities: { ...genEdPriorities, coverage: 0 },
-    interestWords: interestWordsOf(input.interests),
+    interestWords: interestWordsOf(input),
     profile: careerProfileOf(input),
     careerFit: input.careerFitScope === 'electives' ? undefined : input.careerFit,
     primarySubject: majorsForRank.primary,
@@ -14405,7 +14426,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       byCode,
       primarySubject: majors.primary,
       degreeSubjects: majors.subjects,
-      interestWords: interestWordsOf(input.interests),
+      interestWords: interestWordsOf(input),
       sectionCount,
       isHard,
       prereqs: ctx.prereqs,
@@ -14426,7 +14447,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       harder: (code) => (grades.get(code)?.difficulty ?? 0) >= (ctx.bands ?? FALLBACK_BANDS).harder,
       quality: qualityFor(ctx, byCode, {
         priorities: prefs.priorities,
-        interestWords: interestWordsOf(input.interests),
+        interestWords: interestWordsOf(input),
     profile: careerProfileOf(input),
     careerFit: input.careerFit,
         primarySubject: majors.primary,
@@ -18840,8 +18861,58 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       }
     }
     const list = (codes: string[]) => (codes.length <= 1 ? codes.join('') : `${codes.slice(0, -1).join(', ')} and ${codes[codes.length - 1]}`);
+    /*
+     * A course off the board that a term the plan uses still has room for
+     * needs no summer: a pre-PT Exercise and Sport Science board's note said
+     * BIOL 1108 and its lab "need a summer session or an extra term" with
+     * Spring 2031 at 13 credits (2026-11-01). The plan keeps to the degree's
+     * hours, so the note says where they fit and what they add. A lab goes
+     * with its lecture.
+     */
+    const lastUsed = Math.max(-1, ...terms.filter((t) => (placed.get(t.id) ?? []).length > 0).map((t) => t.index));
+    const roomTerm = (unit: string[]): number => {
+      const lecture = unit.map((c) => labOf.get(c)).find((c): c is string => c !== undefined && !unit.includes(c));
+      const lectureAt = lecture !== undefined ? termOfCode(lecture) : -1;
+      if (lecture !== undefined && lectureAt < 0) return -1;
+      if (unit.some((c) => !byCode.has(c) || conflictFor(c) !== null)) return -1;
+      let hours = priorCreditTotal;
+      const before = new Set<string>(satisfiedForPrereq);
+      for (const term of terms) {
+        if (term.index > lastUsed) break;
+        const here = placed.get(term.id) ?? [];
+        const termHours = hours + awayBefore[term.index];
+        if (lectureAt < 0 || term.index === lectureAt) {
+          const same = new Set<string>();
+          for (const c of [...here, ...unit]) for (const e of expandEquivalents(c, equivalents)) same.add(e);
+          const fits =
+            !unit.some((c) => outOfSeason(byCode.get(c), term, published.has(c))) &&
+            unit.every((c) => standingMet(c, termHours) && levelFits(c, termHours, standingHours)) &&
+            unit.every((c) => match(ctx.prereqs?.get(c), before, same, equivalents).missing.length === 0) &&
+            planCreditRange(here, ctx).min + unit.reduce((sum, c) => sum + creditsOf(c), 0) <= creditCapOf(term);
+          if (fits) return term.index;
+        }
+        for (const c of here) for (const e of expandEquivalents(c, equivalents)) before.add(e);
+        hours += planCreditRange(here, ctx).min;
+      }
+      return -1;
+    };
+    const noRoom: string[] = [];
+    const roomIn = new Map<number, string[]>();
+    for (const code of off) {
+      const lecture = labOf.get(code);
+      if (lecture !== undefined && off.includes(lecture)) continue;
+      const lab = lectureLab.get(code);
+      const unit = lab !== undefined && off.includes(lab) ? [code, lab] : [code];
+      const at = roomTerm(unit);
+      if (at < 0) noRoom.push(...unit);
+      else roomIn.set(at, [...(roomIn.get(at) ?? []), ...unit]);
+    }
     const parts: string[] = [];
-    if (off.length > 0) parts.push(`${list(off)} ${off.length === 1 ? 'needs' : 'need'} a summer session or an extra term`);
+    if (noRoom.length > 0) parts.push(`${list(noRoom)} ${noRoom.length === 1 ? 'needs' : 'need'} a summer session or an extra term`);
+    for (const [at, codes] of [...roomIn].sort((a, b) => a[0] - b[0])) {
+      const hours = codes.reduce((sum, c) => sum + creditsOf(c), 0);
+      parts.push(`${list(codes)} ${codes.length === 1 ? 'fits' : 'fit'} in ${terms[at].label} if you add ${codes.length === 1 ? 'it' : 'them'} (${hours} more ${hours === 1 ? 'hour' : 'hours'})`);
+    }
     if (lateCodes.length > 0 && applicationDue !== null) parts.push(`${list(lateCodes)} ${lateCodes.length === 1 ? 'needs' : 'need'} a summer session before ${terms[applicationDue].label} to be on time`);
     return parts.length > 0 ? ` The degree's own courses come first, so for ${track.name} ${parts.join(', and ')}.` : '';
   };

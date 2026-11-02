@@ -237,7 +237,7 @@ export const UGA_TRACKS: UgaTrackData[] = [
       // courses in biochemistry, microbiology, anatomy, physiology, calculus,
       // statistics, psychology ..."); the codes are the ones other PPAO pages
       // give for the same subject.
-      row(['BCMB 3100'], 'suggested', "Biochemistry: some dental schools require it; BCMB 3100 is the course PPAO's pre-med page names."),
+      row(['BCMB 3100', 'BCMB 4020'], 'suggested', "Biochemistry: some dental schools require it; BCMB 3100, or BCMB 4010 with BCMB 4020, as PPAO's pre-med page names (BCMB 4020 follows BCMB 4010)."),
       row(['MIBO 2500', 'MIBO 3500'], 'suggested', "Microbiology: some dental schools require it; MIBO 2500 or MIBO 3500 are the courses PPAO's PA page names."),
       ...anatomyPhysiology('suggested', " Some dental schools require anatomy and physiology; this is the sequence PPAO's PA page names."),
       row(['STAT 2000', 'BIOS 2010'], 'suggested', "Statistics: some dental schools require it; STAT 2000 or BIOS 2010 as PPAO's pre-med page names."),
@@ -262,7 +262,7 @@ export const UGA_TRACKS: UgaTrackData[] = [
       psychology('required'),
       abnormalPsychology('recommended'),
       medicalTerminology('recommended'),
-      row(['BCMB 3100'], 'recommended', 'Biochemistry.'),
+      row(['BCMB 3100', 'BCMB 4020'], 'recommended', 'Biochemistry: BCMB 3100, or BCMB 4010 with BCMB 4020 (BCMB 4020 follows BCMB 4010).'),
       row(['GENE 3200'], 'recommended', 'Genetics.'),
       row(['CHEM 2212'], 'recommended', 'Organic chemistry II (the guide names the lecture alone).', honors('CHEM 2212')),
     ],
@@ -327,7 +327,7 @@ export const UGA_TRACKS: UgaTrackData[] = [
         'Physiology (one semester; the guide says physiology helps on the OAT): VPHY 3100, CBIO 3710 or PMCY 4020; or CBIO 2200 with CBIO 2210, which the guide says must both be taken to count for anatomy or physiology (CBIO 2210 follows CBIO 2200).'),
       row(['CBIO 3010', 'CBIO 3000'], 'recommended',
         'Anatomy (one semester, can come later in the plan): CBIO 3010 Functional Human Anatomy where a school requires vertebrate dissection, otherwise CBIO 3000 Comparative Vertebrate Anatomy; both are listed with their labs (CBIO 3010-3010L, CBIO 3000-3000L).'),
-      row(['BCMB 3100'], 'recommended', "Biochemistry: most optometry schools require or recommend it; BCMB 3100 is the course PPAO's pre-med page names."),
+      row(['BCMB 3100', 'BCMB 4020'], 'recommended', "Biochemistry: most optometry schools require or recommend it; BCMB 3100, or BCMB 4010 with BCMB 4020, as PPAO's pre-med page names (BCMB 4020 follows BCMB 4010)."),
       row(['MIBO 2500', 'MIBO 3500'], 'recommended', "Microbiology: MIBO 2500 or MIBO 3500, the courses PPAO's PA page names."),
       psychology('recommended'),
       row(['MATH 2250'], 'recommended', "Calculus: MATH 2250, the course PPAO's 2024 pre-med orientation names."),
@@ -391,3 +391,41 @@ export const UGA_TRACKS: UgaTrackData[] = [
     note: "These are the UGA College of Pharmacy's own Pharm.D. prerequisites (updated June 2025), not a general list. They can be taken at any accredited institution; other schools of pharmacy set their own. Questions go to the College of Pharmacy's Pharm.D. admissions office. The Pharm.D. is a four-year professional program entered after these prerequisites. The list also asks for at least 69 pre-pharmacy hours (35 of them done when the student applies), 6 hours of social science and 9 of world language and culture (page 2 of the list names the subjects); the planner does not count those hours, so check them with your advisor. PMCY 4050 is 3 hours, as the Bulletin's minor pages print it.",
   },
 ];
+
+/**
+ * UGA's own subjects and courses for the INTEREST_TOPICS (career-tracks.ts)
+ * whose lists name Illinois ones, by topic id. A topic's `subjects` and
+ * `courses` are Illinois codes (ACCY, FIN, ADV), which name nothing at UGA,
+ * so a UGA goal the topic heard counted only its title words: "I want to be
+ * a CPA" picked no course for the goal, and with nothing for the goal the
+ * board's Upper-Division General Electives went from FINA 4340 Fixed Income
+ * Securities and FINA 4310 Survey of Investments to FHCE 3100 Consumer
+ * Decision Making and PSYC 4100 Cognitive Psychology (2026-11-01).
+ * forSchool gives a UGA student these in the topic's place; a topic not
+ * listed keeps its lists as they were.
+ *
+ * The courses are the UGA catalog's for what the Illinois list names: the
+ * finance core and its corporate-finance and markets courses, the
+ * accounting sequence a CPA candidate takes, the marketing core. For law,
+ * where law schools require no course, the skills courses a pre-law
+ * student is steered to (logic, public speaking) and UGA's introductions
+ * to law: the word ranking alone took PHIL 2020 Logic and Critical Thinking
+ * off a Political Science pre-law board for RELI 2013 Law and Religion.
+ * Every code is in public/uga-catalog.json (__career-tracks.check.mjs).
+ */
+export const UGA_TOPIC_CODES: Readonly<Record<string, { subjects: string[]; courses: string[] }>> = {
+  finance: { subjects: ['FINA'], courses: ['FINA 3000', 'FINA 4000', 'FINA 4200', 'FINA 4310'] },
+  'investment-banking': { subjects: [], courses: ['FINA 4200', 'FINA 4205', 'FINA 4210', 'FINA 4920', 'FINA 4420'] },
+  markets: { subjects: [], courses: ['FINA 4310', 'FINA 4150', 'FINA 4160', 'FINA 4320', 'FINA 4330', 'FINA 4340', 'FINA 4350'] },
+  'real-estate': { subjects: ['REAL'], courses: [] },
+  // LEGL 4400 Business Law: the CPA exam's Regulation section tests business law as well as tax.
+  accounting: { subjects: ['ACCT'], courses: ['ACCT 2101', 'ACCT 2102', 'ACCT 5000', 'ACCT 5200', 'ACCT 5400', 'LEGL 4400'] },
+  marketing: { subjects: ['MARK', 'ADPR'], courses: ['MARK 3000', 'MARK 4000', 'MARK 4100', 'MARK 4600', 'ADPR 3100'] },
+  entrepreneurship: { subjects: ['ENTR'], courses: [] },
+  law: { subjects: [], courses: ['PHIL 2020', 'COMM 1110', 'JURI 3233', 'LEGL 2700', 'POLS 4080'] },
+  'sports-business': { subjects: [], courses: ['KINS 3430', 'KINS 4810', 'KINS 4520', 'KINS 4840', 'KINS 4250'] },
+  // The Sports Media certificate's other courses take permission of the department (SPTM 3850 and on), so only its open course is named.
+  'sports-media': { subjects: ['SPTM'], courses: ['SPTM 3800'] },
+  diplomacy: { subjects: ['INTL'], courses: ['INTL 3200', 'INTL 4250', 'INTL 4285', 'INTL 4240', 'INTL 4230', 'INTL 4210', 'ECON 2105'] },
+  'software-engineering': { subjects: ['CSCI'], courses: ['CSCI 1301', 'CSCI 1302', 'CSCI 2720', 'CSCI 4050', 'CSCI 4300', 'CSCI 4370'] },
+};
