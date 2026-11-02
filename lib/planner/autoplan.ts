@@ -4965,7 +4965,17 @@ const APPLICATION_GATE =
  * department" stays an alternative, below).
  */
 const APPROVAL_GATE =
-  /\b(instructor|instructor's|departmental|department|program|director)( approval| permission| consent)( is)? required\b|\bconsent of (the )?instructor( is)? required\b|\bby permission only\b|^\s*permission of (?:the )?(?:major|department|honors|school|college|program)\b|\bdoctor of pharmacy students?\b/i;
+  /\b(instructor|instructor's|departmental|department|program|director)( approval| permission| consent)( is)? required\b|\bconsent of (the )?instructor( is)? \(?required\)?|\bby permission only\b|^\s*permission of (?:the )?(?:major|department|honors|school|college|program)\b|\bdoctor of pharmacy students?\b/i;
+/**
+ * The same approval written beside the courses rather than in place of them,
+ * anywhere in the sentence: ADPR 3515 "(ADPR 3100 or ...) and permission of
+ * major and permission of department", JRLC 5040 "(ADPR 3100 or ...) and
+ * permission of school", which a Marketing student's social-media goal booked
+ * as free electives (2026-11-02). "... or permission of department" stays an
+ * alternative. A major's or school's permission is the student's own when
+ * the course is in the student's own subject.
+ */
+const APPROVAL_BESIDE = /\band\s+(?:the\s+)?permission of (?:the )?(major|department|school|college|program)\b/i;
 
 /**
  * The sentence that puts a course behind an application, an admission or
@@ -5004,6 +5014,12 @@ export function admissionGate(code: string, ctx: Pick<PlanningContext, 'prereqs'
     if (/\bor\s+$/i.test(before)) continue;
     if (/^\s*(for|to) repeat/i.test(after)) continue;
     if (/^\s*for non-?\s?([a-z]+\s)?majors\b/i.test(after) && primary && code.split(' ')[0] === primary) continue;
+    return sentence.trim();
+  }
+  for (const sentence of text.split(/(?<=[.;])\s+/)) {
+    const beside = sentence.match(APPROVAL_BESIDE);
+    if (!beside) continue;
+    if (/^(major|school|college|program)$/i.test(beside[1]) && primary && code.split(' ')[0] === primary) continue;
     return sentence.trim();
   }
   return null;
