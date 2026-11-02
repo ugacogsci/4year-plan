@@ -4974,11 +4974,14 @@ const APPROVAL_GATE =
  * as free electives (2026-11-02); and KINS 3430 "Students must be enrolled in
  * a professional program to register", which the same goal then booked with
  * KINS 4810 and 4850 after it. "... or permission of department" stays an
- * alternative. In the student's own subject the permission is the
- * student's own: JOUR 3330 "JOUR 3090 and permission of department" is a
- * Journalism major's elective, not a gate.
+ * alternative, and "and permission of department" alone is not read here
+ * (280 UGA courses): read as a gate it took SPAN 2030 Practical Spanish
+ * Conversation off fourteen Data Science, Genetics, Biochemistry and Music
+ * Composition boards' World Languages rows, and the course the list gave
+ * next was left unplaced. In the student's own subject the permission is
+ * the student's own.
  */
-const APPROVAL_BESIDE = /\band\s+(?:the\s+)?permission of (?:the )?(major|department|school|college|program)\b|\bmust be enrolled in a (professional) program\b/i;
+const APPROVAL_BESIDE = /\band\s+(?:the\s+)?permission of (?:the )?(major|school|college|program)\b|\bmust be enrolled in a (professional) program\b/i;
 
 /**
  * The sentence that puts a course behind an application, an admission or
