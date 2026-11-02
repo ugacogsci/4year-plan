@@ -43,12 +43,12 @@
  */
 import { calendarTerm, firstOpenTerm, readHorizon } from '@/components/planner/illinois-source';
 import type { Horizon } from './autoplan';
-import { currentConfirmed, currentLines, currentTermFor, partlyEnteredHours, termLoadFor, termUnderWay } from './current-term';
+import { currentConfirmed, currentLines, currentTermFor, partlyEnteredHours, termLoadFor, termOfLine, termUnderWay } from './current-term';
 import { schoolById, timelineForPlanning, type OnboardingAnswers } from './onboarding';
 import type { PlanShape } from './saved-board';
 import { assumedHours as assumedHoursOf, recordCoverage, uncoveredTerms } from './start-term';
 import { summersFor } from './summer-terms';
-import { lineIsForeign, normalizeTerm, type TranscriptRecord } from './transcript';
+import { lineIsForeign, normalizeTerm, transcriptResidentHours, type TranscriptRecord } from './transcript';
 import type { PlanTerm, SemesterSeason } from './types';
 
 export function termOrd(season: SemesterSeason, year: number): number {
@@ -182,10 +182,15 @@ export function horizonFor(
   // Not for a student who has not started here yet: one whose words say so,
   // or who named a start later than the next open term ("I start in Fall 2027").
   const laterStart = datedStart && !busyNext && startOrd > termOrd(open.season, open.year);
+  // Nor for a transfer student who is still at another school that term (arrivingLater).
+  const underWay = termUnderWay(now, answers?.transcript);
+  const elsewhere = underWay && termOrd(underWay.season, underWay.year) < termOrd(start.season, start.year)
+    ? arrivingLater(answers, underWay, written)
+    : null;
   horizon.current = currentTermFor({
-    underWay: termUnderWay(now, answers?.transcript),
+    underWay,
     start,
-    notStarted: Boolean(notStarted || incoming || laterStart),
+    notStarted: Boolean(notStarted || incoming || laterStart || elsewhere),
     away: horizon.away ?? [],
     boardTerms,
   });
@@ -195,6 +200,11 @@ export function horizonFor(
   // terms away they named.
   if (began && beganFrom !== 'record' && !horizon.gradPassed) {
     const coverage = recordCoverage(answers?.transcript);
+    // A transfer student still at the other school: the terms that school's
+    // record shows are terms they were there, not terms missing from this one.
+    // "I started at Perimeter in Fall 2025" with Fall 2025 to Fall 2026 on the
+    // Perimeter record counted 45 more hours on top of the record's own.
+    if (elsewhere) for (const t of datedTermsOf(answers?.transcript)) coverage.terms.add(t);
     horizon.assumedTerms = uncoveredTerms(began, start, coverage.terms, pastAway);
     horizon.assumedHours = assumedHoursOf(horizon.assumedTerms, coverage.unplacedHours, load.usual);
     const cur = horizon.current;
@@ -254,6 +264,17 @@ export function horizonFor(
     horizon.startNote = `You said you finish in ${label(p)}, ${when}, so there is nothing left to plan before it. This board shows ${label(start)} only in case your plans change; tell ${bot} a later finish if you need one.`;
   } else if (finishPassed && shape.finish) {
     horizon.startNote = `The finish set earlier, ${label(shape.finish)}, has passed, so this plan uses the finish from About you instead.`;
+  } else if (elsewhere && underWay && nowUnderWay) {
+    // A transfer student still at another school: nothing to add here this term.
+    const here = schoolById(answers?.schoolId ?? null)?.short ?? 'this school';
+    const when = elsewhere.arrival && sameTerm(elsewhere.arrival, start)
+      ? `You start at ${here} in ${label(start)}, so this plan starts then.`
+      : `This plan starts in ${label(start)}, the next term you can sign up for at ${here}. If you start there later, say so in About you.`;
+    const there = elsewhere.classesNow
+      ? ` Your ${label(underWay)} classes${elsewhere.school ? ` at ${elsewhere.school}` : ''} are on your record as in progress, so this plan does not book them again.`
+      : '';
+    const earlier = assumed ? ` Add the classes you have taken (upload your transcript or tell ${bot}) so they count.${assumed}` : '';
+    horizon.startNote = `${when}${there}${earlier}`;
   } else if (beganFrom === 'record') {
     horizon.startNote = horizon.current && horizon.currentAssumedHours > 0
       ? `Your record does not show ${label(horizon.current)} classes yet. Until you add them in the ${label(horizon.current)} column (or upload a newer transcript), this plan counts ${label(horizon.current)} as about ${horizon.currentAssumedHours} credits, the usual full load.`
@@ -324,4 +345,115 @@ function latestInProgressTerm(record: TranscriptRecord | null | undefined): { se
     if (!best || termOrd(t.season, t.year) > termOrd(best.season, best.year)) best = t;
   }
   return best;
+}
+
+/**
+ * Words that say the student is coming to this school from another one and
+ * has not yet: "I'm transferring to UGA in Spring 2027", "I will transfer to
+ * Illinois from Parkland", "transferring for spring". Not one who already has
+ * ("I transferred to UGA this fall"), nor a move inside the school
+ * ("transferring into Terry", "transferring to Gies next fall"), nor a
+ * different school with a name like this one ("transferring to Georgia
+ * State", "to Illinois State").
+ */
+const TRANSFER_VERB = String.raw`(?:transferring|(?:will|['’]ll|going to|gonna|plan(?:ning)? to|hop(?:e|ing) to|about to|set to)\s+transfer)`;
+const THIS_SCHOOL = String.raw`(?:the\s+)?(?:uga|university of georgia|georgia(?!\s+(?:state|tech|southern|gwinnett|highlands|gateway|military|college|perimeter|piedmont))|illinois(?!\s+(?:state|central|wesleyan|college|institute|tech))|uiuc|u of i|university of illinois(?!\s+(?:at\s+)?(?:chicago|springfield)))\b`;
+const FROM_CLAUSE = String.raw`(?:\s+from\s+(?:(?!\b(?:to|into)\b)[^.;!?])*?)?`;
+const TERM_AHEAD = String.raw`(?:in|for|this|next|starting)\s+(?:the\s+)?(?:spring|fall|autumn|summer|january|jan|august|aug|semester|term)\b`;
+const TRANSFER_AHEAD = new RegExp(String.raw`\b${TRANSFER_VERB}${FROM_CLAUSE}\s+(?:(?:to|into)\s+${THIS_SCHOOL}|${TERM_AHEAD})`, 'i');
+/** Words that put the student at this school now: "I transferred to UGA", "I'm at Illinois", "started at UGA this fall". */
+const HERE_NOW = new RegExp(String.raw`\b(?:transferred|started|began|enrolled|am|i['’]?m|i am)\s+(?:(?:to|into|at|in)\s+)${THIS_SCHOOL}`, 'i');
+const ARRIVAL_TERM = /\b(spring|fall|autumn|summer|january|jan|august|aug)\s*(?:semester\s*|term\s*)?(?:of\s*)?('\d{2}|20\d\d)\b/i;
+const ARRIVAL_SEASON: Record<string, SemesterSeason> = { spring: 'Spring', january: 'Spring', jan: 'Spring', fall: 'Fall', autumn: 'Fall', august: 'Fall', aug: 'Fall', summer: 'Summer' };
+
+/**
+ * A transfer student who is still at another school in the term under way
+ * and starts here later, or null.
+ *
+ * Four made-up Georgia State Perimeter transfers starting at UGA in Spring
+ * 2027 (2026-11-02 review) got a UGA "Fall 2026" current-semester column, and
+ * the three with Fall 2026 classes in progress at Perimeter were told "Your
+ * Fall 2026 classes are not added yet. Add them in the Fall 2026 column":
+ * those classes were on the record already, as another school's (currentLines
+ * leaves those out of the column), so the column read empty. A student who
+ * is not here this term has no classes here to add. The term's column is for
+ * a student here; this one's in-progress classes count as transfer credit
+ * from their own record, as they always did.
+ *
+ * Who: nothing on the record was taught here (no record, or another school's
+ * document with no line of this school's: the test internalTransferIntent
+ * uses), no class typed into this term by hand, and either
+ *   - the record shows classes in progress this term at the other school,
+ *     and their words do not put them here now; or
+ *   - their words say they are transferring here (TRANSFER_AHEAD) in a term
+ *     after this one: the term named in that sentence, or with none named the
+ *     first term open when they wrote it ("transferring to UGA" written in
+ *     July is this fall: they are here now).
+ * UGA's and Illinois's own students, and a freshman whose record is another
+ * school's dual credit, keep the column as before.
+ */
+export function arrivingLater(
+  answers: OnboardingAnswers | null | undefined,
+  underWay: { season: SemesterSeason; year: number },
+  written: Date,
+): { arrival: { season: SemesterSeason; year: number } | null; classesNow: boolean; school: string | null } | null {
+  const record = answers?.transcript ?? null;
+  if (record) {
+    const elsewhereRecord = record.kind === 'transfer_report' || record.home === false;
+    if (!elsewhereRecord || transcriptResidentHours(record).total > 0) return null;
+    if (currentLines(record, underWay).length > 0) return null;
+  }
+  const words = [answers?.studying ?? '', answers?.timeline ?? ''].join(' ');
+  const classesNow = Boolean(record?.courses.some((c) =>
+    c.status === 'in_progress' && lineIsForeign(record, c) && sameTermRef(termOfLine(c), underWay)));
+  const school = record?.institution?.trim() || null;
+  const ahead = TRANSFER_AHEAD.exec(words);
+  if (ahead) {
+    // The sentence the transfer is in, from the verb on, names when.
+    const rest = words.slice(ahead.index);
+    const sentence = rest.slice(0, Math.max(0, rest.search(/[.;!?](\s|$)/)) || rest.length);
+    const arrival = arrivalOf(sentence, written);
+    if (termOrd(arrival.season, arrival.year) > termOrd(underWay.season, underWay.year)) {
+      return { arrival: ARRIVAL_TERM.test(sentence) || /\b(this|next)\s+(spring|fall|autumn|summer|semester|term)\b/i.test(sentence) ? arrival : null, classesNow, school };
+    }
+    return null;
+  }
+  if (record && classesNow && !HERE_NOW.test(words)) return { arrival: null, classesNow, school };
+  return null;
+}
+
+/** The term a transfer sentence names ("in Spring 2027", "this fall", "next semester"), read as of the day it was written; with none, the first term open that day. */
+function arrivalOf(sentence: string, written: Date): { season: SemesterSeason; year: number } {
+  const m = sentence.match(ARRIVAL_TERM);
+  if (m) {
+    const year = m[2].startsWith("'") ? 2000 + Number(m[2].slice(1)) : Number(m[2]);
+    const season = ARRIVAL_SEASON[m[1].toLowerCase()];
+    return season === 'Summer' ? { season: 'Fall', year } : { season, year };
+  }
+  const cal = calendarTerm(written);
+  const open = firstOpenTerm(written);
+  const rel = sentence.match(/\b(this|next)\s+(spring|fall|autumn|summer|semester|term)\b/i);
+  if (rel) {
+    const word = rel[2].toLowerCase();
+    if (word === 'semester' || word === 'term') return rel[1].toLowerCase() === 'this' ? (cal.season === 'Summer' ? { season: 'Fall', year: cal.year } : cal) : open;
+    const season: SemesterSeason = word === 'spring' ? 'Spring' : 'Fall';
+    // "This fall" in October is the fall under way; "next spring" in October is the coming one.
+    const thisOne = { season, year: season === 'Spring' && cal.season === 'Fall' ? cal.year + 1 : cal.year };
+    if (rel[1].toLowerCase() === 'this') return thisOne;
+    return termOrd(thisOne.season, thisOne.year) > termOrd(cal.season, cal.year) ? thisOne : { season, year: thisOne.year + 1 };
+  }
+  return open;
+}
+
+const sameTermRef = (a: { season: SemesterSeason; year: number } | null, b: { season: SemesterSeason; year: number }) => Boolean(a && a.season === b.season && a.year === b.year);
+
+/** "Fall 2025", "Spring 2026": every term a line of the record is dated, whichever school taught it. */
+function datedTermsOf(record: TranscriptRecord | null | undefined): string[] {
+  const out = new Set<string>();
+  for (const c of record?.courses ?? []) {
+    if (!c.use || (c.status !== 'completed' && c.status !== 'in_progress')) continue;
+    const t = termOfLine(c);
+    if (t) out.add(`${t.season} ${t.year}`);
+  }
+  return [...out];
 }
