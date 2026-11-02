@@ -178,6 +178,8 @@ export function TranscriptUpload({
           notes: [...addTo.notes, ...fresh.notes.filter((n) => !addTo.notes.includes(n))],
           // A completed GECC shown on either upload stays on the record.
           gecc: addTo.gecc ?? fresh.gecc ?? null,
+          // So does a finished University System of Georgia core (UGA).
+          usgCore: addTo.usgCore ?? fresh.usgCore ?? null,
         });
       } else {
         onChange(matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable, crossListed));

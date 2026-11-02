@@ -44,8 +44,10 @@ import {
   ugaDesignation,
   ugaLookup,
   ugaSchoolEntry,
+  usgCoreCompletion,
   UGA_RENUMBERED,
   type TransferBasis,
+  type UsgCoreCompletion,
   type UgaDesignation,
   type UgaTransferTable,
 } from './transfer-official';
@@ -208,6 +210,14 @@ export interface TranscriptCourseRecord extends TranscriptCourse {
   designation?: string | null;
   /** The UGA core area a core elective usually fills, for the line's note. */
   coreArea?: string | null;
+  /**
+   * UGA records only: the system of the school that taught the line, from
+   * UGA's equivalency index ('usg' University System of Georgia, 'tcsg'
+   * technical college, 'other'). The System's area-to-area rule is for 'usg'
+   * lines alone (transfer-core.ts). Absent when the index does not name the
+   * school, and on records read before 2026-11-02.
+   */
+  sendingSystem?: 'usg' | 'tcsg' | 'other' | null;
   /** What the line became, why, and where that answer came from. */
   basis?: TransferBasis | null;
   /** A word about the grade: a D transfers, but a program may ask for a C. */
@@ -241,6 +251,8 @@ export interface TranscriptRecord {
   notes: string[];
   /** A completed IAI GECC (or an Illinois A.A./A.S. carrying it), when the document shows one. */
   gecc?: GeccCompletion | null;
+  /** UGA: a University System of Georgia core the document prints as completed, or an associate degree to confirm (transfer-official.ts usgCoreCompletion). */
+  usgCore?: UsgCoreCompletion | null;
   /**
    * The term ("Fall 2026") whose in-progress classes the student said are
    * theirs, on the board's current-semester column (current-term.ts). Absent
@@ -700,6 +712,14 @@ export function matchTranscript(
     };
   });
   applyTransferCaps(courses, schoolId);
+  // UGA: which system taught each transfer line, for the rules that hold within the University System of Georgia only (transfer-core.ts).
+  if (uga && ugaTable?.index) {
+    for (const line of courses) {
+      if (!line.from || isHomeTranscript(line.from, 'uga')) continue;
+      const entry = ugaSchoolEntry(ugaTable.index, line.from);
+      if (entry) line.sendingSystem = entry.system;
+    }
+  }
 
   // A document that prints no hours (a portal list of dual-credit courses)
   // still earns them: each such line from another school is counted at three
@@ -854,6 +874,9 @@ export function matchTranscript(
   // to the lines when a line already meets them, so the package never stands
   // in for a second Quantitative Reasoning course.
   const gecc = schoolId === 'illinois' ? geccCompletion(reading) : null;
+  // UGA: a finished University System of Georgia core, as the document prints it.
+  const usgCore = uga && !home ? usgCoreCompletion(reading.credentials, reading.institution, ugaTable?.index) : null;
+  if (usgCore) notes.unshift(usgCore.text);
   if (gecc) {
     const heldTags = new Set(
       courses
@@ -891,6 +914,7 @@ export function matchTranscript(
     exams: reading.exams,
     notes,
     ...(gecc ? { gecc } : {}),
+    ...(usgCore ? { usgCore } : {}),
   };
 }
 

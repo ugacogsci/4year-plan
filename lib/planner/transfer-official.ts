@@ -36,6 +36,101 @@ export const IAI_ASSOCIATE_DEGREES = 'https://www.itransfer.org/about/';
  */
 export const IAI_GECC_EXCEPTIONS_GUIDE = 'https://insidemcc.mchenry.edu/pubwebapp/uploadfile/transferguide/UIUCtrngd19.pdf';
 
+/**
+ * UGA Bulletin, Undergraduate Graduation Requirements: the core curriculum
+ * was set up within the University System of Georgia to carry credit between
+ * its schools, and every course completed in the core of any System school is
+ * accepted and transferable to the others. Its legislative requirements: the
+ * U.S. and Georgia history examination, exempted by HIST 2111, HIST 2112 or
+ * HIST 3080H; the constitution examinations, which POLS 1101 exempts "if
+ * taken in Georgia" (a POLS 1101 transferred from outside the state still
+ * owes the Georgia constitution).
+ */
+export const UGA_GRADUATION_REQUIREMENTS = 'https://bulletin.uga.edu/UnivInfo/content/university-info-undergrad-graduation-requirements.html';
+/**
+ * The UGA Registrar's crosswalk of USG Core IMPACTS to UGA's current core
+ * (read 2026-11-02): Mathematics & Quantitative Skills (MATH 1101, MATH 1113)
+ * goes to Area I: Foundation Courses; Political Science: U.S. and Georgia
+ * History & Constitution (HIST 2111, HIST 2112, POLS 1101) to Area V; Area III
+ * Quantitative Reasoning takes CSCI 1301 and PHIL 2500 from the Technology,
+ * Mathematics & Sciences domain; "UGA grants transfer credit in the most
+ * appropriate core area".
+ */
+export const UGA_CORE_CROSSWALK = 'https://reg.uga.edu/wp-content/uploads/USG_Core_IMPACTS-UGA_Current_Core-Common_Courses_Crosswalk.pdf';
+/**
+ * USG Transfer Hub (read 2026-11-02): a course completed in a sending
+ * school's Core IMPACTS domain gets full credit at another System school,
+ * domain to domain rather than course to course; excess hours in a domain go
+ * to a domain where the receiving school asks for more; Field of Study
+ * courses keep full credit only while the student keeps the same major; and
+ * Technical College System of Georgia courses transfer only as the USG-TCSG
+ * articulation lists name them, with no system-wide rule beyond those.
+ */
+export const USG_TRANSFER_HUB = 'https://www.usg.edu/curriculum/transfer-hub/';
+
+/**
+ * A finished University System of Georgia core on a transfer record.
+ *
+ * 'complete': the record itself prints the core as completed ("Core
+ * Curriculum Complete", "Core IMPACTS Completed", "Core Areas A-E Complete")
+ * and the school is a USG school, so UGA's Areas I to V are met: full credit
+ * domain to domain (USG_TRANSFER_HUB), every completed core course accepted
+ * (UGA_GRADUATION_REQUIREMENTS), the domains landing in UGA's areas
+ * (UGA_CORE_CROSSWALK). Area VI, the major's own courses, stays course by
+ * course: Field of Study credit holds only for the same major.
+ *
+ * 'confirm': a USG associate degree printed without a core notation. No page
+ * this planner may read says an associate degree is the completed core, so
+ * the board keeps the areas course by course and says how to confirm it.
+ *
+ * Never for a technical college or a school outside the USG: the area-to-area
+ * rule is the System's own (a technical college's courses count only as
+ * UGA's list names them, course by course).
+ */
+export interface UsgCoreCompletion {
+  status: 'complete' | 'confirm';
+  /** The record's own words. */
+  evidence: string;
+  school: string;
+  /** One plain paragraph for the record's notes and the core areas' rows. */
+  text: string;
+  sources: string[];
+}
+
+/** Read a USG core completion from the credentials a transfer record prints. */
+export function usgCoreCompletion(
+  credentials: string[] | null | undefined,
+  school: string | null | undefined,
+  index: UgaTransferIndex | null | undefined,
+): UsgCoreCompletion | null {
+  const entry = ugaSchoolEntry(index, school);
+  if (!entry || entry.system !== 'usg' || !school) return null;
+  const unfinished = /\b(not|in progress|incomplete|partial(ly)?|pending|remaining|expected|anticipated|candidate|pursuing|working toward|needed)\b/i;
+  let confirm: string | null = null;
+  for (const raw of credentials ?? []) {
+    const text = raw.trim();
+    if (!text || unfinished.test(text)) continue;
+    if (/\bcore\b/i.test(text) && /\b(complete[ds]?|completion|satisfied|fulfilled|met)\b/i.test(text)) {
+      return {
+        status: 'complete',
+        evidence: text,
+        school: entry.name,
+        text: `Your ${entry.name} record shows your core curriculum completed ("${text}"). Within the University System of Georgia a completed core earns full credit at the next school, area to area, so UGA's core Areas I to V count as met and the plan books no course for them. Area VI and your major's own courses are still checked course by course (System credit for them holds only in the same major), and so are UGA's U.S. history and constitution requirements. UGA's evaluation after admission decides.`,
+        sources: [USG_TRANSFER_HUB, UGA_GRADUATION_REQUIREMENTS, UGA_CORE_CROSSWALK],
+      };
+    }
+    if (!confirm && !/\bapplied\b/i.test(text) && /\bassociate (in|of) (arts|science)\b|^a\.? ?[as]\.?(\s|$)/i.test(text)) confirm = text;
+  }
+  if (!confirm) return null;
+  return {
+    status: 'confirm',
+    evidence: confirm,
+    school: entry.name,
+    text: `Your ${entry.name} record shows "${confirm}" but does not say your core curriculum is complete. If your transcript or UGA's evaluation says it is, UGA counts its core Areas I to V as met (a completed University System core earns full credit area to area); until then the plan checks each core area course by course.`,
+    sources: [USG_TRANSFER_HUB, UGA_GRADUATION_REQUIREMENTS],
+  };
+}
+
 /** What a line became, why, and where that answer came from, for the review list. */
 export interface TransferBasis {
   /** Whose answer: the document's own, the university's official list, a published rule, or none yet. */

@@ -179,6 +179,18 @@ export function auditUgaBoard(input: UgaAuditInput) {
   const creditsByCode = new Map(
     context.courses.map((course) => [course.code, course.credits]),
   );
+  /*
+   * A row the student's transfer credit meets in full by itself (a finished
+   * University System core, a core elective that fills a whole area:
+   * transfer-core.ts) needs none of their courses, so the courses are left
+   * for the rows that still need them. Counted with the area's own courses,
+   * the Life Sciences row took the biology a Psychology student's Area VI
+   * asked for and read VI 6 of 18 while the board held every course it names
+   * (2026-11-02). With no such credit, the program is the same object.
+   */
+  const creditOf = (label: string) => (input.coreCredit ?? []).filter((credit) => label.endsWith(credit.area)).reduce((sum, credit) => sum + credit.hours, 0);
+  const creditMet = new Set(undergraduate.program.areas.filter((area) => area.hours > 0 && creditOf(area.label) >= area.hours));
+  const progressProgram = creditMet.size === 0 ? undergraduate.program : { ...undergraduate.program, areas: undergraduate.program.areas.map((area) => (creditMet.has(area) ? { ...area, groups: [] } : area)) };
   let areas =
     ledger && graduate
       ? doubleDawgsProgress(
@@ -189,7 +201,7 @@ export function auditUgaBoard(input: UgaAuditInput) {
           priorCodes,
           extraCredits,
         )
-      : areaProgress(undergraduate.program, have, context.equivalents, {
+      : areaProgress(progressProgram, have, context.equivalents, {
           allowCrossAreaOverlap: true,
           creditsByCode,
           familyOf: ugaRuleFamily,
@@ -202,7 +214,7 @@ export function auditUgaBoard(input: UgaAuditInput) {
             const block = input.bookedFor?.[code.replace(/\s+/g, ' ').trim().toUpperCase()];
             return block ? labelOfBlock.get(block) ?? null : null;
           })(new Map(undergraduate.blocks.map((block) => [block.id, block.label]))),
-        });
+        }).map((row, i) => (progressProgram === undergraduate.program ? row : { ...row, area: undergraduate.program.areas[i] ?? row.area }));
   // Free electives are residual degree hours, not another mandatory named list.
   areas = areas.filter(
     (row) => !/(?:^|: )(?:general|free) electives?\b/i.test(row.area.label),
