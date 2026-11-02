@@ -7264,7 +7264,10 @@ function ranksAbove(a: number[], b: number[]): boolean {
 
 export function generatePlan(input: AutoplanInput): GeneratedPlan {
   const out = generatePlanGated(input);
-  return input.context?.schoolId === 'uga' ? withBoardTrueNotes(out) : withClosedPrereqNotes(out, input);
+  // At UGA the finished board's lone Area II labs, once, on the board the student gets (the gates' own builds pass freeChoices).
+  // Then the notes that name where a course went are read again against that board (withBoardTrueNotes).
+  if (input.context?.schoolId === 'uga') return withBoardTrueNotes(input.freeChoices === undefined && input.plainEngine !== true ? withUgaGraduateNote(withUgaLabsPaired(withUgaTrackListSeats(out, input), input)) : out);
+  return withClosedPrereqNotes(out, input);
 }
 
 /**
@@ -7331,6 +7334,226 @@ function withBoardTrueNotes(out: GeneratedPlan): GeneratedPlan {
     else final.push(`${opening}, so ${code} is not on this plan at all. A summer term before ${apply} would make room for it; ask your advisor.`);
   }
   return changed ? { ...out, notes: final } : out;
+}
+
+/**
+ * UGA: graduate courses (6000 and up) the board still holds, said once. A
+ * degree page that lists only graduate courses for a block (Environmental
+ * Health's general electives: BIOS 7010, EPID 7010, HPAM 7010, HPRB 7010)
+ * or a list pick that did not fit, stood in for by one (Landscape
+ * Architecture's LAND 4900 by LAND 6901), books them; an undergraduate takes
+ * them only with the department's permission (2026-11-02).
+ */
+function withUgaGraduateNote(g: GeneratedPlan): GeneratedPlan {
+  const graduate = [...new Set(g.terms.flatMap((t) => t.codes.map(normaliseCode)).filter(ugaGraduate))];
+  if (graduate.length === 0) return g;
+  const list = graduate.length === 1 ? graduate[0] : `${graduate.slice(0, -1).join(', ')} and ${graduate[graduate.length - 1]}`;
+  const note = `${list} ${graduate.length === 1 ? 'is a graduate course' : 'are graduate courses'}: an undergraduate takes ${graduate.length === 1 ? 'it' : 'them'} only with the department's permission, as in a combined bachelor's and master's (Double Dawgs) program, so ask your advisor before planning on ${graduate.length === 1 ? 'it' : 'them'}.`;
+  return g.notes.includes(note) ? g : { ...g, notes: [...g.notes, note] };
+}
+
+/**
+ * UGA: a course the student's pre-professional track names (required or
+ * recommended) and the board lacks takes the seat of the planner's own pick
+ * in a list it is on, at the same hours, in that pick's term, before the
+ * plan says it did not fit. The track rows the engine books beside the
+ * degree's courses take free elective room only, and the planner's list
+ * picks never see the track: a pre-veterinary Biology freshman's Major
+ * Electives held GENE 4200 while CBIO 4100 Immunology, on the same list, was
+ * said not to fit, and a pre-med Risk Management and International Business
+ * freshman's Life Sciences held ECOL 1000 and its lab where BIOL 1107 and
+ * its lab go (2026-11-02). Nothing moves but the pick, so the board's total
+ * and terms stay; the pick is no other course's prerequisite, a course and
+ * its lab trade as a pair, the course's prerequisites and standing are met
+ * by then, it runs that term, and the board audit reads no requirement less
+ * met. A degree-first board's track note is written again for the board.
+ */
+function withUgaTrackListSeats(g: GeneratedPlan, input: AutoplanInput): GeneratedPlan {
+  const tracks = careerProfileOf(input).tracks;
+  if (tracks.length === 0 || input.tracksOff === true) return g;
+  const ctx = input.context;
+  const equivalents = ctx.equivalents ?? new Map<string, string[]>();
+  const byCode = new Map(ctx.courses.map((c) => [normaliseCode(c.code), c]));
+  const held = new Set([...input.prior.courseCodes, ...(input.prior.exemptCodes ?? [])].flatMap((c) => expandEquivalents(normaliseCode(c), equivalents)));
+  const published = ctx.offeringPublished ?? new Set<string>();
+  const matcher = ctx.prereqCheck ?? defaultPrereqMatcher;
+  const standingHours = input.standingHours ?? DEFAULT_STANDING_HOURS;
+  const hoursOf = (codes: string[]) => planCreditRange(codes, ctx).min;
+  const versions = (row: TrackCourse) => [...row.codes, ...(row.variants ?? [])].flatMap((c) => expandEquivalents(normaliseCode(c), equivalents));
+  const trackCodes = new Set(tracks.flatMap((t) => t.courses.flatMap((row) => row.codes.map(normaliseCode))));
+  const audit = (board: GeneratedPlan) => (input.boardAudit ? input.boardAudit(board) : board.unsatisfied.length);
+  const degreeFirst = (board: GeneratedPlan) => tracks.some((track) => board.notes.some((n) => n.startsWith(`${track.name}: the degree's own courses come first.`)));
+  /*
+   * A pick another row or a university rule names may count there too (the
+   * audit reads a course in a core list and a rule both), and the audit's
+   * count of unmet rows does not see a row lose hours it still lacks: a
+   * pre-med Biochemical Engineering freshman's POLS 1101 went to PSYC 1101 and
+   * the US and Georgia history and constitution rule read 0 of 6 where it had
+   * read 3 (2026-11-02). So a pick a take-every-course row, a choice or a
+   * rule names gives up its seat only where that row stays met by the rest
+   * of the board and the record: a choice by its count, a rule's list by
+   * its hours, a take-every-course row never. A pre-med freshman's HIST 2111
+   * goes where HIST 2112 still meets US history.
+   */
+  const rows = withUgaUniversityRows(input.requirements, input).filter((r) => r.rule.kind === 'all' || r.rule.kind === 'choose' || ugaRuleArea(r.areaLabel) || ugaOverlapArea(r.areaLabel) || ugaLabArea(r.areaLabel));
+  const namesOf = (r: PlanRequirement) => (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool' ? r.rule.choices : []).map((c) => c.codes.flatMap((code) => expandEquivalents(normaliseCode(code), equivalents)));
+  const keptMet = (r: PlanRequirement, without: string[], on: Set<string>, into: string[]): boolean => {
+    const have = (code: string) => into.includes(code) || (!without.includes(code) && (on.has(code) || held.has(code)));
+    const choices = namesOf(r);
+    if (r.rule.kind === 'choose') return choices.filter((codes) => codes.some(have)).length >= r.rule.n;
+    if (r.rule.kind === 'pool') {
+      const codes = [...new Set(choices.flat().filter(have))];
+      return (r.rule.hours === null || hoursOf(codes) >= r.rule.hours) && (r.rule.n === null || codes.length >= r.rule.n);
+    }
+    return false;
+  };
+  const freeToGo = (outs: string[], on: Set<string>, into: string[]): boolean => rows.every((r) => !namesOf(r).some((codes) => outs.some((c) => codes.includes(c))) || keptMet(r, outs, on, into));
+  let board = g;
+  let unmet: number | null = null;
+  let traded = false;
+  const said = new Map<string, string[]>();
+  for (const track of tracks) {
+    for (const row of track.courses) {
+      if (row.need === 'suggested') continue;
+      const on = new Set(board.terms.flatMap((t) => t.codes.map(normaliseCode)));
+      if (versions(row).some((c) => on.has(c) || held.has(c))) continue;
+      // A lab trades with its lecture, below.
+      if (ugaLabOf(normaliseCode(row.codes[0])) !== null) continue;
+      let done = false;
+      for (const raw of row.codes) {
+        if (done) break;
+        const code = normaliseCode(raw);
+        const course = byCode.get(code);
+        if (!course) continue;
+        // Its lab, where the track names one the board and the record lack.
+        const lab = byCode.has(`${code}L`) && trackCodes.has(`${code}L`) && !on.has(`${code}L`) && !held.has(`${code}L`) ? `${code}L` : null;
+        for (const pool of board.pools) {
+          if (done) break;
+          // Not the foundation or quantitative reasoning lists, whose math the board's later courses and Terry's admission lean on: a pre-med Risk Management freshman's MATH 2200 went to PHYS 1111.
+          if (!pool.alternatives.map(normaliseCode).includes(code) || ugaLabArea(pool.areaLabel) || /(?:^|:\s*)(?:I|III)\. /.test(pool.areaLabel)) continue;
+          for (const pick of pool.picked.map(normaliseCode)) {
+            const to = board.terms.findIndex((t) => t.codes.some((c) => normaliseCode(c) === pick));
+            if (to < 0 || trackCodes.has(pick) || board.electives.some((e) => normaliseCode(e.code) === pick && (e.forGoal || e.track))) continue;
+            if (board.genEdPicks?.some((p) => normaliseCode(p.code) === pick && p.forGoal)) continue;
+            const term = board.terms[to];
+            if (term.season === 'Summer' || hoursOf([pick]) !== hoursOf([code])) continue;
+            const pickLab = on.has(`${pick}L`) && board.terms[to].codes.some((c) => normaliseCode(c) === `${pick}L`) ? `${pick}L` : null;
+            // A pair for a pair, a course for a course: no lab is left alone, none goes without its lecture.
+            if ((lab === null) !== (pickLab === null)) continue;
+            if (lab !== null && pickLab !== null && hoursOf([lab]) !== hoursOf([pickLab])) continue;
+            const unit = lab ? [code, lab] : [code];
+            if (unit.some((c) => outOfSeason(byCode.get(c), { season: term.season, label: term.label, calendarYear: term.year }, published.has(c)))) continue;
+            // The pick asked for by nothing else on the board.
+            const outs = pickLab ? [pick, pickLab] : [pick];
+            if (!freeToGo(outs, on, unit)) continue;
+            const names = new Set(outs.flatMap((c) => expandEquivalents(c, equivalents)));
+            if ([...on].some((other) => !outs.includes(other) && (ctx.prereqs?.get(other)?.groups ?? []).some((group) => group.any.some((a) => names.has(normaliseCode(a)))))) continue;
+            // Its prerequisites before that term, its standing by then.
+            const before = new Set<string>(held);
+            let hours = board.credits.total.min - board.terms.reduce((sum, t) => sum + t.credits.min, 0);
+            for (const t of board.terms.slice(0, to)) {
+              for (const c of t.codes) for (const e of expandEquivalents(normaliseCode(c), equivalents)) before.add(e);
+              hours += t.credits.min;
+            }
+            const same = new Set(board.terms[to].codes.filter((c) => !outs.includes(normaliseCode(c))).concat(unit).flatMap((c) => expandEquivalents(normaliseCode(c), equivalents)));
+            if (unit.some((c) => { const spec = ctx.prereqs?.get(c); const needs = spec?.standing; const m = matcher(spec, before, same, equivalents); return m.missing.length > 0 || m.uncertain.length > 0 || (needs ? hours < (standingHours[needs] ?? 0) : false); })) continue;
+            const why = { why: `For ${track.name}: ${row.why}`, reasons: [] as string[] };
+            let trial = withCourseTraded(board, pick, code, to, ctx, why);
+            if (lab && pickLab) trial = withCourseTraded(trial, pickLab, lab, to, ctx, why);
+            unmet ??= audit(board);
+            const trialUnmet = audit(trial);
+            if (trialUnmet > unmet || trial.notPlaced.length > board.notPlaced.length) continue;
+            board = trial;
+            unmet = trialUnmet;
+            traded = true;
+            done = true;
+            said.set(track.name, [...(said.get(track.name) ?? []), `${lab ? `${code} and ${lab}` : code} in place of ${pickLab ? `${pick} and ${pickLab}` : pick} (${pool.label || pool.areaLabel}, ${term.label})`]);
+            break;
+          }
+        }
+      }
+    }
+  }
+  if (!traded) return g;
+  const swaps = [...said].map(([name, list]) => `${name}: in lists the degree counts them for, this plan takes ${list.join('; ')}, at the same hours.`);
+  board = { ...board, notes: [...board.notes, ...swaps] };
+  // The track's own words, for the board as it now is.
+  if (degreeFirst(g)) {
+    const fresh = ugaDegreeFirstNotes(board, input);
+    board = { ...board, notes: [...board.notes.filter((n) => !tracks.some((track) => n.startsWith(`${track.name}: the degree's own courses come first.`))), ...fresh] };
+  }
+  return board;
+}
+
+/**
+ * UGA: an Area II lab on the finished board whose lecture is neither on the
+ * board nor on the record takes the place of the lab of a lecture that is,
+ * in that lecture's term: a Social Studies Education freshman's Spring 2028
+ * held ECOL 1000 beside ANTH 2045L, and a Data Science sophomore's ANTH 2045
+ * beside ECOL 1000L (2026-11-02). Their seats were traded one at a time by
+ * the free choices and the list substitutions, which never see the pair.
+ * Only where the lab's hours are the same, the term has the room and runs
+ * the lab, the lab rule takes it, and the board audit reads no requirement
+ * less met. A lab that has no such lecture stays, and the plan says what it
+ * lacks.
+ */
+function withUgaLabsPaired(g: GeneratedPlan, input: AutoplanInput): GeneratedPlan {
+  const ctx = input.context;
+  const rows = withUgaUniversityRows(input.requirements, input);
+  const codesOf = (r: PlanRequirement) => (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool' ? r.rule.choices.flatMap((c) => c.codes.map(normaliseCode)) : []);
+  const labRule = rows.filter((r) => ugaLabArea(r.areaLabel));
+  const labRuleCodes = new Set(labRule.flatMap(codesOf));
+  const areaTwo = new Set(rows.filter((r) => /(?:^|:\s*)II\. /.test(r.areaLabel) || ugaLabArea(r.areaLabel)).flatMap(codesOf));
+  const byCode = new Map(ctx.courses.map((c) => [normaliseCode(c.code), c]));
+  const equivalents = ctx.equivalents ?? new Map<string, string[]>();
+  const held = new Set([...input.prior.courseCodes, ...(input.prior.exemptCodes ?? [])].flatMap((c) => expandEquivalents(normaliseCode(c), equivalents)));
+  const { min, max } = { ...DEFAULT_CREDITS, ...input.preferences?.creditsPerTerm };
+  const published = ctx.offeringPublished ?? new Set<string>();
+  const hoursOf = (codes: string[]) => planCreditRange(codes, ctx).min;
+  const lone = (board: GeneratedPlan) => {
+    const on = new Set(board.terms.flatMap((t) => t.codes.map(normaliseCode)));
+    return board.terms.flatMap((t, i) => t.codes.map(normaliseCode).filter((code) => {
+      const lecture = ugaLabOf(code);
+      return lecture !== null && areaTwo.has(code) && byCode.has(lecture) && !expandEquivalents(lecture, equivalents).some((c) => on.has(c) || held.has(c));
+    }).map((code) => ({ code, at: i })));
+  };
+  const first = lone(g);
+  if (first.length === 0) return g;
+  const audit = (board: GeneratedPlan) => (input.boardAudit ? input.boardAudit(board) : board.unsatisfied.length);
+  let board = g;
+  let unmet = audit(g);
+  for (const { code } of first) {
+    const at = board.terms.findIndex((t) => t.codes.some((c) => normaliseCode(c) === code));
+    if (at < 0) continue;
+    const on = new Set(board.terms.flatMap((t) => t.codes.map(normaliseCode)));
+    const hours = hoursOf([code]);
+    // The lectures on the board (in their term) or the record (in the lab's) whose own lab is not on either.
+    const lectures = [...board.terms.flatMap((t, i) => t.codes.map((c) => ({ lecture: normaliseCode(c), to: i }))), ...[...held].map((lecture) => ({ lecture, to: at }))]
+      .filter(({ lecture }) => areaTwo.has(lecture) && byCode.has(`${lecture}L`) && !on.has(`${lecture}L`) && !held.has(`${lecture}L`))
+      // A lecture of the lab's own term first (no hour moves), then one on the board, then one on the record.
+      .sort((a, b) => Number(a.to !== at) - Number(b.to !== at) || Number(held.has(a.lecture)) - Number(held.has(b.lecture)) || a.to - b.to);
+    let paired: GeneratedPlan | null = null;
+    for (const { lecture, to } of lectures) {
+      const lab = `${lecture}L`;
+      const term = board.terms[to];
+      if (term.season === 'Summer' || hoursOf([lab]) !== hours || !areaTwo.has(lab)) continue;
+      if (labRuleCodes.has(code) && !labRuleCodes.has(lab)) continue;
+      if (outOfSeason(byCode.get(lab), { season: term.season, label: term.label, calendarYear: term.year }, published.has(lab))) continue;
+      if (to !== at && (hoursOf([...term.codes, lab]) > max || hoursOf(board.terms[at].codes.filter((c) => normaliseCode(c) !== code)) < Math.min(min, hoursOf(board.terms[at].codes)))) continue;
+      const trial = withCourseTraded(board, code, lab, to, ctx);
+      const trialUnmet = audit(trial);
+      if (trialUnmet > unmet || trial.notPlaced.length > board.notPlaced.length) continue;
+      paired = trial;
+      unmet = trialUnmet;
+      break;
+    }
+    if (paired) board = paired;
+  }
+  // The labs still alone: said, so the student plans the lecture beside it.
+  const left = lone(board);
+  if (left.length === 0) return board;
+  const said = left.map(({ code }) => `${code} is the lab of ${ugaLabOf(code)}, which this plan has no room for. A lab is taken with its lecture, so plan ${ugaLabOf(code)} beside it (a summer session, or in place of another course) with your advisor.`);
+  return { ...board, notes: [...board.notes, ...said.filter((n) => !board.notes.includes(n))] };
 }
 
 /**
@@ -8190,7 +8413,7 @@ function withoutMissing(text: string, code: string): string {
     .replace(new RegExp(`(${one}(?:, ${one})*(?: and ${one})?) fits? in ([^,.(]+) if you add (?:it|them) \\(\\d+ more hours?\\)`, 'g'), (all, list: string, where: string) => {
       const left = listOf(list).filter((c) => c !== code);
       if (left.length === listOf(list).length) return all;
-      return left.length === 0 ? gone : `${join(left)} ${left.length === 1 ? 'fits' : 'fit'} in ${where}if you add ${left.length === 1 ? 'it' : 'them'}`;
+      return left.length === 0 ? gone : `${join(left)} ${left.length === 1 ? 'fits' : 'fit'} in ${where.trim()} if you add ${left.length === 1 ? 'it' : 'them'}`;
     });
   // A part joined to another goes with its ", and"; a part alone takes its sentence.
   return struck
