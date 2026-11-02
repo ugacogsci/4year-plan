@@ -1496,6 +1496,8 @@ export function parsePrerequisites(
         !orMenu &&
         !tail &&
         !sequence &&
+        // "An introductory statistics course such as ACE 261, HK 209, ECON 202, SOC 280 or equivalent" (GGIS 439, PATH 439) names examples of a kind, which the STAT 100 or STAT 212 a board holds already is; as a choice of three it booked ECON 202 and GGIS 439 onto a spring Physical Geography board, 9 hours past its total.
+        !/\bsuch as\b/i.test(seg) &&
         produced.length > 1 &&
         menuItems.length > 1 &&
         !/\band\b/i.test(seg.replace(ESCAPE_TAIL, '')) &&
