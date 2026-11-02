@@ -7254,7 +7254,73 @@ function ranksAbove(a: number[], b: number[]): boolean {
 
 export function generatePlan(input: AutoplanInput): GeneratedPlan {
   const out = generatePlanGated(input);
-  return input.context?.schoolId === 'uga' ? out : withClosedPrereqNotes(out, input);
+  return input.context?.schoolId === 'uga' ? withBoardTrueNotes(out) : withClosedPrereqNotes(out, input);
+}
+
+/**
+ * UGA: the notes that name where a course went, read again against the
+ * board that stands. The list substitution's "X was the first pick ... Y
+ * takes its place in <term>" is written while the board is still being
+ * built, and the passes after it move and trade courses: an Accounting and
+ * International Business freshman's board said HIST 2111 did not fit while
+ * HIST 2111 sat in Fall 2029, and three pre-med co-major boards put PSYC
+ * 1101 in Spring 2029 where the note said Spring 2030 (2026-11-02). A note
+ * whose first pick is on the board, or whose stand-in is not, is dropped;
+ * one whose stand-in moved names the term it is in. The Terry calculus note
+ * (generatePlanBuilt) says plainly whether the calculus it could not date
+ * comes after the application, gave its seat to a stand-in, or is off the
+ * board. Words only: nothing is booked or moved.
+ */
+function withBoardTrueNotes(out: GeneratedPlan): GeneratedPlan {
+  const termOf = new Map<string, string>();
+  for (const term of out.terms) for (const code of term.codes) if (!termOf.has(normaliseCode(code))) termOf.set(normaliseCode(code), term.label);
+  const firstPick = /^(\S+ \S+) was the first pick for (.+) but did not fit before (.+?); (\S+ \S+), from the same list, takes its place in (\S+ \d{4})\.$/;
+  const calculus = /^Terry weighs calculus grades \(MATH 2200, 2250, 2260\) in admission, but this plan has no room for (MATH \d{4}) by (\S+ \d{4}), when you apply, without leaving another requirement off\. A summer term before then would make room; ask your advisor\.$/;
+  // The stand-in each first pick gave its seat to, as the board stands.
+  const standIn = new Map<string, { code: string; term: string }>();
+  let changed = false;
+  const notes: string[] = [];
+  for (const note of out.notes) {
+    const m = firstPick.exec(note);
+    if (!m) {
+      notes.push(note);
+      continue;
+    }
+    const [, pick, , , sub, said] = m;
+    const subAt = termOf.get(normaliseCode(sub));
+    if (termOf.has(normaliseCode(pick)) || subAt === undefined) {
+      changed = true;
+      continue;
+    }
+    standIn.set(normaliseCode(pick), { code: sub, term: subAt });
+    if (subAt === said) notes.push(note);
+    else {
+      changed = true;
+      notes.push(`${note.slice(0, note.length - `${said}.`.length)}${subAt}.`);
+    }
+  }
+  const final: string[] = [];
+  for (const note of notes) {
+    const m = calculus.exec(note);
+    if (!m) {
+      final.push(note);
+      continue;
+    }
+    const [, code, apply] = m;
+    const applyAt = out.terms.findIndex((term) => term.label === apply);
+    // The first calculus course the board books, the one named or another.
+    const bookedAt = out.terms.findIndex((term) => term.codes.some((c) => /^MATH 22[056]0$/.test(normaliseCode(c))));
+    const booked = bookedAt < 0 ? undefined : out.terms[bookedAt].codes.find((c) => /^MATH 22[056]0$/.test(normaliseCode(c)));
+    changed = true;
+    // A calculus course by the application term after all: nothing to say.
+    if (booked !== undefined && applyAt >= 0 && bookedAt <= applyAt) continue;
+    const opening = `Terry weighs calculus grades (MATH 2200, 2250, 2260) in admission, but this plan has no room for ${code} by ${apply}, when you apply, without leaving another requirement off`;
+    const instead = standIn.get(normaliseCode(code));
+    if (booked !== undefined) final.push(`${opening}, so it books ${booked} in ${out.terms[bookedAt].label}, after you apply. A summer term before ${apply} would make room for it; ask your advisor.`);
+    else if (instead) final.push(`${opening}, so ${code} is not on this plan: ${instead.code} takes its place in ${instead.term}. A summer term before ${apply} would make room for ${code}; ask your advisor.`);
+    else final.push(`${opening}, so ${code} is not on this plan at all. A summer term before ${apply} would make room for it; ask your advisor.`);
+  }
+  return changed ? { ...out, notes: final } : out;
 }
 
 /**
