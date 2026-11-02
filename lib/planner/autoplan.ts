@@ -8278,7 +8278,43 @@ function withUgaSeriesOrder(ctx: PlanningContext, requirements: readonly PlanReq
   return { ...ctx, prereqs };
 }
 
+/** A board whose calculus pick was dated by the Terry application term, with that term (generatePlanBuilt). */
+const terryCalculusDated = new WeakMap<GeneratedPlan, string>();
+
+/**
+ * Terry's calculus date only where the board has the room for it.
+ *
+ * Dating MATH 2200 by the application term (generatePlanBuiltOnce) is a
+ * timing preference, and the degree comes first. On a board whose
+ * requirements already fill every term, the four-credit MATH 2200 moved up
+ * to the application term left a three-credit seat empty: the seven-term
+ * International Business co-major freshmen (Accounting, Finance, MIS,
+ * Marketing, Risk Management) lost HIST 2111 and HIST 2112, or BUSN 4940
+ * and RMIN 5560, and read V. Social Sciences and the University-Wide
+ * history row unmet where the undated board met them (2026-10-31). Where
+ * the dated board leaves the degree short, the board built without the date
+ * stands if it leaves less of the degree undone: fewer rows unmet by the
+ * board audit (AutoplanInput.boardAudit, else the engine's own), then fewer
+ * required courses off. Only a board with a shortfall is built twice.
+ */
 function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
+  const dated = generatePlanBuiltOnce(given, true);
+  const apply = terryCalculusDated.get(dated);
+  if (apply === undefined || (dated.notPlaced.length === 0 && dated.unsatisfied.length === 0)) return dated;
+  const undated = generatePlanBuiltOnce(given, false);
+  const shortOf = (g: GeneratedPlan) => ({ unmet: given.boardAudit ? given.boardAudit(g) : g.unsatisfied.length, off: g.notPlaced.length });
+  const a = shortOf(undated);
+  const b = shortOf(dated);
+  if (!(a.unmet < b.unmet || (a.unmet === b.unmet && a.off < b.off))) return dated;
+  // Said where the calculus the dated board booked is not on the kept board by the application term.
+  const due = dated.terms.findIndex((term) => term.label === apply);
+  const calculus = dated.terms.slice(0, due + 1).flatMap((term) => term.codes).find((code) => /^MATH 22[056]0$/.test(normaliseCode(code)));
+  const early = calculus !== undefined && undated.terms.slice(0, due + 1).some((term) => term.codes.some((code) => normaliseCode(code) === normaliseCode(calculus)));
+  if (calculus && !early) undated.notes.push(`Terry weighs calculus grades (MATH 2200, 2250, 2260) in admission, but this plan has no room for ${calculus} by ${apply}, when you apply, without leaving another requirement off. A summer term before then would make room; ask your advisor.`);
+  return undated;
+}
+
+function generatePlanBuiltOnce(given: AutoplanInput, calculusDate: boolean): GeneratedPlan {
   // A degree held at the release (held-degrees.ts PLANNED_AS_RELEASED) is planned by the release's engine.
   if (given.programId && given.asReleased !== false && PLANNED_AS_RELEASED.has(given.programId)) {
     const released = generateReleasedPlan(given as unknown as ReleasedInput) as unknown as GeneratedPlan;
@@ -8318,7 +8354,7 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
    * plan at more than fifteen a term: dated, it took MGMT 5560's seat on a
    * three-year Marketing and International Business board.
    */
-  const terryMathDue = terry?.apply && terry.applyIndex !== null && terry.steady && !given.horizon.summers?.length
+  const terryMathDue = calculusDate && terry?.apply && terry.applyIndex !== null && terry.steady && !given.horizon.summers?.length
     ? Object.fromEntries(['MATH 2200', 'MATH 2250', 'MATH 2260'].filter((code) => !given.prior.courseCodes.map(normaliseCode).includes(code)).map((code) => [code, terry.applyIndex as number]))
     : undefined;
   const ugaDue = ugaLanguageDue || terryMathDue ? { ...terryMathDue, ...ugaLanguageDue } : undefined;
@@ -9144,6 +9180,11 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
       const first = result.terms.find((term) => term.codes.some((code) => /^LEGL 4\d{3}/.test(code) || code === 'BUSN 4650'));
       if (first) first.notes.push(legal);
     }
+  }
+  // Marked where the date reached a calculus course the board books or left off (generatePlanBuilt).
+  if (terryMathDue && terry?.apply) {
+    const dated = new Set(Object.keys(terryMathDue));
+    if ([...result.terms.flatMap((term) => term.codes), ...result.notPlaced.map((x) => x.code)].some((code) => dated.has(normaliseCode(code)))) terryCalculusDated.set(result, terry.apply.label);
   }
   return result;
 }
