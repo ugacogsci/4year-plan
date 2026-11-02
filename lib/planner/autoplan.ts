@@ -8401,7 +8401,12 @@ function generatePlanBuilt(given: AutoplanInput): GeneratedPlan {
   return undated;
 }
 
-function generatePlanBuiltOnce(given: AutoplanInput, calculusDate: boolean): GeneratedPlan {
+/**
+ * `later`: terms the Terry application waits past the record's own reckoning,
+ * and `waited` the term it would have been and the entrance courses the board
+ * built for it had no room for before it (the end of this function).
+ */
+function generatePlanBuiltOnce(given: AutoplanInput, calculusDate: boolean, later = 0, waited?: { apply: string; late: string[] }): GeneratedPlan {
   // A degree held at the release (held-degrees.ts PLANNED_AS_RELEASED) is planned by the release's engine.
   if (given.programId && given.asReleased !== false && PLANNED_AS_RELEASED.has(given.programId)) {
     const released = generateReleasedPlan(given as unknown as ReleasedInput) as unknown as GeneratedPlan;
@@ -8415,7 +8420,7 @@ function generatePlanBuiltOnce(given: AutoplanInput, calculusDate: boolean): Gen
     const held = [...given.prior.courseCodes, ...(given.prior.inProgressCodes ?? [])].map(normaliseCode);
     const credits = new Map(tracked.courses.map((course) => [normaliseCode(course.code), course.credits ?? 0]));
     const heldHours = [...new Set(held)].reduce((sum, code) => sum + (credits.get(code) ?? 3), 0) + (given.prior.unmatchedCredits ?? 0);
-    return ugaTerryAdmission({ programName: given.programName, programCollege: given.programCollege, startSeason: given.horizon.startSeason, startYear: given.horizon.startYear, gradSeason: given.horizon.gradSeason, gradYear: given.horizon.gradYear, degreeTotal: given.degreeTotal, held, heldHours, courses: tracked.courses });
+    return ugaTerryAdmission({ programName: given.programName, programCollege: given.programCollege, startSeason: given.horizon.startSeason, startYear: given.horizon.startYear, gradSeason: given.horizon.gradSeason, gradYear: given.horizon.gradYear, degreeTotal: given.degreeTotal, held, heldHours, courses: tracked.courses, later });
   })() : null;
   const context = terry && terry.notBefore.size > 0 ? { ...tracked, courseNotBefore: new Map([...(tracked.courseNotBefore ?? []), ...terry.notBefore]) } : tracked;
   // At UGA, its university-wide and college rules' rows as the planner reads them, and physical education (uga-university-rules.ts).
@@ -9287,6 +9292,22 @@ function generatePlanBuiltOnce(given: AutoplanInput, calculusDate: boolean): Gen
   if (terryMathDue && terry?.apply) {
     const dated = new Set(Object.keys(terryMathDue));
     if ([...result.terms.flatMap((term) => term.codes), ...result.notPlaced.map((x) => x.code)].some((code) => dated.has(normaliseCode(code)))) terryCalculusDated.set(result, terry.apply.label);
+  }
+  /*
+   * An entrance course the board could not fit before the application term
+   * after all (terryOwedDue is a date, not a guarantee): the application
+   * waits a term, so the major's courses wait with it, and the board says
+   * why. At most two terms; the board stands as built after that.
+   */
+  if (terry?.apply && terry.owed.length > 0) {
+    const applyAt = result.terms.findIndex((term) => term.label === terry.apply?.label);
+    const firstAt = (match: (code: string) => boolean) => result.terms.findIndex((term) => term.codes.some((code) => match(normaliseCode(code))));
+    const late = applyAt < 0 ? [] : terry.owed.filter((owed) => {
+      const at = owed === 'MATH 1113' ? firstAt((code) => /^MATH (?:1113|2200|2250|2260|2300|2400|2410|2500)/.test(code)) : firstAt((code) => code === owed);
+      return at >= applyAt;
+    });
+    if (late.length > 0 && later < 2) return generatePlanBuiltOnce(given, calculusDate, later + 1, waited ?? { apply: terry.apply.label, late });
+    if (waited) result.notes.push(`Terry admission: this plan has no room for ${waited.late.join(' and ')} before ${waited.apply}, so the application waits until ${terry.apply.label}${late.length > 0 ? `, and even then ${late.join(' and ')} is not done by it` : ''}. A summer term before ${waited.apply} would let you apply then; ask your advisor.`);
   }
   return result;
 }

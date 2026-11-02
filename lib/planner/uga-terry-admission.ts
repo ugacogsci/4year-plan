@@ -71,6 +71,8 @@ export function ugaTerryAdmission(args: {
   held: readonly string[];
   heldHours: number;
   courses: readonly Course[];
+  /** Terms after the record's own reckoning: the board had no room for MATH 1113 or ACCT 2101 before it (generatePlanBuiltOnce). */
+  later?: number;
 }): TerryAdmission | null {
   if (args.programCollege !== 'BUS' || !/\bBBA\b/.test(args.programName ?? '')) return null;
   const hit = TERRY_MAJOR_PREFIX.find(([re]) => re.test(args.programName ?? ''));
@@ -90,7 +92,7 @@ export function ugaTerryAdmission(args: {
   if (args.gradSeason && args.gradYear) for (let t = { ...at }; terms < 16 && (t.year < args.gradYear || (t.year === args.gradYear && (t.season === 'Spring' || args.gradSeason !== 'Spring'))); t = nextRegular(t.season, t.year)) terms += 1;
   const pace = terms > 0 && args.degreeTotal ? Math.max(LOAD, Math.ceil((args.degreeTotal - args.heldHours) / terms)) : LOAD;
   const forHours = Math.max(0, Math.ceil((HOURS_TO_APPLY - args.heldHours) / pace) - 1);
-  const applyIndex = Math.max(forCourses, forHours);
+  const applyIndex = Math.max(forCourses, forHours) + Math.max(0, args.later ?? 0);
   for (let i = 0; i < applyIndex; i += 1) at = nextRegular(at.season, at.year);
   const apply = { ...at, label: `${at.season} ${at.year}` };
   const next = nextRegular(at.season, at.year);
