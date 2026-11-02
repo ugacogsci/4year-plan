@@ -165,6 +165,8 @@ export function areaProgress(
     familyOf?: (label: string) => string;
     /** The area label a board course was booked for, where the caller knows it: an area of its family leaves it to that one. */
     ownerOf?: (code: string) => string | null;
+    /** The label of the list (group) a board course was booked for, where the caller knows it (below: an area short by the cheapest reading). */
+    groupOf?: (code: string) => string | null;
   },
 ): Array<{ area: RequirementArea; earned: number; percent: number; satisfied: boolean }> {
   const spend = (code: string, spent: Set<string>): void => {
@@ -280,13 +282,29 @@ export function areaProgress(
         return (code: string) => (hits(laterRows, code) ? 2 : hits(others, code) ? 1 : 0);
       };
       const bookedHere = family !== null && options.ownerOf ? (code: string) => options.ownerOf?.(code) === area.label : undefined;
-      const run = (largestFirst: boolean) => {
+      /*
+       * `byGroup`: each list of the area takes the courses the board booked
+       * for that list first, and those booked for another of its lists last.
+       * By the area alone, Interdisciplinary Studies' Focus Area took EDIT
+       * 5100E and its Area VI list GEOG 1130, FHCE 2100 and NUTR 2100, all
+       * four booked for its general electives, which then read 9 of 12: the
+       * Program of Study read 54 of 57 on a board that holds all 57 (2026-10-31).
+       */
+      const groupOf = options.groupOf;
+      const run = (largestFirst: boolean, byGroup = false) => {
         const spent = new Set<string>(before);
         const satisfied = new Map<RequirementGroup, boolean>();
         let earned = 0;
         for (const broadPass of [false, true]) {
           for (const group of area.groups) {
             if ((group.broad ?? false) !== broadPass) continue;
+            if (byGroup && bookedHere && groupOf) {
+              const shared = elsewhere(group);
+              const mine = (code: string) => bookedHere(code) && groupOf(code) === group.label;
+              const theirs = (code: string) => bookedHere(code) && groupOf(code) !== null && groupOf(code) !== group.label;
+              earned += earnOf(group, spent, largestFirst, satisfied, (code) => (theirs(code) ? 4 : 0) + shared(code), mine);
+              continue;
+            }
             earned += earnOf(group, spent, largestFirst, satisfied, elsewhere(group), bookedHere);
           }
         }
@@ -305,6 +323,11 @@ export function areaProgress(
       let best = run(false);
       if (!best.met && area.groups.some((group) => group.cap?.courses != null)) {
         const other = run(true);
+        if (other.met || Math.min(other.earned, area.hours || other.earned) > Math.min(best.earned, area.hours || best.earned)) best = other;
+      }
+      // And by the lists the board booked each course for (`byGroup`, above), kept only where it does better.
+      if (!best.met && bookedHere && groupOf && area.groups.length > 1) {
+        const other = run(false, true);
         if (other.met || Math.min(other.earned, area.hours || other.earned) > Math.min(best.earned, area.hours || best.earned)) best = other;
       }
       earnedBy[index] = best.earned;

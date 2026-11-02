@@ -197,6 +197,11 @@ export function auditUgaBoard(input: UgaAuditInput) {
             const block = input.bookedFor?.[code.replace(/\s+/g, ' ').trim().toUpperCase()];
             return block ? areaOfBlock.get(block) ?? null : null;
           })(new Map(undergraduate.blocks.map((block) => [block.id, block.areaLabel]))),
+          // And the list of that area it was booked for (areaProgress `groupOf`).
+          groupOf: ((labelOfBlock) => (code: string) => {
+            const block = input.bookedFor?.[code.replace(/\s+/g, ' ').trim().toUpperCase()];
+            return block ? labelOfBlock.get(block) ?? null : null;
+          })(new Map(undergraduate.blocks.map((block) => [block.id, block.label]))),
         });
   // Free electives are residual degree hours, not another mandatory named list.
   areas = areas.filter(
