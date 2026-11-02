@@ -4971,11 +4971,14 @@ const APPROVAL_GATE =
  * anywhere in the sentence: ADPR 3515 "(ADPR 3100 or ...) and permission of
  * major and permission of department", JRLC 5040 "(ADPR 3100 or ...) and
  * permission of school", which a Marketing student's social-media goal booked
- * as free electives (2026-11-02). "... or permission of department" stays an
- * alternative. A major's or school's permission is the student's own when
- * the course is in the student's own subject.
+ * as free electives (2026-11-02); and KINS 3430 "Students must be enrolled in
+ * a professional program to register", which the same goal then booked with
+ * KINS 4810 and 4850 after it. "... or permission of department" stays an
+ * alternative. In the student's own subject the permission is the
+ * student's own: JOUR 3330 "JOUR 3090 and permission of department" is a
+ * Journalism major's elective, not a gate.
  */
-const APPROVAL_BESIDE = /\band\s+(?:the\s+)?permission of (?:the )?(major|department|school|college|program)\b/i;
+const APPROVAL_BESIDE = /\band\s+(?:the\s+)?permission of (?:the )?(major|department|school|college|program)\b|\bmust be enrolled in a (professional) program\b/i;
 
 /**
  * The sentence that puts a course behind an application, an admission or
@@ -5019,7 +5022,7 @@ export function admissionGate(code: string, ctx: Pick<PlanningContext, 'prereqs'
   for (const sentence of text.split(/(?<=[.;])\s+/)) {
     const beside = sentence.match(APPROVAL_BESIDE);
     if (!beside) continue;
-    if (/^(major|school|college|program)$/i.test(beside[1]) && primary && code.split(' ')[0] === primary) continue;
+    if (primary && code.split(' ')[0] === primary) continue;
     return sentence.trim();
   }
   return null;
