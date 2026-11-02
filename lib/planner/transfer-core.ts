@@ -39,6 +39,10 @@
  *    (record.usgCore 'complete') meets Areas I to V and the Area II
  *    laboratory rule; Area VI and every other row stay course by course
  *    (transfer-official.ts usgCoreCompletion).
+ *  - A finished core the record does not print (a System associate degree
+ *    with no core notation, or the student's own words, "I finished my
+ *    core") is not assumed: the core rows still on the board say how to
+ *    confirm it, and nothing else changes.
  *  - Franklin College's History Requirement is "one 3-hour HIST course"
  *    (uga-university-rule-lists.ts FRANKLIN_HISTORY, from Franklin's degree
  *    requirements page): a line UGA's list gives as HIST credit ("HIST 1GHX",
@@ -153,11 +157,34 @@ export function transcriptElectiveCredits(record: TranscriptRecord | null | unde
  * fill, and held elective hours off the general-electives lists. Returns the
  * same array when nothing applies.
  */
-export function withCoreCredit(blocks: RequirementBlock[], record: TranscriptRecord | null | undefined): { blocks: RequirementBlock[]; used: CoreCreditUse[] } {
+/** "I finished my core", "core curriculum is complete": the student's own words, which the board asks them to confirm. */
+/** "Part of my core", "almost done with my core", "not finished my core": not a finished core. */
+const SAID_CORE_PART = /\b(?:part|some|most|half|portion|bit)\s+of\s+(?:my|the)\s+core\b|\b(?:almost|nearly|not|haven'?t|hasn'?t|still|yet)\b[^.]{0,30}\bcore\b|\bcore\b[^.]{0,30}\b(?:yet|almost|nearly|soon)\b/i;
+const SAID_CORE_DONE = /\b(?:finish(?:ed)?|complet(?:ed|e)|done with)\b[^.]{0,40}\bcore\b|\bcore\b[^.]{0,30}\b(?:is |are )?(?:finished|complete[d]?|done)\b/i;
+
+export function withCoreCredit(
+  blocks: RequirementBlock[],
+  record: TranscriptRecord | null | undefined,
+  /** The student's own words about their studies (answers.studying and timeline), read only for a finished core to confirm. */
+  said = '',
+): { blocks: RequirementBlock[]; used: CoreCreditUse[] } {
   const credits = transcriptCoreCredits(record);
   const electives = transcriptElectiveCredits(record);
   const complete = record?.schoolId === 'uga' && record.usgCore?.status === 'complete' ? record.usgCore : null;
-  if (credits.length === 0 && electives.length === 0 && !complete) return { blocks, used: [] };
+  /*
+   * A finished core to confirm: a System associate degree printed without a
+   * core notation (record.usgCore 'confirm'), or a System record and the
+   * student saying they finished their core.
+   */
+  const systemSchool = record?.schoolId === 'uga' ? record.courses.find((c) => c.sendingSystem === 'usg' && c.from)?.from ?? null : null;
+  const toConfirm = complete
+    ? null
+    : record?.schoolId === 'uga' && record.usgCore?.status === 'confirm'
+      ? `Your ${record.usgCore.school} record shows "${record.usgCore.evidence}" but not your core curriculum completed.`
+      : systemSchool && SAID_CORE_DONE.test(said) && !SAID_CORE_PART.test(said)
+        ? `You said you finished your core at ${systemSchool}, and the record does not print it.`
+        : null;
+  if (credits.length === 0 && electives.length === 0 && !complete && !toConfirm) return { blocks, used: [] };
   const left = new Map<string, number>();
   const used: CoreCreditUse[] = [];
   // UGA courses the record holds outright (a line UGA's list makes "MATH 1113", or "BIOL 1103 + BIOL 1103L").
@@ -266,25 +293,30 @@ export function withCoreCredit(blocks: RequirementBlock[], record: TranscriptRec
       hours -= take;
     }
   }
-  if (used.length === 0) return { blocks, used };
+  if (used.length === 0 && !toConfirm) return { blocks, used };
+  const confirmNote = toConfirm
+    ? `${toConfirm} If your transcript or UGA's evaluation shows your University System core curriculum completed, UGA counts this core area as met (full credit area to area); until then this plan books it.`
+    : null;
+  const withConfirm = (block: RequirementBlock): RequirementBlock =>
+    confirmNote && CORE_AREAS.some((a) => areaIs(block.areaLabel, a)) ? { ...block, note: block.note ? `${block.note} ${confirmNote}` : confirmNote } : block;
   const out: RequirementBlock[] = [];
   for (const block of blocks) {
     const rest = left.get(block.id);
     // Met in full: off the board (a core area, Area I's math, the history row).
     if (rest !== undefined && rest <= 0) continue;
     if (rest === undefined || block.rule.kind !== 'pool') {
-      out.push(block);
+      out.push(withConfirm(block));
       continue;
     }
     const mine = used.filter((u) => u.blockId === block.id);
     const note = `${mine.map((u) => `${u.hours} hour${u.hours === 1 ? '' : 's'} met by ${u.line}`).join('; ')} from your transfer credit (the area UGA usually gives it; confirm with your advisor).`;
     const byCourses = block.rule.hours === null;
-    out.push({
+    out.push(withConfirm({
       ...block,
       ...(byCourses ? {} : { hours: rest, hoursMax: rest }),
       rule: byCourses ? { ...block.rule, n: rest } : { ...block.rule, hours: rest },
       note: block.note ? `${block.note} ${note}` : note,
-    });
+    }));
   }
   return { blocks: out, used };
 }

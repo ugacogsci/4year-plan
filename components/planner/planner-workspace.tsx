@@ -1361,8 +1361,8 @@ export function PlannerWorkspace({
   // The same object when the record holds none, so no other board changes.
   const transcriptRecord = answers?.transcript ?? null;
   const coreCredit = useMemo(
-    () => (isUga && fetchedLoaded ? withCoreCredit(fetchedLoaded.blocks, transcriptRecord) : null),
-    [isUga, fetchedLoaded, transcriptRecord],
+    () => (isUga && fetchedLoaded ? withCoreCredit(fetchedLoaded.blocks, transcriptRecord, [answers?.studying ?? '', answers?.timeline ?? ''].join(' ')) : null),
+    [isUga, fetchedLoaded, transcriptRecord, answers?.studying, answers?.timeline],
   );
   const loaded = useMemo(() => {
     if (!fetchedLoaded || !coreCredit || coreCredit.blocks === fetchedLoaded.blocks) return fetchedLoaded;
