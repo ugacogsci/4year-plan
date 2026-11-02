@@ -7462,7 +7462,38 @@ function freeChoicesGated(given: AutoplanInput): GeneratedPlan {
     const off = generatePlan({ ...scheduled, freeChoices: 'off' });
     if (stands(off)) return { ...traded(off, common), freeChoices: 'off' };
   }
-  return { ...traded(before, common), freeChoices: unscheduled !== shared ? 'unscheduled' : 'off' };
+  const fallback: GeneratedPlan = { ...traded(before, common), freeChoices: unscheduled !== shared ? 'unscheduled' : 'off' };
+  const bare = ugaDegreeOverTrack(fallback, common, given, () => generatePlan({ ...scheduled, freeChoices: 'common', tracksOff: true }));
+  return bare ? { ...bare, freeChoices: 'common' } : fallback;
+}
+
+/**
+ * The degree beats pre-med (ugaDegreeFirst) where the free choices' gate
+ * falls back to its floor, too. ugaDegreeFirst weighs a track's board
+ * against the same build without the track; the gate then weighs the board
+ * with the reading against its floor, and a pre-health board past the total
+ * with a track row later than the floor's never stands there (the pending
+ * decision, ugaRequirementMeasure). Where the floor it falls back to leaves
+ * more of the degree undone than the board it turned down, the student gets
+ * the degree's own board with the reading, the track named as ugaDegreeFirst
+ * names it: an Entomology pre-med freshman's board with the track and every
+ * degree course came to 135 hours and was turned down, and the floor kept
+ * the track but left PBIO 3600 off (2026-11-02).
+ */
+function ugaDegreeOverTrack(fallback: GeneratedPlan, turnedDown: GeneratedPlan, given: AutoplanInput, buildBare: () => GeneratedPlan): GeneratedPlan | null {
+  if (given.context.schoolId !== 'uga' || given.tracksOff === true || given.plainEngine === true) return null;
+  const tracks = careerProfileOf(given).tracks;
+  if (tracks.length === 0) return null;
+  const short = (g: GeneratedPlan) => ({ unmet: given.boardAudit ? given.boardAudit(g) : g.unsatisfied.length, off: g.notPlaced.length });
+  const worse = (a: { unmet: number; off: number }, b: { unmet: number; off: number }) => a.unmet > b.unmet || (a.unmet === b.unmet && a.off > b.off);
+  const fb = short(fallback);
+  const down = short(turnedDown);
+  if (!worse(fb, down)) return null;
+  const bare = buildBare();
+  const br = short(bare);
+  if (worse(br, down) || !worse(fb, br)) return null;
+  bare.notes.push(...ugaDegreeFirstNotes(bare, given));
+  return bare;
 }
 
 /**
@@ -8272,6 +8303,13 @@ function ugaDegreeFirst(built: GeneratedPlan, given: AutoplanInput): GeneratedPl
     built.unsatisfied.some((u) => !unmetBare.has(u.requirementId)) ||
     built.notPlaced.some((n) => !offBare.has(normaliseCode(n.code)));
   if (!lost) return built;
+  bare.notes.push(...ugaDegreeFirstNotes(bare, given));
+  return bare;
+}
+
+/** The notes of a board the degree's own courses won over a track (ugaDegreeFirst): each track, what the board already has of it, and what needs a summer or an extra term. */
+function ugaDegreeFirstNotes(bare: GeneratedPlan, given: AutoplanInput): string[] {
+  const tracks = careerProfileOf(given).tracks;
   const onBoard = new Set(bare.terms.flatMap((t) => t.codes.map(normaliseCode)));
   const held = new Set((given.prior?.courseCodes ?? []).map(normaliseCode));
   const list = (codes: string[]) => (codes.length <= 1 ? codes.join('') : `${codes.slice(0, -1).join(', ')} and ${codes[codes.length - 1]}`);
@@ -8285,8 +8323,16 @@ function ugaDegreeFirst(built: GeneratedPlan, given: AutoplanInput): GeneratedPl
     const need = missing.length > 0 ? ` ${list(missing)} ${missing.length === 1 ? 'needs' : 'need'} a summer session or an extra term, so plan ${missing.length === 1 ? 'it' : 'them'} with your advisor.` : '';
     return `${track.name}: the degree's own courses come first. Booking the courses from ${track.source.title} (${track.source.url}) beside them would have left one of this degree's requirements or courses off the board, so this plan books none of them as electives${already.length > 0 ? `; it already has ${list(already)}` : ''}.${need} ${track.note}`;
   });
-  bare.notes.push(...notes);
-  return bare;
+  return notes;
+}
+
+/**
+ * A UGA graduate course (6000 and up), which an undergraduate takes only by
+ * a program's own admission (Double Dawgs): a page that prints "STAT 4520 or
+ * STAT 6520" names the second for those students.
+ */
+function ugaGraduate(code: string): boolean {
+  return /^[A-Z]{2,5} [6-9]\d{3}/.test(code);
 }
 
 /** A UGA code without its online, honors or service-learning suffix (ENGL 1101E -> ENGL 1101). */
@@ -11997,6 +12043,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   if (ctx.schoolId === 'uga' || (!plainEngine && input.goalRows)) {
     const uga = ctx.schoolId === 'uga';
     const creditedToPool = new Set<string>();
+    const creditedBy = new Map<string, { slot: PlanSlot; fill: PoolFill }>();
     /*
      * At UGA a course counts in a core area and in a major area both (the
      * board's audit reads it so: uga-board-audit.ts), and the core's lists
@@ -12049,6 +12096,13 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const otherWay = (group: PlanPrereqGroup) => group.any.some((raw) => !names.has(normaliseCode(raw)) && expandEquivalents(normaliseCode(raw), equivalents).some((c) => (chosen.has(c) && c !== code) || satisfiedForPrereq.has(c)));
       return [...chosen.keys()].some((other) => other !== code && (ctx.prereqs?.get(other)?.groups ?? []).some((group) => group.any.some((raw) => names.has(normaliseCode(raw))) && !(uga && otherWay(group))));
     };
+    // Whether the list that counted `code` beside its own picks (creditedBy) reads short without it.
+    const shortWithout = (code: string, releasing: PoolFill): boolean => {
+      const by = creditedBy.get(code);
+      if (!by || by.fill === releasing) return false;
+      const have = [...by.fill.free, ...by.fill.picked, ...by.fill.nested].filter((c) => c !== code);
+      return (by.slot.hoursTarget !== null && have.reduce((sum, c) => sum + creditsOf(c), 0) < by.slot.hoursTarget) || (by.slot.picks !== null && have.length < by.slot.picks);
+    };
     for (const { slot, fill } of poolFills) {
       if (slot.hoursTarget === null && slot.picks === null) continue;
       if ((slot.constraints ?? []).length > 0 || fill.nested.length > 0 || nestedParent.has(slot.requirementId) || [...nestedParent.values()].includes(slot.requirementId)) continue;
@@ -12087,6 +12141,16 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         if (extras.includes(code) || slot.together?.has(code) || [...(slot.together?.values() ?? [])].some((partners) => partners.includes(code))) continue;
         if (!met(counted().filter((c) => c !== code))) continue;
         if (countedElsewhere(code, slot.requirementId) || namedInPlan(code) || addedPrerequisites.some((a) => a.requiredBy === code)) continue;
+        /*
+         * Nor a pick a list before this one counted as its own (creditedBy)
+         * where that list reads short without it: Honors Interdisciplinary
+         * Studies' World Languages list counted ANTH 1102, the Related
+         * Subjects pick, and released its CMLT 2400; Related Subjects then
+         * counted MATH 1113 and released ANTH 1102, and World Languages read
+         * 6 of 9 hours on a pre-med freshman's board (2026-11-02). Related
+         * Subjects gives up another of its own picks instead.
+         */
+        if (uga && shortWithout(code, fill)) continue;
         fill.picked = fill.picked.filter((c) => c !== code);
         chosen.delete(code);
         released.push(code);
@@ -12096,7 +12160,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const used = prerequisitesHere.filter((code) => !fill.picked.includes(code));
       fill.picked = [...fill.picked, ...used];
       fill.nested = [...fill.nested, ...[...majorHere, ...languageHere].filter((code) => !fill.nested.includes(code))];
-      for (const code of [...used, ...majorHere, ...languageHere]) creditedToPool.add(code);
+      for (const code of [...used, ...majorHere, ...languageHere]) { creditedToPool.add(code); creditedBy.set(code, { slot, fill }); }
       fill.alternatives = [...released.reverse(), ...fill.alternatives.filter((c) => !released.includes(c))];
       const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
       if (traced && [...released, ...extras].includes(normaliseCode(traced))) console.error(`  [PLAN_DEBUG] pool "${(slot.label ?? '').slice(0, 50)}": ${extras.join(', ')} (booked elsewhere) count here, ${released.join(', ')} released`);
