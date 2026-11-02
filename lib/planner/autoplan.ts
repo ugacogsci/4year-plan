@@ -18448,6 +18448,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       // (2026-10-30).
       const subject = out.split(' ')[0];
       const bookedElsewhere = (g: { any: string[] }) => ctx.schoolId === 'uga' && g.any.some((raw) => { const by = chosen.get(normaliseCode(raw))?.requirementId ?? null; return by !== null && by !== id; });
+      /*
+       * Nor, at UGA, a list of the area the course lacking belongs to: the
+       * area reads short either way, and its list then reads short too.
+       * Music Education's Secondary Methods pick MUSI 3240 gave its seat to
+       * MUSI 4810, both of Required Courses, which then read 59 of 63 with
+       * Secondary Methods short beside it (2026-10-31).
+       */
+      if (ctx.schoolId === 'uga' && (requirementById.get(id)?.areaLabel ?? '') === (requirementById.get(lacking)?.areaLabel ?? null)) return false;
       const step = (ctx.prereqs?.get(out)?.groups ?? []).some((g) => g.any.some((raw) => normaliseCode(raw).split(' ')[0] === subject) && !bookedElsewhere(g));
       return !step && !pinned.has(out) && !sequenceFirst.has(out) && !labOf.has(out) && !lectureLab.has(out) && !forTrack(out) && !trackRowOf.has(out) && !datedBy.has(out) && !firstTermCourse(byCode.get(out), ctx, arrival);
     };
