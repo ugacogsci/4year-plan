@@ -8378,7 +8378,22 @@ function generatePlanBuiltOnce(given: AutoplanInput, calculusDate: boolean): Gen
   const terryMathDue = calculusDate && terry?.apply && terry.applyIndex !== null && terry.steady && !given.horizon.summers?.length
     ? Object.fromEntries(['MATH 2200', 'MATH 2250', 'MATH 2260'].filter((code) => !given.prior.courseCodes.map(normaliseCode).includes(code)).map((code) => [code, terry.applyIndex as number]))
     : undefined;
-  const ugaDue = ugaLanguageDue || terryMathDue ? { ...terryMathDue, ...ugaLanguageDue } : undefined;
+  /*
+   * Terry's entrance requirement wants MATH 1113 (or higher) and ACCT 2101
+   * on the record by the application deadline, and the application term is
+   * set a term after them where the record lacks them (uga-terry-admission.ts).
+   * Nothing dated them: only the calculus above and the language had dates,
+   * and the board built without the calculus date (generatePlanBuilt) lost
+   * even its pull on MATH 1113. A Finance and International Business
+   * freshman's MATH 1113 sat in Spring 2028, the term the board said to apply
+   * in, and an Economics and International Business freshman's ACCT 2101 too
+   * (2026-11-02). Due the term before the application term, in both builds.
+   */
+  const terryOwedDue = terry?.apply && terry.owed.length > 0 ? (() => {
+    const at = buildHorizon(given.horizon).findIndex((term) => term.label === terry.apply?.label);
+    return at >= 1 ? Object.fromEntries(terry.owed.map((code) => [code, at - 1])) : undefined;
+  })() : undefined;
+  const ugaDue = ugaLanguageDue || terryMathDue || terryOwedDue ? { ...terryOwedDue, ...terryMathDue, ...ugaLanguageDue } : undefined;
   /**
    * How one board is built: the trials, the plain engine, the placer's
    * inferred pairings (AutoplanInput), and `asRead`, the requirements as

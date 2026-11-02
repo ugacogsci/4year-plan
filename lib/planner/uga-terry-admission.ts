@@ -45,6 +45,8 @@ export interface TerryAdmission {
   admitted: { season: SemesterSeason; year: number; label: string } | null;
   /** The application term's place among the plan's falls and springs (0 the first). */
   applyIndex: number | null;
+  /** The entrance courses the record lacks, due on the record the term before the application term: MATH 1113 (the first course of the "or higher" a board books) and ACCT 2101. */
+  owed: string[];
   /** The plan keeps a full load of fifteen or less: a three-year plan, at eighteen and more, has no seat to spare. */
   steady: boolean;
   /** Courses the plan keeps to the admission term or later. */
@@ -99,7 +101,8 @@ export function ugaTerryAdmission(args: {
   const what = 'MATH 1113 (or higher) and ACCT 2101 on your record by the application deadline, BUSN 3000 done or in progress that term, and Area VI with 58 hours (or Areas I to VI); ACT/SAT scores and a statement of purpose go with it';
   const termNote = `Apply to the Terry ${major} major this term: ${what}.`;
   const note = `Terry admission: apply to the ${major} major in ${apply.label}${lacking && held.size > 0 ? `, once ${lacking} (which your record does not show yet) is done` : ''}: ${what}. This plan keeps ${prefix ? `${prefix} major courses` : 'major courses'} to ${admitted.label} or later, the term after. Admission is competitive; see the Entrance Requirements on your degree's Bulletin page.`;
-  return { apply, admitted, applyIndex, steady: pace <= LOAD, notBefore, note, termNote };
+  const owed = [!math ? 'MATH 1113' : null, !acct ? 'ACCT 2101' : null].filter((code): code is string => code !== null);
+  return { apply, admitted, applyIndex, owed, steady: pace <= LOAD, notBefore, note, termNote };
 }
 
 /** The Legal Studies Certificate's limit on its courses, for a board that books one (null when it books none or holds the certificate's courses). */
