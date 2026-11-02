@@ -7267,7 +7267,7 @@ export function generatePlan(input: AutoplanInput): GeneratedPlan {
   // At UGA the finished board's lone Area II labs, once, on the board the student gets (the gates' own builds pass freeChoices).
   // Then the notes that name where a course went are read again against that board (withBoardTrueNotes).
   if (input.context?.schoolId === 'uga') return withBoardTrueNotes(input.freeChoices === undefined && input.plainEngine !== true ? withUgaGraduateNote(withUgaLabsPaired(withUgaTrackListSeats(out, input), input)) : out);
-  return withClosedPrereqNotes(out, input);
+  return withClosedPrereqNotes(withLabsRejoined(out, input), input);
 }
 
 /**
@@ -7562,6 +7562,71 @@ function withUgaLabsPaired(g: GeneratedPlan, input: AutoplanInput): GeneratedPla
   return { ...board, notes: [...board.notes, ...said.filter((n) => !board.notes.includes(n))] };
 }
 
+/**
+ * Illinois: a lab the finished board holds in another term than its lecture,
+ * moved into the lecture's term when the board loses nothing by it
+ * (gateWorse: no error, no term at or over the cap that was not, no load or
+ * order measure worse). The placer seats a lab beside its lecture when the
+ * term has room as it fills, but a term the fill takes to 18 and the moves
+ * after it bring back to 15 leaves the lab where it went: an Engineering
+ * Mechanics board's TAM 252 sat a year after TAM 251 beside a 15-hour
+ * Spring 2028 (2026-11-02), and 42 boards' MCB 251 a term or more after
+ * MCB 250. Nothing else on the board moves.
+ */
+function withLabsRejoined(g: GeneratedPlan, input: AutoplanInput): GeneratedPlan {
+  const ctx = input.context;
+  if (!ctx?.prereqs || input.plainEngine === true) return g;
+  const termOf = (board: GeneratedPlan, code: string) => board.terms.findIndex((t) => t.codes.some((c) => normaliseCode(c) === code));
+  const labs = measuredLabs(ctx);
+  const apart = [...labs].filter(([lab, lecture]) => {
+    const l = termOf(g, lab);
+    const c = termOf(g, lecture);
+    return l >= 0 && c >= 0 && l !== c;
+  });
+  if (apart.length === 0) return g;
+  const byCode = catalogByCode(ctx.courses);
+  const published = ctx.offeringPublished ?? new Set<string>();
+  const max = { ...DEFAULT_CREDITS, ...input.preferences?.creditsPerTerm }.max;
+  const paired = new Set([...labs].flatMap(([lab, lecture]) => [lab, lecture]));
+  let board = g;
+  let base = gateMeasure(board, input, board.language ?? null);
+  /** `codes` each moved to its term, or null where a term's season or hours cannot take what comes in. */
+  const moved = (moves: Array<[string, number]>): GeneratedPlan | null => {
+    let out = board;
+    for (const [code, to] of moves) {
+      if (outOfSeason(byCode.get(code), out.terms[to], published.has(code))) return null;
+      out = withCourseTraded(out, code, code, to, ctx);
+    }
+    return out.terms.some((t) => planCreditRange(t.codes, ctx).min > max) ? null : out;
+  };
+  for (const [lab, lecture] of apart) {
+    const at = termOf(board, lecture);
+    const from = termOf(board, lab);
+    if (at < 0 || from < 0 || at === from) continue;
+    /*
+     * The lab into its lecture's term; else the lecture into the lab's;
+     * else either of them with one course of the other term trading
+     * places, never another lab or lecture.
+     */
+    const swaps = (here: number) => board.terms[here].codes.map(normaliseCode).filter((c) => !paired.has(c));
+    const tries: Array<Array<[string, number]>> = [
+      [[lab, at]],
+      [[lecture, from]],
+      ...swaps(at).map((c): Array<[string, number]> => [[lab, at], [c, from]]),
+      ...swaps(from).map((c): Array<[string, number]> => [[lecture, from], [c, at]]),
+    ];
+    for (const moves of tries) {
+      const trial = moved(moves);
+      if (!trial) continue;
+      const measured = gateMeasure(trial, input, trial.language ?? null);
+      if (gateWorse(measured, base).length > 0) continue;
+      board = trial;
+      base = measured;
+      break;
+    }
+  }
+  return board;
+}
 
 /**
  * Illinois: a booked course whose prerequisite only the "not both" rule
