@@ -6380,6 +6380,13 @@ const SENIOR_TITLE = /\b(senior|capstone)\b/i;
  * sophomore fall (2026-10-29).
  */
 const UGA_INTERNSHIP_TITLE = /\binternships?\b/i;
+/*
+ * And a 4000-level thesis, the last step of the research courses before it:
+ * Interdisciplinary Studies' IDIS 4990R, "Undergraduate Research Thesis (or
+ * Final Project)", whose line reads "Permission of department", sat in a
+ * freshman's Fall 2028, her third year, beside IDIS 4880 (2026-11-02).
+ */
+const UGA_THESIS_TITLE = /\bthesis\b/i;
 
 export function withTitleStanding(ctx: PlanningContext): PlanningContext {
   const cached = titleStandingCache.get(ctx);
@@ -6389,14 +6396,17 @@ export function withTitleStanding(ctx: PlanningContext): PlanningContext {
   for (const course of ctx.courses) {
     const senior = SENIOR_TITLE.test(course.title);
     const internship = !senior && ctx.schoolId === 'uga' && UGA_INTERNSHIP_TITLE.test(course.title) && courseLevel(normaliseCode(course.code)) >= 300;
-    if (!senior && !internship) continue;
+    const thesis = !senior && !internship && ctx.schoolId === 'uga' && UGA_THESIS_TITLE.test(course.title) && courseLevel(normaliseCode(course.code)) >= 400 && courseLevel(normaliseCode(course.code)) < 600;
+    if (!senior && !internship && !thesis) continue;
     const code = normaliseCode(course.code);
     const spec = prereqs.get(code);
     if (spec?.standing) continue;
     const standing: PlanStanding = 'senior';
     const standingText = senior
       ? `The course title, "${course.title}", marks it for seniors; the catalog states no standing.`
-      : `The course title, "${course.title}", marks it as an internship, taken in the last year once the major's other courses are; the catalog states no standing.`;
+      : thesis
+        ? `The course title, "${course.title}", marks it as a thesis, taken in the last year once the research before it is; the catalog states no standing.`
+        : `The course title, "${course.title}", marks it as an internship, taken in the last year once the major's other courses are; the catalog states no standing.`;
     prereqs.set(code, spec
       ? { ...spec, standing, standingText }
       : { groups: [], escape: null, text: '', parsed: false, confidence: 'none', standing, standingText });
@@ -10934,11 +10944,19 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const requiredInFamily = new Map<string, Set<string>>();
   if (ctx.schoolId === 'uga') {
     for (const r of input.requirements) {
-      if (r.rule.kind !== 'all') continue;
+      /*
+       * And a choice whose other options are graduate courses (ugaGraduate):
+       * Health Promotion's Area VI "BIOS 2010 or BIOS 7010" lost BIOS 2010 to
+       * Quantitative Reasoning, filled first, and booked BIOS 7010, a
+       * graduate course, for a freshman (2026-11-02).
+       */
+      const undergraduate = r.rule.kind === 'choose' ? r.rule.choices.filter((choice) => choice.codes.some((code) => !ugaGraduate(normaliseCode(code)))) : [];
+      const onlyUndergraduate = r.rule.kind === 'choose' && undergraduate.length > 0 && undergraduate.length <= r.rule.n && undergraduate.length < r.rule.choices.length;
+      if (r.rule.kind !== 'all' && !onlyUndergraduate) continue;
       const family = familyOfRow(r);
       if (family === null) continue;
       const set = requiredInFamily.get(family) ?? new Set<string>();
-      for (const choice of r.rule.choices) for (const code of choice.codes) for (const version of expandEquivalents(normaliseCode(code), equivalents)) set.add(version);
+      for (const choice of r.rule.kind === 'all' ? r.rule.choices : undergraduate) for (const code of choice.codes) for (const version of expandEquivalents(normaliseCode(code), equivalents)) set.add(version);
       requiredInFamily.set(family, set);
     }
   }
@@ -11083,7 +11101,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             ...[...earned].filter((code) => !earnedHere.has(code)),
           ]),
           creditsOf,
-          order: ((inOrder) => (a: string, b: string) => seasonless(a) - seasonless(b) || inOrder(a, b))(poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()]), slot.together, sequence, { broad, core: broadCore, hours: slot.hoursTarget, upper: (anyCourse?.minLevel ?? 0) >= 3 })),
+          order: ((inOrder) => (a: string, b: string) => seasonless(a) - seasonless(b) || (ctx.schoolId === 'uga' ? Number(ugaGraduate(a)) - Number(ugaGraduate(b)) : 0) || inOrder(a, b))(poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()]), slot.together, sequence, { broad, core: broadCore, hours: slot.hoursTarget, upper: (anyCourse?.minLevel ?? 0) >= 3 })),
           reachable: (code) => (rankDepth.get(code) ?? 0) < terms.length,
           conflict: (code, insidePool) => conflictFor(code, insidePool),
           versionsOf: (code) => expandEquivalents(code, equivalents),
@@ -11621,6 +11639,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           .map((option) => pickFromOption(option))
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) =>
+            // At UGA a graduate course (ugaGraduate) only where no undergraduate option is left: Statistics' "STAT 4520 or STAT 6520".
+            (ctx.schoolId === 'uga' ? Number(ugaGraduate(a.code)) - Number(ugaGraduate(b.code)) : 0) ||
             (meetsElsewhere ? Number(!a.shared) - Number(!b.shared) || lectureHere(a.code) - lectureHere(b.code) : 0) ||
             (ctx.schoolId === 'uga' ? ofSequence(a.code) - ofSequence(b.code) || otherLanguage(a.code) - otherLanguage(b.code) : 0) ||
             (choosing ? leftToRow(a.code) - leftToRow(b.code) : 0) ||
