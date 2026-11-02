@@ -58,12 +58,36 @@
  * requirements and notes to each row), HARNESS_BOOKED=0 (audit without the
  * row each course was booked for, as every audit read before 2026-10-28; a
  * checkout before then ignores it either way).
+ *
+ * Transfer students, opt in (2026-11-02): kinds named in HARNESS_KINDS that
+ * the transfer file defines (scripts/dev/uga-harness-transfer-students.json,
+ * or XFER_STUDENTS=<file>), and never in the default run, so the default
+ * 1,288 boards are as before. As of writing:
+ *   xfer-full  "I'm transferring to UGA from Georgia State University
+ *              Perimeter College for Spring 2027. I finished my core
+ *              curriculum there (about 60 hours)." Fall 2024 to Spring 2026
+ *              done there, 60-63 hours. Finance 28543, Psychology 69115,
+ *              Political Science 46524.
+ *   xfer-part  "I'm a sophomore at Georgia State University Perimeter College
+ *              transferring to UGA in Spring 2027." Fall 2025 and Spring 2026
+ *              done, Fall 2026 in progress there, 44-47 hours. Marketing
+ *              59600, Biology 45780, Computer Science 73962.
+ * Each made-up record is read as the upload reads one (transcript.ts
+ * matchTranscript with UGA's equivalency lists, public/uga-transfer/*), its
+ * core electives taken off the core areas as the workspace does
+ * (transfer-core.ts withCoreCredit), the finish suggested as onboarding
+ * suggests it once the record is in (transfer-finish.ts, where the checkout
+ * has it), and the build told the student is arriving (AutoplanInput.arrival,
+ * as planner-workspace.tsx arrivalOf reads it). A board with no student in
+ * the file for its degree is skipped. Rows add the record's lines, the core
+ * credit used, every audit row, the issues and the horizon. First written as
+ * the reviewer's copy (keep-planner review-fresh-w3 xfer-harness.mjs).
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { register } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const [mode, ...args] = process.argv.slice(2);
@@ -98,6 +122,11 @@ const KINDS = {
  */
 const GOALS = process.env.HARNESS_GOALS ? JSON.parse(readFileSync(resolve(process.env.HARNESS_GOALS), 'utf8')) : [];
 for (const g of GOALS) KINDS[`goal:${g.label}`] = { words: "I'm an incoming freshman, starting college next fall.", after: g.text, record: null };
+// Transfer kinds (see the header): only when HARNESS_KINDS names one, so the default run is unchanged.
+const XFER_FILE = process.env.XFER_STUDENTS ? resolve(process.env.XFER_STUDENTS) : join(dirname(fileURLToPath(import.meta.url)), 'uga-harness-transfer-students.json');
+const XFER = existsSync(XFER_FILE) ? JSON.parse(readFileSync(XFER_FILE, 'utf8')) : { kinds: {}, students: {} };
+const named = (process.env.HARNESS_KINDS ?? '').split(',').map((s) => s.trim());
+for (const [name, k] of Object.entries(XFER.kinds)) if (named.includes(name)) KINDS[name] = { words: k.words, academicYear: k.academicYear, after: k.after, record: 'xfer' };
 const KIND_NAMES = (process.env.HARNESS_KINDS ?? (GOALS.length ? GOALS.map((g) => `goal:${g.label}`) : Object.keys(KINDS)).join(',')).split(',').map((s) => s.trim()).filter((k) => KINDS[k]);
 
 // ---------------------------------------------------------------------------
@@ -406,6 +435,39 @@ const S = await lib('lib/planner/saved-board.ts');
 const W = existsSync(join(ROOT, 'lib/planner/warnings-triage.ts')) ? await lib('lib/planner/warnings-triage.ts') : null;
 const hasPlanStart = existsSync(join(ROOT, 'lib/planner/plan-start.ts'));
 const CT = await lib('lib/planner/career-tracks.ts');
+/**
+ * Transfer kinds (see the header), loaded only when one is asked for: the
+ * made-up record read as the upload reads it, with UGA's equivalency lists
+ * and the catalog's cross-listings, as planner-workspace.tsx reads one.
+ */
+const XFER_ON = KIND_NAMES.some((k) => KINDS[k]?.record === 'xfer');
+const CORE = XFER_ON ? await lib('lib/planner/transfer-core.ts') : null;
+const AP = XFER_ON ? await lib('lib/planner/autoplan.ts') : null;
+const TF = XFER_ON && existsSync(join(ROOT, 'lib/planner/transfer-finish.ts')) ? await lib('lib/planner/transfer-finish.ts') : null;
+let xferRecord = null;
+if (XFER_ON) {
+  const fs = await import('node:fs');
+  const table = { index: publicJson('uga-transfer/index.json'), schools: {} };
+  for (const f of fs.readdirSync(join(ROOT, 'public', 'uga-transfer'))) if (f !== 'index.json') table.schools[f.replace('.json', '')] = publicJson(`uga-transfer/${f}`);
+  const lite = publicJson('uga-catalog.json').filter((c) => typeof c?.code === 'string').map((c) => ({ code: T.normalizeCourseCode(c.code), title: c.title, credits: c.credits, level: Number(c.code.match(/\d/)?.[0] ?? 0) * 100, cluster: c.cluster, tags: c.tags }));
+  let cross = null;
+  try {
+    globalThis.fetch = async (url) => new Response(JSON.stringify(publicJson((typeof url === 'string' ? url : url.url).replace(/^\//, ''))));
+    cross = (await (await lib('lib/planner/uga-offerings.ts')).loadUgaOfferings())?.crossListed ?? null;
+  } catch (e) {
+    console.error('[harness] transfer kinds: no cross-listings', String(e).slice(0, 120));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  // "Fall 2026*" in the file is a term in progress.
+  xferRecord = (student) => {
+    const lines = Object.entries(student.terms).flatMap(([term, rows]) => rows.map(([code, title, credits]) => {
+      const now = term.endsWith('*');
+      return { code, title, credits, grade: now ? null : 'B', term: term.replace('*', ''), status: now ? 'in_progress' : 'completed' };
+    }));
+    return T.matchTranscript({ institution: student.institution ?? 'Georgia State University Perimeter College', kind: 'transcript', courses: lines, exams: [], notes: [], credentials: student.credentials ?? [] }, 'transcript.pdf', lite, ['transcript.pdf'], null, 'uga', table, cross);
+  };
+}
 /** HARNESS_MEANING=1: each goal kind's career matcher (see HARNESS_GOALS). */
 const FITS = new Map();
 if (GOALS.length && process.env.HARNESS_MEANING === '1') {
@@ -471,28 +533,38 @@ function requiredSummerOnly(blocks, context) {
   return out;
 }
 
-function answersFor(kind, record) {
+function answersFor(kind, record, degreeHours = null) {
   const { words } = KINDS[kind];
   const academicYear = KINDS[kind].academicYear ?? O.inferAcademicYear(words);
   const said = O.inferGraduationTarget(words);
   // As the onboarding suggests it: from the fall an incoming student starts (a checkout before 2026-10-28 counts from this one).
-  const suggested = O.suggestGraduationTarget(academicYear, 4, TODAY, IS.firstFallOf ? IS.firstFallOf(words, TODAY) : null);
-  return {
+  const firstFall = IS.firstFallOf ? IS.firstFallOf(words, TODAY) : null;
+  const answers = {
     schoolId: 'uga', programLevel: 'undergraduate', programIds: [], minorIds: [], certificateIds: [], doubleDawgsPathwayId: null,
-    emphasisSelections: {}, collegeId: '', academicYear,
-    graduationSeason: said.season || suggested.season, graduationYear: said.year ?? suggested.year,
+    emphasisSelections: {}, collegeId: '', academicYear, graduationSeason: '', graduationYear: null,
     alreadyTakenCourseCodes: [], studying: '', timeline: words, timelineAt: TODAY.toISOString(), after: KINDS[kind].after ?? words,
     exams: [], transferText: '', transcript: record, languageYears: null, language: '',
   };
+  // A transfer kind: from the hours and the degree's total once the record is in (transfer-finish.ts), where the checkout has it.
+  const suggested = KINDS[kind].record === 'xfer' && TF
+    ? TF.suggestedGraduationFor(answers, academicYear, 4, TODAY, firstFall, degreeHours)
+    : O.suggestGraduationTarget(academicYear, 4, TODAY, firstFall);
+  return { ...answers, graduationSeason: said.season || suggested.season, graduationYear: said.year ?? suggested.year };
 }
 
 function build(program, kind) {
   const fixture = FIXTURES[program.id];
   const recordName = KINDS[kind].record;
-  if (recordName && (!fixture || fixture.error)) return { ok: false, error: `no transcript fixture: ${fixture?.error ?? 'missing'}` };
-  const record = recordName ? fixture[recordName] : null;
-  const answers = answersFor(kind, record);
-  const { loaded, samplePlanCourses } = loadProgram(program);
+  const isXfer = recordName === 'xfer';
+  const student = isXfer ? XFER.students[`${program.id}|${kind}`] : null;
+  if (isXfer && !student) return { ok: false, error: 'no transfer student for this board' };
+  if (!isXfer && recordName && (!fixture || fixture.error)) return { ok: false, error: `no transcript fixture: ${fixture?.error ?? 'missing'}` };
+  const record = isXfer ? xferRecord(student) : recordName ? fixture[recordName] : null;
+  const { loaded: asLoaded, samplePlanCourses } = loadProgram(program);
+  const answers = answersFor(kind, record, isXfer ? (asLoaded.summary?.totalCredits || asLoaded.program.totalCredits || null) : null);
+  // A transfer's core electives come off the core areas they fill, as the workspace's blocks do (transfer-core.ts).
+  const coreCredit = isXfer ? CORE.withCoreCredit(asLoaded.blocks, record) : null;
+  const loaded = coreCredit && coreCredit.blocks !== asLoaded.blocks ? { ...asLoaded, blocks: coreCredit.blocks } : asLoaded;
   // The goal's hours, as the workspace's context sets them before the transcript's (a checkout before the tracks has none).
   if (U.setUgaTrackHours && CT?.ugaTrackCodes) U.setUgaTrackHours(data, CT.ugaTrackCodes(CT.interestProfile(answers.after ?? '')));
   const context = { ...T.withTranscriptCredits(data.context, record), samplePlanCourses };
@@ -529,6 +601,8 @@ function build(program, kind) {
     programId: loaded.summary?.id ?? program.id, electiveHoursLimit: loaded.electiveHours, fillToDegreeTotal: loaded.fillToDegreeTotal,
     degreeTotal: publishedTotal, interests: ['', careerText].join(' '), career: careerText,
     programName: loaded.program.name, programCollege: loaded.program.college, admissionRoute: null, residency: null, firstYear: false,
+    // Who the student is as they arrive, as planner-workspace.tsx arrivalOf reads it: transfer kinds only, so the default boards are as before.
+    ...(isXfer ? { arrival: AP.arrivalFromWords([answers.studying ?? '', answers.timeline ?? '', answers.after ?? ''].join(' '), Boolean(record && (record.kind === 'transfer_report' || record.home === false))) } : {}),
     ...(FITS.has(kind) ? { careerFit: FITS.get(kind), careerAudit: (g) => unmetRowsOf(g) } : {}),
     // The free choices' check by the board audit, as the workspace passes it (AutoplanInput.boardAudit; a checkout before it ignores it).
     boardAudit: (g) => unmetRowsOf(g),
@@ -685,6 +759,14 @@ function build(program, kind) {
       ],
       unsatisfied: generated.unsatisfied.length,
       careerScope: generated.careerScope ?? null,
+    } : {}),
+    // A transfer kind: the record as read, the core credit used, every audit row, the issues and the horizon.
+    ...(isXfer ? {
+      xferLines: record.courses.map((c) => `${c.term ?? ''} ${c.code} -> ${c.matched ?? '-'} [${c.counts}${c.use ? '' : ' unused'}] ${c.designation ?? ''} ${c.basis?.badge ?? ''} ${c.coreArea ? 'area=' + c.coreArea : ''} ${c.status}`),
+      coreUsed: coreCredit.used.map((u) => `${u.line} -> ${u.area} ${u.hours}h${u.filled ? ' (filled)' : ''}`),
+      areas: audit.areas.map((row) => `${row.satisfied ? 'MET  ' : 'UNMET'} ${row.area.label} ${row.earned}/${row.area.hours}`),
+      issues: issues.map((i) => `${i.id}: ${(i.title ?? '').slice(0, 160)} | ${(i.message ?? '').slice(0, 300)}`),
+      horizon: { start: `${horizon.startSeason} ${horizon.startYear}`, grad: `${horizon.gradSeason} ${horizon.gradYear}`, current: horizon.current ? `${horizon.current.season} ${horizon.current.year}` : null, assumed: horizon.assumedHours, note: horizon.startNote },
     } : {}),
     // HARNESS_DEBUG=1: the engine's own reading (its pools, unmet requirements, notes), to set beside the audit's.
     ...(process.env.HARNESS_DEBUG ? { engine: { unsatisfied: generated.unsatisfied.map((u) => `${u.areaLabel}: ${u.label} (${u.reason})`), pools: generated.pools.map((p) => `${p.areaLabel} / ${p.label}: ${p.hours}/${p.hoursTarget ?? '-'}h ${p.count}/${p.countTarget ?? '-'} [${p.picked.join(' ')}] prior [${p.fromPriorCredit.join(' ')}]`), notes: generated.notes, notPlaced: generated.notPlaced.map((x) => `${x.code}: ${x.message}`), electives: generated.electives.map((e) => `${e.code}: ${e.why}`), genEdPicks: (generated.genEdPicks ?? []).map((g) => `${g.code} for ${g.label}`) } } : {}),

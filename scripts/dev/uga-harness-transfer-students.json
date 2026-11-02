@@ -1,0 +1,35 @@
+{
+ "kinds": {
+  "xfer-full": {"words": "I'm transferring to UGA from Georgia State University Perimeter College for Spring 2027. I finished my core curriculum there (about 60 hours).", "academicYear": "third"},
+  "xfer-part": {"words": "I'm a sophomore at Georgia State University Perimeter College transferring to UGA in Spring 2027. I've finished part of my core.", "academicYear": "second"}
+ },
+ "students": {
+  "28543|xfer-full": {"label": "Finance BBA, full core", "terms": {
+     "Fall 2024": [["ENGL 1101","English Composition I",3],["MATH 1113","Precalculus",3],["HIST 2110","Survey of United States History",3],["PSYC 1101","Introduction to General Psychology",3],["ASTR 1010K","Astronomy of the Solar System",4]],
+     "Spring 2025": [["ENGL 1102","English Composition II",3],["POLS 1101","American Government",3],["ECON 2105","Principles of Macroeconomics",3],["ASTR 1020K","Stellar and Galactic Astronomy",4],["PHIL 2010","Introduction to Philosophy",3]],
+     "Fall 2025": [["ACCT 2101","Principles of Accounting I",3],["ECON 2106","Principles of Microeconomics",3],["MATH 1070","Elementary Statistics",3],["ENGL 2110","World Literature",3],["FILM 2700","History of Motion Pictures",3]],
+     "Spring 2026": [["ACCT 2102","Principles of Accounting II",3],["BUSA 2106","The Environment of Business",3],["CIS 2010","Introduction to Computer Information Systems",3],["MATH 1220","Survey of Calculus",3],["SOCI 1101","Introduction to Sociology",3]]}},
+  "59600|xfer-part": {"label": "Marketing BBA, part core", "terms": {
+     "Fall 2025": [["ENGL 1101","English Composition I",3],["MATH 1111","College Algebra",3],["PSYC 1101","Introduction to General Psychology",3],["HIST 2110","Survey of United States History",3],["FILM 2700","History of Motion Pictures",3]],
+     "Spring 2026": [["ENGL 1102","English Composition II",3],["MATH 1070","Elementary Statistics",3],["POLS 1101","American Government",3],["ECON 2105","Principles of Macroeconomics",3],["BIOL 1103K","Introductory Biology I",4]],
+     "Fall 2026*": [["ACCT 2101","Principles of Accounting I",3],["ECON 2106","Principles of Microeconomics",3],["MATH 1113","Precalculus",3],["BIOL 1104K","Introductory Biology II",4],["PHIL 2010","Introduction to Philosophy",3]]}},
+  "69115|xfer-full": {"label": "Psychology BS, full core", "terms": {
+     "Fall 2024": [["ENGL 1101","English Composition I",3],["MATH 1111","College Algebra",3],["PSYC 1101","Introduction to General Psychology",3],["HIST 2110","Survey of United States History",3],["BIOL 1103K","Introductory Biology I",4]],
+     "Spring 2025": [["ENGL 1102","English Composition II",3],["MATH 1401","Elementary Statistics",3],["POLS 1101","American Government",3],["BIOL 1104K","Introductory Biology II",4],["SOCI 1101","Introduction to Sociology",3]],
+     "Fall 2025": [["ENGL 2110","World Literature",3],["PHIL 2010","Introduction to Philosophy",3],["SPAN 1001","Elementary Spanish I",3],["ANTH 1102","Introduction to Anthropology",3],["ASTR 1010K","Astronomy of the Solar System",4]],
+     "Spring 2026": [["SPAN 1002","Elementary Spanish II",3],["PSYC 2101","Introduction to Psychology of Adjustment",3],["PSYC 2103","Introduction to Human Development",3],["FILM 2700","History of Motion Pictures",3],["ECON 2105","Principles of Macroeconomics",3]]}},
+  "45780|xfer-part": {"label": "Biology BS, part core", "terms": {
+     "Fall 2025": [["ENGL 1101","English Composition I",3],["MATH 1113","Precalculus",3],["BIOL 2107K","Principles of Biology I",4],["CHEM 1211K","Principles of Chemistry I",4],["HIST 2110","Survey of United States History",3]],
+     "Spring 2026": [["ENGL 1102","English Composition II",3],["MATH 2211","Calculus of One Variable I",4],["BIOL 2108K","Principles of Biology II",4],["CHEM 1212K","Principles of Chemistry II",4]],
+     "Fall 2026*": [["POLS 1101","American Government",3],["PSYC 1101","Introduction to General Psychology",3],["CHEM 2400","Organic Chemistry I",4],["PHIL 2010","Introduction to Philosophy",3]]}},
+  "73962|xfer-part": {"label": "Computer Science BS, part core", "terms": {
+     "Fall 2025": [["ENGL 1101","English Composition I",3],["MATH 1113","Precalculus",3],["CSC 1301","Principles of Computer Science I",4],["HIST 2110","Survey of United States History",3],["PSYC 1101","Introduction to General Psychology",3]],
+     "Spring 2026": [["ENGL 1102","English Composition II",3],["MATH 2211","Calculus of One Variable I",4],["CSC 1302","Principles of Computer Science II",4],["POLS 1101","American Government",3]],
+     "Fall 2026*": [["MATH 2212","Calculus of One Variable II",4],["MATH 2420","Discrete Mathematics",3],["PHYS 2211K","Principles of Physics I",4],["PHIL 2010","Introduction to Philosophy",3]]}},
+  "46524|xfer-full": {"label": "Political Science AB, full core", "terms": {
+     "Fall 2024": [["ENGL 1101","English Composition I",3],["MATH 1111","College Algebra",3],["HIST 2110","Survey of United States History",3],["POLS 1101","American Government",3],["SPAN 1001","Elementary Spanish I",3]],
+     "Spring 2025": [["ENGL 1102","English Composition II",3],["MATH 1401","Elementary Statistics",3],["POLS 2401","Global Issues",3],["SPAN 1002","Elementary Spanish II",3],["BIOL 1103K","Introductory Biology I",4]],
+     "Fall 2025": [["SPAN 2001","Intermediate Spanish I",3],["POLS 2101","Introduction to Political Science",3],["BIOL 1104K","Introductory Biology II",4],["PHIL 2010","Introduction to Philosophy",3],["ECON 2105","Principles of Macroeconomics",3]],
+     "Spring 2026": [["SPAN 2002","Intermediate Spanish II",3],["ENGL 2110","World Literature",3],["HIST 1112","Survey of World History since 1500",3],["SOCI 1101","Introduction to Sociology",3],["ASTR 1010K","Astronomy of the Solar System",4]]}}
+ }
+}
