@@ -428,4 +428,20 @@ export const UGA_TOPIC_CODES: Readonly<Record<string, { subjects: string[]; cour
   'sports-media': { subjects: ['SPTM'], courses: ['SPTM 3800'] },
   diplomacy: { subjects: ['INTL'], courses: ['INTL 3200', 'INTL 4250', 'INTL 4285', 'INTL 4240', 'INTL 4230', 'INTL 4210', 'ECON 2105'] },
   'software-engineering': { subjects: ['CSCI'], courses: ['CSCI 1301', 'CSCI 1302', 'CSCI 2720', 'CSCI 4050', 'CSCI 4300', 'CSCI 4370'] },
+  /*
+   * The pre-health topics, which listed only Illinois codes (CHEM 102, MCB
+   * 244, HK 111 ...), so at UGA only their title words fired: a Health
+   * Promotion student who wants to be a nurse practitioner got NUTR 2100,
+   * SOCI 3110 and ANTH 3540 and no chemistry, microbiology or lifespan
+   * course (2026-11-02). Nursing: the prerequisite areas a BSN program asks
+   * for (anatomy and physiology I and II, microbiology, lifespan development,
+   * introductory psychology and sociology, statistics, nutrition), as UGA's
+   * courses. Not general chemistry: a goal pick books a lecture alone, and
+   * CHEM 1211 went on four boards without CHEM 1211L. Neuroscience names no
+   * subject: UGA's NEUR courses past NEUR 2800 are graduate courses.
+   */
+  nursing: { subjects: [], courses: ['CBIO 2200', 'CBIO 2210', 'MIBO 2500', 'HDFS 2200', 'PSYC 1101', 'SOCI 1101', 'STAT 2000', 'NUTR 2100'] },
+  'public-health': { subjects: [], courses: ['PBHL 3100', 'EPID 2010', 'BIOS 2010', 'EHSC 1000', 'EPID 4200', 'HPAM 3500', 'HPRB 1710'] },
+  'athletic-training': { subjects: [], courses: ['KINS 2010', 'KINS 2100', 'KINS 3700', 'KINS 4200', 'CBIO 2200', 'CBIO 2210', 'NUTR 2100'] },
+  neuroscience: { subjects: [], courses: ['NEUR 2800', 'CBIO 3800', 'PSYC 1101', 'GRNT 3400', 'VPHY 4400'] },
 };
