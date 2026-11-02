@@ -1082,9 +1082,13 @@ const PRIOR_LEARNING = /\bhigh school\b/i;
  * experience, it let MATH 257 into an Engineering Mechanics or Materials
  * Science freshman's second term ahead of chemistry, and those boards, full
  * at every term, lost ME 470 or split MCB 251 from MCB 250 (Nov 2 sweep).
+ * Nor CS 225, which asks for CS 128 or ECE 220 anyway: through its "MATH
+ * 412 or MATH 413" alternatives it led MATH 257 into the CS 374 / ECE 374
+ * loop, and Chemistry and Aerospace boards that book neither said "The
+ * catalog prerequisites loop on CS 374, ECE 374".
  */
 const PROGRAMMING_EXPERIENCE = /\bor equivalent programming experience\b/i;
-const PROGRAMMING_COURSES = ['CS 128', 'CS 225', 'ECE 220'];
+const PROGRAMMING_COURSES = ['CS 128', 'ECE 220'];
 
 /**
  * The clause offering school work instead of the course, or null.
