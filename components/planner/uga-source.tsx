@@ -24,6 +24,7 @@ import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner
 import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
 import type { AnyCourseRule } from '@/lib/planner/any-course';
 import { canonicalUgaCode, listedUgaCourseCodes } from '@/lib/planner/uga-course-codes';
+import { UGA_BULLETIN_NOT_BOTH } from '@/lib/planner/uga-bulletin-exclusions';
 import { arrangedOnly, loadUgaOfferings, offeringsFor, seasonsRun, takenPerYear, type UgaOfferingsFile } from '@/lib/planner/uga-offerings';
 
 export { applyUgaProgramOverrides } from '@/lib/planner/uga-program-overrides';
@@ -138,7 +139,7 @@ function ugaEquivalents(courses: Course[]): Map<string, string[]> {
  *     Medical Entomology Lecture and ENTO 3650 Medical Entomology were both
  *     on a Biology board, 10 hours on a 7-hour list.
  */
-function ugaExclusions(courses: Course[]): Map<string, string[]> {
+function ugaExclusions(courses: Course[], equivalents?: Map<string, string[]>): Map<string, string[]> {
   const known = new Set(courses.map((course) => normCode(course.code)));
   const out = new Map<string, string[]>();
   const exclude = (codes: string[]): void => {
@@ -147,6 +148,13 @@ function ugaExclusions(courses: Course[]): Map<string, string[]> {
   };
   exclude(['PHYS 1111', 'PHYS 1211', 'PHYS 1311']);
   exclude(['PHYS 1112', 'PHYS 1212', 'PHYS 1312']);
+  // The Bulletin's own "Not open to students with credit in" pairs (uga-bulletin-exclusions.ts), but two codes the catalog links as one course.
+  // Each version of one course against each version of the other (STAT 2000 and BIOS 2010E), never two versions of one course.
+  for (const [a, b] of UGA_BULLETIN_NOT_BOTH) {
+    const as = [a, ...(equivalents?.get(a) ?? [])];
+    const bs = [b, ...(equivalents?.get(b) ?? [])];
+    for (const x of as) for (const y of bs) if (x !== y && !as.includes(y) && !bs.includes(x)) exclude([x, y]);
+  }
   const byDescription = new Map<string, Course[]>();
   for (const course of courses) {
     const description = course.description.trim().toLowerCase();
@@ -1525,7 +1533,7 @@ export function loadUgaData(): Promise<UgaData | null> {
       courses,
       prereqs,
       equivalents,
-      exclusions: ugaExclusions(courses),
+      exclusions: ugaExclusions(courses, equivalents),
       ...coreAndFoundations(programs),
       creditRanges,
       offeringPublished,
