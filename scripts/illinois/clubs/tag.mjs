@@ -110,12 +110,12 @@ export const GOAL_CATEGORIES = {
   'pre-medicine': H, 'pre-dental': H, 'pre-physician-assistant': H, 'pre-physical-therapy': H, 'pre-occupational-therapy': H, 'pre-pharmacy': H, 'pre-optometry': H,
   'pre-veterinary': ['Veterinary', 'Agricultural', 'Life & Physical Sciences'],
   'pre-law': ['Law'], law: ['Law'],
-  'ai-ml': T, 'data-science': [...T, ...B], 'ux-hci': [...T, 'Media Arts'], 'software-engineering': T, cybersecurity: T, 'game-design': [...T, 'Media Arts'], robotics: T, hardware: T,
+  'ai-ml': T, 'data-science': [...T, ...B], 'ux-hci': [...T, 'Media Arts'], 'software-engineering': T, cybersecurity: T, 'game-design': [...T, 'Media Arts'], robotics: T, automotive: T, hardware: T,
   'speech-language-pathology': H, 'athletic-training': [...H, 'Athletic & Recreation'],
   finance: B, 'investment-banking': B, markets: B, 'financial-planning': B, 'real-estate': B, 'commercial-banking': B, accounting: B,
-  marketing: [...B, 'Media Arts'], consulting: B, 'supply-chain': B, entrepreneurship: [...B, ...T], 'sports-business': [...B, 'Athletic & Recreation'],
+  marketing: [...B, 'Media Arts'], consulting: B, 'supply-chain': B, entrepreneurship: [...B, ...T], 'sports-business': [...B, 'Athletic & Recreation'], 'sports-media': ['Media Arts', 'Athletic & Recreation'],
   'public-health': H, 'clinical-psychology': ['Social & Behavioral Sciences', 'Health & Human Sciences'], 'io-psychology-hr': ['Social & Behavioral Sciences', ...B], neuroscience: ['Life & Physical Sciences', 'Social & Behavioral Sciences'],
-  'climate-environment': ['Environmental & Sustainability'], 'public-policy': ['Ideology & Politics', 'Advocacy & Activism'], politics: ['Ideology & Politics', 'Student Governance & Councils'],
+  'climate-environment': ['Environmental & Sustainability'], 'public-policy': ['Ideology & Politics', 'Advocacy & Activism'], politics: ['Ideology & Politics', 'Student Governance & Councils'], diplomacy: ['Ideology & Politics', 'Student Governance & Councils'],
   journalism: ['Media Arts'], 'film-media': ['Media Arts'], education: ['Education, Pedagogy & Instruction'], nursing: H, biotech: ['Life & Physical Sciences', 'Technology, Engineering & Mathematics'],
 };
 

@@ -1771,8 +1771,10 @@ export function interestProfile(text: string): InterestProfile {
  * for titles: "service" alone booked ECHD 3020 Introduction to Counseling
  * and Human Development Services and ALDR 3900S Leadership and Service for a
  * future diplomat, and "investment" FIN 445 Real Estate Investment for a
- * future investment banker (2026-11-01). Topics only: a track's phrase
- * ("medical school") books its own list and keeps its words as they were.
+ * future investment banker (2026-11-01). Phrases only: a topic that heard
+ * one word ("finance") heard the field, and "finance" still finds Financial
+ * Economics. Topics only: a track's phrase ("medical school") books its own
+ * list and keeps its words as they were.
  */
 const phraseWordsCache = new Map<string, string[]>();
 export function phraseWordsOf(text: string | undefined): string[] {
@@ -1788,6 +1790,8 @@ export function phraseWordsOf(text: string | undefined): string[] {
       for (const m of own.matchAll(compiled(source))) {
         if (m[0].length === 0) continue;
         const at = m.index ?? 0;
+        // A phrase: one word the topic heard ("finance", "marketing") is the field itself, and stays a word of its own.
+        if ((m[0].match(/[a-z]+/g) ?? []).length < 2) continue;
         if (!stance(own, at, at + m[0].length).negated) spans.push([at, at + m[0].length]);
       }
     }
