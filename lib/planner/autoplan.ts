@@ -10632,7 +10632,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * brought booked KINS 3430 Introduction to Sport Management, which
    * "Students must be enrolled in a professional program to register for"
    * (2026-11-02). Through one course: a list's pick, a gen-ed pick or a free
-   * elective, never a course the degree requires.
+   * elective, never a course the degree requires. Not through a course of the
+   * degree's own subjects, whose permission is the student's to ask for, nor
+   * one the board has already chosen: a Dance student's DANC 3010 asks for
+   * DANC 2652 and DANC 2662, "Permission of department", which her own lists
+   * book first.
    */
   const requiredByName = new Set(input.requirements.flatMap((r) => (r.rule.kind === 'all' ? r.rule.choices.flatMap((choice) => choice.codes.map(normaliseCode)) : [])));
   // The course itself, or for an online "E" version the course it is (not an honors twin's gate).
@@ -10642,8 +10646,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     return (ctx.prereqs?.get(code)?.groups ?? []).some((group) => {
       if (group.priorLearning || group.any.length === 0) return false;
       const options = group.any.map(normaliseCode);
-      if (options.some((c) => requiredByName.has(c) || expandEquivalents(c, equivalents).some((e) => satisfiedForPrereq.has(e)))) return false;
-      return options.some((c) => byCode.has(c) && gatedOption(c)) && options.every((c) => !byCode.has(c) || gatedOption(c));
+      if (options.some((c) => requiredByName.has(c) || chosen.has(c) || expandEquivalents(c, equivalents).some((e) => satisfiedForPrereq.has(e)))) return false;
+      const outside = (c: string) => { const subject = c.split(' ')[0]; return subject !== degreeRead.primary && !degreeRead.subjects.has(subject); };
+      return options.some((c) => byCode.has(c) && gatedOption(c)) && options.every((c) => !byCode.has(c) || (gatedOption(c) && outside(c)));
     });
   };
   const conflicts = buildConflicts(ctx.exclusions);
