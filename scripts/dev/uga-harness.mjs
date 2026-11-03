@@ -77,8 +77,13 @@
  * core electives taken off the core areas as the workspace does
  * (transfer-core.ts withCoreCredit), the finish suggested as onboarding
  * suggests it once the record is in (transfer-finish.ts, where the checkout
- * has it), and the build told the student is arriving (AutoplanInput.arrival,
- * as planner-workspace.tsx arrivalOf reads it). A board with no student in
+ * has it), the build told the student is arriving (AutoplanInput.arrival,
+ * as planner-workspace.tsx arrivalOf reads it), and every audit given the
+ * core credit used (UgaAuditInput.coreCredit), as the workspace's audit is:
+ * without it the reviewer's copy read Political Science's Quantitative
+ * Reasoning as unmet. A row's optional fourth field names the school that
+ * taught it (dual enrollment), and a student's "exams" are read with UGA's
+ * exam table, as priorHoursOf reads them. A board with no student in
  * the file for its degree is skipped. Rows add the record's lines, the core
  * credit used, every audit row, the issues and the horizon. First written as
  * the reviewer's copy (keep-planner review-fresh-w3 xfer-harness.mjs).
@@ -444,6 +449,8 @@ const XFER_ON = KIND_NAMES.some((k) => KINDS[k]?.record === 'xfer');
 const CORE = XFER_ON ? await lib('lib/planner/transfer-core.ts') : null;
 const AP = XFER_ON ? await lib('lib/planner/autoplan.ts') : null;
 const TF = XFER_ON && existsSync(join(ROOT, 'lib/planner/transfer-finish.ts')) ? await lib('lib/planner/transfer-finish.ts') : null;
+// A transfer student's exam credit (the file's "exams"), read with UGA's own exam table as the workspace reads it.
+const EXAM_TABLE = XFER_ON ? (publicJson('uga-exam-credit.json').entries ?? []) : [];
 let xferRecord = null;
 if (XFER_ON) {
   const fs = await import('node:fs');
@@ -461,9 +468,10 @@ if (XFER_ON) {
   }
   // "Fall 2026*" in the file is a term in progress.
   xferRecord = (student) => {
-    const lines = Object.entries(student.terms).flatMap(([term, rows]) => rows.map(([code, title, credits]) => {
+    // A row's fourth field, when given, is the school that taught it (dual enrollment at another college).
+    const lines = Object.entries(student.terms).flatMap(([term, rows]) => rows.map(([code, title, credits, from]) => {
       const now = term.endsWith('*');
-      return { code, title, credits, grade: now ? null : 'B', term: term.replace('*', ''), status: now ? 'in_progress' : 'completed' };
+      return { code, title, credits, grade: now ? null : 'B', term: term.replace('*', ''), status: now ? 'in_progress' : 'completed', ...(from ? { from } : {}) };
     }));
     return T.matchTranscript({ institution: student.institution ?? 'Georgia State University Perimeter College', kind: 'transcript', courses: lines, exams: [], notes: [], credentials: student.credentials ?? [] }, 'transcript.pdf', lite, ['transcript.pdf'], null, 'uga', table, cross);
   };
@@ -533,7 +541,7 @@ function requiredSummerOnly(blocks, context) {
   return out;
 }
 
-function answersFor(kind, record, degreeHours = null) {
+function answersFor(kind, record, degreeHours = null, exams = []) {
   const { words } = KINDS[kind];
   const academicYear = KINDS[kind].academicYear ?? O.inferAcademicYear(words);
   const said = O.inferGraduationTarget(words);
@@ -543,7 +551,7 @@ function answersFor(kind, record, degreeHours = null) {
     schoolId: 'uga', programLevel: 'undergraduate', programIds: [], minorIds: [], certificateIds: [], doubleDawgsPathwayId: null,
     emphasisSelections: {}, collegeId: '', academicYear, graduationSeason: '', graduationYear: null,
     alreadyTakenCourseCodes: [], studying: '', timeline: words, timelineAt: TODAY.toISOString(), after: KINDS[kind].after ?? words,
-    exams: [], transferText: '', transcript: record, languageYears: null, language: '',
+    exams, transferText: '', transcript: record, languageYears: null, language: '',
   };
   // A transfer kind: from the hours and the degree's total once the record is in (transfer-finish.ts), where the checkout has it.
   const suggested = KINDS[kind].record === 'xfer' && TF
@@ -561,10 +569,14 @@ function build(program, kind) {
   if (!isXfer && recordName && (!fixture || fixture.error)) return { ok: false, error: `no transcript fixture: ${fixture?.error ?? 'missing'}` };
   const record = isXfer ? xferRecord(student) : recordName ? fixture[recordName] : null;
   const { loaded: asLoaded, samplePlanCourses } = loadProgram(program);
-  const answers = answersFor(kind, record, isXfer ? (asLoaded.summary?.totalCredits || asLoaded.program.totalCredits || null) : null);
+  const examsHeld = isXfer ? (student.exams ?? []) : [];
+  const examTable = examsHeld.length > 0 ? EXAM_TABLE : [];
+  const answers = answersFor(kind, record, isXfer ? (asLoaded.summary?.totalCredits || asLoaded.program.totalCredits || null) : null, examsHeld);
   // A transfer's core electives come off the core areas they fill, as the workspace's blocks do (transfer-core.ts).
   const coreCredit = isXfer ? CORE.withCoreCredit(asLoaded.blocks, record) : null;
   const loaded = coreCredit && coreCredit.blocks !== asLoaded.blocks ? { ...asLoaded, blocks: coreCredit.blocks } : asLoaded;
+  // And the audit counts the core credit used, as planner-workspace.tsx passes it (UgaAuditInput.coreCredit); nothing for other kinds.
+  const auditCore = coreCredit ? { coreCredit: coreCredit.used } : {};
   // The goal's hours, as the workspace's context sets them before the transcript's (a checkout before the tracks has none).
   if (U.setUgaTrackHours && CT?.ugaTrackCodes) U.setUgaTrackHours(data, CT.ugaTrackCodes(CT.interestProfile(answers.after ?? '')));
   const context = { ...T.withTranscriptCredits(data.context, record), samplePlanCourses };
@@ -572,9 +584,11 @@ function build(program, kind) {
   const recordedCredits = T.transcriptCourseCredits(record);
   const catalogCredits = (code) => recordedCredits.get(norm(code)) ?? ctxByCode.get(norm(code))?.credits ?? null;
   // priorHoursOf, as the workspace has it.
-  const priorHours = X.examElectiveHours([], [], T.transcriptIndirectCodes(record), catalogCredits) + T.transcriptHours(record) + T.transcriptCreditAdjustment(record, catalogCredits);
-  const read = IS.readPriorCredit('', 0, ctxByCode, [...T.transcriptCodes(record)], Boolean(record), priorHours, null, '');
-  const genEdCredits = [...T.transcriptGenEdCredits(record), ...X.examGenEdCredits([], [], catalogCredits)];
+  // Exams: none but a transfer kind's (above), so every other board reads as before.
+  const priorHours = X.examElectiveHours(examsHeld, examTable, T.transcriptIndirectCodes(record), catalogCredits) + T.transcriptHours(record) + T.transcriptCreditAdjustment(record, catalogCredits);
+  const examCodes = examsHeld.length > 0 ? X.examCourses(examsHeld, examTable, (code) => ctxByCode.has(norm(code))) : [];
+  const read = IS.readPriorCredit('', examsHeld.length, ctxByCode, [...examCodes, ...T.transcriptCodes(record)], Boolean(record), priorHours, null, '');
+  const genEdCredits = [...T.transcriptGenEdCredits(record), ...X.examGenEdCredits(examsHeld, examTable, catalogCredits)];
   const prior = { ...read, exemptCodes: [...new Set([...read.exemptCodes, ...T.transcriptExemptCodes(record)])], ...(genEdCredits.length ? { genEdCredits } : {}) };
   const horizon = horizonFor(answers, TODAY, S.NO_SHAPE);
   const priorHere = horizon.assumedHours > 0 ? { ...prior, unmatchedCredits: prior.unmatchedCredits + horizon.assumedHours } : prior;
@@ -590,7 +604,7 @@ function build(program, kind) {
     const a = auditUgaBoard({
       board: g.plan, context, undergraduate: loaded, priorCodes: done, ...bookedOf(g),
       extraCredits: hours - planCreditRange(done, context).min + horizon.assumedHours,
-      transcript: record, dualLevel: data.dualLevelCourses,
+      transcript: record, dualLevel: data.dualLevelCourses, ...auditCore,
       validation: { minimumTermCredits: 12, priorCredits: hours + horizon.assumedHours },
     });
     return a.areas.filter((row) => !row.satisfied).length + a.issues.filter((i) => i.id.startsWith('uga-pool-')).length;
@@ -617,7 +631,7 @@ function build(program, kind) {
   const audit = auditUgaBoard({
     board, context, undergraduate: loaded, priorCodes: completed, ...bookedOf(generated),
     extraCredits: priorCreditHours - planCreditRange(completed, context).min + horizon.assumedHours,
-    transcript: record, dualLevel: data.dualLevelCourses,
+    transcript: record, dualLevel: data.dualLevelCourses, ...auditCore,
     // As the workspace's audit has it since 2026-10-20: standing counts the assumed terms (0 at UGA before).
     validation: { minimumTermCredits: 12, priorCredits: priorCreditHours + horizon.assumedHours },
   });
@@ -638,7 +652,7 @@ function build(program, kind) {
     const strictAudit = auditUgaBoard({
       board: strictBoard, context, undergraduate: loaded, priorCodes: completed, ...bookedOf(generated),
       extraCredits: priorCreditHours - planCreditRange(completed, context).min + horizon.assumedHours,
-      transcript: record, dualLevel: data.dualLevelCourses,
+      transcript: record, dualLevel: data.dualLevelCourses, ...auditCore,
       validation: { minimumTermCredits: 12, priorCredits: priorCreditHours + horizon.assumedHours },
     });
     const booked = generated.bookedFor ?? {};
@@ -731,7 +745,7 @@ function build(program, kind) {
     }))(auditUgaBoard({
       board, context, undergraduate: loaded, priorCodes: completed,
       extraCredits: priorCreditHours - planCreditRange(completed, context).min + horizon.assumedHours,
-      transcript: record, dualLevel: data.dualLevelCourses,
+      transcript: record, dualLevel: data.dualLevelCourses, ...auditCore,
       validation: { minimumTermCredits: 12, priorCredits: priorCreditHours + horizon.assumedHours },
     })) } : {}),
     board: board.terms.map((t) => `${t.label}: ${t.courseIds.map((id) => context.courses.find((c) => c.id === id)?.code ?? id).join(', ')}`),
