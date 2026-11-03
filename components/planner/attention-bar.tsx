@@ -158,6 +158,8 @@ export function AttentionBar({
           <PopoverContent side="bottom" align="end" className="attention-popover" positionerClassName="attention-positioner" collisionPadding={12}>
             <PopoverTitle>Everything else on this plan</PopoverTitle>
             <div className="attention-body">
+              {/* The requirements behind "This plan can't finish ..." (cannot-finish.ts): the item stands for them on the bar. */}
+              <Section title="What the plan can't fit, by requirement" rows={triage.replaced ?? []} tone="now" onSelect={onSelectIssue} close={close} {...links} />
               <Section title="Also needs attention" rows={nowMore} tone="now" onSelect={onSelectIssue} close={close} {...links} />
               <Section
                 title="Waiting for your record"

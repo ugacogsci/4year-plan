@@ -2862,15 +2862,17 @@ export function PlannerWorkspace({
   /** This board's finish state, read as a candidate's is read. */
   const finishNow = useMemo((): FinishState | null => {
     if (!plan || !report || !finishSettings || !context) return null;
+    // A class the student has since put on the board by hand (or holds) is no longer one that doesn't fit.
+    const onBoard = new Set([...boardCodes, ...completedCodes]);
     return finishStateOf({
-      notPlaced: report.notPlaced.map((n) => ({ code: n.code, title: n.title, reason: n.reason, credits: byCode.get(normCode(n.code))?.credits ?? null })),
+      notPlaced: report.notPlaced.filter((n) => !onBoard.has(normCode(n.code))).map((n) => ({ code: n.code, title: n.title, reason: n.reason, credits: byCode.get(normCode(n.code))?.credits ?? null })),
       rows: isUga ? ugaRowsShort(issues) : illinoisRowsShort(report.unsatisfied, report.notPlaced),
       totalHours: isUga ? (ugaAudit?.total ?? credits.total.min) : credits.total.min,
       degreeTotal: isUga ? (ugaAudit?.target ?? activeProgramTotal ?? null) : (activeProgramTotal ?? null),
       terms: termLoadsOf(plan, report.away),
       cap: finishSettings.cap,
     });
-  }, [plan, report, finishSettings, context, isUga, issues, ugaAudit, credits.total.min, activeProgramTotal, termLoadsOf, byCode]);
+  }, [plan, report, finishSettings, context, isUga, issues, ugaAudit, credits.total.min, activeProgramTotal, termLoadsOf, byCode, boardCodes, completedCodes]);
 
   const cannot: CannotFinish | null = useMemo(() => {
     if (!finishNow || !finishSettings) return null;
