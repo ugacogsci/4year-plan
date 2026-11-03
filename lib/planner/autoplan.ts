@@ -4547,7 +4547,7 @@ export function interestProfileOf(text: string | undefined): InterestProfile {
  * student a software engineering one; 106 of 308 program names named a topic
  * on their own. Callers that pass no `career` are read the old way.
  */
-function careerProfileOf(input: { interests?: string; career?: string; context?: PlanningContext; prior?: PriorCredit; electiveLevelRange?: { min: number }; tracksOff?: boolean }): InterestProfile {
+function careerProfileOf(input: { interests?: string; career?: string; context?: PlanningContext; prior?: PriorCredit; electiveLevelRange?: { min: number }; tracksOff?: boolean; requirements?: readonly PlanRequirement[] }): InterestProfile {
   const profile = interestProfileOf(input.career ?? input.interests);
   if (input.context?.schoolId === 'uga') {
     // UGA's own pre-health lists (uga-career-tracks.ts); with none heard, the
@@ -4570,17 +4570,26 @@ function careerProfileOf(input: { interests?: string; career?: string; context?:
  * her last term as "named for the goal you gave", and a Psychology sophomore
  * holding STAT 2000 had BIOS 2010 booked the same way (2026-10-28). A code
  * an unmet row or a topic still names stays.
+ *
+ * A row the degree itself meets, with a course it requires by name, is met
+ * the same way: Science Education requires BCMB 3100, and a pre-physician
+ * assistant freshman's Major Electives took BCMB 4020, the row's other
+ * alternative, over CBIO 2210, which the track requires, and BCMB 4010 came
+ * with it as its prerequisite: seven hours past the live board (2026-11-02).
+ * Not on a pre-med or pre-PT board (UGA_PAST_TOTAL_AS_IS), which stay as
+ * they are until the owner decides how far past the total they may go.
  */
 const heldRowsMemo = new WeakMap<InterestProfile, Map<string, InterestProfile>>();
-function withoutHeldRows(profile: InterestProfile, input: { context?: PlanningContext; prior?: PriorCredit }): InterestProfile {
+function withoutHeldRows(profile: InterestProfile, input: { context?: PlanningContext; prior?: PriorCredit; requirements?: readonly PlanRequirement[] }): InterestProfile {
   const priorCodes = input.prior?.courseCodes ?? [];
-  if (priorCodes.length === 0) return profile;
+  const required = profile.tracks.some((track) => UGA_PAST_TOTAL_AS_IS.has(track.id)) ? new Set<string>() : requiredByNameOf(input.requirements);
+  if (priorCodes.length === 0 && required.size === 0) return profile;
   const equivalents = input.context?.equivalents ?? new Map<string, string[]>();
   const held = new Set(priorCodes.flatMap((code) => expandEquivalents(normaliseCode(code), equivalents)));
   const rows = profile.tracks.flatMap((track) => track.courses);
-  const metRow = (row: TrackCourse) => row.codes.some((code) => held.has(normaliseCode(code)));
+  const metRow = (row: TrackCourse) => row.codes.some((code) => held.has(normaliseCode(code)) || required.has(normaliseCode(code)));
   const stillNamed = new Set([...rows.filter((row) => !metRow(row)).flatMap((row) => row.codes), ...profile.topics.flatMap((topic) => topic.courses)].map(normaliseCode));
-  const drop = new Set(rows.filter(metRow).flatMap((row) => row.codes.map(normaliseCode)).filter((code) => !stillNamed.has(code) && !held.has(code)));
+  const drop = new Set(rows.filter(metRow).flatMap((row) => row.codes.map(normaliseCode)).filter((code) => !stillNamed.has(code) && !held.has(code) && !required.has(code)));
   if (drop.size === 0) return profile;
   const key = [...drop].sort().join('|');
   const memo = heldRowsMemo.get(profile) ?? new Map<string, InterestProfile>();
@@ -4590,6 +4599,26 @@ function withoutHeldRows(profile: InterestProfile, input: { context?: PlanningCo
   const made: InterestProfile = { ...profile, courses: profile.courses.filter((code) => !drop.has(normaliseCode(code))) };
   memo.set(key, made);
   return made;
+}
+
+/**
+ * The courses a degree's requirements name with no alternative: each course
+ * of a take-every-course row, and of a choose row with no more choices than
+ * it takes ("choose 1: BCMB 3100").
+ */
+const requiredByNameMemo = new WeakMap<readonly PlanRequirement[], Set<string>>();
+function requiredByNameOf(requirements: readonly PlanRequirement[] | undefined): Set<string> {
+  if (!requirements) return new Set();
+  const known = requiredByNameMemo.get(requirements);
+  if (known) return known;
+  const out = new Set<string>();
+  for (const r of requirements) {
+    const rule = r.rule;
+    if (rule.kind !== 'all' && !(rule.kind === 'choose' && rule.choices.length <= rule.n)) continue;
+    for (const choice of rule.choices) if (choice.codes.length === 1) out.add(normaliseCode(choice.codes[0]));
+  }
+  requiredByNameMemo.set(requirements, out);
+  return out;
 }
 
 /**
@@ -7289,8 +7318,9 @@ function ranksAbove(a: number[], b: number[]): boolean {
 export function generatePlan(input: AutoplanInput): GeneratedPlan {
   const out = generatePlanGated(input);
   // At UGA the finished board's lone Area II labs, once, on the board the student gets (the gates' own builds pass freeChoices).
+  // A track's course past the total takes a list seat of the planner's own pick (withUgaTrackPastSeated).
   // Then the notes that name where a course went are read again against that board (withBoardTrueNotes).
-  if (input.context?.schoolId === 'uga') return withBoardTrueNotes(input.freeChoices === undefined && input.plainEngine !== true ? withUgaGraduateNote(withUgaLabsPaired(withUgaTrackListSeats(out, input), input)) : out);
+  if (input.context?.schoolId === 'uga') return withBoardTrueNotes(input.freeChoices === undefined && input.plainEngine !== true ? withUgaGraduateNote(withUgaLabsPaired(withUgaTrackPastSeated(withUgaTrackListSeats(out, input), input), input)) : out);
   return withClosedPrereqNotes(withLabsRejoined(out, input), input);
 }
 
@@ -7357,7 +7387,37 @@ function withBoardTrueNotes(out: GeneratedPlan): GeneratedPlan {
     else if (instead) final.push(`${opening}, so ${code} is not on this plan: ${instead.code} takes its place in ${instead.term}. A summer term before ${apply} would make room for ${code}; ask your advisor.`);
     else final.push(`${opening}, so ${code} is not on this plan at all. A summer term before ${apply} would make room for it; ask your advisor.`);
   }
+  // A track's note says which of its courses the plan books, read against the board too (trackNoteOnBoard).
+  const tracked = final.map((note) => trackNoteOnBoard(note, termOf));
+  if (tracked.some((note, i) => note !== final[i])) return { ...out, notes: tracked };
   return changed ? { ...out, notes: final } : out;
+}
+
+/**
+ * A career track's note ("<track>: the plan books A, B as electives from
+ * <source>; ...; C did not fit, so plan them with your advisor.") with its
+ * two lists read against the board that stands: a course it says the plan
+ * books that the board does not hold joins the ones that did not fit, and
+ * one it says did not fit that the board holds joins the booked ones. The
+ * note is written before the trim of the hours past the total
+ * (trimPastTotal), which takes off a course the guide only recommends: a
+ * pre-veterinary Agribusiness board's note said "the plan books CBIO 3000"
+ * beside "CBIO 3000 is off the board: the plan was past the 120 credits",
+ * and a pre-PT Biology board's said the same of CLAS 1030 (2026-11-02).
+ * Words only; another note is returned as it is.
+ */
+function trackNoteOnBoard(note: string, termOf: ReadonlyMap<string, string>): string {
+  const m = /^([^:]+): (?:the plan books (.+?) as electives|no elective room was left for the courses) from (.+? \(https?:[^)\s]+\))((?:; you already hold [^;]+?)?(?:; you are taking [^;]+? now, which count once you pass)?)(?:; ([A-Z]{2,5} \d{4}[A-Z]?(?:, [A-Z]{2,5} \d{4}[A-Z]?)*) did not fit, so plan (?:them|it) with your advisor)?\.(?= |$)/.exec(note);
+  if (!m) return note;
+  const [whole, name, bookedText, source, heldText, missedText] = m;
+  const booked = bookedText ? bookedText.split(', ') : [];
+  const missed = missedText ? missedText.split(', ') : [];
+  const on = (code: string) => termOf.has(normaliseCode(code));
+  const nowBooked = [...booked.filter(on), ...missed.filter(on)];
+  const nowMissed = [...missed.filter((c) => !on(c)), ...booked.filter((c) => !on(c))];
+  if (nowBooked.length === booked.length && nowMissed.length === missed.length) return note;
+  const head = `${name}: ${nowBooked.length > 0 ? `the plan books ${nowBooked.join(', ')} as electives` : 'no elective room was left for the courses'} from ${source}${heldText}${nowMissed.length > 0 ? `; ${nowMissed.join(', ')} did not fit, so plan ${nowMissed.length === 1 ? 'it' : 'them'} with your advisor` : ''}.`;
+  return `${head}${note.slice(whole.length)}`;
 }
 
 /**
@@ -7513,6 +7573,388 @@ function withUgaTrackListSeats(g: GeneratedPlan, input: AutoplanInput): Generate
     else notes.push(`${name}: ${sentence}`);
   }
   return { ...board, notes };
+}
+
+/**
+ * The tracks whose boards keep going past their totals as they do: how far a
+ * pre-med or pre-PT board may go past its degree's total is the owner's
+ * call, not yet made (2026-11-02), so withUgaTrackPastSeated leaves them be.
+ */
+const UGA_PAST_TOTAL_AS_IS = new Set(['pre-medicine', 'pre-physical-therapy']);
+
+/**
+ * UGA: a track course the board books for no requirement, past the degree's
+ * total, takes a seat in a list it counts for, and the planner's own pick
+ * there comes off the board. The completion pass books a track's required
+ * courses past the total wherever a term has room, and the list picks never
+ * see the track: a pre-physician-assistant Accounting freshman's University
+ * Wide General Electives (Non-Business) held COMM 1500, ANTH 1102 and RELI
+ * 1001 while CBIO 2200, CBIO 2210, CHEM 1211 and BIOL 1108, with their labs,
+ * sat 16 hours past the 120, and a Marketing freshman's Social Sciences held
+ * HIST 2111 beside HIST 2112 while PSYC 1101 sat past the total
+ * (2026-11-02). A pre-PA advisor spends those elective seats on the
+ * prerequisites. Only where the list stays met with the track course
+ * counted, the pick is no other course's prerequisite and no lab or
+ * lecture, every row that names the pick stays met, the board stays at its
+ * total or above, and the board is no worse on anything the gate measures
+ * and its audit reads no row less met. Where the pick's term would go
+ * light, the track course moves into that term instead, if it can be taken
+ * there. Not the foundation or quantitative reasoning lists, not a lab
+ * area, and not a pre-med or pre-PT board (UGA_PAST_TOTAL_AS_IS). The
+ * notes say which seats the track courses took.
+ */
+function withUgaTrackPastSeated(g: GeneratedPlan, input: AutoplanInput): GeneratedPlan {
+  const tracks = careerProfileOf(input).tracks;
+  if (tracks.length === 0 || input.tracksOff === true || tracks.some((t) => UGA_PAST_TOTAL_AS_IS.has(t.id))) return g;
+  const degreeTotal = input.degreeTotal ?? null;
+  if (degreeTotal === null || g.credits.total.min <= degreeTotal) return g;
+  const ctx = input.context;
+  const equivalents = ctx.equivalents ?? new Map<string, string[]>();
+  const byCode = new Map(ctx.courses.map((c) => [normaliseCode(c.code), c]));
+  const held = new Set([...input.prior.courseCodes, ...(input.prior.exemptCodes ?? [])].flatMap((c) => expandEquivalents(normaliseCode(c), equivalents)));
+  const published = ctx.offeringPublished ?? new Set<string>();
+  const matcher = ctx.prereqCheck ?? defaultPrereqMatcher;
+  const standingHours = input.standingHours ?? DEFAULT_STANDING_HOURS;
+  const credits = { ...DEFAULT_CREDITS, ...input.preferences?.creditsPerTerm };
+  const hardCut = input.preferences?.hardDifficulty === undefined ? (ctx.bands?.hardest ?? FALLBACK_HARD_DIFFICULTY) : input.preferences.hardDifficulty;
+  const hoursOf = (codes: string[]) => planCreditRange(codes, ctx).min;
+  const trackCodes = new Set(tracks.flatMap((t) => t.courses.flatMap((row) => [...row.codes, ...(row.variants ?? [])].map(normaliseCode))));
+  const audit = (board: GeneratedPlan) => (input.boardAudit ? input.boardAudit(board) : board.unsatisfied.length);
+  const requirementOf = new Map(input.requirements.map((r) => [r.id, r]));
+  const takes = (r: PlanRequirement, code: string): boolean => {
+    if (r.rule.kind !== 'pool') return false;
+    if (r.rule.choices.some((choice) => choice.codes.some((c) => expandEquivalents(normaliseCode(c), equivalents).includes(code)))) return true;
+    return r.rule.anyCourse !== undefined && anyCourseTakes(r.rule.anyCourse, code);
+  };
+  // The rows that may count a pick beside its own list (withUgaTrackListSeats): each must stay met without it.
+  const rows = withUgaUniversityRows(input.requirements, input).filter((r) => r.rule.kind === 'all' || r.rule.kind === 'choose' || ugaRuleArea(r.areaLabel) || ugaOverlapArea(r.areaLabel) || ugaLabArea(r.areaLabel));
+  const namesOf = (r: PlanRequirement) => (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool' ? r.rule.choices : []).map((c) => c.codes.flatMap((code) => expandEquivalents(normaliseCode(code), equivalents)));
+  const keptMet = (r: PlanRequirement, without: string, on: Set<string>): boolean => {
+    const have = (code: string) => code !== without && (on.has(code) || held.has(code));
+    const choices = namesOf(r);
+    if (r.rule.kind === 'choose') return choices.filter((codes) => codes.some(have)).length >= r.rule.n;
+    if (r.rule.kind === 'pool') {
+      const codes = [...new Set(choices.flat().filter(have))];
+      return (r.rule.hours === null || hoursOf(codes) >= r.rule.hours) && (r.rule.n === null || codes.length >= r.rule.n);
+    }
+    return false;
+  };
+  const relabel = (board: GeneratedPlan, touched: Set<number>): GeneratedPlan => {
+    const grades = ctx.grades ?? new Map<string, GradeRow>();
+    const terms = board.terms.map((t, i) => {
+      if (!touched.has(i)) return t;
+      const codes = t.codes.map(normaliseCode);
+      const load = termLoad(codes, grades);
+      const hard = hardCut === null ? [] : codes.filter((c) => { const d = grades.get(c)?.difficulty; return d !== null && d !== undefined && d >= hardCut; }).sort();
+      const weighed = codes.filter((c) => grades.get(c)?.difficulty != null).length;
+      return { ...t, credits: planCreditRange(t.codes, ctx), load: { ...t.load, avgDifficulty: load.avgDifficulty, verdict: load.verdict, bandVerdict: bandVerdictFor(hard.length, load.avgDifficulty, ctx.bands ?? FALLBACK_BANDS), hard, weighed, unweighed: codes.length - weighed } };
+    });
+    const planned = planCreditRange(terms.flatMap((t) => t.codes), ctx);
+    const others = board.credits.prior + (board.credits.away ?? 0);
+    return {
+      ...board,
+      terms,
+      credits: {
+        ...board.credits,
+        planned,
+        total: { min: planned.min + others, max: planned.max + others, variable: planned.variable, unknown: planned.unknown },
+        unaccounted: board.credits.degreeTotal === null ? null : Math.max(0, board.credits.degreeTotal - (planned.min + others)),
+      },
+    };
+  };
+  /** `board` with `pick` off it, `unit` counted in `pool` (and moved into the pick's term where `move`). */
+  const seated = (board: GeneratedPlan, pool: PoolReport, pick: string, unit: string[], counted: string[], move: boolean): GeneratedPlan => {
+    const from = board.terms.findIndex((t) => t.codes.some((c) => normaliseCode(c) === pick));
+    const at = board.terms.findIndex((t) => t.codes.some((c) => normaliseCode(c) === unit[0]));
+    const touched = new Set<number>([from, at]);
+    const termCodes = board.terms.map((t, i) => {
+      let codes = t.codes.filter((c) => normaliseCode(c) !== pick);
+      if (move && i === at) codes = codes.filter((c) => !unit.includes(normaliseCode(c)));
+      if (move && i === from) codes = [...codes, ...unit];
+      return codes;
+    });
+    const ids = (codes: string[]) => codes.map((c) => courseIdFor(normaliseCode(c)));
+    const bookedFor = { ...(board.bookedFor ?? {}) };
+    delete bookedFor[pick];
+    for (const c of counted) bookedFor[c] = pool.requirementId;
+    const next: GeneratedPlan = {
+      ...board,
+      plan: { ...board.plan, terms: board.plan.terms.map((t) => {
+        const i = board.terms.findIndex((x) => x.id === t.id);
+        if (i < 0 || !touched.has(i)) return t;
+        const gone = new Set(ids(board.terms[i].codes.filter((c) => !termCodes[i].includes(c))));
+        const added = ids(termCodes[i].filter((c) => !board.terms[i].codes.includes(c)));
+        return { ...t, courseIds: [...t.courseIds.filter((id) => !gone.has(id)), ...added] };
+      }) },
+      terms: board.terms.map((t, i) => (touched.has(i) ? { ...t, codes: termCodes[i] } : t)),
+      pools: board.pools.map((p) => {
+        if (p.requirementId !== pool.requirementId) return p;
+        const picked = [...p.picked.filter((c) => normaliseCode(c) !== pick), ...counted];
+        return { ...p, picked, hours: p.hours - hoursOf([pick]) + hoursOf(counted), count: p.count - 1 + counted.length, alternatives: [pick, ...p.alternatives.filter((c) => normaliseCode(c) !== pick)] };
+      }),
+      bookedFor,
+      electives: board.electives.filter((e) => normaliseCode(e.code) !== pick),
+      ...(board.genEdPicks ? { genEdPicks: board.genEdPicks.filter((p) => normaliseCode(p.code) !== pick) } : {}),
+    };
+    return relabel(next, touched);
+  };
+  /** Whether `unit` can be taken in term `to` of `board`, `pick` gone from it. */
+  const takenThere = (board: GeneratedPlan, unit: string[], to: number, pick: string): boolean => {
+    const at = board.terms.findIndex((t) => t.codes.some((c) => normaliseCode(c) === unit[0]));
+    const term = board.terms[to];
+    if (at < 0 || to === at || term.season === 'Summer') return false;
+    if (!unit.every((c) => board.terms[at].codes.some((x) => normaliseCode(x) === c))) return false;
+    if (unit.some((c) => outOfSeason(byCode.get(c), { season: term.season, label: term.label, calendarYear: term.year }, published.has(c)))) return false;
+    if (hoursOf(term.codes.filter((c) => normaliseCode(c) !== pick)) + hoursOf(unit) > credits.max) return false;
+    const before = new Set<string>(held);
+    let hours = board.credits.total.min - board.terms.reduce((sum, t) => sum + t.credits.min, 0);
+    for (const t of board.terms.slice(0, to)) {
+      for (const c of t.codes) if (!unit.includes(normaliseCode(c))) for (const e of expandEquivalents(normaliseCode(c), equivalents)) before.add(e);
+      hours += hoursOf(t.codes.filter((c) => !unit.includes(normaliseCode(c))));
+    }
+    const same = new Set(term.codes.filter((c) => normaliseCode(c) !== pick).concat(unit).flatMap((c) => expandEquivalents(normaliseCode(c), equivalents)));
+    if (unit.some((c) => { const spec = ctx.prereqs?.get(c); const needs = spec?.standing; const m = matcher(spec, before, same, equivalents); return m.missing.length > 0 || m.uncertain.length > 0 || (needs ? hours < (standingHours[needs] ?? 0) : false); })) return false;
+    // Nothing that waits on the unit comes before it once moved.
+    const names = new Set(unit.flatMap((c) => expandEquivalents(c, equivalents)));
+    return !board.terms.slice(0, to + 1).some((t, i) => t.codes.some((other) => {
+      const code = normaliseCode(other);
+      if (unit.includes(code)) return false;
+      return (ctx.prereqs?.get(code)?.groups ?? []).some((group) => !(group.concurrent && i === to) && group.any.some((a) => names.has(normaliseCode(a))));
+    }));
+  };
+  /*
+   * What the track's note says has no room stays so: a course that "lands in
+   * Fall 2030 ... every term from Fall 2027 through Spring 2030 has no room
+   * for its 4 hours under 18". A seat that opens room in that span is not
+   * taken (a claim read false on the board as given is left out). The
+   * courses the note says "need a summer session or an extra term" are read
+   * again once the seats are taken (trackRoomNoteAfter): one a term now has
+   * room for is said to fit there if the student adds it, as the note says
+   * of such a course (autoplan's degreeFirst).
+   */
+  const termIndex = (board: GeneratedPlan, label: string) => board.terms.findIndex((t) => t.label === label);
+  const roomFor = (board: GeneratedPlan, unit: string[], extra: (i: number) => number = () => 0): number => {
+    const lastUsed = board.terms.reduce((last, t, i) => (t.codes.length > 0 ? i : last), -1);
+    const before = new Set<string>(held);
+    let hours = board.credits.total.min - board.terms.reduce((sum, t) => sum + t.credits.min, 0);
+    for (let i = 0; i <= lastUsed; i += 1) {
+      const term = board.terms[i];
+      const fits = term.season !== 'Summer' &&
+        !unit.some((c) => !byCode.has(c) || outOfSeason(byCode.get(c), { season: term.season, label: term.label, calendarYear: term.year }, published.has(c))) &&
+        term.credits.min + extra(i) + hoursOf(unit) <= credits.max &&
+        !unit.some((c) => {
+          const spec = ctx.prereqs?.get(c);
+          const same = new Set(term.codes.concat(unit).flatMap((x) => expandEquivalents(normaliseCode(x), equivalents)));
+          const m = matcher(spec, before, same, equivalents);
+          return m.missing.length > 0 || m.uncertain.length > 0 || (spec?.standing ? hours < (standingHours[spec.standing] ?? 0) : false);
+        });
+      if (fits) return i;
+      for (const c of term.codes) for (const e of expandEquivalents(normaliseCode(c), equivalents)) before.add(e);
+      hours += term.credits.min;
+    }
+    return -1;
+  };
+  const claimsFalse = (board: GeneratedPlan): Set<string> => {
+    const out = new Set<string>();
+    for (const track of tracks) {
+      const note = board.notes.find((n) => n.startsWith(`${track.name}: `));
+      if (!note) continue;
+      for (const m of note.matchAll(/([A-Z]{2,5} \d{4}[A-Z]?) lands in \S+ \d{4}, after \S+ \d{4}, the last term before applications go out: (?:every term from (\S+ \d{4}) through (\S+ \d{4})|(\S+ \d{4})) has no room for its (\d+) hours under (\d+)/g)) {
+        const from = termIndex(board, m[2] ?? m[4]);
+        const to = termIndex(board, m[3] ?? m[4]);
+        if (from < 0 || to < 0) continue;
+        if (board.terms.slice(from, to + 1).some((t) => t.season !== 'Summer' && t.credits.min + Number(m[5]) <= Number(m[6]))) out.add(`late:${m[1]}`);
+      }
+    }
+    return out;
+  };
+  let board = g;
+  const base = gateMeasure(g, input, g.language ?? null);
+  const falseAtStart = claimsFalse(g);
+  let unmet: number | null = null;
+  const said: Array<{ pool: string; unit: string[]; pick: string }> = [];
+  for (let round = 0; round < 12; round += 1) {
+    if (board.credits.total.min <= degreeTotal) break;
+    const on = new Set(board.terms.flatMap((t) => t.codes.map(normaliseCode)));
+    const termOf = (code: string) => board.terms.findIndex((t) => t.codes.some((c) => normaliseCode(c) === code));
+    // The track's courses booked for no list: each lecture with its lab, latest first.
+    const loose = board.electives
+      .filter((e) => e.track && on.has(normaliseCode(e.code)) && (board.bookedFor?.[normaliseCode(e.code)] ?? null) === null)
+      .map((e) => normaliseCode(e.code));
+    const units = loose
+      .filter((c) => ugaLabOf(c) === null || !loose.includes(ugaLabOf(c) as string))
+      .map((c) => (loose.includes(`${c}L`) && termOf(`${c}L`) === termOf(c) ? [c, `${c}L`] : [c]))
+      .sort((a, b) => termOf(b[0]) - termOf(a[0]) || a[0].localeCompare(b[0]));
+    let traded = false;
+    for (const unit of units) {
+      if (traded) break;
+      for (const pool of board.pools) {
+        if (traded) break;
+        const r = requirementOf.get(pool.requirementId);
+        if (!r || r.rule.kind !== 'pool' || ugaLabArea(pool.areaLabel) || /(?:^|:\s*)(?:I|III)\. /.test(pool.areaLabel)) continue;
+        const counted = unit.filter((c) => takes(r, c));
+        if (counted.length === 0 || counted.length !== unit.length) continue;
+        const picks = pool.picked.map(normaliseCode)
+          .filter((p) => on.has(p) && !unit.includes(p))
+          .sort((a, b) => termOf(b) - termOf(a) || a.localeCompare(b));
+        for (const pick of picks) {
+          const to = termOf(pick);
+          if (to < 0 || board.terms[to].season === 'Summer') continue;
+          if (trackCodes.has(pick) || board.electives.some((e) => normaliseCode(e.code) === pick && (e.forGoal || e.track))) continue;
+          if (board.genEdPicks?.some((p) => normaliseCode(p.code) === pick && p.forGoal)) continue;
+          if (ugaLabOf(pick) !== null || on.has(`${pick}L`) || board.addedPrerequisites.some((a) => normaliseCode(a.code) === pick)) continue;
+          if (board.pools.some((p) => p !== pool && p.picked.some((c) => normaliseCode(c) === pick))) continue;
+          if (pool.constraints.some((c) => c.picked.some((x) => normaliseCode(x) === pick))) continue;
+          const cost = hoursOf([pick]);
+          if (board.credits.total.min - cost < degreeTotal) continue;
+          // The list met without the pick, the track's course counted in it.
+          const left = [...pool.picked.map(normaliseCode).filter((c) => c !== pick && on.has(c)), ...pool.fromPriorCredit.map(normaliseCode), ...counted];
+          if ((pool.hoursTarget !== null && hoursOf([...new Set(left)]) < pool.hoursTarget) || (pool.countTarget !== null && new Set(left).size < pool.countTarget)) continue;
+          if (!rows.every((row) => !namesOf(row).some((codes) => codes.includes(pick)) || keptMet(row, pick, on))) continue;
+          // Asked for by nothing else on the board.
+          const names = new Set(expandEquivalents(pick, equivalents));
+          if ([...on].some((other) => other !== pick && (ctx.prereqs?.get(other)?.groups ?? []).some((group) => group.any.some((a) => names.has(normaliseCode(a)))))) continue;
+          unmet ??= audit(board);
+          for (const move of [false, true]) {
+            if (move && !takenThere(board, unit, to, pick)) continue;
+            const trial = seated(board, pool, pick, unit, counted, move);
+            if (gateWorse(gateMeasure(trial, input, trial.language ?? null), base).length > 0) continue;
+            if ([...claimsFalse(trial)].some((claim) => !falseAtStart.has(claim))) continue;
+            const trialUnmet = audit(trial);
+            if (trialUnmet > unmet || trial.notPlaced.length > board.notPlaced.length) continue;
+            board = trial;
+            unmet = trialUnmet;
+            said.push({ pool: /^approved core courses$|core courses$/i.test(pool.label) || !pool.label ? pool.areaLabel.replace(/^([IVX]+)\. (.+)$/, '$2 (Area $1)') : pool.label, unit, pick });
+            traded = true;
+            break;
+          }
+          if (traded) break;
+        }
+      }
+    }
+    if (!traded) break;
+  }
+  if (said.length === 0) return g;
+  const freed = g.credits.total.min - board.credits.total.min;
+  const seatedCodes = new Set(said.flatMap((s) => s.unit));
+  const join = (codes: string[]) => (codes.length <= 1 ? codes.join('') : `${codes.slice(0, -1).join(', ')} and ${codes[codes.length - 1]}`);
+  const pastNote = /^(.+) (?:is|are) required for the goal you named, placed where the planner's own lesser picks were\. Drop (?:it|them) if the goal changes\.$/;
+  const notes: string[] = [];
+  for (const note of board.notes) {
+    const past = pastNote.exec(note);
+    if (past) {
+      const left = past[1].split(', ').filter((c) => !seatedCodes.has(normaliseCode(c)));
+      if (left.length > 0) notes.push(`${left.join(', ')} ${left.length === 1 ? 'is' : 'are'} required for the goal you named, placed where the planner's own lesser picks were. Drop ${left.length === 1 ? 'it' : 'them'} if the goal changes.`);
+      continue;
+    }
+    if (beyondTotalNote(note, degreeTotal)) {
+      const now = beyondTotalAfter(note, degreeTotal, board.credits.total.min, freed, credits.min);
+      if (now) notes.push(now);
+      continue;
+    }
+    notes.push(note);
+  }
+  // The courses the note said need a summer, read again against the lighter board.
+  for (const track of tracks) {
+    const at = notes.findIndex((n) => n.startsWith(`${track.name}: `));
+    if (at >= 0) notes[at] = trackRoomNoteAfter(notes[at], track.name, (unit, extra) => roomFor(board, unit, extra), (i) => board.terms[i]?.label ?? '', hoursOf);
+  }
+  // The seats the track's courses took, in the track's own note.
+  const byPool = new Map<string, { units: string[]; picks: string[] }>();
+  for (const s of said) {
+    const entry = byPool.get(s.pool) ?? { units: [], picks: [] };
+    entry.units.push(...s.unit.filter((c) => ugaLabOf(c) === null || !s.unit.includes(ugaLabOf(c) as string)).map((c) => (s.unit.includes(`${c}L`) ? `${c} with its lab` : c)));
+    entry.picks.push(s.pick);
+    byPool.set(s.pool, entry);
+  }
+  const parts = [...byPool].map(([pool, { units, picks }]) => `${join(units)} toward ${pool} in place of ${join(picks)}`);
+  const sentence = `To keep the goal's courses inside the degree's hours, this plan counts ${parts.join('; ')}.`;
+  const owner = tracks.find((track) => notes.some((n) => n.startsWith(`${track.name}: `)));
+  const at = owner ? notes.findIndex((n) => n.startsWith(`${owner.name}: `)) : -1;
+  if (at >= 0) notes[at] = `${notes[at]} ${sentence}`;
+  else notes.push(`${tracks[0].name}: ${sentence}`);
+  return { ...board, notes };
+}
+
+/** Whether `note` is the plan's "N credits beyond the total" note (describeBeyondTotal). */
+function beyondTotalNote(note: string, degreeTotal: number): boolean {
+  return new RegExp(`\\b\\d+ credits? beyond the ${degreeTotal} this degree takes\\b`).test(note);
+}
+
+/**
+ * The "beyond the total" note (describeBeyondTotal) written again for a
+ * board `freed` hours lighter, those hours taken off the share the goal's
+ * courses had: its other shares, the hours the requirements book and the
+ * minimum it names are read back from the note itself. Null where the board
+ * is no longer past the total.
+ */
+function beyondTotalAfter(note: string, degreeTotal: number, total: number, freed: number, minimum: number): string | null {
+  const num = (re: RegExp) => { const m = re.exec(note); return m ? Number(m[1]) : null; };
+  const beyond = num(/(\d+) credits? beyond the/) ?? 0;
+  const allPadded = /^\d+ credits? beyond the \d+ this degree takes keep every term at/.test(note);
+  const padded = allPadded ? beyond : (num(/(\d+) keep every term at the \d+ you set/) ?? 0);
+  const min = num(/keep every term at the (\d+) you set/) ?? minimum;
+  const track = /^The courses your goal needs, named above, take this plan to/.test(note) ? beyond : (num(/(\d+) are the courses your goal needs/) ?? 0);
+  const booked = num(/already comes? to (\d+) before any elective/) ?? degreeTotal;
+  const prior = num(/with the (\d+) hours you bring/) ?? 0;
+  return describeBeyondTotal({ degreeTotal, total, booked, prior, padded, track: Math.max(0, track - freed), minimum: min });
+}
+
+/**
+ * A track note's "The degree's own courses come first, so for <track> ..."
+ * sentence (autoplan's degreeFirst) with each course it said needs a summer
+ * session or an extra term that a term now has room for (`roomOf`, the
+ * term's index or -1, with the hours given to the courses said before it)
+ * said to fit there if the student adds it, a lab with its lecture; the
+ * other parts as they were.
+ */
+function trackRoomNoteAfter(note: string, trackName: string, roomOf: (unit: string[], extra: (i: number) => number) => number, labelOf: (i: number) => string, hoursOf: (codes: string[]) => number): string {
+  const opening = ` The degree's own courses come first, so for ${trackName} `;
+  const start = note.indexOf(opening);
+  if (start < 0) return note;
+  const end = note.indexOf('.', start + opening.length);
+  if (end < 0) return note;
+  const parts = note.slice(start + opening.length, end).split(', and ');
+  const code = '[A-Z]{2,5} \\d{4}[A-Z]?';
+  const listRe = `(${code}(?:(?:, | and )${code})*)`;
+  const list = (codes: string[]) => (codes.length <= 1 ? codes.join('') : `${codes.slice(0, -1).join(', ')} and ${codes[codes.length - 1]}`);
+  const split = (text: string) => text.split(/, | and /).filter(Boolean);
+  let noRoom: string[] = [];
+  const roomIn = new Map<string, string[]>();
+  const rest: string[] = [];
+  for (const part of parts) {
+    const off = new RegExp(`^${listRe} (?:needs|need) a summer session or an extra term$`).exec(part);
+    const fits = new RegExp(`^${listRe} fits? in (\\S+ \\d{4}) if you add (?:it|them) \\(\\d+ more hours?\\)$`).exec(part);
+    if (off) noRoom = split(off[1]);
+    else if (fits) roomIn.set(fits[2], [...(roomIn.get(fits[2]) ?? []), ...split(fits[1])]);
+    else rest.push(part);
+  }
+  let changed = false;
+  const left: string[] = [];
+  const given = new Map<number, number>();
+  for (const c of noRoom) {
+    const lecture = ugaLabOf(c);
+    if (lecture !== null && noRoom.includes(lecture)) continue;
+    const unit = noRoom.includes(`${c}L`) ? [c, `${c}L`] : [c];
+    const at = lecture === null ? roomOf(unit, (i) => given.get(i) ?? 0) : -1;
+    if (at < 0) {
+      left.push(...unit);
+      continue;
+    }
+    given.set(at, (given.get(at) ?? 0) + hoursOf(unit));
+    const label = labelOf(at);
+    roomIn.set(label, [...(roomIn.get(label) ?? []), ...unit]);
+    changed = true;
+  }
+  if (!changed) return note;
+  const out: string[] = [];
+  if (left.length > 0) out.push(`${list(left)} ${left.length === 1 ? 'needs' : 'need'} a summer session or an extra term`);
+  for (const [label, codes] of roomIn) {
+    const hours = hoursOf(codes);
+    out.push(`${list(codes)} ${codes.length === 1 ? 'fits' : 'fit'} in ${label} if you add ${codes.length === 1 ? 'it' : 'them'} (${hours} more ${hours === 1 ? 'hour' : 'hours'})`);
+  }
+  out.push(...rest);
+  return `${note.slice(0, start + opening.length)}${out.join(', and ')}${note.slice(end)}`;
 }
 
 /**
@@ -10179,7 +10621,31 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * pick the planner makes on its own while the list or category has another
    * course. FIN 391 to 395 were booked for every Finance student.
    */
-  const gatedPick = (code: string): number => (admissionGate(code, ctx, degreeRead.primary) ? 1 : 0);
+  const gatedPick = (code: string): number => (admissionGate(code, ctx, degreeRead.primary) || gatedThrough(code) ? 1 : 0);
+  /*
+   * At UGA, a course whose prerequisite only an approval opens (every course
+   * a group of its prerequisites names is behind admissionGate, its online
+   * "E" version read as the course) is behind it too, where the student holds
+   * none of them and the degree requires none by name: KINS 4810 Sport
+   * Marketing and KINS 4850 Sport Sales, each "KINS 3430 or KINS 3430E", were
+   * a Marketing student's social-media electives, and the prerequisites they
+   * brought booked KINS 3430 Introduction to Sport Management, which
+   * "Students must be enrolled in a professional program to register for"
+   * (2026-11-02). Through one course: a list's pick, a gen-ed pick or a free
+   * elective, never a course the degree requires.
+   */
+  const requiredByName = new Set(input.requirements.flatMap((r) => (r.rule.kind === 'all' ? r.rule.choices.flatMap((choice) => choice.codes.map(normaliseCode)) : [])));
+  // The course itself, or for an online "E" version the course it is (not an honors twin's gate).
+  const gatedOption = (c: string) => [c, c.replace(/^([A-Z]{2,5} \d{4})E$/, '$1')].some((e) => admissionGate(e, ctx, degreeRead.primary) !== null);
+  const gatedThrough = (code: string): boolean => {
+    if (ctx.schoolId !== 'uga') return false;
+    return (ctx.prereqs?.get(code)?.groups ?? []).some((group) => {
+      if (group.priorLearning || group.any.length === 0) return false;
+      const options = group.any.map(normaliseCode);
+      if (options.some((c) => requiredByName.has(c) || expandEquivalents(c, equivalents).some((e) => satisfiedForPrereq.has(e)))) return false;
+      return options.some((c) => byCode.has(c) && gatedOption(c)) && options.every((c) => !byCode.has(c) || gatedOption(c));
+    });
+  };
   const conflicts = buildConflicts(ctx.exclusions);
 
   const notes: string[] = [];
