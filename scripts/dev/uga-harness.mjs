@@ -397,7 +397,9 @@ if (mode === 'fixtures') {
 // ---------------------------------------------------------------------------
 const FIXTURES = JSON.parse(readFileSync(resolve(args[1]), 'utf8'));
 const OUT = resolve(args[2]);
-const JOBS = programs.flatMap((p) => KIND_NAMES.map((kind) => ({ id: p.id, kind })));
+// HARNESS_ONLY=<file>: only the boards it lists, one "id|kind" a line (a targeted re-run; 2026-11-03).
+const ONLY = process.env.HARNESS_ONLY ? new Set(readFileSync(resolve(process.env.HARNESS_ONLY), 'utf8').split('\n').map((l) => l.trim()).filter(Boolean)) : null;
+const JOBS = programs.flatMap((p) => KIND_NAMES.map((kind) => ({ id: p.id, kind }))).filter((j) => !ONLY || ONLY.has(`${j.id}|${j.kind}`));
 
 if (process.env.HARNESS_WORKER === undefined) {
   const n = Math.max(1, Math.min(Number(process.env.HARNESS_JOBS ?? 3), JOBS.length));

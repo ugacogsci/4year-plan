@@ -196,13 +196,14 @@ export function finishStateOf(input: {
   for (const n of input.notPlaced) {
     if (!ROOM.has(n.reason) || seen.has(n.code)) continue;
     /*
-     * "No room" while a fall or spring still has room for the class is the
-     * engine holding to the degree's total, not the student's settings: an
-     * Illinois board with ACCY 201 off and 6 hours free kept it off with a
-     * summer and a later finish too. Time (a chain, a season, a standing)
-     * always counts.
+     * "No room" counts even while a fall or spring still has hours free: on
+     * 25 Illinois boards (Chemical Engineering + Data Science, Nuclear
+     * Engineering, Secondary Education Mathematics) the free hours sat in a
+     * term the class could not go in yet, and a summer or a later finish made
+     * the plan finish. Where no setting helps (Agricultural and Consumer
+     * Economics leaves ACCY 201 off with 6 hours free, summers or not), the
+     * fixes say so once tried.
      */
-    if (n.reason === 'no-room' && maxFree >= (n.credits ?? 3)) continue;
     seen.add(n.code);
     stuck.push({ code: n.code, title: n.title ?? '', reason: n.reason });
   }

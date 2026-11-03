@@ -94,7 +94,9 @@ const STUDYING = process.env.SWEEP_STUDYING ?? '';
 const summariesFile = JSON.parse(readFileSync(join(PUBLIC, 'illinois', 'programs.json'), 'utf8'));
 const IDS = process.env.SWEEP_IDS ? process.env.SWEEP_IDS.split(',').map((s) => s.trim()) : summariesFile.map((p) => p.id).filter(Boolean);
 /** One job a board, degree-major so a worker's boards for one degree share a load. */
-const JOBS = IDS.flatMap((id) => GOALS.flatMap((goal) => LANGS.map((lang) => ({ id, goal: goal === 'none' ? '' : goal, lang }))));
+// SWEEP_ONLY=<file>: only the boards it lists, one "id|goal|lang" a line (goal empty for none; a targeted re-run, 2026-11-03).
+const ONLY = process.env.SWEEP_ONLY ? new Set(readFileSync(resolve(process.env.SWEEP_ONLY), 'utf8').split('\n').map((l) => l.trim()).filter(Boolean)) : null;
+const JOBS = IDS.flatMap((id) => GOALS.flatMap((goal) => LANGS.map((lang) => ({ id, goal: goal === 'none' ? '' : goal, lang })))).filter((j) => !ONLY || ONLY.has(`${j.id}|${j.goal}|${j.lang}`));
 
 // ---- the parent: split the jobs, gather the rows, write them in job order ----
 if (process.env.SWEEP_WORKER === undefined) {
