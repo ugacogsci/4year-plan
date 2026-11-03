@@ -2969,6 +2969,10 @@ export function PlannerWorkspace({
   const fixesHere = fixes && fixes.key === fixKey ? fixes : null;
   const ranked = useMemo(() => (fixesHere && !fixesHere.running && cannot ? rankFixes(fixesHere.tried, cannot.classes.length || cannot.rows.length || 1) : null), [fixesHere, cannot]);
 
+  /** The same for ARCH and ALMA (review_board, describeBoard), read at call time. */
+  const cannotLive = useRef<{ item: CannotFinish | null; text: { text: string; message: string } | null; settings: PlanSettingsFacts | null; find: () => Promise<TriedFix[]>; ranked: ReturnType<typeof rankFixes> | null }>({ item: null, text: null, settings: null, find: async () => [], ranked: null });
+  cannotLive.current = { item: cannot, text: cannotItem, settings: finishSettings, find: findFixes, ranked };
+
   /** A fix pressed: the same change set_plan_shape makes, saved in the plan shape, and a rebuild; asked first over the student's own edits. */
   const [fixToConfirm, setFixToConfirm] = useState<TriedFix | null>(null);
   const [askBot, setAskBot] = useState<{ id: number; text: string } | null>(null);
@@ -4652,10 +4656,16 @@ export function PlannerWorkspace({
       );
     }
     // Ranked as the board bar ranks it (warnings-triage.ts): what matters now first, then the rest.
-    const triaged = triageIssues(currentAudit?.issues ?? L.issues, { credit: L.creditGap, bot: botName });
+    const triaged = triageIssues(currentAudit?.issues ?? L.issues, { credit: L.creditGap, bot: botName, cannotFinish: cannotLive.current.text });
     const nowCount = triaged.now.reduce((n, kind) => n + kind.rows.length, 0) + (triaged.prompt ? 1 : 0);
     lines.push(`Review list: ${nowCount} ${nowCount === 1 ? 'matters' : 'matter'} now (the board shows ${triaged.allClear ? '"Nothing needs attention"' : `at most ${triaged.prominent.length}`}), ${triaged.folded.length} waiting for the student's record, ${triaged.later.length} good to know.`);
     for (const flag of rankedFlags(triaged, 10, 160)) lines.push(`- ${flag}`);
+    // The plan the student's settings cannot finish (cannot-finish.ts), with the fixes once they are built.
+    const cf = cannotLive.current;
+    if (cf.item && cf.settings) {
+      const facts = forAdvisor(cf.item, cf.ranked, cf.settings);
+      lines.push(`Can't finish with the student's settings (first on the board bar): ${cf.item.text} Limiting settings: ${JSON.stringify(facts.limiting_settings)}. Tested fixes: ${typeof facts.tested_fixes === 'string' ? 'not tested yet; review_board tests them' : JSON.stringify(facts.tested_fixes)}.`);
+    }
     return lines.join('\n');
   }
 
@@ -5619,7 +5629,16 @@ export function PlannerWorkspace({
          * have not seen. Information rows used to be left out of the review
          * flags; they are here now, marked good to know.
          */
-        const triaged = triageIssues(currentIssues, { credit: L.creditGap, bot: botName });
+        const triaged = triageIssues(currentIssues, { credit: L.creditGap, bot: botName, cannotFinish: cannotLive.current.text });
+        /*
+         * A plan the student's settings cannot finish (cannot-finish.ts): the
+         * classes that don't fit, the settings that are the limit, and the
+         * fixes, each built first through the Rebuild path, smallest first.
+         */
+        const cf = cannotLive.current;
+        const cannotFinishFacts = cf.item && cf.settings
+          ? forAdvisor(cf.item, cf.item ? rankFixes(await cf.find(), cf.item.classes.length || cf.item.rows.length || 1) : null, cf.settings)
+          : null;
         const open = currentIssues.filter((i) => /^(unsatisfied|pool|ap-missing|uga-(area|pool|total)|double-dawgs-)/.test(i.id) || /not (yet )?(met|satisfied)|still needs|short/i.test(i.title)).map((i) => i.message.slice(0, 200));
         const dormant = terms.flatMap((t) => (Array.isArray(t.not_run_recently) ? t.not_run_recently : []).map((code) => `${code} in ${t.term}`));
         const stacked = terms.filter((t) => t.hardest_band_courses.length >= 2).map((t) => `${t.term}: ${t.hardest_band_courses.join(', ')}`);
@@ -5691,6 +5710,14 @@ export function PlannerWorkspace({
             ? { added_courses_filling_no_requirement: `${use.freeElectives.map((c) => `${c.code} (${c.term})`).join(', ')}: added by the student or you, each counts as free elective hours toward the total and fills no requirement. That is fine; say so rather than calling it wasted.` }
             : {}),
           ...(summers.length > 0 ? { summer_suggestions: summers.map((s) => s.text) } : {}),
+          ...(cannotFinishFacts
+            ? {
+                cannot_finish: {
+                  ...cannotFinishFacts,
+                  note: `First on the board bar. Say in plain words why: name the student's own setting that is the limit (the finish, the credits a semester, no summer classes, a term away). Offer the tested fixes smallest first, each with what it does; apply one with set_plan_shape (the input is given) only after the student says yes, and never above 18 credits a semester. If none works fully, say what gets closest and what else the student could change.`,
+                },
+              }
+            : {}),
           suggestions,
           note: `Give the student your own judgement from this: what is fine, what to change, and why. Not a list.${summers.length > 0 ? ' A summer is only a suggestion: add one only after the student says yes (add_summer adds it empty, move_course into "Summer 2027" adds it with the course, or set_plan_shape summers rebuilds around it); what_if can try it first.' : ''}`,
         };

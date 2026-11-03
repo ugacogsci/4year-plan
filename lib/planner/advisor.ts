@@ -237,7 +237,7 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'review_board',
     description:
-      "The planner's own read of the whole board: each term's credits and how heavy it reads against Illinois grade history, terms that stack several hardest-band courses, courses that have not run in any recent term, courses placed in a season they have not run in, each published term's weekly class-time check (weekly_schedule), requirements still open, every review flag ranked as the board ranks it (what matters now first, then what is good to know; the board itself shows at most three and folds the rest), the first year's pace, hours that count toward nothing, and a summer where one would buy time (a suggestion only). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
+      "The planner's own read of the whole board: each term's credits and how heavy it reads against Illinois grade history, terms that stack several hardest-band courses, courses that have not run in any recent term, courses placed in a season they have not run in, each published term's weekly class-time check (weekly_schedule), requirements still open, every review flag ranked as the board ranks it (what matters now first, then what is good to know; the board itself shows at most three and folds the rest), the first year's pace, hours that count toward nothing, and a summer where one would buy time (a suggestion only). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list. When the plan cannot finish with the student's settings, cannot_finish says which classes do not fit, which settings are the limit, and the fixes the planner built and tested, each with the set_plan_shape input that applies it.",
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -587,7 +587,7 @@ const UGA_TOOL_TEXT: Partial<Record<AdvisorToolName, { description: string; prop
   },
   review_board: {
     description:
-      "The planner's own read of the whole board: each term's credits, requirements still open, every review flag ranked as the board ranks it (what matters now first, then what is good to know; the board itself shows at most three and folds the rest), hours that count toward nothing, and any load, offering-history or class-time reading the university's data supports (for UGA none is loaded, and the result says so rather than guessing). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list.",
+      "The planner's own read of the whole board: each term's credits, requirements still open, every review flag ranked as the board ranks it (what matters now first, then what is good to know; the board itself shows at most three and folds the rest), hours that count toward nothing, and any load, offering-history or class-time reading the university's data supports (for UGA none is loaded, and the result says so rather than guessing). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list. When the plan cannot finish with the student's settings, cannot_finish says which classes do not fit, which settings are the limit, and the fixes the planner built and tested, each with the set_plan_shape input that applies it.",
   },
   exam_credit: {
     description:
@@ -698,6 +698,11 @@ export const SHARED_ADVISOR_RULES = {
   talkShort: `- No headers, no bullet lists longer than four items, no markdown tables. A short paragraph or a few lines.`,
   talkSources: `- When university_answer returns sources, mention where the answer came from in a few words. Never invent a page, office, deadline or policy.`,
   professorRatings: `- What students think of a professor, how hard their classes are, whether students would take them again, or who teaches a course and who is rated best: call professor_ratings (with the course, when there is one); course_syllabus and term_syllabi carry the same numbers on an instructor as student_ratings. For a course, give the rundown yourself and never ask the student to look an instructor up: who teaches it in the tool's term, each one's numbers in a line (at most four, the rest counted), and the tool's pick as the clear pick by student ratings; when the tool says no one is scheduled, say that plainly. Speak only as the consensus of those student ratings, never as fact: give the numbers with the count ("based on 46 student ratings, students rate the professor 4.4 of 5 overall, difficulty 3.5 of 5, and 90% would take them again"), and add at most one short caveat per answer: that student ratings are self-selected and cover all of a professor's courses rather than this one. Never name, link or list as a source the website the ratings come from; call them student ratings. Under 5 ratings, say there are too few to say much. The ratings are numbers only, with no comments: for anything else (answering email, office hours, exams, grading, how they teach) say the ratings do not cover that, and never invent or paraphrase what students wrote. Never call a professor good or bad yourself, and never insult or mock anyone. When the tool says no student ratings found or not sure which professor, say exactly that and never guess; having no ratings says nothing about a professor.`,
+  /**
+   * A plan the student's settings cannot finish (cannot-finish.ts): the board
+   * bar says so first and offers tested fixes; both bots say the same.
+   */
+  cannotFinish: `- When the plan can't finish with the student's settings (the board description's "Can't finish" line, review_board's cannot_finish), say why in plain words and name the student's own setting that is the limit: their finish date, their credits a semester, no summer classes, or a term away. Offer the tested fixes smallest first, saying what each does ("adding Summer 2027 fits everything"). Apply one with set_plan_shape, using the input cannot_finish gives (or add_summer and what_if to try a summer by hand), only after the student says yes; never plan above 18 credits a semester. If no fix works fully, say what gets closest and what else they could change, such as a later finish.`,
   talkNotLicensed: `- You are not a licensed academic advisor and you do not register anyone. Where a decision has consequences (dropping a required course, a lighter load that adds a semester), say so once and let the student decide.`,
 } as const;
 
@@ -802,6 +807,7 @@ How to reason
 ${SHARED_ADVISOR_RULES.reasonThink}
 ${SHARED_ADVISOR_RULES.reasonTradeOff}
 ${SHARED_ADVISOR_RULES.reasonTryFirst}
+${SHARED_ADVISOR_RULES.cannotFinish}
 ${SHARED_ADVISOR_RULES.reasonBoardIsTruth}
 - Judge terms as a whole: two hardest-band courses plus a lab is a different term from three light electives, whatever the credit count says. review_board and term_summary carry the load reading.
 - A course that has not run in any recent term is not a plan. Say so, and offer one that has.
@@ -933,6 +939,7 @@ How to reason
 ${SHARED_ADVISOR_RULES.reasonThink}
 ${SHARED_ADVISOR_RULES.reasonTradeOff}
 ${SHARED_ADVISOR_RULES.reasonTryFirst}
+${SHARED_ADVISOR_RULES.cannotFinish}
 ${SHARED_ADVISOR_RULES.reasonBoardIsTruth}
 ${SHARED_ADVISOR_RULES.reasonHoursNothing}
 - move_course, remove_course, replace_course and what_if return review_flags_caused when a change causes a review flag; tell the student.
