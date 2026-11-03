@@ -58,7 +58,24 @@ import { ElectivePools } from './elective-pools';
 import { IssueBadge } from './issue-badge';
 import { groupIssues, reviewTitle } from './plan-health';
 import { earlyFinishNote } from '@/lib/planner/attention';
-import { rankedFlags, statedHours, triageIssues, type CreditGap } from '@/lib/planner/warnings-triage';
+import { CANNOT_FINISH_ID, rankedFlags, recordKind, statedHours, triageIssues, type CreditGap } from '@/lib/planner/warnings-triage';
+import {
+  askQuestion,
+  cannotFinish,
+  finishStateOf,
+  fixButtonText,
+  fixCandidates,
+  forAdvisor,
+  illinoisRowsShort,
+  rankFixes,
+  shapeInputOf,
+  tried as triedFix,
+  ugaRowsShort,
+  type CannotFinish,
+  type FinishState,
+  type PlanSettingsFacts,
+  type TriedFix,
+} from '@/lib/planner/cannot-finish';
 import { AttentionBar } from './attention-bar';
 
 import { toast, Toaster } from '@/components/ui/toast';
@@ -504,6 +521,18 @@ const SEVERITY_BY_REASON: Record<string, PlanIssue['severity']> = {
   'hours-short': 'error',
   'did-not-fit': 'error',
 };
+
+/** Another plan shape or credit number to build the board for without showing it (composePlan). */
+interface BuildTrial {
+  shape: PlanShape;
+  min: number;
+  target: number | null;
+}
+interface TrialBuilt {
+  generated: GeneratedPlan;
+  horizon: ReturnType<typeof horizonFor>;
+  ms: number;
+}
 
 const NOT_PLACED_WORD: Record<string, string> = {
   'chain-too-long': 'the prerequisite chain does not fit in the years left',
@@ -1493,10 +1522,20 @@ export function PlannerWorkspace({
     };
   }, [careerText, isUga, isCatalogSchool, isGraduatePlan]);
 
-  const buildPlan = useCallback(() => {
+  /**
+   * The build behind Rebuild, and behind the "can't finish" fixes: `trial`
+   * builds the board for another plan shape or credit number and returns it
+   * without showing it (nothing saved, nothing announced), so a fix is tried
+   * through the very path its button's rebuild takes (cannot-finish.ts).
+   */
+  const composePlan = useCallback((trial: BuildTrial | null): TrialBuilt | null => {
     const buildStartedAt = performance.now();
-    builtWithFit.current = careerFit?.key ?? '';
+    const shape = trial?.shape ?? planShape;
+    const minC = trial?.min ?? minimumTermCredits;
+    const tgtC = trial ? trial.target : targetTermCredits;
+    if (!trial) builtWithFit.current = careerFit?.key ?? '';
     if (!isCatalogSchool) {
+      if (trial) return null;
       const sample = createSamplePlan();
       replaceActivePlan(sample);
       repickedFor.current = null;
@@ -1508,9 +1547,9 @@ export function PlannerWorkspace({
       // The demo plan names its own program. Without this the rail reads
       // "No degree chosen" above a board full of that degree's courses.
       setProgramIds((current) => current.length > 0 ? current : [sample.programId]);
-      return;
+      return null;
     }
-    if (!context) return;
+    if (!context) return null;
 
     const priorRead = withGenEdCredit(readPriorCredit(
       answers?.transferText ?? '',
@@ -1534,13 +1573,14 @@ export function PlannerWorkspace({
     // The classes in progress among them, so a note never says the student already holds one (PriorCredit.inProgressCodes).
     const takingNow = transcriptInProgressCodes(answers?.transcript);
     const prior = takingNow.length > 0 ? { ...priorRead, inProgressCodes: takingNow } : priorRead;
-    const horizon = horizonFor(answers, new Date(), planShape);
+    const horizon = horizonFor(answers, new Date(), shape);
     // Terms the student has been here with nothing on a record for them yet
     // count as about 15 credits each (horizonFor says which), so the terms
     // left are not loaded to 18 to fit the whole degree.
     const priorHere = horizon.assumedHours > 0 ? { ...prior, unmatchedCredits: prior.unmatchedCredits + horizon.assumedHours } : prior;
 
     if (isUndecided) {
+      if (trial) return null;
       const completedCourseIds = prior.courseCodes
         .map((code) => byCode.get(normCode(code))?.id)
         .filter((id): id is string => Boolean(id));
@@ -1555,13 +1595,14 @@ export function PlannerWorkspace({
       setReport(null);
       setUndoStack([]);
       setStatus('Open plan built. Choose courses from the map or select a degree program in Preferences.');
-      return;
+      return null;
     }
 
-    if (!loaded) return;
+    if (!loaded) return null;
     if (doubleDawgsPathway && !loaded.doubleDawgsGraduate) {
+      if (trial) return null;
       setStatus("This pathway's graduate degree is not linked to a catalog curriculum yet. Choose another pathway or remove it to build a bachelor's-only plan.");
-      return;
+      return null;
     }
 
 
@@ -1623,7 +1664,7 @@ export function PlannerWorkspace({
       context,
       prior: priorHere,
       horizon,
-      preferences: { creditsPerTerm: { min: minimumTermCredits, target: targetTermCredits, max: 18 }, priorities },
+      preferences: { creditsPerTerm: { min: minC, target: tgtC, max: 18 }, priorities },
       programId: loaded.summary.id,
         electiveHoursLimit:
           isUga && 'electiveHours' in loaded ? loaded.electiveHours : undefined,
@@ -1702,7 +1743,7 @@ export function PlannerWorkspace({
       maybe = held;
       generated = held.generated;
     }
-    catch (error) { setStatus(`The draft could not be generated: ${error instanceof Error ? error.message : 'unknown error'}`); return; }
+    catch (error) { if (trial) return null; setStatus(`The draft could not be generated: ${error instanceof Error ? error.message : 'unknown error'}`); return null; }
     let builtFrom = planInput;
     /**
      * "Spread my hard classes out": one hardest-band course a term, kept only
@@ -1712,7 +1753,7 @@ export function PlannerWorkspace({
      * why. spreadHardOutcome decides, and its note names the check that
      * failed or says what the kept plan really does.
      */
-    if (planShape.spreadHard && !doubleDawgsPathway) {
+    if (shape.spreadHard && !doubleDawgsPathway) {
       const spreadInput = { ...planInput, preferences: { ...planInput.preferences, maxHardCourses: 1 } };
       const spread = generatePlan(spreadInput);
       const outcome = spreadHardOutcome(generated, spread, {
@@ -1727,7 +1768,7 @@ export function PlannerWorkspace({
     }
 
     // What compare_programs rebuilds with a second program's courses beside these.
-    lastBuild.current = { input: builtFrom, plan: generated };
+    if (!trial) lastBuild.current = { input: builtFrom, plan: generated };
 
     /**
      * Illinois minors (beta), degree first: the plan above is the degree's
@@ -1753,7 +1794,7 @@ export function PlannerWorkspace({
         programName: loaded.program.name,
       });
       const before = degreeRows(generated);
-      const spreadNote = planShape.spreadHard ? (generated.notes[generated.notes.length - 1] ?? null) : null;
+      const spreadNote = shape.spreadHard ? (generated.notes[generated.notes.length - 1] ?? null) : null;
       const outcome = planBesideDegree(generatePlan, builtFrom, generated, minorsToPlan, {
         heldCodes,
         creditsOf: (code) => byCode.get(normCode(code))?.credits ?? null,
@@ -1802,7 +1843,7 @@ export function PlannerWorkspace({
     const early = generated.earlyFinish;
     if (isIllinois && early?.settings) {
       const { target, minimum } = early.settings;
-      const howTo = minimum === minimumTermCredits
+      const howTo = minimum === minC
         ? ` To plan it that way, put ${target} in Preferences under "Credits you want each term, about" and press Rebuild.`
         : ` To plan it that way, put ${target} in Preferences under "Credits you want each term, about" and ${minimum} under "at least", then press Rebuild.`;
       generated.notes = generated.notes.map((n) => (n === early.note ? n + howTo : n));
@@ -1849,8 +1890,9 @@ export function PlannerWorkspace({
       };
     }
     // A summer the student added stays through Rebuild where the build left no column for it (a Double Dawgs gap).
-    const keptSummers = withAddedSummers(generated.plan, planShape);
+    const keptSummers = withAddedSummers(generated.plan, shape);
     if (keptSummers !== generated.plan) generated = { ...generated, plan: keptSummers };
+    if (trial) return { generated, horizon, ms: performance.now() - buildStartedAt };
     // The student's instructor picks stay with every course still in the same term.
     const codeOfId = planRef.current?.instructors ? new Map([...byCode.values()].map((c) => [c.id, c.code])) : null;
     const carried = codeOfId ? carryInstructors(planRef.current, generated.plan, (id) => codeOfId.get(id)) : generated.plan;
@@ -1878,7 +1920,12 @@ export function PlannerWorkspace({
     // computed for it (the effect after `issues`): the all-clear follows
     // every check the board shows, not only unplaced courses.
     announceBuild.current = true;
+    return null;
   }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, setup, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga, careerFit]);
+  /** Rebuild: the board for the plan's own shape and credit numbers, shown. */
+  const buildPlan = useCallback(() => {
+    composePlan(null);
+  }, [composePlan]);
   /*
    * The career matcher arrives a moment after the goal (it loads in the
    * background): a board built before it, and not edited since, is built
@@ -2780,6 +2827,152 @@ export function PlannerWorkspace({
     isIllinois, isGraduatePlan, loaded, priorCreditHours, report, answers, weeklyFits, completedCodes, boardContext, ugaAudit,
   ]);
 
+  // ---- a plan the settings cannot finish (cannot-finish.ts) ------------------
+
+  /**
+   * The settings that bound this board: its last fall or spring (the
+   * student's finish), its first term, the credits a semester (the student's
+   * own number under the cap, else the cap: 18 at UGA, the registrar's 18 at
+   * Illinois), its summers and its terms away.
+   */
+  const finishSettings = useMemo((): PlanSettingsFacts | null => {
+    if (!plan || !context || !loaded || !isCatalogSchool || isGraduatePlan || isUndecided || plan.doubleDawgs) return null;
+    const regular = plan.terms.filter((t) => t.season !== 'Summer');
+    const first = plan.terms[0];
+    const last = regular[regular.length - 1];
+    if (!first || !last) return null;
+    const h = horizonFor(answers, new Date(), planShape, boardTerms);
+    const summers = [...new Set([...plan.terms.filter((t) => t.season === 'Summer' && t.courseIds.length > 0).map((t) => t.year), ...planShape.summers])].sort((a, b) => a - b);
+    return {
+      school: isUga ? 'uga' : 'illinois',
+      finish: { season: last.season, year: last.year },
+      start: { season: first.season, year: first.year },
+      cap: 18,
+      target: targetTermCredits,
+      summers,
+      droppedSummers: planShape.droppedSummers ?? [],
+      away: (h.away ?? planShape.away).map((a) => ({ season: a.season, year: a.year, ...(a.kind ? { kind: a.kind } : {}), ...(a.credits !== undefined ? { credits: a.credits } : {}) })),
+    };
+  }, [plan, context, loaded, isCatalogSchool, isGraduatePlan, isUndecided, answers, planShape, boardTerms, isUga, targetTermCredits]);
+
+  /** The falls and springs a board books, with their hours, for the room left (not a term away). */
+  const termLoadsOf = useCallback((board: PlanState, away: ReadonlyArray<{ label: string }> | undefined) => {
+    if (!context) return [];
+    const awayAt = new Set((away ?? []).map((a) => a.label));
+    return board.terms
+      .filter((t) => !awayAt.has(t.label))
+      .map((t) => ({ season: t.season, credits: planCreditRange(t.courseIds.map((id) => courseIndex.get(id)?.code).filter((c): c is string => Boolean(c)), context).min }));
+  }, [courseIndex, context]);
+
+  /** This board's finish state, read as a candidate's is read. */
+  const finishNow = useMemo((): FinishState | null => {
+    if (!plan || !report || !finishSettings || !context) return null;
+    return finishStateOf({
+      notPlaced: report.notPlaced.map((n) => ({ code: n.code, title: n.title, reason: n.reason })),
+      rows: isUga ? ugaRowsShort(issues) : illinoisRowsShort(report.unsatisfied, report.notPlaced),
+      totalHours: isUga ? (ugaAudit?.total ?? credits.total.min) : credits.total.min,
+      degreeTotal: isUga ? (ugaAudit?.target ?? activeProgramTotal ?? null) : (activeProgramTotal ?? null),
+      terms: termLoadsOf(plan, report.away),
+      cap: finishSettings.cap,
+    });
+  }, [plan, report, finishSettings, context, isUga, issues, ugaAudit, credits.total.min, activeProgramTotal, termLoadsOf]);
+
+  const cannot: CannotFinish | null = useMemo(() => {
+    if (!finishNow || !finishSettings) return null;
+    return cannotFinish(finishNow, finishSettings, {
+      record: recordKind(creditGap),
+      doubleDawgsPending: issues.some((i) => i.id === 'double-dawgs-rebuild'),
+    });
+  }, [finishNow, finishSettings, creditGap, issues]);
+  const cannotItem = useMemo(() => cannot ? {
+    text: cannot.text,
+    message: `${cannot.text} The planner fits every class it can inside your settings; one change below makes room, or ask ${school?.bot ?? 'the assistant'}.`,
+  } : null, [cannot, school?.bot]);
+
+  /**
+   * The fixes, tried by building each one (composePlan) with the board's
+   * own numbers. Building is a second or more a candidate in the browser, so
+   * it runs when the student presses "Find a fix" (or when ARCH or ALMA reads
+   * the board), one candidate per turn of the event loop, never on its own
+   * while the board draws. Keyed on the board and its settings: any rebuild
+   * or edit starts over.
+   */
+  const fixKey = cannot ? `${cannot.text}|${shapeKey}|${report?.firstTermId ?? ''}|${plan?.terms.length ?? 0}` : '';
+  const [fixes, setFixes] = useState<{ key: string; running: boolean; tried: TriedFix[]; ms: number } | null>(null);
+  const fixesRef = useRef(fixes);
+  fixesRef.current = fixes;
+  const trialShape = useCallback((c: ReturnType<typeof fixCandidates>[number]): BuildTrial => ({
+    shape: {
+      ...planShape,
+      ...(c.change.summers ? { summers: c.change.summers, droppedSummers: (planShape.droppedSummers ?? []).filter((y) => !c.change.summers!.includes(y)) } : {}),
+      ...(c.change.finish ? { finish: c.change.finish } : {}),
+      ...(c.change.away ? { away: c.change.away.map((a) => ({ season: a.season, year: a.year, ...(a.kind ? { kind: a.kind as AwayTerm['kind'] } : {}), ...(a.credits !== undefined ? { credits: a.credits } : {}) })) } : {}),
+    },
+    min: minimumTermCredits,
+    target: c.change.target ?? targetTermCredits,
+  }), [planShape, minimumTermCredits, targetTermCredits]);
+  /** A built candidate's finish state, read as the board's own is (UGA's audit, Illinois's engine rows). */
+  const trialFinish = useCallback((built: TrialBuilt): FinishState | null => {
+    if (!context || !loaded || !finishSettings) return null;
+    const g = built.generated;
+    let rows: string[];
+    let totalHours: number;
+    let degreeTotal: number | null;
+    if (isUga) {
+      const held = g.plan.completedCourseIds.flatMap((id) => courseIndex.get(id)?.code ?? []).map(normCode);
+      const audit = auditUgaBoard({
+        board: g.plan, context, undergraduate: loaded, graduate: loaded.doubleDawgsGraduate, bookedFor: g.bookedFor,
+        priorCodes: held, extraCredits: priorCreditHours - planCreditRange(held, context).min + assumedCredit.hours,
+        transcript: transcriptRecord, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used, languagePlaced: answers?.languageYears ?? null,
+        validation: { minimumTermCredits, priorCredits: priorCreditHours + assumedCredit.hours },
+      });
+      const completion = degreeCompletionIssue({
+        currentCredits: audit.total,
+        requiredCredits: audit.target ?? activeProgramTotal,
+        incompleteRequirementNames: [
+          ...audit.areas.filter((row) => row.area.hours > 0 && !row.satisfied).map((row) => row.area.label),
+          ...audit.pools.filter((p) => (p.hoursTarget !== null && p.hours < p.hoursTarget) || (p.countTarget !== null && p.count < p.countTarget)).map((p) => p.label),
+        ],
+        termId: g.plan.terms[0]?.id ?? '',
+      });
+      rows = ugaRowsShort([completion, ...audit.issues].filter((i): i is PlanIssue => Boolean(i)));
+      totalHours = audit.total;
+      degreeTotal = audit.target ?? activeProgramTotal ?? null;
+    } else {
+      rows = illinoisRowsShort(g.unsatisfied, g.notPlaced);
+      totalHours = g.credits.total.min;
+      degreeTotal = activeProgramTotal ?? null;
+    }
+    return finishStateOf({ notPlaced: g.notPlaced, rows, totalHours, degreeTotal, terms: termLoadsOf(g.plan, g.away), cap: finishSettings.cap });
+  }, [context, loaded, finishSettings, isUga, courseIndex, priorCreditHours, assumedCredit.hours, transcriptRecord, uga, coreCredit, answers?.languageYears, minimumTermCredits, activeProgramTotal, termLoadsOf]);
+  /** Build every candidate, one per turn of the event loop; the result is kept for this board. */
+  const findFixes = useCallback(async (): Promise<TriedFix[]> => {
+    const key = fixKey;
+    const have = fixesRef.current;
+    if (!cannot || !finishSettings) return [];
+    if (have && have.key === key && !have.running) return have.tried;
+    setFixes({ key, running: true, tried: [], ms: 0 });
+    const started = performance.now();
+    const out: TriedFix[] = [];
+    for (const candidate of fixCandidates(finishSettings)) {
+      await new Promise((done) => setTimeout(done, 0));
+      const built = composePlan(trialShape(candidate));
+      const state = built ? trialFinish(built) : null;
+      if (state) out.push(triedFix(candidate, state, Math.round(built?.ms ?? 0)));
+      // Two that work are enough to offer; the smallest come first.
+      if (out.filter((t) => t.fully).length >= 2) break;
+    }
+    const ms = Math.round(performance.now() - started);
+    setFixes({ key, running: false, tried: out, ms });
+    return out;
+  }, [fixKey, cannot, finishSettings, composePlan, trialShape, trialFinish]);
+  const fixesHere = fixes && fixes.key === fixKey ? fixes : null;
+  const ranked = useMemo(() => (fixesHere && !fixesHere.running && cannot ? rankFixes(fixesHere.tried, cannot.classes.length || cannot.rows.length || 1) : null), [fixesHere, cannot]);
+
+  /** A fix pressed: the same change set_plan_shape makes, saved in the plan shape, and a rebuild; asked first over the student's own edits. */
+  const [fixToConfirm, setFixToConfirm] = useState<TriedFix | null>(null);
+  const [askBot, setAskBot] = useState<{ id: number; text: string } | null>(null);
+
   /**
    * What the board bar says (warnings-triage.ts): at most three things that
    * matter now in plain words, the rest behind "Show N more", one prompt to
@@ -2787,7 +2980,7 @@ export function PlannerWorkspace({
    * "Nothing needs attention" whenever nothing matters now. A build announces
    * it once its board's issues are in.
    */
-  const triage = useMemo(() => triageIssues(issues, { credit: creditGap, bot: school?.bot }), [issues, creditGap, school?.bot]);
+  const triage = useMemo(() => triageIssues(issues, { credit: creditGap, bot: school?.bot, cannotFinish: cannotItem }), [issues, creditGap, school?.bot, cannotItem]);
   const earlyText = earlyFinishNote(planNotes);
   useEffect(() => {
     if (!announceBuild.current || !plan) return;
@@ -3455,6 +3648,23 @@ export function PlannerWorkspace({
     planShapeRef.current = change.shape;
     setPlanShape(change.shape);
     if (selectedCourseId && change.removedCourseIds.includes(selectedCourseId)) setSelectedCourseId(null);
+  }
+
+  /**
+   * A can't-finish fix pressed: the change ARCH and ALMA make with
+   * set_plan_shape, through its own executor, so it is saved in the plan
+   * shape (the finish shown elsewhere follows) and the board rebuilds. Over
+   * the student's own edits it asks first, as set_plan_shape does.
+   */
+  async function applyFix(fix: TriedFix, confirmed = false) {
+    if (boardEdited && !confirmed) {
+      setFixToConfirm(fix);
+      return;
+    }
+    setFixToConfirm(null);
+    const out = (await advisorExecute('set_plan_shape', { ...shapeInputOf(fix.candidate), confirmed: true })) as { ok?: boolean; reason?: string };
+    if (out.ok === false) notify('That change could not be made', out.reason, 'info');
+    else setStatus(`${fix.candidate.label}: the plan is rebuilt.`);
   }
 
   /** "Add a summer" on the board bar: an empty column, scrolled into view. Nothing is rebuilt or moved. */
@@ -7269,6 +7479,55 @@ export function PlannerWorkspace({
             Rebuild
           </Button>
         </div>
+        {plan && cannot && triage.prominent.some((k) => k.key === CANNOT_FINISH_ID) && (
+          /* Right under the can't-finish item: the fixes, each built first
+             (findFixes), smallest change first, and the advisor. */
+          <div className="cannot-finish-fixes" role="group" aria-label="Ways to make this plan finish">
+            {!fixesHere && (
+              <Button variant="outline" size="sm" onClick={() => void findFixes()} disabled={programBusy}>
+                Find a fix
+              </Button>
+            )}
+            {fixesHere?.running && <span className="board-bar-note" role="status">Checking what would fix this...</span>}
+            {ranked && ranked.working.map((t) => (
+              <Button key={t.candidate.id} variant="outline" size="sm" onClick={() => void applyFix(t)} disabled={programBusy}>
+                {fixButtonText(t)}
+              </Button>
+            ))}
+            {ranked && ranked.working.length === 0 && ranked.closest && (
+              <Button variant="outline" size="sm" onClick={() => void applyFix(ranked.closest!)} disabled={programBusy}>
+                {fixButtonText(ranked.closest)}
+              </Button>
+            )}
+            {ranked && ranked.working.length === 0 && !ranked.closest && (
+              <span className="board-bar-note" role="note">No single change to the finish, the summers or the credits a semester makes it fit.</span>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setChatOpen(true);
+                setAskBot((was) => ({ id: (was?.id ?? 0) + 1, text: askQuestion(cannot) }));
+              }}
+            >
+              Ask {botName}
+            </Button>
+          </div>
+        )}
+        <AlertDialog open={fixToConfirm !== null} onOpenChange={(open) => { if (!open) setFixToConfirm(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{fixToConfirm?.candidate.label}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This rebuilds your plan with the new setting, which replaces the changes you made to the board by hand.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep my board</AlertDialogCancel>
+              <AlertDialogAction onClick={() => { if (fixToConfirm) void applyFix(fixToConfirm, true); }}>Rebuild</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {plan && plan.terms.length > 0 && (
           /* The ruler is outside the board's scroller, so its offset is copied
@@ -7472,6 +7731,7 @@ export function PlannerWorkspace({
           ]}
           ready={Boolean(context)}
           turns={almaTurns}
+          ask={askBot}
         />
       )}
       {packet && <AdvisorPacketDialog packet={packet} onClose={closePacket} />}

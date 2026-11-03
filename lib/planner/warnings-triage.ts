@@ -230,6 +230,38 @@ export function recordPrompt(gap: CreditGap | null | undefined): string | null {
   return null;
 }
 
+/**
+ * Which record prompt the board shows, for the "can't finish with your
+ * settings" item (cannot-finish.ts Quiet.record): hours the student named
+ * that are not on the record ('said'), earlier terms not recorded
+ * ('earlier'), the semester in progress counted as nothing ('current-empty')
+ * or as a usual full load until its classes are added ('current-assumed'),
+ * or none. The first three explain a shortfall; the last does not explain a
+ * lack of room, since the plan already counts that term's hours.
+ */
+export function recordKind(gap: CreditGap | null | undefined): 'none' | 'said' | 'earlier' | 'current-empty' | 'current-assumed' {
+  if (!gap) return 'none';
+  if (gap.said !== null) return gap.recorded + SAID_SLACK >= gap.said ? 'none' : 'said';
+  if (currentOnly(gap)) return 'current-assumed';
+  if (gap.assumed > 0) return 'earlier';
+  if (emptyCurrent(gap)) return 'current-empty';
+  return 'none';
+}
+
+/** The bar item of a plan the student's settings cannot finish (cannot-finish.ts), as the triage gets it. */
+export interface CannotFinishItem {
+  /** The one sentence: "This plan can't finish by Spring 2030 with ... MATH 2200 (...) doesn't fit." */
+  text: string;
+  /** The popover's longer words. */
+  message: string;
+}
+
+/** The issue id of that item: the board bar puts the fixes under it. */
+export const CANNOT_FINISH_ID = 'cannot-finish';
+
+/** The kinds the item stands for on the bar: their rows stay under "Show more" and in the review list. */
+const CANNOT_FINISH_REPLACES = new Set(['degree', 'left-out', 'dd-credits']);
+
 /** The record prompt's issue when it stands for the semester in progress (the board bar titles its popover from it). */
 export const CURRENT_CLASSES_ID = 'current-classes';
 
@@ -280,6 +312,8 @@ export interface Triage {
   folded: TriageRow[];
   /** Good to know. */
   later: TriageRow[];
+  /** "Matters now" rows the can't-finish item stands for on the bar (under "Show more"). */
+  replaced?: TriageRow[];
   /** Every row not inside a prominent kind: what "Show N more" opens. */
   more: TriageRow[];
   /** Nothing matters now: the bar says "Nothing needs attention". */
@@ -337,7 +371,7 @@ function kindsOf(rows: TriageRow[]): AttentionKind[] {
  */
 export function triageIssues(
   issues: readonly PlanIssue[],
-  options: { credit?: CreditGap | null; bot?: string } = {},
+  options: { credit?: CreditGap | null; bot?: string; cannotFinish?: CannotFinishItem | null } = {},
 ): Triage {
   // Identical rows are one row with a count (plan-health.tsx groupIssues does the same for the chip).
   const grouped = new Map<string, TriageRow>();
@@ -380,19 +414,38 @@ export function triageIssues(
     for (const row of rows) if (row.kind.tier === 'now' && row.kind.record) row.folded = true;
   }
   const nowRows = rows.filter((r) => r.kind.tier === 'now' && !r.folded && r.kind.key !== 'record');
-  const now = kindsOf(nowRows);
+  /*
+   * A plan the student's settings cannot finish: one item says which classes
+   * do not fit and which setting is the limit, first on the bar, in place of
+   * "Plan does not finish the degree yet" and "Required courses left out",
+   * whose rows stay under "Show more".
+   */
+  const item = options.cannotFinish ?? null;
+  const replaced = item ? nowRows.filter((r) => CANNOT_FINISH_REPLACES.has(r.kind.key)) : [];
+  const nowKept = item ? nowRows.filter((r) => !CANNOT_FINISH_REPLACES.has(r.kind.key)) : nowRows;
+  const cannot: AttentionKind | null = item
+    ? {
+        key: CANNOT_FINISH_ID,
+        label: item.text,
+        severity: 'warning',
+        issue: { id: CANNOT_FINISH_ID, severity: 'warning', title: "This plan can't finish with your settings", message: item.message, termId: '' },
+        rows: [],
+      }
+    : null;
+  const now = kindsOf(nowKept);
   // A stated-hours row the prompt does not stand for (the prompt is off) is still a thing to act on.
   const stray = prompt ? [] : stated;
-  const nowAll = stray.length > 0 ? [...kindsOf(stray), ...now] : now;
-  const prominent = [...(prompt ? [prompt] : []), ...nowAll].slice(0, PROMINENT_LIMIT);
+  const nowAll = [...(cannot ? [cannot] : []), ...(stray.length > 0 ? kindsOf(stray) : []), ...now];
+  // The can't-finish item comes first, then the record prompt beside it.
+  const prominent = (cannot ? [cannot, ...(prompt ? [prompt] : []), ...nowAll.slice(1)] : [...(prompt ? [prompt] : []), ...nowAll]).slice(0, PROMINENT_LIMIT);
   const shown = new Set(prominent.flatMap((k) => k.rows));
   const byRank = (a: TriageRow, b: TriageRow) => a.kind.rank - b.kind.rank;
   const folded = rows.filter((r) => r.folded).sort(byRank);
   const later = rows.filter((r) => r.kind.tier === 'later').sort(byRank);
-  const ranked = [...nowAll.flatMap((k) => k.rows), ...folded, ...later];
+  const ranked = [...nowAll.flatMap((k) => k.rows), ...replaced.sort(byRank), ...folded, ...later];
   const more = ranked.filter((r) => !shown.has(r));
   const allClear = prompt === null && nowAll.length === 0;
-  return { prompt, prominent, now: nowAll, folded, later, more, allClear, line: lineOf(prompt, nowAll) };
+  return { prompt, prominent, now: nowAll, folded, later, more, allClear, line: lineOf(prompt, nowAll), ...(replaced.length > 0 ? { replaced } : {}) };
 }
 
 /**
@@ -488,12 +541,15 @@ export function rankedFlags(triage: Triage, limit = 40, chars = 200): string[] {
   const prominent = new Set(triage.prominent.flatMap((k) => k.rows));
   const lines: string[] = [];
   if (triage.prompt) lines.push(`now, on the board: ${triage.prompt.label} ${triage.prompt.issue.message}`.slice(0, chars + 120));
-  const rows = [...triage.now.flatMap((k) => k.rows), ...triage.folded, ...triage.later];
+  const cannot = triage.now.find((k) => k.key === CANNOT_FINISH_ID);
+  if (cannot) lines.push(`now, on the board: ${cannot.label}`.slice(0, chars + 120));
+  const replaced = new Set(triage.replaced ?? []);
+  const rows = [...triage.now.flatMap((k) => k.rows), ...(triage.replaced ?? []), ...triage.folded, ...triage.later];
   for (const row of rows) {
     const where = row.folded
       ? 'once the record is in'
       : row.kind.tier === 'now'
-        ? prominent.has(row) ? 'now, on the board' : 'now, under Show more'
+        ? prominent.has(row) ? 'now, on the board' : replaced.has(row) ? 'now, under Show more (the can\'t-finish item stands for it)' : 'now, under Show more'
         : 'good to know';
     // Information is read less often: a shorter message keeps the list affordable on every review.
     const width = row.kind.tier === 'now' ? chars : Math.min(chars, 120);

@@ -75,6 +75,8 @@ export interface BotPanelProps {
   onClose: () => void;
   /** The board's undo for ALMA's turns. Absent where the board keeps no undo for them. */
   turns?: BotTurns;
+  /** A question a board button puts in the message box ("Ask ARCH" under a plan that can't finish); a new id puts it again. */
+  ask?: { id: number; text: string } | null;
 }
 
 /**
@@ -423,9 +425,16 @@ export function BotPanel({
   open,
   onOpen,
   onClose,
+  ask,
 }: BotPanelProps) {
   const [messages, setMessages] = useState<AdvisorMessage[]>([]);
   const [draft, setDraft] = useState('');
+  // The board's "Ask" button: the question waits in the box for the student to send or change.
+  useEffect(() => {
+    if (!ask) return;
+    setDraft(ask.text);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [ask]);
   const [streaming, setStreaming] = useState('');
   const [activity, setActivity] = useState<Activity | null>(null);
   const [busy, setBusy] = useState(false);
