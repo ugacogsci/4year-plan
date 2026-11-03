@@ -247,7 +247,8 @@ export function illinoisRowsShort(
   const roomy = new Set(notPlaced.filter((n) => ROOM.has(n.reason) && n.requirementId).map((n) => n.requirementId as string));
   return unsatisfied
     .filter((u) => (u.reason === 'did-not-fit' || u.reason === 'hours-short') && !(u.requirementId && prereq.has(u.requirementId) && !roomy.has(u.requirementId)))
-    .map((u) => u.label);
+    // "Theatre Electives: Select 6 hours from" reads as "Theatre Electives" to a student.
+    .map((u) => u.label.replace(/:\s*(?:select|choose|take|complete)\b.*$/i, '').trim() || u.label);
 }
 
 /** A requirement short with no room for it is a room problem; with room left, it is something else (data, a rule). */
