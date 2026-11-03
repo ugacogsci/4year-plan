@@ -132,6 +132,19 @@ const XFER_FILE = process.env.XFER_STUDENTS ? resolve(process.env.XFER_STUDENTS)
 const XFER = existsSync(XFER_FILE) ? JSON.parse(readFileSync(XFER_FILE, 'utf8')) : { kinds: {}, students: {} };
 const named = (process.env.HARNESS_KINDS ?? '').split(',').map((s) => s.trim());
 for (const [name, k] of Object.entries(XFER.kinds)) if (named.includes(name)) KINDS[name] = { words: k.words, academicYear: k.academicYear, after: k.after, record: 'xfer' };
+/*
+ * Student settings, opt in like the transfer kinds (2026-11-03, cannot-finish.ts):
+ * the freshman of "first" with one setting changed, as set_plan_shape saves it.
+ *   first-early  the finish two falls/springs earlier than the default (one year early)
+ *   first-12     12 credits a semester (min 12, target 12)
+ *   first-away   a gap semester in the fourth fall/spring of the plan (earns nothing)
+ */
+const SETTING_KINDS = {
+  'first-early': { words: "I'm a freshman.", record: null, setting: 'early' },
+  'first-12': { words: "I'm a freshman.", record: null, setting: 'twelve', target: 12 },
+  'first-away': { words: "I'm a freshman.", record: null, setting: 'away' },
+};
+for (const [name, k] of Object.entries(SETTING_KINDS)) if (named.includes(name)) KINDS[name] = k;
 const KIND_NAMES = (process.env.HARNESS_KINDS ?? (GOALS.length ? GOALS.map((g) => `goal:${g.label}`) : Object.keys(KINDS)).join(',')).split(',').map((s) => s.trim()).filter((k) => KINDS[k]);
 
 // ---------------------------------------------------------------------------
@@ -439,6 +452,8 @@ const S = await lib('lib/planner/saved-board.ts');
 // The board bar's own reading of the issues (2026-10-20 on), when this checkout has it.
 const W = existsSync(join(ROOT, 'lib/planner/warnings-triage.ts')) ? await lib('lib/planner/warnings-triage.ts') : null;
 const hasPlanStart = existsSync(join(ROOT, 'lib/planner/plan-start.ts'));
+// "Can't finish with your settings" (2026-11-03), when this checkout has it: the bar item, mirrored, and its fixes built.
+const CF = existsSync(join(ROOT, 'lib/planner/cannot-finish.ts')) ? await lib('lib/planner/cannot-finish.ts') : null;
 const CT = await lib('lib/planner/career-tracks.ts');
 /**
  * Transfer kinds (see the header), loaded only when one is asked for: the
@@ -560,7 +575,25 @@ function answersFor(kind, record, degreeHours = null, exams = []) {
   return { ...answers, graduationSeason: said.season || suggested.season, graduationYear: said.year ?? suggested.year };
 }
 
-function build(program, kind) {
+/** The plan shape a setting kind saves (set_plan_shape), from the default horizon. */
+function kindShape(kind, answers) {
+  const setting = KINDS[kind].setting;
+  if (!setting || setting === 'twelve') return S.NO_SHAPE;
+  const h = horizonFor(answers, TODAY, S.NO_SHAPE);
+  const back = (t) => (t.season === 'Spring' ? { season: 'Fall', year: t.year - 1 } : { season: 'Spring', year: t.year });
+  if (setting === 'early') return { ...S.NO_SHAPE, finish: back(back({ season: h.gradSeason, year: h.gradYear })) };
+  // The fourth fall or spring from the plan's first term.
+  let t = { season: h.startSeason, year: h.startYear };
+  for (let i = 0; i < 3; i++) t = t.season === 'Fall' ? { season: 'Spring', year: t.year + 1 } : { season: 'Fall', year: t.year };
+  return { ...S.NO_SHAPE, away: [{ season: t.season, year: t.year, kind: 'gap' }] };
+}
+
+/**
+ * build(program, kind): one board, measured. build(program, kind, trial)
+ * builds the same student with another plan shape or credit target (a
+ * can't-finish fix, cannot-finish.ts) and returns only its finish state.
+ */
+function build(program, kind, trial = null) {
   const fixture = FIXTURES[program.id];
   const recordName = KINDS[kind].record;
   const isXfer = recordName === 'xfer';
@@ -590,7 +623,9 @@ function build(program, kind) {
   const read = IS.readPriorCredit('', examsHeld.length, ctxByCode, [...examCodes, ...T.transcriptCodes(record)], Boolean(record), priorHours, null, '');
   const genEdCredits = [...T.transcriptGenEdCredits(record), ...X.examGenEdCredits(examsHeld, examTable, catalogCredits)];
   const prior = { ...read, exemptCodes: [...new Set([...read.exemptCodes, ...T.transcriptExemptCodes(record)])], ...(genEdCredits.length ? { genEdCredits } : {}) };
-  const horizon = horizonFor(answers, TODAY, S.NO_SHAPE);
+  const shape = trial?.shape ?? kindShape(kind, answers);
+  const targetCredits = trial ? trial.target : (KINDS[kind].target ?? null);
+  const horizon = horizonFor(answers, TODAY, shape);
   const priorHere = horizon.assumedHours > 0 ? { ...prior, unmatchedCredits: prior.unmatchedCredits + horizon.assumedHours } : prior;
   const publishedTotal = loaded.summary?.totalCredits || loaded.program.totalCredits || null;
   const careerText = answers.after;
@@ -611,7 +646,7 @@ function build(program, kind) {
   };
   const generated = generatePlan({
     requirements: loaded.blocks, context, prior: priorHere, horizon,
-    preferences: { creditsPerTerm: { min: 12, target: null, max: 18 }, priorities: DEFAULT_PRIORITIES },
+    preferences: { creditsPerTerm: { min: 12, target: targetCredits, max: 18 }, priorities: DEFAULT_PRIORITIES },
     programId: loaded.summary?.id ?? program.id, electiveHoursLimit: loaded.electiveHours, fillToDegreeTotal: loaded.fillToDegreeTotal,
     degreeTotal: publishedTotal, interests: ['', careerText].join(' '), career: careerText,
     programName: loaded.program.name, programCollege: loaded.program.college, admissionRoute: null, residency: null, firstYear: false,
@@ -682,9 +717,10 @@ function build(program, kind) {
   // current-semester column (plan-start.ts); before it the workspace gave UGA none.
   let bar = attention.length;
   let barKinds = attentionItems(issues).map((a) => a.text);
+  let credit = null;
   if (W) {
     const names = horizon.assumedTerms.map((t) => `${t.season} ${t.year}`);
-    const credit = {
+    credit = {
       said: W.statedHours(answers.timeline ?? ''),
       recorded: planCreditRange(distinctHeld(completed, context).codes, context).min + priorHours,
       assumed: hasPlanStart ? horizon.assumedHours : 0,
@@ -694,10 +730,82 @@ function build(program, kind) {
       currentAssumed: horizon.currentAssumedHours ?? 0,
       currentClasses: current ? (record?.courses ?? []).filter((c) => c.use && c.status === 'in_progress' && !T.lineIsForeign(record, c) && (!c.term || c.term === `${current.season} ${current.year}`)).length : 0,
     };
+  }
+  /*
+   * The can't-finish item, as planner-workspace.tsx reads it (finishSettings,
+   * finishNow, cannot): the board's last fall or spring, its first term, 18
+   * a semester or the student's own number, its summers and terms away; the
+   * engine's classes not placed, the audit's rows short, the room left.
+   */
+  let cannot = null;
+  let finishState = null;
+  if (CF) {
+    const settings = CF.boardSettings({
+      school: 'uga', terms: board.terms, shapeSummers: shape.summers, droppedSummers: shape.droppedSummers ?? [],
+      away: horizon.away ?? shape.away, target: targetCredits, cap: 18,
+    });
+    const awayAt = new Set((generated.away ?? []).map((a) => a.label));
+    finishState = CF.finishStateOf({
+      notPlaced: generated.notPlaced.map((x) => ({ code: x.code, title: x.title, reason: x.reason, credits: ctxByCode.get(norm(x.code))?.credits ?? null })),
+      rows: CF.ugaRowsShort(issues.map((i) => ({ termId: '', message: '', ...i }))),
+      totalHours: audit.total, degreeTotal: audit.target ?? publishedTotal,
+      terms: board.terms.filter((t) => !awayAt.has(t.label)).map((t) => ({ season: t.season, credits: planCreditRange(t.courseIds.map((id) => context.courses.find((c) => c.id === id)?.code).filter(Boolean), context).min })),
+      cap: 18,
+    });
+    if (trial) {
+      const notFinished = generated.notPlaced.length > 0 || audit.areas.some((row) => !row.satisfied) || audit.issues.some((i) => i.id.startsWith('uga-pool-')) || issues.some((i) => i.id === 'degree-incomplete');
+      return { trialState: finishState, finishesBroad: !notFinished };
+    }
+    const item = settings ? CF.cannotFinish(finishState, settings, { record: W?.recordKind ? W.recordKind(credit) : 'none' }) : null;
+    const recordSays = W?.recordKind ? W.recordKind(credit) : 'none';
+    /*
+     * HARNESS_PROBE=1: a board that does not finish, shows no item and is not
+     * explained by the record prompt has the same fixes built anyway, so a
+     * miss (a setting change would have made it finish) shows as probe.anyFully.
+     */
+    const doesNotFinish = generated.notPlaced.length > 0 || audit.areas.some((row) => !row.satisfied) || audit.issues.some((i) => i.id.startsWith('uga-pool-')) || issues.some((i) => i.id === 'degree-incomplete');
+    const probe = !item && settings && doesNotFinish && process.env.HARNESS_PROBE === '1' && !['said', 'earlier', 'current-empty'].includes(recordSays);
+    if (item || probe) {
+      // The fixes, built as the workspace's findFixes builds them, smallest first, two that work are enough.
+      const started = Date.now();
+      const tried = [];
+      if (process.env.HARNESS_FIXES !== '0') {
+        for (const c of CF.fixCandidates(settings, 6, finishState)) {
+          const t0 = Date.now();
+          const trialShape = {
+            ...shape,
+            ...(c.change.summers ? { summers: c.change.summers, droppedSummers: (shape.droppedSummers ?? []).filter((y) => !c.change.summers.includes(y)) } : {}),
+            ...(c.change.finish ? { finish: c.change.finish } : {}),
+            ...(c.change.away ? { away: c.change.away } : {}),
+          };
+          const r = build(program, kind, { shape: trialShape, target: c.change.target ?? targetCredits });
+          if (r.trialState) tried.push({ ...CF.tried(c, r.trialState, Date.now() - t0), finishesBroad: r.finishesBroad });
+          if (tried.filter((t) => t.fully).length >= 2) break;
+        }
+      }
+      if (probe) {
+        cannot = { probe: true, tried: tried.map((t) => ({ fix: t.candidate.label, fully: t.fully, finishes: t.finishesBroad, left: t.left, ms: t.ms })), anyFinishes: tried.some((t) => t.finishesBroad), ms: Date.now() - started };
+      } else {
+      const ranked = tried.length ? CF.rankFixes(tried, item.classes.length || item.rows.length || 1) : null;
+      cannot = {
+        text: item.text, limits: item.limits, classes: item.classes.map((c) => c.code), rows: item.rows, shortHours: item.shortHours,
+        record: W?.recordKind ? W.recordKind(credit) : null,
+        tried: tried.map((t) => ({ fix: t.candidate.label, fully: t.fully, finishes: t.finishesBroad, left: t.left, ms: t.ms })),
+        shown: ranked ? [...ranked.working, ...(ranked.closest ? [ranked.closest] : [])].map((t) => CF.fixButtonText(t)) : [],
+        anyFully: tried.some((t) => t.fully),
+        ms: Date.now() - started,
+      };
+      }
+    }
+  }
+  // A probe is not an item: the bar and the row's cannotFinish stay as the workspace has them.
+  const probed = cannot?.probe ? cannot : null;
+  if (probed) cannot = null;
+  if (W) {
     const full = issues.map((i) => ({ termId: '', message: '', ...i }));
-    const t = W.triageIssues(full, { credit, bot: 'ARCH' });
+    const t = W.triageIssues(full, { credit, bot: 'ARCH', ...(cannot ? { cannotFinish: { text: cannot.text, message: cannot.text } } : {}) });
     bar = (t.prompt ? 1 : 0) + t.now.length;
-    barKinds = t.prominent.map((k) => (k.key === 'record' ? `prompt: ${k.label}` : k.label.replace(/\(\d+\)$/, '(n)').replace(/^\d+ requirements not met$/, 'n requirements not met')));
+    barKinds = t.prominent.map((k) => (k.key === 'record' ? `prompt: ${k.label}` : k.key === 'cannot-finish' ? "can't finish" : k.label.replace(/\(\d+\)$/, '(n)').replace(/^\d+ requirements not met$/, 'n requirements not met')));
   }
   return {
     ok: true,
@@ -718,6 +826,9 @@ function build(program, kind) {
     attentionKinds: attentionItems(issues).map((a) => a.text),
     bar,
     barKinds,
+    // Added 2026-11-03: the can't-finish item (null when it does not show), its fixes as built, and the board's finish state.
+    ...(probed ? { probe: probed } : {}),
+    ...(CF ? { cannotFinish: cannot, finishState: { stuck: finishState.stuck.map((x) => `${x.code}:${x.reason}`), shortRows: finishState.shortRows, shortHours: finishState.shortHours, roomLeft: finishState.roomLeft, maxFree: finishState.maxFree }, record: W?.recordKind ? W.recordKind(credit) : null } : {}),
     over18: loads.filter((l) => l > 18).length,
     maxLoad: Math.max(0, ...loads),
     // The pre-health track: what it booked, and any of its labs placed apart from (or without) its lecture.

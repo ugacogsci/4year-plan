@@ -54,6 +54,10 @@ export interface FinishState {
   shortHours: number;
   /** Hours still free in the plan's falls and springs up to the cap, counting only terms with room for a class. */
   roomLeft: number;
+  /** The most hours free in any one fall or spring. */
+  maxFree?: number;
+  /** The heaviest fall or spring, in hours. */
+  heaviest?: number;
 }
 
 /** The student's settings that bound the plan. */
@@ -104,6 +108,46 @@ export interface CannotFinish {
   /** Requirements short with no class to name (the text names them when no class is). */
   rows: string[];
   shortHours: number;
+  /** The heaviest fall or spring on the board. */
+  heaviest?: number;
+}
+
+/** A board term's calendar name from its label ("Spring 2030"); PlanTerm.year is the year of the plan, not the calendar. */
+export function termNameOf(term: { label: string }): TermName | null {
+  const m = term.label.match(/\b(Fall|Spring|Summer)\s+(20\d\d)\b/);
+  return m ? { season: m[1] as SemesterSeason, year: Number(m[2]) } : null;
+}
+
+/**
+ * The settings a board shows: its last fall or spring is the finish, its
+ * first term the start, its summers with classes (and the ones the plan shape
+ * asks for), the terms away and the credits a semester.
+ */
+export function boardSettings(input: {
+  school: 'uga' | 'illinois';
+  terms: ReadonlyArray<{ label: string; season: SemesterSeason; courseIds: readonly string[] }>;
+  shapeSummers: readonly number[];
+  droppedSummers?: readonly number[];
+  away: ReadonlyArray<AwayName>;
+  target: number | null;
+  cap?: number;
+}): PlanSettingsFacts | null {
+  const named = input.terms.map((t) => ({ t, n: termNameOf(t) })).filter((x): x is { t: (typeof input.terms)[number]; n: TermName } => x.n !== null);
+  const regular = named.filter((x) => x.n.season !== 'Summer');
+  const first = named[0];
+  const last = regular[regular.length - 1];
+  if (!first || !last) return null;
+  const summers = [...new Set([...named.filter((x) => x.n.season === 'Summer' && x.t.courseIds.length > 0).map((x) => x.n.year), ...input.shapeSummers])].sort((a, b) => a - b);
+  return {
+    school: input.school,
+    finish: last.n,
+    start: first.n,
+    cap: input.cap ?? 18,
+    target: input.target,
+    summers,
+    droppedSummers: [...(input.droppedSummers ?? [])],
+    away: input.away.map((a) => ({ season: a.season, year: a.year, ...(a.kind ? { kind: a.kind } : {}), ...(a.credits !== undefined ? { credits: a.credits } : {}) })),
+  };
 }
 
 const ORD = (t: TermName) => t.year * 3 + (t.season === 'Spring' ? 0 : t.season === 'Summer' ? 1 : 2);
@@ -136,28 +180,39 @@ export function classesPhrase(classes: LeftOutClass[], show = 3): string {
  * the plan books (not the current semester, not a term away), with their hours.
  */
 export function finishStateOf(input: {
-  notPlaced: ReadonlyArray<{ code: string; title?: string; reason: string }>;
+  notPlaced: ReadonlyArray<{ code: string; title?: string; reason: string; credits?: number | null }>;
   rows: string[];
   totalHours: number;
   degreeTotal: number | null;
   terms: ReadonlyArray<{ season: SemesterSeason; credits: number }>;
   cap: number;
 }): FinishState {
+  const regular = input.terms.filter((t) => t.season !== 'Summer');
+  const roomLeft = regular.reduce((sum, t) => sum + (input.cap - t.credits >= 3 ? input.cap - t.credits : 0), 0);
+  const maxFree = Math.max(0, ...regular.map((t) => input.cap - t.credits));
+  const heaviest = Math.max(0, ...regular.map((t) => t.credits));
   const seen = new Set<string>();
   const stuck: LeftOutClass[] = [];
   for (const n of input.notPlaced) {
     if (!ROOM.has(n.reason) || seen.has(n.code)) continue;
+    /*
+     * "No room" while a fall or spring still has room for the class is the
+     * engine holding to the degree's total, not the student's settings: an
+     * Illinois board with ACCY 201 off and 6 hours free kept it off with a
+     * summer and a later finish too. Time (a chain, a season, a standing)
+     * always counts.
+     */
+    if (n.reason === 'no-room' && maxFree >= (n.credits ?? 3)) continue;
     seen.add(n.code);
     stuck.push({ code: n.code, title: n.title ?? '', reason: n.reason });
   }
-  const roomLeft = input.terms
-    .filter((t) => t.season !== 'Summer')
-    .reduce((sum, t) => sum + (input.cap - t.credits >= 3 ? input.cap - t.credits : 0), 0);
   return {
     stuck,
     shortRows: [...new Set(input.rows)],
     shortHours: input.degreeTotal ? Math.max(0, input.degreeTotal - input.totalHours) : 0,
     roomLeft,
+    maxFree,
+    heaviest,
   };
 }
 
@@ -205,8 +260,19 @@ export function finishes(state: FinishState): boolean {
   return state.stuck.length === 0 && state.shortRows.length === 0 && state.shortHours === 0;
 }
 
+/**
+ * The student's own credits a semester are the limit only when the board
+ * keeps to them: with 12 asked for, a degree that needs more is still planned
+ * up to 18 a semester, and "about 12 credits a semester" would not be true to
+ * that board. Without a board reading (no `state`), the number is taken as set.
+ */
+export function ownLoadBinds(s: PlanSettingsFacts, state?: Pick<FinishState, 'heaviest'> | null): boolean {
+  if (s.target === null || s.target >= s.cap) return false;
+  return state?.heaviest === undefined || state.heaviest <= s.target + 2;
+}
+
 /** The setting part of the sentence and which limits it names. */
-export function settingsPhrase(s: PlanSettingsFacts): { text: string; limits: CannotFinish['limits'] } {
+export function settingsPhrase(s: PlanSettingsFacts, state?: Pick<FinishState, 'heaviest'> | null): { text: string; limits: CannotFinish['limits'] } {
   const limits: CannotFinish['limits'] = ['finish'];
   const parts: string[] = [];
   if (s.lateStart) {
@@ -214,7 +280,7 @@ export function settingsPhrase(s: PlanSettingsFacts): { text: string; limits: Ca
     parts.push(`a ${termLabel(s.start)} start`);
   }
   limits.push('load');
-  parts.push(s.target !== null && s.target < s.cap ? `about ${s.target} credits a semester` : `up to ${s.cap} credits a semester`);
+  parts.push(ownLoadBinds(s, state) ? `about ${s.target} credits a semester` : `up to ${s.cap} credits a semester`);
   if (s.summers.length === 0) {
     limits.push('summer');
     parts.push('no summer classes');
@@ -236,7 +302,7 @@ export function cannotFinish(state: FinishState, settings: PlanSettingsFacts, qu
   if (quiet.doubleDawgsPending) return null;
   if (quiet.record === 'said' || quiet.record === 'earlier' || quiet.record === 'current-empty') return null;
   if (state.stuck.length === 0 && !roomBound(state)) return null;
-  const { text: phrase, limits } = settingsPhrase(settings);
+  const { text: phrase, limits } = settingsPhrase(settings, state);
   const head = `This plan can't finish ${phrase}.`;
   let tail: string;
   if (state.stuck.length > 0) {
@@ -248,7 +314,7 @@ export function cannotFinish(state: FinishState, settings: PlanSettingsFacts, qu
   } else {
     tail = `It ends ${state.shortHours} credits short of the degree.`;
   }
-  return { text: `${head} ${tail}`, settings: phrase, limits, classes: state.stuck, rows: state.shortRows, shortHours: state.shortHours };
+  return { text: `${head} ${tail}`, settings: phrase, limits, classes: state.stuck, rows: state.shortRows, shortHours: state.shortHours, ...(state.heaviest !== undefined ? { heaviest: state.heaviest } : {}) };
 }
 
 /** One change of settings worth building. */
@@ -289,9 +355,9 @@ export function summersInside(s: PlanSettingsFacts): number[] {
  * away, one summer (the first two the plan has room for, then both), and a
  * finish one term later. At most `limit`.
  */
-export function fixCandidates(s: PlanSettingsFacts, limit = 6): FixCandidate[] {
+export function fixCandidates(s: PlanSettingsFacts, limit = 6, state?: Pick<FinishState, 'heaviest'> | null): FixCandidate[] {
   const out: FixCandidate[] = [];
-  if (s.target !== null && s.target < s.cap) {
+  if (s.target !== null && ownLoadBinds(s, state)) {
     const step = s.target < 15 && s.cap > 15 ? 15 : s.cap;
     out.push({ id: `load-${step}`, label: `Take up to ${step} credits a semester`, size: 1, change: { target: step } });
     if (step < s.cap) out.push({ id: `load-${s.cap}`, label: `Take up to ${s.cap} credits a semester`, size: 2.5, change: { target: s.cap } });
@@ -356,7 +422,7 @@ export function forAdvisor(item: CannotFinish, fixes: { working: TriedFix[]; clo
     hours_short: item.shortHours,
     limiting_settings: {
       finish: termLabel(settings.finish),
-      credits_a_semester: settings.target !== null && settings.target < settings.cap ? `the student's own ${settings.target}` : `the cap, ${settings.cap}`,
+      credits_a_semester: ownLoadBinds(settings, { heaviest: item.heaviest }) ? `the student's own ${settings.target}` : `the cap, ${settings.cap}${settings.target !== null && settings.target < settings.cap ? ` (the student asked for about ${settings.target}, and the plan already goes past it to fit the degree)` : ''}`,
       summers: settings.summers.length > 0 ? settings.summers.map((y) => `Summer ${y}`) : 'none',
       away: settings.away.map(termLabel),
       ...(settings.lateStart ? { start: termLabel(settings.start) } : {}),

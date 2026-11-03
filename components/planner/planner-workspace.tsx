@@ -61,6 +61,7 @@ import { earlyFinishNote } from '@/lib/planner/attention';
 import { CANNOT_FINISH_ID, rankedFlags, recordKind, statedHours, triageIssues, type CreditGap } from '@/lib/planner/warnings-triage';
 import {
   askQuestion,
+  boardSettings,
   cannotFinish,
   finishStateOf,
   fixButtonText,
@@ -2837,22 +2838,16 @@ export function PlannerWorkspace({
    */
   const finishSettings = useMemo((): PlanSettingsFacts | null => {
     if (!plan || !context || !loaded || !isCatalogSchool || isGraduatePlan || isUndecided || plan.doubleDawgs) return null;
-    const regular = plan.terms.filter((t) => t.season !== 'Summer');
-    const first = plan.terms[0];
-    const last = regular[regular.length - 1];
-    if (!first || !last) return null;
     const h = horizonFor(answers, new Date(), planShape, boardTerms);
-    const summers = [...new Set([...plan.terms.filter((t) => t.season === 'Summer' && t.courseIds.length > 0).map((t) => t.year), ...planShape.summers])].sort((a, b) => a - b);
-    return {
+    return boardSettings({
       school: isUga ? 'uga' : 'illinois',
-      finish: { season: last.season, year: last.year },
-      start: { season: first.season, year: first.year },
-      cap: 18,
-      target: targetTermCredits,
-      summers,
+      terms: plan.terms,
+      shapeSummers: planShape.summers,
       droppedSummers: planShape.droppedSummers ?? [],
-      away: (h.away ?? planShape.away).map((a) => ({ season: a.season, year: a.year, ...(a.kind ? { kind: a.kind } : {}), ...(a.credits !== undefined ? { credits: a.credits } : {}) })),
-    };
+      away: h.away ?? planShape.away,
+      target: targetTermCredits,
+      cap: 18,
+    });
   }, [plan, context, loaded, isCatalogSchool, isGraduatePlan, isUndecided, answers, planShape, boardTerms, isUga, targetTermCredits]);
 
   /** The falls and springs a board books, with their hours, for the room left (not a term away). */
@@ -2868,14 +2863,14 @@ export function PlannerWorkspace({
   const finishNow = useMemo((): FinishState | null => {
     if (!plan || !report || !finishSettings || !context) return null;
     return finishStateOf({
-      notPlaced: report.notPlaced.map((n) => ({ code: n.code, title: n.title, reason: n.reason })),
+      notPlaced: report.notPlaced.map((n) => ({ code: n.code, title: n.title, reason: n.reason, credits: byCode.get(normCode(n.code))?.credits ?? null })),
       rows: isUga ? ugaRowsShort(issues) : illinoisRowsShort(report.unsatisfied, report.notPlaced),
       totalHours: isUga ? (ugaAudit?.total ?? credits.total.min) : credits.total.min,
       degreeTotal: isUga ? (ugaAudit?.target ?? activeProgramTotal ?? null) : (activeProgramTotal ?? null),
       terms: termLoadsOf(plan, report.away),
       cap: finishSettings.cap,
     });
-  }, [plan, report, finishSettings, context, isUga, issues, ugaAudit, credits.total.min, activeProgramTotal, termLoadsOf]);
+  }, [plan, report, finishSettings, context, isUga, issues, ugaAudit, credits.total.min, activeProgramTotal, termLoadsOf, byCode]);
 
   const cannot: CannotFinish | null = useMemo(() => {
     if (!finishNow || !finishSettings) return null;
@@ -2943,8 +2938,8 @@ export function PlannerWorkspace({
       totalHours = g.credits.total.min;
       degreeTotal = activeProgramTotal ?? null;
     }
-    return finishStateOf({ notPlaced: g.notPlaced, rows, totalHours, degreeTotal, terms: termLoadsOf(g.plan, g.away), cap: finishSettings.cap });
-  }, [context, loaded, finishSettings, isUga, courseIndex, priorCreditHours, assumedCredit.hours, transcriptRecord, uga, coreCredit, answers?.languageYears, minimumTermCredits, activeProgramTotal, termLoadsOf]);
+    return finishStateOf({ notPlaced: g.notPlaced.map((n) => ({ code: n.code, title: n.title, reason: n.reason, credits: byCode.get(normCode(n.code))?.credits ?? null })), rows, totalHours, degreeTotal, terms: termLoadsOf(g.plan, g.away), cap: finishSettings.cap });
+  }, [context, loaded, finishSettings, isUga, courseIndex, priorCreditHours, assumedCredit.hours, transcriptRecord, uga, coreCredit, answers?.languageYears, minimumTermCredits, activeProgramTotal, termLoadsOf, byCode]);
   /** Build every candidate, one per turn of the event loop; the result is kept for this board. */
   const findFixes = useCallback(async (): Promise<TriedFix[]> => {
     const key = fixKey;
@@ -2954,7 +2949,7 @@ export function PlannerWorkspace({
     setFixes({ key, running: true, tried: [], ms: 0 });
     const started = performance.now();
     const out: TriedFix[] = [];
-    for (const candidate of fixCandidates(finishSettings)) {
+    for (const candidate of fixCandidates(finishSettings, 6, finishNow)) {
       await new Promise((done) => setTimeout(done, 0));
       const built = composePlan(trialShape(candidate));
       const state = built ? trialFinish(built) : null;
@@ -2965,7 +2960,7 @@ export function PlannerWorkspace({
     const ms = Math.round(performance.now() - started);
     setFixes({ key, running: false, tried: out, ms });
     return out;
-  }, [fixKey, cannot, finishSettings, composePlan, trialShape, trialFinish]);
+  }, [fixKey, cannot, finishSettings, finishNow, composePlan, trialShape, trialFinish]);
   const fixesHere = fixes && fixes.key === fixKey ? fixes : null;
   const ranked = useMemo(() => (fixesHere && !fixesHere.running && cannot ? rankFixes(fixesHere.tried, cannot.classes.length || cannot.rows.length || 1) : null), [fixesHere, cannot]);
 

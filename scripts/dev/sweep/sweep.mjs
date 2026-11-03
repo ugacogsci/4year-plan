@@ -67,7 +67,7 @@
  *                                     'pre-med. medical school', does not.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join, resolve } from 'node:path';
@@ -168,6 +168,8 @@ const { PRIORITY_PRESETS } = await import(join(HERE, 'priorities.ts'));
 const { adaptIllinoisPrograms, missingPrerequisiteGroups, attachRequirementIds } = await import(join(HERE, 'illinois-data.ts'));
 const { hydrateIndexRow, toGradeRow, applyOfferings, takenPerYear } = await import(join(HERE, 'illinois-load.ts'));
 const { livePools } = await import(join(ROOT, 'components/planner/live-pools.ts'));
+// "Can't finish with your settings" (cannot-finish.ts, 2026-11-03), when the checkout has it.
+const CF = existsSync(join(HERE, 'cannot-finish.ts')) ? await import(join(HERE, 'cannot-finish.ts')) : null;
 
 const pub = (n) => JSON.parse(readFileSync(join(PUBLIC, n), 'utf8'));
 const norm = (s) => String(s).replace(/\s+/g, ' ').trim().toUpperCase();
@@ -348,14 +350,93 @@ function degreeMath(requirements, codes) {
 const SEMINAR = /^LAS 10[0-2]$|^BUS 101$|^ENG 100$|^FAA 101$|^HK 125$/;
 const isSeminar = (code) => SEMINAR.test(code) || /\borientation\b/i.test(byCode.get(code)?.title ?? '');
 
+/*
+ * SWEEP_SETTING (2026-11-03, opt in): the student's settings changed, as
+ * set_plan_shape saves them: 'early' finishes two falls/springs earlier
+ * (one year early), 'twelve' plans 12 credits a semester, 'away' takes a gap
+ * semester in the plan's fourth fall/spring. Unset, the board is as before.
+ */
+const SETTING = process.env.SWEEP_SETTING ?? '';
+const stepBack = (t) => (t.season === 'Spring' ? { season: 'Fall', year: t.year - 1 } : { season: 'Spring', year: t.year });
+const stepOn = (t) => (t.season === 'Fall' ? { season: 'Spring', year: t.year + 1 } : { season: 'Fall', year: t.year });
+function settingHorizon() {
+  if (SETTING === 'early') {
+    const g = stepBack(stepBack({ season: FOUR_YEARS.gradSeason, year: FOUR_YEARS.gradYear }));
+    return { ...FOUR_YEARS, gradSeason: g.season, gradYear: g.year };
+  }
+  if (SETTING === 'away') {
+    let t = { season: FOUR_YEARS.startSeason, year: FOUR_YEARS.startYear };
+    for (let i = 0; i < 3; i++) t = stepOn(t);
+    return { ...FOUR_YEARS, away: [{ season: t.season, year: t.year, kind: 'gap' }] };
+  }
+  return FOUR_YEARS;
+}
+const settingTarget = () => (process.env.SWEEP_TARGET ? Number(process.env.SWEEP_TARGET) : SETTING === 'twelve' ? 12 : null);
+
+/** A built board's finish state, as planner-workspace.tsx reads an Illinois board's (finishNow, trialFinish). */
+function finishOf(b) {
+  const awayAt = new Set((b.g.away ?? []).map((a) => a.label));
+  return CF.finishStateOf({
+    notPlaced: b.g.notPlaced.map((n) => ({ code: norm(n.code), title: n.title, reason: n.reason, credits: byCode.get(norm(n.code))?.credits ?? null })),
+    rows: CF.illinoisRowsShort(b.g.unsatisfied, b.g.notPlaced),
+    totalHours: b.g.credits.total.min,
+    degreeTotal: b.degreeTotal,
+    terms: b.g.terms.filter((t) => !awayAt.has(t.label)).map((t) => ({ season: t.season, credits: t.credits.min })),
+    cap: 18,
+  });
+}
+
+/** The can't-finish item for a board, and its fixes built as the workspace's findFixes builds them. */
+function cannotFinishOf(b, job) {
+  if (!CF) return {};
+  const state = finishOf(b);
+  const settings = CF.boardSettings({ school: 'illinois', terms: b.board.terms, shapeSummers: b.horizon.summers ?? [], away: b.horizon.away ?? [], target: b.target });
+  const item = settings ? CF.cannotFinish(state, settings, { record: 'none' }) : null;
+  const finishState = { stuck: state.stuck.map((x) => `${x.code}:${x.reason}`), shortRows: state.shortRows, shortHours: state.shortHours, roomLeft: state.roomLeft, maxFree: state.maxFree };
+  // SWEEP_PROBE=1: a board with classes left off and no item has the fixes built anyway (a miss shows as probe.anyFully).
+  const probe = !item && settings && b.g.notPlaced.length > 0 && process.env.SWEEP_PROBE === '1';
+  if (!item && !probe) return { cannotFinish: null, finishState };
+  const started = Date.now();
+  const tried = [];
+  if (process.env.SWEEP_FIXES !== '0') {
+    for (const c of CF.fixCandidates(settings, 6, state)) {
+      const t0 = Date.now();
+      const horizon = {
+        ...b.horizon,
+        ...(c.change.summers ? { summers: c.change.summers } : {}),
+        ...(c.change.finish ? { gradSeason: c.change.finish.season, gradYear: c.change.finish.year } : {}),
+        ...(c.change.away ? { away: c.change.away } : {}),
+      };
+      const t = build({ program: job.id, prior: b.prior, horizon, target: c.change.target ?? b.target, words: b.words, career: b.career });
+      tried.push({ ...CF.tried(c, finishOf(t), Date.now() - t0), finishesBroad: t.g.notPlaced.length === 0 });
+      if (tried.filter((x) => x.fully).length >= 2) break;
+    }
+  }
+  if (probe) return { cannotFinish: null, finishState, probe: { tried: tried.map((t) => ({ fix: t.candidate.label, fully: t.fully, finishes: t.finishesBroad, left: t.left, ms: t.ms })), anyFinishes: tried.some((t) => t.finishesBroad), ms: Date.now() - started } };
+  const ranked = tried.length ? CF.rankFixes(tried, item.classes.length || item.rows.length || 1) : null;
+  return {
+    cannotFinish: {
+      text: item.text, limits: item.limits, classes: item.classes.map((c) => c.code), rows: item.rows, shortHours: item.shortHours,
+      tried: tried.map((t) => ({ fix: t.candidate.label, fully: t.fully, finishes: t.finishesBroad, left: t.left, ms: t.ms })),
+      shown: ranked ? [...ranked.working, ...(ranked.closest ? [ranked.closest] : [])].map((t) => CF.fixButtonText(t)) : [],
+      anyFully: tried.some((t) => t.fully),
+      ms: Date.now() - started,
+    },
+    finishState,
+  };
+}
+
 function measure(job) {
   const b = build({
     program: job.id,
     prior: { ...FRESHMAN, languageSemesters: job.lang },
+    horizon: settingHorizon(),
     words: STUDYING ? [STUDYING, job.goal].join(' ') : job.goal,
     career: job.goal,
-    target: process.env.SWEEP_TARGET ? Number(process.env.SWEEP_TARGET) : null,
+    target: settingTarget(),
   });
+  b.words = STUDYING ? [STUDYING, job.goal].join(' ') : job.goal;
+  b.career = job.goal;
   const { g, board } = b;
   if (process.env.SWEEP_NOTES) {
     console.error('NOTES:\n  ' + g.notes.join('\n  '));
@@ -463,6 +544,9 @@ function measure(job) {
     residency: g.residency ? { upper: g.residency.plannedUpper, hours: g.residency.plannedHours, ok: g.residency.ok } : null,
     warnKeys: issues.filter((i) => i.severity !== 'info').map((i) => i.id.replace(`-${i.termId}-`, '-')),
     addedBy: (g.addedPrerequisites ?? []).map((p) => [norm(p.code), norm(p.requiredBy)]),
+    ...(SETTING ? { setting: SETTING } : {}),
+    // Added 2026-11-03: the can't-finish item (null when it does not show), its fixes as built, the board's finish state.
+    ...cannotFinishOf(b, job),
   };
 }
 
