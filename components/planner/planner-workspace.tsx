@@ -67,11 +67,17 @@ import {
   fixButtonText,
   fixCandidates,
   forAdvisor,
+  gapOf,
   illinoisRowsShort,
+  illinoisUnmet,
+  itemMessage,
+  offeringKeys,
   rankFixes,
+  settleItem,
   shapeInputOf,
   tried as triedFix,
   ugaRowsShort,
+  ugaUnmet,
   type CannotFinish,
   type FinishState,
   type PlanSettingsFacts,
@@ -2839,14 +2845,19 @@ export function PlannerWorkspace({
   const finishSettings = useMemo((): PlanSettingsFacts | null => {
     if (!plan || !context || !loaded || !isCatalogSchool || isGraduatePlan || isUndecided || plan.doubleDawgs) return null;
     const h = horizonFor(answers, new Date(), planShape, boardTerms);
+    // The usual finish (no finish of its own set), offered to a student who chose an earlier one.
+    const usual = planShape.finish ? horizonFor(answers, new Date(), { ...planShape, finish: null }, boardTerms) : null;
+    const inShape = (a: { season: string; year: number }) => planShape.away.some((b) => b.season === a.season && b.year === a.year);
     return boardSettings({
       school: isUga ? 'uga' : 'illinois',
       terms: plan.terms,
       shapeSummers: planShape.summers,
       droppedSummers: planShape.droppedSummers ?? [],
-      away: h.away ?? planShape.away,
+      // A term away the About-you words name is marked: the plan shape cannot drop it.
+      away: (h.away ?? planShape.away).map((a) => (inShape(a) ? a : { ...a, fromWords: true })),
       target: targetTermCredits,
       cap: 18,
+      defaultFinish: usual ? { season: usual.gradSeason, year: usual.gradYear } : null,
     });
   }, [plan, context, loaded, isCatalogSchool, isGraduatePlan, isUndecided, answers, planShape, boardTerms, isUga, targetTermCredits]);
 
@@ -2871,6 +2882,9 @@ export function PlannerWorkspace({
       degreeTotal: isUga ? (ugaAudit?.target ?? activeProgramTotal ?? null) : (activeProgramTotal ?? null),
       terms: termLoadsOf(plan, report.away),
       cap: finishSettings.cap,
+      // The whole reading, for "gets closer" against a rebuilt board and for its new offering problems.
+      unmet: isUga ? (ugaAudit ? ugaUnmet(ugaAudit) : []) : illinoisUnmet(report.unsatisfied),
+      offering: offeringKeys(issues),
     });
   }, [plan, report, finishSettings, context, isUga, issues, ugaAudit, credits.total.min, activeProgramTotal, termLoadsOf, byCode, boardCodes, completedCodes]);
 
@@ -2878,31 +2892,36 @@ export function PlannerWorkspace({
     if (!finishNow || !finishSettings) return null;
     return cannotFinish(finishNow, finishSettings, {
       record: recordKind(creditGap),
+      // With a transcript, the semester in progress counted as a usual load is the cause the prompt names.
+      transcript: Boolean(transcriptRecord && (transcriptRecord.courses?.length ?? 0) > 0),
       doubleDawgsPending: issues.some((i) => i.id === 'double-dawgs-rebuild'),
     });
-  }, [finishNow, finishSettings, creditGap, issues]);
-  const cannotItem = useMemo(() => cannot ? {
-    text: cannot.text,
-    message: `${cannot.text} The planner fits every class it can inside your settings; one change below makes room, or ask ${school?.bot ?? 'the assistant'}.`,
-  } : null, [cannot, school?.bot]);
+  }, [finishNow, finishSettings, creditGap, issues, transcriptRecord]);
 
   /**
    * The fixes, tried by building each one (composePlan) with the board's
    * own numbers. Building is a second or more a candidate in the browser, so
    * it runs when the student presses "Find a fix" (or when ARCH or ALMA reads
    * the board), one candidate per turn of the event loop, never on its own
-   * while the board draws. Keyed on the board and its settings: any rebuild
-   * or edit starts over.
+   * while the board draws. Keyed on this very board (a serial for each plan
+   * object) and its settings: any rebuild, edit, degree, goal or record
+   * change starts over (2026-11-03 check: a sentence-and-settings key showed
+   * one degree's tested fixes on another's board).
    */
-  const fixKey = cannot ? `${cannot.text}|${shapeKey}|${report?.firstTermId ?? ''}|${plan?.terms.length ?? 0}` : '';
-  const [fixes, setFixes] = useState<{ key: string; running: boolean; tried: TriedFix[]; ms: number } | null>(null);
+  const planSerialRef = useRef<{ plan: PlanState | null; n: number }>({ plan: null, n: 0 });
+  if (planSerialRef.current.plan !== plan) planSerialRef.current = { plan, n: planSerialRef.current.n + 1 };
+  const fixKey = cannot ? `${planSerialRef.current.n}|${cannot.text}|${shapeKey}|${targetTermCredits ?? ''}|${report?.firstTermId ?? ''}|${plan?.terms.length ?? 0}` : '';
+  const [fixes, setFixes] = useState<{ key: string; running: boolean; partial?: boolean; tried: TriedFix[]; ms: number } | null>(null);
   const fixesRef = useRef(fixes);
   fixesRef.current = fixes;
+  // One run at a time for a board: a second press (or ARCH/ALMA reading the board) waits for the one running.
+  const fixRunRef = useRef<{ key: string; full: boolean; done: Promise<TriedFix[]> } | null>(null);
   const trialShape = useCallback((c: ReturnType<typeof fixCandidates>[number]): BuildTrial => ({
     shape: {
       ...planShape,
       ...(c.change.summers ? { summers: c.change.summers, droppedSummers: (planShape.droppedSummers ?? []).filter((y) => !c.change.summers!.includes(y)) } : {}),
-      ...(c.change.finish ? { finish: c.change.finish } : {}),
+      // The usual finish is no finish of its own, as set_plan_shape finish 'default' saves it.
+      ...(c.change.finish ? { finish: c.change.finishDefault ? null : c.change.finish } : {}),
       ...(c.change.away ? { away: c.change.away.map((a) => ({ season: a.season, year: a.year, ...(a.kind ? { kind: a.kind as AwayTerm['kind'] } : {}), ...(a.credits !== undefined ? { credits: a.credits } : {}) })) } : {}),
     },
     min: minimumTermCredits,
@@ -2915,6 +2934,8 @@ export function PlannerWorkspace({
     let rows: string[];
     let totalHours: number;
     let degreeTotal: number | null;
+    let unmet: string[];
+    let offering: string[];
     if (isUga) {
       const held = g.plan.completedCourseIds.flatMap((id) => courseIndex.get(id)?.code ?? []).map(normCode);
       const audit = auditUgaBoard({
@@ -2935,40 +2956,76 @@ export function PlannerWorkspace({
       rows = ugaRowsShort([completion, ...audit.issues].filter((i): i is PlanIssue => Boolean(i)));
       totalHours = audit.total;
       degreeTotal = audit.target ?? activeProgramTotal ?? null;
+      unmet = ugaUnmet(audit);
+      offering = offeringKeys(audit.issues);
     } else {
       rows = illinoisRowsShort(g.unsatisfied, g.notPlaced);
       totalHours = g.credits.total.min;
       degreeTotal = activeProgramTotal ?? null;
+      unmet = illinoisUnmet(g.unsatisfied);
+      // The rebuilt board's own check, as the board runs it, for a class booked in a term it is not offered.
+      offering = offeringKeys(validatePlan(g.plan, boardContext ?? context, validateOptions()));
     }
-    return finishStateOf({ notPlaced: g.notPlaced.map((n) => ({ code: n.code, title: n.title, reason: n.reason, credits: byCode.get(normCode(n.code))?.credits ?? null })), rows, totalHours, degreeTotal, terms: termLoadsOf(g.plan, g.away), cap: finishSettings.cap });
-  }, [context, loaded, finishSettings, isUga, courseIndex, priorCreditHours, assumedCredit.hours, transcriptRecord, uga, coreCredit, answers?.languageYears, minimumTermCredits, activeProgramTotal, termLoadsOf, byCode]);
-  /** Build every candidate, one per turn of the event loop; the result is kept for this board. */
-  const findFixes = useCallback(async (): Promise<TriedFix[]> => {
+    return finishStateOf({ notPlaced: g.notPlaced.map((n) => ({ code: n.code, title: n.title, reason: n.reason, credits: byCode.get(normCode(n.code))?.credits ?? null })), rows, totalHours, degreeTotal, terms: termLoadsOf(g.plan, g.away), cap: finishSettings.cap, unmet, offering });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- validateOptions reads the live ref at call time
+  }, [context, boardContext, loaded, finishSettings, isUga, courseIndex, priorCreditHours, assumedCredit.hours, transcriptRecord, uga, coreCredit, answers?.languageYears, minimumTermCredits, activeProgramTotal, termLoadsOf, byCode]);
+  /**
+   * Build the candidates, one per turn of the event loop; the result is kept
+   * for this board. The button tries them all (two that work are enough).
+   * ARCH and ALMA reading the board try them smallest first and stop at the
+   * first that works or after about 8 seconds, so a review does not hold the
+   * page for minutes; what they leave untried, Find a fix tries.
+   */
+  const findFixes = useCallback(async (opts: { quick?: boolean } = {}): Promise<TriedFix[]> => {
     const key = fixKey;
     const have = fixesRef.current;
     if (!cannot || !finishSettings) return [];
-    if (have && have.key === key && !have.running) return have.tried;
-    setFixes({ key, running: true, tried: [], ms: 0 });
-    const started = performance.now();
-    const out: TriedFix[] = [];
-    for (const candidate of fixCandidates(finishSettings, 6, finishNow)) {
-      await new Promise((done) => setTimeout(done, 0));
-      const built = composePlan(trialShape(candidate));
-      const state = built ? trialFinish(built) : null;
-      if (state) out.push(triedFix(candidate, state, Math.round(built?.ms ?? 0)));
-      // Two that work are enough to offer; the smallest come first.
-      if (out.filter((t) => t.fully).length >= 2) break;
+    if (have && have.key === key && !have.running && (!have.partial || opts.quick)) return have.tried;
+    const running = fixRunRef.current;
+    if (running && running.key === key && (running.full || opts.quick)) return running.done;
+    const done = (async () => {
+      setFixes({ key, running: true, tried: [], ms: 0 });
+      const started = performance.now();
+      const out: TriedFix[] = [];
+      let partial = false;
+      const all = fixCandidates(finishSettings, 7, finishNow);
+      for (const [i, candidate] of all.entries()) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const built = composePlan(trialShape(candidate));
+        const state = built ? trialFinish(built) : null;
+        if (state) out.push(triedFix(candidate, state, Math.round(built?.ms ?? 0), finishNow));
+        const working = out.filter((t) => t.fully).length;
+        // Two that work are enough to offer; the smallest come first.
+        if (working >= 2) break;
+        if (opts.quick && (working >= 1 || performance.now() - started > 8000)) {
+          partial = i < all.length - 1;
+          break;
+        }
+      }
+      const ms = Math.round(performance.now() - started);
+      setFixes({ key, running: false, ...(partial ? { partial: true } : {}), tried: out, ms });
+      return out;
+    })();
+    fixRunRef.current = { key, full: !opts.quick, done };
+    try {
+      return await done;
+    } finally {
+      if (fixRunRef.current?.done === done) fixRunRef.current = null;
     }
-    const ms = Math.round(performance.now() - started);
-    setFixes({ key, running: false, tried: out, ms });
-    return out;
   }, [fixKey, cannot, finishSettings, finishNow, composePlan, trialShape, trialFinish]);
   const fixesHere = fixes && fixes.key === fixKey ? fixes : null;
-  const ranked = useMemo(() => (fixesHere && !fixesHere.running && cannot ? rankFixes(fixesHere.tried, cannot.classes.length || cannot.rows.length || 1) : null), [fixesHere, cannot]);
+  const ranked = useMemo(() => (fixesHere && !fixesHere.running && cannot && finishNow ? rankFixes(fixesHere.tried, gapOf(finishNow, finishNow)) : null), [fixesHere, cannot, finishNow]);
+  /** The item's words, settled once the fixes are tried (a "doesn't finish yet" item names the setting only when a change fixes it). */
+  const cannotItem = useMemo(() => {
+    if (!cannot) return null;
+    const known = ranked && !fixesHere?.partial ? ranked : ranked && ranked.working.length > 0 ? ranked : null;
+    const settled = settleItem(cannot, known);
+    return { text: settled.text, message: itemMessage({ ...cannot, text: settled.text }, settled.settled, school?.bot ?? 'the assistant') };
+  }, [cannot, ranked, fixesHere?.partial, school?.bot]);
 
   /** The same for ARCH and ALMA (review_board, describeBoard), read at call time. */
-  const cannotLive = useRef<{ item: CannotFinish | null; text: { text: string; message: string } | null; settings: PlanSettingsFacts | null; find: () => Promise<TriedFix[]>; ranked: ReturnType<typeof rankFixes> | null }>({ item: null, text: null, settings: null, find: async () => [], ranked: null });
-  cannotLive.current = { item: cannot, text: cannotItem, settings: finishSettings, find: findFixes, ranked };
+  const cannotLive = useRef<{ item: CannotFinish | null; text: { text: string; message: string } | null; settings: PlanSettingsFacts | null; now: FinishState | null; find: (opts?: { quick?: boolean }) => Promise<TriedFix[]>; ranked: ReturnType<typeof rankFixes> | null }>({ item: null, text: null, settings: null, now: null, find: async () => [], ranked: null });
+  cannotLive.current = { item: cannot, text: cannotItem, settings: finishSettings, now: finishNow, find: findFixes, ranked };
 
   /** A fix pressed: the same change set_plan_shape makes, saved in the plan shape, and a rebuild; asked first over the student's own edits. */
   const [fixToConfirm, setFixToConfirm] = useState<TriedFix | null>(null);
@@ -4661,7 +4718,7 @@ export function PlannerWorkspace({
     const cf = cannotLive.current;
     if (cf.item && cf.settings) {
       const facts = forAdvisor(cf.item, cf.ranked, cf.settings);
-      lines.push(`Can't finish with the student's settings (first on the board bar): ${cf.item.text} Limiting settings: ${JSON.stringify(facts.limiting_settings)}. Tested fixes: ${typeof facts.tested_fixes === 'string' ? 'not tested yet; review_board tests them' : JSON.stringify(facts.tested_fixes)}.`);
+      lines.push(`Can't finish with the student's settings (first on the board bar): ${cf.text?.text ?? cf.item.text}${cf.item.maybe && !cf.ranked ? ' (cause not known yet: room is left on the board, so a setting may not be the limit)' : ''} Limiting settings: ${JSON.stringify(facts.limiting_settings)}. Tested fixes: ${typeof facts.tested_fixes === 'string' ? 'not tested yet; review_board tests them' : JSON.stringify(facts.tested_fixes)}.`);
     }
     return lines.join('\n');
   }
@@ -5634,7 +5691,7 @@ export function PlannerWorkspace({
          */
         const cf = cannotLive.current;
         const cannotFinishFacts = cf.item && cf.settings
-          ? forAdvisor(cf.item, cf.item ? rankFixes(await cf.find(), cf.item.classes.length || cf.item.rows.length || 1) : null, cf.settings)
+          ? forAdvisor(cf.item, cf.item ? rankFixes(await cf.find({ quick: true }), cf.now ? gapOf(cf.now, cf.now) : 1) : null, cf.settings)
           : null;
         const open = currentIssues.filter((i) => /^(unsatisfied|pool|ap-missing|uga-(area|pool|total)|double-dawgs-)/.test(i.id) || /not (yet )?(met|satisfied)|still needs|short/i.test(i.title)).map((i) => i.message.slice(0, 200));
         const dormant = terms.flatMap((t) => (Array.isArray(t.not_run_recently) ? t.not_run_recently : []).map((code) => `${code} in ${t.term}`));
@@ -7507,9 +7564,9 @@ export function PlannerWorkspace({
           /* Right under the can't-finish item: the fixes, each built first
              (findFixes), smallest change first, and the advisor. */
           <div className="cannot-finish-fixes" role="group" aria-label="Ways to make this plan finish">
-            {!fixesHere && (
+            {(!fixesHere || (fixesHere.partial && !fixesHere.running)) && (
               <Button variant="outline" size="sm" onClick={() => void findFixes()} disabled={programBusy}>
-                Find a fix
+                {fixesHere?.partial ? 'Try more fixes' : 'Find a fix'}
               </Button>
             )}
             {fixesHere?.running && <span className="board-bar-note" role="status">Checking what would fix this...</span>}
@@ -7523,7 +7580,7 @@ export function PlannerWorkspace({
                 {fixButtonText(ranked.closest)}
               </Button>
             )}
-            {ranked && ranked.working.length === 0 && !ranked.closest && (
+            {ranked && !fixesHere?.partial && ranked.working.length === 0 && !ranked.closest && (
               <span className="board-bar-note" role="note">No single change to the finish, the summers or the credits a semester makes it fit.</span>
             )}
             <Button

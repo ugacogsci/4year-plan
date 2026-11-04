@@ -35,8 +35,13 @@ export interface TermName {
   year: number;
 }
 
-/** A term away as the plan shape keeps it (saved-board.ts AwayTerm): what it is and what it earns stay with it. */
-export type AwayName = TermName & { kind?: string; credits?: number };
+/**
+ * A term away as the plan shape keeps it (saved-board.ts AwayTerm): what it
+ * is and what it earns stay with it. `fromWords` marks one the student wrote
+ * in About you: the plan shape cannot take it off (plan-start.ts horizonFor
+ * merges the words back in), so it is never offered as a fix to drop.
+ */
+export type AwayName = TermName & { kind?: string; credits?: number; fromWords?: boolean };
 
 export interface LeftOutClass {
   code: string;
@@ -58,6 +63,16 @@ export interface FinishState {
   maxFree?: number;
   /** The heaviest fall or spring, in hours. */
   heaviest?: number;
+  /**
+   * The whole reading (2026-11-03 check): every class the engine left off for
+   * any reason, every requirement not met (folded or not, the planner's
+   * unread ones aside) and the classes booked in a term they are not offered.
+   * A fix "fits everything" only when all three are empty on the rebuilt
+   * board (no new offering problem) and the total is reached.
+   */
+  leftOff?: LeftOutClass[];
+  unmet?: string[];
+  offering?: string[];
 }
 
 /** The student's settings that bound the plan. */
@@ -79,6 +94,8 @@ export interface PlanSettingsFacts {
   away: AwayName[];
   /** True when the plan starts later than the first term the student could start. */
   lateStart?: boolean;
+  /** The finish the plan has with no finish of its own set (the usual date), when it differs. */
+  defaultFinish?: TermName | null;
 }
 
 /** Why the item stays off even when the board is short. */
@@ -92,8 +109,22 @@ export interface Quiet {
    * silence the item.
    */
   record?: 'none' | 'said' | 'earlier' | 'current-empty' | 'current-assumed';
+  /**
+   * The student has a transcript on the board. With one, the semester in
+   * progress counted as a usual load ('current-assumed') does explain the
+   * shortfall: those assumed hours fill no requirement, and 13 of 24
+   * sophomores finished once their Fall 2026 classes were in (2026-11-03
+   * check). A freshman with nothing on record keeps the item.
+   */
+  transcript?: boolean;
   /** A Double Dawgs rebuild is pending: nothing on the board is final. */
   doubleDawgsPending?: boolean;
+}
+
+/** True when the record prompt explains the shortfall, so the item stays off (the harness and sweep use the same test). */
+export function recordExplains(quiet: Quiet): boolean {
+  if (quiet.record === 'said' || quiet.record === 'earlier' || quiet.record === 'current-empty') return true;
+  return quiet.record === 'current-assumed' && Boolean(quiet.transcript);
 }
 
 export interface CannotFinish {
@@ -110,6 +141,14 @@ export interface CannotFinish {
   shortHours: number;
   /** The heaviest fall or spring on the board. */
   heaviest?: number;
+  /**
+   * True when only a requirement is short and the board has room left: a
+   * setting may or may not be the cause, so the item says the plan doesn't
+   * finish yet without blaming one, until the fixes are tried (settleItem).
+   */
+  maybe?: boolean;
+  /** The finish named in the sentence. */
+  finish?: string;
 }
 
 /** A board term's calendar name from its label ("Spring 2030"); PlanTerm.year is the year of the plan, not the calendar. */
@@ -131,6 +170,8 @@ export function boardSettings(input: {
   away: ReadonlyArray<AwayName>;
   target: number | null;
   cap?: number;
+  /** The finish with no finish of its own set (horizonFor with shape.finish null). */
+  defaultFinish?: TermName | null;
 }): PlanSettingsFacts | null {
   const named = input.terms.map((t) => ({ t, n: termNameOf(t) })).filter((x): x is { t: (typeof input.terms)[number]; n: TermName } => x.n !== null);
   const regular = named.filter((x) => x.n.season !== 'Summer');
@@ -146,7 +187,8 @@ export function boardSettings(input: {
     target: input.target,
     summers,
     droppedSummers: [...(input.droppedSummers ?? [])],
-    away: input.away.map((a) => ({ season: a.season, year: a.year, ...(a.kind ? { kind: a.kind } : {}), ...(a.credits !== undefined ? { credits: a.credits } : {}) })),
+    away: input.away.map((a) => ({ season: a.season, year: a.year, ...(a.kind ? { kind: a.kind } : {}), ...(a.credits !== undefined ? { credits: a.credits } : {}), ...(a.fromWords ? { fromWords: true } : {}) })),
+    ...(input.defaultFinish && ORD(input.defaultFinish) !== ORD(last.n) ? { defaultFinish: { season: input.defaultFinish.season, year: input.defaultFinish.year } } : {}),
   };
 }
 
@@ -186,6 +228,10 @@ export function finishStateOf(input: {
   degreeTotal: number | null;
   terms: ReadonlyArray<{ season: SemesterSeason; credits: number }>;
   cap: number;
+  /** Every requirement not met (the whole reading; see FinishState.unmet). */
+  unmet?: readonly string[];
+  /** Keys of the classes booked in a term they are not offered (the board's ap-offering issues). */
+  offering?: readonly string[];
 }): FinishState {
   const regular = input.terms.filter((t) => t.season !== 'Summer');
   const roomLeft = regular.reduce((sum, t) => sum + (input.cap - t.credits >= 3 ? input.cap - t.credits : 0), 0);
@@ -207,14 +253,54 @@ export function finishStateOf(input: {
     seen.add(n.code);
     stuck.push({ code: n.code, title: n.title ?? '', reason: n.reason });
   }
+  const left: LeftOutClass[] = [];
+  const leftSeen = new Set<string>();
+  for (const n of input.notPlaced) {
+    if (leftSeen.has(n.code)) continue;
+    leftSeen.add(n.code);
+    left.push({ code: n.code, title: n.title ?? '', reason: n.reason });
+  }
   return {
     stuck,
-    shortRows: [...new Set(input.rows)],
+    shortRows: plainRows(input.rows),
     shortHours: input.degreeTotal ? Math.max(0, input.degreeTotal - input.totalHours) : 0,
     roomLeft,
     maxFree,
     heaviest,
+    ...(input.unmet ? { leftOff: left, unmet: plainRows(input.unmet), offering: [...new Set(input.offering ?? [])] } : {}),
   };
+}
+
+/** Requirement names once each: "VI. Courses Related to the Major: VI. Courses Related to the Major" is the same row as its first half. */
+export function plainRows(rows: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const r of rows) {
+    const m = r.match(/^(.+?):\s*(.+)$/);
+    const name = m && m[1].trim() === m[2].trim() ? m[1].trim() : r.trim();
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/** Every UGA requirement not met on a board's audit (auditUgaBoard areas and pools), for the whole reading. */
+export function ugaUnmet(audit: {
+  areas: ReadonlyArray<{ area: { label: string }; satisfied: boolean }>;
+  pools: ReadonlyArray<{ label: string; hours: number; hoursTarget: number | null; count: number; countTarget: number | null }>;
+}): string[] {
+  return [
+    ...audit.areas.filter((row) => !row.satisfied).map((row) => row.area.label),
+    ...audit.pools.filter((p) => (p.hoursTarget !== null && p.hours < p.hoursTarget) || (p.countTarget !== null && p.count < p.countTarget)).map((p) => p.label),
+  ];
+}
+
+/** Every Illinois requirement the build did not meet for lack of courses or hours (no prerequisite exception), for the whole reading. */
+export function illinoisUnmet(unsatisfied: ReadonlyArray<{ label: string; reason: string }>): string[] {
+  return unsatisfied.filter((u) => u.reason === 'did-not-fit' || u.reason === 'hours-short').map((u) => u.label.replace(/:\s*(?:select|choose|take|complete)\b.*$/i, '').trim() || u.label);
+}
+
+/** The offering problems of an issue list (ap-offering-<term>-<course>), as keys. */
+export function offeringKeys(issues: ReadonlyArray<{ id: string }>): string[] {
+  return issues.filter((i) => i.id.startsWith('ap-offering-')).map((i) => i.id);
 }
 
 /**
@@ -225,9 +311,14 @@ export function finishStateOf(input: {
  */
 export function ugaRowsShort(issues: readonly PlanIssue[]): string[] {
   const t = triageIssues(issues);
-  return t.now
-    .filter((k) => k.key === 'degree')
-    .flatMap((k) => k.rows)
+  /*
+   * Rows the triage folds under a record prompt count too (2026-11-03
+   * check): on 69357 first-premed "VI. Courses Related to the Major" 17/18
+   * was folded, so the item never showed, yet two summers finish the plan.
+   * When the prompt explains the shortfall, recordExplains silences the item.
+   */
+  return [...t.now.flatMap((k) => k.rows), ...t.folded]
+    .filter((r) => r.kind.key === 'degree')
     .filter((r) => !/^(?:degree-incomplete|uga-total)$/.test(r.issue.id))
     .map((r) => r.issue.title);
 }
@@ -257,9 +348,32 @@ function roomBound(state: FinishState): boolean {
   return state.roomLeft < Math.max(3, state.shortHours);
 }
 
-/** True when the board finishes as far as room and time go: nothing left off for room, nothing short for room. */
-export function finishes(state: FinishState): boolean {
+/**
+ * True when the board finishes. With the whole reading (leftOff, unmet): no
+ * class left off for any reason, no requirement short, the total reached,
+ * and no class booked in a term it is not offered that `base` did not have
+ * (2026-11-03 check: 47 "everything fits" buttons left a requirement short or
+ * SE 494 off, and 4 summers booked a class the Bulletin lists for no summer).
+ * Without it, as far as room and time go.
+ */
+export function finishes(state: FinishState, base?: Pick<FinishState, 'offering'> | null): boolean {
+  if (state.leftOff && state.unmet) {
+    return state.leftOff.length === 0 && state.unmet.length === 0 && state.shortHours === 0 && newOffering(state, base).length === 0;
+  }
   return state.stuck.length === 0 && state.shortRows.length === 0 && state.shortHours === 0;
+}
+
+/** Offering problems a rebuilt board has that the board on screen does not. */
+export function newOffering(state: Pick<FinishState, 'offering'>, base?: Pick<FinishState, 'offering'> | null): string[] {
+  const had = new Set(base?.offering ?? []);
+  return (state.offering ?? []).filter((k) => !had.has(k));
+}
+
+/** How far a board is from finishing, for "gets closer": classes left off first, then requirements, then hours. */
+export function gapOf(state: FinishState, base?: Pick<FinishState, 'offering'> | null): number {
+  const classes = (state.leftOff ?? state.stuck).length;
+  const rows = (state.unmet ?? state.shortRows).length;
+  return classes * 1000 + rows * 10 + (state.shortHours > 0 ? 1 : 0) + newOffering(state, base).length;
 }
 
 /**
@@ -302,21 +416,73 @@ export function settingsPhrase(s: PlanSettingsFacts, state?: Pick<FinishState, '
  */
 export function cannotFinish(state: FinishState, settings: PlanSettingsFacts, quiet: Quiet = {}): CannotFinish | null {
   if (quiet.doubleDawgsPending) return null;
-  if (quiet.record === 'said' || quiet.record === 'earlier' || quiet.record === 'current-empty') return null;
-  if (state.stuck.length === 0 && !roomBound(state)) return null;
+  if (recordExplains(quiet)) return null;
+  const roomy = state.stuck.length === 0 && !roomBound(state);
+  /*
+   * A UGA requirement short with room left on the board may or may not be a
+   * settings problem (2026-11-03 check: on 9 such boards a summer or a later
+   * finish made the plan finish, on 150 others no setting helps, and nothing
+   * on the board tells the two apart). It gets the item in its "doesn't
+   * finish yet" form, which blames no setting, until the fixes are tried.
+   */
+  const maybe = roomy && settings.school === 'uga' && (state.shortRows.length > 0 || state.shortHours > 0);
+  if (roomy && !maybe) return null;
   const { text: phrase, limits } = settingsPhrase(settings, state);
-  const head = `This plan can't finish ${phrase}.`;
-  let tail: string;
+  const head = maybe ? `This plan doesn't finish by ${termLabel(settings.finish)} yet:` : `This plan can't finish ${phrase}.`;
+  return {
+    text: `${head} ${tailOf(state, maybe)}`,
+    settings: phrase,
+    limits,
+    classes: state.stuck,
+    rows: state.shortRows,
+    shortHours: state.shortHours,
+    ...(state.heaviest !== undefined ? { heaviest: state.heaviest } : {}),
+    ...(maybe ? { maybe: true } : {}),
+    finish: termLabel(settings.finish),
+  };
+}
+
+/** The part of the sentence that says what does not fit. */
+function tailOf(state: Pick<FinishState, 'stuck' | 'shortRows' | 'shortHours'>, lower = false): string {
   if (state.stuck.length > 0) {
-    tail = `${classesPhrase(state.stuck)} ${state.stuck.length === 1 ? "doesn't" : "don't"} fit.`;
-  } else if (state.shortRows.length > 0) {
+    // A long list is often a list to choose from that the planner read as all required (Illinois Engineering Mechanics: 40).
+    const many = state.stuck.length >= 8 && state.shortHours === 0 ? ' Some may be choices from a list.' : '';
+    return `${classesPhrase(state.stuck)} ${state.stuck.length === 1 ? "doesn't" : "don't"} fit.${many}`;
+  }
+  if (state.shortRows.length > 0) {
     const rows = state.shortRows.slice(0, 2);
     const rest = state.shortRows.length - rows.length;
-    tail = `${andList(rows)}${rest > 0 ? ` and ${rest} more` : ''} ${state.shortRows.length === 1 ? 'is' : 'are'} still short.`;
-  } else {
-    tail = `It ends ${state.shortHours} credits short of the degree.`;
+    const named = `${andList(rows)}${rest > 0 ? ` and ${rest} more` : ''}`;
+    return `${named} ${state.shortRows.length === 1 ? 'is' : 'are'} still short.`;
   }
-  return { text: `${head} ${tail}`, settings: phrase, limits, classes: state.stuck, rows: state.shortRows, shortHours: state.shortHours, ...(state.heaviest !== undefined ? { heaviest: state.heaviest } : {}) };
+  return `${lower ? 'it' : 'It'} ends ${state.shortHours} credits short of the degree.`;
+}
+
+/**
+ * The item once its fixes are tried. A "doesn't finish yet" item becomes the
+ * settings sentence when a change makes the plan finish, and says that no
+ * change to the settings does when none helps; any item whose fixes all fail
+ * says so in its longer words (the 2026-11-03 check: "one change below makes
+ * room" was said where no change did).
+ */
+export function settleItem(item: CannotFinish, ranked: { working: TriedFix[]; closest: TriedFix | null } | null): { text: string; settled: 'untested' | 'fixable' | 'closer' | 'none' } {
+  if (!ranked) return { text: item.text, settled: 'untested' };
+  const settled = ranked.working.length > 0 ? 'fixable' : ranked.closest ? 'closer' : 'none';
+  if (!item.maybe) return { text: item.text, settled };
+  const tail = tailOf({ stuck: item.classes, shortRows: item.rows, shortHours: item.shortHours });
+  if (settled === 'fixable') return { text: `This plan can't finish ${item.settings}. ${tail}`, settled };
+  return { text: `This plan doesn't finish by ${item.finish ?? 'your finish'}: ${tail.replace(/\.$/, '')}, and no single change to your settings fixes it.`, settled };
+}
+
+/** The item's longer words for the popover, true to what the fixes found. */
+export function itemMessage(item: CannotFinish, settled: 'untested' | 'fixable' | 'closer' | 'none', bot: string): string {
+  const text = item.text;
+  if (settled === 'fixable') return `${text} The planner fits every class it can inside your settings; a change below makes it finish, or ask ${bot}.`;
+  if (settled === 'closer') return `${text} No single change to your settings makes everything fit; the one below gets closest. Ask ${bot} what else could work.`;
+  if (settled === 'none') return `${text} No single change to the finish, the summers or the credits a semester makes it fit. Ask ${bot} which classes you need and where they could go.`;
+  return item.maybe
+    ? `${text} There is still room on the board, so your settings may not be the cause. Find a fix tries a summer, a later finish and more credits for you, or ask ${bot}.`
+    : `${text} The planner fits every class it can inside your settings. Find a fix tries a summer, a later finish and more credits for you, or ask ${bot}.`;
 }
 
 /** One change of settings worth building. */
@@ -330,6 +496,8 @@ export interface FixCandidate {
     /** The summers the plan should have (the ones it has plus the new ones). */
     summers?: number[];
     finish?: TermName;
+    /** The finish is the usual one: set_plan_shape finish 'default' (the plan shape keeps no finish of its own). */
+    finishDefault?: boolean;
     target?: number;
     /** The terms away the plan should keep. */
     away?: AwayName[];
@@ -357,39 +525,64 @@ export function summersInside(s: PlanSettingsFacts): number[] {
  * away, one summer (the first two the plan has room for, then both), and a
  * finish one term later. At most `limit`.
  */
-export function fixCandidates(s: PlanSettingsFacts, limit = 6, state?: Pick<FinishState, 'heaviest'> | null): FixCandidate[] {
+export function fixCandidates(s: PlanSettingsFacts, limit = 7, state?: Pick<FinishState, 'heaviest'> | null): FixCandidate[] {
   const out: FixCandidate[] = [];
   if (s.target !== null && ownLoadBinds(s, state)) {
     const step = s.target < 15 && s.cap > 15 ? 15 : s.cap;
     out.push({ id: `load-${step}`, label: `Take up to ${step} credits a semester`, size: 1, change: { target: step } });
     if (step < s.cap) out.push({ id: `load-${s.cap}`, label: `Take up to ${s.cap} credits a semester`, size: 2.5, change: { target: s.cap } });
   }
-  for (const a of s.away) {
+  // A term away the About-you words name cannot be dropped through the plan shape (horizonFor merges the words back in).
+  for (const a of s.away.filter((b) => !b.fromWords)) {
     out.push({ id: `away-${termLabel(a)}`, label: `Drop the ${termLabel(a)} term away`, size: 1.5, change: { away: s.away.filter((b) => ORD(b) !== ORD(a)) } });
   }
   const dropped = new Set(s.droppedSummers ?? []);
   const open = summersInside(s).filter((y) => !s.summers.includes(y) && !dropped.has(y));
   open.slice(0, 2).forEach((y, i) => out.push({ id: `summer-${y}`, label: `Add Summer ${y}`, size: 2 + i * 0.1, change: { summers: [...s.summers, y].sort((a, b) => a - b) } }));
   const later = nextRegular(s.finish);
-  out.push({ id: `finish-${termLabel(later)}`, label: `Finish in ${termLabel(later)} instead`, size: 3, change: { finish: later } });
+  const usual = s.defaultFinish && ORD(s.defaultFinish) > ORD(s.finish) ? s.defaultFinish : null;
+  const laterIsUsual = usual !== null && ORD(usual) === ORD(later);
+  out.push({ id: `finish-${termLabel(later)}`, label: `Finish in ${termLabel(later)} instead`, size: 3, change: { finish: later, ...(laterIsUsual ? { finishDefault: true } : {}) } });
+  // A student who chose to finish early is offered the usual finish too (2026-11-03 check: 13 of 26 early boards fit everything by it).
+  if (usual && !laterIsUsual) out.push({ id: `finish-${termLabel(usual)}`, label: `Finish in ${termLabel(usual)} instead`, size: 3.2, change: { finish: usual, finishDefault: true } });
   if (open.length >= 2) out.push({ id: `summers-${open[0]}-${open[1]}`, label: `Add Summer ${open[0]} and Summer ${open[1]}`, size: 3.5, change: { summers: [...s.summers, open[0], open[1]].sort((a, b) => a - b) } });
   return out.sort((a, b) => a.size - b.size).slice(0, limit);
 }
 
-/** A candidate once built: whether the plan then finishes, and how many classes still do not fit. */
+/** A candidate once built: whether the plan then finishes, and what still does not. */
 export interface TriedFix {
   candidate: FixCandidate;
   fully: boolean;
-  /** Classes still left off for room or time (or requirement rows still short when no class is named). */
+  /** Classes still left off (any reason with the whole reading, else for room or time). */
   left: number;
+  /** Requirements still short. */
+  rowsLeft?: number;
+  /** Hours still short of the degree. */
+  hoursLeft?: number;
+  /** Classes the rebuilt board books in a term they are not offered, that the board on screen did not. */
+  offeringAdded?: number;
+  /** How far from finishing (gapOf), to rank "gets closer". */
+  gap?: number;
   /** Milliseconds the build took. */
   ms?: number;
 }
 
-/** What one built candidate amounts to. */
-export function tried(candidate: FixCandidate, state: FinishState, ms?: number): TriedFix {
-  const left = state.stuck.length > 0 ? state.stuck.length : state.shortRows.length + (state.shortHours > 0 && state.shortRows.length === 0 ? 1 : 0);
-  return { candidate, fully: finishes(state), left, ...(ms !== undefined ? { ms } : {}) };
+/** What one built candidate amounts to; `base` is the board on screen (for new offering problems). */
+export function tried(candidate: FixCandidate, state: FinishState, ms?: number, base?: Pick<FinishState, 'offering'> | null): TriedFix {
+  const whole = Boolean(state.leftOff && state.unmet);
+  const left = whole ? state.leftOff!.length : state.stuck.length;
+  const rowsLeft = whole ? state.unmet!.length : state.shortRows.length;
+  const offeringAdded = newOffering(state, base).length;
+  return {
+    candidate,
+    fully: finishes(state, base),
+    left,
+    rowsLeft,
+    hoursLeft: state.shortHours,
+    offeringAdded,
+    gap: gapOf(state, base),
+    ...(ms !== undefined ? { ms } : {}),
+  };
 }
 
 /**
@@ -397,28 +590,48 @@ export function tried(candidate: FixCandidate, state: FinishState, ms?: number):
  * `show`), smallest change first; with none, the one that leaves the fewest
  * classes off, if it leaves fewer than the board does now.
  */
+/**
+ * What the bar offers: every candidate that makes the plan finish (at most
+ * `show`), smallest change first; with none, the one closest to finishing,
+ * if it is closer than the board now (`now` is the board's gapOf).
+ */
 export function rankFixes(all: TriedFix[], now: number, show = 3): { working: TriedFix[]; closest: TriedFix | null } {
   const working = all.filter((t) => t.fully).sort((a, b) => a.candidate.size - b.candidate.size).slice(0, show);
   if (working.length > 0) return { working, closest: null };
-  const better = all.filter((t) => t.left < now).sort((a, b) => a.left - b.left || a.candidate.size - b.candidate.size);
+  const g = (t: TriedFix) => t.gap ?? t.left;
+  const better = all.filter((t) => g(t) < now).sort((a, b) => g(a) - g(b) || a.candidate.size - b.candidate.size);
   return { working: [], closest: better[0] ?? null };
+}
+
+/** What a tried fix still leaves, in plain words: "1 class still doesn't fit", "1 requirement is still short". */
+export function stillLeft(t: TriedFix): string {
+  if (t.left > 0) return `${t.left} ${t.left === 1 ? "class still doesn't" : "classes still don't"} fit`;
+  const rows = t.rowsLeft ?? 0;
+  if (rows > 0) return `${rows} ${rows === 1 ? 'requirement is' : 'requirements are'} still short`;
+  if ((t.hoursLeft ?? 0) > 0) return `still ${t.hoursLeft} credits short`;
+  if ((t.offeringAdded ?? 0) > 0) return `but ${t.offeringAdded === 1 ? 'a class lands' : `${t.offeringAdded} classes land`} in a term ${t.offeringAdded === 1 ? "it isn't" : "they aren't"} offered`;
+  return 'not everything fits yet';
 }
 
 /** The button's words with what it does: "Add Summer 2027: everything fits", "Finish in Fall 2030 instead: gets closer, 1 class still doesn't fit". */
 export function fixButtonText(t: TriedFix): string {
   if (t.fully) return `${t.candidate.label}: everything fits`;
-  return `${t.candidate.label}: gets closer, ${t.left} ${t.left === 1 ? "class still doesn't" : "classes still don't"} fit`;
+  return `${t.candidate.label}: gets closer, ${stillLeft(t)}`;
 }
 
 /** The question the "Ask ARCH" / "Ask ALMA" button puts in the chat. */
 export function askQuestion(item: CannotFinish): string {
+  if (item.maybe) return `My plan doesn't finish by ${item.finish ?? 'my finish'}: ${andList(item.rows.slice(0, 2))} ${item.rows.length === 1 ? 'is' : 'are'} still short. What should I change so it finishes?`;
   return `My plan can't finish ${item.settings}. What should I change so it finishes?`;
 }
 
 /** The facts ARCH and ALMA get (review_board cannot_finish, the board description). */
 export function forAdvisor(item: CannotFinish, fixes: { working: TriedFix[]; closest: TriedFix | null } | null, settings: PlanSettingsFacts) {
+  const settled = settleItem(item, fixes);
   return {
-    says: item.text,
+    says: settled.text,
+    ...(item.maybe && settled.settled === 'untested' ? { cause: 'not known yet: there is room left on the board, so a setting may not be the limit until the fixes are tried' } : {}),
+    ...(settled.settled === 'none' || settled.settled === 'closer' ? { no_single_fix: 'No single change to the finish, the summers, the credits a semester or a term away makes the plan finish.' } : {}),
     classes_that_do_not_fit: item.classes.map((c) => `${c.code}${c.title ? ` ${c.title}` : ''} (${c.reason})`),
     requirements_short: item.rows,
     hours_short: item.shortHours,
@@ -426,7 +639,7 @@ export function forAdvisor(item: CannotFinish, fixes: { working: TriedFix[]; clo
       finish: termLabel(settings.finish),
       credits_a_semester: ownLoadBinds(settings, { heaviest: item.heaviest }) ? `the student's own ${settings.target}` : `the cap, ${settings.cap}${settings.target !== null && settings.target < settings.cap ? ` (the student asked for about ${settings.target}, and the plan already goes past it to fit the degree)` : ''}`,
       summers: settings.summers.length > 0 ? settings.summers.map((y) => `Summer ${y}`) : 'none',
-      away: settings.away.map(termLabel),
+      away: settings.away.map((a) => (a.fromWords ? `${termLabel(a)} (from the student's About you words: they change it there)` : termLabel(a))),
       ...(settings.lateStart ? { start: termLabel(settings.start) } : {}),
     },
     tested_fixes: fixes === null
@@ -434,7 +647,7 @@ export function forAdvisor(item: CannotFinish, fixes: { working: TriedFix[]; clo
       : [...fixes.working, ...(fixes.closest ? [fixes.closest] : [])].map((t) => ({
           fix: t.candidate.label,
           set_plan_shape: shapeInputOf(t.candidate),
-          result: t.fully ? 'the plan finishes' : `gets closer: ${t.left} still ${t.left === 1 ? "doesn't" : "don't"} fit`,
+          result: t.fully ? 'the plan finishes' : `gets closer: ${stillLeft(t)}`,
         })),
   };
 }
@@ -443,7 +656,7 @@ export function forAdvisor(item: CannotFinish, fixes: { working: TriedFix[]; clo
 export function shapeInputOf(c: FixCandidate): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (c.change.summers) out.summers = c.change.summers;
-  if (c.change.finish) out.finish = termLabel(c.change.finish);
+  if (c.change.finish) out.finish = c.change.finishDefault ? 'default' : termLabel(c.change.finish);
   if (c.change.target !== undefined) out.target_credits = c.change.target;
   if (c.change.away) out.away = c.change.away.map((a) => (a.kind || a.credits !== undefined ? { term: termLabel(a), ...(a.kind ? { kind: a.kind } : {}), ...(a.credits !== undefined ? { credits: a.credits } : {}) } : termLabel(a)));
   return out;
