@@ -2319,6 +2319,37 @@ export function PlannerWorkspace({
 
   /** The summers the board bar offers to add (summer-terms.ts). */
   const summerChoices = useMemo(() => (plan ? summersToAdd(plan) : []), [plan]);
+  /**
+   * The board's own start and finish controls (2026-11-04: "it needs to be
+   * easy for the user to see and be able to add semesters", not only through
+   * the bot). The falls and springs a student can start or finish in, and one
+   * more semester at either end; each goes through set_plan_shape, as ARCH
+   * and ALMA's changes do.
+   */
+  const dateChoices = useMemo(() => {
+    if (!plan) return null;
+    const regular = plan.terms.filter((t) => t.season !== 'Summer');
+    const first = regular[0];
+    const last = regular[regular.length - 1];
+    if (!first || !last) return null;
+    const open = firstOpenTerm(new Date());
+    const openOrd = termOrd(open.season, open.year);
+    const label = (t: { season: SemesterSeason; year: number }) => `${t.season} ${t.year}`;
+    const before = stepRegular(first, -1);
+    const starts = [0, 1, 2, 3].map((k) => stepRegular(open.season === 'Summer' ? { season: 'Fall' as const, year: open.year } : open, k))
+      .filter((t) => !(t.season === first.season && t.year === first.year) && termOrd(t.season, t.year) <= termOrd(last.season, last.year));
+    const finishes = [-2, -1, 1, 2, 3].map((k) => stepRegular(last, k))
+      .filter((t) => termOrd(t.season, t.year) >= termOrd(first.season, first.year));
+    return {
+      first: label(first),
+      last: label(last),
+      addEnd: label(stepRegular(last, 1)),
+      addStart: termOrd(before.season, before.year) >= openOrd ? label(before) : null,
+      starts: starts.map(label),
+      finishes: finishes.map(label),
+    };
+  }, [plan]);
+  const [datesToConfirm, setDatesToConfirm] = useState<{ label: string; input: { start?: string; finish?: string } } | null>(null);
 
   /** Every course code on the board, in term order. */
   const boardCodes = useMemo(() => {
@@ -3744,6 +3775,22 @@ export function PlannerWorkspace({
     const out = (await advisorExecute('set_plan_shape', { ...shapeInputOf(fix.candidate), confirmed: true })) as { ok?: boolean; reason?: string };
     if (out.ok === false) notify('That change could not be made', out.reason, 'info');
     else setStatus(`${fix.candidate.label}: the plan is rebuilt.`);
+  }
+
+  /**
+   * The board's start and finish controls: the change ARCH and ALMA make with
+   * set_plan_shape, through its own executor, so it is saved in the plan
+   * shape and the board rebuilds. Over the student's own edits it asks first.
+   */
+  async function changeDatesByHand(label: string, input: { start?: string; finish?: string }, confirmed = false) {
+    if (boardEdited && !confirmed) {
+      setDatesToConfirm({ label, input });
+      return;
+    }
+    setDatesToConfirm(null);
+    const out = (await advisorExecute('set_plan_shape', { ...input, confirmed: true })) as { ok?: boolean; reason?: string; note?: string };
+    if (out.ok === false) notify('That change could not be made', out.reason, 'info');
+    else setStatus(`${label}: the plan is rebuilt.`);
   }
 
   /** "Add a summer" on the board bar: an empty column, scrolled into view. Nothing is rebuilt or moved. */
@@ -6140,6 +6187,21 @@ export function PlannerWorkspace({
         }
         if (input.spread_hard !== undefined) nextShape.spreadHard = input.spread_hard === true;
         /**
+         * The first term the plan books (PlanShape.start): a transfer's first
+         * term here, or a start setup got wrong. A fall or spring the student
+         * can still sign up for; "default" goes back to what About you says.
+         */
+        if (input.start !== undefined) {
+          if (input.start === null || input.start === 'default') nextShape.start = null;
+          else {
+            const t = termOfWords(input.start);
+            const open = firstOpenTerm(new Date());
+            if (!t || t.season === 'Summer') problems.push('start must be a fall or spring term like "Fall 2027" (summers are added with summers).');
+            else if (termOrd(t.season, t.year) < termOrd(open.season, open.year)) problems.push(`${t.season} ${t.year} has passed or is under way; the first term the student can still sign up for is ${open.season} ${open.year}.`);
+            else nextShape.start = t;
+          }
+        }
+        /**
          * A finish before the plan's first term (after a term in progress) has
          * passed or is under way. One this call sets is refused; one saved
          * earlier is dropped, so it never blocks a change to the load, the
@@ -6165,7 +6227,7 @@ export function PlannerWorkspace({
          * the shape that a new finish leaves outside comes off (summersInRange).
          */
         let summersOff: number[] = [];
-        if (problems.length === 0 && (Array.isArray(input.away) || Array.isArray(input.summers) || input.finish !== undefined)) {
+        if (problems.length === 0 && (Array.isArray(input.away) || Array.isArray(input.summers) || input.finish !== undefined || input.start !== undefined)) {
           const span = extendForAway(horizonFor(L.answers, new Date(), { ...nextShape, summers: [] }));
           const first = termOrd(span.startSeason, span.startYear);
           const last = termOrd(span.gradSeason, span.gradYear);
@@ -6231,6 +6293,7 @@ export function PlannerWorkspace({
         // old shape back with the old board.
         const shaped = [
           `at least ${nextMin} credits a term, aim ${nextTarget ?? 'an even share'}`,
+          nextShape.start ? `start in ${nextShape.start.season} ${nextShape.start.year}` : null,
           nextShape.finish ? `finish by ${nextShape.finish.season} ${nextShape.finish.year}` : 'finish date from what the student said',
           nextShape.away.length > 0 ? `away: ${nextShape.away.map(describeAway).join(', ')}` : null,
           nextShape.summers.length > 0 ? `summer classes: ${nextShape.summers.join(', ')}` : null,
@@ -7577,6 +7640,48 @@ export function PlannerWorkspace({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+          {plan && dateChoices && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    className="add-summer-button"
+                    aria-label="Add a semester, or change the first or last semester"
+                    disabled={programBusy}
+                    title={`This plan runs ${dateChoices.first} to ${dateChoices.last}. Add a semester or change the start or finish.`}
+                  />
+                }
+              >
+                <Plus aria-hidden="true" /> <span className="add-summer-wide">Add a </span>semester
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="planner-action-menu w-56">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>{`Runs ${dateChoices.first} to ${dateChoices.last}`}</DropdownMenuLabel>
+                  <DropdownMenuItem onClick={() => void changeDatesByHand(`Finish in ${dateChoices.addEnd}`, { finish: dateChoices.addEnd })}>
+                    {`Add ${dateChoices.addEnd} at the end`}
+                  </DropdownMenuItem>
+                  {dateChoices.addStart && (
+                    <DropdownMenuItem onClick={() => void changeDatesByHand(`Start in ${dateChoices.addStart}`, { start: dateChoices.addStart ?? undefined })}>
+                      {`Add ${dateChoices.addStart} at the start`}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuGroup>
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Start in</DropdownMenuLabel>
+                  {dateChoices.starts.map((t) => (
+                    <DropdownMenuItem key={`s-${t}`} onClick={() => void changeDatesByHand(`Start in ${t}`, { start: t })}>{t}</DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Finish in</DropdownMenuLabel>
+                  {dateChoices.finishes.map((t) => (
+                    <DropdownMenuItem key={`f-${t}`} onClick={() => void changeDatesByHand(`Finish in ${t}`, { finish: t })}>{t}</DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Button className="rebuild-button" onClick={buildPlan} disabled={programBusy}>
             Rebuild
           </Button>
@@ -7627,6 +7732,20 @@ export function PlannerWorkspace({
             <AlertDialogFooter>
               <AlertDialogCancel>Keep my board</AlertDialogCancel>
               <AlertDialogAction onClick={() => { if (fixToConfirm) void applyFix(fixToConfirm, true); }}>Rebuild</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog open={datesToConfirm !== null} onOpenChange={(open) => { if (!open) setDatesToConfirm(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{datesToConfirm?.label}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This rebuilds your plan with the new setting, which replaces the changes you made to the board by hand.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep my board</AlertDialogCancel>
+              <AlertDialogAction onClick={() => { if (datesToConfirm) void changeDatesByHand(datesToConfirm.label, datesToConfirm.input, true); }}>Rebuild</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

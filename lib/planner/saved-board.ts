@@ -106,9 +106,16 @@ export interface PlanShape {
    * Saves from before the field read as none.
    */
   droppedSummers: number[];
+  /**
+   * The first term the plan books, when the student (or ARCH/ALMA on their
+   * word) set it: a transfer who starts here in Fall 2027, a board whose
+   * start came out wrong from setup. Null: from what About you and the record
+   * say (plan-start.ts). Saves from before the field read as null.
+   */
+  start?: { season: SemesterSeason; year: number } | null;
 }
 
-export const NO_SHAPE: PlanShape = { finish: null, away: [], summers: [], spreadHard: false, droppedSummers: [] };
+export const NO_SHAPE: PlanShape = { finish: null, away: [], summers: [], spreadHard: false, droppedSummers: [], start: null };
 
 const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
 
@@ -262,6 +269,7 @@ export function readShape(value: unknown): PlanShape {
     summers: Array.isArray(value.summers) ? value.summers.filter((y): y is number => Number.isInteger(y)) : [],
     spreadHard: value.spreadHard === true,
     droppedSummers: Array.isArray(value.droppedSummers) ? value.droppedSummers.filter((y): y is number => Number.isInteger(y)) : [],
+    start: isTerm(value.start) && value.start.season !== 'Summer' ? { season: value.start.season, year: value.start.year } : null,
   };
 }
 

@@ -32,20 +32,43 @@ export const setupReplySchema = z.object({
  */
 export const setupWireSchema = z.object({
   reply: z.string(),
-  patch: setupPatchSchema.omit({ emphasisSelections: true }).extend({
-    emphasisSelections: z.array(z.object({ requirementId: z.string(), optionIds: z.array(z.string()) }).strict()).optional(),
+  // Every field is required and null when unchanged: optional fields made the
+  // structured-output grammar "too complex" (2026-11-04, Sonnet 5.5).
+  patch: z.object({
+    programLevel: z.enum(['undergraduate', 'graduate']).nullable(),
+    programIds: z.array(z.string()).nullable(),
+    minorIds: z.array(z.string()).nullable(),
+    certificateIds: z.array(z.string()).nullable(),
+    academicYear: z.enum(['first', 'second', 'third', 'fourth', 'fifth-plus']).nullable(),
+    graduationSeason: z.enum(['Spring', 'Summer', 'Fall']).nullable(),
+    graduationYear: z.number().int().nullable(),
+    collegeId: z.string().nullable(),
+    emphasisSelections: z.array(z.object({ requirementId: z.string(), optionIds: z.array(z.string()) }).strict()).nullable(),
+    alreadyTakenCourseCodes: z.array(z.string()).nullable(),
+    doubleDawgsPathwayId: z.string().nullable(),
+    doubleDawgsGraduateSeason: z.enum(['Spring', 'Summer', 'Fall']).nullable(),
+    doubleDawgsGraduateYear: z.number().int().nullable(),
+    languageYears: z.number().int().nullable(),
+    language: z.string().nullable(),
   }).strict(),
   programConfirmed: z.boolean(),
   creditReviewed: z.boolean(),
 }).strict();
 
+/** The wire reply as setupReplySchema reads it: unchanged (null) fields left out, the emphasis list a map. doubleDawgsPathwayId keeps no null (a clear is not expressible on the wire). */
 export function fromSetupWire(wire: unknown): unknown {
   if (!wire || typeof wire !== 'object') return wire;
-  const w = wire as { patch?: { emphasisSelections?: Array<{ requirementId: string; optionIds: string[] }> } & Record<string, unknown> } & Record<string, unknown>;
-  const list = w.patch?.emphasisSelections;
-  if (!Array.isArray(list)) return wire;
-  return { ...w, patch: { ...w.patch, emphasisSelections: Object.fromEntries(list.map((e) => [e.requirementId, e.optionIds])) } };
+  const w = wire as { patch?: Record<string, unknown> } & Record<string, unknown>;
+  if (!w.patch || typeof w.patch !== 'object') return wire;
+  const patch: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(w.patch)) {
+    if (value === null || value === undefined) continue;
+    if (key === 'emphasisSelections' && Array.isArray(value)) patch[key] = Object.fromEntries((value as Array<{ requirementId: string; optionIds: string[] }>).map((e) => [e.requirementId, e.optionIds]));
+    else patch[key] = value;
+  }
+  return { ...w, patch };
 }
+
 export type SetupMessage = { role: 'user' | 'assistant'; content: string };
 export interface SetupCatalog {
   undergraduateDegrees: Array<{ id: string; name: string; degree?: string }>;

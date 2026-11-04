@@ -176,12 +176,34 @@ export function horizonFor(
       horizon.stated = false;
     }
   }
+  /**
+   * A first term the student set (PlanShape.start: the board's start-term
+   * control, or ARCH/ALMA on their word) wins over what was worked out above,
+   * when it is a fall or spring they can still sign up for. The owner's test
+   * (2026-11-04) came out with one Spring 2028 column and ALMA could only say
+   * "change that under Edit details"; now either of them sets it here.
+   */
+  const setStart = shape.start && shape.start.season !== 'Summer' && termOrd(shape.start.season, shape.start.year) >= termOrd(open.season, open.year)
+    ? shape.start
+    : null;
+  if (setStart) {
+    horizon.startSeason = setStart.season;
+    horizon.startYear = setStart.year;
+    horizon.gradPassed = null;
+    if (termOrd(horizon.gradSeason, horizon.gradYear) < termOrd(setStart.season, setStart.year)) {
+      const end = stepRegular(setStart, 7);
+      horizon.gradSeason = end.season;
+      horizon.gradYear = end.year;
+      horizon.stated = false;
+    }
+  }
   const label = (t: { season: SemesterSeason; year: number }) => `${t.season} ${t.year}`;
   const start = { season: horizon.startSeason, year: horizon.startYear };
   // The semester in progress, shown before the plan's first term (current-term.ts).
   // Not for a student who has not started here yet: one whose words say so,
   // or who named a start later than the next open term ("I start in Fall 2027").
-  const laterStart = datedStart && !busyNext && startOrd > termOrd(open.season, open.year);
+  const laterStart = (datedStart && !busyNext && startOrd > termOrd(open.season, open.year)) ||
+    Boolean(setStart && termOrd(setStart.season, setStart.year) > termOrd(open.season, open.year));
   // Nor for a transfer student who is still at another school that term (arrivingLater).
   const underWay = termUnderWay(now, answers?.transcript);
   const elsewhere = underWay && termOrd(underWay.season, underWay.year) < termOrd(start.season, start.year)
@@ -289,6 +311,12 @@ export function horizonFor(
     horizon.startNote = `Students who have not started college yet begin in the fall, so this plan starts in ${label(start)}. If you start in ${label(open)} instead, say so in About you.`;
   } else if (!datedStart && nowUnderWay && sameTerm(start, open)) {
     horizon.startNote = `Adding ${label(now)} classes has closed, so this plan starts in ${label(start)}, the next term you can sign up for. If that is not right for you, change About you.`;
+  }
+  if (setStart) {
+    const elsewhereNow = elsewhere && underWay && nowUnderWay && elsewhere.classesNow
+      ? ` Your ${label(underWay)} classes${elsewhere.school ? ` at ${elsewhere.school}` : ''} are on your record as in progress, so this plan does not book them again.`
+      : '';
+    horizon.startNote = `This plan starts in ${label(start)}, the first term you set. Change it with the start-term button on the board, or tell ${bot}.${elsewhereNow}`;
   }
   if (partly && cur && !horizon.gradPassed && !(finishPassed && shape.finish)) {
     const others = horizon.assumedTerms.filter((t) => !sameTerm(t, cur));
