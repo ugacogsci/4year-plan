@@ -431,8 +431,13 @@ export function loadAnswers(): OnboardingAnswers | null {
     return {
       ...EMPTY_ANSWERS,
       ...parsed,
+      // The school the record was matched for stays: stamping it with the
+      // school picked now made a UGA transcript, after a switch to Illinois,
+      // read as Illinois's own record, so none of its courses went through the
+      // transfer check (2026-11-04, the owner's test). A record from before
+      // the field was matched for the school then picked.
       transcript: parsed.transcript
-        ? { ...parsed.transcript, schoolId: parsed.schoolId === 'uga' ? 'uga' : 'illinois' }
+        ? { ...parsed.transcript, schoolId: parsed.transcript.schoolId === 'uga' || parsed.transcript.schoolId === 'illinois' ? parsed.transcript.schoolId : parsed.schoolId === 'uga' ? 'uga' : 'illinois' }
         : null,
       programLevel: parsed.programLevel === 'graduate' ? 'graduate' : 'undergraduate',
       doubleDawgsPathwayId: parsed.schoolId === 'uga' && parsed.programLevel !== 'graduate' && typeof parsed.doubleDawgsPathwayId === 'string'

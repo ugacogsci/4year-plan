@@ -106,6 +106,7 @@ import {
   openProgram,
   suspendedNotice,
   firstOpenTerm,
+  calendarTerm,
   readPriorCredit,
   readPrograms,
   useIllinoisCore,
@@ -237,6 +238,7 @@ import {
   transcriptResidentHours,
   recordIsForOtherSchool,
   isHomeTranscript,
+  lineIsForeign,
   type TranscriptCourseRecord,
   type TranscriptRecord,
 } from '@/lib/planner/transcript';
@@ -245,8 +247,8 @@ import { withCoreCredit } from '@/lib/planner/transfer-core';
 import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
 import { rematchForSchool } from '@/lib/planner/transcript-rematch';
 import { horizonFor, stepRegular, termOrd } from '@/lib/planner/plan-start';
-import { currentClasses, currentPlanTerm, currentQuestion, termIdOf, termLoadFor, withCurrentClass, withCurrentConfirmed, withInstructorsOfTerm, withoutCurrentClass } from '@/lib/planner/current-term';
-import { CurrentTermColumn } from './current-term-column';
+import { currentClasses, currentPlanTerm, currentQuestion, termIdOf, termOfLine, termLoadFor, withCurrentClass, withCurrentConfirmed, withInstructorsOfTerm, withoutCurrentClass } from '@/lib/planner/current-term';
+import { CurrentTermColumn, ElsewhereTermColumn } from './current-term-column';
 import { distinctHeld, heldTowardDegree, type GenEdCredit, type PlanRequirement, type PriorCredit } from '@/lib/planner/autoplan';
 import { boardChecker, genEdCandidates, genEdWhy, notRegistrable, planMarks, repickBoard, repickSignature, type RepickChange } from '@/lib/planner/repick';
 import { creditUse, editFlags, enteringAsFirstYear, flagsCaused, isEditFlag, momentumReview, priorCreditUse, summerSuggestions, withSummer } from '@/lib/planner/review';
@@ -1094,20 +1096,31 @@ export function PlannerWorkspace({
    * board, then switched): match it again for this one, so its courses go
    * through this school's transfer check (transcript.ts readingOfRecord).
    */
+  // Once per record, and not cancelled by a re-render: onAnswersChange is a
+  // new function on every render of the shell, and an effect that cancelled on
+  // cleanup never finished while the board was loading (2026-11-04).
+  const rematchingRecord = useRef<TranscriptRecord | null>(null);
+  /** Set when a record was matched again: the board on screen (often a saved one) was built without it. */
+  const rebuildAfterRematch = useRef(false);
+  const answersLatest = useRef(answers);
+  answersLatest.current = answers;
+  const onAnswersChangeLatest = useRef(onAnswersChange);
+  onAnswersChangeLatest.current = onAnswersChange;
   useEffect(() => {
     const record = answers?.transcript;
     const here = isUga ? 'uga' : isIllinois ? 'illinois' : null;
-    if (!here || !answers || !onAnswersChange || !recordIsForOtherSchool(record, here) || !record || catalog.length === 0) return;
-    let cancelled = false;
+    if (!here || !record || !recordIsForOtherSchool(record, here) || catalog.length === 0) return;
+    if (rematchingRecord.current === record) return;
+    rematchingRecord.current = record;
     void rematchForSchool(record, here, catalogLiteOf(catalog)).then((transcript) => {
-      if (!cancelled) onAnswersChange({ ...answers, transcript });
+      const now = answersLatest.current;
+      if (!now || now.transcript !== record) return;
+      rebuildAfterRematch.current = true;
+      onAnswersChangeLatest.current?.({ ...now, transcript });
     }).catch(() => {
-      /* the record stays as it was; the next render tries again */
+      rematchingRecord.current = null;
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [answers, onAnswersChange, isUga, isIllinois, catalog]);
+  }, [answers, isUga, isIllinois, catalog]);
   const courseIndex = useMemo(() => indexCourses(catalog), [catalog]);
   const byCode = useMemo(() => {
     const map = new Map<string, Course>();
@@ -2027,6 +2040,23 @@ export function PlannerWorkspace({
     // Only a change in the key does anything; the other dependencies are read
     // fresh when it does and are otherwise a no-op through the early return.
   }, [creditKey, plan, context, loaded, boardEdited, buildPlan]);
+  /**
+   * After a record was matched again for this school (transcript-rematch.ts),
+   * the board is rebuilt around it once it is ready: the saved board a
+   * student comes back to was built when every course counted as bare hours,
+   * and the credit rebuild above skips a change that lands while loading.
+   */
+  useEffect(() => {
+    if (!rebuildAfterRematch.current || !plan || !context || !loaded) return;
+    rebuildAfterRematch.current = false;
+    lastCreditKey.current = creditKey;
+    if (!boardEdited) {
+      buildPlan();
+      notify('Your transfer credit was checked again', `Your classes were matched to ${isUga ? 'UGA' : 'Illinois'} courses and the plan is rebuilt around them.`, 'info');
+    } else {
+      notify('Your transfer credit was checked again', 'Press Rebuild to plan around it; your edits to the board would be replaced.', 'info');
+    }
+  }, [plan, context, loaded, boardEdited, buildPlan, creditKey, isUga]);
 
   /** Put a board back: an undo step, or the board saved on this device. */
   function applyBoard(state: BoardState) {
@@ -2297,6 +2327,32 @@ export function PlannerWorkspace({
       assumedHours: h.currentAssumedHours,
     };
   }, [isCatalogSchool, boardTerms, answers, planShape, byCode, courseIndex]);
+
+  /**
+   * A transfer student's classes in progress at their other school, when the
+   * board shows no current column of its own (ElsewhereTermColumn).
+   */
+  const elsewhereView = useMemo(() => {
+    const record = answers?.transcript;
+    if (currentView || !record || !plan) return null;
+    const now = calendarTerm(new Date());
+    const lines = record.courses.filter((c) => c.use && c.status === 'in_progress' && lineIsForeign(record, c) && (() => { const t = termOfLine(c); return t !== null && t.season === now.season && t.year === now.year; })());
+    if (lines.length === 0) return null;
+    const here = isUga ? 'UGA' : 'Illinois';
+    return {
+      termLabel: `${now.season} ${now.year}`,
+      school: lines[0].from ?? record.institution ?? 'your other school',
+      here,
+      classes: lines.map((c) => ({
+        code: c.code,
+        title: c.title,
+        credits: c.credits,
+        countsAs: c.matched
+          ? `Counts as ${c.matched} here${c.matchedBy === 'proposal' ? ' (likely; your transfer evaluation decides)' : ''}`
+          : c.counts === 'hours' ? 'Counts as elective hours here until it is evaluated' : 'Does not count here',
+      })),
+    };
+  }, [answers, currentView, plan, isUga]);
 
   /**
    * What the student says they hold against what the plan can see: hours on
@@ -7865,7 +7921,7 @@ export function PlannerWorkspace({
              while the columns move and the ruler names the wrong year. */
           <div className="year-ruler" aria-hidden="true" ref={rulerRef}>
             <div className="year-ruler-track">
-              {currentView && <span style={{ width: 'var(--col-w)' }}>Now</span>}
+              {(currentView || elsewhereView) && <span style={{ width: 'var(--col-w)' }}>Now</span>}
               {years.map((year) => {
                 const termsInYear = plan.terms.filter((t) => t.year === year);
                 const count = termsInYear.length;
@@ -7908,6 +7964,9 @@ export function PlannerWorkspace({
                 ? "This pathway's graduate curriculum is not linked yet. Open Programs to choose another pathway or a bachelor's-only plan."
                 : 'Building your plan.'}
             </p>
+          )}
+          {plan && elsewhereView && (
+            <ElsewhereTermColumn termLabel={elsewhereView.termLabel} school={elsewhereView.school} here={elsewhereView.here} classes={elsewhereView.classes} />
           )}
           {plan && currentView && (
             /* The semester in progress: the student's real classes, never the
