@@ -235,12 +235,14 @@ import {
   transcriptIndirectCodes,
   transcriptOpenLines,
   transcriptResidentHours,
+  recordIsForOtherSchool,
   type TranscriptCourseRecord,
   type TranscriptRecord,
 } from '@/lib/planner/transcript';
 import { UGA_TRANSFER_PORTAL, loadUgaTransfer, ugaDesignation, ugaLookup, ugaSchoolEntry } from '@/lib/planner/transfer-official';
 import { withCoreCredit } from '@/lib/planner/transfer-core';
 import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
+import { rematchForSchool } from '@/lib/planner/transcript-rematch';
 import { horizonFor, stepRegular, termOrd } from '@/lib/planner/plan-start';
 import { currentClasses, currentPlanTerm, currentQuestion, termIdOf, termLoadFor, withCurrentClass, withCurrentConfirmed, withInstructorsOfTerm, withoutCurrentClass } from '@/lib/planner/current-term';
 import { CurrentTermColumn } from './current-term-column';
@@ -1086,6 +1088,25 @@ export function PlannerWorkspace({
     () => (isIllinois ? (planCore?.index ?? []) : isUga ? (uga?.courses ?? []) : sampleCourses),
     [isIllinois, isUga, planCore, uga],
   );
+  /**
+   * A transcript matched for the other school (the student read it on one
+   * board, then switched): match it again for this one, so its courses go
+   * through this school's transfer check (transcript.ts readingOfRecord).
+   */
+  useEffect(() => {
+    const record = answers?.transcript;
+    const here = isUga ? 'uga' : isIllinois ? 'illinois' : null;
+    if (!here || !answers || !onAnswersChange || !recordIsForOtherSchool(record, here) || !record || catalog.length === 0) return;
+    let cancelled = false;
+    void rematchForSchool(record, here, catalogLiteOf(catalog)).then((transcript) => {
+      if (!cancelled) onAnswersChange({ ...answers, transcript });
+    }).catch(() => {
+      /* the record stays as it was; the next render tries again */
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [answers, onAnswersChange, isUga, isIllinois, catalog]);
   const courseIndex = useMemo(() => indexCourses(catalog), [catalog]);
   const byCode = useMemo(() => {
     const map = new Map<string, Course>();

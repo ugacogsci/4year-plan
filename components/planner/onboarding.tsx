@@ -42,7 +42,8 @@ import {
   type ProgramLevel,
   type SchoolId,
 } from '@/lib/planner/onboarding';
-import { transcriptCodes, transcriptHours } from '@/lib/planner/transcript';
+import { recordIsForOtherSchool, transcriptCodes, transcriptHours } from '@/lib/planner/transcript';
+import { loadCatalogLite, rematchForSchool } from '@/lib/planner/transcript-rematch';
 import { pickedDegreeHours, suggestedGraduationFor, transferFinishInput } from '@/lib/planner/transfer-finish';
 import { clearPlannerStorage, createSetupResetSequence } from '@/lib/planner/setup-reset';
 import { setInsightScreen, track, trackContent, trackTranscript } from '@/lib/insights/client';
@@ -491,6 +492,25 @@ export function Onboarding({
       cancelled = true;
     };
   }, [answers.schoolId]);
+
+  // A transcript read for the other school (the student switched): checked again for this one (transcript-rematch.ts).
+  useEffect(() => {
+    const here = answers.schoolId === 'uga' || answers.schoolId === 'illinois' ? answers.schoolId : null;
+    const record = answers.transcript;
+    if (!here || !record || !recordIsForOtherSchool(record, here)) return;
+    let cancelled = false;
+    void loadCatalogLite(here)
+      .then((lite) => rematchForSchool(record, here, lite))
+      .then((transcript) => {
+        if (!cancelled) setAnswers((a) => (a.transcript === record ? { ...a, transcript } : a));
+      })
+      .catch(() => {
+        /* the board checks it again when it opens */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [answers.schoolId, answers.transcript, setAnswers]);
 
   function pick(id: SchoolId) {
     if (answers.schoolId !== id) setCatalog(null);

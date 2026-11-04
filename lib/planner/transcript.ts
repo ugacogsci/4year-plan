@@ -354,6 +354,48 @@ export function isHomeTranscript(institution: string | null | undefined, schoolI
   return false;
 }
 
+/**
+ * The document a record was read from, as the reader returned it, so the
+ * record can be matched again for another school (matchTranscript).
+ *
+ * A record is matched for the school picked when it was uploaded. A student
+ * who read their UGA transcript on the UGA board and then switched to
+ * Illinois kept that record: UGA's own, every line "taught here", so on the
+ * Illinois board no line went through Illinois's transfer check, every UGA
+ * course counted as bare hours, and the Intercollegiate Transfer note (for
+ * students already at Illinois) showed (2026-11-04, owner's test). The lines
+ * keep what the document printed; what this school makes of them is worked
+ * out again. Hours are already in semester hours, so the unit is not
+ * converted twice.
+ */
+export function readingOfRecord(record: TranscriptRecord): TranscriptReading {
+  return {
+    institution: record.institution,
+    kind: record.kind ?? 'transcript',
+    hoursUnit: 'semester',
+    courses: record.courses.map((c) => ({
+      code: c.code,
+      title: c.title,
+      credits: c.credits,
+      grade: c.grade,
+      term: c.term,
+      status: c.status,
+      from: c.from ?? null,
+      equivalent: c.equivalent ?? null,
+      equivalentCredits: c.equivalentCredits ?? null,
+      iai: c.iai ?? null,
+      genEdText: c.genEdText ?? null,
+    })),
+    exams: record.exams,
+    notes: [],
+  };
+}
+
+/** A record matched for a different school than the board's: it has to be matched again before it counts here. */
+export function recordIsForOtherSchool(record: TranscriptRecord | null | undefined, schoolId: string | null | undefined): boolean {
+  return Boolean(record && record.schoolId && (schoolId === 'uga' || schoolId === 'illinois') && record.schoolId !== schoolId);
+}
+
 /** Whether a line's hours will count toward the degree. */
 export function earns(status: TranscriptStatus): boolean {
   return status === 'completed' || status === 'transfer' || status === 'exam' || status === 'in_progress';
