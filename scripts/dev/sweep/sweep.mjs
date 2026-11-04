@@ -385,6 +385,8 @@ function finishOf(b) {
     degreeTotal: b.degreeTotal,
     terms: b.g.terms.filter((t) => !awayAt.has(t.label)).map((t) => ({ season: t.season, credits: t.credits.min })),
     cap: 18,
+    // The whole reading (workspace trialFinish): every requirement short and the board's own offering check.
+    ...(CF.illinoisUnmet ? { unmet: CF.illinoisUnmet(b.g.unsatisfied), offering: CF.offeringKeys(A.validatePlan(b.board, context, b.options)) } : {}),
   });
 }
 
@@ -392,8 +394,13 @@ function finishOf(b) {
 function cannotFinishOf(b, job) {
   if (!CF) return {};
   const state = finishOf(b);
-  const settings = CF.boardSettings({ school: 'illinois', terms: b.board.terms, shapeSummers: b.horizon.summers ?? [], away: b.horizon.away ?? [], target: b.target });
+  const settings = CF.boardSettings({
+    school: 'illinois', terms: b.board.terms, shapeSummers: b.horizon.summers ?? [], away: b.horizon.away ?? [], target: b.target,
+    // An early finish is a finish of the student's own: the usual one is offered back.
+    defaultFinish: SETTING === 'early' ? { season: FOUR_YEARS.gradSeason, year: FOUR_YEARS.gradYear } : null,
+  });
   const item = settings ? CF.cannotFinish(state, settings, { record: 'none' }) : null;
+  const complete = (x) => x.leftOff?.length === 0 && x.unmet?.length === 0 && x.shortHours === 0;
   const finishState = { stuck: state.stuck.map((x) => `${x.code}:${x.reason}`), shortRows: state.shortRows, shortHours: state.shortHours, roomLeft: state.roomLeft, maxFree: state.maxFree };
   // SWEEP_PROBE=1: a board with classes left off and no item has the fixes built anyway (a miss shows as probe.anyFully).
   const probe = !item && settings && b.g.notPlaced.length > 0 && process.env.SWEEP_PROBE === '1';
@@ -401,7 +408,7 @@ function cannotFinishOf(b, job) {
   const started = Date.now();
   const tried = [];
   if (process.env.SWEEP_FIXES !== '0') {
-    for (const c of CF.fixCandidates(settings, 6, state)) {
+    for (const c of CF.fixCandidates(settings, 7, state)) {
       const t0 = Date.now();
       const horizon = {
         ...b.horizon,
@@ -410,17 +417,21 @@ function cannotFinishOf(b, job) {
         ...(c.change.away ? { away: c.change.away } : {}),
       };
       const t = build({ program: job.id, prior: b.prior, horizon, target: c.change.target ?? b.target, words: b.words, career: b.career });
-      tried.push({ ...CF.tried(c, finishOf(t), Date.now() - t0), finishesBroad: t.g.notPlaced.length === 0 });
+      const ts = finishOf(t);
+      tried.push({ ...CF.tried(c, ts, Date.now() - t0, state), finishesBroad: complete(ts), offeringNew: CF.newOffering ? CF.newOffering(ts, state) : [] });
       if (tried.filter((x) => x.fully).length >= 2) break;
     }
   }
-  if (probe) return { cannotFinish: null, finishState, probe: { tried: tried.map((t) => ({ fix: t.candidate.label, fully: t.fully, finishes: t.finishesBroad, left: t.left, ms: t.ms })), anyFinishes: tried.some((t) => t.finishesBroad), ms: Date.now() - started } };
-  const ranked = tried.length ? CF.rankFixes(tried, item.classes.length || item.rows.length || 1) : null;
+  if (probe) return { cannotFinish: null, finishState, probe: { tried: tried.map((t) => ({ fix: t.candidate.label, fully: t.fully, finishes: t.finishesBroad, left: t.left, ms: t.ms })), anyFinishes: tried.some((t) => t.finishesBroad && !(t.offeringNew?.length)), ms: Date.now() - started } };
+  const ranked = tried.length || process.env.SWEEP_FIXES !== '0' ? CF.rankFixes(tried, CF.gapOf ? CF.gapOf(state, state) : (item.classes.length || item.rows.length || 1)) : null;
+  const settled = CF.settleItem ? CF.settleItem(item, ranked) : { text: item.text, settled: 'untested' };
   return {
     cannotFinish: {
-      text: item.text, limits: item.limits, classes: item.classes.map((c) => c.code), rows: item.rows, shortHours: item.shortHours,
-      tried: tried.map((t) => ({ fix: t.candidate.label, fully: t.fully, finishes: t.finishesBroad, left: t.left, ms: t.ms })),
+      text: settled.text, firstText: item.text, maybe: Boolean(item.maybe), settled: settled.settled,
+      limits: item.limits, classes: item.classes.map((c) => c.code), rows: item.rows, shortHours: item.shortHours,
+      tried: tried.map((t) => ({ fix: t.candidate.label, fully: t.fully, finishes: t.finishesBroad, offeringNew: t.offeringNew, left: t.left, rowsLeft: t.rowsLeft, ms: t.ms })),
       shown: ranked ? [...ranked.working, ...(ranked.closest ? [ranked.closest] : [])].map((t) => CF.fixButtonText(t)) : [],
+      shownFully: ranked ? ranked.working.map((t) => ({ fix: t.candidate.label, finishes: t.finishesBroad, offeringNew: t.offeringNew })) : [],
       anyFully: tried.some((t) => t.fully),
       ms: Date.now() - started,
     },

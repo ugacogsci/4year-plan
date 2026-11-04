@@ -720,6 +720,7 @@ function build(program, kind, trial = null) {
   let bar = attention.length;
   let barKinds = attentionItems(issues).map((a) => a.text);
   let credit = null;
+  let unreadRows = [];
   if (W) {
     const names = horizon.assumedTerms.map((t) => `${t.season} ${t.year}`);
     credit = {
@@ -741,10 +742,15 @@ function build(program, kind, trial = null) {
    */
   let cannot = null;
   let finishState = null;
+  let explained = false;
   if (CF) {
+    // As the workspace's finishSettings: a term away from the About-you words is marked, the usual finish is kept.
+    const inShape = (a) => shape.away.some((b) => b.season === a.season && b.year === a.year);
+    const usual = shape.finish ? horizonFor(answers, TODAY, { ...shape, finish: null }) : null;
     const settings = CF.boardSettings({
       school: 'uga', terms: board.terms, shapeSummers: shape.summers, droppedSummers: shape.droppedSummers ?? [],
-      away: horizon.away ?? shape.away, target: targetCredits, cap: 18,
+      away: (horizon.away ?? shape.away).map((a) => (inShape(a) ? a : { ...a, fromWords: true })), target: targetCredits, cap: 18,
+      defaultFinish: usual ? { season: usual.gradSeason, year: usual.gradYear } : null,
     });
     const awayAt = new Set((generated.away ?? []).map((a) => a.label));
     finishState = CF.finishStateOf({
@@ -753,47 +759,54 @@ function build(program, kind, trial = null) {
       totalHours: audit.total, degreeTotal: audit.target ?? publishedTotal,
       terms: board.terms.filter((t) => !awayAt.has(t.label)).map((t) => ({ season: t.season, credits: planCreditRange(t.courseIds.map((id) => context.courses.find((c) => c.id === id)?.code).filter(Boolean), context).min })),
       cap: 18,
+      ...(CF.ugaUnmet ? { unmet: CF.ugaUnmet(audit), offering: CF.offeringKeys(audit.issues) } : {}),
     });
     if (trial) {
       const notFinished = generated.notPlaced.length > 0 || audit.areas.some((row) => !row.satisfied) || audit.issues.some((i) => i.id.startsWith('uga-pool-')) || issues.some((i) => i.id === 'degree-incomplete');
       return { trialState: finishState, finishesBroad: !notFinished };
     }
-    const item = settings ? CF.cannotFinish(finishState, settings, { record: W?.recordKind ? W.recordKind(credit) : 'none' }) : null;
     const recordSays = W?.recordKind ? W.recordKind(credit) : 'none';
+    const quiet = { record: recordSays, transcript: Boolean(record && (record.courses?.length ?? 0) > 0) };
+    const item = settings ? CF.cannotFinish(finishState, settings, quiet) : null;
     /*
      * HARNESS_PROBE=1: a board that does not finish, shows no item and is not
      * explained by the record prompt has the same fixes built anyway, so a
      * miss (a setting change would have made it finish) shows as probe.anyFully.
      */
     const doesNotFinish = generated.notPlaced.length > 0 || audit.areas.some((row) => !row.satisfied) || audit.issues.some((i) => i.id.startsWith('uga-pool-')) || issues.some((i) => i.id === 'degree-incomplete');
-    const probe = !item && settings && doesNotFinish && process.env.HARNESS_PROBE === '1' && !['said', 'earlier', 'current-empty'].includes(recordSays);
+    explained = CF.recordExplains ? CF.recordExplains(quiet) : ['said', 'earlier', 'current-empty'].includes(recordSays);
+    const probe = !item && settings && doesNotFinish && process.env.HARNESS_PROBE === '1' && !explained;
     if (item || probe) {
       // The fixes, built as the workspace's findFixes builds them, smallest first, two that work are enough.
       const started = Date.now();
       const tried = [];
       if (process.env.HARNESS_FIXES !== '0') {
-        for (const c of CF.fixCandidates(settings, 6, finishState)) {
+        for (const c of CF.fixCandidates(settings, 7, finishState)) {
           const t0 = Date.now();
           const trialShape = {
             ...shape,
             ...(c.change.summers ? { summers: c.change.summers, droppedSummers: (shape.droppedSummers ?? []).filter((y) => !c.change.summers.includes(y)) } : {}),
-            ...(c.change.finish ? { finish: c.change.finish } : {}),
-            ...(c.change.away ? { away: c.change.away } : {}),
+            ...(c.change.finish ? { finish: c.change.finishDefault ? null : c.change.finish } : {}),
+            ...(c.change.away ? { away: c.change.away.map(({ fromWords, ...a }) => a) } : {}),
           };
           const r = build(program, kind, { shape: trialShape, target: c.change.target ?? targetCredits });
-          if (r.trialState) tried.push({ ...CF.tried(c, r.trialState, Date.now() - t0), finishesBroad: r.finishesBroad });
+          if (r.trialState) tried.push({ ...CF.tried(c, r.trialState, Date.now() - t0, finishState), finishesBroad: r.finishesBroad, offeringNew: CF.newOffering ? CF.newOffering(r.trialState, finishState) : [] });
           if (tried.filter((t) => t.fully).length >= 2) break;
         }
       }
       if (probe) {
-        cannot = { probe: true, tried: tried.map((t) => ({ fix: t.candidate.label, fully: t.fully, finishes: t.finishesBroad, left: t.left, ms: t.ms })), anyFinishes: tried.some((t) => t.finishesBroad), ms: Date.now() - started };
+        cannot = { probe: true, tried: tried.map((t) => ({ fix: t.candidate.label, fully: t.fully, finishes: t.finishesBroad, left: t.left, ms: t.ms })), anyFinishes: tried.some((t) => t.finishesBroad && !(t.offeringNew?.length)), ms: Date.now() - started };
       } else {
-      const ranked = tried.length ? CF.rankFixes(tried, item.classes.length || item.rows.length || 1) : null;
+      const ranked = tried.length || process.env.HARNESS_FIXES !== '0' ? CF.rankFixes(tried, CF.gapOf ? CF.gapOf(finishState, finishState) : (item.classes.length || item.rows.length || 1)) : null;
+      // The words the bar shows once the fixes are tried (a "doesn't finish yet" item settles), and at once.
+      const settled = CF.settleItem ? CF.settleItem(item, ranked) : { text: item.text, settled: ranked ? 'tested' : 'untested' };
       cannot = {
-        text: item.text, limits: item.limits, classes: item.classes.map((c) => c.code), rows: item.rows, shortHours: item.shortHours,
-        record: W?.recordKind ? W.recordKind(credit) : null,
-        tried: tried.map((t) => ({ fix: t.candidate.label, fully: t.fully, finishes: t.finishesBroad, left: t.left, ms: t.ms })),
+        text: settled.text, firstText: item.text, maybe: Boolean(item.maybe), settled: settled.settled,
+        limits: item.limits, classes: item.classes.map((c) => c.code), rows: item.rows, shortHours: item.shortHours,
+        record: recordSays,
+        tried: tried.map((t) => ({ fix: t.candidate.label, fully: t.fully, finishes: t.finishesBroad, offeringNew: t.offeringNew, left: t.left, rowsLeft: t.rowsLeft, ms: t.ms })),
         shown: ranked ? [...ranked.working, ...(ranked.closest ? [ranked.closest] : [])].map((t) => CF.fixButtonText(t)) : [],
+        shownFully: ranked ? ranked.working.map((t) => ({ fix: t.candidate.label, finishes: t.finishesBroad, offeringNew: t.offeringNew })) : [],
         anyFully: tried.some((t) => t.fully),
         ms: Date.now() - started,
       };
@@ -807,6 +820,8 @@ function build(program, kind, trial = null) {
     const full = issues.map((i) => ({ termId: '', message: '', ...i }));
     const t = W.triageIssues(full, { credit, bot: 'ARCH', ...(cannot ? { cannotFinish: { text: cannot.text, message: cannot.text } } : {}) });
     bar = (t.prompt ? 1 : 0) + t.now.length;
+    // Requirements the planner could not read (the 'unread' kind): the item never fires for them (finish line item 1).
+    unreadRows = t.later.filter((r) => r.kind.key === 'unread').map((r) => r.issue.title);
     barKinds = t.prominent.map((k) => (k.key === 'record' ? `prompt: ${k.label}` : k.key === 'cannot-finish' ? "can't finish" : k.label.replace(/\(\d+\)$/, '(n)').replace(/^\d+ requirements not met$/, 'n requirements not met')));
   }
   return {
@@ -830,7 +845,7 @@ function build(program, kind, trial = null) {
     barKinds,
     // Added 2026-11-03: the can't-finish item (null when it does not show), its fixes as built, and the board's finish state.
     ...(probed ? { probe: probed } : {}),
-    ...(CF ? { cannotFinish: cannot, finishState: { stuck: finishState.stuck.map((x) => `${x.code}:${x.reason}`), shortRows: finishState.shortRows, shortHours: finishState.shortHours, roomLeft: finishState.roomLeft, maxFree: finishState.maxFree }, record: W?.recordKind ? W.recordKind(credit) : null } : {}),
+    ...(CF ? { cannotFinish: cannot, finishState: { stuck: finishState.stuck.map((x) => `${x.code}:${x.reason}`), shortRows: finishState.shortRows, shortHours: finishState.shortHours, roomLeft: finishState.roomLeft, maxFree: finishState.maxFree }, record: W?.recordKind ? W.recordKind(credit) : null, recordExplains: explained, unreadRows } : {}),
     over18: loads.filter((l) => l > 18).length,
     maxLoad: Math.max(0, ...loads),
     // The pre-health track: what it booked, and any of its labs placed apart from (or without) its lecture.
