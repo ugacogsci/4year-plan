@@ -19,6 +19,9 @@ export interface UgaDifficultyFile {
   courses: Record<string, { d: number; n: number; profs: number }>;
 }
 
+/** Off until the scores stop costing requirements (uga-source.tsx; harness 2026-11-04: 129 boards worse). */
+export const UGA_DIFFICULTY_IN_PLANS = false;
+
 let pending: Promise<UgaDifficultyFile | null> | null = null;
 
 /** The file, once per page; null when it is missing (the planner runs as before, with no UGA difficulty). */

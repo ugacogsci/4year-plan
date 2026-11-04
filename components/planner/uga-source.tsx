@@ -21,7 +21,7 @@ import type { Course, SemesterSeason } from '@/lib/planner/types';
 import { applyUgaProgramOverrides, TERRY_ECONOMICS_LABEL } from '@/lib/planner/uga-program-overrides';
 import { applyUgaUniversityRules, ugaLanguageTable, withUgaLanguageOrder, withUgaProgramOrder } from '@/lib/planner/uga-university-rules';
 import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
-import { loadUgaDifficulty, ugaGrades } from '@/lib/planner/uga-difficulty';
+import { loadUgaDifficulty, ugaGrades, UGA_DIFFICULTY_IN_PLANS } from '@/lib/planner/uga-difficulty';
 import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
 import type { AnyCourseRule } from '@/lib/planner/any-course';
 import { canonicalUgaCode, listedUgaCourseCodes } from '@/lib/planner/uga-course-codes';
@@ -1545,9 +1545,11 @@ export function loadUgaData(): Promise<UgaData | null> {
       snapshotTerm: null,
       gradeFootnote: null,
       // Difficulty from the ratings of the professors who teach each course
-      // (uga-difficulty.ts): term loads, hard-course spreading and lighter
-      // picks now weigh UGA courses the way grade history weighs Illinois's.
-      ...(difficulty ? { grades: ugaGrades(difficulty, (code) => courseTitleOf.get(code) ?? code), bands: difficulty.bands } : {}),
+      // (uga-difficulty.ts) is held out of planning for now: fed in as grades
+      // on 2026-11-04 it made 129 of 1,288 harness boards meet fewer
+      // requirements (unmet rows 802 -> 946), the per-term hardest-band cap
+      // pushing required courses off. UGA_DIFFICULTY_IN_PLANS turns it on.
+      ...(difficulty && UGA_DIFFICULTY_IN_PLANS ? { grades: ugaGrades(difficulty, (code) => courseTitleOf.get(code) ?? code), bands: difficulty.bands } : {}),
       // What is commonly taken and what is on this year's schedule, for the
       // free choices (autoplan.ts freeChoiceSignals); without the file, as before.
       ...(offerings ? {
