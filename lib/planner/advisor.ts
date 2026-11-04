@@ -441,6 +441,27 @@ export const ADVISOR_TOOLS: Anthropic.Beta.BetaTool[] = [
       additionalProperties: false,
     },
   },
+  // The student's setup answers, fixed from the chat (2026-11-04: "if a mistake happens on the onboarding, the bot has to be adaptable").
+  {
+    name: 'update_setup',
+    description:
+      "Fix or change the student's setup answers when they say one is wrong or has changed, and rebuild the board: their year, the term they want to graduate, the first term they start here (a transfer student's first term, or a start that came out wrong), the school the classes on their record were taken at (a transcript read as this university's own when it is another school's), their majors and minors (by name), and the language they studied. Use this instead of sending the student to Edit details or About you. Give only the fields the student stated. First tell them what you will change and that the board rebuilds; call with confirmed true only after their yes. Credits per term, summers and terms away are set_plan_shape; one class taken or dropped is record_prior_credit or drop_prior_credit; their goals are set_priorities. Afterwards call review_board and tell them what changed.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        year: { type: 'string', enum: ['first', 'second', 'third', 'fourth', 'fifth-plus'], description: 'Their year in college now.' },
+        graduation: { type: 'string', description: 'The term they want to finish, like "Spring 2028".' },
+        start: { type: 'string', description: 'Their first term here, a fall or spring like "Fall 2027", or "default" to go back to what About you and the record say.' },
+        coming_from: { type: 'string', description: "The school the classes on their record were taken at, as they name it (\"University of Georgia\", \"Parkland College\"). The record is checked again as that school's transfer credit." },
+        majors: { type: 'array', items: { type: 'string' }, description: 'Their majors, primary first, by name as the catalog lists them ("Finance, BS") or as the student says them.' },
+        minors: { type: 'array', items: { type: 'string' }, description: 'Their minors by name; [] removes them all.' },
+        language: { type: 'string', description: 'The language they studied before college.' },
+        language_years: { type: 'integer', minimum: 0, maximum: 8, description: 'Years of that language in high school.' },
+        confirmed: { type: 'boolean', description: 'True only after the student said yes to the change.' },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 export type AdvisorToolName =
@@ -471,7 +492,8 @@ export type AdvisorToolName =
   | 'planner_answer'
   | 'university_answer'
   | 'find_clubs'
-  | 'professor_ratings';
+  | 'professor_ratings'
+  | 'update_setup';
 
 // ---------------------------------------------------------------------------
 // ARCH's tools: ALMA's, less the Illinois-only ones, described without Illinois
@@ -523,6 +545,7 @@ export const UGA_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolN
   'university_answer',
   'find_clubs',
   'professor_ratings',
+  'update_setup',
 ]);
 
 /**
@@ -705,7 +728,13 @@ export const SHARED_ADVISOR_RULES = {
    * A plan the student's settings cannot finish (cannot-finish.ts): the board
    * bar says so first and offers tested fixes; both bots say the same.
    */
-  cannotFinish: `- When the plan can't finish with the student's settings (the board description's "Can't finish" line, review_board's cannot_finish), say why in plain words and name the student's own setting that is the limit: their finish date, their credits a semester, no summer classes, or a term away. Offer the tested fixes smallest first, saying what each does ("adding Summer 2027 fits everything"). Apply one with set_plan_shape, using the input cannot_finish gives (or add_summer and what_if to try a summer by hand), only after the student says yes; never plan above 18 credits a semester. If no fix works fully, say what gets closest and what else they could change, such as a later finish. If cannot_finish gives a cause "not known yet" (room is left on the board), blame no setting: say what is short, and that a setting may not be the cause. A term away the student wrote in About you is changed there, not with set_plan_shape.`,
+  cannotFinish: `- When the plan can't finish with the student's settings (the board description's "Can't finish" line, review_board's cannot_finish), say why in plain words and name the student's own setting that is the limit: their finish date, their credits a semester, no summer classes, or a term away. Offer the tested fixes smallest first, saying what each does ("adding Summer 2027 fits everything"). Apply one with set_plan_shape, using the input cannot_finish gives (or add_summer and what_if to try a summer by hand), only after the student says yes; never plan above 18 credits a semester. If no fix works fully, say what gets closest and what else they could change, such as a later finish. If cannot_finish gives a cause "not known yet" (room is left on the board), blame no setting: say what is short, and that a setting may not be the cause. A term away the student wrote in About you is changed with update_setup or set_plan_shape after their yes.`,
+  /**
+   * A setup answer the student says is wrong (2026-11-04: ALMA told the owner
+   * "I can change the finish term, but not the start term. You change that
+   * under Edit details").
+   */
+  fixSetup: `- When the student says something about their setup is wrong or has changed (their year, graduation term, the term they start here, the school their classes came from, their major or minor, a language), fix it yourself with update_setup (start and finish are also set_plan_shape) after one clear yes; never send them to Edit details or About you for anything these tools change. If the board looks impossible (one column when graduation is years away, no terms between now and the start), say what looks wrong and offer the fix.`,
   talkNotLicensed: `- You are not a licensed academic advisor and you do not register anyone. Where a decision has consequences (dropping a required course, a lighter load that adds a semester), say so once and let the student decide.`,
 } as const;
 
@@ -811,6 +840,7 @@ ${SHARED_ADVISOR_RULES.reasonThink}
 ${SHARED_ADVISOR_RULES.reasonTradeOff}
 ${SHARED_ADVISOR_RULES.reasonTryFirst}
 ${SHARED_ADVISOR_RULES.cannotFinish}
+${SHARED_ADVISOR_RULES.fixSetup}
 ${SHARED_ADVISOR_RULES.reasonBoardIsTruth}
 - Judge terms as a whole: two hardest-band courses plus a lab is a different term from three light electives, whatever the credit count says. review_board and term_summary carry the load reading.
 - A course that has not run in any recent term is not a plan. Say so, and offer one that has.
@@ -943,6 +973,7 @@ ${SHARED_ADVISOR_RULES.reasonThink}
 ${SHARED_ADVISOR_RULES.reasonTradeOff}
 ${SHARED_ADVISOR_RULES.reasonTryFirst}
 ${SHARED_ADVISOR_RULES.cannotFinish}
+${SHARED_ADVISOR_RULES.fixSetup}
 ${SHARED_ADVISOR_RULES.reasonBoardIsTruth}
 ${SHARED_ADVISOR_RULES.reasonHoursNothing}
 - move_course, remove_course, replace_course and what_if return review_flags_caused when a change causes a review flag; tell the student.

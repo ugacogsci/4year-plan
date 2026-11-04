@@ -236,6 +236,7 @@ import {
   transcriptOpenLines,
   transcriptResidentHours,
   recordIsForOtherSchool,
+  isHomeTranscript,
   type TranscriptCourseRecord,
   type TranscriptRecord,
 } from '@/lib/planner/transcript';
@@ -6448,6 +6449,114 @@ export function PlannerWorkspace({
             ? 'Nothing in the catalog reads as the same course. It still transfers as elective hours if it is college-level; record it as hours.'
             : 'These come from the catalog\'s titles and a table of common equivalents, not from Illinois\'s evaluation. Present the top one as likely, confirm with the student, then record it.',
         };
+      }
+      case 'update_setup': {
+        /**
+         * The student's setup answers, fixed from the chat: year, graduation,
+         * first term here, the school their record's classes came from,
+         * majors, minors, language. One yes, one rebuild, one undo step.
+         */
+        if (!L.onAnswersChange || !L.answers) return { ok: false, reason: 'Setup cannot be changed on this screen.' };
+        const answersNow = L.answers;
+        const termOf = (raw: unknown): { season: SemesterSeason; year: number } | null => {
+          const m = typeof raw === 'string' ? raw.trim().match(/^(fall|spring|summer)\s+(20\d\d)$/i) : null;
+          return m ? { season: (m[1][0].toUpperCase() + m[1].slice(1).toLowerCase()) as SemesterSeason, year: Number(m[2]) } : null;
+        };
+        const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        const findOption = (options: { id: string; name: string }[], words: string) => {
+          const w = norm(words);
+          const exact = options.filter((o) => o.id === words || norm(o.name) === w);
+          if (exact.length === 1) return { hit: exact[0] };
+          const close = options.filter((o) => norm(o.name).startsWith(w) || norm(o.name).includes(w));
+          return close.length === 1 ? { hit: close[0] } : { hit: null, close: close.slice(0, 5).map((o) => o.name) };
+        };
+        const next: OnboardingAnswers = { ...answersNow };
+        const nextShape: PlanShape = { ...planShapeRef.current };
+        const changes: string[] = [];
+        const problems: string[] = [];
+        if (typeof input.year === 'string' && input.year !== answersNow.academicYear) {
+          next.academicYear = input.year as OnboardingAnswers['academicYear'];
+          changes.push(`year: ${input.year}`);
+        }
+        if (input.graduation !== undefined) {
+          const t = termOf(input.graduation);
+          if (!t) problems.push('graduation must be a term like "Spring 2028".');
+          else {
+            next.graduationSeason = t.season;
+            next.graduationYear = t.year;
+            // The answer stands over a finish set earlier from the chat.
+            nextShape.finish = null;
+            changes.push(`graduation: ${t.season} ${t.year}`);
+          }
+        }
+        if (input.start !== undefined) {
+          if (input.start === 'default') { nextShape.start = null; changes.push('first term: from About you and the record'); }
+          else {
+            const t = termOf(input.start);
+            const open = firstOpenTerm(new Date());
+            if (!t || t.season === 'Summer') problems.push('start must be a fall or spring term like "Fall 2027".');
+            else if (termOrd(t.season, t.year) < termOrd(open.season, open.year)) problems.push(`${t.season} ${t.year} has passed or is under way; the first term the student can still sign up for is ${open.season} ${open.year}.`);
+            else { nextShape.start = t; changes.push(`first term here: ${t.season} ${t.year}`); }
+          }
+        }
+        if (typeof input.coming_from === 'string' && input.coming_from.trim()) {
+          if (!answersNow.transcript) problems.push('There is no record to move to another school; record the classes with record_prior_credit and from.');
+          else changes.push(`the classes on the record were taken at ${input.coming_from.trim()}, checked again as transfer credit`);
+        }
+        let majorIds: string[] | null = null;
+        if (Array.isArray(input.majors) && input.majors.length > 0) {
+          const ids: string[] = [];
+          for (const words of input.majors.map(String)) {
+            const found = findOption(programOptions, words);
+            if (found.hit) ids.push(found.hit.id);
+            else problems.push(`No single program matches "${words}"${found.close?.length ? `; close: ${found.close.join('; ')}` : ''}. Ask which one.`);
+          }
+          if (ids.length > 0 && JSON.stringify(ids) !== JSON.stringify(programIds)) {
+            majorIds = ids;
+            changes.push(`majors: ${ids.map((id) => programOptions.find((o) => o.id === id)?.name ?? id).join(', ')}`);
+          }
+        }
+        let minorIdsNext: string[] | null = null;
+        if (Array.isArray(input.minors)) {
+          const ids: string[] = [];
+          for (const words of input.minors.map(String)) {
+            const found = findOption(minorOptions, words);
+            if (found.hit) ids.push(found.hit.id);
+            else problems.push(`No single minor matches "${words}"${found.close?.length ? `; close: ${found.close.join('; ')}` : ''}. Ask which one.`);
+          }
+          minorIdsNext = ids;
+          changes.push(ids.length ? `minors: ${ids.map((id) => minorOptions.find((o) => o.id === id)?.name ?? id).join(', ')}` : 'no minors');
+        }
+        if (typeof input.language === 'string' && input.language.trim()) { next.language = input.language.trim(); changes.push(`language: ${next.language}`); }
+        if (typeof input.language_years === 'number' && Number.isInteger(input.language_years)) { next.languageYears = input.language_years; changes.push(`${input.language_years} years of it in high school`); }
+        if (problems.length > 0) return { ok: false, reason: problems.join(' ') };
+        if (changes.length === 0) return { ok: true, note: 'Nothing to change: the setup already says this.' };
+        if (input.confirmed !== true) {
+          return { ok: false, needs_confirmation: true, reason: `Tell the student you will change ${changes.join('; ')} and rebuild the board${L.boardEdited ? ', which replaces the edits they made by hand' : ''}; call again with confirmed true only after they say yes.` };
+        }
+        if (typeof input.coming_from === 'string' && input.coming_from.trim() && answersNow.transcript) {
+          const here = isUga ? 'uga' : 'illinois';
+          next.transcript = await rematchForSchool({ ...answersNow.transcript, institution: input.coming_from.trim(), schoolId: here === 'uga' ? 'illinois' : 'uga', courses: answersNow.transcript.courses.map((c) => (isHomeTranscript(c.from ?? null, here) ? { ...c, from: null } : c)) }, here, catalogLiteOf(catalog));
+        }
+        if (majorIds) {
+          setProgramIds(majorIds);
+          const selected = new Set(majorIds);
+          next.programIds = majorIds;
+          next.emphasisSelections = Object.fromEntries(Object.entries(answersNow.emphasisSelections).filter(([key]) => [...selected].some((id) => key.startsWith(`${id}::`))));
+          next.doubleDawgsPathwayId = null;
+        }
+        if (minorIdsNext) {
+          setMinorIds(minorIdsNext);
+          next.minorIds = minorIdsNext;
+        }
+        if (majorIds || minorIdsNext) resetProgramPlan();
+        rebuildForCredit.current = true;
+        almaChanged(`changed the setup (${changes.join('; ')}) and rebuilt the plan`);
+        keepUndoOnBuild.current = almaTurn.current !== null;
+        planShapeRef.current = nextShape;
+        setPlanShape(nextShape);
+        L.onAnswersChange(next);
+        return { ok: true, changed: changes, message: 'Changed. The board rebuilds now; call review_board in your next step and tell the student what changed.' };
       }
       case 'record_prior_credit': {
         if (!L.onAnswersChange || !L.answers) return { ok: false, reason: 'Credit cannot be recorded on this screen.' };
