@@ -125,7 +125,7 @@ const CURATED: CuratedRule[] = [
   { test: /\b(general|principles of|introductory|introduction to|college) biology\b|\bbiology 1\b/, prefixes: ['IB', 'MCB'], code: 'IB 150', confidence: 'medium', why: 'Illinois splits introductory biology into IB 150 (organismal) and MCB 150 (molecular and cellular); a general biology course is usually one of them.' },
   { test: /\b(anatomy|physiology)\b/, prefixes: ['IB', 'MCB', 'KIN'], code: 'MCB 244', confidence: 'medium', why: 'Human anatomy and physiology starts at MCB 244 at Illinois.' },
   { test: /\babnormal psychology\b|\bpsychopathology\b/, prefixes: ['PSYC'], code: 'PSYC 238', confidence: 'high', why: 'Abnormal psychology is PSYC 238, Psychopathology and Problems in Living, at Illinois.' },
-  { test: /\b(introduction to|intro|general|principles of|introductory) psychology\b|\bpsychology 1\b/, prefixes: ['PSYC'], code: 'PSYC 100', confidence: 'high', why: 'Introductory psychology is PSYC 100 at Illinois.' },
+  { test: /\b(introduction to|intro|general|principles of|introductory|elementary) psychology\b|\bpsychology 1\b/, prefixes: ['PSYC'], code: 'PSYC 100', confidence: 'high', why: 'Introductory psychology is PSYC 100 at Illinois.' },
   { test: /\b(introduction to|intro|principles of|introductory) sociology\b|\bsociology 1\b/, prefixes: ['SOC'], code: 'SOC 100', confidence: 'high', why: 'Introductory sociology is SOC 100 at Illinois.' },
   { test: /\bmacro-?economic/, prefixes: ['ECON', 'BUS', 'BADM'], code: 'ECON 103', confidence: 'high', why: 'Principles of macroeconomics is ECON 103 at Illinois.' },
   { test: /\bintermediate micro-?economic/, prefixes: ['ECON'], code: 'ECON 302', confidence: 'high', why: 'Intermediate microeconomics is ECON 302 at Illinois.' },

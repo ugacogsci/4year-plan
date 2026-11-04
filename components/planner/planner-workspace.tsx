@@ -7845,12 +7845,15 @@ export function PlannerWorkspace({
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuGroup>
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Start in</DropdownMenuLabel>
-                  {dateChoices.starts.map((t) => (
-                    <DropdownMenuItem key={`s-${t}`} onClick={() => void changeDatesByHand(`Start in ${t}`, { start: t })}>{t}</DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
+                {/* "Start in" is for a student who has not started here yet (a transfer, an incoming student); one taking classes here now has a current column. */}
+                {!currentView && dateChoices.starts.length > 0 && (
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Start in</DropdownMenuLabel>
+                    {dateChoices.starts.map((t) => (
+                      <DropdownMenuItem key={`s-${t}`} onClick={() => void changeDatesByHand(`Start in ${t}`, { start: t })}>{t}</DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
+                )}
                 <DropdownMenuGroup>
                   <DropdownMenuLabel>Make a semester lighter</DropdownMenuLabel>
                   {dateChoices.regular.map((t) => {
