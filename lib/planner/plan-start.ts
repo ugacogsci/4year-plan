@@ -153,6 +153,8 @@ export function horizonFor(
   ];
   // A summer the student took off the board stays off, even one About you asked for.
   horizon.summers = summersFor(horizon.summers ?? [], shape);
+  // Terms the student asked to keep light (the board's menu, or ARCH/ALMA).
+  horizon.light = (shape.light ?? []).map((t) => ({ season: t.season, year: t.year }));
   if (busyNext) {
     const next = busyNext;
     horizon.startSeason = next.season;

@@ -113,9 +113,11 @@ export interface PlanShape {
    * say (plan-start.ts). Saves from before the field read as null.
    */
   start?: { season: SemesterSeason; year: number } | null;
+  /** Falls and springs to keep light (autoplan.ts Horizon.light). Saves from before the field read as none. */
+  light?: Array<{ season: SemesterSeason; year: number }>;
 }
 
-export const NO_SHAPE: PlanShape = { finish: null, away: [], summers: [], spreadHard: false, droppedSummers: [], start: null };
+export const NO_SHAPE: PlanShape = { finish: null, away: [], summers: [], spreadHard: false, droppedSummers: [], start: null, light: [] };
 
 const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
 
@@ -270,6 +272,7 @@ export function readShape(value: unknown): PlanShape {
     spreadHard: value.spreadHard === true,
     droppedSummers: Array.isArray(value.droppedSummers) ? value.droppedSummers.filter((y): y is number => Number.isInteger(y)) : [],
     start: isTerm(value.start) && value.start.season !== 'Summer' ? { season: value.start.season, year: value.start.year } : null,
+    light: Array.isArray(value.light) ? value.light.filter((t): t is { season: SemesterSeason; year: number } => isTerm(t) && t.season !== 'Summer').map((t) => ({ season: t.season, year: t.year })) : [],
   };
 }
 

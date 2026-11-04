@@ -2385,7 +2385,12 @@ export function PlannerWorkspace({
    */
   const dateChoices = useMemo(() => {
     if (!plan) return null;
-    const regular = plan.terms.filter((t) => t.season !== 'Summer');
+    // A board term's year is the plan year (1, 2, ...); the calendar term is in its label ("Fall 2027").
+    const calendarOf = (t: { label: string }) => {
+      const m = t.label.match(/^(Fall|Spring) (\d{4})$/);
+      return m ? { season: m[1] as SemesterSeason, year: Number(m[2]) } : null;
+    };
+    const regular = plan.terms.map(calendarOf).filter((t): t is { season: SemesterSeason; year: number } => t !== null);
     const first = regular[0];
     const last = regular[regular.length - 1];
     if (!first || !last) return null;
@@ -2404,9 +2409,10 @@ export function PlannerWorkspace({
       addStart: termOrd(before.season, before.year) >= openOrd ? label(before) : null,
       starts: starts.map(label),
       finishes: finishes.map(label),
+      regular: regular.map(label),
     };
   }, [plan]);
-  const [datesToConfirm, setDatesToConfirm] = useState<{ label: string; input: { start?: string; finish?: string } } | null>(null);
+  const [datesToConfirm, setDatesToConfirm] = useState<{ label: string; input: { start?: string; finish?: string; light?: string[] } } | null>(null);
 
   /** Every course code on the board, in term order. */
   const boardCodes = useMemo(() => {
@@ -3839,7 +3845,7 @@ export function PlannerWorkspace({
    * set_plan_shape, through its own executor, so it is saved in the plan
    * shape and the board rebuilds. Over the student's own edits it asks first.
    */
-  async function changeDatesByHand(label: string, input: { start?: string; finish?: string }, confirmed = false) {
+  async function changeDatesByHand(label: string, input: { start?: string; finish?: string; light?: string[] }, confirmed = false) {
     if (boardEdited && !confirmed) {
       setDatesToConfirm({ label, input });
       return;
@@ -6243,6 +6249,12 @@ export function PlannerWorkspace({
           } else problems.push('summers must be years like 2027 or terms like "Summer 2027".');
         }
         if (input.spread_hard !== undefined) nextShape.spreadHard = input.spread_hard === true;
+        // Terms to keep light (Horizon.light): falls and springs only.
+        if (Array.isArray(input.light)) {
+          const terms = input.light.map((raw) => termOfWords(raw));
+          if (terms.every((t) => t && t.season !== 'Summer')) nextShape.light = terms as Array<{ season: SemesterSeason; year: number }>;
+          else problems.push('light must be fall or spring terms like "Fall 2027".');
+        }
         /**
          * The first term the plan books (PlanShape.start): a transfer's first
          * term here, or a start setup got wrong. A fall or spring the student
@@ -6284,7 +6296,7 @@ export function PlannerWorkspace({
          * the shape that a new finish leaves outside comes off (summersInRange).
          */
         let summersOff: number[] = [];
-        if (problems.length === 0 && (Array.isArray(input.away) || Array.isArray(input.summers) || input.finish !== undefined || input.start !== undefined)) {
+        if (problems.length === 0 && (Array.isArray(input.away) || Array.isArray(input.summers) || Array.isArray(input.light) || input.finish !== undefined || input.start !== undefined)) {
           const span = extendForAway(horizonFor(L.answers, new Date(), { ...nextShape, summers: [] }));
           const first = termOrd(span.startSeason, span.startYear);
           const last = termOrd(span.gradSeason, span.gradYear);
@@ -6355,6 +6367,7 @@ export function PlannerWorkspace({
           nextShape.away.length > 0 ? `away: ${nextShape.away.map(describeAway).join(', ')}` : null,
           nextShape.summers.length > 0 ? `summer classes: ${nextShape.summers.join(', ')}` : null,
           nextShape.spreadHard ? 'hard courses spread one a term where the degree allows' : null,
+          (nextShape.light ?? []).length > 0 ? `light: ${(nextShape.light ?? []).map((t) => `${t.season} ${t.year}`).join(', ')} (at most 12 credits and one of the hardest courses)` : null,
         ].filter(Boolean).join('; ');
         almaChanged(`rebuilt the plan to a new shape: ${shaped}`);
         keepUndoOnBuild.current = almaTurn.current !== null;
@@ -7837,6 +7850,18 @@ export function PlannerWorkspace({
                   {dateChoices.starts.map((t) => (
                     <DropdownMenuItem key={`s-${t}`} onClick={() => void changeDatesByHand(`Start in ${t}`, { start: t })}>{t}</DropdownMenuItem>
                   ))}
+                </DropdownMenuGroup>
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Make a semester lighter</DropdownMenuLabel>
+                  {dateChoices.regular.map((t) => {
+                    const on = (planShape.light ?? []).some((l) => `${l.season} ${l.year}` === t);
+                    const next = on ? (planShape.light ?? []).filter((l) => `${l.season} ${l.year}` !== t).map((l) => `${l.season} ${l.year}`) : [...(planShape.light ?? []).map((l) => `${l.season} ${l.year}`), t];
+                    return (
+                      <DropdownMenuItem key={`l-${t}`} onClick={() => void changeDatesByHand(on ? `${t} back to a usual load` : `${t} light`, { light: next })}>
+                        {on ? `${t}: light (undo)` : t}
+                      </DropdownMenuItem>
+                    );
+                  })}
                 </DropdownMenuGroup>
                 <DropdownMenuGroup>
                   <DropdownMenuLabel>Finish in</DropdownMenuLabel>

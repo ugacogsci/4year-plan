@@ -39,16 +39,17 @@ export const CAREER_DIMS = 384;
 export const CAREER_FLAG_KEY = 'orion.careerMatcher';
 
 /**
- * Whether the career matcher is on in this browser. Off by default; turned
- * on by visiting the planner once with ?career-matcher=on (remembered on this
- * device) and off again with ?career-matcher=off.
+ * Whether the career matcher is on in this browser. On by default since
+ * 2026-11-04 (the owner: career-based planning "needs to be in place tonight
+ * ... based off of Cameron's semantic reasoning"); ?career-matcher=off turns
+ * it off on this device and ?career-matcher=on back on.
  */
 export function careerMatcherOn(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     const asked = new URLSearchParams(window.location.search).get('career-matcher');
     if (asked === 'on' || asked === 'off') window.localStorage.setItem(CAREER_FLAG_KEY, asked);
-    return window.localStorage.getItem(CAREER_FLAG_KEY) === 'on';
+    return window.localStorage.getItem(CAREER_FLAG_KEY) !== 'off';
   } catch {
     return false;
   }

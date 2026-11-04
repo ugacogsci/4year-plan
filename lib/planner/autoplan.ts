@@ -615,7 +615,19 @@ export interface Horizon {
    * planned; a summer only when the student asks for it, and at a summer load.
    */
   summers?: number[];
+  /**
+   * Falls and springs the student asked to keep light (2026-11-04: "when the
+   * students write down their preferences that they want a light course load
+   * for a specific semester"): at most LIGHT_MAX credits and LIGHT_MAX_HARD
+   * hardest-band course, by the school's difficulty (Illinois's grade history,
+   * UGA's professor ratings).
+   */
+  light?: Array<{ season: SemesterSeason; year: number }>;
 }
+
+/** A light term's ceiling: full time, and one hardest-band course. */
+export const LIGHT_MAX = 12;
+export const LIGHT_MAX_HARD = 1;
 
 /** What a term away is, which decides what it earns when the student names no hours. */
 export type AwayKind = 'study_abroad' | 'co_op' | 'internship' | 'gap';
@@ -11160,10 +11172,16 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     awayTerms.filter((a) => calendarOrd(a.season, a.year) < calendarOrd(t.season, t.calendarYear)).reduce((sum, a) => sum + awayCredits(a), 0),
   );
   const isSummer = (term: { season: SemesterSeason }) => term.season === 'Summer';
-  /** The most hardest-band courses a term may hold: one in a summer, the student's setting otherwise. */
-  const hardCapOf = (term: { season: SemesterSeason }) => (isSummer(term) ? Math.min(maxHard, SUMMER_MAX_HARD) : maxHard);
-  /** The most credits a term may hold: a summer's ceiling, or the student's maximum. */
-  const creditCapOf = (term: { season: SemesterSeason }) => (isSummer(term) ? Math.min(credits.max, SUMMER_MAX) : credits.max);
+  const lightTerms = new Set((input.horizon.light ?? []).map((t) => `${t.season} ${t.year}`));
+  /** A fall or spring the student asked to keep light (Horizon.light). */
+  const isLight = (term: { season: SemesterSeason; calendarYear?: number; label?: string }) =>
+    lightTerms.size > 0 && term.season !== 'Summer' && (term.label ? lightTerms.has(term.label) : term.calendarYear !== undefined && lightTerms.has(`${term.season} ${term.calendarYear}`));
+  /** The most hardest-band courses a term may hold: one in a summer or a light term, the student's setting otherwise. */
+  const hardCapOf = (term: { season: SemesterSeason; label?: string; calendarYear?: number }) =>
+    isSummer(term) ? Math.min(maxHard, SUMMER_MAX_HARD) : isLight(term) ? Math.min(maxHard, LIGHT_MAX_HARD) : maxHard;
+  /** The most credits a term may hold: a summer's ceiling, a light term's, or the student's maximum. */
+  const creditCapOf = (term: { season: SemesterSeason; label?: string; calendarYear?: number }) =>
+    isSummer(term) ? Math.min(credits.max, SUMMER_MAX) : isLight(term) ? Math.min(credits.max, LIGHT_MAX) : credits.max;
 
   const creditsOf = (code: string): number => {
     const range = ctx.creditRanges?.get(code);
@@ -14126,6 +14144,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const ceiling = yearOnePace && yearOne.includes(term.index) && cap < credits.max && !codes.some((code) => urgentAt(code, term.index)) ? Math.min(asked, Math.max(yearOneCeiling, running)) : asked;
         // A summer term the student asked for carries a summer load.
         if (term.season === 'Summer') return (pastAim || running < Math.min(cap, SUMMER_AIM)) && running + adds <= Math.min(ceiling, SUMMER_MAX);
+        // A light term the student asked for: at most LIGHT_MAX credits.
+        if (isLight(term) && running + adds > LIGHT_MAX) return false;
         // A track course stretches a term to the finished plan's size and no
         // further, so the first year is not packed to eighteen; under the
         // aim it takes a term the way any course does.
@@ -14278,6 +14298,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // A summer's cap has no exemption, last term and no slack included:
         // the fall or spring after it is where a second hard course goes.
         if (isSummer(term) && isHard(code) && hardHere >= hardCapOf(term)) { debug(code, term.label, `a summer already holds ${hardHere} hardest-band course`); return false; }
+        if (isLight(term) && isHard(code) && hardHere >= hardCapOf(term)) { debug(code, term.label, `a light term already holds ${hardHere} hardest-band course`); return false; }
         return true;
       };
 
@@ -16024,7 +16045,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           const sameTerm = new Set<string>();
           for (const code of here) for (const equiv of expandEquivalents(code, equivalents)) sameTerm.add(equiv);
           const hardHere = here.filter(isHard).length;
-          const cap = term.season === 'Summer' ? Math.min(ceiling, SUMMER_MAX) : ceiling;
+          const cap = term.season === 'Summer' ? Math.min(ceiling, SUMMER_MAX) : isLight(term) ? Math.min(ceiling, LIGHT_MAX) : ceiling;
           const tooBig = (hours: number) => running + hours > cap;
           const fitsHere = (code: string): boolean => {
             if (plannedAll.has(code)) return false;
