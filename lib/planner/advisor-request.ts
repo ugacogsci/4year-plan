@@ -166,11 +166,10 @@ function commonParams(
     // category rather than handed to the student as a dead end.
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
-    // Adaptive thinking is on by default on this model. High effort,
-    // because the student asks this bot to weigh a schedule: which of
-    // two courses, whether a move breaks a chain, what a term costs
-    // them. The tools carry the facts; the reasoning over them is the
-    // job. Streaming keeps the wait honest.
-    output_config: { effort: 'high' },
+    // Adaptive thinking is on by default. Medium effort (2026-11-04):
+    // high effort thought at length before every tool step, and thinking
+    // is billed as output; the tools carry the facts, and medium is the
+    // recommended level for multistep tool use on Claude Sonnet 5.5.
+    output_config: { effort: 'medium' },
   };
 }

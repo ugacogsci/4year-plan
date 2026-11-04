@@ -23,6 +23,29 @@ export const setupReplySchema = z.object({
   programConfirmed: z.boolean(),
   creditReviewed: z.boolean(),
 }).strict();
+/**
+ * What the model is asked to return (app/api/setup structured output):
+ * setupReplySchema with the emphasis choices as a list. Structured output
+ * takes no open-ended map, so a record turned into an object that can only be
+ * empty and the assistant could never record an emphasis. fromSetupWire turns
+ * the list back into the map setupReplySchema checks.
+ */
+export const setupWireSchema = z.object({
+  reply: z.string(),
+  patch: setupPatchSchema.omit({ emphasisSelections: true }).extend({
+    emphasisSelections: z.array(z.object({ requirementId: z.string(), optionIds: z.array(z.string()) }).strict()).optional(),
+  }).strict(),
+  programConfirmed: z.boolean(),
+  creditReviewed: z.boolean(),
+}).strict();
+
+export function fromSetupWire(wire: unknown): unknown {
+  if (!wire || typeof wire !== 'object') return wire;
+  const w = wire as { patch?: { emphasisSelections?: Array<{ requirementId: string; optionIds: string[] }> } & Record<string, unknown> } & Record<string, unknown>;
+  const list = w.patch?.emphasisSelections;
+  if (!Array.isArray(list)) return wire;
+  return { ...w, patch: { ...w.patch, emphasisSelections: Object.fromEntries(list.map((e) => [e.requirementId, e.optionIds])) } };
+}
 export type SetupMessage = { role: 'user' | 'assistant'; content: string };
 export interface SetupCatalog {
   undergraduateDegrees: Array<{ id: string; name: string; degree?: string }>;

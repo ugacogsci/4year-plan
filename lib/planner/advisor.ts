@@ -28,7 +28,9 @@ export type AdvisorBlock = Anthropic.Beta.BetaContentBlock;
  * cache reads 60% cheaper, at the same high effort (advisor-request.ts). The setup assistant stays
  * on Opus 5 (app/api/setup/route.ts).
  */
-export const ADVISOR_MODEL = 'claude-opus-5-5';
+// Claude Sonnet 5.5 at medium effort (2026-11-04, the owner's choice): about a quarter of Opus 5.5 at high, whose
+// thinking on every tool step made a question cost about 20 cents.
+export const ADVISOR_MODEL = 'claude-sonnet-5-5';
 
 // ---------------------------------------------------------------------------
 // The tools, as the model sees them
