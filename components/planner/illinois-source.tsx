@@ -548,6 +548,11 @@ export function buildContext(
     for (const [code, summary] of core.grades) {
       grades.set(code, toGradeRow(summary, core.byCode.get(code)?.title ?? code, []));
     }
+    // A course with no grade history: the professor-ratings estimate on the same scale, where one exists.
+    for (const [code, d] of core.ratingsDifficulty ?? []) {
+      if (grades.has(code)) continue;
+      grades.set(code, { code, title: core.byCode.get(code)?.title ?? code, n: 0, sections: 0, gpa: null, aPct: null, dfPct: null, withdrawPct: null, difficulty: d, instructors: [] });
+    }
   }
 
   const creditRanges = new Map<
