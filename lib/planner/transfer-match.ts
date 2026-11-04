@@ -111,21 +111,22 @@ const CURATED: CuratedRule[] = [
   { test: /\bcalculus\b(?!.*\b(business|life|social|applied|brief|survey)\b).*\b1\b|\bcalculus 1\b|\bcalculus\b.*\banalytic\b.*\b1\b/, prefixes: ['MATH'], code: 'MATH 221', confidence: 'high', why: 'The first calculus course is MATH 221 at Illinois.' },
   { test: /\bcalculus\b.*\b2\b/, prefixes: ['MATH'], code: 'MATH 231', confidence: 'high', why: 'The second calculus course is MATH 231 at Illinois.' },
   { test: /\bcalculus\b.*\b3\b|\bmultivariable\b|\bmultivariate calculus\b/, prefixes: ['MATH'], code: 'MATH 241', confidence: 'high', why: 'The third calculus course is MATH 241 at Illinois.' },
-  { test: /\b(business|applied|brief|survey of|life science) calculus\b|\bcalculus for business\b/, prefixes: ['MATH'], code: 'MATH 234', confidence: 'medium', why: 'A business or applied calculus course is closest to MATH 234, which the business core accepts.' },
+  { test: /\b(business|applied|brief|survey of|life science) calculus\b|\bcalculus for business\b/, prefixes: ['MATH'], code: 'MATH 234', confidence: 'high', why: 'A business or applied calculus course is closest to MATH 234, which the business core accepts.' },
   { test: /\blinear algebra\b/, prefixes: ['MATH'], code: 'MATH 257', confidence: 'medium', why: 'Introductory linear algebra is MATH 257 (or MATH 415) at Illinois.' },
   { test: /\bdifferential equations?\b/, prefixes: ['MATH'], code: 'MATH 285', confidence: 'medium', why: 'A first differential equations course is MATH 285 at Illinois.' },
-  { test: /\b(introductory|elementary|introduction to|intro|general|basic|principles of)?\s*statistics\b|\bstatistical\b/, prefixes: ['MATH', 'STAT', 'PSYC', 'BADM', 'ECON'], code: 'STAT 100', confidence: 'medium', why: 'An introductory statistics course usually transfers as STAT 100.' },
+  { test: /\b(introductory|elementary|introduction to|intro|general|basic|principles of)?\s*statistics\b|\bstatistical\b/, prefixes: ['MATH', 'STAT', 'PSYC', 'BADM', 'ECON'], code: 'STAT 100', confidence: 'high', why: 'An introductory statistics course usually transfers as STAT 100.' },
   { test: /\bgeneral chemistry\b.*\b1\b|\bchemistry 1\b|\bcollege chemistry\b.*\b1\b/, prefixes: ['CHEM'], code: 'CHEM 102', confidence: 'high', why: 'The first general chemistry course is CHEM 102 at Illinois; a course with a lab in it also earns CHEM 103.', also: 'CHEM 103' },
   { test: /\bgeneral chemistry\b.*\b2\b|\bchemistry 2\b/, prefixes: ['CHEM'], code: 'CHEM 104', confidence: 'high', why: 'The second general chemistry course is CHEM 104 at Illinois; with a lab it also earns CHEM 105.', also: 'CHEM 105' },
   { test: /\borganic chemistry\b.*\b1\b/, prefixes: ['CHEM'], code: 'CHEM 232', confidence: 'medium', why: 'The first organic chemistry course is CHEM 232 at Illinois.' },
   { test: /\bphysics\b.*\b(mechanics|calculus|engineers?|scientists?)\b|\b(mechanics|calculus)\b.*\bphysics\b|\buniversity physics\b.*\b1\b/, prefixes: ['PHYS'], code: 'PHYS 211', confidence: 'high', why: 'Calculus-based mechanics is PHYS 211 at Illinois.' },
   { test: /\bphysics\b.*\b(electricity|magnetism|e ?& ?m|elec)\b|\buniversity physics\b.*\b2\b/, prefixes: ['PHYS'], code: 'PHYS 212', confidence: 'high', why: 'Calculus-based electricity and magnetism is PHYS 212 at Illinois.' },
-  { test: /\b(general|college|introductory|conceptual) physics\b.*\b1\b|\bphysics 1\b/, prefixes: ['PHYS'], code: 'PHYS 101', confidence: 'medium', why: 'Algebra-based first-semester physics is PHYS 101 at Illinois; if the course used calculus it is PHYS 211.' },
-  { test: /\b(general|college|introductory) physics\b.*\b2\b|\bphysics 2\b/, prefixes: ['PHYS'], code: 'PHYS 102', confidence: 'medium', why: 'Algebra-based second-semester physics is PHYS 102 at Illinois; if the course used calculus it is PHYS 212.' },
+  { test: /\b(general|college|introductory|conceptual) physics\b.*\b1\b|\bphysics 1\b/, prefixes: ['PHYS'], code: 'PHYS 101', confidence: 'high', why: 'Algebra-based first-semester physics is PHYS 101 at Illinois; if the course used calculus it is PHYS 211.' },
+  { test: /\b(general|college|introductory) physics\b.*\b2\b|\bphysics 2\b/, prefixes: ['PHYS'], code: 'PHYS 102', confidence: 'high', why: 'Algebra-based second-semester physics is PHYS 102 at Illinois; if the course used calculus it is PHYS 212.' },
   { test: /\b(general|principles of|introductory|introduction to|college) biology\b|\bbiology 1\b/, prefixes: ['IB', 'MCB'], code: 'IB 150', confidence: 'medium', why: 'Illinois splits introductory biology into IB 150 (organismal) and MCB 150 (molecular and cellular); a general biology course is usually one of them.' },
   { test: /\b(anatomy|physiology)\b/, prefixes: ['IB', 'MCB', 'KIN'], code: 'MCB 244', confidence: 'medium', why: 'Human anatomy and physiology starts at MCB 244 at Illinois.' },
   { test: /\babnormal psychology\b|\bpsychopathology\b/, prefixes: ['PSYC'], code: 'PSYC 238', confidence: 'high', why: 'Abnormal psychology is PSYC 238, Psychopathology and Problems in Living, at Illinois.' },
   { test: /\b(introduction to|intro|general|principles of|introductory|elementary) psychology\b|\bpsychology 1\b/, prefixes: ['PSYC'], code: 'PSYC 100', confidence: 'high', why: 'Introductory psychology is PSYC 100 at Illinois.' },
+  { test: /\b(introduction to|intro|general) anthropology\b/, prefixes: ['ANTH'], code: 'ANTH 101', confidence: 'high', why: 'Introductory anthropology is ANTH 101 at Illinois.' },
   { test: /\b(introduction to|intro|principles of|introductory) sociology\b|\bsociology 1\b/, prefixes: ['SOC'], code: 'SOC 100', confidence: 'high', why: 'Introductory sociology is SOC 100 at Illinois.' },
   { test: /\bmacro-?economic/, prefixes: ['ECON', 'BUS', 'BADM'], code: 'ECON 103', confidence: 'high', why: 'Principles of macroeconomics is ECON 103 at Illinois.' },
   { test: /\bintermediate micro-?economic/, prefixes: ['ECON'], code: 'ECON 302', confidence: 'high', why: 'Intermediate microeconomics is ECON 302 at Illinois.' },
@@ -139,7 +140,7 @@ const CURATED: CuratedRule[] = [
   { test: /\bwestern civilization\b.*\b2\b|\bwestern civ\b.*\b2\b/, prefixes: ['HIST'], code: 'HIST 142', confidence: 'medium', why: 'Modern Western civilization is HIST 142 at Illinois.' },
   { test: /\b(american|u\.?s\.?|united states) (national )?(government|politics)\b|\bintroduction to american government\b/, prefixes: ['PS'], code: 'PS 101', confidence: 'high', why: 'Introductory American government is PS 101 at Illinois.' },
   { test: /\b(introduction to|intro|problems of) philosophy\b/, prefixes: ['PHIL'], code: 'PHIL 101', confidence: 'high', why: 'Introductory philosophy is PHIL 101 at Illinois.' },
-  { test: /\b(introduction to |intro )?logic\b/, prefixes: ['PHIL'], code: 'PHIL 102', confidence: 'medium', why: 'Introductory logic is PHIL 102 at Illinois.' },
+  { test: /\b(introduction to |intro )?logic\b/, prefixes: ['PHIL'], code: 'PHIL 102', confidence: 'high', why: 'Introductory logic is PHIL 102 at Illinois.' },
   { test: /\bethics\b/, prefixes: ['PHIL'], code: 'PHIL 104', confidence: 'medium', why: 'An introductory ethics course is PHIL 104 at Illinois.' },
   { test: /\b(introduction to|intro) (computer science|programming)\b.*\b1\b|\bcomputer science 1\b|\bprogramming 1\b|\b(introduction to|intro) (programming|computer science)\b|\bjava\b|\bc\+\+\b|\bpython\b/, prefixes: ['CS'], code: 'CS 124', confidence: 'medium', why: 'A first programming course is closest to CS 124 at Illinois; Grainger decides case by case, and CS 101 is the version for engineers outside CS.' },
   { test: /\b(introduction to|intro) (computer science|programming)\b.*\b2\b|\bcomputer science 2\b|\bprogramming 2\b|\bdata structures\b/, prefixes: ['CS'], code: 'CS 128', confidence: 'medium', why: 'A second programming course is closest to CS 128 at Illinois.' },
@@ -158,7 +159,7 @@ const CURATED: CuratedRule[] = [
   { test: /\bintermediate (financial )?accounting\b(?!.*\b(2|ii|3|iii)\b)/, prefixes: ['ACCY'], code: 'ACCY 301', confidence: 'medium', why: 'The first intermediate accounting course is closest to ACCY 301, Atg Measurement & Disclosure, at Illinois; it is not the principles course.' },
   { test: /\bintermediate (financial )?accounting\b.*\b(2|ii|3|iii)\b/, prefixes: ['ACCY'], code: null, confidence: 'medium', why: 'Later intermediate accounting courses have no single Illinois course; they come in as accountancy hours until Illinois evaluates them.' },
   { test: /\b(introduction to|intro to|intro) business\b/, prefixes: ['BUS', 'BADM'], code: 'BUS 101', confidence: 'medium', why: 'An introduction to business course is closest to BUS 101 at Illinois.' },
-  { test: /\bnutrition\b/, prefixes: ['FSHN', 'CHLH', 'KIN'], code: 'FSHN 120', confidence: 'medium', why: 'Introductory nutrition is FSHN 120 at Illinois.' },
+  { test: /\bnutrition\b/, prefixes: ['FSHN', 'CHLH', 'KIN'], code: 'FSHN 120', confidence: 'high', why: 'Introductory nutrition is FSHN 120 at Illinois.' },
   { test: /\b(intermediate|second.year) spanish\b.*\b1\b|\bspanish 3\b/, prefixes: ['SPAN'], code: 'SPAN 201', confidence: 'high', why: 'Third-semester Spanish is SPAN 201 at Illinois.' },
   { test: /\b(intermediate|second.year) spanish\b.*\b2\b|\bspanish 4\b/, prefixes: ['SPAN'], code: 'SPAN 203', confidence: 'medium', why: 'Fourth-semester Spanish is SPAN 203 (or SPAN 228) at Illinois, per the registrar\'s language table.' },
   { test: /^(?!.*intermediate).*(\b(elementary|beginning) spanish\b.*\b1\b|\bspanish 1\b)/, prefixes: ['SPAN'], code: 'SPAN 101', confidence: 'high', why: 'First-semester Spanish is SPAN 101 at Illinois.' },
@@ -171,6 +172,66 @@ const CURATED: CuratedRule[] = [
   { test: /\b(physical|introductory|introduction to) geology\b|\bgeology\b/, prefixes: ['GEOL'], code: 'GEOL 100', confidence: 'medium', why: 'Introductory geology is GEOL 100 at Illinois.' },
   { test: /\b(cultural|introduction to|intro) anthropology\b|\banthropology\b/, prefixes: ['ANTH'], code: 'ANTH 103', confidence: 'medium', why: 'Introductory cultural anthropology is ANTH 103 at Illinois.' },
   { test: /\b(art|music|theat(re|er)) appreciation\b|\bintroduction to (art|music|theat(re|er))\b/, prefixes: ['ART', 'ARTH', 'MUS', 'THEA'], code: null, confidence: 'medium', why: 'Appreciation courses transfer as hours in the subject; Illinois names the gen-ed credit after review.' },
+];
+
+/**
+ * UGA's own codes for the courses transfer students hold most often, for a
+ * sending school whose courses UGA's Transfer Equivalency list does not
+ * cover (an out-of-state or private school, a course the list leaves out).
+ * Written from what each course is, as the Illinois table above is; the
+ * official list always wins where it has the course. No subject filter: the
+ * titles are specific enough, and other schools' prefixes vary.
+ */
+const NOT_INTRO = String.raw`^(?!.*\b(intermediate|advanced|honors seminar|technical|business|creative|special topics)\b)`;
+const CURATED_UGA: CuratedRule[] = [
+  { test: /\b(english )?composition\b.*\b2\b|\bcomposition 2\b|\b(argument|research) (and|&) (writing|composition)\b|\bwriting (and|&) research\b/, prefixes: [], code: 'ENGL 1102', confidence: 'high', why: 'The second composition course is ENGL 1102, English Composition II, at UGA.' },
+  { test: new RegExp(NOT_INTRO + String.raw`.*\b(english composition|college composition|composition|college writing|first[- ]year writing|rhetoric and composition)\b(?!.*\b2\b)`), prefixes: [], code: 'ENGL 1101', confidence: 'high', why: 'The first composition course is ENGL 1101, English Composition I, at UGA.' },
+  { test: /\b(pre-?calculus|precalc|preparation for calculus)\b/, prefixes: [], code: 'MATH 1113', confidence: 'high', why: 'Precalculus is MATH 1113 at UGA.' },
+  { test: /\b(business|applied|brief|survey of|life science|social science) calculus\b|\bcalculus for (business|the life|social)\b/, prefixes: [], code: 'MATH 2200', confidence: 'high', why: 'A business or applied calculus course is closest to MATH 2200, Analytic Geometry and Calculus, at UGA.' },
+  { test: /\bcalculus\b.*\b3\b|\bmultivariable calculus\b|\bmultivariate calculus\b|\bvector calculus\b/, prefixes: [], code: 'MATH 2270', confidence: 'high', why: 'The third calculus course is MATH 2270 at UGA.' },
+  { test: /\bcalculus\b.*\b2\b/, prefixes: [], code: 'MATH 2260', confidence: 'high', why: 'The second calculus course is MATH 2260 at UGA.' },
+  { test: /\bcalculus\b.*\b1\b|\bcalculus of one variable\b(?!.*\b2\b)|\banalytic geometry (and|&) calculus\b(?!.*\b2\b)/, prefixes: [], code: 'MATH 2250', confidence: 'high', why: 'The first calculus course for science and engineering is MATH 2250 at UGA.' },
+  { test: new RegExp(NOT_INTRO + String.raw`.*\b(introductory|introduction to|intro|elementary|basic|principles of)?\s*statistics\b`), prefixes: [], code: 'STAT 2000', confidence: 'high', why: 'An introductory statistics course is STAT 2000 at UGA.' },
+  { test: /\b(introduction to|intro|general|principles of|introductory|elementary) psychology\b|\bpsychology 1\b/, prefixes: [], code: 'PSYC 1101', confidence: 'high', why: 'Introductory psychology is PSYC 1101, Elementary Psychology, at UGA.' },
+  { test: /\b(introduction to|intro|principles of|introductory) sociology\b|\bsociology 1\b/, prefixes: [], code: 'SOCI 1101', confidence: 'high', why: 'Introductory sociology is SOCI 1101 at UGA.' },
+  { test: new RegExp(NOT_INTRO.replace('business|', '') + String.raw`.*\bmacro-?economic`), prefixes: [], code: 'ECON 2105', confidence: 'high', why: 'Principles of macroeconomics is ECON 2105 at UGA.' },
+  { test: new RegExp(NOT_INTRO.replace('business|', '') + String.raw`.*\bmicro-?economic`), prefixes: [], code: 'ECON 2106', confidence: 'high', why: 'Principles of microeconomics is ECON 2106 at UGA.' },
+  { test: /^(?!.*\b(intermediate|advanced|cost|tax|governmental)\b).*(\b(financial|principles of|introduction to|introductory) accounting\b(?!.*\b2\b)|\baccounting 1\b)/, prefixes: [], code: 'ACCT 2101', confidence: 'high', why: 'First-semester financial accounting is ACCT 2101 at UGA.' },
+  { test: /^(?!.*\b(intermediate|advanced|cost|tax|governmental)\b).*(\bmanagerial accounting\b|\baccounting 2\b|\bprinciples of accounting 2\b)/, prefixes: [], code: 'ACCT 2102', confidence: 'high', why: 'Managerial accounting is ACCT 2102 at UGA.' },
+  { test: /\b(american|u\.?s\.?|united states) (national )?(government|politics)\b/, prefixes: [], code: 'POLS 1101', confidence: 'high', why: 'Introductory American government is POLS 1101 at UGA.' },
+  { test: /\b(u\.?s\.?|united states|american) history\b.*\b(to|before|through|until) 18(65|77)\b|\b(u\.?s\.?|united states|american) history\b.*\b1\b/, prefixes: [], code: 'HIST 2111', confidence: 'high', why: 'United States history to 1865 is HIST 2111 at UGA.' },
+  { test: /\b(u\.?s\.?|united states|american) history\b.*\b(since|after|from) 18(65|77)\b|\b(u\.?s\.?|united states|american) history\b.*\b2\b/, prefixes: [], code: 'HIST 2112', confidence: 'high', why: 'United States history since 1865 is HIST 2112 at UGA.' },
+  { test: /\bpublic speaking\b|\b(fundamentals of|introduction to|intro|principles of|basic) (speech|oral communication)\b|\bspeech communication\b/, prefixes: [], code: 'COMM 1110', confidence: 'high', why: 'A public speaking course is COMM 1110, Introduction to Public Speaking, at UGA.' },
+  { test: /\b(general|college|principles of) chemistry\b.*\b2\b|\bchemistry 2\b/, prefixes: [], code: 'CHEM 1212', confidence: 'high', why: 'The second general chemistry course is CHEM 1212 at UGA; with a lab it also earns CHEM 1212L.', also: 'CHEM 1212L' },
+  { test: /\b(general|college|principles of) chemistry\b(.*\b1\b)?(?!.*\b2\b)|\bchemistry 1\b/, prefixes: [], code: 'CHEM 1211', confidence: 'high', why: 'The first general chemistry course is CHEM 1211 at UGA; with a lab it also earns CHEM 1211L.', also: 'CHEM 1211L' },
+  { test: /\borganic chemistry\b(.*\b1\b)?(?!.*\b2\b)/, prefixes: [], code: 'CHEM 2211', confidence: 'medium', why: 'The first organic chemistry course is closest to CHEM 2211 at UGA.' },
+  { test: /\b(principles of|general|introductory|college|majors) biology\b.*\b2\b|\bbiology 2\b/, prefixes: [], code: 'BIOL 1108', confidence: 'high', why: 'The second majors biology course is BIOL 1108 at UGA; with a lab it also earns BIOL 1108L.', also: 'BIOL 1108L' },
+  { test: /\b(principles of|general|introductory|college|majors) biology\b(.*\b1\b)?(?!.*\b2\b)|\bbiology 1\b/, prefixes: [], code: 'BIOL 1107', confidence: 'high', why: 'The first majors biology course is BIOL 1107 at UGA; with a lab it also earns BIOL 1107L.', also: 'BIOL 1107L' },
+  { test: /\bphysics\b.*\b(calculus|engineers?|scientists?)\b.*\b2\b|\buniversity physics\b.*\b2\b|\bphysics\b.*\b(electricity|magnetism)\b.*\b(calculus|engineers?|scientists?)\b/, prefixes: [], code: 'PHYS 1212', confidence: 'high', why: 'Calculus-based second-semester physics is PHYS 1212 at UGA.' },
+  { test: /\bphysics\b.*\b(calculus|engineers?|scientists?)\b|\buniversity physics\b(.*\b1\b)?(?!.*\b2\b)/, prefixes: [], code: 'PHYS 1211', confidence: 'high', why: 'Calculus-based first-semester physics is PHYS 1211 at UGA.' },
+  { test: /\b(general|college|introductory|algebra-based) physics\b.*\b2\b|\bphysics 2\b/, prefixes: [], code: 'PHYS 1112', confidence: 'high', why: 'Algebra-based second-semester physics is PHYS 1112 at UGA.' },
+  { test: /\b(general|college|introductory|algebra-based) physics\b(.*\b1\b)?(?!.*\b2\b)|\bphysics 1\b/, prefixes: [], code: 'PHYS 1111', confidence: 'high', why: 'Algebra-based first-semester physics is PHYS 1111 at UGA.' },
+  { test: /\b(introduction to|intro) (computer science|programming)\b.*\b2\b|\bcomputer science 2\b|\bprogramming 2\b|\bdata structures\b/, prefixes: [], code: 'CSCI 1302', confidence: 'medium', why: 'A second programming course is closest to CSCI 1302, Software Development, at UGA.' },
+  { test: /\b(introduction to|intro) (computer science|programming|computing and programming)\b|\bcomputer science 1\b|\bprogramming 1\b|\bprogramming in (java|python|c\+\+)\b/, prefixes: [], code: 'CSCI 1301', confidence: 'medium', why: 'A first programming course is closest to CSCI 1301 at UGA.' },
+  { test: /\bintermediate spanish\b.*\b2\b|\bspanish 4\b/, prefixes: [], code: 'SPAN 2002', confidence: 'high', why: 'Fourth-semester Spanish is SPAN 2002 at UGA.' },
+  { test: /\bintermediate spanish\b(.*\b1\b)?(?!.*\b2\b)|\bspanish 3\b/, prefixes: [], code: 'SPAN 2001', confidence: 'high', why: 'Third-semester Spanish is SPAN 2001 at UGA.' },
+  { test: /^(?!.*intermediate).*(\b(elementary|beginning) spanish\b.*\b2\b|\bspanish 2\b)/, prefixes: [], code: 'SPAN 1002', confidence: 'high', why: 'Second-semester Spanish is SPAN 1002 at UGA.' },
+  { test: /^(?!.*intermediate).*(\b(elementary|beginning) spanish\b(.*\b1\b)?(?!.*\b2\b)|\bspanish 1\b)/, prefixes: [], code: 'SPAN 1001', confidence: 'high', why: 'First-semester Spanish is SPAN 1001 at UGA.' },
+  { test: /^(?!.*intermediate).*(\b(elementary|beginning) french\b.*\b2\b|\bfrench 2\b)/, prefixes: [], code: 'FREN 1002', confidence: 'high', why: 'Second-semester French is FREN 1002 at UGA.' },
+  { test: /^(?!.*intermediate).*(\b(elementary|beginning) french\b(.*\b1\b)?(?!.*\b2\b)|\bfrench 1\b)/, prefixes: [], code: 'FREN 1001', confidence: 'high', why: 'First-semester French is FREN 1001 at UGA.' },
+  { test: /\b(introduction to|intro|problems of) philosophy\b/, prefixes: [], code: 'PHIL 2010', confidence: 'high', why: 'Introductory philosophy is PHIL 2010 at UGA.' },
+  { test: /\b(symbolic|formal|introduction to|intro) logic\b/, prefixes: [], code: 'PHIL 2500', confidence: 'medium', why: 'An introductory logic course is closest to PHIL 2500, Symbolic Logic, at UGA.' },
+  { test: /\bbusiness law\b|\blegal (and regulatory )?environment of business\b|\blegal and regulatory environment\b/, prefixes: [], code: 'LEGL 2700', confidence: 'high', why: 'Business law (the legal environment of business) is LEGL 2700 at UGA.' },
+  { test: /\b(management )?information systems\b.*\bbusiness\b|\bintroduction to (management )?information systems\b|\bcomputer information systems\b/, prefixes: [], code: 'MIST 2090', confidence: 'medium', why: 'An introductory business information systems course is closest to MIST 2090 at UGA.' },
+  { test: /^(?!.*\b(personal|international|advanced|real estate)\b).*\b(financial management|corporate finance|business finance|managerial finance|principles of finance)\b/, prefixes: [], code: 'FINA 3000', confidence: 'high', why: 'A first course in corporate or financial management is FINA 3000, Financial Management, at UGA.' },
+  { test: /\bprinciples of marketing\b|\bintroduction to marketing\b|\bmarketing principles\b/, prefixes: [], code: 'MARK 3000', confidence: 'high', why: 'Principles of marketing is MARK 3000 at UGA.' },
+  { test: /\b(principles of management|introduction to management|management (and|&) organizational behavior|organizational behavior)\b/, prefixes: [], code: 'MGMT 3000', confidence: 'high', why: 'Principles of management is MGMT 3000 at UGA.' },
+  { test: /\b(introduction to|intro|general|cultural) anthropology\b/, prefixes: [], code: 'ANTH 1102', confidence: 'high', why: 'Introductory anthropology is ANTH 1102 at UGA.' },
+  { test: /\b(human|cultural|world regional) geography\b/, prefixes: [], code: 'GEOG 1101', confidence: 'medium', why: 'Human geography is GEOG 1101 at UGA.' },
+  { test: /\b(anatomy (and|&) physiology)\b(.*\b1\b)?(?!.*\b2\b)/, prefixes: [], code: 'CBIO 2200', confidence: 'medium', why: 'The first anatomy and physiology course is closest to CBIO 2200 at UGA.' },
+  { test: /\bmicrobiology\b/, prefixes: [], code: 'MIBO 2500', confidence: 'medium', why: 'An introductory microbiology course for health majors is closest to MIBO 2500 at UGA.' },
+  { test: /\b(human )?nutrition\b/, prefixes: [], code: 'NUTR 2100', confidence: 'high', why: 'Introductory human nutrition is NUTR 2100 at UGA.' },
+  { test: /\bmusic appreciation\b|\b(introduction to|intro) music\b/, prefixes: [], code: 'MUSI 2020', confidence: 'medium', why: 'A music appreciation course is closest to MUSI 2020, Introduction to Music, at UGA.' },
 ];
 
 const ABBREVIATIONS: Record<string, string> = {
@@ -270,6 +331,8 @@ export function proposeEquivalents(
   line: { code: string; title: string | null; credits: number | null },
   catalog: CatalogLite[],
   limit = 3,
+  /** Whose codes the catalog holds: picks the table of common equivalents (UGA's codes or Illinois's). */
+  school: 'illinois' | 'uga' = 'illinois',
 ): EquivalentProposal[] {
   if (catalog.length === 0) return [];
   const known = new Map(catalog.map((c) => [c.code, c]));
@@ -281,7 +344,7 @@ export function proposeEquivalents(
 
   if (title) {
     const key = curatedKey(title);
-    for (const rule of CURATED) {
+    for (const rule of school === 'uga' ? CURATED_UGA : CURATED) {
       if (rule.prefixes && rule.prefixes.length > 0 && subjects.size > 0 && !rule.prefixes.some((p) => subjects.has(p))) continue;
       if (!rule.test.test(key)) continue;
       // The table's own word that Illinois grants hours for this course, not

@@ -699,14 +699,41 @@ export function matchTranscript(
           basis: { from: 'rule', badge: 'none', text: 'UGA accepts only general-education courses from a technical college, and this one is not on UGA\'s list as one, so it does not count. Change it if UGA evaluates it otherwise.', source: UGA_TRANSFER_GUIDE },
         };
       }
+      /**
+       * No official answer: the course's content, as Illinois's side does
+       * (proposeEquivalents with UGA's table of common equivalents and the
+       * catalog's titles). A clear match counts, labelled as the planner's
+       * likely match; anything less is offered for the student to confirm.
+       * Before 2026-11-04 every course from a school UGA's lists do not
+       * cover (out of state, private, Illinois) counted as bare hours.
+       */
+      const listNote = entry
+        ? `UGA's equivalency list for ${entry.name} (checked ${entry.readAt}) does not include this course`
+        : `This planner does not hold UGA's equivalency list for ${school ?? 'this school'}`;
+      const ugaProposals = proposeEquivalents({ code, title: c.title, credits: c.credits }, catalog, 3, 'uga').filter((p) => p.confidence !== 'low');
+      const ugaBest = ugaProposals[0];
+      if (ugaBest && ugaBest.confidence === 'high') {
+        const also = ugaProposals.filter((p) => p.pairedWith === ugaBest.code).map((p) => p.code);
+        return {
+          ...base,
+          ...withGrade,
+          matched: ugaBest.code,
+          matchedBy: 'proposal',
+          proposals: ugaProposals,
+          illinoisCredits: [ugaBest.code, ...also].reduce((sum, x) => sum + (creditsOfCode(x) ?? 0), 0),
+          counts: off ? 'none' : 'course',
+          use: !off,
+          ...(also.length ? { also } : {}),
+          basis: { from: 'none', badge: 'course', text: `${listNote}, so it is counted as ${[ugaBest.code, ...also].join(' + ')}, the planner's likely match: ${ugaBest.why} UGA's transfer evaluation decides.`, source: UGA_TRANSFER_PORTAL, ...(entry ? { checked: entry.readAt } : {}) },
+        };
+      }
       return {
         ...base,
         ...withGrade,
+        ...(ugaProposals.length ? { proposals: ugaProposals } : {}),
         counts: off ? 'none' : 'hours',
         use: !off,
-        basis: entry
-          ? { from: 'none', badge: 'not-evaluated', text: `UGA's equivalency list for ${entry.name} (checked ${entry.readAt}) does not include this course, so it counts as hours until UGA evaluates it.`, source: UGA_TRANSFER_PORTAL, checked: entry.readAt }
-          : { from: 'none', badge: 'not-evaluated', text: `This planner does not hold UGA's equivalency list for ${school ?? 'this school'}; it counts as hours until UGA evaluates it. You can look it up in UGA's Transfer Equivalency Search.`, source: UGA_TRANSFER_PORTAL },
+        basis: { from: 'none', badge: 'not-evaluated', text: `${listNote}, so it counts as hours until UGA evaluates it${ugaBest ? `. It may be ${ugaBest.code}: confirm it below` : ''}. You can look it up in UGA's Transfer Equivalency Search.`, source: UGA_TRANSFER_PORTAL, ...(entry ? { checked: entry.readAt } : {}) },
       };
     }
     if (isVocational(code, c.title)) {

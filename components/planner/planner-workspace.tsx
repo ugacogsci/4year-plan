@@ -6468,7 +6468,7 @@ export function PlannerWorkspace({
         const title = str('title');
         if (!title) return { ok: false, reason: 'Give the course title as printed or as the student said it.' };
         const lite = catalogLiteOf(L.catalog);
-        const proposals = proposeEquivalents({ code: str('code').toUpperCase(), title, credits: typeof input.credits === 'number' ? input.credits : null }, lite, 5);
+        const proposals = proposeEquivalents({ code: str('code').toUpperCase(), title, credits: typeof input.credits === 'number' ? input.credits : null }, lite, 5, isUga ? 'uga' : 'illinois');
         /**
          * UGA's own answer first: the planner keeps UGA's Transfer Equivalency
          * lists for 91 schools (public/uga-transfer/), the same lists the
