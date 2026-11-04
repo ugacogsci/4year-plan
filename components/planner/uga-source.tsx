@@ -21,6 +21,7 @@ import type { Course, SemesterSeason } from '@/lib/planner/types';
 import { applyUgaProgramOverrides, TERRY_ECONOMICS_LABEL } from '@/lib/planner/uga-program-overrides';
 import { applyUgaUniversityRules, ugaLanguageTable, withUgaLanguageOrder, withUgaProgramOrder } from '@/lib/planner/uga-university-rules';
 import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
+import { loadUgaDifficulty, ugaGrades } from '@/lib/planner/uga-difficulty';
 import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
 import type { AnyCourseRule } from '@/lib/planner/any-course';
 import { canonicalUgaCode, listedUgaCourseCodes } from '@/lib/planner/uga-course-codes';
@@ -1441,11 +1442,12 @@ function adaptProgram(
 export function loadUgaData(): Promise<UgaData | null> {
   if (ugaPromise) return ugaPromise;
   ugaPromise = (async () => {
-    const [rawCourses, programFile, guidance, offerings] = await Promise.all([
+    const [rawCourses, programFile, guidance, offerings, difficulty] = await Promise.all([
       readJson<RawUgaCourse[]>('/uga-catalog.json'),
       readJson<RawUgaProgramFile>('/uga-programs.json'),
       loadUgaPlanningGuidance(),
       loadUgaOfferings(),
+      loadUgaDifficulty(),
     ]);
     if (!rawCourses || !programFile) {
       ugaPromise = null;
@@ -1527,6 +1529,7 @@ export function loadUgaData(): Promise<UgaData | null> {
               program.degree === 'CERT-GM')),
       )
       .sort((a, b) => a.name.localeCompare(b.name));
+    const courseTitleOf = new Map(courses.map((c) => [c.code, c.title]));
     const context: PlanningContext = {
       schoolId: 'uga',
       undergraduateCounterparts: dualLevelCourses,
@@ -1541,6 +1544,10 @@ export function loadUgaData(): Promise<UgaData | null> {
       languages,
       snapshotTerm: null,
       gradeFootnote: null,
+      // Difficulty from the ratings of the professors who teach each course
+      // (uga-difficulty.ts): term loads, hard-course spreading and lighter
+      // picks now weigh UGA courses the way grade history weighs Illinois's.
+      ...(difficulty ? { grades: ugaGrades(difficulty, (code) => courseTitleOf.get(code) ?? code), bands: difficulty.bands } : {}),
       // What is commonly taken and what is on this year's schedule, for the
       // free choices (autoplan.ts freeChoiceSignals); without the file, as before.
       ...(offerings ? {
