@@ -538,6 +538,9 @@ export function readPriorCredit(
  * reports as an info row rather than silently passing every course, and an absent
  * grades map means no difficulty judgement rather than a cheerful one.
  */
+/** Off until the ratings estimates are proved to cost no requirement (see uga-difficulty.ts). */
+export const ILLINOIS_RATINGS_IN_PLANS = false;
+
 export function buildContext(
   core: IllinoisCore,
   blocks: RequirementBlock[],
@@ -548,8 +551,11 @@ export function buildContext(
     for (const [code, summary] of core.grades) {
       grades.set(code, toGradeRow(summary, core.byCode.get(code)?.title ?? code, []));
     }
-    // A course with no grade history: the professor-ratings estimate on the same scale, where one exists.
-    for (const [code, d] of core.ratingsDifficulty ?? []) {
+    // A course with no grade history: the professor-ratings estimate on the
+    // same scale, where one exists. Held out of planning with UGA's
+    // (uga-difficulty.ts UGA_DIFFICULTY_IN_PLANS) until both are proved to
+    // cost no requirement; ILLINOIS_RATINGS_IN_PLANS turns it on.
+    for (const [code, d] of ILLINOIS_RATINGS_IN_PLANS ? core.ratingsDifficulty ?? [] : []) {
       if (grades.has(code)) continue;
       grades.set(code, { code, title: core.byCode.get(code)?.title ?? code, n: 0, sections: 0, gpa: null, aPct: null, dfPct: null, withdrawPct: null, difficulty: d, instructors: [] });
     }
