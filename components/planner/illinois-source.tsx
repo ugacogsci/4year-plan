@@ -538,8 +538,9 @@ export function readPriorCredit(
  * reports as an info row rather than silently passing every course, and an absent
  * grades map means no difficulty judgement rather than a cheerful one.
  */
-/** Off until the ratings estimates are proved to cost no requirement (see uga-difficulty.ts). */
-export const ILLINOIS_RATINGS_IN_PLANS = false;
+/** The ratings estimates reach plans only through the engine's difficulty gate (plan-estimates.ts). */
+export { ILLINOIS_RATINGS_IN_PLANS } from '@/lib/planner/plan-estimates';
+import { ILLINOIS_RATINGS_IN_PLANS, ILLINOIS_TEACHING_RATINGS_IN_PLANS } from '@/lib/planner/plan-estimates';
 
 export function buildContext(
   core: IllinoisCore,
@@ -547,17 +548,20 @@ export function buildContext(
   full: IllinoisData | null,
 ): { context: PlanningContext; requirements: PlanRequirement[] } {
   const grades = new Map<string, GradeRow>();
+  const estimated = new Set<string>();
   if (core.grades) {
     for (const [code, summary] of core.grades) {
       grades.set(code, toGradeRow(summary, core.byCode.get(code)?.title ?? code, []));
     }
-    // A course with no grade history: the professor-ratings estimate on the
-    // same scale, where one exists. Held out of planning with UGA's
-    // (uga-difficulty.ts UGA_DIFFICULTY_IN_PLANS) until both are proved to
-    // cost no requirement; ILLINOIS_RATINGS_IN_PLANS turns it on.
+    // A course with no grade history: the estimate from student ratings of
+    // its instructors, on the same scale, where one exists. Marked as
+    // estimates (PlanningContext.estimates), so the engine weighs them only
+    // against the board built without them (autoplan.ts difficultyGated);
+    // ILLINOIS_RATINGS_IN_PLANS (plan-estimates.ts) is the kill switch.
     for (const [code, d] of ILLINOIS_RATINGS_IN_PLANS ? core.ratingsDifficulty ?? [] : []) {
       if (grades.has(code)) continue;
       grades.set(code, { code, title: core.byCode.get(code)?.title ?? code, n: 0, sections: 0, gpa: null, aPct: null, dfPct: null, withdrawPct: null, difficulty: d, instructors: [] });
+      estimated.add(code);
     }
   }
 
@@ -586,6 +590,8 @@ export function buildContext(
       ? (core.prereqs as unknown as Map<string, PlanPrereq>)
       : undefined,
     grades: core.grades ? grades : undefined,
+    // The rows above that are estimates, not grade history (autoplan.ts floorContextOf).
+    ...(estimated.size > 0 ? { estimates: { codes: estimated, bands: false } } : {}),
     sections: core.sections ?? undefined,
     // Cross-listings ship in the index now, so a held LLS 200 meets a row
     // written as AAS 200 from the first plan. The full catalog is the fallback
@@ -599,6 +605,10 @@ export function buildContext(
     // scorer reports teaching ratings as not known.
     excellent: core.excellent ?? undefined,
     excellentTerms: core.excellentTerms ?? undefined,
+    // Student ratings of the instructors, read only where the list is silent
+    // and weighed only against the board built without them (course-teaching.ts);
+    // ILLINOIS_TEACHING_RATINGS_IN_PLANS (plan-estimates.ts) is the kill switch.
+    ...(ILLINOIS_TEACHING_RATINGS_IN_PLANS && core.teachingRatings ? { teachingRatings: core.teachingRatings } : {}),
     creditRanges,
     bands: core.meta?.bands ?? null,
     // Illinois publishes no offering term anywhere, so no course is ever refused

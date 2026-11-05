@@ -36,9 +36,16 @@ export interface Priorities {
   notAfter?: number | null;
   /** Days with no class, in the schedule's letters: M T W R F. "Fridays off" is ['F']. */
   freeDays?: string[];
+  /**
+   * "Challenge me": harder picks where the degree leaves a choice, with
+   * workload at 0. The engine builds the balanced board beside it and keeps
+   * the harder picks only where they cost nothing (autoplan.ts
+   * difficultyGated); terms still never stack more of the hardest courses.
+   */
+  challenge?: boolean;
 }
 
-export type PriorityPreset = 'balanced' | 'lightest' | 'relevant' | 'teaching' | 'custom';
+export type PriorityPreset = 'balanced' | 'lightest' | 'relevant' | 'teaching' | 'challenge' | 'custom';
 
 /**
  * Lightest keeps relevance at 1. At 0 it dropped the student's own interest
@@ -53,11 +60,13 @@ export const PRIORITY_PRESETS: Record<Exclude<PriorityPreset, 'custom'>, Priorit
   lightest: { workload: 2, teaching: 1, relevance: 1, coverage: 1, schedule: 1, noEarly: false, format: 'any' },
   relevant: { workload: 0, teaching: 1, relevance: 2, coverage: 1, schedule: 1, noEarly: false, format: 'any' },
   teaching: { workload: 1, teaching: 2, relevance: 1, coverage: 0, schedule: 1, noEarly: false, format: 'any' },
+  // Balanced with workload off and harder picks asked for (Priorities.challenge).
+  challenge: { workload: 0, teaching: 1, relevance: 1, coverage: 1, schedule: 1, noEarly: false, format: 'any', challenge: true },
 };
 
 export const DEFAULT_PRIORITIES: Priorities = PRIORITY_PRESETS.balanced;
 
-export const PRIORITY_LABELS: Record<keyof Omit<Priorities, 'noEarly' | 'format' | 'notBefore' | 'notAfter' | 'freeDays'>, string> = {
+export const PRIORITY_LABELS: Record<keyof Omit<Priorities, 'noEarly' | 'format' | 'notBefore' | 'notAfter' | 'freeDays' | 'challenge'>, string> = {
   workload: 'Lighter workload',
   teaching: 'Highly rated teaching',
   relevance: 'Toward my interests and career',
@@ -73,7 +82,8 @@ export function presetOf(p: Priorities): PriorityPreset {
       preset.teaching === p.teaching &&
       preset.relevance === p.relevance &&
       preset.coverage === p.coverage &&
-      preset.schedule === p.schedule
+      preset.schedule === p.schedule &&
+      Boolean(preset.challenge) === Boolean(p.challenge)
     ) {
       return name;
     }
@@ -95,6 +105,7 @@ export function describePriorities(p: Priorities): string {
   if (p.freeDays && p.freeDays.length > 0) extras.push(`${p.freeDays.join(', ')} free`);
   if (p.format === 'online') extras.push('online preferred');
   if (p.format === 'in-person') extras.push('in person preferred');
+  if (p.challenge) extras.push('challenge me (harder electives where the degree allows)');
   return `${parts.join(', ')}${extras.length ? `; ${extras.join(', ')}` : ''}.`;
 }
 
@@ -112,8 +123,19 @@ export function normalizePriorities(raw: unknown): Priorities {
   // knob at 0 it did nothing at all, and ALMA could set noEarly with it at 0.
   const asked = noEarly || format !== 'any' || notBefore !== null || notAfter !== null || days.length > 0;
   const schedule = knob(r.schedule, DEFAULT_PRIORITIES.schedule);
+  /*
+   * "Challenge me" and a lighter workload pull opposite ways, so the
+   * challenge stands only with workload at 0, and an explicit workload of 1
+   * or 2 wins (the panel and the bots set workload 0 when they set the
+   * challenge). Asked for with no workload at all, the workload is 0. The
+   * key is left out when it is off, so a board saved before it existed keeps
+   * its repick signature (repick.ts repickSignature) and loads as before.
+   */
+  const asksChallenge = r.challenge === true;
+  const workload = r.workload === undefined && asksChallenge ? 0 : knob(r.workload, DEFAULT_PRIORITIES.workload);
+  const challenge = asksChallenge && workload === 0;
   return {
-    workload: knob(r.workload, DEFAULT_PRIORITIES.workload),
+    workload,
     teaching: knob(r.teaching, DEFAULT_PRIORITIES.teaching),
     relevance: knob(r.relevance, DEFAULT_PRIORITIES.relevance),
     coverage: knob(r.coverage, DEFAULT_PRIORITIES.coverage),
@@ -123,5 +145,6 @@ export function normalizePriorities(raw: unknown): Priorities {
     notBefore,
     notAfter,
     freeDays: days,
+    ...(challenge ? { challenge: true } : {}),
   };
 }

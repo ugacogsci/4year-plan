@@ -22,6 +22,7 @@ import { applyUgaProgramOverrides, TERRY_ECONOMICS_LABEL } from '@/lib/planner/u
 import { applyUgaUniversityRules, ugaLanguageTable, withUgaLanguageOrder, withUgaProgramOrder } from '@/lib/planner/uga-university-rules';
 import { loadUgaPlanningGuidance, type UgaPlanningGuidance } from '@/lib/planner/uga-planning-guidance';
 import { loadUgaDifficulty, ugaGrades, UGA_DIFFICULTY_IN_PLANS } from '@/lib/planner/uga-difficulty';
+import { loadCourseTeaching, UGA_TEACHING_IN_PLANS } from '@/lib/planner/course-teaching';
 import { summerOnlyListed, ugaPlannerSeasons } from '@/lib/planner/summer-offering';
 import type { AnyCourseRule } from '@/lib/planner/any-course';
 import { canonicalUgaCode, listedUgaCourseCodes } from '@/lib/planner/uga-course-codes';
@@ -1442,12 +1443,13 @@ function adaptProgram(
 export function loadUgaData(): Promise<UgaData | null> {
   if (ugaPromise) return ugaPromise;
   ugaPromise = (async () => {
-    const [rawCourses, programFile, guidance, offerings, difficulty] = await Promise.all([
+    const [rawCourses, programFile, guidance, offerings, difficulty, teachingRatings] = await Promise.all([
       readJson<RawUgaCourse[]>('/uga-catalog.json'),
       readJson<RawUgaProgramFile>('/uga-programs.json'),
       loadUgaPlanningGuidance(),
       loadUgaOfferings(),
       loadUgaDifficulty(),
+      loadCourseTeaching('uga'),
     ]);
     if (!rawCourses || !programFile) {
       ugaPromise = null;
@@ -1544,12 +1546,18 @@ export function loadUgaData(): Promise<UgaData | null> {
       languages,
       snapshotTerm: null,
       gradeFootnote: null,
-      // Difficulty from the ratings of the professors who teach each course
-      // (uga-difficulty.ts) is held out of planning for now: fed in as grades
-      // on 2026-11-04 it made 129 of 1,288 harness boards meet fewer
-      // requirements (unmet rows 802 -> 946), the per-term hardest-band cap
-      // pushing required courses off. UGA_DIFFICULTY_IN_PLANS turns it on.
-      ...(difficulty && UGA_DIFFICULTY_IN_PLANS ? { grades: ugaGrades(difficulty, (code) => courseTitleOf.get(code) ?? code), bands: difficulty.bands } : {}),
+      // Difficulty from the student ratings of the instructors who teach each
+      // course (uga-difficulty.ts), every row an estimate (estimates.bands:
+      // the bands are UGA's own, from the same ratings). Fed in plainly on
+      // 2026-11-04 it made 129 of 1,288 harness boards meet fewer
+      // requirements; the engine now weighs it only against the board built
+      // without it (autoplan.ts difficultyGated, floorContextOf).
+      // UGA_DIFFICULTY_IN_PLANS (plan-estimates.ts) is the kill switch.
+      // How students rate the instructors on each course's schedule, UGA's only
+      // teaching measure (course-teaching.ts); weighed like the difficulty, only
+      // against the board built without it. UGA_TEACHING_IN_PLANS is the kill switch.
+      ...(teachingRatings && UGA_TEACHING_IN_PLANS ? { teachingRatings } : {}),
+      ...(difficulty && UGA_DIFFICULTY_IN_PLANS ? ((grades) => ({ grades, bands: difficulty.bands, estimates: { codes: new Set(grades.keys()), bands: true } }))(ugaGrades(difficulty, (code) => courseTitleOf.get(code) ?? code, courses.map((c) => c.code))) : {}),
       // What is commonly taken and what is on this year's schedule, for the
       // free choices (autoplan.ts freeChoiceSignals); without the file, as before.
       ...(offerings ? {

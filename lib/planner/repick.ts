@@ -511,6 +511,8 @@ export function boardChecker(input: BoardCheckInput): SwapCheck {
   const categoriesMet = (b: PlanState): boolean[] => genEdCategoriesMet(b, genEdBlocks, ctx, byId);
   const metBefore = categoriesMet(input.board);
   const who = { ...input, primary: degreeSubjects(input.requirements, input.programName).primary };
+  const hardest = ctx.grades && ctx.bands ? ctx.bands.hardest : undefined;
+  const isHardest = (code: string) => hardest !== undefined && (ctx.grades?.get(normaliseCode(code))?.difficulty ?? -1) >= hardest;
   return (next, from, termId, add, removed) => {
     const term = next.terms.find((t) => t.id === termId);
     const was = from.terms.find((t) => t.id === termId);
@@ -535,6 +537,23 @@ export function boardChecker(input: BoardCheckInput): SwapCheck {
         const after = planned(next) + input.priorCredits;
         if (after < input.degreeTotal && after < planned(from) + input.priorCredits) return `The plan would fall to ${after} credits, under the ${input.degreeTotal} the degree takes.`;
       }
+    }
+    /*
+     * A swap never stacks the hardest courses past what the build itself
+     * allows a term (autoplan.ts DEFAULT_MAX_HARD, SUMMER_MAX_HARD): two in a
+     * fall or spring, one in a summer, where the course coming in is one of
+     * them and the term held fewer. Since 2026-11-05 UGA's picks read
+     * difficulty (student ratings of the instructors, plan-estimates.ts).
+     * Held at one a term (tried 2026-11-05) it was stricter than the build,
+     * took hardest-band options out of every Illinois student's dropdowns
+     * where a term held one already, and kept a "Challenge me" student from
+     * choosing a second hard elective by hand.
+     */
+    if (hardest !== undefined && isHardest(add.code)) {
+      const hardNow = codesOf(term.courseIds).filter(isHardest).length;
+      const hardThen = codesOf(was.courseIds).filter(isHardest).length;
+      const cap = term.season === 'Summer' ? 1 : 2;
+      if (hardNow > hardThen && hardNow > cap) return `${term.label} would hold ${hardNow} of the hardest courses at this school.`;
     }
     const closed = notRegistrable(add, ctx, who);
     if (closed) return closed;
@@ -642,13 +661,21 @@ function compositionOne(course: Course, mark: PlanMark): boolean {
 // When a gen-ed swap is worth making
 // ---------------------------------------------------------------------------
 
-type Measure = 'workload' | 'teaching' | 'relevance' | 'coverage' | 'schedule';
-const MEASURES: Measure[] = ['workload', 'teaching', 'relevance', 'coverage', 'schedule'];
+type Knob = 'workload' | 'teaching' | 'relevance' | 'coverage' | 'schedule';
+type Measure = Knob | 'challenge';
+const MEASURES: Knob[] = ['workload', 'teaching', 'relevance', 'coverage', 'schedule'];
+/** The measures read alone on the scorer's 0-to-1 scale (genEdSwapEarned). */
+type ScaledMeasure = 'workload' | 'teaching' | 'challenge';
 
-/** The measures the student weighted most, which is what they asked for; none when every one is off. */
+/**
+ * The measures the student weighted most, which is what they asked for; none
+ * when every one is off. "Challenge me" (Priorities.challenge) is asked for
+ * beside them: a swap to a lighter gen-ed is then a loss.
+ */
 function ledMeasures(p: Priorities): Measure[] {
   const top = Math.max(...MEASURES.map((m) => p[m]));
-  return top > 0 ? MEASURES.filter((m) => p[m] === top) : [];
+  const led: Measure[] = top > 0 ? MEASURES.filter((m) => p[m] === top) : [];
+  return p.challenge ? [...led, 'challenge'] : led;
 }
 
 /**
@@ -660,6 +687,8 @@ function ledMeasures(p: Priorities): Measure[] {
  */
 const WORKLOAD_MARGIN = 0.1;
 const TEACHING_MARGIN = 0.2;
+/** "Challenge me": harder by the same five points of difficulty the workload margin asks for. */
+const CHALLENGE_MARGIN = 0.1;
 
 export interface GenEdSide {
   course: Course;
@@ -681,6 +710,7 @@ export interface GenEdSide {
  *
  *   workload   lighter by WORKLOAD_MARGIN on the grade-history scale
  *   teaching   better by TEACHING_MARGIN on the excellent-list scale
+ *   challenge  harder by CHALLENGE_MARGIN on the grade-history scale
  *   relevance  a hit on the student's goal (course, title or subject) the
  *              pick lacks
  *   coverage   a tag of a gen-ed category the board has not met, which the
@@ -694,14 +724,14 @@ export function genEdSwapEarned(
   priorities: Priorities,
   from: GenEdSide,
   to: GenEdSide,
-  measure: (m: 'workload' | 'teaching', code: string) => QualityResult,
+  measure: (m: ScaledMeasure, code: string) => QualityResult,
   unmetTags: Set<string>,
 ): boolean {
   let gained = false;
   for (const m of ledMeasures(priorities)) {
     let gain = 0;
-    if (m === 'workload' || m === 'teaching') {
-      const margin = m === 'workload' ? WORKLOAD_MARGIN : TEACHING_MARGIN;
+    if (m === 'workload' || m === 'teaching' || m === 'challenge') {
+      const margin = m === 'workload' ? WORKLOAD_MARGIN : m === 'challenge' ? CHALLENGE_MARGIN : TEACHING_MARGIN;
       const was = measure(m, normaliseCode(from.course.code)).score;
       const now = measure(m, normaliseCode(to.course.code)).score;
       gain = now >= was + margin ? 1 : now <= was - margin ? -1 : 0;
@@ -850,10 +880,10 @@ export function repickBoard(input: RepickInput): RepickResult {
     priorities: input.priorities,
     carriedCodes: [...board.terms.flatMap((t) => t.courseIds).map(codeOf), ...held],
   });
-  // Workload and teaching alone, for the gen-ed test: the blended score says
-  // a course is better, not on which measure.
-  const measureScorers = new Map<'workload' | 'teaching', (code: string) => QualityResult>();
-  const measure = (m: 'workload' | 'teaching', code: string): QualityResult => {
+  // Workload, teaching and challenge alone, for the gen-ed test: the blended
+  // score says a course is better, not on which measure.
+  const measureScorers = new Map<ScaledMeasure, (code: string) => QualityResult>();
+  const measure = (m: ScaledMeasure, code: string): QualityResult => {
     let only = measureScorers.get(m);
     if (!only) {
       only = qualityScorer({
@@ -862,7 +892,7 @@ export function repickBoard(input: RepickInput): RepickResult {
         interests: input.interests,
         career: input.career,
         programName: input.programName,
-        priorities: { ...input.priorities, workload: m === 'workload' ? 1 : 0, teaching: m === 'teaching' ? 1 : 0, relevance: 0, coverage: 0, schedule: 0 },
+        priorities: { ...input.priorities, workload: m === 'workload' ? 1 : 0, teaching: m === 'teaching' ? 1 : 0, relevance: 0, coverage: 0, schedule: 0, challenge: m === 'challenge' },
         carriedCodes: [],
       });
       measureScorers.set(m, only);

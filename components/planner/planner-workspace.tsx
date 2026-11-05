@@ -57,7 +57,7 @@ import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
 import { IssueBadge } from './issue-badge';
 import { groupIssues, reviewTitle } from './plan-health';
-import { earlyFinishNote } from '@/lib/planner/attention';
+import { earlyFinishNote, needsAttention } from '@/lib/planner/attention';
 import { CANNOT_FINISH_ID, rankedFlags, recordKind, statedHours, triageIssues, type CreditGap } from '@/lib/planner/warnings-triage';
 import {
   askQuestion,
@@ -185,6 +185,7 @@ import { careerMatcherOn, type CareerFit } from '@/lib/planner/career-embedding'
 import { loadCareerFit } from '@/lib/planner/career-embedding-browser';
 import { collegeRulesFor, crncEligibility, describeApplicationPrograms, overloadAnswer, underloadNote } from '@/lib/planner/college-rules';
 import { describeExcellent, interestWordsFrom, sectionTimes } from '@/lib/planner/quality';
+import { describeRatedTeaching } from '@/lib/planner/course-teaching';
 import {
   DEFAULT_PRIORITIES,
   describePriorities,
@@ -1591,7 +1592,11 @@ export function PlannerWorkspace({
       setProgramIds((current) => current.length > 0 ? current : [sample.programId]);
       return null;
     }
-    if (!context) return null;
+    // A build that stops before the degree is read says nothing: the "Building your plan" line clears (buildPlan).
+    if (!context) {
+      if (!trial) setStatus('');
+      return null;
+    }
 
     const priorRead = withGenEdCredit(readPriorCredit(
       answers?.transferText ?? '',
@@ -1640,7 +1645,10 @@ export function PlannerWorkspace({
       return null;
     }
 
-    if (!loaded) return null;
+    if (!loaded) {
+      if (!trial) setStatus('');
+      return null;
+    }
     if (doubleDawgsPathway && !loaded.doubleDawgsGraduate) {
       if (trial) return null;
       setStatus("This pathway's graduate degree is not linked to a catalog curriculum yet. Choose another pathway or remove it to build a bachelor's-only plan.");
@@ -1692,15 +1700,23 @@ export function PlannerWorkspace({
      */
     const priorHours = priorHoursOf(answers, exams, examCredit.entries, catalogCredits);
     let courseById: Map<string, Course> | null = null;
-    const builtAudit = (board: PlanState, bookedFor?: Record<string, string | null>): number => {
+    // One audit a board: the unmet rows (builtAudit) and the issues (builtAuditIssues) both read it.
+    const audits = new WeakMap<PlanState, ReturnType<typeof auditUgaBoard>>();
+    const auditOfBoard = (board: PlanState, bookedFor?: Record<string, string | null>): ReturnType<typeof auditUgaBoard> => {
+      const known = audits.get(board);
+      if (known) return known;
       courseById ??= new Map(context.courses.map((course) => [course.id, course]));
       const held = board.completedCourseIds.flatMap((id) => courseById?.get(id)?.code ?? []).map(normCode);
       const hours = planCreditRange(distinctHeld(held, context).codes, context).min + priorHours;
-      return ugaUnmetRows(auditUgaBoard({ board, context, undergraduate: loaded, graduate: loaded.doubleDawgsGraduate, priorCodes: held, bookedFor,
+      const audit = auditUgaBoard({ board, context, undergraduate: loaded, graduate: loaded.doubleDawgsGraduate, priorCodes: held, bookedFor,
         extraCredits: hours - planCreditRange(held, context).min + horizon.assumedHours,
         transcript: answers?.transcript, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used, languagePlaced: answers?.languageYears ?? null,
-        validation: { ...validateOptions(), programName: loaded.program.name, priorCredits: hours + horizon.assumedHours } }));
+        validation: { ...validateOptions(), programName: loaded.program.name, priorCredits: hours + horizon.assumedHours } });
+      audits.set(board, audit);
+      return audit;
     };
+    const builtAudit = (board: PlanState, bookedFor?: Record<string, string | null>): number => ugaUnmetRows(auditOfBoard(board, bookedFor));
+    const builtAuditIssues = (board: PlanState, bookedFor?: Record<string, string | null>) => auditOfBoard(board, bookedFor).issues;
     let planInput: AutoplanInput = {
       requirements: loaded.blocks,
       context,
@@ -1738,6 +1754,17 @@ export function PlannerWorkspace({
       ...(careerFit ? { careerFit, ...(isUga ? { careerAudit: (g: GeneratedPlan) => builtAudit(g.plan, g.bookedFor) } : {}) } : {}),
       // And the free choices' check (AutoplanInput.boardAudit), at UGA by the audit the board bar reads.
       ...(isUga ? { boardAudit: (g: GeneratedPlan) => builtAudit(g.plan, g.bookedFor) } : {}),
+      /*
+       * The difficulty gate (autoplan.ts difficultyGated) keeps no board with
+       * more issues needing attention than the board built without the
+       * difficulty estimates; at UGA the audit's own issues, read as the board
+       * bar reads them. A "can't finish" fix builds that board alone
+       * (difficultyGate: false): the gate's board never finishes later.
+       */
+      ...(isUga ? { boardAttention: (g: GeneratedPlan) => builtAuditIssues(g.plan, g.bookedFor).filter(needsAttention).length } : {}),
+      // And row by row, as a swap is checked (ugaProgressLoss): fewer unmet rows never buy less of another row.
+      ...(isUga ? { boardProgressLost: (g: GeneratedPlan, floor: GeneratedPlan) => ugaProgressLoss(auditOfBoard(floor.plan, floor.bookedFor), auditOfBoard(g.plan, g.bookedFor)) } : {}),
+      ...(trial ? { difficultyGate: false } : {}),
       programName: loaded.program.name,
       programCollege: loaded.program.college,
       arrival: arrivalOf(answers),
@@ -1964,9 +1991,40 @@ export function PlannerWorkspace({
     announceBuild.current = true;
     return null;
   }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, setup, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga, careerFit]);
-  /** Rebuild: the board for the plan's own shape and credit numbers, shown. */
+  /**
+   * Rebuild: the board for the plan's own shape and credit numbers, shown.
+   *
+   * Since 2026-11-05 a student who asks for a lighter workload, highly rated
+   * teaching or a challenge gets a build that weighs the difficulty
+   * estimates against the board built without them (autoplan.ts
+   * difficultyGated): two to four builds where there was one, up to about
+   * 22 seconds alone on UGA's densest degrees, all on this thread (Balanced
+   * builds once, as before). So the page says it is building and
+   * paints that before the build starts (a timer past one frame, which a
+   * hidden tab still runs, where an animation frame would wait for the tab
+   * to show), and a second request before then replaces the first. Moving
+   * the build off the page (a worker) is the real fix: its inputs carry the
+   * audit closures.
+   *
+   * Said on screen too (`building`): the status line is for screen readers,
+   * so on a Rebuild the old board stayed as it was, the page froze, and a
+   * second click ran a second whole build after the first (2026-11-05).
+   * While it builds, the board dims, says so, and Rebuild waits.
+   */
+  const pendingBuild = useRef<number | null>(null);
+  const [building, setBuilding] = useState(false);
   const buildPlan = useCallback(() => {
-    composePlan(null);
+    if (pendingBuild.current !== null) window.clearTimeout(pendingBuild.current);
+    setStatus('Building your plan…');
+    setBuilding(true);
+    pendingBuild.current = window.setTimeout(() => {
+      pendingBuild.current = null;
+      try {
+        composePlan(null);
+      } finally {
+        setBuilding(false);
+      }
+    }, 20);
   }, [composePlan]);
   /*
    * The career matcher arrives a moment after the goal (it loads in the
@@ -5020,6 +5078,8 @@ export function PlannerWorkspace({
           sched.summary?.instructors ?? null,
           sched.label,
         ),
+        // Student ratings of the instructors on its schedule, which the teaching priority reads where no list speaks (course-teaching.ts).
+        ...(ctx.teachingRatings?.has(normCode(c.code)) ? { teaching_student_ratings: describeRatedTeaching(ctx.teachingRatings.get(normCode(c.code))) } : {}),
         recent_terms_it_ran: offeredLine(ctx, normCode(c.code)),
         fit: fitOf(c),
         ...(gate
@@ -6024,6 +6084,11 @@ export function PlannerWorkspace({
         for (const key of ['notBefore', 'notAfter', 'freeDays'] as const) {
           if (input[key] !== undefined) knobs[key] = input[key];
         }
+        // "Challenge me" (Priorities.challenge), and a lighter workload asked for ends it: the two pull opposite ways.
+        // The challenge stands only with workload at 0 (normalizePriorities), so asking for it with no workload sets 0.
+        if (typeof input.challenge === 'boolean') knobs.challenge = input.challenge;
+        else if (input.workload === 1 || input.workload === 2) knobs.challenge = false;
+        if (input.challenge === true && input.workload === undefined) knobs.workload = 0;
         const next = normalizePriorities({ ...base, noEarly: L.priorities.noEarly, format: L.priorities.format, notBefore: L.priorities.notBefore, notAfter: L.priorities.notAfter, freeDays: L.priorities.freeDays, ...knobs });
         // Publish once, then expose it to subsequent tools in the same turn.
         // oxlint-disable-next-line react/react-compiler
@@ -6123,10 +6188,10 @@ export function PlannerWorkspace({
         } else {
           notify(`${botName} updated your priorities`, 'Every pick already held the best course for them that the board can take.', 'info');
         }
-        // UGA's data has no grade history, teaching lists or class times for those three knobs to choose by.
-        const ugaNoData = isUga && (['preset', 'workload', 'teaching', 'schedule', 'noEarly', 'notBefore', 'notAfter', 'freeDays', 'format'] as const).some((key) => input[key] !== undefined);
+        // UGA's data has no class times for those knobs to choose by; workload and teaching read the ratings estimates (plan-estimates.ts, course-teaching.ts).
+        const ugaNoData = isUga && (['schedule', 'noEarly', 'notBefore', 'notAfter', 'freeDays', 'format'] as const).some((key) => input[key] !== undefined);
         const interestsNotes = [
-          ugaNoData ? "At UGA the planner's picks read no grade history, student ratings or class times, so workload, teaching and schedule are saved but have nothing to choose by; picks move only through relevance (the interests) and coverage. If the student asked for easier classes, better professors, a time of day or a format, say so plainly (professor_ratings can still give how students rate a course's instructors)." : null,
+          ugaNoData ? "At UGA the planner's picks read no class times, so the schedule knob, hours, days and format are saved but have nothing to choose by; picks move through relevance (the interests), coverage, workload and teaching (both estimates from student ratings of the instructors UGA's Schedule of Classes names). If the student asked for a time of day or a format, say so plainly." : null,
           mode === 'replace' && !said ? 'interests_mode replace needs the new words in interests, so the stored career words were kept; use clear to drop the goal.' : null,
           dropped.length > 0 ? `No longer a goal: ${dropped.join(', ')}. Courses booked for it that are still on the board are ordinary elective slots now, and pressing Rebuild plans without them; say so.` : null,
           missingTrackCourses
@@ -7875,8 +7940,8 @@ export function PlannerWorkspace({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          <Button className="rebuild-button" onClick={buildPlan} disabled={programBusy}>
-            Rebuild
+          <Button className="rebuild-button" onClick={buildPlan} disabled={programBusy || building} aria-busy={building}>
+            {building ? 'Building…' : 'Rebuild'}
           </Button>
         </div>
         {plan && cannot && triage.prominent.some((k) => k.key === CANNOT_FINISH_ID) && (
@@ -7980,8 +8045,9 @@ export function PlannerWorkspace({
         )}
 
         <div
-          className="plan-board"
+          className={building && plan ? 'plan-board plan-board-building' : 'plan-board'}
           aria-label="Four year course plan"
+          aria-busy={building}
           onScroll={(event) => {
             if (rulerRef.current) rulerRef.current.scrollLeft = event.currentTarget.scrollLeft;
           }}

@@ -4,6 +4,7 @@ import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
 import { forSchool, interestProfile, labPartners, phraseWordsOf, UGA_CAREER_TRACKS, withHeldVariants, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
 import type { Priorities } from './priorities';
 import { interestWordsFrom, saysGoalMatch, scoreQuality, type ExcellentSummary, type QualityInputs, type QualityResult } from './quality';
+import { ILLINOIS_TEACHING_FILL_CAP, type RatedTeaching } from './course-teaching';
 import { GOAL_GROUP_CAP, NEAR_SAME, progressionPoints, varietyPenalty, type CareerFit } from './career-embedding';
 import { DEFAULT_PRIORITIES } from './priorities';
 import { weeklyFit, type WeeklySchedule } from './weekly-fit';
@@ -421,7 +422,24 @@ export interface PlanningContext {
   /** Teachers Ranked as Excellent, per course, and the terms the list covers. Absent means not known. */
   excellent?: Map<string, ExcellentSummary>;
   excellentTerms?: string[];
+  /**
+   * Student ratings of the instructors each course's schedule names
+   * (course-teaching.ts): UGA's only teaching measure, and Illinois's for the
+   * courses its excellent list is silent on. Like `estimates`, a board built
+   * with them is weighed only against the board built without them
+   * (difficultyGated, floorContextOf). Absent: teaching reads as before.
+   */
+  teachingRatings?: ReadonlyMap<string, RatedTeaching>;
   bands?: PlanDifficultyBands | null;
+  /**
+   * The `grades` rows whose difficulty is an estimate from student ratings of
+   * the instructors who teach the course, not grade history (every UGA row;
+   * Illinois's courses with no grade history), and whether `bands` is drawn
+   * from those estimates too (UGA). generatePlan weighs a board built with
+   * them only against the board built without them (difficultyGated,
+   * floorContextOf). Absent: every row is grade history, as before.
+   */
+  estimates?: { codes: ReadonlySet<string>; bands: boolean };
   /**
    * Codes whose offering term the catalog actually publishes.
    *
@@ -937,6 +955,38 @@ export interface AutoplanInput {
    */
   qualityMemo?: Map<string, Map<string, QualityResult>>;
   /**
+   * False to build the board without the difficulty estimates and without
+   * the difficulty gate's other boards (difficultyGated): the board the
+   * planner built before the estimates, at one candidate's cost. The
+   * workspace's "can't finish" fixes pass it: a board the gate keeps never
+   * finishes later than that one, so it decides whether a fix finishes.
+   */
+  difficultyGate?: boolean;
+  /**
+   * Set by the difficulty gate on the boards it builds with the estimates
+   * (difficultyGated), and carried by their own inner builds. A build asked
+   * for a particular free-choices board (freeChoices set) without it is built
+   * without the estimates, as before them: the gate alone weighs them.
+   */
+  withEstimates?: boolean;
+  /**
+   * How many of the board's issues need attention now (attention.ts
+   * needsAttention), as the caller reads them; the difficulty gate keeps no
+   * board with more than its floor. Absent: not read.
+   */
+  boardAttention?: (g: GeneratedPlan) => number;
+  /**
+   * What a board loses against the difficulty gate's floor, row by row, as
+   * the caller's audit reads both (at UGA uga-board-audit.ts
+   * ugaProgressLoss: hours inside a row, a list's count, a rule met, a new
+   * order or total fault); null where it loses nothing. The counts above
+   * cannot see it: a Geology sophomore's lighter board met as many rows with
+   * 16 of 18 hours of Courses Related to the Major where the floor had 17,
+   * and a Natural Resource Management junior's traded World Languages 3 of 9
+   * for Area of Emphasis (2026-11-05). Absent: not read.
+   */
+  boardProgressLost?: (g: GeneratedPlan, floor: GeneratedPlan) => string | null;
+  /**
    * False to build the improved board without reading a plain MATH 112
    * prerequisite as met by the calculus a placement enters (placementGroups).
    * Inert on the shipped data, which reads no placement sentence as prior
@@ -1258,6 +1308,14 @@ export interface GeneratedPlan {
    * Schedule of Classes' seasons too, its picks traded where they could be.
    */
   freeChoices?: 'common' | 'ties' | 'off' | 'unscheduled';
+  /**
+   * Which board the difficulty gate kept (difficultyGated): its floor (the
+   * board built without the difficulty estimates), the board built with
+   * them, the lighter one (one hardest-band course a term), or the floor
+   * with the picks of one of those traded in; and each board it weighed,
+   * with what made it worse than the floor. Absent where the gate did not run.
+   */
+  difficulty?: { kept: 'floor' | 'difficulty' | 'lighter' | 'challenge' | 'traded' | 'balanced'; tried: Array<{ how: string; worse: string[]; score: number | null }>; floorScore: number; builds: number };
   /** Requirements with no course assigned, each with the catalog link so a human can check. */
   unsatisfied: UnsatisfiedRequirement[];
   /**
@@ -3664,6 +3722,8 @@ interface ElectiveScoring {
   barred?: (code: string) => string | null;
   /** The student said lighter workload matters most (workload 2). See lightFirst(). */
   lightFirst?: boolean;
+  /** The student asked to be challenged (Priorities.challenge): harder courses gain LIGHT_POINTS. */
+  challenge?: boolean;
   /** Courses that open a course the student's goal names (goalOpenersOf). */
   opensGoal?: ReadonlySet<string>;
   /** The student's goal weighs as a goal (goalWeighs): GOAL_POINTS on top of the relevance knob's own. */
@@ -3755,6 +3815,15 @@ const ILLINOIS_POPULAR_POINTS = [2, 0, -3, -6, -9, -3];
 /** Grade-history lightness in steps of a tenth, lightest 0, for the list and gen-ed orders at workload 2. */
 function lightStep(q: QualityResult): number {
   return Math.floor((1 - (q.lightness ?? 0)) * 10);
+}
+
+/**
+ * The same steps for "Challenge me", hardest 0; a course with no difficulty
+ * known goes after every known one (step 10), so no unknown course is taken
+ * for a hard one.
+ */
+function challengeStep(q: QualityResult): number {
+  return q.lightness === undefined ? 10 : Math.floor(q.lightness * 10);
 }
 
 /**
@@ -4162,9 +4231,11 @@ function qualityFor(
     wantedTags: opts.wantedTags,
     grades: ctx.grades,
     bands: ctx.bands ?? null,
+    ...(ctx.estimates ? { estimated: ctx.estimates.codes } : {}),
     sections: sectionsForQuality(ctx.sections),
     excellent: excellentWithTwins(ctx),
     excellentTerms: ctx.excellentTerms,
+    ...(ctx.teachingRatings ? { ratedTeaching: ctx.teachingRatings } : {}),
     nowLabel: ctx.snapshotTerm?.label ?? null,
     ...(opts.careerFit ? { careerFit: opts.careerFit } : {}),
     ...(ctx.subjectNames ? { subjectNames: ctx.subjectNames } : {}),
@@ -5621,6 +5692,8 @@ function scoreElective(code: string, s: ElectiveScoring): number {
   if (q.goalFit !== undefined) score += FIT_POINTS * q.goalFit + (s.careerFollowOn?.(code) ?? 0);
   // Lighter workload matters most: the measure again, on its own (lightFirst).
   if (s.lightFirst) score += LIGHT_POINTS * (q.lightness ?? 0);
+  // "Challenge me": the same points for a harder course, only where its difficulty is known (quality.ts sets lightness then).
+  if (s.challenge && q.lightness !== undefined) score += LIGHT_POINTS * (1 - q.lightness);
   if (s.free) {
     // Commonly taken, outside the degree's subjects (POPULAR_POINTS).
     if (s.common && !s.degreeSubjects.has(course.cluster) && course.cluster !== s.primarySubject) {
@@ -5969,6 +6042,7 @@ export function electiveOptions(input: {
     rare: rareCheck(ctx),
     barred: freeElectiveBar(ctx, byCode, { college: input.programCollege ?? null, primary: majors.primary, programName: input.programName }),
     lightFirst: lightFirst(input.priorities),
+    challenge: challengeOf(input.priorities),
     opensGoal: goalOpenersOf(ctx, careerProfileOf(input), input.priorities),
     goalPoints: goalWeighs(careerProfileOf(input)),
     careerFollowOn: careerFollowOnOf(ctx, input.careerFit),
@@ -7327,7 +7401,543 @@ function ranksAbove(a: number[], b: number[]): boolean {
   return false;
 }
 
+/**
+ * The engine's inner builds (generatePlanInner) so far, for the difficulty
+ * gate's budget: a count, not the clock, so the same student always gets
+ * the same board, on a fast machine or a slow one.
+ */
+let innerBuilds = 0;
+
+/**
+ * Inner builds past which the difficulty gate builds no further board
+ * (difficultyGated): no Balanced board for a lightest or teaching student,
+ * no lighter board. The floor and the board with the estimates cost 4 to 25
+ * each on most of UGA's and Illinois's degrees, but 50 to 90 each for a UGA
+ * pre-med freshman (Biochemistry: 167 inner builds in one plan, 30 s alone,
+ * 2026-11-05), so the budget is what keeps the worst build near 30 s.
+ */
+const DIFFICULTY_GATE_BUDGET = 32;
+/**
+ * Inner builds past which the gate trades no picks onto the floor either
+ * (freeChoicesTraded): up to 40 trades, each a full check of the board (at
+ * UGA its whole audit), cost seconds more on a board whose two builds took
+ * this many. Such a board keeps its floor or its board with the estimates.
+ */
+const DIFFICULTY_GATE_TRADE_BUDGET = 96;
+/**
+ * Trade checks (a board each, at UGA its whole audit) past which the gate
+ * trades no more, over all its trades: two passes at one pass's own limit
+ * (40, in freeChoicesTraded). A Management freshman's board took
+ * 23 s on 12 inner builds, nearly all of it trade checks (2026-11-05).
+ */
+const DIFFICULTY_GATE_TRADE_CHECKS = 80;
+/**
+ * Inner builds past which the floor alone is too dear to build again with
+ * the estimates (difficultyGated): UGA's other degrees' floors take 4 to 25,
+ * a pre-med freshman's 50 to 90.
+ */
+const DIFFICULTY_GATE_FLOOR_CAP = 48;
+/**
+ * The budgets above are UGA's: an inner build there costs about three of
+ * Illinois's (its audit and catalog), so Illinois gets three times each. At
+ * one Illinois pre-health floors (40 to 54 inner builds, under 2 s) never
+ * met the Balanced floor, and a Dietetics pre-med's lightest board kept
+ * CPSC 241 and HK 250 off where Balanced placed them (2026-11-05).
+ */
+function gateBudgetScale(ctx: PlanningContext): number {
+  return ctx.schoolId === 'uga' ? 1 : 3;
+}
+
+const floorContexts = new WeakMap<PlanningContext, PlanningContext>();
+/**
+ * The context without the difficulty estimates (PlanningContext.estimates):
+ * the context the planner built every board on before them, key for key.
+ * At UGA every row and the bands are estimates, so `grades` and `bands` go,
+ * deleted rather than set to undefined (the scorer reads `bands` even for a
+ * course with no row); at Illinois only the estimate rows leave `grades`.
+ */
+export function floorContextOf(ctx: PlanningContext): PlanningContext {
+  const est = ctx.estimates;
+  if (!est && !ctx.teachingRatings) return ctx;
+  const known = floorContexts.get(ctx);
+  if (known) return known;
+  const out: PlanningContext = { ...ctx };
+  delete out.estimates;
+  // The teaching readings from student ratings are estimates too: the floor reads teaching as before them.
+  delete out.teachingRatings;
+  if (est?.bands) {
+    delete out.grades;
+    delete out.bands;
+  } else if (est && ctx.grades) {
+    out.grades = new Map([...ctx.grades].filter(([code]) => !est.codes.has(code)));
+  }
+  floorContexts.set(ctx, out);
+  return out;
+}
+
+/** Priorities with "Challenge me" set (priorities.ts); false for a value saved before it existed. */
+function challengeOf(p: Priorities | undefined): boolean {
+  return p?.challenge === true;
+}
+
+/**
+ * How well a board answers the student's workload and teaching priorities,
+ * read with the difficulty estimates; lower is better. Only the board's own
+ * picks count (not a course a requirement names, a track's course or a
+ * prerequisite the board added): those are the same whatever the student
+ * asked for. A course with no difficulty counts at the harder band, as the
+ * scorer weighs it (quality.ts). Terms holding two or three hardest-band
+ * courses weigh most, then how hard the picks are on average; "Challenge me"
+ * wants the picks harder and the stacking just as little. Teaching reads
+ * Illinois's Teachers Ranked as Excellent list (0.4 for a course not on it),
+ * and where it is silent (and at UGA) student ratings of the instructors.
+ */
+function difficultyPreference(g: GeneratedPlan, input: AutoplanInput): { score: number; stacked: Array<{ label: string; hard: number }> } {
+  const ctx = input.context;
+  const p = input.preferences?.priorities ?? DEFAULT_PRIORITIES;
+  const hardest = ctx.bands?.hardest ?? FALLBACK_HARD_DIFFICULTY;
+  const harder = (ctx.bands ?? FALLBACK_BANDS).harder;
+  const difficulty = (code: string) => ctx.grades?.get(code)?.difficulty ?? null;
+  const stacked: Array<{ label: string; hard: number }> = [];
+  let stack2 = 0;
+  let stack3 = 0;
+  for (const t of g.terms) {
+    const hard = t.codes.filter((c) => (difficulty(normaliseCode(c)) ?? -1) >= hardest).length;
+    if (hard >= 2) {
+      stack2 += 1;
+      if (t.season !== 'Summer') stacked.push({ label: t.label, hard });
+    }
+    if (hard >= 3) stack3 += 1;
+  }
+  const named = new Set(input.requirements.flatMap((r) => (r.rule.kind === 'all' ? r.rule.choices.flatMap((ch) => ch.codes.map(normaliseCode)) : [])));
+  const track = new Set(g.electives.filter((e) => e.track).map((e) => normaliseCode(e.code)));
+  const added = new Set(g.addedPrerequisites.map((a) => normaliseCode(a.code)));
+  const picks = g.terms.flatMap((t) => t.codes.map(normaliseCode)).filter((c) => !named.has(c) && !track.has(c) && !added.has(c));
+  const mean = (f: (code: string) => number) => (picks.length === 0 ? 0 : picks.reduce((n, c) => n + f(c), 0) / picks.length);
+  const hardness = mean((c) => Math.min(1, Math.max(0, (difficulty(c) ?? harder) / (1.2 * hardest))));
+  // A ratings reading (teachingRatings) counts from the same 0.4 toward the list's 1, held under the list at Illinois as the scorer holds it (quality.ts).
+  const rated = (c: string) => Math.min(ctx.excellent ? ILLINOIS_TEACHING_FILL_CAP : 0.85, ctx.teachingRatings?.get(c)?.v ?? 0);
+  const teaching = mean((c) => (ctx.excellent?.has(c) ? 1 : 0.4 + 0.6 * (rated(c) / 0.85)));
+  const challenge = challengeOf(p);
+  const load = 3 * stack3 + 1.5 * stack2 + (challenge ? -2 : 2) * hardness;
+  const wW = challenge ? 2 : [0, 1, 4][p.workload] ?? 1;
+  const wT = [0, 0.5, 2][p.teaching] ?? 0;
+  return { score: wW * load + wT * (1 - teaching), stacked };
+}
+
+/**
+ * Difficulty as one of the student's priorities that never costs the degree
+ * anything. The board built without the difficulty estimates
+ * (floorContextOf: exactly the board the planner built before them) is the
+ * floor. Beside it: the board built with them (and with "Challenge me" when
+ * the student asked), and, for "Lightest schedule", a board with one
+ * hardest-band course a term where the best board so far still stacks two.
+ * A board stands only where, read with the estimates, it is no worse than
+ * the floor on any of the engine's gate measures (gateWorse: required
+ * courses, requirements, errors, the last term, hours, order, watched
+ * warnings, labs, terms over the cap, terms with two or three of the
+ * hardest, track rows, residency, seminars, math, sequences, year one), the
+ * caller's audit (boardAudit: at UGA the overlay rows the engine does not
+ * read) and attention count (boardAttention), the hours short of the
+ * degree, the goal's picks and the track's courses. A board that does not
+ * stand gives the floor its picks seat for seat where each trade stands
+ * (freeChoicesTraded). Among the boards that stand, one meeting more of the
+ * degree wins; otherwise the one that answers the workload and teaching
+ * priorities best (difficultyPreference), by a clear margin, and the floor
+ * keeps a tie.
+ *
+ * Why: fed in plainly on 2026-11-04 the estimates moved every board the
+ * engine weighs a new one against, and 56 of 483 UGA boards lost a
+ * requirement: lighter list picks that no longer met Cultural Diversity or
+ * Environmental Awareness, which only UGA's audit reads, and required
+ * hardest-band courses pushed off by the per-term cap (CSEE 4210 for
+ * Electrical Engineering).
+ */
+function difficultyGated(input: AutoplanInput): GeneratedPlan {
+  const ctx = input.context;
+  const floorCtx = floorContextOf(ctx);
+  const p = input.preferences?.priorities ?? DEFAULT_PRIORITIES;
+  const challenge = challengeOf(p);
+  const light = lightFirst(p);
+  const started = innerBuilds;
+  const scale = gateBudgetScale(ctx);
+  const budget = DIFFICULTY_GATE_BUDGET * scale;
+  const balancedPriorities: Priorities = { ...p, workload: DEFAULT_PRIORITIES.workload, teaching: DEFAULT_PRIORITIES.teaching, coverage: DEFAULT_PRIORITIES.coverage, challenge: false };
+  const leaning = !challenge && (p.workload === 2 || p.teaching === 2);
+  let floor = generatePlanFinished(difficultyFloorInput(input));
+  if (floorCtx === ctx && !light && !challenge) return floor;
+  if (!ctx.prereqs) return floor;
+  /*
+   * A student who asked for none of them (Balanced, or the interests and
+   * coverage presets) gets the floor, at both schools: the board and the
+   * build time the planner had before the estimates. At Illinois the floor
+   * already weighs difficulty from the grade history, and the estimates
+   * (for the 499 courses without one) and the teaching readings changed no
+   * Balanced board of 348 (308 degrees and 40 pre-health boards) while the
+   * second build took the plan to about 2.4 times as long. At UGA the board
+   * with the estimates did make Balanced lighter (terms with two of the
+   * hardest 258 -> 230 over 483 harness boards), but every UGA student paid
+   * for it with a build 2.5 to 2.8 times as long, all of it with the page
+   * frozen: Management and International Business 5.4 s -> 13.3 s alone,
+   * the median 2.6 s -> 7.3 s on a busy Mac, one board 37.9 s (2026-11-05).
+   * The owner agreed to a longer wait for a student who asks for a lighter
+   * schedule, not for every student; so the estimates reach a UGA board
+   * through "Lighter workload", "Highly rated teaching" and "Challenge me".
+   */
+  if (!leaning && !challenge) return floor;
+  /*
+   * At UGA the rules a lighter pick most often loses (Cultural Diversity,
+   * Environmental Awareness, the Franklin rows) are read only by the board
+   * audit the caller hands in (boardAudit: the workspace, the harness, Double
+   * Dawgs). A caller without it cannot tell whether a board meets them, so it
+   * gets the floor: a Psychology board built with no audit lost a
+   * university-wide rule its floor met (__uga-university-rules, 2026-11-05).
+   */
+  if (ctx.schoolId === 'uga' && !input.boardAudit) return floor;
+  const goalPicks = (g: GeneratedPlan) => g.electives.filter((e) => e.forGoal).length + (g.genEdPicks ?? []).filter((x) => x.forGoal).length;
+  /*
+   * "Lightest schedule" and "Highly rated teaching": the better of two
+   * floors. Their own (the board the planner built for them before the
+   * estimates) is held against the Balanced student's, and where it does
+   * less of the degree (a course left off, a requirement unmet, an order
+   * fault, a track row later or missing, a later finish, residency hours)
+   * and the Balanced
+   * one does less of nothing, places every course it places and as many of
+   * the goal's, the Balanced floor is the floor: a lighter schedule never
+   * costs a required course. An Illinois Dietetics pre-med's lightest board
+   * left CPSC 241 and HK 250 off, and an Electrical Engineering pre-med's
+   * put MCB 354 before CHEM 232, where Balanced did neither; live did the
+   * same (2026-11-05). Within the build budget, as the gate's other boards.
+   *
+   * "Does less" counts a warning the Balanced floor does not carry and, at
+   * UGA, an issue needing attention: an Illinois French lightest board kept
+   * an SLCL 110 its schedule does not list, and a UGA Biology junior's
+   * gained the "Upper-division hours" warning, where Balanced had neither
+   * (2026-11-05). And the Balanced floor may leave off a list course the own
+   * floor places where it leaves fewer courses off in all: at UGA no row
+   * loses hours for it (boardProgressLost), and a course a requirement names
+   * is held by gateWorse's own set. Held to every course, an Illinois
+   * Natural Resources lightest board kept four off (CPSC 241, IB 361,
+   * PHYS 211, REL 260) where Balanced left two (AFRO 228, CPSC 241).
+   */
+  let floorFrom: string[] | null = null;
+  // The Balanced boards' builds, which do not spend the lighter board's budget (below): both are what a lightest student asked for.
+  let balancedCost = 0;
+  if (leaning && innerBuilds - started <= budget) {
+    const before = innerBuilds;
+    const balancedFloor = generatePlanFinished({ ...difficultyFloorInput(input), preferences: { ...input.preferences, priorities: balancedPriorities } });
+    /*
+     * What the degree itself needs, not how the board reads: a sequence split
+     * across terms is not on the list. With it, an Illinois Finance
+     * freshman's lightest board took the Balanced floor for a split sequence
+     * and kept Balanced's picks, no lighter (__electives, 2026-11-05).
+     */
+    const DEGREE = ['errors', 'notPlaced', 'unsatisfied', 'terms', 'order', 'track', 'residency', 'warnings'];
+    const own = gateMeasure(floor, input, floor.language ?? null);
+    const bal = gateMeasure(balancedFloor, input, balancedFloor.language ?? null);
+    const ownLoses = gateWorse(own, bal).filter((w) => DEGREE.includes(w));
+    // At UGA the rows only the caller's audit reads, as the gate reads them below.
+    if (input.boardAudit && input.boardAudit(floor) > input.boardAudit(balancedFloor)) ownLoses.push('audit');
+    else if (input.boardProgressLost && input.boardProgressLost(floor, balancedFloor) !== null) ownLoses.push('progress');
+    if (input.boardAttention && input.boardAttention(floor) > input.boardAttention(balancedFloor)) ownLoses.push('attention');
+    const placed = new Set(floor.terms.flatMap((t) => t.codes.map(normaliseCode)));
+    /*
+     * A requirement the own floor meets and the Balanced one does not is a
+     * loss, unless the Balanced floor meets more requirements in all, leaves
+     * fewer courses off and no required course the own one places. Held to
+     * each requirement, an Illinois Natural Resources student asking for
+     * highly rated teaching kept PHYS 211, IB 361 and REL 260 off and one
+     * more requirement unmet, because Balanced left AFRO 228's gen-ed open
+     * instead (2026-11-05). At UGA the row check below still holds every row.
+     */
+    const moreInAll = bal.unsatisfied.size < own.unsatisfied.size && bal.offCount < own.offCount && [...bal.requiredOff].every((c) => own.requiredOff.has(c));
+    /*
+     * And for "Lightest schedule", never a Balanced floor with more terms
+     * holding three of the hardest than the student's own: that is what they
+     * asked to be spared. An Illinois Electrical Engineering pre-med's
+     * Balanced floor puts three in Fall 2028 (2026-11-05).
+     */
+    const balancedHolds = gateWorse(bal, own).every((w) => !DEGREE.includes(w) || (w === 'unsatisfied' && moreInAll))
+      && (!light || bal.stacked <= own.stacked)
+      && (balancedFloor.notPlaced.length < floor.notPlaced.length || !balancedFloor.notPlaced.some((n) => placed.has(normaliseCode(n.code))))
+      && goalPicks(balancedFloor) >= goalPicks(floor)
+      && (!input.boardAudit || input.boardAudit(balancedFloor) <= input.boardAudit(floor))
+      && (!input.boardAttention || input.boardAttention(balancedFloor) <= input.boardAttention(floor))
+      && (!input.boardProgressLost || input.boardProgressLost(balancedFloor, floor) === null);
+    balancedCost += innerBuilds - before;
+    if (ownLoses.length > 0 && balancedHolds) {
+      floor = balancedFloor;
+      floorFrom = ownLoses;
+    }
+  }
+  const fm = gateMeasure(floor, input, floor.language ?? null);
+  const floorAudit = input.boardAudit ? input.boardAudit(floor) : 0;
+  const floorAttention = input.boardAttention ? input.boardAttention(floor) : 0;
+  const trackCodes = (g: GeneratedPlan) => new Set(g.electives.filter((e) => e.track).map((e) => normaliseCode(e.code)));
+  const floorGoal = goalPicks(floor);
+  const floorTrack = trackCodes(floor);
+  const within = <T,>(x: Set<T>, y: Set<T>) => [...x].every((v) => y.has(v));
+  const floorPlaced = new Set(floor.terms.flatMap((t) => t.codes.map(normaliseCode)));
+  /*
+   * The caller's audit and attention count are the dear measures (a whole
+   * board audit each): read only where the engine's own measures found
+   * nothing worse, so a trade that fails fails cheaply.
+   */
+  const worseOf = (g: GeneratedPlan): string[] => {
+    const gm = gateMeasure(g, input, g.language ?? null);
+    const worse = gateWorse(gm, fm);
+    if (gm.short > fm.short + 0.01) worse.push('short');
+    if (gm.sittings < fm.sittings) worse.push('sittings');
+    if (!within(gm.labsApart, fm.labsApart)) worse.push('labsApart');
+    if (g.notPlaced.length > floor.notPlaced.length) worse.push('notPlacedCount');
+    /*
+     * Courses, not counts: a course the floor placed that this board leaves
+     * off is worse whatever the count. A Mechanical Engineering freshman's
+     * "Challenge me" board left MCHE 4440 and CVLE 4750 off where the floor
+     * left CMLT 2400 and GEOG 1101, four off each, and won on meeting World
+     * Languages (2026-11-05).
+     */
+    if (g.notPlaced.some((n) => floorPlaced.has(normaliseCode(n.code)))) worse.push('placedOff');
+    // A later last term is gateWorse's 'terms'; a board with more terms than the floor's (a horizon grown) is later too.
+    if (g.terms.length > floor.terms.length) worse.push('finish');
+    /*
+     * Stricter than gateWorse, which lets a credit past the total and counts
+     * year one without its seminars: a lighter Music Education board went to
+     * 131.5 of 130 and a 17-credit first fall (Illinois sweep, 2026-11-05).
+     * Lightness never buys either.
+     */
+    if (gm.beyond > fm.beyond + 0.01) worse.push('beyondAny');
+    const heavyYearOne = (b: GeneratedPlan) => b.terms.filter((t) => t.season !== 'Summer').slice(0, 2).filter((t) => t.credits.min >= 17).length;
+    if (heavyYearOne(g) > heavyYearOne(floor)) worse.push('yearOneLoad');
+    if (goalPicks(g) < floorGoal) worse.push('goal');
+    if (![...floorTrack].every((c) => trackCodes(g).has(c))) worse.push('trackCourses');
+    if (worse.length > 0) return worse;
+    if (input.boardAudit && input.boardAudit(g) > floorAudit) return ['audit'];
+    if (input.boardAttention && input.boardAttention(g) > floorAttention) return ['attention'];
+    // Row by row, where the caller's audit reads it: fewer unmet rows never buy less of another row.
+    if (input.boardProgressLost && input.boardProgressLost(g, floor) !== null) return ['progress'];
+    return worse;
+  };
+  const floorPref = difficultyPreference(floor, input);
+  type How = 'difficulty' | 'lighter' | 'challenge' | 'traded' | 'balanced';
+  const tried: Array<{ how: string; worse: string[]; score: number | null }> = [];
+  const standing: Array<{ how: How; g: GeneratedPlan; score: number }> = [];
+  const weigh = (how: How, g: GeneratedPlan): string[] => {
+    const worse = worseOf(g);
+    const score = difficultyPreference(g, input).score;
+    tried.push({ how, worse, score });
+    if (worse.length === 0) standing.push({ how, g, score });
+    return worse;
+  };
+  const scheduled = withScheduledSeasons(input).context;
+  /*
+   * `from`'s picks traded onto `onto` seat for seat, each trade held to the
+   * floor: the traded board where it stands, else null. Never once the build
+   * budget is spent, and no more than DIFFICULTY_GATE_TRADE_CHECKS checks in
+   * all, however many boards trade (each check is a whole board's audit).
+   */
+  let checks = 0;
+  const tradedFrom = (from: GeneratedPlan, onto: GeneratedPlan = floor): GeneratedPlan | null => {
+    if (innerBuilds - started > DIFFICULTY_GATE_TRADE_BUDGET * scale || checks >= DIFFICULTY_GATE_TRADE_CHECKS) {
+      tried.push({ how: 'traded', worse: ['budget'], score: null });
+      return null;
+    }
+    const out = freeChoicesTraded(onto, from, input, scheduled, (g) => {
+      checks += 1;
+      return checks <= DIFFICULTY_GATE_TRADE_CHECKS && worseOf(g).length === 0;
+    });
+    if (out.trades.length === 0) return null;
+    const board = ctx.schoolId === 'uga' ? withBoardTrueNotes(out.board) : out.board;
+    return weigh('traded', board).length === 0 ? board : null;
+  };
+  /*
+   * The board with the estimates and the student's own priorities, where it
+   * differs from the floor's build; never where the floor alone took past
+   * DIFFICULTY_GATE_FLOOR_CAP inner builds, since the board with the
+   * estimates costs as much again: a UGA Biochemistry pre-med freshman's
+   * took 83 each and the plan 30 s alone (2026-11-05). Such a student keeps
+   * the floor, and a lightest one is told which terms still stack (below).
+   * For "Lightest schedule" and "Highly rated teaching" the student's picks
+   * are traded onto the floor only where the Balanced boards (below) kept
+   * none of them: one pass of trades instead of two.
+   */
+  let withEstimates: GeneratedPlan | null = null;
+  let ownStood = false;
+  // The presets weighed against the Balanced board as well as their floor (below).
+  const viaBalanced = leaning || challenge;
+  const floorCost = innerBuilds - started - balancedCost;
+  if ((floorCtx !== ctx || challenge) && floorCost > DIFFICULTY_GATE_FLOOR_CAP * scale) {
+    tried.push({ how: challenge ? 'challenge' : 'difficulty', worse: ['budget'], score: null });
+  } else if (floorCtx !== ctx || challenge) {
+    withEstimates = generatePlanFinished({ ...input, qualityMemo: new Map(), withEstimates: true });
+    ownStood = weigh(challenge ? 'challenge' : 'difficulty', withEstimates).length === 0;
+    if (!ownStood && !viaBalanced) tradedFrom(withEstimates);
+  }
+  /*
+   * "Lightest schedule" and "Highly rated teaching": also the board a
+   * Balanced student gets (workload, teaching and coverage as balanced, with
+   * the estimates), and that board with the student's picks traded onto it,
+   * each held to this student's floor as every board is, and weighed by this
+   * student's priorities. Without it, where their own board with the
+   * estimates did not stand, the student kept the term order of the floor
+   * and only traded picks: a Real Estate freshman's lightest board stacked
+   * three of the hardest in one spring where the Balanced board spread them
+   * one a term, and a Civil Engineering freshman's left GEOG 1101 off where
+   * Balanced placed it (2026-11-05). A Balanced board that meets more than
+   * the floor wins as any board does (below).
+   *
+   * "Challenge me" too: its floor is the Balanced floor, but the Balanced
+   * board with the estimates can meet more than that floor, and without it
+   * a Civil Engineering, a Mechanical Engineering and a Natural Resource
+   * Management freshman left GEOG 1101 off and a Music Theory freshman
+   * HIST 2112 where tonight's Balanced placed them (2026-11-05).
+   */
+  if (viaBalanced && withEstimates && innerBuilds - started - balancedCost <= budget) {
+    const before = innerBuilds;
+    const balanced = generatePlanFinished({ ...input, qualityMemo: new Map(), withEstimates: true, preferences: { ...input.preferences, priorities: balancedPriorities } });
+    balancedCost += innerBuilds - before;
+    /*
+     * Its trades only where it stands itself: each trade is held to the
+     * floor, which a board that does not stand fails already. Where it does
+     * not, the board Balanced keeps is the floor with its picks traded in
+     * (where the two floors are one board, as for most students): that, with
+     * this student's picks traded onto it. Traded from the floor alone, a
+     * Civil Engineering freshman's lightest picks left GEOG 1101 off where
+     * Balanced's placed it (2026-11-05).
+     */
+    let chained: GeneratedPlan | null = null;
+    if (weigh('balanced', balanced).length === 0) chained = tradedFrom(withEstimates, balanced);
+    else {
+      const balancedKept = tradedFrom(balanced);
+      if (balancedKept) chained = tradedFrom(withEstimates, balancedKept);
+    }
+    if (!chained && !ownStood) tradedFrom(withEstimates);
+  } else if (viaBalanced && withEstimates && !ownStood) {
+    tradedFrom(withEstimates);
+  }
+  // "Lightest schedule": one hardest-band course a term, where the best board so far still stacks two and the budget allows.
+  const best = () => [...standing].sort((a, b) => a.score - b.score)[0];
+  const bestSoFar = () => {
+    const b = best();
+    return b && b.score < floorPref.score - 0.1 ? b.g : floor;
+  };
+  let lighter: { worse: string[] } | null = null;
+  if (light && difficultyPreference(bestSoFar(), input).stacked.length > 0 && innerBuilds - started - balancedCost <= budget) {
+    const spread = generatePlanFinished({ ...input, qualityMemo: new Map(), withEstimates: true, preferences: { ...input.preferences, maxHardCourses: 1 } });
+    lighter = { worse: weigh('lighter', spread) };
+  }
+  /*
+   * A board meeting more of the degree than the floor wins outright; then
+   * the clearest answer to the priorities. Every board here stands, so it
+   * places every course the floor placed and loses no row's progress
+   * (worseOf): meeting more never trades a required course away.
+   */
+  const rankOf = (g: GeneratedPlan) => gateRank(gateMeasure(g, input, g.language ?? null)).slice(0, 4);
+  const floorRank = gateRank(fm).slice(0, 4);
+  /*
+   * At UGA row by row as well (boardProgressLost): a board that another
+   * standing board beats on some row's hours or courses, losing it none, is
+   * out of the running, and a board that beats the floor that way meets more
+   * of the degree. A Criminal Justice junior's lightest board kept Life
+   * Sciences at 0 of 3 hours where the Balanced board, which stood too, had
+   * 1 of 3: the choice read only the preferences (2026-11-05).
+   */
+  const rowsAbove = (a: GeneratedPlan, b: GeneratedPlan) => input.boardProgressLost !== undefined && input.boardProgressLost(b, a) !== null && input.boardProgressLost(a, b) === null;
+  const running = standing.filter((s) => !standing.some((t) => t !== s && rowsAbove(t.g, s.g)));
+  const more = running.filter((s) => ranksAbove(rankOf(s.g), floorRank) || rowsAbove(s.g, floor));
+  let kept: { how: 'floor' | How; g: GeneratedPlan } = { how: 'floor', g: floor };
+  if (more.length > 0) {
+    kept = more.reduce((a, b) => (ranksAbove(rankOf(b.g), rankOf(a.g)) || (!ranksAbove(rankOf(a.g), rankOf(b.g)) && b.score < a.score) ? b : a));
+  } else {
+    const b = [...running].sort((x, y) => x.score - y.score)[0];
+    if (b && b.score < floorPref.score - 0.1) kept = b;
+  }
+  // Where the Balanced floor stood in for the student's own, what the own one lost, as the first thing tried.
+  if (floorFrom) tried.unshift({ how: 'balancedFloor', worse: floorFrom, score: null });
+  const out: GeneratedPlan = { ...kept.g, notes: [...kept.g.notes], difficulty: { kept: kept.how, tried, floorScore: floorPref.score, builds: innerBuilds - started } };
+  /*
+   * "Lightest schedule" where the board still stacks two of the hardest in a
+   * fall or spring: one line saying so, and why where the board with one a
+   * term was tried and was worse. Where it failed on another ground, the
+   * line says only that they could not be spread further; where it was not
+   * tried (below), that it was not. Before, those students were told nothing
+   * (45 Illinois and 6 UGA pre-med boards).
+   */
+  const stacked = difficultyPreference(out, input).stacked;
+  if (light && stacked.length > 0) {
+    const worse = lighter?.worse ?? [];
+    /*
+     * The first cost the one-a-term board had, most serious first. The shape
+     * costs are named too: an Illinois Psychology (Behavioral Neuroscience)
+     * board would have put college math later in year one, a Mathematics one
+     * would have crowded one subject into the last terms (2026-11-05), and
+     * those students were told only that the planner could not.
+     */
+    const because = worse.some((w) => w === 'terms' || w === 'finish') ? 'finishing later'
+      : worse.some((w) => ['notPlaced', 'notPlacedCount', 'placedOff', 'unsatisfied', 'audit', 'progress', 'short', 'sittings'].includes(w)) ? 'leaving a required course off'
+      : worse.some((w) => w === 'math') ? 'taking college math later in your first year'
+      : worse.some((w) => ['yearOneHeavy', 'yearOneLoad'].includes(w)) ? 'a heavier first year'
+      : worse.some((w) => ['beyond', 'beyondAny', 'overTarget'].includes(w)) ? 'taking more credits than the degree needs'
+      : worse.some((w) => w === 'crowded') ? 'crowding one subject into your last terms'
+      : null;
+    const labels = stacked.map((s) => s.label);
+    const named = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+    const many = stacked.some((s) => s.hard > 2) ? 'two or more' : 'two';
+    const has = `${labels.length === 1 ? 'has' : 'have'} ${many} of the hardest courses${labels.length === 1 ? '' : ' each'}`;
+    /*
+     * Where the one-a-term board was never built (the build budget, as for a
+     * UGA pre-med freshman), the line says so and how to ask for it, rather
+     * than that the planner could not: it did not try (2026-11-05).
+     */
+    out.notes.push(because
+      ? `Lightest schedule: ${named} still ${has}, because spreading them out would mean ${because}.`
+      : lighter
+        ? `Lightest schedule: ${named} still ${has}; the planner could not spread them out further on this plan.`
+        : `Lightest schedule: ${named} still ${has}. Spreading them one a term was not tried on this plan; ask the advisor to spread your hard classes out to try it.`);
+  }
+  return out;
+}
+
+/**
+ * The difficulty gate's floor: the board built without the estimates
+ * (floorContextOf), for the student's own priorities, which is the board the
+ * planner built before the estimates; for "Challenge me", which had no board
+ * before, the balanced board (workload 1, no challenge), so harder picks can
+ * never cost what the balanced board meets.
+ *
+ * The lightest workload keeps its own floor. Held to the balanced board
+ * instead (tried 2026-11-05), a Finance freshman's lighter board stood
+ * nowhere: it placed one fewer course for his investment-banking goal, and
+ * the goal is never traded for lightness, so he got the balanced picks and
+ * no lighter ones. The price: where the lightest board as it was built
+ * before already placed less than the balanced one (a Chemistry junior, 1
+ * of 322 harness boards), it still does. Since 2026-11-05 the gate holds
+ * it to the Balanced floor where its own does less of the degree
+ * (difficultyGated, the better of two floors).
+ */
+function difficultyFloorInput(input: AutoplanInput): AutoplanInput {
+  const p = input.preferences?.priorities ?? DEFAULT_PRIORITIES;
+  const asked = challengeOf(p);
+  const priorities: Priorities = asked ? { ...p, workload: 1, challenge: false } : p;
+  return { ...input, context: floorContextOf(input.context), qualityMemo: new Map(), preferences: asked ? { ...input.preferences, priorities } : input.preferences };
+}
+
+/**
+ * The student's board. Difficulty, where the context carries estimates or
+ * the student asked for the lightest schedule or a challenge, is weighed by
+ * difficultyGated against the board built without it; the gates' own builds
+ * (freeChoices set) and the plain engine build as they always have. Without
+ * the gate (difficultyGate: false, the "can't finish" fixes) the board is
+ * the gate's floor, which decides whether a fix finishes.
+ */
 export function generatePlan(input: AutoplanInput): GeneratedPlan {
+  // A free-choices board outside the gate's own builds is built without the estimates (AutoplanInput.withEstimates).
+  if (input.freeChoices !== undefined) return generatePlanFinished(input.withEstimates ? input : { ...input, context: floorContextOf(input.context) });
+  if (input.plainEngine === true || input.difficultyGate === false) return generatePlanFinished(difficultyFloorInput(input));
+  return difficultyGated(input);
+}
+
+function generatePlanFinished(input: AutoplanInput): GeneratedPlan {
   const out = generatePlanGated(input);
   // At UGA the finished board's lone Area II labs, once, on the board the student gets (the gates' own builds pass freeChoices).
   // A track's course past the total takes a list seat of the planner's own pick (withUgaTrackPastSeated).
@@ -10598,6 +11208,7 @@ function bookRepeats(g: GeneratedPlan, requirements: PlanRequirement[], input: A
 }
 
 function generatePlanInner(input: AutoplanInput): GeneratedPlan {
+  innerBuilds += 1;
   const ctx = input.context;
   /** The board a930f09's engine built, for the no-worse gate in generatePlan (AutoplanInput.plainEngine). */
   const plainEngine = input.plainEngine === true;
@@ -11370,7 +11981,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        * list: Finance and Kinesiology students who asked for easy classes got
        * the same list picks as before.
        */
-      const light = lightFirst(prefs.priorities) ? [lightStep(qualityAtPlacement(code))] : [];
+      // "Challenge me" (Priorities.challenge): the same step the other way round, harder first, where the difficulty is known.
+      const light = lightFirst(prefs.priorities) ? [lightStep(qualityAtPlacement(code))] : challengeOf(prefs.priorities) ? [challengeStep(qualityAtPlacement(code))] : [];
       // A pick the track's row cannot stand beside goes behind the others (shutsTrackRow): ALEC 115 or CMN 101, not CMN 111, for a pre-med's Oral Communication.
       /*
        * On a board built for a goal's rows (AutoplanInput.goalRows) the courses a
@@ -12208,11 +12820,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
              * averaging 10.6 where balanced priorities had five averaging 8.8.
              * Placeable and reachable first, as the ranker always does.
              */
-            if (lightFirst(prefs.priorities)) {
+            if (lightFirst(prefs.priorities) || challengeOf(prefs.priorities)) {
               const [ra, rb] = [rankGenEd(a), rankGenEd(b)];
               const early = compareRank(ra.slice(0, 2), rb.slice(0, 2), '', '');
               if (early !== 0) return early;
-              const lighter = lightStep(qualityAtPlacement(a)) - lightStep(qualityAtPlacement(b));
+              const step = lightFirst(prefs.priorities) ? lightStep : challengeStep;
+              const lighter = step(qualityAtPlacement(a)) - step(qualityAtPlacement(b));
               if (lighter !== 0) return lighter;
             }
             /**
@@ -15493,6 +16106,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       rare: rareCheck(ctx),
       barred: electiveBarred,
       lightFirst: lightFirst(prefs.priorities),
+      challenge: challengeOf(prefs.priorities),
       opensGoal: goalOpenersOf(ctx, careerProfileOf(input), prefs.priorities),
       goalPoints: goalWeighs(careerProfileOf(input)),
       careerFollowOn: careerFollowOnOf(ctx, input.careerFit),
@@ -20846,7 +21460,7 @@ export function validatePlan(
         id: `ap-hard-${term.id}`,
         severity: 'warning',
         title: 'Several hard courses together',
-        message: `${term.label} has ${hard.length} courses in the hardest band at this school: ${hard.join(', ')}.${term.season === 'Summer' ? ' A summer session covers each in a few weeks.' : ''} That is past grades, not a prediction.`,
+        message: `${term.label} has ${hard.length} courses in the hardest band at this school: ${hard.join(', ')}.${term.season === 'Summer' ? ' A summer session covers each in a few weeks.' : ''} ${hard.every((code) => ctx.estimates?.codes.has(code)) ? 'That is from student ratings of the instructors who teach them, not a prediction.' : 'That is past grades, not a prediction.'}`,
         termId: term.id,
       });
     }
@@ -20855,7 +21469,7 @@ export function validatePlan(
         id: `ap-weighed-${term.id}`,
         severity: 'info',
         title: 'Some courses could not be weighed',
-        message: `Weighed ${weighed} of ${codes.length} courses in ${term.label}${load.avgDifficulty === null ? '' : `, average difficulty ${load.avgDifficulty}`}. The rest have no grade data.`,
+        message: `Weighed ${weighed} of ${codes.length} courses in ${term.label}${load.avgDifficulty === null ? '' : `, average difficulty ${load.avgDifficulty}`}. The rest have no ${ctx.estimates?.bands ? 'difficulty' : 'grade'} data.`,
         termId: term.id,
       });
     }

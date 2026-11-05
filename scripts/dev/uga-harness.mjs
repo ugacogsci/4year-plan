@@ -51,6 +51,20 @@
  * lib/planner/plan-start.ts, or for a checkout before it existed, from its
  * planner-workspace.tsx, cut out and loaded as it was.
  *
+ * HARNESS_PRESET (2026-11-05): the student's priorities preset for every
+ * board built (balanced, lightest, relevant, teaching, challenge; default
+ * balanced, as every run before it), never the fixtures'. Each row records
+ * it with the build's own time (buildMs), which board the difficulty gate
+ * kept (difficulty, where the checkout has the gate), and, read off the
+ * checkout's public/uga/course-difficulty.json so both checkouts are
+ * measured alike, the hardest-band courses in each term (hardPerTerm), the
+ * terms holding two or more and three or more (stack2, stack3), and the
+ * average difficulty of the board's own picks (pickDifficulty: its
+ * electives and general education picks with a score). The build also
+ * hands the engine the board's attention count (AutoplanInput.boardAttention),
+ * as the workspace does. compare refuses two files of different presets,
+ * lists a later finish as worse, and reports buildMs.
+ *
  * Read-only for the checkout. Environment: HARNESS_JOBS (workers, default 3),
  * HARNESS_IDS (only these program ids), HARNESS_KINDS (only these kinds),
  * HARNESS_ALONE=1 (each program built in a fresh process, so build order
@@ -158,6 +172,12 @@ if (mode === 'compare') {
   const key = (r) => `${r.id}|${r.kind}`;
   const before = new Map(rows(beforeFile).map((r) => [key(r), r]));
   const after = new Map(rows(afterFile).map((r) => [key(r), r]));
+  // Two runs of different presets measure different students (HARNESS_PRESET; a row with none is balanced).
+  const presets = (map) => new Set([...map.values()].filter((r) => r.ok).map((r) => r.preset ?? 'balanced'));
+  if ([...presets(before), ...presets(after)].some((p) => !presets(before).has(p) || !presets(after).has(p))) {
+    console.error(`compare: the files were built under different presets (${[...presets(before)].join('/')} vs ${[...presets(after)].join('/')})`);
+    process.exit(2);
+  }
   const out = [];
   const say = (s = '') => out.push(s);
   const sum = (list, f) => list.reduce((n, r) => n + (f(r) ?? 0), 0);
@@ -270,6 +290,9 @@ if (mode === 'compare') {
     if ((a.bar ?? a.attention) > (b.bar ?? b.attention)) why.push(`board bar ${b.bar ?? b.attention} -> ${a.bar ?? a.attention}: ${(a.barKinds ?? a.attentionKinds ?? []).filter((x) => !(b.barKinds ?? b.attentionKinds ?? []).includes(x)).join('; ')}`);
     if (a.over18 > b.over18) why.push(`terms over 18 credits ${b.over18} -> ${a.over18}`);
     if ((a.labsApart?.length ?? 0) > (b.labsApart?.length ?? 0)) why.push(`track labs apart from their lecture ${b.labsApart?.length ?? 0} -> ${a.labsApart.length}: ${a.labsApart.join(', ')}`);
+    // A later last term (added 2026-11-05).
+    const ord = (label) => { const m = /^(Spring|Summer|Fall) (\d{4})$/.exec(label ?? ''); return m ? Number(m[2]) * 3 + ['Spring', 'Summer', 'Fall'].indexOf(m[1]) : -1; };
+    if (ord(a.finish) > ord(b.finish) && ord(b.finish) >= 0) why.push(`finishes later ${b.finish} -> ${a.finish}`);
     if (why.length) worse.push(`- ${a.name} (${a.id}), ${a.kind}: ${why.join('; ')}`);
   }
   const better = [...after].filter(([k, a]) => { const b = before.get(k); return b?.ok && a.ok && ((a.bar ?? a.attention) < (b.bar ?? b.attention) || a.notPlaced < b.notPlaced || a.unmetRows < b.unmetRows); }).length;
@@ -277,6 +300,22 @@ if (mode === 'compare') {
   say();
   for (const line of worse.slice(0, 200)) say(line);
   if (worse.length > 200) say(`- ... and ${worse.length - 200} more`);
+  // Build time per board, and the difficulty measures (rows from 2026-11-05 on).
+  const stat = (map, f) => {
+    const xs = [...map.values()].filter((r) => r.ok).map(f).filter((x) => typeof x === 'number').sort((x, y) => x - y);
+    return xs.length ? { n: xs.length, median: xs[Math.floor(xs.length / 2)], p95: xs[Math.min(xs.length - 1, Math.floor(xs.length * 0.95))], max: xs.at(-1), mean: xs.reduce((n, x) => n + x, 0) / xs.length } : null;
+  };
+  const ms = (x) => (x ? `median ${(x.median / 1000).toFixed(1)} s, p95 ${(x.p95 / 1000).toFixed(1)} s, max ${(x.max / 1000).toFixed(1)} s` : 'not recorded');
+  say();
+  say(`Preset: ${[...presets(after)].join('/') || 'balanced'}. Build time per board: before ${ms(stat(before, (r) => r.buildMs))}; after ${ms(stat(after, (r) => r.buildMs))}.`);
+  const sumOf = (map, f) => [...map.values()].filter((r) => r.ok).reduce((n, r) => n + (f(r) ?? 0), 0);
+  const pick = (map) => stat(map, (r) => r.pickDifficulty);
+  say(`Terms with two or more hardest-band courses: ${sumOf(before, (r) => r.stack2)} -> ${sumOf(after, (r) => r.stack2)}; three or more: ${sumOf(before, (r) => r.stack3)} -> ${sumOf(after, (r) => r.stack3)}. Average difficulty of the board's own picks: ${pick(before)?.mean.toFixed(1) ?? '-'} -> ${pick(after)?.mean.toFixed(1) ?? '-'}.`);
+  const keptCount = new Map();
+  for (const r of after.values()) if (r.difficulty) keptCount.set(r.difficulty.kept, (keptCount.get(r.difficulty.kept) ?? 0) + 1);
+  if (keptCount.size) say(`Difficulty gate kept (after): ${[...keptCount].map(([k, n]) => `${k} ${n}`).join(', ')}.`);
+  const changed = [...after].filter(([k, a]) => { const b = before.get(k); return b?.ok && a.ok && JSON.stringify(a.board) !== JSON.stringify(b.board); }).length;
+  say(`Boards whose courses or terms changed: ${changed}.`);
   const failedBefore = [...before.values()].filter((r) => !r.ok).length;
   const failedAfter = [...after.values()].filter((r) => !r.ok).length;
   say();
@@ -321,7 +360,13 @@ const U = await lib('components/planner/uga-source.tsx');
 const data = await U.loadUgaData();
 globalThis.fetch = originalFetch;
 const { generatePlan, planCreditRange, distinctHeld } = await lib('lib/planner/autoplan.ts');
-const { DEFAULT_PRIORITIES } = await lib('lib/planner/priorities.ts');
+const { DEFAULT_PRIORITIES, PRIORITY_PRESETS } = await lib('lib/planner/priorities.ts');
+// HARNESS_PRESET: the student's priorities for every board built (see the header); never the fixtures'.
+const PRESET = process.env.HARNESS_PRESET ?? 'balanced';
+const PRIORITIES = PRESET === 'balanced' ? DEFAULT_PRIORITIES : PRIORITY_PRESETS[PRESET];
+if (!PRIORITIES) throw new Error(`HARNESS_PRESET ${PRESET}: this checkout has no such preset`);
+// Difficulty as the checkout's file has it, read the same on both checkouts (hardPerTerm, pickDifficulty).
+const DIFFICULTY = existsSync(join(ROOT, 'public/uga/course-difficulty.json')) ? publicJson('uga/course-difficulty.json') : null;
 const G = await lib('lib/planner/uga-planning-guidance.ts');
 const T = await lib('lib/planner/transcript.ts');
 const O = await lib('lib/planner/onboarding.ts');
@@ -447,7 +492,7 @@ if (process.env.HARNESS_WORKER === undefined) {
 const [k, n] = process.env.HARNESS_WORKER.split('/').map(Number);
 const IS = await lib('components/planner/illinois-source.tsx');
 const X = await lib('components/planner/exam-credit.ts');
-const { auditUgaBoard } = await lib('components/planner/uga-board-audit.ts');
+const { auditUgaBoard, ugaProgressLoss } = await lib('components/planner/uga-board-audit.ts');
 const { degreeCompletionIssue } = await lib('lib/planner/completion.ts');
 const { needsAttention, attentionItems } = await lib('lib/planner/attention.ts');
 const S = await lib('lib/planner/saved-board.ts');
@@ -530,6 +575,10 @@ const horizonFor = await horizonOf();
 
 /** UGA's track labs (BIOL 1107L with BIOL 1107 ...) on the board in another term than their lecture, or with no lecture held or booked. */
 const UGA_LABS = CT.UGA_CAREER_TRACKS ? CT.labPartners(CT.UGA_CAREER_TRACKS) : new Map();
+function boardCodesNow(board, context) {
+  return board.terms.flatMap((t) => t.courseIds).map((id) => context.courses.find((c) => c.id === id)?.code).filter(Boolean).map(norm);
+}
+
 function labsApartOf(board, context) {
   const at = new Map();
   board.terms.forEach((t, i) => t.courseIds.forEach((id) => { const c = context.courses.find((x) => x.id === id); if (c) at.set(norm(c.code), i); }));
@@ -633,8 +682,10 @@ function build(program, kind, trial = null) {
   const careerText = answers.after;
   // The row each course was booked for, as the workspace passes it to the audit (UgaAuditInput.bookedFor).
   const bookedOf = (g) => (process.env.HARNESS_BOOKED === '0' ? {} : { bookedFor: g.bookedFor });
-  /** With the career matcher: a candidate board's unmet audit rows, read as below (AutoplanInput.careerAudit). */
-  const unmetRowsOf = (g) => {
+  // A candidate board's audit, once a board (the unmet rows and the attention count below both read it).
+  const audits = new WeakMap();
+  const auditOf = (g) => {
+    if (audits.has(g)) return audits.get(g);
     const done = g.plan.completedCourseIds.map((id) => context.courses.find((c) => c.id === id)?.code).filter(Boolean).map(norm);
     const gone = new Set((g.forfeited ?? []).map((f) => norm(f.held)));
     const hours = planCreditRange(distinctHeld(done.filter((c) => !gone.has(c)), context).codes, context).min + priorHours;
@@ -644,11 +695,31 @@ function build(program, kind, trial = null) {
       transcript: record, dualLevel: data.dualLevelCourses, ...auditCore,
       validation: { minimumTermCredits: 12, priorCredits: hours + horizon.assumedHours },
     });
+    const out = { a, hours };
+    audits.set(g, out);
+    return out;
+  };
+  /** With the career matcher: a candidate board's unmet audit rows, read as below (AutoplanInput.careerAudit). */
+  const unmetRowsOf = (g) => {
+    const { a } = auditOf(g);
     return a.areas.filter((row) => !row.satisfied).length + a.issues.filter((i) => i.id.startsWith('uga-pool-')).length;
   };
+  /** A candidate board's issues that need attention now, read as below (AutoplanInput.boardAttention). */
+  const attentionOf = (g) => {
+    const b = g.plan;
+    const { a, hours: heldHours } = auditOf(g);
+    const codes = b.terms.flatMap((t) => t.courseIds).map((id) => context.courses.find((c) => c.id === id)?.code).filter(Boolean);
+    const short = [
+      ...a.areas.filter((row) => row.area.hours > 0 && !row.satisfied).map((row) => row.area.label),
+      ...a.pools.filter((p) => (p.hoursTarget !== null && p.hours < p.hoursTarget) || (p.countTarget !== null && p.count < p.countTarget)).map((p) => p.label),
+    ];
+    const done2 = degreeCompletionIssue({ currentCredits: planCreditRange(codes, context).min + heldHours + horizon.assumedHours, requiredCredits: a.target ?? publishedTotal, incompleteRequirementNames: short, termId: b.terms[0]?.id ?? '' });
+    return [done2, ...a.issues].filter(Boolean).filter(needsAttention).length;
+  };
+  const builtAt = Date.now();
   const generated = generatePlan({
     requirements: loaded.blocks, context, prior: priorHere, horizon,
-    preferences: { creditsPerTerm: { min: 12, target: targetCredits, max: 18 }, priorities: DEFAULT_PRIORITIES },
+    preferences: { creditsPerTerm: { min: 12, target: targetCredits, max: 18 }, priorities: PRIORITIES },
     programId: loaded.summary?.id ?? program.id, electiveHoursLimit: loaded.electiveHours, fillToDegreeTotal: loaded.fillToDegreeTotal,
     degreeTotal: publishedTotal, interests: ['', careerText].join(' '), career: careerText,
     programName: loaded.program.name, programCollege: loaded.program.college, admissionRoute: null, residency: null, firstYear: false,
@@ -657,7 +728,14 @@ function build(program, kind, trial = null) {
     ...(FITS.has(kind) ? { careerFit: FITS.get(kind), careerAudit: (g) => unmetRowsOf(g) } : {}),
     // The free choices' check by the board audit, as the workspace passes it (AutoplanInput.boardAudit; a checkout before it ignores it).
     boardAudit: (g) => unmetRowsOf(g),
+    // And its attention count, as the workspace passes it (a checkout before the difficulty gate ignores it).
+    boardAttention: (g) => attentionOf(g),
+    // And row by row against the gate's floor, as the workspace passes it (AutoplanInput.boardProgressLost; a checkout before it ignores it).
+    boardProgressLost: (g, floor) => ugaProgressLoss(auditOf(floor).a, auditOf(g).a),
+    // The can't-finish fixes build without the difficulty gate's other boards, as the workspace's do (AutoplanInput.difficultyGate).
+    ...(trial ? { difficultyGate: false } : {}),
   });
+  const buildMs = Date.now() - builtAt;
   const board = generated.plan;
   // What the workspace counts against the board (completedCodes, priorCreditHours).
   const completed = board.completedCourseIds.map((id) => context.courses.find((c) => c.id === id)?.code).filter(Boolean).map(norm);
@@ -824,8 +902,26 @@ function build(program, kind, trial = null) {
     unreadRows = t.later.filter((r) => r.kind.key === 'unread').map((r) => r.issue.title);
     barKinds = t.prominent.map((k) => (k.key === 'record' ? `prompt: ${k.label}` : k.key === 'cannot-finish' ? "can't finish" : k.label.replace(/\(\d+\)$/, '(n)').replace(/^\d+ requirements not met$/, 'n requirements not met')));
   }
+  // The difficulty measures, off the checkout's file (see the header).
+  const dOf = (code) => DIFFICULTY?.courses?.[norm(code)]?.d ?? null;
+  const hardest = DIFFICULTY?.bands?.hardest ?? Infinity;
+  const hardPerTerm = board.terms.map((t) => t.courseIds.map((id) => context.courses.find((c) => c.id === id)?.code).filter(Boolean).filter((c) => (dOf(c) ?? -1) >= hardest).length);
+  // The board's own picks: not a course an every-course row names, a track's course or a prerequisite the board added (autoplan.ts difficultyPreference).
+  const namedAll = new Set(loaded.blocks.flatMap((r) => (r.rule.kind === 'all' ? r.rule.choices.flatMap((ch) => ch.codes.map(norm)) : [])));
+  const notPicks = new Set([...(generated.electives ?? []).filter((e) => e.track).map((e) => norm(e.code)), ...(generated.addedPrerequisites ?? []).map((x) => norm(x.code))]);
+  const pickCodes = boardCodesNow(board, context).filter((c) => !namedAll.has(c) && !notPicks.has(c));
+  const pickScores = pickCodes.map(dOf).filter((d) => d !== null);
   return {
     ok: true,
+    preset: PRESET,
+    buildMs,
+    hardPerTerm,
+    stack2: hardPerTerm.filter((n) => n >= 2).length,
+    stack3: hardPerTerm.filter((n) => n >= 3).length,
+    pickDifficulty: pickScores.length ? Math.round((pickScores.reduce((n, d) => n + d, 0) / pickScores.length) * 10) / 10 : null,
+    picks: pickCodes,
+    ...(generated.difficulty ? { difficulty: { kept: generated.difficulty.kept, builds: generated.difficulty.builds, tried: generated.difficulty.tried.map((t) => `${t.how}${t.worse.length ? `:${t.worse.join('+')}` : ''}`) } } : {}),
+    difficultyNote: generated.notes.find((n) => n.startsWith('Lightest schedule:')) ?? null,
     start: board.terms[0]?.label ?? null,
     finish: board.terms.at(-1)?.label ?? null,
     terms: board.terms.length,

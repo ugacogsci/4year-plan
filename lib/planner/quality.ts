@@ -12,7 +12,10 @@
  *   workload   from the registrar's grade history: difficulty, withdrawals
  *   teaching   from the university's own Teachers Ranked as Excellent lists:
  *              whether this course's instructors made it recently, and whether
- *              one of them is teaching it in the crawled term
+ *              one of them is teaching it in the crawled term; where there is
+ *              no list (UGA) or it is silent, student ratings of the
+ *              instructors the schedule names (course-teaching.ts), a bonus
+ *              only, never a penalty
  *   relevance  the student's own words against the course's subject and title
  *   coverage   a general education category the course also carries
  *   schedule   sections this term, at hours and in a format the student wants
@@ -24,6 +27,7 @@ import type { CareerFit } from './career-embedding';
 import type { Priorities } from './priorities';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
 import { describeMeetingWindow, registrationFits } from './meeting-fit';
+import { ILLINOIS_TEACHING_FILL_CAP, ratedTeachingReason, type RatedTeaching } from './course-teaching';
 
 export interface ExcellentInstructor {
   /** As the section crawl spells it: "Alt, M". */
@@ -108,6 +112,8 @@ export interface QualityInputs {
   interestCourses?: Set<string>;
   grades?: Map<string, { difficulty: number | null; withdrawPct: number | null }>;
   bands?: { typical: number; harder: number; hardest: number } | null;
+  /** The `grades` codes whose difficulty is an estimate from student ratings of their instructors, not grade history (PlanningContext.estimates). */
+  estimated?: ReadonlySet<string>;
   sections?: Map<string, {
     total: number;
     earliest: string | null;
@@ -121,6 +127,13 @@ export interface QualityInputs {
   excellent?: Map<string, ExcellentSummary>;
   /** Terms covered by the excellent lists, newest first, so "recent" has a meaning. */
   excellentTerms?: string[];
+  /**
+   * Student ratings of the instructors each course's schedule names
+   * (course-teaching.ts, PlanningContext.teachingRatings): every course
+   * there is at UGA, which has no excellent list; at Illinois only read for
+   * a course the list is silent on, and capped under the list's own bonus.
+   */
+  ratedTeaching?: ReadonlyMap<string, RatedTeaching>;
   /** The term the sections were crawled for, "Fall 2026", so a reason can name it. */
   nowLabel?: string | null;
   /**
@@ -529,7 +542,9 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
       const word = band
         ? g.difficulty >= band.hardest ? 'hardest band' : g.difficulty >= band.harder ? 'harder than most' : g.difficulty <= band.typical ? 'light' : 'typical'
         : `difficulty ${Math.round(g.difficulty)}`;
-      const line = `${word} by grade history (difficulty ${Math.round(g.difficulty)} of 100${w >= 8 ? `, ${Math.round(w)}% withdrew` : ''})`;
+      // Where the difficulty is an estimate (every UGA course), the reason says so: UGA publishes no grade history.
+      const by = q.estimated?.has(code) ? 'by student ratings of its instructors' : 'by grade history';
+      const line = `${word} ${by} (difficulty ${Math.round(g.difficulty)} of 100${w >= 8 ? `, ${Math.round(w)}% withdrew` : ''})`;
       if (band && g.difficulty >= band.harder) cautions.push(line);
       else reasons.push(line);
       take(p.workload, v, 'grade history');
@@ -548,14 +563,52 @@ export function scoreQuality(course: QualityCourse, q: QualityInputs): QualityRe
       unknown.push('grade history');
       lightness = v;
     }
+  } else if (p.challenge && g && g.difficulty !== null) {
+    /*
+     * "Challenge me" (workload is 0 with it): the same measure the other way
+     * round, a harder course scoring higher, and said as a reason rather than
+     * a caution. Only where the difficulty is known: an unknown course is
+     * not taken for a hard one.
+     */
+    const top = 1.2 * (q.bands?.hardest ?? 40);
+    const v = Math.max(0, Math.min(1, 1 - g.difficulty / top));
+    const band = q.bands;
+    // Said as what the student asked for, and where the number comes from, as the workload line says it.
+    const by = q.estimated?.has(code) ? 'by student ratings of its instructors' : 'by grade history';
+    if (band && g.difficulty >= band.harder) reasons.push(`${g.difficulty >= band.hardest ? 'among the hardest' : 'harder than most'} ${by}, as you asked (difficulty ${Math.round(g.difficulty)} of 100)`);
+    take(1, 1 - v, 'challenge');
+    lightness = v;
   }
 
   // teaching: the university's own list, and whether one of those instructors runs it this term.
   if (p.teaching > 0) {
     if (q.excellent && q.excellentTerms && q.excellentTerms.length > 0) {
-      const { v, reason } = teachingOf(code, q.excellent, q.excellentTerms, q.sections, q.nowLabel);
+      const listed = teachingOf(code, q.excellent, q.excellentTerms, q.sections, q.nowLabel);
+      let { v, reason } = listed;
+      /*
+       * Where the list is silent (no recent term and no listed instructor
+       * teaching it now), student ratings of the instructors on the schedule
+       * fill in, capped under the list's own 0.7: the list is the
+       * university's word, the ratings are students who chose to post.
+       */
+      const rated = v === 0 && reason === null ? q.ratedTeaching?.get(code) : undefined;
+      if (rated) {
+        v = Math.min(ILLINOIS_TEACHING_FILL_CAP, rated.v);
+        reason = ratedTeachingReason(rated);
+      }
       if (reason !== null) reasons.push(reason);
       take(p.teaching, v, 'teaching ratings');
+    } else if (q.ratedTeaching) {
+      /*
+       * No excellent list (UGA): student ratings of the instructors the
+       * schedule names. A course with no rated instructor scores 0 and still
+       * counts as known, as a course off Illinois's list does, so a reading
+       * only ever adds a bonus and a missing one lowers nothing.
+       */
+      const rated = q.ratedTeaching.get(code);
+      const reason = ratedTeachingReason(rated);
+      if (reason !== null) reasons.push(reason);
+      take(p.teaching, rated?.v ?? 0, 'teaching ratings');
     } else {
       take(p.teaching, null, 'teaching ratings');
     }

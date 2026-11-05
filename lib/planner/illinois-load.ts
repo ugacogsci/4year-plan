@@ -1,3 +1,4 @@
+import { courseTeachingMap, type CourseTeachingFile, type RatedTeaching } from './course-teaching';
 import type { GradeRow } from './scheduler';
 import type { ExcellentSummary } from './quality';
 import type { SemesterSeason } from './types';
@@ -356,6 +357,8 @@ export interface IllinoisCore {
    * line (scripts/difficulty/illinois-difficulty.mjs). Null when absent.
    */
   ratingsDifficulty?: Map<string, number> | null;
+  /** Student ratings of the instructors on each course's schedule (course-teaching.ts); null when the build has none. */
+  teachingRatings?: Map<string, RatedTeaching> | null;
   /** New course number -> the old number whose history it carries. */
   offeringAliases: Map<string, string> | null;
   /** The registrar's language table; null when the build had none. */
@@ -596,7 +599,7 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
   const started = (async (): Promise<IllinoisCore> => {
     const meta = await loadIllinoisMeta();
     const laterTerms = sectionTermsOf(meta).filter((t) => t.id !== meta?.term?.id && t.file);
-    const [index, prereqs, grades, sections, programs, exclusions, excellent, offerings, languages, admission, laterSections, ratingsDifficulty] = await Promise.all([
+    const [index, prereqs, grades, sections, programs, exclusions, excellent, offerings, languages, admission, laterSections, ratingsDifficulty, ratedTeaching] = await Promise.all([
       indexResult(),
       artifact<Record<string, PrereqSpec>>('prereqs.json'),
       artifact<IllinoisGradeSummary[]>('grades.json'),
@@ -612,6 +615,8 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
       // The other crawled terms, through the same cache a card's question uses (loadIllinoisSectionTerm).
       Promise.all(laterTerms.map((t) => memo(sectionTermCache, t.id, () => artifact<IllinoisSectionsFile>(t.file as string)))),
       artifact<{ courses: Record<string, { d: number }> }>('course-difficulty-ratings.json'),
+      // Optional, like the list: student ratings of the instructors, for the courses the list is silent on (course-teaching.ts).
+      artifact<CourseTeachingFile>('course-teaching-ratings.json'),
     ]);
 
     const results = [index, prereqs, grades, sections, programs, exclusions];
@@ -651,6 +656,7 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
       exclusions: exclusions.ok ? new Map(Object.entries(exclusions.value)) : null,
       excellent: excellent.ok ? new Map(Object.entries(excellent.value.courses)) : null,
       ratingsDifficulty: ratingsDifficulty.ok ? new Map(Object.entries(ratingsDifficulty.value.courses).map(([code, v]) => [code, v.d])) : null,
+      teachingRatings: ratedTeaching.ok ? courseTeachingMap(ratedTeaching.value) : null,
       excellentTerms: excellent.ok ? excellent.value.terms : null,
       offerings: offerings.ok ? new Map(Object.entries(offerings.value.courses)) : null,
       offeringTerms: offerings.ok ? offerings.value.terms : null,

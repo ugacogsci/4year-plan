@@ -33,6 +33,7 @@ const PRESET_ROWS: Array<[Exclude<PriorityPreset, 'custom'>, string]> = [
   ['lightest', 'Lightest'],
   ['relevant', 'My interests'],
   ['teaching', 'Best-rated teaching'],
+  ['challenge', 'Challenge me'],
 ];
 const KNOBS = Object.keys(PRIORITY_LABELS) as Array<keyof typeof PRIORITY_LABELS>;
 const LEVELS: Array<[0 | 1 | 2, string]> = [
@@ -453,11 +454,15 @@ export function StudentProfilePanel({
                 type="button"
                 className={cn('rail-preset', presetOf(priorities) === name && 'is-on')}
                 aria-pressed={presetOf(priorities) === name}
+                // A preset sets the five knobs (and "Challenge me"); the hours, days and format the student gave stay.
                 onClick={() =>
                   onPrioritiesChange({
                     ...PRIORITY_PRESETS[name],
                     noEarly: priorities.noEarly,
                     format: priorities.format,
+                    notBefore: priorities.notBefore,
+                    notAfter: priorities.notAfter,
+                    freeDays: priorities.freeDays,
                   })
                 }
               >
@@ -478,7 +483,8 @@ export function StudentProfilePanel({
                       value={level}
                       className="sr-only"
                       checked={priorities[knob] === level}
-                      onChange={() => onPrioritiesChange({ ...priorities, [knob]: level })}
+                      // Asking for a lighter workload ends "Challenge me" (Priorities.challenge): the two pull opposite ways.
+                      onChange={() => onPrioritiesChange({ ...priorities, [knob]: level, ...(knob === 'workload' && level > 0 ? { challenge: false } : {}) })}
                     />
                     {word}
                   </label>
@@ -486,6 +492,17 @@ export function StudentProfilePanel({
               </fieldset>
             </div>
           ))}
+          <label className="rail-check">
+            <input
+              type="checkbox"
+              checked={priorities.challenge === true}
+              // Ticking it sets workload to skip: lighter and harder pull opposite ways (priorities.ts normalizePriorities).
+              onChange={(event) =>
+                onPrioritiesChange(event.target.checked ? { ...priorities, workload: 0, challenge: true } : { ...priorities, challenge: false })
+              }
+            />
+            <span>Challenge me: prefer more demanding electives (required courses don&apos;t change)</span>
+          </label>
           <label className="rail-check">
             <input
               type="checkbox"
@@ -514,9 +531,9 @@ export function StudentProfilePanel({
           <p className="rail-field rail-helper">
             Required courses and your own additions stay in place.
             {schoolShort === 'Illinois'
-              ? ' Workload and teaching estimates use Illinois grade history and Teachers Ranked as Excellent lists.'
-              : ' UGA workload and teaching ratings are not available in this catalog snapshot.'}
-            {' '}Missing ratings do not lower a course&apos;s rank.
+              ? ' Workload uses Illinois grade history, and teaching the Teachers Ranked as Excellent lists; where a course has neither, student ratings of its instructors fill in.'
+              : ' UGA publishes no grade history, so workload and teaching are estimates from student ratings of the instructors on UGA\'s Schedule of Classes.'}
+            {' '}A lighter, harder or better-taught plan is kept only where it costs no required course and no later finish. Missing ratings do not lower a course&apos;s rank.
           </p>
         </div>
       </details>

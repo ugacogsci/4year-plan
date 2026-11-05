@@ -44,6 +44,20 @@
  *   SWEEP_BLOCKS=0                    skip the reading file (below)
  *   SWEEP_NO_EARLY=1                  the student asked for no classes before 9 (Priorities.noEarly)
  *   SWEEP_ONE_TERM=1                  hand the engine the first crawled term's sections only, as before termSections
+ *   SWEEP_PRESET=lightest             the student's priorities preset (balanced, lightest, relevant, teaching,
+ *                                     challenge; default balanced, as before); combines with SWEEP_NO_EARLY
+ *
+ * Difficulty estimates (2026-11-05): where the checkout's lib/planner/plan-estimates.ts
+ * turns ILLINOIS_RATINGS_IN_PLANS on, the courses with no grade history take
+ * public/illinois/course-difficulty-ratings.json's estimate, marked as
+ * estimates (PlanningContext.estimates), as illinois-source.tsx buildContext
+ * does; a checkout without the file builds as before. Each row adds its
+ * preset, the build's own time (buildMs) and which board the engine's
+ * difficulty gate kept (difficulty). hardPerTerm and stack2/stack3 stay on
+ * grade history alone, so both checkouts are measured alike. Likewise, where
+ * ILLINOIS_TEACHING_RATINGS_IN_PLANS is on, public/illinois/course-teaching-ratings.json
+ * (student ratings of the instructors, for the courses the excellent list is
+ * silent on) rides as PlanningContext.teachingRatings.
  *
  * The reading: beside <out.jsonl> the sweep writes <out>.blocks.jsonl, every
  * requirement block of every swept degree as this checkout reads its page
@@ -167,6 +181,10 @@ const A = await import(join(HERE, 'autoplan.ts'));
 const V = await import(join(HERE, 'review.ts'));
 const R = await import(join(HERE, 'repick.ts'));
 const { PRIORITY_PRESETS } = await import(join(HERE, 'priorities.ts'));
+// SWEEP_PRESET: the student's priorities for every board (see the header).
+const PRESET = process.env.SWEEP_PRESET ?? 'balanced';
+const PRESET_PRIORITIES = PRIORITY_PRESETS[PRESET];
+if (!PRESET_PRIORITIES) throw new Error(`SWEEP_PRESET ${PRESET}: this checkout has no such preset`);
 const { adaptIllinoisPrograms, missingPrerequisiteGroups, attachRequirementIds } = await import(join(HERE, 'illinois-data.ts'));
 const { hydrateIndexRow, toGradeRow, applyOfferings, takenPerYear } = await import(join(HERE, 'illinois-load.ts'));
 const { livePools } = await import(join(ROOT, 'components/planner/live-pools.ts'));
@@ -184,8 +202,20 @@ const byId = new Map(rows.map((c) => [c.id, c]));
 const gradeRaw = new Map(pub('illinois/grades.json').map((g) => [norm(g.code), g]));
 for (const c of rows) if (c.gradeFrom && gradeRaw.has(norm(c.gradeFrom))) gradeRaw.set(norm(c.code), gradeRaw.get(norm(c.gradeFrom)));
 const grades = new Map([...gradeRaw].map(([code, g]) => [code, toGradeRow(g, byCode.get(code)?.title ?? code, [])]));
+// The ratings estimates for courses with no grade history, where the checkout plans with them (see the header).
+const ESTIMATES = existsSync(join(HERE, 'plan-estimates.ts')) && (await import(join(HERE, 'plan-estimates.ts'))).ILLINOIS_RATINGS_IN_PLANS && existsSync(join(PUBLIC, 'illinois/course-difficulty-ratings.json'));
+const planGrades = new Map(grades);
+const estimated = new Set();
+for (const [code, v] of Object.entries(ESTIMATES ? pub('illinois/course-difficulty-ratings.json').courses : {})) {
+  if (planGrades.has(code)) continue;
+  planGrades.set(code, { code, title: byCode.get(code)?.title ?? code, n: 0, sections: 0, gpa: null, aPct: null, dfPct: null, withdrawPct: null, difficulty: v.d, instructors: [] });
+  estimated.add(code);
+}
 const sectionFile = pub('illinois/sections.json');
 const excellentFile = pub('illinois/excellent.json');
+// Student ratings of the instructors for the courses the list is silent on, where the checkout plans with them (illinois-source.tsx buildContext).
+const TEACHING = existsSync(join(HERE, 'plan-estimates.ts')) && (await import(join(HERE, 'plan-estimates.ts'))).ILLINOIS_TEACHING_RATINGS_IN_PLANS && existsSync(join(PUBLIC, 'illinois/course-teaching-ratings.json'));
+const teachingRatings = TEACHING ? new Map(Object.entries(pub('illinois/course-teaching-ratings.json').courses)) : null;
 const equivalents = new Map();
 for (const c of rows) if (c.twins?.length) equivalents.set(norm(c.code), c.twins.map(norm));
 const creditRanges = new Map();
@@ -218,13 +248,15 @@ const taken = takenPerYear?.(gradeRaw, meta.sources?.grades?.terms ?? '');
 const context = {
   courses: rows,
   prereqs: new Map(Object.entries(pub('illinois/prereqs.json'))),
-  grades,
+  grades: planGrades,
+  ...(estimated.size > 0 ? { estimates: { codes: estimated, bands: false } } : {}),
   sections: firstSections,
   ...(termSections.length > 1 && process.env.SWEEP_ONE_TERM !== '1' ? { termSections } : {}),
   equivalents,
   exclusions: new Map(Object.entries(pub('illinois/exclusions.json'))),
   excellent: new Map(Object.entries(excellentFile.courses)),
   excellentTerms: excellentFile.terms,
+  ...(teachingRatings ? { teachingRatings } : {}),
   creditRanges,
   bands: meta.bands,
   offeringPublished: new Set(rows.map((c) => norm(c.code))),
@@ -266,15 +298,16 @@ const codesOf = (ids) => ids.map((id) => norm(byId.get(id)?.code ?? '')).filter(
 const codesOn = (b) => b.terms.flatMap((t) => codesOf(t.courseIds));
 
 /** __review.check.mjs's build(), with the goal words passed the way __career-tracks.check.mjs passes them. */
-function build({ program, prior = FRESHMAN, horizon = FOUR_YEARS, target = null, words = '', career = '' }) {
+function build({ program, prior = FRESHMAN, horizon = FOUR_YEARS, target = null, words = '', career = '', trialBuild = false }) {
   const L = load(program);
   const degreeTotal = L.summary.totalCredits || L.program.totalCredits || 120;
+  const builtAt = Date.now();
   const g = A.generatePlan({
     requirements: L.blocks,
     context,
     prior,
     horizon,
-    preferences: { creditsPerTerm: { min: 12, target, max: 18 }, priorities: process.env.SWEEP_NO_EARLY === '1' ? { ...PRIORITY_PRESETS.balanced, noEarly: true } : PRIORITY_PRESETS.balanced },
+    preferences: { creditsPerTerm: { min: 12, target, max: 18 }, priorities: process.env.SWEEP_NO_EARLY === '1' ? { ...PRESET_PRIORITIES, noEarly: true } : PRESET_PRIORITIES },
     programId: L.summary.id,
     degreeTotal,
     interests: words,
@@ -284,7 +317,10 @@ function build({ program, prior = FRESHMAN, horizon = FOUR_YEARS, target = null,
     admissionRoute: null,
     residency: { hours: 45, upperLevel: 21, heldHours: 0, heldUpper: 0, source: 'check' },
     ...(process.env.SWEEP_PLAIN ? { plainEngine: true } : {}),
+    // A can't-finish fix builds without the difficulty gate's other boards, as the workspace's do (AutoplanInput.difficultyGate).
+    ...(trialBuild ? { difficultyGate: false } : {}),
   });
+  const buildMs = Date.now() - builtAt;
   const forfeited = new Set(g.forfeited.map((f) => norm(f.held)));
   const held = codesOf(g.plan.completedCourseIds).filter((c) => !forfeited.has(c));
   const pools = livePools({ base: g.pools, blocks: L.blocks, boardCodes: codesOn(g.plan), priorCodes: held, context });
@@ -294,7 +330,7 @@ function build({ program, prior = FRESHMAN, horizon = FOUR_YEARS, target = null,
   const momentum = (board, firstYear = true) =>
     V.momentumReview({ context, board, requirements: L.blocks, programName: L.program.name, firstYear, targetTermCredits: target, planAim: g.credits.aim ?? null, built, heldCodes: held, genEdCredits: prior.genEdCredits ?? [] });
   const flags = (board) => V.editFlags(A.validatePlan(board, context, options), momentum(board).flags);
-  return { L, g, board: g.plan, held, marks, built, options, degreeTotal, prior, target, horizon, momentum, flags };
+  return { L, g, board: g.plan, held, marks, built, options, degreeTotal, prior, target, horizon, momentum, flags, buildMs };
 }
 
 // ---- the measures ------------------------------------------------------------
@@ -416,7 +452,7 @@ function cannotFinishOf(b, job) {
         ...(c.change.finish ? { gradSeason: c.change.finish.season, gradYear: c.change.finish.year } : {}),
         ...(c.change.away ? { away: c.change.away } : {}),
       };
-      const t = build({ program: job.id, prior: b.prior, horizon, target: c.change.target ?? b.target, words: b.words, career: b.career });
+      const t = build({ program: job.id, prior: b.prior, horizon, target: c.change.target ?? b.target, words: b.words, career: b.career, trialBuild: true });
       const ts = finishOf(t);
       tried.push({ ...CF.tried(c, ts, Date.now() - t0, state), finishesBroad: complete(ts), offeringNew: CF.newOffering ? CF.newOffering(ts, state) : [] });
       if (tried.filter((x) => x.fully).length >= 2) break;
@@ -547,6 +583,10 @@ function measure(job) {
     momentumAll: momentum.map((f) => ({ id: f.id, cause: f.cause, message: f.message })),
     orderFaults,
     kept: g.gate?.kept ?? null,
+    preset: PRESET,
+    buildMs: b.buildMs,
+    ...(g.difficulty ? { difficulty: { kept: g.difficulty.kept, builds: g.difficulty.builds, tried: g.difficulty.tried.map((t) => `${t.how}${t.worse.length ? `:${t.worse.join('+')}` : ''}`) } } : {}),
+    difficultyNote: g.notes.find((x) => x.startsWith('Lightest schedule:')) ?? null,
     gateWorse: g.gate?.worse ?? [],
     // For the three-level verdict (gate.mjs) and compare.mjs.
     start: `${FOUR_YEARS.startSeason} ${FOUR_YEARS.startYear}`,
