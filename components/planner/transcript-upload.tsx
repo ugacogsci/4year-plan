@@ -26,6 +26,7 @@ import { loadUgaTransfer } from '@/lib/planner/transfer-official';
 import { loadUgaOfferings } from '@/lib/planner/uga-offerings';
 import { declineMaybe, maybeLines } from '@/lib/planner/transfer-maybe';
 import { aiUnavailable } from '@/lib/planner/ai-unavailable';
+import { refineTransfers } from '@/lib/planner/transfer-ai-client';
 
 /**
  * "Upload what you have."
@@ -182,7 +183,13 @@ export function TranscriptUpload({
           usgCore: addTo.usgCore ?? fresh.usgCore ?? null,
         });
       } else {
-        onChange(matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable, crossListed));
+        const matched = matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable, crossListed);
+        onChange(matched);
+        // The lines nothing settled: one more look, course by course (transfer-ai.ts).
+        if (matched.home === false || matched.courses.some((c) => c.from)) {
+          setBusy('Checking how each class transfers');
+          onChange(await refineTransfers(matched, lite, school?.id === 'uga' ? 'uga' : 'illinois'));
+        }
       }
     } catch {
       // Past the reply, the network is not the problem: say so honestly.

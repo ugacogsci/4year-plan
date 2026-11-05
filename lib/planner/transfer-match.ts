@@ -46,7 +46,7 @@ export interface EquivalentProposal {
  * composition where Illinois has RHET, SPE or SPCH for speech where Illinois
  * has CMN), so the prefix is a hint about the subject and never a match.
  */
-const SUBJECT_MAP: Record<string, string[]> = {
+export const SUBJECT_MAP: Record<string, string[]> = {
   ENG: ['RHET', 'ENGL'], ENGL: ['RHET', 'ENGL'], ENGLI: ['RHET', 'ENGL'], RHET: ['RHET'], WRT: ['RHET'], WRIT: ['RHET'],
   MAT: ['MATH'], MATH: ['MATH'], MTH: ['MATH'], MATHS: ['MATH'],
   STA: ['STAT'], STAT: ['STAT'],
@@ -69,7 +69,7 @@ const SUBJECT_MAP: Record<string, string[]> = {
   GER: ['GER'], GRMN: ['GER'],
   ACC: ['ACCY'], ACCT: ['ACCY'], ACCY: ['ACCY'], ACG: ['ACCY'],
   BUS: ['BUS', 'BADM'], BUSN: ['BUS', 'BADM'], MGT: ['BADM'], MKT: ['BADM'], MGMT: ['BADM'],
-  GEO: ['GEOG', 'GEOL'], GEOG: ['GEOG'], GEOL: ['GEOL'], GGIS: ['GGIS'],
+  GEO: ['GGIS', 'GEOL', 'ATMS'], GEOG: ['GGIS', 'ATMS'], GEOL: ['GEOL'], GGIS: ['GGIS'], ATMS: ['ATMS'],
   AST: ['ASTR'], ASTR: ['ASTR'],
   ANT: ['ANTH'], ANTH: ['ANTH'],
   HUM: ['HUM'], REL: ['RLST'], RLST: ['RLST'],
@@ -133,7 +133,8 @@ const CURATED: CuratedRule[] = [
   { test: /\bintermediate macro-?economic/, prefixes: ['ECON'], code: 'ECON 303', confidence: 'high', why: 'Intermediate macroeconomics is ECON 303 at Illinois.' },
   { test: /\bmicro-?economic/, prefixes: ['ECON', 'BUS', 'BADM'], code: 'ECON 102', confidence: 'high', why: 'Principles of microeconomics is ECON 102 at Illinois.' },
   { test: /\bpublic speaking\b|\b(fundamentals of|introduction to|intro|principles of|basic) (speech|oral communication)\b|\bspeech communication\b|\bspeech\b/, prefixes: ['CMN'], code: 'CMN 101', confidence: 'high', why: 'A public speaking or fundamentals of speech course is CMN 101 at Illinois.' },
-  { test: /\binterpersonal communication\b/, prefixes: ['CMN'], code: 'CMN 102', confidence: 'medium', why: 'Interpersonal communication is CMN 102 at Illinois.' },
+  { test: /\binterpersonal communication\b/, prefixes: ['CMN'], code: 'CMN 230', confidence: 'high', why: 'Introduction to interpersonal communication is CMN 230 at Illinois.' },
+  { test: /\b(weather (and|&) climate|meteorology|introduction to weather)\b/, prefixes: [], code: 'ATMS 100', confidence: 'high', why: 'An introductory weather and climate course is ATMS 100, Introduction to Meteorology, at Illinois.' },
   { test: /\b(u\.?s\.?|united states|american) history\b.*\b(to|before|through|until) 18(65|77)\b|\b(u\.?s\.?|united states|american) history\b.*\b1\b/, prefixes: ['HIST'], code: 'HIST 171', confidence: 'high', why: 'Early United States history is HIST 171 at Illinois.' },
   { test: /\b(u\.?s\.?|united states|american) history\b.*\b(since|after|from) 18(65|77)\b|\b(u\.?s\.?|united states|american) history\b.*\b2\b/, prefixes: ['HIST'], code: 'HIST 172', confidence: 'high', why: 'United States history since 1877 is HIST 172 at Illinois.' },
   { test: /\bwestern civilization\b.*\b1\b|\bwestern civ\b.*\b1\b/, prefixes: ['HIST'], code: 'HIST 141', confidence: 'medium', why: 'Early Western civilization is HIST 141 at Illinois.' },
@@ -211,7 +212,8 @@ const CURATED_UGA: CuratedRule[] = [
   { test: /\bphysics\b.*\b(calculus|engineers?|scientists?)\b|\buniversity physics\b(.*\b1\b)?(?!.*\b2\b)/, prefixes: [], code: 'PHYS 1211', confidence: 'high', why: 'Calculus-based first-semester physics is PHYS 1211 at UGA.' },
   { test: /\b(general|college|introductory|algebra-based) physics\b.*\b2\b|\bphysics 2\b/, prefixes: [], code: 'PHYS 1112', confidence: 'high', why: 'Algebra-based second-semester physics is PHYS 1112 at UGA.' },
   { test: /\b(general|college|introductory|algebra-based) physics\b(.*\b1\b)?(?!.*\b2\b)|\bphysics 1\b/, prefixes: [], code: 'PHYS 1111', confidence: 'high', why: 'Algebra-based first-semester physics is PHYS 1111 at UGA.' },
-  { test: /\b(introduction to|intro) (computer science|programming)\b.*\b2\b|\bcomputer science 2\b|\bprogramming 2\b|\bdata structures\b/, prefixes: [], code: 'CSCI 1302', confidence: 'medium', why: 'A second programming course is closest to CSCI 1302, Software Development, at UGA.' },
+  { test: /\bdata structures\b/, prefixes: [], code: 'CSCI 2720', confidence: 'medium', why: 'A data structures course is closest to CSCI 2720, Data Structures, at UGA.' },
+  { test: /\b(introduction to|intro) (computer science|programming)\b.*\b2\b|\bcomputer science 2\b|\bprogramming 2\b|\bsoftware development\b/, prefixes: [], code: 'CSCI 1302', confidence: 'medium', why: 'A second programming course is closest to CSCI 1302, Software Development, at UGA.' },
   { test: /\b(introduction to|intro) (computer science|programming|computing and programming)\b|\bcomputer science 1\b|\bprogramming 1\b|\bprogramming in (java|python|c\+\+)\b/, prefixes: [], code: 'CSCI 1301', confidence: 'medium', why: 'A first programming course is closest to CSCI 1301 at UGA.' },
   { test: /\bintermediate spanish\b.*\b2\b|\bspanish 4\b/, prefixes: [], code: 'SPAN 2002', confidence: 'high', why: 'Fourth-semester Spanish is SPAN 2002 at UGA.' },
   { test: /\bintermediate spanish\b(.*\b1\b)?(?!.*\b2\b)|\bspanish 3\b/, prefixes: [], code: 'SPAN 2001', confidence: 'high', why: 'Third-semester Spanish is SPAN 2001 at UGA.' },
@@ -283,19 +285,19 @@ function indexOf(catalog: CatalogLite[]) {
 }
 
 /** The level a school's number suggests: "128" and "1101" are both first-year. */
-function levelOf(code: string): number | null {
+export function levelOf(code: string): number | null {
   const number = code.match(/\b(\d{3,4})[A-Z]{0,2}$/)?.[1];
   if (!number) return null;
   return Number(number[0]) * 100;
 }
 
-function prefixOf(code: string): string {
+export function prefixOf(code: string): string {
   // Indiana prints its campus letter on the subject ("SPAN-S 200", "ECON-E 201").
   return (code.split(' ')[0] ?? '').replace(/-[A-Z]$/, '');
 }
 
 /** A title written the way the curated rules read it: expanded and with numerals as digits. */
-function curatedKey(title: string): string {
+export function curatedKey(title: string): string {
   return title
     .toLowerCase()
     .replace(/[()[\]:;,/]/g, ' ')

@@ -17,13 +17,15 @@ import { loadUgaTransfer } from './transfer-official';
 import { matchTranscript, normalizeCourseCode, readingOfRecord, type TranscriptRecord } from './transcript';
 import type { Course } from './types';
 import { loadUgaOfferings } from './uga-offerings';
+import { refineTransfers } from './transfer-ai-client';
 
 export async function rematchForSchool(record: TranscriptRecord, here: 'uga' | 'illinois', catalog: CatalogLite[]): Promise<TranscriptRecord> {
   const reading = readingOfRecord(record);
   const guide = here === 'illinois' ? await loadTransferGenEd().catch(() => null) : null;
   const ugaTable = here === 'uga' ? await loadUgaTransfer([reading.institution, ...reading.courses.map((c) => c.from)]).catch(() => null) : null;
   const crossListed = here === 'uga' ? (await loadUgaOfferings().catch(() => null))?.crossListed ?? null : null;
-  const fresh = matchTranscript(reading, record.fileName, catalog, record.files ?? [record.fileName], guide, here, ugaTable, crossListed);
+  // Matched for this school, then the lines nothing settled decided (transfer-ai.ts).
+  const fresh = await refineTransfers(matchTranscript(reading, record.fileName, catalog, record.files ?? [record.fileName], guide, here, ugaTable, crossListed), catalog, here);
   const was = record.schoolId === 'uga' ? 'UGA' : 'Illinois';
   return {
     ...fresh,

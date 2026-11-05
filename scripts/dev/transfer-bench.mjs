@@ -100,9 +100,9 @@ const B = [
   ['BIOL 111', 'General Biology I', 4, 'BIOL 1107', 'IB 150|MCB 150'],
   ['PHYS 211', 'Physics for Scientists and Engineers I', 4, 'PHYS 1211', 'PHYS 211'],
   ['CS 141', 'Programming in Java', 3, 'CSCI 1301', 'CS 124|CS 101'],
-  ['CS 142', 'Data Structures', 3, 'CSCI 1302', 'CS 128|CS 225'],
+  ['CS 142', 'Data Structures', 3, 'CSCI 2720|CSCI 1302', 'CS 128|CS 225'],
   ['SPAN 111', 'Beginning Spanish I', 4, 'SPAN 1001', 'SPAN 101'],
-  ['PHIL 120', 'Introduction to Logic', 3, 'PHIL 2500', 'PHIL 102'],
+  ['PHIL 120', 'Introduction to Logic', 3, 'PHIL 2500|PHIL 2020', 'PHIL 102'],
   ['BADM 220', 'Legal Environment of Business', 3, 'LEGL 2700', 'BADM 300'],
   ['FIN 300', 'Corporate Finance', 3, 'FINA 3000', 'FIN 221'],
   ['MGMT 301', 'Organizational Behavior', 3, 'MGMT 3000', 'BADM 310'],
@@ -116,8 +116,47 @@ const B = [
   ['NUTR 101', 'Nutrition', 3, 'NUTR 2100', 'FSHN 120'],
 ];
 
-const record = (rows, school) => T.matchTranscript({
-  institution: 'Sample State University',
+// A UGA transcript going to Illinois, like the owner's (2026-11-04). '?' has no answer key: only whether it was decided is scored.
+const C = [
+  ['BIOL 1103', 'Concepts in Biology', 3, '-', '?'],
+  ['BIOL 1103L', 'Concepts in Biology Laboratory', 1, '-', '?'],
+  ['MIST 2090', 'Introduction to Information Systems in Business', 3, '-', '?'],
+  ['CMLT 2212', 'World Literature II', 3, '-', '?'],
+  ['COMM 1500', 'Introduction to Interpersonal Communication', 3, '-', 'CMN 230'],
+  ['GEOG 1112', 'Introduction to Weather and Climate', 3, '-', 'ATMS 100|ATMS 120'],
+  ['ASTR 1010', 'Astronomy of the Solar System', 3, '-', 'ASTR 100|ASTR 121|ASTR 122'],
+  ['FHCE 3200', 'Introduction to Personal Finance', 3, '-', 'ACE 240'],
+  ['RMIN 4000', 'Risk Management', 3, '-', '?'],
+  ['ANTH 1102', 'Introduction to Anthropology', 3, '-', 'ANTH 101'],
+  ['SPAN 2001', 'Intermediate Spanish I', 3, '-', 'SPAN 201'],
+  ['MUSI 2020', 'Introduction to Music', 3, '-', '?'],
+  ['PEDB 1950', 'Fitness for Life Walking', 1, '-', ''],
+  ['ECON 4750', 'Introduction to Econometrics', 3, '-', 'ECON 491'],
+  ['STAT 2000', 'Introductory Statistics', 3, '-', 'STAT 100'],
+  ['ENGL 1102', 'English Composition II', 3, '-', ''],
+  ['ENGL 1101', 'English Composition I', 3, '-', 'RHET 105'],
+  ['HIST 2112', 'American History Since 1865', 3, '-', 'HIST 172'],
+  ['POLS 1101', 'American Government', 3, '-', 'PS 101'],
+  ['GEOL 1121', 'Physical Geology', 3, '-', 'GEOL 100|GEOL 107'],
+];
+
+const AI = process.argv.includes('--ai');
+const AIX = AI ? await import(join(ROOT, 'lib/planner/transfer-ai.ts')) : null;
+const AIS = AI ? await import(join(ROOT, 'lib/planner/transfer-ai-server.ts')) : null;
+const client = AI ? new (await import('@anthropic-ai/sdk')).default() : null;
+let aiUsd = 0;
+async function refined(rec, school, institution) {
+  if (!AI) return rec;
+  const lines = AIX.unsettledLines(rec, LITE[school], school);
+  if (lines.length === 0) return rec;
+  const out = await AIS.decideTransfers(client, school, institution, lines);
+  const u = out.usage;
+  aiUsd += ((u.input_tokens ?? 0) * 2 + (u.cache_read_input_tokens ?? 0) * 0.1 + (u.output_tokens ?? 0) * 10) / 1e6;
+  return AIX.applyDecisions(rec, lines, out.decisions, LITE[school], school);
+}
+
+const record = (rows, school, institution = 'Sample State University') => T.matchTranscript({
+  institution,
   kind: 'transcript',
   hoursUnit: 'semester',
   courses: rows.map(([code, title, credits]) => ({ code, title, credits, grade: 'A', term: 'Fall 2025', status: 'completed' })),
@@ -129,11 +168,20 @@ const list = process.argv.includes('--list');
 for (const school of ['uga', 'illinois']) {
   const tally = { 'counted right': 0, 'offered right': 0, 'counted WRONG': 0, 'offered wrong': 0, missed: 0, 'right as hours': 0 };
   const notes = [];
-  for (const rows of [A, B]) {
-    const rec = record(rows, school);
+  let undecided = 0;
+  let lines = 0;
+  const sets = school === 'uga' ? [[A, 'Sample State University'], [B, 'Sample State University']] : [[A, 'Sample State University'], [B, 'Sample State University'], [C, 'University of Georgia']];
+  for (const [rows, institution] of sets) {
+    const rec = await refined(record(rows, school, institution), school, institution);
+    for (const c of rec.courses) { lines += 1; if (c.counts === 'hours' && (!c.basis || c.basis.badge === 'not-evaluated') && !c.proposals?.length) undecided += 1; }
     rows.forEach((row, i) => {
-      const right = (school === 'uga' ? row[3] : row[4]).split('|').filter(Boolean);
+      const key = school === 'uga' ? row[3] : row[4];
       const line = rec.courses[i];
+      if (key === '?' || key === '-') {
+        if (key === '?') notes.push(`  (no key)      ${row[0].padEnd(9)} ${row[1].padEnd(40)} got ${line.counts === 'course' ? line.matched : line.proposals?.[0] ? `maybe ${line.proposals[0].code}` : line.basis?.badge === 'elective' ? 'elective credit' : 'not evaluated'}: ${(line.basis?.text ?? '').slice(0, 110)}`);
+        return;
+      }
+      const right = key.split('|').filter(Boolean);
       const counted = line.counts === 'course' ? line.matched : null;
       const offered = line.proposals?.[0]?.code ?? null;
       let verdict;
@@ -147,7 +195,8 @@ for (const school of ['uga', 'illinois']) {
   }
   const total = Object.values(tally).reduce((a, b) => a + b, 0);
   const good = tally['counted right'] + tally['right as hours'];
-  console.log(`\n${school === 'uga' ? 'To UGA' : 'To Illinois'}: ${good}/${total} handled right (${Math.round(good / total * 100)}%), ${tally['counted WRONG']} counted wrong`);
+  console.log(`\n${school === 'uga' ? 'To UGA' : 'To Illinois'}${AI ? ' (with the AI step)' : ''}: ${good}/${total} handled right (${Math.round(good / total * 100)}%), ${tally['counted WRONG']} counted wrong; lines left with no answer at all: ${undecided}/${lines}`);
   console.log('  ' + Object.entries(tally).map(([k, v]) => `${k} ${v}`).join(' | '));
   if (list) console.log(notes.join('\n'));
 }
+if (AI) console.log(`\nAI cost for this run: about $${aiUsd.toFixed(3)}`);

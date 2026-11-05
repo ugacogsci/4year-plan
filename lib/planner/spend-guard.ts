@@ -150,6 +150,8 @@ export const LIMITS = {
   advisor: { perWindow: 40, windowMs: 10 * 60_000, perDay: 250, maxBodyBytes: 1_000_000 },
   // The reader takes up to 30 MB of files as base64 (route.ts checks each file).
   transcript: { perWindow: 6, windowMs: 10 * 60_000, perDay: 20, maxBodyBytes: 32_000_000 },
+  // Deciding the transfer lines nothing else settled: one model call per transcript read (transfer-ai.ts).
+  transferMatch: { perWindow: 10, windowMs: 10 * 60_000, perDay: 40, maxBodyBytes: 400_000 },
   // The university lookup: one model call with web search per question, on
   // the planner's key and under the same daily dollar cap as ALMA.
   ask: { perWindow: 30, windowMs: 10 * 60_000, perDay: 300, maxBodyBytes: 16_000 },
