@@ -138,6 +138,7 @@ import {
   awayCredits,
   describeCreditProgress,
   describeCreditTotal,
+  difficultyEstimatesApply,
   extendForAway,
   generatePlan,
   planCreditRange,
@@ -1823,7 +1824,10 @@ export function PlannerWorkspace({
      * why. spreadHardOutcome decides, and its note names the check that
      * failed or says what the kept plan really does.
      */
-    if (shape.spreadHard && !doubleDawgsPathway) {
+    if (shape.spreadHard && !doubleDawgsPathway && !difficultyEstimatesApply(context, priorities)) {
+      // At UGA on Balanced (or another preference) the board has no bands to spread: say how to get it rather than "changed nothing".
+      generated.notes.push('At UGA, which courses are hardest is an estimate from student ratings, and the planner uses it only when Preferences is set to Lightest, Best-rated teaching or Challenge me. Choose Lightest in Preferences to spread the hardest courses out, one a term where the degree allows.');
+    } else if (shape.spreadHard && !doubleDawgsPathway) {
       const spreadInput = { ...planInput, preferences: { ...planInput.preferences, maxHardCourses: 1 } };
       const spread = generatePlan(spreadInput);
       const outcome = spreadHardOutcome(generated, spread, {

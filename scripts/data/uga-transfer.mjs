@@ -231,7 +231,7 @@ export const SCHOOLS = [
   { key: '005799', name: 'Toccoa Falls College', system: 'other', match: ['toccoa falls college'] },
   { key: '005009', name: 'Andrew College', system: 'other', match: ['andrew college'], not: ['st. andrew', 'saint andrew', 'st andrew'] },
   { key: '005068', name: 'Brewton-Parker College', system: 'other', match: ['brewton-parker', 'brewton parker'] },
-  { key: '005072', name: 'Thomas University', system: 'other', match: ['thomas university'], not: ['jefferson'] },
+  { key: '005072', name: 'Thomas University', system: 'other', match: ['thomas university'], not: ['jefferson', 'st. thomas', 'st thomas', 'saint thomas'] },
   { key: '005029', name: 'Point University', system: 'other', match: ['point university'], not: ['high point', 'west point'] },
   { key: '005530', name: 'Paine College', system: 'other', match: ['paine college'] },
   { key: '005928', name: 'Wake Technical Community College', system: 'other', match: ['wake technical community college', 'wake tech community college'] },

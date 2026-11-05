@@ -598,7 +598,7 @@ const UGA_TOOL_TEXT: Partial<Record<AdvisorToolName, { description: string; prop
     properties: {
       min_credits: { description: "The fewest credits a fall or spring term may hold (12 is full time for a UGA undergraduate, 9 for a graduate student). Under full time is part-time and the result carries the note to relay. Above 18 is never planned: the result gives UGA's rule instead." },
       away: { description: 'Fall or spring terms the student is away, each "Spring 2029" or {"term": "Spring 2029", "kind": "study_abroad", "credits": 15}. A semester abroad counts 15 hours unless credits says otherwise (at most 18); a co-op, internship or gap term counts none. Each must fall inside the plan. With no finish set, the default finish moves later so the student keeps eight falls and springs on campus, less what a semester abroad earns. Replaces the list.' },
-      spread_hard: { description: "One hardest-band course a term where the degree allows. At UGA the bands come from student ratings of the instructors who teach each course (an estimate; UGA publishes no grade history), and a board that spreads them is kept only where it costs no required course and no later finish." },
+      spread_hard: { description: "One hardest-band course a term where the degree allows. At UGA the bands come from student ratings of the instructors who teach each course (an estimate; UGA publishes no grade history) and shape the board only under the lightest, teaching or challenge preference: for a student on another preference the result says so, and offering set_priorities lightest is the way to spread them. A board that spreads them is kept only where it costs no required course and no later finish." },
     },
   },
   replace_course: {
@@ -627,7 +627,7 @@ const UGA_TOOL_TEXT: Partial<Record<AdvisorToolName, { description: string; prop
   },
   find_equivalent: {
     description:
-      "Which UGA course another school's course is. Give the course as the student or their transcript names it (code, title, hours) and the school. When the planner holds UGA's own Transfer Equivalency list for that school (it holds 91) and the list has the course, that answer comes first, marked official, with its page and the day it was read. Otherwise the catalog's likely equivalents best first, each with a confidence and the reason: present the top one as likely rather than certain. Record it only when the student agrees or UGA's list or their record prints it.",
+      "Which UGA course another school's course is. Give the course as the student or their transcript names it (code, title, hours) and the school. When the planner holds UGA's own Transfer Equivalency list for that school (it holds 209) and the list has the course, that answer comes first, marked official, with its page and the day it was read. Where that list lacks the course or the school has none, uga_sister_schools may give UGA's own answer for the same course at sister schools in the same system: say it comes from UGA's lists for sister schools and that UGA's evaluation decides. Otherwise the catalog's likely equivalents best first, each with a confidence and the reason: present the top one as likely rather than certain. Record it only when the student agrees or UGA's list or their record prints it.",
   },
   record_prior_credit: {
     description:

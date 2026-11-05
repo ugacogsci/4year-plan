@@ -2024,7 +2024,10 @@
     "thomas university"
    ],
    "not": [
-    "jefferson"
+    "jefferson",
+    "st. thomas",
+    "st thomas",
+    "saint thomas"
    ],
    "readAt": "2026-11-05",
    "rows": 116,

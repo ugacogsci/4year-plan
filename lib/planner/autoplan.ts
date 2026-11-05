@@ -7481,6 +7481,18 @@ function challengeOf(p: Priorities | undefined): boolean {
 }
 
 /**
+ * Whether the board reads the difficulty estimates at all. At UGA, where
+ * every row and band is an estimate, only "Lighter workload", "Highly rated
+ * teaching" and "Challenge me" bring them in (difficultyGated); on another
+ * preference the board is built without bands, so spreading the hardest
+ * courses has nothing to spread. Illinois keeps its grade history either way.
+ */
+export function difficultyEstimatesApply(ctx: PlanningContext, p: Priorities | undefined): boolean {
+  if (!ctx.estimates?.bands) return true;
+  return challengeOf(p) || p?.workload === 2 || p?.teaching === 2;
+}
+
+/**
  * How well a board answers the student's workload and teaching priorities,
  * read with the difficulty estimates; lower is better. Only the board's own
  * picks count (not a course a requirement names, a track's course or a
