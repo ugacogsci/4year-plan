@@ -23,6 +23,28 @@
    "courses": 310
   },
   {
+   "key": "005037",
+   "name": "Aiken Technical College",
+   "system": "other",
+   "match": [
+    "aiken technical college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 29,
+   "courses": 26
+  },
+  {
+   "key": "005790",
+   "name": "Alamance Community College",
+   "system": "other",
+   "match": [
+    "alamance community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 33,
+   "courses": 24
+  },
+  {
    "key": "005004",
    "name": "Albany State University",
    "system": "usg",
@@ -46,6 +68,22 @@
    "courses": 94
   },
   {
+   "key": "005009",
+   "name": "Andrew College",
+   "system": "other",
+   "match": [
+    "andrew college"
+   ],
+   "not": [
+    "st. andrew",
+    "saint andrew",
+    "st andrew"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 128,
+   "courses": 114
+  },
+  {
    "key": "005010",
    "name": "Appalachian State University",
    "system": "other",
@@ -66,6 +104,18 @@
    "readAt": "2026-11-04",
    "rows": 350,
    "courses": 313
+  },
+  {
+   "key": "005033",
+   "name": "Asheville-Buncombe Technical Community College",
+   "system": "other",
+   "match": [
+    "asheville-buncombe technical",
+    "asheville buncombe technical"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 78,
+   "courses": 70
   },
   {
    "key": "000462",
@@ -159,6 +209,32 @@
    "courses": 431
   },
   {
+   "key": "001517",
+   "name": "Bishop State Community College",
+   "system": "other",
+   "match": [
+    "bishop state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 40,
+   "courses": 18
+  },
+  {
+   "key": "005644",
+   "name": "Blue Ridge Community College",
+   "system": "other",
+   "match": [
+    "blue ridge community college"
+   ],
+   "not": [
+    "virginia",
+    "weyers cave"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 53,
+   "courses": 46
+  },
+  {
    "key": "005066",
    "name": "Brenau University",
    "system": "other",
@@ -168,6 +244,18 @@
    "readAt": "2026-11-04",
    "rows": 362,
    "courses": 329
+  },
+  {
+   "key": "005068",
+   "name": "Brewton-Parker College",
+   "system": "other",
+   "match": [
+    "brewton-parker",
+    "brewton parker"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 109,
+   "courses": 103
   },
   {
    "key": "005074",
@@ -182,6 +270,17 @@
    "courses": 137
   },
   {
+   "key": "005146",
+   "name": "Caldwell Community College and Technical Institute",
+   "system": "other",
+   "match": [
+    "caldwell community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 53,
+   "courses": 51
+  },
+  {
    "key": "001356",
    "name": "Calhoun Community College",
    "system": "other",
@@ -191,6 +290,28 @@
    "readAt": "2026-11-04",
    "rows": 103,
    "courses": 55
+  },
+  {
+   "key": "005094",
+   "name": "Cape Fear Community College",
+   "system": "other",
+   "match": [
+    "cape fear community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 69,
+   "courses": 57
+  },
+  {
+   "key": "005098",
+   "name": "Catawba Valley Community College",
+   "system": "other",
+   "match": [
+    "catawba valley community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 49,
+   "courses": 45
   },
   {
    "key": "001709",
@@ -252,6 +373,17 @@
    "courses": 49
   },
   {
+   "key": "005110",
+   "name": "Clark Atlanta University",
+   "system": "other",
+   "match": [
+    "clark atlanta university"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 110,
+   "courses": 101
+  },
+  {
    "key": "005145",
    "name": "Clayton State University",
    "system": "usg",
@@ -289,6 +421,29 @@
    "courses": 55
   },
   {
+   "key": "001939",
+   "name": "Coastal Alabama Community College",
+   "system": "other",
+   "match": [
+    "coastal alabama community college",
+    "faulkner state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 65,
+   "courses": 63
+  },
+  {
+   "key": "005134",
+   "name": "Coastal Carolina Community College",
+   "system": "other",
+   "match": [
+    "coastal carolina community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 55,
+   "courses": 52
+  },
+  {
    "key": "005837",
    "name": "Coastal Carolina University",
    "system": "other",
@@ -311,6 +466,18 @@
    "courses": 103
   },
   {
+   "key": "005127",
+   "name": "College of Central Florida",
+   "system": "other",
+   "match": [
+    "college of central florida",
+    "central florida community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 101,
+   "courses": 91
+  },
+  {
    "key": "005113",
    "name": "College of Charleston",
    "system": "other",
@@ -331,6 +498,17 @@
    "readAt": "2026-11-04",
    "rows": 384,
    "courses": 327
+  },
+  {
+   "key": "001081",
+   "name": "Columbia State Community College",
+   "system": "other",
+   "match": [
+    "columbia state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 63,
+   "courses": 58
   },
   {
    "key": "005123",
@@ -367,6 +545,17 @@
    "courses": 125
   },
   {
+   "key": "005148",
+   "name": "Craven Community College",
+   "system": "other",
+   "match": [
+    "craven community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 31,
+   "courses": 30
+  },
+  {
    "key": "005167",
    "name": "Dalton State College",
    "system": "usg",
@@ -378,6 +567,17 @@
    "courses": 342
   },
   {
+   "key": "005159",
+   "name": "Daytona State College",
+   "system": "other",
+   "match": [
+    "daytona state college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 93,
+   "courses": 80
+  },
+  {
    "key": "005156",
    "name": "Duke University",
    "system": "other",
@@ -387,6 +587,17 @@
    "readAt": "2026-11-04",
    "rows": 84,
    "courses": 68
+  },
+  {
+   "key": "005172",
+   "name": "Durham Technical Community College",
+   "system": "other",
+   "match": [
+    "durham technical community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 51,
+   "courses": 38
   },
   {
    "key": "005180",
@@ -453,6 +664,40 @@
    "courses": 518
   },
   {
+   "key": "001213",
+   "name": "Enterprise State Community College",
+   "system": "other",
+   "match": [
+    "enterprise state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 26,
+   "courses": 16
+  },
+  {
+   "key": "005208",
+   "name": "Fayetteville Technical Community College",
+   "system": "other",
+   "match": [
+    "fayetteville technical community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 53,
+   "courses": 48
+  },
+  {
+   "key": "005207",
+   "name": "Florence-Darlington Technical College",
+   "system": "other",
+   "match": [
+    "florence-darlington technical college",
+    "florence darlington technical college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 32,
+   "courses": 30
+  },
+  {
    "key": "005229",
    "name": "Florida Atlantic University",
    "system": "other",
@@ -486,6 +731,18 @@
    "courses": 205
   },
   {
+   "key": "005191",
+   "name": "Florida SouthWestern State College",
+   "system": "other",
+   "match": [
+    "florida southwestern state college",
+    "edison state college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 135,
+   "courses": 118
+  },
+  {
    "key": "005232",
    "name": "Florida State College at Jacksonville",
    "system": "other",
@@ -509,6 +766,17 @@
    "courses": 497
   },
   {
+   "key": "005234",
+   "name": "Forsyth Technical Community College",
+   "system": "other",
+   "match": [
+    "forsyth technical community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 58,
+   "courses": 52
+  },
+  {
    "key": "005220",
    "name": "Fort Valley State University",
    "system": "usg",
@@ -529,6 +797,31 @@
    "readAt": "2026-11-04",
    "rows": 376,
    "courses": 293
+  },
+  {
+   "key": "001262",
+   "name": "Gadsden State Community College",
+   "system": "other",
+   "match": [
+    "gadsden state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 67,
+   "courses": 53
+  },
+  {
+   "key": "005262",
+   "name": "Gaston College",
+   "system": "other",
+   "match": [
+    "gaston college"
+   ],
+   "not": [
+    "kipp"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 73,
+   "courses": 64
   },
   {
    "key": "005252",
@@ -677,6 +970,32 @@
    "courses": 85
   },
   {
+   "key": "005275",
+   "name": "Guilford Technical Community College",
+   "system": "other",
+   "match": [
+    "guilford technical community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 73,
+   "courses": 54
+  },
+  {
+   "key": "005271",
+   "name": "Gulf Coast State College",
+   "system": "other",
+   "match": [
+    "gulf coast state college",
+    "gulf coast community college"
+   ],
+   "not": [
+    "mississippi"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 95,
+   "courses": 94
+  },
+  {
    "key": "005168",
    "name": "Gwinnett Technical College",
    "system": "tcsg",
@@ -689,6 +1008,17 @@
    "courses": 319
   },
   {
+   "key": "005289",
+   "name": "Haywood Community College",
+   "system": "other",
+   "match": [
+    "haywood community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 22,
+   "courses": 19
+  },
+  {
    "key": "004177",
    "name": "Hillsborough Community College",
    "system": "other",
@@ -698,6 +1028,29 @@
    "readAt": "2026-11-04",
    "rows": 156,
    "courses": 150
+  },
+  {
+   "key": "005305",
+   "name": "Horry-Georgetown Technical College",
+   "system": "other",
+   "match": [
+    "horry-georgetown technical college",
+    "horry georgetown technical college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 44,
+   "courses": 37
+  },
+  {
+   "key": "005322",
+   "name": "Indian River State College",
+   "system": "other",
+   "match": [
+    "indian river state college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 149,
+   "courses": 129
   },
   {
    "key": "001324",
@@ -721,6 +1074,40 @@
    "courses": 451
   },
   {
+   "key": "005319",
+   "name": "Isothermal Community College",
+   "system": "other",
+   "match": [
+    "isothermal community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 4,
+   "courses": 2
+  },
+  {
+   "key": "002108",
+   "name": "J. F. Drake State Community and Technical College",
+   "system": "other",
+   "match": [
+    "drake state community",
+    "drake state technical"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 27,
+   "courses": 25
+  },
+  {
+   "key": "002266",
+   "name": "Jackson State Community College",
+   "system": "other",
+   "match": [
+    "jackson state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 1,
+   "courses": 1
+  },
+  {
    "key": "001352",
    "name": "Jefferson State Community College",
    "system": "other",
@@ -730,6 +1117,17 @@
    "readAt": "2026-11-04",
    "rows": 91,
    "courses": 46
+  },
+  {
+   "key": "000727",
+   "name": "Johnston Community College",
+   "system": "other",
+   "match": [
+    "johnston community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 34,
+   "courses": 30
   },
   {
    "key": "005359",
@@ -767,6 +1165,17 @@
    "courses": 249
   },
   {
+   "key": "001933",
+   "name": "Lawson State Community College",
+   "system": "other",
+   "match": [
+    "lawson state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 1,
+   "courses": 1
+  },
+  {
    "key": "005385",
    "name": "Liberty University",
    "system": "other",
@@ -776,6 +1185,17 @@
    "readAt": "2026-11-04",
    "rows": 243,
    "courses": 217
+  },
+  {
+   "key": "007006",
+   "name": "Life University",
+   "system": "other",
+   "match": [
+    "life university"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 114,
+   "courses": 103
   },
   {
    "key": "006373",
@@ -793,6 +1213,19 @@
    "readAt": "2026-11-04",
    "rows": 334,
    "courses": 321
+  },
+  {
+   "key": "001429",
+   "name": "Lurleen B. Wallace Community College",
+   "system": "other",
+   "match": [
+    "lurleen b. wallace",
+    "lurleen b wallace",
+    "lurleen burns wallace"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 5,
+   "courses": 5
   },
   {
    "key": "005409",
@@ -867,6 +1300,17 @@
    "courses": 86
   },
   {
+   "key": "001543",
+   "name": "Motlow State Community College",
+   "system": "other",
+   "match": [
+    "motlow state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 39,
+   "courses": 31
+  },
+  {
    "key": "000850",
    "name": "Nashville State Community College",
    "system": "other",
@@ -891,6 +1335,21 @@
    "courses": 199
   },
   {
+   "key": "005503",
+   "name": "North Florida College",
+   "system": "other",
+   "match": [
+    "north florida college",
+    "north florida community college"
+   ],
+   "not": [
+    "university of north florida"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 28,
+   "courses": 16
+  },
+  {
    "key": "005507",
    "name": "North Georgia Technical College",
    "system": "tcsg",
@@ -901,6 +1360,62 @@
    "readAt": "2026-11-04",
    "rows": 283,
    "courses": 261
+  },
+  {
+   "key": "001576",
+   "name": "Northeast Alabama Community College",
+   "system": "other",
+   "match": [
+    "northeast alabama community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 46,
+   "courses": 21
+  },
+  {
+   "key": "000453",
+   "name": "Northeast State Community College",
+   "system": "other",
+   "match": [
+    "northeast state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 25,
+   "courses": 22
+  },
+  {
+   "key": "005095",
+   "name": "Northeastern Technical College",
+   "system": "other",
+   "match": [
+    "northeastern technical college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 10,
+   "courses": 10
+  },
+  {
+   "key": "005515",
+   "name": "Northern Virginia Community College",
+   "system": "other",
+   "match": [
+    "northern virginia community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 157,
+   "courses": 142
+  },
+  {
+   "key": "000188",
+   "name": "Northwest-Shoals Community College",
+   "system": "other",
+   "match": [
+    "northwest-shoals community college",
+    "northwest shoals community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 23,
+   "courses": 20
   },
   {
    "key": "005772",
@@ -936,6 +1451,18 @@
    "courses": 251
   },
   {
+   "key": "005527",
+   "name": "Orangeburg-Calhoun Technical College",
+   "system": "other",
+   "match": [
+    "orangeburg-calhoun technical college",
+    "orangeburg calhoun technical college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 16,
+   "courses": 14
+  },
+  {
    "key": "005186",
    "name": "Oxford College of Emory University",
    "system": "other",
@@ -945,6 +1472,17 @@
    "readAt": "2026-11-04",
    "rows": 160,
    "courses": 121
+  },
+  {
+   "key": "005530",
+   "name": "Paine College",
+   "system": "other",
+   "match": [
+    "paine college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 67,
+   "courses": 58
   },
   {
    "key": "005531",
@@ -994,6 +1532,20 @@
    "courses": 73
   },
   {
+   "key": "005550",
+   "name": "Piedmont Technical College",
+   "system": "other",
+   "match": [
+    "piedmont technical college"
+   ],
+   "not": [
+    "georgia piedmont"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 52,
+   "courses": 42
+  },
+  {
    "key": "005537",
    "name": "Piedmont University",
    "system": "other",
@@ -1004,6 +1556,32 @@
    "readAt": "2026-11-04",
    "rows": 640,
    "courses": 595
+  },
+  {
+   "key": "005029",
+   "name": "Point University",
+   "system": "other",
+   "match": [
+    "point university"
+   ],
+   "not": [
+    "high point",
+    "west point"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 190,
+   "courses": 167
+  },
+  {
+   "key": "005548",
+   "name": "Polk State College",
+   "system": "other",
+   "match": [
+    "polk state college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 50,
+   "courses": 40
   },
   {
    "key": "001631",
@@ -1033,6 +1611,29 @@
    "courses": 316
   },
   {
+   "key": "001656",
+   "name": "Roane State Community College",
+   "system": "other",
+   "match": [
+    "roane state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 38,
+   "courses": 32
+  },
+  {
+   "key": "005589",
+   "name": "Rowan-Cabarrus Community College",
+   "system": "other",
+   "match": [
+    "rowan-cabarrus community college",
+    "rowan cabarrus community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 46,
+   "courses": 37
+  },
+  {
    "key": "001302",
    "name": "Samford University",
    "system": "other",
@@ -1042,6 +1643,17 @@
    "readAt": "2026-11-04",
    "rows": 298,
    "courses": 227
+  },
+  {
+   "key": "005649",
+   "name": "Sandhills Community College",
+   "system": "other",
+   "match": [
+    "sandhills community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 28,
+   "courses": 23
   },
   {
    "key": "005653",
@@ -1094,6 +1706,29 @@
    "courses": 154
   },
   {
+   "key": "005662",
+   "name": "Seminole State College of Florida",
+   "system": "other",
+   "match": [
+    "seminole state college of florida",
+    "seminole community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 68,
+   "courses": 61
+  },
+  {
+   "key": "003338",
+   "name": "Shelton State Community College",
+   "system": "other",
+   "match": [
+    "shelton state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 87,
+   "courses": 73
+  },
+  {
    "key": "005616",
    "name": "Shorter University",
    "system": "other",
@@ -1104,6 +1739,17 @@
    "readAt": "2026-11-04",
    "rows": 312,
    "courses": 275
+  },
+  {
+   "key": "001721",
+   "name": "Snead State Community College",
+   "system": "other",
+   "match": [
+    "snead state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 53,
+   "courses": 44
   },
   {
    "key": "005619",
@@ -1186,6 +1832,38 @@
    "courses": 99
   },
   {
+   "key": "005667",
+   "name": "Southwestern Community College",
+   "system": "other",
+   "match": [
+    "southwestern community college"
+   ],
+   "not": [
+    "iowa",
+    "creston",
+    "chula vista",
+    "michigan",
+    "southwestern michigan",
+    "southwestern illinois",
+    "southwestern oregon"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 98,
+   "courses": 92
+  },
+  {
+   "key": "005668",
+   "name": "Spartanburg Community College",
+   "system": "other",
+   "match": [
+    "spartanburg community college",
+    "spartanburg technical college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 40,
+   "courses": 36
+  },
+  {
    "key": "005628",
    "name": "Spelman College",
    "system": "other",
@@ -1195,6 +1873,19 @@
    "readAt": "2026-11-05",
    "rows": 140,
    "courses": 116
+  },
+  {
+   "key": "005641",
+   "name": "St. Johns River State College",
+   "system": "other",
+   "match": [
+    "st. johns river state college",
+    "st johns river state college",
+    "saint johns river state college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 84,
+   "courses": 80
   },
   {
    "key": "005606",
@@ -1210,6 +1901,17 @@
    "courses": 108
   },
   {
+   "key": "005656",
+   "name": "Surry Community College",
+   "system": "other",
+   "match": [
+    "surry community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 3,
+   "courses": 3
+  },
+  {
    "key": "005794",
    "name": "Tallahassee Community College",
    "system": "other",
@@ -1219,6 +1921,18 @@
    "readAt": "2026-11-04",
    "rows": 122,
    "courses": 118
+  },
+  {
+   "key": "005047",
+   "name": "Technical College of the Lowcountry",
+   "system": "other",
+   "match": [
+    "technical college of the lowcountry",
+    "technical college of the low country"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 57,
+   "courses": 53
   },
   {
    "key": "006003",
@@ -1268,6 +1982,54 @@
    "readAt": "2026-11-05",
    "rows": 1545,
    "courses": 1458
+  },
+  {
+   "key": "005072",
+   "name": "Thomas University",
+   "system": "other",
+   "match": [
+    "thomas university"
+   ],
+   "not": [
+    "jefferson"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 116,
+   "courses": 105
+  },
+  {
+   "key": "005032",
+   "name": "Tidewater Community College",
+   "system": "other",
+   "match": [
+    "tidewater community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 38,
+   "courses": 34
+  },
+  {
+   "key": "005799",
+   "name": "Toccoa Falls College",
+   "system": "other",
+   "match": [
+    "toccoa falls college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 175,
+   "courses": 156
+  },
+  {
+   "key": "005785",
+   "name": "Tri-County Community College",
+   "system": "other",
+   "match": [
+    "tri-county community college",
+    "tri county community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 68,
+   "courses": 62
   },
   {
    "key": "005789",
@@ -1468,6 +2230,17 @@
    "courses": 426
   },
   {
+   "key": "005490",
+   "name": "University of North Florida",
+   "system": "other",
+   "match": [
+    "university of north florida"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 193,
+   "courses": 179
+  },
+  {
    "key": "005497",
    "name": "University of North Georgia",
    "system": "usg",
@@ -1617,6 +2390,50 @@
    "courses": 244
   },
   {
+   "key": "001881",
+   "name": "Volunteer State Community College",
+   "system": "other",
+   "match": [
+    "volunteer state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 45,
+   "courses": 41
+  },
+  {
+   "key": "005928",
+   "name": "Wake Technical Community College",
+   "system": "other",
+   "match": [
+    "wake technical community college",
+    "wake tech community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 111,
+   "courses": 82
+  },
+  {
+   "key": "001264",
+   "name": "Wallace Community College",
+   "system": "other",
+   "match": [
+    "wallace community college dothan",
+    "george c. wallace community college",
+    "george c wallace community college",
+    "wallace community college"
+   ],
+   "not": [
+    "selma",
+    "lurleen",
+    "corley",
+    "wallace state",
+    "sparks"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 45,
+   "courses": 41
+  },
+  {
    "key": "000528",
    "name": "Wallace State Community College",
    "system": "other",
@@ -1630,6 +2447,17 @@
    "readAt": "2026-11-04",
    "rows": 41,
    "courses": 39
+  },
+  {
+   "key": "001893",
+   "name": "Walters State Community College",
+   "system": "other",
+   "match": [
+    "walters state community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 62,
+   "courses": 62
   },
   {
    "key": "005895",
@@ -1661,6 +2489,17 @@
    "readAt": "2026-11-05",
    "rows": 123,
    "courses": 112
+  },
+  {
+   "key": "005921",
+   "name": "Wilkes Community College",
+   "system": "other",
+   "match": [
+    "wilkes community college"
+   ],
+   "readAt": "2026-11-05",
+   "rows": 18,
+   "courses": 16
   },
   {
    "key": "004557",
