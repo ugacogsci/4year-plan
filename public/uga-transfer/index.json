@@ -1146,8 +1146,8 @@
    "match": [
     "southern crescent"
    ],
-   "readAt": "2026-10-14",
-   "rows": 198,
+   "readAt": "2026-11-05",
+   "rows": 210,
    "courses": 193
   },
   {
@@ -1169,8 +1169,8 @@
    "match": [
     "southern regional technical"
    ],
-   "readAt": "2026-10-14",
-   "rows": 150,
+   "readAt": "2026-11-05",
+   "rows": 158,
    "courses": 150
   },
   {
@@ -1192,7 +1192,7 @@
    "match": [
     "spelman"
    ],
-   "readAt": "2026-10-14",
+   "readAt": "2026-11-05",
    "rows": 140,
    "courses": 116
   },
@@ -1265,8 +1265,8 @@
     "birmingham",
     "huntsville"
    ],
-   "readAt": "2026-10-14",
-   "rows": 1651,
+   "readAt": "2026-11-05",
+   "rows": 1545,
    "courses": 1458
   },
   {
@@ -1299,8 +1299,8 @@
    "match": [
     "troy university"
    ],
-   "readAt": "2026-10-14",
-   "rows": 227,
+   "readAt": "2026-11-05",
+   "rows": 188,
    "courses": 187
   },
   {
@@ -1311,8 +1311,8 @@
     "truett mcconnell",
     "truett-mcconnell"
    ],
-   "readAt": "2026-10-14",
-   "rows": 297,
+   "readAt": "2026-11-05",
+   "rows": 320,
    "courses": 266
   },
   {
@@ -1323,8 +1323,8 @@
     "university of alabama at birmingham",
     "university of alabama birmingham"
    ],
-   "readAt": "2026-10-14",
-   "rows": 257,
+   "readAt": "2026-11-05",
+   "rows": 265,
    "courses": 249
   },
   {
@@ -1352,8 +1352,8 @@
    "match": [
     "university of central florida"
    ],
-   "readAt": "2026-10-14",
-   "rows": 366,
+   "readAt": "2026-11-05",
+   "rows": 382,
    "courses": 352
   },
   {
@@ -1363,8 +1363,8 @@
    "match": [
     "university of florida"
    ],
-   "readAt": "2026-10-14",
-   "rows": 392,
+   "readAt": "2026-11-05",
+   "rows": 413,
    "courses": 368
   },
   {
@@ -1392,8 +1392,8 @@
    "match": [
     "university of kentucky"
    ],
-   "readAt": "2026-10-14",
-   "rows": 400,
+   "readAt": "2026-11-05",
+   "rows": 436,
    "courses": 389
   },
   {
@@ -1434,8 +1434,8 @@
     "university of mississippi",
     "ole miss"
    ],
-   "readAt": "2026-10-14",
-   "rows": 394,
+   "readAt": "2026-11-05",
+   "rows": 426,
    "courses": 382
   },
   {
@@ -1463,8 +1463,8 @@
     "chapel hill",
     "unc chapel hill"
    ],
-   "readAt": "2026-10-14",
-   "rows": 459,
+   "readAt": "2026-11-05",
+   "rows": 470,
    "courses": 426
   },
   {
@@ -1474,8 +1474,8 @@
    "match": [
     "university of north georgia"
    ],
-   "readAt": "2026-10-14",
-   "rows": 2030,
+   "readAt": "2026-11-05",
+   "rows": 2149,
    "courses": 1958
   },
   {
@@ -1490,8 +1490,8 @@
     "upstate",
     "beaufort"
    ],
-   "readAt": "2026-10-14",
-   "rows": 949,
+   "readAt": "2026-11-05",
+   "rows": 1012,
    "courses": 914
   },
   {
@@ -1501,8 +1501,8 @@
    "match": [
     "university of south florida"
    ],
-   "readAt": "2026-10-14",
-   "rows": 492,
+   "readAt": "2026-11-05",
+   "rows": 505,
    "courses": 466
   },
   {
@@ -1516,8 +1516,8 @@
     "chattanooga",
     "martin"
    ],
-   "readAt": "2026-10-14",
-   "rows": 522,
+   "readAt": "2026-11-05",
+   "rows": 537,
    "courses": 468
   },
   {
@@ -1529,8 +1529,8 @@
     "university of tennessee chattanooga",
     "ut chattanooga"
    ],
-   "readAt": "2026-10-14",
-   "rows": 167,
+   "readAt": "2026-11-05",
+   "rows": 181,
    "courses": 154
   },
   {
@@ -1555,9 +1555,9 @@
    "match": [
     "university of west georgia"
    ],
-   "readAt": "2026-10-14",
-   "rows": 1258,
-   "courses": 1215
+   "readAt": "2026-11-05",
+   "rows": 1265,
+   "courses": 1216
   },
   {
    "key": "005855",
@@ -1566,8 +1566,8 @@
    "match": [
     "valdosta state"
    ],
-   "readAt": "2026-10-14",
-   "rows": 2048,
+   "readAt": "2026-11-05",
+   "rows": 1507,
    "courses": 1372
   },
   {
@@ -1589,8 +1589,8 @@
    "match": [
     "vanderbilt"
    ],
-   "readAt": "2026-10-14",
-   "rows": 355,
+   "readAt": "2026-11-05",
+   "rows": 272,
    "courses": 244
   },
   {
@@ -1612,8 +1612,8 @@
     "virginia tech",
     "virginia polytechnic"
    ],
-   "readAt": "2026-10-14",
-   "rows": 389,
+   "readAt": "2026-11-05",
+   "rows": 249,
    "courses": 244
   },
   {
@@ -1646,8 +1646,8 @@
     "tennessee wesleyan",
     "west virginia wesleyan"
    ],
-   "readAt": "2026-10-14",
-   "rows": 187,
+   "readAt": "2026-11-05",
+   "rows": 181,
    "courses": 159
   },
   {
@@ -1658,8 +1658,8 @@
     "west georgia technical",
     "west georgia tech"
    ],
-   "readAt": "2026-10-14",
-   "rows": 114,
+   "readAt": "2026-11-05",
+   "rows": 123,
    "courses": 112
   },
   {
@@ -1670,8 +1670,8 @@
     "wiregrass georgia technical",
     "wiregrass"
    ],
-   "readAt": "2026-10-14",
-   "rows": 156,
+   "readAt": "2026-11-05",
+   "rows": 162,
    "courses": 154
   },
   {
@@ -1692,8 +1692,8 @@
    "match": [
     "young harris"
    ],
-   "readAt": "2026-10-14",
-   "rows": 472,
+   "readAt": "2026-11-05",
+   "rows": 473,
    "courses": 455
   }
  ],
