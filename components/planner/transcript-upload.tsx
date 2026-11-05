@@ -326,8 +326,8 @@ export function TranscriptUpload({
                         {c.basis.source ? (
                           <>
                             {' '}
-                            <a href={c.basis.source} target="_blank" rel="noreferrer">
-                              {c.basis.from === 'official' ? `Source${c.basis.checked ? `, checked ${c.basis.checked}` : ''}` : 'Source'}
+                            <a href={c.basis.source} target="_blank" rel="noreferrer" title={c.basis.schools?.length ? `UGA's lists for: ${c.basis.schools.join(', ')}` : undefined}>
+                              {c.basis.from === 'official' ? `Source${c.basis.checked ? `, checked ${c.basis.checked}` : ''}` : c.basis.from === 'sisters' ? `One of those lists${c.basis.checked ? `, checked ${c.basis.checked}` : ''}` : 'Source'}
                             </a>
                           </>
                         ) : null}
@@ -357,7 +357,7 @@ export function TranscriptUpload({
                       <select
                         className={`transcript-counts${c.matchedBy === 'proposal' ? ' is-likely' : ''}`}
                         aria-label={`What ${c.code} counts as`}
-                        title={c.matchedBy === 'proposal' ? c.proposals?.[0]?.why : c.matchedBy === 'printed' ? 'The document prints this equivalent.' : c.matchedBy === 'official' ? 'From UGA\'s own transfer equivalency list.' : undefined}
+                        title={c.matchedBy === 'proposal' ? c.proposals?.[0]?.why : c.matchedBy === 'printed' ? 'The document prints this equivalent.' : c.matchedBy === 'official' ? 'From UGA\'s own transfer equivalency list.' : c.matchedBy === 'sisters' ? 'From UGA\'s lists for the same course number at sister schools; UGA\'s evaluation decides.' : undefined}
                         value={value}
                         onChange={(e) => {
                           const v = e.target.value;
@@ -457,6 +457,7 @@ function countsOptions(
   };
   if (c.matched && c.matchNote) push(c.matched, c.matchNote);
   if (c.matched && c.matchedBy === 'official') push(c.matched, 'UGA\'s list');
+  if (c.matched && c.matchedBy === 'sisters') push(c.matched, 'UGA\'s lists at sister schools');
   if (c.matched && (c.matchedBy === 'code' || c.matchedBy === 'student')) push(c.matched, c.basis?.from === 'document' ? 'on your record' : foreign ? 'your choice' : '');
   if (c.equivalent && known.has(c.equivalent)) push(c.equivalent, 'printed on the document');
   for (const p of c.proposals ?? []) push(p.code, p.confidence === 'high' ? 'likely' : p.confidence === 'medium' ? 'possible' : 'a guess');
@@ -466,6 +467,15 @@ function countsOptions(
 
 /** The badge over a transfer line: what it became, in two or three words. */
 function basisBadge(c: TranscriptCourseRecord): string {
+  // A sister-school answer is UGA's decision for the same course number at
+  // other schools, not at this student's, so its badge must not read like the
+  // school's own list: "Does not transfer" there would overstate a borrowed
+  // no-credit answer.
+  if (c.basis?.from === 'sisters') return c.basis.badge === 'none' ? 'No credit at sister schools' : `${ownBadge(c)} (sister schools)`;
+  return ownBadge(c);
+}
+
+function ownBadge(c: TranscriptCourseRecord): string {
   switch (c.basis?.badge) {
     case 'course':
       return c.matched ? `Counts as ${[c.matched, ...(c.also ?? [])].join(' + ')}` : 'Counts as a course';

@@ -26,6 +26,7 @@
  */
 
 import { genEdTagsFromText, guideSchool, iaiArea, proposeEquivalents, type CatalogLite, type EquivalentProposal, type TransferGenEdGuide } from './transfer-match';
+import { sisterAnswer, sisterNames } from './transfer-sisters';
 import type { GenEdCredit, PlanningContext } from './autoplan';
 import {
   ILLINOIS_GENED_TRANSFER,
@@ -166,8 +167,12 @@ export type CountsAs = 'course' | 'hours' | 'none';
 export interface TranscriptCourseRecord extends TranscriptCourse {
   /** The catalog code this line counts as, or null when it counts as hours or not at all. */
   matched: string | null;
-  /** Where the match came from. 'official' is the university's own equivalency list (UGA's). */
-  matchedBy: 'code' | 'printed' | 'official' | 'proposal' | 'student' | null;
+  /**
+   * Where the match came from. 'official' is the university's own equivalency
+   * list (UGA's); 'sisters' is UGA's answer for the same course number at
+   * sister schools of the sending school (transfer-sisters.ts).
+   */
+  matchedBy: 'code' | 'printed' | 'official' | 'sisters' | 'proposal' | 'student' | null;
   /** Whether the student wants it counted. Off for a W, an F, and a line that earns nothing. */
   use: boolean;
   /** As the matched course, as hours toward the total, or not at all. */
@@ -691,6 +696,84 @@ export function matchTranscript(
       }
       const entry = ugaSchoolEntry(ugaTable?.index, school);
       const prefix = code.split(' ')[0] ?? '';
+      /**
+       * The school's own list has no line for this course (or the planner
+       * holds no list for the school): UGA's answer for the same course
+       * number at its sister schools, where the hold-out test passed for the
+       * group (transfer-sisters.ts). After the document's own answer and the
+       * school's own list, which are about this student's school, and before
+       * the technical-college rule and the catalog's guesses, because it is
+       * UGA's own published decision for this course number, not a reading
+       * of its title: the blanket rule matched UGA's lists on 91% of
+       * technical-college courses outside general education, while sister
+       * answers held out against a hidden college's list were right on 19 of
+       * 21 such courses, 29 of 29 elective credits and 152 of 152 "no
+       * credit" general-education ones, learning-support courses left out
+       * (2026-11-05). The group's rules passed the hold-out test as a whole;
+       * the 50 credits outside general education alone are fewer than the
+       * 30-per-kind the test asks for, which is why the label still says
+       * UGA's evaluation decides. The curated table and the title matcher
+       * stay the fallback; they are the planner's own estimates.
+       */
+      const sister = sisterAnswer(ugaTable?.sisters, school, entry, code);
+      if (sister) {
+        const where = `UGA's transfer lists for ${sister.schools.length} other ${sister.noun} (${sisterNames(sister)})`;
+        const decides = "UGA's evaluation of your transcript decides.";
+        const page = { source: sister.schools[0].source ?? UGA_TRANSFER_PORTAL, checked: sister.schools[0].readAt, schools: sister.schools.map((x) => x.name) };
+        const designations = sister.results.map((r) => ugaDesignation(r)).filter((d): d is UgaDesignation => d !== null);
+        const courseResults = sister.results.filter((r) => !ugaDesignation(r));
+        const renumbered = new Set<string>();
+        const current = (r: string) => {
+          const n = normalizeCourseCode(r);
+          const now = UGA_RENUMBERED[n]?.now;
+          if (known.has(n) || !now || !known.has(now)) return n;
+          renumbered.add(` ${n} is the older number of UGA's ${UGA_RENUMBERED[n].title}, now ${now}.`);
+          return now;
+        };
+        const held = courseResults.map(current).filter((r) => known.has(r));
+        if (held.length > 0) {
+          const [first, ...also] = held;
+          return {
+            ...base,
+            ...withGrade,
+            matched: first,
+            matchedBy: 'sisters',
+            illinoisCredits: held.reduce((sum, h) => sum + (creditsOfCode(h) ?? 0), 0),
+            counts: off ? 'none' : 'course',
+            use: !off,
+            ...(also.length ? { also } : {}),
+            basis: { from: 'sisters', badge: 'course', text: `${where} give ${sister.results.join(' + ')} for this same course number, so it counts as ${held.join(' + ')}.${[...renumbered].join('')} ${decides}`, ...page },
+          };
+        }
+        if (courseResults.length > 0) {
+          return {
+            ...base,
+            ...withGrade,
+            counts: off ? 'none' : 'hours',
+            use: !off,
+            basis: { from: 'sisters', badge: 'not-evaluated', text: `${where} give UGA ${courseResults.join(' + ')} for this same course number, which this planner's catalog does not list, so it counts as hours. ${decides}`, ...page },
+          };
+        }
+        const credit = designations.find((x) => x.kind !== 'none');
+        if (credit) {
+          const line = designated(base, credit, off, 'sisters', where, page.source, page.checked);
+          const area = credit.kind === 'elective' ? null : ugaCoreArea(credit.subject);
+          const what = credit.kind === 'elective' ? 'elective hours in that subject and level, not a specific requirement' : `a core elective${area ? `, usually in ${area}` : ''}${credit.kind === 'core-us-history' ? ', which also meets UGA\'s U.S. history requirement' : ''}; it counts as hours, not as one UGA course`;
+          return { ...line, ...withGrade, basis: { ...line.basis!, text: `${where} give ${credit.code} for this same course number: ${what}. ${decides}`, schools: page.schools } };
+        }
+        // "No credit" from the sisters is UGA's answer too, under the
+        // stricter rule the test passed (98%), so the line is not counted.
+        // Unlike a document's own NTFR, its status is left alone: the line
+        // keeps its switch, so the student can count it if UGA does.
+        return {
+          ...base,
+          ...withGrade,
+          counts: 'none',
+          use: false,
+          designation: 'NTFR',
+          basis: { from: 'sisters', badge: 'none', text: `UGA gives no credit for this course number at ${sister.schools.length} other ${sister.noun} (${sisterNames(sister)}: NTFR on UGA's transfer lists for each), so it is not counted. ${decides} Count it if UGA evaluates it otherwise.`, ...page },
+        };
+      }
       if (isTechnicalCollege(school, entry) && !isGeneralEducationSubject(prefix)) {
         return {
           ...base,
@@ -872,7 +955,7 @@ export function matchTranscript(
   // nearly every Illinois community college gives them (ENG 101 and 102,
   // ENGLI 1101 and 1102): Joliet's "Rhetoric" and "Critical Writing and
   // Research" are the same two courses under other names.
-  const foreignLine = (c: TranscriptCourseRecord) => c.use && c.matchedBy !== 'code' && c.matchedBy !== 'printed' && c.matchedBy !== 'official' && Boolean(c.from) && !isHomeTranscript(c.from, schoolId);
+  const foreignLine = (c: TranscriptCourseRecord) => c.use && c.matchedBy !== 'code' && c.matchedBy !== 'printed' && c.matchedBy !== 'official' && c.matchedBy !== 'sisters' && Boolean(c.from) && !isHomeTranscript(c.from, schoolId);
   const writingTitle = /\b(composition|rhetoric|writing|english)\b/i;
   const isCompOne = (c: TranscriptCourseRecord) =>
     (c.proposals ?? [])[0]?.code === 'RHET 105' || (/^(ENG|ENGL|ENGLI|WRT|WRIT|RHET|ENC)\s(101|1101|111|1110)$/.test(c.code) && writingTitle.test(c.title ?? ''));
@@ -965,8 +1048,10 @@ export function matchTranscript(
     const proposed = foreign.filter((c) => c.use && c.matchedBy === 'proposal').length;
     const asHours = foreign.filter((c) => c.counts === 'hours').length;
     const where = reading.institution && !home ? reading.institution : [...new Set(foreign.map((c) => c.from).filter(Boolean))].join(', ') || 'another school';
+    const fromSisters = foreign.filter((c) => c.basis?.from === 'sisters').length;
+    const sisterNote = fromSisters > 0 ? ` Where UGA's own list for the school has no line, UGA's answer for the same course number at sister schools in the same system comes next: ${fromSisters} ${fromSisters === 1 ? 'line takes it, and names' : 'lines take it, and each names'} those schools.` : '';
     notes.unshift(
-      schoolId === 'uga' ? `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Each line says what it becomes at UGA and why: UGA's own equivalency list first (a UGA course, a core elective, elective hours only, or no credit), then UGA's published rules. A line the list does not cover counts as hours until UGA evaluates it. UGA's evaluation after admission is the decision.` : `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Illinois decides what transfers and as which course (Transferology is the estimate, the Transfer Evaluation Report the decision).${
+      schoolId === 'uga' ? `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Each line says what it becomes at UGA and why: UGA's own equivalency list first (a UGA course, a core elective, elective hours only, or no credit), then UGA's published rules.${sisterNote} A line the list does not cover counts as hours until UGA evaluates it. UGA's evaluation after admission is the decision.` : `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Illinois decides what transfers and as which course (Transferology is the estimate, the Transfer Evaluation Report the decision).${
         proposed > 0 ? ` ${proposed} ${proposed === 1 ? 'has' : 'have'} a likely Illinois equivalent filled in from the catalog's titles; check each.` : ''
       }${asHours > 0 ? ` ${asHours} ${asHours === 1 ? 'counts' : 'count'} as hours toward the total until you pick the Illinois course it became.` : ''}`,
     );

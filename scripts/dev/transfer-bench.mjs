@@ -16,6 +16,19 @@
  *   missed          - an equivalent exists and nothing was offered
  *   right as hours  - no single course is right, and it counts as hours
  * Prints the totals per school, and with --list every line not counted right.
+ *
+ * Sister schools (transfer-sisters.ts), UGA only, rules only (the model is
+ * never asked, even with --ai):
+ *   D  a Florida college UGA's lists do not cover (the first one the sister
+ *      files know no list for; Florida Gateway College on 2026-11-05),
+ *      common courses under Florida's statewide numbers, scored as above with
+ *      the sister answers and without them;
+ *   E  every school with a list in a group that lends, hidden in turn: its
+ *      list is removed, the group's answers are rebuilt from the other lists
+ *      (scripts/data/uga-transfer-sisters.mjs), and each line the sisters
+ *      answer is compared with what the school's own list makes of it,
+ *      through the same matcher a student's transcript goes through.
+ *   --no-sisters skips D and E.
  */
 import { readFileSync } from 'node:fs';
 import { register } from 'node:module';
@@ -199,4 +212,124 @@ for (const school of ['uga', 'illinois']) {
   console.log('  ' + Object.entries(tally).map(([k, v]) => `${k} ${v}`).join(' | '));
   if (list) console.log(notes.join('\n'));
 }
+
+if (!process.argv.includes('--no-sisters')) await sisterSets();
 if (AI) console.log(`\nAI cost for this run: about $${aiUsd.toFixed(3)}`);
+
+async function sisterSets() {
+  const { readdirSync } = await import('node:fs');
+  const { buildSisters } = await import(join(ROOT, 'scripts/data/uga-transfer-sisters.mjs'));
+  const { loadSchools, measure } = await import(join(ROOT, 'scripts/dev/transfer-holdout.mjs'));
+  const index = read('public/uga-transfer/index.json');
+  const lists = {};
+  for (const f of readdirSync(join(ROOT, 'public/uga-transfer'))) if (f.endsWith('.json') && f !== 'index.json') lists[f.replace('.json', '')] = read(`public/uga-transfer/${f}`);
+  const sisterIndex = read('public/uga-transfer-sisters/index.json');
+  const sisters = { index: sisterIndex, groups: Object.fromEntries(Object.entries(sisterIndex.groups).filter(([, g]) => g.file).map(([gid, g]) => [gid, read(`public/uga-transfer-sisters/${g.file}`)])) };
+  const match = (institution, lines, table) => T.matchTranscript({ institution, kind: 'transcript', hoursUnit: 'semester', courses: lines, exams: [], notes: [] }, 'bench.pdf', LITE.uga, ['bench.pdf'], null, 'uga', table, null);
+  const line = (code, title, credits) => ({ code, title, credits, grade: 'A', term: 'Fall 2025', status: 'completed' });
+
+  // D: [code, title, credits, right at UGA]; '' is "no single course".
+  const D = [
+    ['ENC 1101', 'English Composition I', 3, 'ENGL 1101'],
+    ['ENC 1102', 'English Composition II', 3, 'ENGL 1102'],
+    ['AMH 2010', 'United States History to 1877', 3, 'HIST 2111'],
+    ['AMH 2020', 'United States History since 1877', 3, 'HIST 2112'],
+    ['ECO 2013', 'Principles of Macroeconomics', 3, 'ECON 2105'],
+    ['ECO 2023', 'Principles of Microeconomics', 3, 'ECON 2106'],
+    ['POS 2041', 'American National Government', 3, 'POLS 1101'],
+    ['PSY 2012', 'General Psychology', 3, 'PSYC 1101'],
+    ['SYG 2000', 'Introduction to Sociology', 3, 'SOCI 1101'],
+    ['STA 2023', 'Elementary Statistics', 3, 'STAT 2000'],
+    ['SPC 2608', 'Introduction to Public Speaking', 3, 'COMM 1110'],
+    ['PHI 2010', 'Introduction to Philosophy', 3, 'PHIL 2010'],
+    ['ARH 1000', 'Art Appreciation', 3, 'ARTS 2000'],
+    ['MUL 1010', 'Music Appreciation', 3, 'MUSI 2020'],
+    ['THE 2000', 'Theatre Appreciation', 3, 'THEA 2000'],
+    ['SPN 1120', 'Elementary Spanish I', 4, 'SPAN 1001'],
+    ['SPN 1121', 'Elementary Spanish II', 4, 'SPAN 1002'],
+    ['MAC 2311', 'Calculus with Analytic Geometry I', 4, 'MATH 2250'],
+    ['MAC 2312', 'Calculus with Analytic Geometry II', 4, 'MATH 2260'],
+    ['BSC 2010', 'Biology I', 3, 'BIOL 1107'],
+    ['ACG 2021', 'Principles of Financial Accounting', 3, 'ACCT 2101'],
+    ['ACG 2071', 'Principles of Managerial Accounting', 3, 'ACCT 2102'],
+    ['SLS 1101', 'College Success', 3, ''],
+  ];
+  // The first Florida College System college the planner holds no UGA list
+  // for (lists keep arriving, so it is picked, not named: Daytona State had
+  // none until 2026-11-05).
+  const { sisterName } = await import(join(ROOT, 'lib/planner/transfer-sisters.ts'));
+  const groupsDoc = read('scripts/data/uga-transfer-groups.json');
+  const college = groupsDoc.groups['fl-college'].members.map((m) => m.name).find((name) => {
+    const known = sisterIndex.groups['fl-college'].members.find((x) => x.names[0] === sisterName(name));
+    return known && !known.key && !known.requirePlace;
+  });
+  if (!college) console.log('\nSister set D skipped: every Florida College System college now has its own UGA list.');
+  for (const [label, table] of !college ? [] : [['without sister answers (before)', { index, schools: lists }], ['with sister answers', { index, schools: lists, sisters }]]) {
+    const rec = match(college, D.map(([code, title, credits]) => line(code, title, credits)), table);
+    const tally = { 'counted right': 0, 'offered right': 0, 'counted WRONG': 0, 'offered wrong': 0, missed: 0, 'right as hours': 0 };
+    const notes = [];
+    let fromSisters = 0;
+    D.forEach((row, i) => {
+      const c = rec.courses[i];
+      if (c.basis?.from === 'sisters') fromSisters += 1;
+      const right = row[3].split('|').filter(Boolean);
+      const counted = c.counts === 'course' ? c.matched : null;
+      const offered = c.proposals?.[0]?.code ?? null;
+      const verdict = counted ? (right.includes(counted) ? 'counted right' : 'counted WRONG') : right.length === 0 ? 'right as hours' : offered ? (right.includes(offered) ? 'offered right' : 'offered wrong') : 'missed';
+      tally[verdict] += 1;
+      if (verdict !== 'counted right' && verdict !== 'right as hours') notes.push(`  ${verdict.padEnd(14)} ${row[0].padEnd(9)} ${row[1].padEnd(40)} got ${counted ?? (offered ? `maybe ${offered}` : 'nothing')}, right: ${right.join(' or ') || 'no single course'}`);
+    });
+    const good = tally['counted right'] + tally['right as hours'];
+    console.log(`\nTo UGA, sister set D (${college}, no UGA list), ${label}: ${good}/${D.length} handled right, ${tally['counted WRONG']} counted wrong; ${fromSisters} lines answered by sister schools`);
+    console.log('  ' + Object.entries(tally).map(([k, v]) => `${k} ${v}`).join(' | '));
+    if (list) console.log(notes.join('\n'));
+  }
+
+  // E: each listed school in a lending group, hidden and predicted from its sisters.
+  const { schools } = loadSchools();
+  const results = measure();
+  const full = { index, schools: lists };
+  const outcome = (c) => `${c.counts}|${c.counts === 'course' ? [c.matched, ...(c.also ?? [])].join('+') : ''}|${c.designation ?? ''}`;
+  const lending = Object.entries(sisterIndex.groups).filter(([, g]) => g.file).map(([gid]) => gid);
+  console.log(`\nSister set E: each listed school in ${lending.join(', ')} hidden in turn and predicted from its sisters (rules only; compared with what its own list makes of the same line):`);
+  for (const gid of lending) {
+    const members = schools.filter((x) => x.group === gid && sisterIndex.groups[gid].members.some((m) => m.key === x.key));
+    const t = { rows: 0, answered: 0, right: 0, creditWhereNone: 0, noneWhereCredit: 0, byKind: { course: [0, 0], hours: [0, 0], none: [0, 0] }, worst: null };
+    const wrong = [];
+    for (const hidden of members) {
+      const built = buildSisters({ schools, results, hide: new Set([hidden.key]) });
+      const file = built.files[`${gid}.json`];
+      if (!file) continue;
+      const { [hidden.key]: _gone, ...rest } = lists;
+      const table = { index, schools: rest, sisters: { index: built.index, groups: { [gid]: file } } };
+      const own = Object.keys(hidden.file.courses).filter((code) => hidden.file.courses[code]?.length);
+      t.rows += own.length;
+      const codes = own.filter((code) => file.courses[code]);
+      if (codes.length === 0) continue;
+      const lines = codes.map((code) => line(code.replace(/^([A-Z]+)(\d)/, '$1 $2'), null, 3));
+      const name = hidden.name;
+      // One line per transcript: two codes that become the same UGA course
+      // (PSY 1101 and PSYC 1101) would otherwise count once and skew the score.
+      const got = lines.map((l) => match(name, [l], table).courses[0]);
+      const truth = lines.map((l) => match(name, [l], full).courses[0]);
+      let right = 0;
+      let answered = 0;
+      got.forEach((c, i) => {
+        if (c.basis?.from !== 'sisters') return;
+        answered += 1;
+        const ok = outcome(c) === outcome(truth[i]);
+        const k = c.counts === 'course' ? 'course' : c.counts === 'hours' ? 'hours' : 'none';
+        t.byKind[k][1] += 1;
+        if (ok) { right += 1; t.byKind[k][0] += 1; } else wrong.push(`  ${name}: ${lines[i].code} sisters ${outcome(c)}, its own list ${outcome(truth[i])}`);
+        if (c.counts !== 'none' && truth[i].counts === 'none') t.creditWhereNone += 1;
+        if (c.counts === 'none' && truth[i].counts !== 'none') t.noneWhereCredit += 1;
+      });
+      t.answered += answered;
+      t.right += right;
+      if (answered >= 10) t.worst = Math.min(t.worst ?? 1, right / answered);
+    }
+    const pct = (a, b) => (b ? `${(100 * a / b).toFixed(1)}%` : '-');
+    console.log(`  ${gid.padEnd(11)} ${members.length} lists, ${t.rows} rows: sisters answered ${t.answered} (${pct(t.answered, t.rows)}), same as the school's own list ${t.right}/${t.answered} (${pct(t.right, t.answered)}); as a course ${t.byKind.course[0]}/${t.byKind.course[1]}, as hours ${t.byKind.hours[0]}/${t.byKind.hours[1]}, no credit ${t.byKind.none[0]}/${t.byKind.none[1]}; credit where UGA gives none ${t.creditWhereNone}, no credit where UGA gives credit ${t.noneWhereCredit}; worst school ${t.worst === null ? '-' : pct(t.worst, 1)}`);
+    if (list) console.log(wrong.join('\n'));
+  }
+}

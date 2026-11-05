@@ -18,6 +18,8 @@
  * Every answer carries the page it came from, so the student can check it.
  */
 
+import { loadUgaSisters, type UgaSisterTable } from './transfer-sisters';
+
 export const UGA_TRANSFER_PORTAL = 'https://apply.uga.edu/portal/transfer-equivalency';
 export const UGA_TRANSFER_GUIDE = 'https://transfer.uga.edu/wp-content/uploads/Transfer-Planning-Guide.pdf';
 export const UGA_TRANSFER_FAQ = 'https://admissions.uga.edu/apply/transfer-applicants/transfer-faqs/';
@@ -133,8 +135,12 @@ export function usgCoreCompletion(
 
 /** What a line became, why, and where that answer came from, for the review list. */
 export interface TransferBasis {
-  /** Whose answer: the document's own, the university's official list, a published rule, or none yet. */
-  from: 'document' | 'official' | 'rule' | 'none';
+  /**
+   * Whose answer: the document's own, the university's official list, UGA's
+   * lists for the same course number at sister schools (transfer-sisters.ts),
+   * a published rule, or none yet.
+   */
+  from: 'document' | 'official' | 'sisters' | 'rule' | 'none';
   /** One badge per line. */
   badge: 'course' | 'core' | 'elective' | 'none' | 'not-evaluated';
   /** One plain sentence. */
@@ -143,6 +149,8 @@ export interface TransferBasis {
   source?: string | null;
   /** When that page was read, for a table the planner keeps a copy of. */
   checked?: string | null;
+  /** The sister schools whose UGA lists gave a 'sisters' answer, every one of them (the text names a few). */
+  schools?: string[];
 }
 
 export interface UgaTransferIndexEntry {
@@ -178,6 +186,8 @@ export interface UgaTransferSchool {
 export interface UgaTransferTable {
   index: UgaTransferIndex | null;
   schools: Record<string, UgaTransferSchool>;
+  /** UGA's answers at sister schools for the groups the record's schools belong to (transfer-sisters.ts). */
+  sisters?: UgaSisterTable | null;
 }
 
 /** A UGA designation: credit that is not one UGA course. */
@@ -316,7 +326,9 @@ const schoolCache = new Map<string, Promise<UgaTransferSchool | null>>();
 /**
  * UGA's equivalency list for the schools a reading names, loaded in the
  * browser. Only the files for those schools are fetched; a school the
- * planner holds no list for simply has none.
+ * planner holds no list for simply has none. The sister-school answers for
+ * the groups those schools belong to come with them (transfer-sisters.ts);
+ * when they cannot be loaded, the record is matched without them.
  */
 export async function loadUgaTransfer(names: Array<string | null | undefined>): Promise<UgaTransferTable> {
   if (!indexCache) {
@@ -348,5 +360,6 @@ export async function loadUgaTransfer(names: Array<string | null | undefined>): 
       if (file) schools[key] = file;
     }),
   );
-  return { index, schools };
+  const sisters = await loadUgaSisters(names, (n) => ugaSchoolEntry(index, n)).catch(() => null);
+  return { index, schools, sisters };
 }

@@ -244,6 +244,7 @@ import {
   type TranscriptRecord,
 } from '@/lib/planner/transcript';
 import { UGA_TRANSFER_PORTAL, loadUgaTransfer, ugaDesignation, ugaLookup, ugaSchoolEntry } from '@/lib/planner/transfer-official';
+import { sisterAnswer, sisterNames } from '@/lib/planner/transfer-sisters';
 import { withCoreCredit } from '@/lib/planner/transfer-core';
 import { proposeEquivalents, type CatalogLite } from '@/lib/planner/transfer-match';
 import { rematchForSchool } from '@/lib/planner/transcript-rematch';
@@ -6480,7 +6481,7 @@ export function PlannerWorkspace({
             term: c.term,
             status: c.status,
             from: c.from ?? (record?.home === false ? record.institution : null),
-            how: c.matchedBy === 'code' ? `${isIllinois ? 'Illinois' : (school?.short ?? 'University')} code on the record` : c.matchedBy === 'printed' ? 'equivalent printed on the document (confirmed)' : c.matchedBy === 'official' ? "the university's own transfer equivalency list" : c.matchedBy === 'proposal' ? 'likely equivalent from the catalog (not confirmed)' : 'entered by the student or in chat',
+            how: c.matchedBy === 'code' ? `${isIllinois ? 'Illinois' : (school?.short ?? 'University')} code on the record` : c.matchedBy === 'printed' ? 'equivalent printed on the document (confirmed)' : c.matchedBy === 'official' ? "the university's own transfer equivalency list" : c.matchedBy === 'sisters' ? "UGA's lists for the same course number at sister schools in the same system (UGA's evaluation decides)" : c.matchedBy === 'proposal' ? 'likely equivalent from the catalog (not confirmed)' : 'entered by the student or in chat',
             ...(c.basis ? { why: c.basis.text, source: c.basis.source ?? null } : {}),
           }));
         const hoursLines = (record?.courses ?? [])
@@ -6536,29 +6537,39 @@ export function PlannerWorkspace({
         const proposals = proposeEquivalents({ code: str('code').toUpperCase(), title, credits: typeof input.credits === 'number' ? input.credits : null }, lite, 5, isUga ? 'uga' : 'illinois');
         /**
          * UGA's own answer first: the planner keeps UGA's Transfer Equivalency
-         * lists for 91 schools (public/uga-transfer/), the same lists the
-         * transcript reader uses. A catalog guess is only the fallback.
+         * lists for the schools in public/uga-transfer/index.json, the same
+         * lists the transcript reader uses. When the school's own list has no
+         * line, UGA's answer for the same course number at its sister schools
+         * comes next, as on the board (transfer-sisters.ts), so ARCH never
+         * calls a line a catalog guess that the board shows from sister lists.
+         * A catalog guess is only the fallback.
          */
         let official: Record<string, unknown> | null = null;
+        let sisters: Record<string, unknown> | null = null;
         /** The list's own page, as a link under the reply (the panel shows a result's `sources`). */
         let officialSources: { n: number; title: string; url: string; host: string }[] = [];
         let listFor: string | null = null;
+        const resultOf = (r: string) => {
+          const designation = ugaDesignation(r);
+          const course = designation ? null : courseOf(r);
+          return {
+            result: r,
+            ...(course ? { course: `${course.code} ${course.title} (${course.credits} cr)`, on_board: holding(course.id)?.label ?? null, already_held: L.completedCodes.has(normCode(course.code)) } : {}),
+            ...(designation ? { meaning: designation.kind === 'none' ? 'does not transfer (NTFR)' : designation.kind === 'elective' ? 'elective credit in the subject, not a single UGA course' : designation.kind === 'core-us-history' ? 'core credit that also meets the U.S. history requirement, not a single UGA course' : 'core credit in the subject, not a single UGA course' } : {}),
+          };
+        };
         if (!isIllinois && str('school')) {
           const table = await loadUgaTransfer([str('school')]).catch(() => null);
           listFor = ugaSchoolEntry(table?.index, str('school'))?.name ?? null;
           const hit = str('code') ? ugaLookup(table, str('school'), str('code')) : null;
+          const sister = !hit && str('code') ? sisterAnswer(table?.sisters, str('school'), ugaSchoolEntry(table?.index, str('school')), str('code')) : null;
+          if (sister) {
+            sisters = { other_schools: `${sister.schools.length} other ${sister.noun}: ${sisterNames(sister)}`, all_schools: sister.schools.map((x) => x.name), uga_results: sister.results.map(resultOf), source: sister.schools[0]?.source ?? null };
+          }
           if (hit) {
             official = {
               school: hit.entry.name,
-              uga_results: hit.results.map((r) => {
-                const designation = ugaDesignation(r);
-                const course = designation ? null : courseOf(r);
-                return {
-                  result: r,
-                  ...(course ? { course: `${course.code} ${course.title} (${course.credits} cr)`, on_board: holding(course.id)?.label ?? null, already_held: L.completedCodes.has(normCode(course.code)) } : {}),
-                  ...(designation ? { meaning: designation.kind === 'none' ? 'does not transfer (NTFR)' : designation.kind === 'elective' ? 'elective credit in the subject, not a single UGA course' : designation.kind === 'core-us-history' ? 'core credit that also meets the U.S. history requirement, not a single UGA course' : 'core credit in the subject, not a single UGA course' } : {}),
-                };
-              }),
+              uga_results: hit.results.map(resultOf),
               source: hit.file.source,
               read: hit.file.readAt,
             };
@@ -6574,10 +6585,13 @@ export function PlannerWorkspace({
           course: { code: str('code') || null, title, credits: typeof input.credits === 'number' ? input.credits : null, school: str('school') || null },
           likely_equivalents: proposals.map((p) => ({ code: p.code, title: p.title, credits: p.credits, confidence: p.confidence, why: p.why, on_board_or_held: holding(courseOf(p.code)?.id ?? '') || L.completedCodes.has(normCode(p.code)) })),
           ...(official ? { uga_official: official } : {}),
+          ...(sisters ? { uga_sister_schools: sisters } : {}),
           ...(officialSources.length > 0 ? { sources: officialSources } : {}),
           note: !isIllinois
             ? official
               ? "uga_official is UGA's own Transfer Equivalency list for this school: say \"UGA's list says\" and give its page. A result like HIST 1GHX or MATH 1GXX is core credit in the subject (record it as hours), NTFR does not transfer. likely_equivalents below are only the catalog's guesses."
+              : sisters
+              ? `${listFor ? `UGA's list for ${listFor} has no line for ${str('code')}.` : 'The planner holds no UGA list for that school.'} uga_sister_schools is UGA's own answer for the same course number at its sister schools in the same system, every one of them agreeing; the transcript board shows the same answer. Say "UGA's lists for sister schools (name a few) give ...", never "UGA's list says", and that UGA's evaluation of the student's transcript decides. A UGA course result can be recorded as that course; HIST 1GHX, MATH 1GXX or ARTS 1TXX is credit in the subject (record it as hours); NTFR means no credit at those schools, so leave it uncounted unless UGA counts it. likely_equivalents below are only the catalog's guesses.`
               : `${!str('school') ? 'No school was given, so UGA\'s own lists were not read; ask which school taught it.' : listFor ? `UGA's list for ${listFor} has no line for ${str('code') || 'this course'}${str('code') ? '' : ' (give its code)'}.` : 'The planner holds no UGA list for that school.'} The student can check UGA's Transfer Equivalency Search (${UGA_TRANSFER_PORTAL}). ${proposals.length === 0 ? 'Nothing in the catalog reads as the same course; if it is college-level it may come in as elective hours.' : 'likely_equivalents are the catalog\'s guesses, not UGA\'s evaluation: present the top one as likely, confirm with the student, then record it.'}`
             : proposals.length === 0
             ? 'Nothing in the catalog reads as the same course. It still transfers as elective hours if it is college-level; record it as hours.'

@@ -518,6 +518,11 @@ if (XFER_ON) {
   const fs = await import('node:fs');
   const table = { index: publicJson('uga-transfer/index.json'), schools: {} };
   for (const f of fs.readdirSync(join(ROOT, 'public', 'uga-transfer'))) if (f !== 'index.json') table.schools[f.replace('.json', '')] = publicJson(`uga-transfer/${f}`);
+  // UGA's answers at sister schools, as the live loader adds them (transfer-sisters.ts); a checkout without them has none.
+  if (fs.existsSync(join(ROOT, 'public', 'uga-transfer-sisters', 'index.json'))) {
+    const sisterIndex = publicJson('uga-transfer-sisters/index.json');
+    table.sisters = { index: sisterIndex, groups: Object.fromEntries(Object.entries(sisterIndex.groups).filter(([, g]) => g.file).map(([gid, g]) => [gid, publicJson(`uga-transfer-sisters/${g.file}`)])) };
+  }
   const lite = publicJson('uga-catalog.json').filter((c) => typeof c?.code === 'string').map((c) => ({ code: T.normalizeCourseCode(c.code), title: c.title, credits: c.credits, level: Number(c.code.match(/\d/)?.[0] ?? 0) * 100, cluster: c.cluster, tags: c.tags }));
   let cross = null;
   try {

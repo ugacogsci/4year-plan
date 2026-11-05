@@ -1,0 +1,1611 @@
+{
+  "about": "Groups of sending schools that share one course numbering, for borrowing UGA's published answer for the same course number at a sister school when a student's school has no UGA list of its own. Membership is by official system rosters (source per group), names checked one by one; a school is recognised only by its full name or a listed alias at the start of the transcript's name, never by state alone (the technical colleges' short forms, \"Athens Tech\", are aliases; \"Columbus State\" is deliberately not one, since Ohio's Columbus State Community College starts with it). requirePlace: the name alone is shared with a school elsewhere, so the transcript must also show the member's city or state. not: words that rule a match out. formerly: older names of the same institution. Whether a group may lend answers, and under which rule, is decided by the leave-one-school-out test (scripts/dev/transfer-holdout.mjs; report in keep-planner/overnight-nov5/holdout-report.md): borrow is that test's result on 2026-11-05 with the lists then held (re-run on 209 lists with learning-support codes left out, since the planner turns those off before it borrows), and null means the group did not pass, so it lends nothing. A rule such as exact/unanimous/5+ means at least 5 sister schools hold UGA's answer for the same course code and every one of them gives exactly the same answer. verified says when the roster was checked against the system's own list, or the law that names the system's members; null means drafted from knowledge, not yet checked, and never used for lending. borrow.elective (TCSG only): elective and core-elective designations (\"ACCT 2TXX\", \"MATH 1GXX\"), the one group where they passed (exact/unanimous/2+, 96.8% on 217). placeNames: when only some of a member's names are shared with a school elsewhere, the names that need the place (requirePlace then applies to those alone).",
+  "checked": "2026-11-05",
+  "groups": {
+    "usg": {
+      "label": "University System of Georgia",
+      "numbering": "System-wide common core numbering (ENGL 1101, HIST 2111 ...) under Board of Regents policy; upper-division numbers are each school's own.",
+      "source": "https://www.usg.edu/institutions/",
+      "verified": "2026-11-05 against usg.edu/institutions (25 institutions with UGA; East Georgia State College merged into Georgia Southern 2026-01-01)",
+      "borrow": {
+        "course": {
+          "rule": "exact/unanimous/5+",
+          "n": 856,
+          "accuracy": 0.966,
+          "floor": 0.952,
+          "worstSchool": 0.9
+        },
+        "noCredit": null,
+        "use": "Every System school has its own UGA list, so this only reaches a course missing from the student's own school's list.",
+        "noCreditNote": "Not lent. Its pass (92 predictions, 100%) rested on learning-support codes (ENGL 0999, MATH 0997), which the planner turns off before it borrows anything; on college-level codes it had 6 predictions from 6 schools (floor 61%), far under the 30+ and 95% floor the gate needs (re-run 2026-11-05 on 209 lists, learning-support codes left out). Five of the nine codes it turned off were upper-division numbers, which are each school's own in the System."
+      },
+      "members": [
+        {
+          "name": "Abraham Baldwin Agricultural College",
+          "city": "Tifton",
+          "state": "GA",
+          "aliases": [
+            "abac"
+          ],
+          "formerly": [
+            "Bainbridge State College"
+          ]
+        },
+        {
+          "name": "Albany State University",
+          "city": "Albany",
+          "state": "GA",
+          "formerly": [
+            "Darton State College"
+          ]
+        },
+        {
+          "name": "Atlanta Metropolitan State College",
+          "city": "Atlanta",
+          "state": "GA",
+          "aliases": [
+            "atlanta metropolitan college"
+          ]
+        },
+        {
+          "name": "Augusta University",
+          "city": "Augusta",
+          "state": "GA",
+          "formerly": [
+            "Augusta State University",
+            "Georgia Regents University",
+            "Georgia Health Sciences University"
+          ]
+        },
+        {
+          "name": "Clayton State University",
+          "city": "Morrow",
+          "state": "GA"
+        },
+        {
+          "name": "College of Coastal Georgia",
+          "city": "Brunswick",
+          "state": "GA",
+          "formerly": [
+            "Coastal Georgia Community College"
+          ]
+        },
+        {
+          "name": "Columbus State University",
+          "city": "Columbus",
+          "state": "GA"
+        },
+        {
+          "name": "Dalton State College",
+          "city": "Dalton",
+          "state": "GA"
+        },
+        {
+          "name": "East Georgia State College",
+          "city": "Swainsboro",
+          "state": "GA",
+          "note": "Consolidated into Georgia Southern University on 2026-01-01 (Board of Regents, Dec 2025); UGA still keeps a list under this name and older transcripts print it.",
+          "aliases": [
+            "east georgia college",
+            "georgia southern university east georgia campus",
+            "georgia southern university-east georgia"
+          ]
+        },
+        {
+          "name": "Fort Valley State University",
+          "city": "Fort Valley",
+          "state": "GA"
+        },
+        {
+          "name": "Georgia College & State University",
+          "city": "Milledgeville",
+          "state": "GA",
+          "aliases": [
+            "georgia college and state university"
+          ],
+          "not": [
+            "north georgia"
+          ]
+        },
+        {
+          "name": "Georgia Gwinnett College",
+          "city": "Lawrenceville",
+          "state": "GA"
+        },
+        {
+          "name": "Georgia Highlands College",
+          "city": "Rome",
+          "state": "GA",
+          "formerly": [
+            "Floyd College"
+          ]
+        },
+        {
+          "name": "Georgia Institute of Technology",
+          "city": "Atlanta",
+          "state": "GA",
+          "aliases": [
+            "georgia tech"
+          ],
+          "not": [
+            "technical college"
+          ]
+        },
+        {
+          "name": "Georgia Southern University",
+          "city": "Statesboro",
+          "state": "GA",
+          "formerly": [
+            "Armstrong State University",
+            "Armstrong Atlantic State University"
+          ],
+          "not": [
+            "east georgia"
+          ]
+        },
+        {
+          "name": "Georgia Southwestern State University",
+          "city": "Americus",
+          "state": "GA"
+        },
+        {
+          "name": "Georgia State University",
+          "city": "Atlanta",
+          "state": "GA",
+          "formerly": [
+            "Georgia Perimeter College"
+          ],
+          "not": [
+            "middle georgia",
+            "east georgia",
+            "south georgia"
+          ]
+        },
+        {
+          "name": "Gordon State College",
+          "city": "Barnesville",
+          "state": "GA",
+          "formerly": [
+            "Gordon College"
+          ],
+          "requirePlace": true,
+          "note": "Its former name, Gordon College, is also a college in Wenham, Massachusetts, so a transcript naming only \"Gordon College\" must also show Barnesville or Georgia.",
+          "placeNames": [
+            "Gordon College"
+          ]
+        },
+        {
+          "name": "Kennesaw State University",
+          "city": "Kennesaw",
+          "state": "GA",
+          "formerly": [
+            "Southern Polytechnic State University"
+          ]
+        },
+        {
+          "name": "Middle Georgia State University",
+          "city": "Macon",
+          "state": "GA",
+          "formerly": [
+            "Macon State College",
+            "Middle Georgia College"
+          ]
+        },
+        {
+          "name": "Savannah State University",
+          "city": "Savannah",
+          "state": "GA"
+        },
+        {
+          "name": "South Georgia State College",
+          "city": "Douglas",
+          "state": "GA",
+          "formerly": [
+            "South Georgia College",
+            "Waycross College"
+          ]
+        },
+        {
+          "name": "University of North Georgia",
+          "city": "Dahlonega",
+          "state": "GA",
+          "formerly": [
+            "North Georgia College & State University",
+            "Gainesville State College"
+          ]
+        },
+        {
+          "name": "University of West Georgia",
+          "city": "Carrollton",
+          "state": "GA",
+          "aliases": [
+            "state university of west georgia"
+          ]
+        },
+        {
+          "name": "Valdosta State University",
+          "city": "Valdosta",
+          "state": "GA"
+        }
+      ]
+    },
+    "tcsg": {
+      "label": "Technical College System of Georgia",
+      "numbering": "One statewide course inventory: every TCSG college teaches the same course codes (ENGL 1101, MATH 1111 ...).",
+      "source": "https://www.tcsg.edu/colleges/",
+      "verified": "2026-11-05 against the TCSG roster (22 colleges, with the system's merger history)",
+      "borrow": {
+        "course": {
+          "rule": "exact/unanimous/3+",
+          "n": 403,
+          "accuracy": 0.978,
+          "floor": 0.958,
+          "worstSchool": 0.824
+        },
+        "noCredit": {
+          "rule": "exact/unanimous/3+",
+          "n": 1003,
+          "accuracy": 0.991,
+          "floor": 0.983,
+          "worstSchool": 0.963
+        },
+        "use": "Every TCSG college has its own UGA list, so this only reaches a course missing from the student's own college's list. A sister answer comes before UGA's general technical-college rule (general education only): held out, the sisters' answers for courses outside general education were right on 19 of 21 course credits and 29 of 29 elective credits, while the blanket rule matched UGA's lists on 2,116 of 2,317 such rows (91%); the rule still decides a course no sister list answers.",
+        "elective": {
+          "rule": "exact/unanimous/2+",
+          "n": 217,
+          "accuracy": 0.968,
+          "floor": 0.935,
+          "worstSchool": 0.933
+        }
+      },
+      "members": [
+        {
+          "name": "Albany Technical College",
+          "city": "Albany",
+          "state": "GA",
+          "aliases": [
+            "Albany Tech"
+          ]
+        },
+        {
+          "name": "Athens Technical College",
+          "city": "Athens",
+          "state": "GA",
+          "aliases": [
+            "Athens Tech"
+          ]
+        },
+        {
+          "name": "Atlanta Technical College",
+          "city": "Atlanta",
+          "state": "GA",
+          "aliases": [
+            "Atlanta Tech"
+          ]
+        },
+        {
+          "name": "Augusta Technical College",
+          "city": "Augusta",
+          "state": "GA",
+          "aliases": [
+            "Augusta Tech"
+          ]
+        },
+        {
+          "name": "Central Georgia Technical College",
+          "city": "Warner Robins",
+          "state": "GA",
+          "aliases": [
+            "Central Georgia Tech"
+          ],
+          "formerly": [
+            "Middle Georgia Technical College"
+          ]
+        },
+        {
+          "name": "Chattahoochee Technical College",
+          "city": "Marietta",
+          "state": "GA",
+          "aliases": [
+            "Chattahoochee Tech"
+          ],
+          "formerly": [
+            "Appalachian Technical College",
+            "North Metro Technical College"
+          ],
+          "not": [
+            "chattahoochee valley"
+          ]
+        },
+        {
+          "name": "Coastal Pines Technical College",
+          "city": "Waycross",
+          "state": "GA",
+          "aliases": [
+            "Coastal Pines Tech"
+          ],
+          "formerly": [
+            "Okefenokee Technical College",
+            "Altamaha Technical College"
+          ]
+        },
+        {
+          "name": "Columbus Technical College",
+          "city": "Columbus",
+          "state": "GA",
+          "aliases": [
+            "columbus technical institute"
+          ],
+          "requirePlace": true,
+          "placeNames": [
+            "Columbus Technical Institute"
+          ],
+          "note": "Its former name, Columbus Technical Institute (until 2000), was also the name of Columbus State Community College in Columbus, Ohio, until 1987. Both are in a city named Columbus, so a transcript naming only \"Columbus Technical Institute\" must also show Georgia or GA; the city alone does not count (transfer-sisters.ts placeShown). No short form \"Columbus Tech\", for the same reason."
+        },
+        {
+          "name": "Georgia Northwestern Technical College",
+          "city": "Rome",
+          "state": "GA",
+          "aliases": [
+            "Georgia Northwestern Tech"
+          ],
+          "formerly": [
+            "Coosa Valley Technical College"
+          ]
+        },
+        {
+          "name": "Georgia Piedmont Technical College",
+          "city": "Clarkston",
+          "state": "GA",
+          "aliases": [
+            "Georgia Piedmont Tech"
+          ],
+          "formerly": [
+            "DeKalb Technical College"
+          ]
+        },
+        {
+          "name": "Gwinnett Technical College",
+          "city": "Lawrenceville",
+          "state": "GA",
+          "aliases": [
+            "Gwinnett Tech"
+          ]
+        },
+        {
+          "name": "Lanier Technical College",
+          "city": "Gainesville",
+          "state": "GA",
+          "aliases": [
+            "Lanier Tech"
+          ]
+        },
+        {
+          "name": "North Georgia Technical College",
+          "city": "Clarkesville",
+          "state": "GA",
+          "aliases": [
+            "North Georgia Tech"
+          ]
+        },
+        {
+          "name": "Oconee Fall Line Technical College",
+          "city": "Sandersville",
+          "state": "GA",
+          "aliases": [
+            "Oconee Fall Line Tech"
+          ],
+          "formerly": [
+            "Heart of Georgia Technical College",
+            "Sandersville Technical College"
+          ]
+        },
+        {
+          "name": "Ogeechee Technical College",
+          "city": "Statesboro",
+          "state": "GA",
+          "aliases": [
+            "Ogeechee Tech"
+          ]
+        },
+        {
+          "name": "Savannah Technical College",
+          "city": "Savannah",
+          "state": "GA",
+          "aliases": [
+            "Savannah Tech"
+          ]
+        },
+        {
+          "name": "South Georgia Technical College",
+          "city": "Americus",
+          "state": "GA",
+          "aliases": [
+            "South Georgia Tech"
+          ]
+        },
+        {
+          "name": "Southeastern Technical College",
+          "city": "Vidalia",
+          "state": "GA",
+          "aliases": [
+            "Southeastern Tech"
+          ],
+          "formerly": [
+            "Swainsboro Technical College"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Southern Crescent Technical College",
+          "city": "Griffin",
+          "state": "GA",
+          "aliases": [
+            "Southern Crescent Tech"
+          ],
+          "formerly": [
+            "Flint River Technical College",
+            "Griffin Technical College"
+          ]
+        },
+        {
+          "name": "Southern Regional Technical College",
+          "city": "Thomasville",
+          "state": "GA",
+          "aliases": [
+            "Southern Regional Tech"
+          ],
+          "formerly": [
+            "Moultrie Technical College",
+            "Southwest Georgia Technical College"
+          ]
+        },
+        {
+          "name": "West Georgia Technical College",
+          "city": "Waco",
+          "state": "GA",
+          "aliases": [
+            "West Georgia Tech"
+          ],
+          "formerly": [
+            "West Central Technical College"
+          ],
+          "not": [
+            "southwest georgia"
+          ]
+        },
+        {
+          "name": "Wiregrass Georgia Technical College",
+          "city": "Valdosta",
+          "state": "GA",
+          "aliases": [
+            "Wiregrass Georgia Tech"
+          ],
+          "formerly": [
+            "Valdosta Technical College",
+            "East Central Technical College"
+          ]
+        }
+      ]
+    },
+    "fl-college": {
+      "label": "Florida College System",
+      "numbering": "Florida's Statewide Course Numbering System (Florida Statutes 1007.24): the same prefix and number is the same course at every public college and university in Florida. Tested apart from the universities because UGA answers them differently.",
+      "source": "https://www.fldoe.org/schools/higher-ed/fl-college-system/colleges/",
+      "verified": "2026-11-05: 28 colleges, name for name against the 2026 Florida Statutes s. 1000.21(5), the law that names the Florida College System's institutions (leg.state.fl.us; it already carries the 2025 names Hillsborough College and Tallahassee State College). fldoe.org refuses automated reads, so the system's own page was not used; the first draft was checked against Wikipedia only.",
+      "borrow": {
+        "course": {
+          "rule": "exact/unanimous/5+",
+          "n": 220,
+          "accuracy": 0.977,
+          "floor": 0.948,
+          "worstSchool": 0.875
+        },
+        "noCredit": null,
+        "use": "Florida College System schools lend only to one another, never to or from the universities (fl-university alone, and the two together, fail)."
+      },
+      "members": [
+        {
+          "name": "Broward College",
+          "city": "Fort Lauderdale",
+          "state": "FL",
+          "aliases": [
+            "broward community college"
+          ]
+        },
+        {
+          "name": "Chipola College",
+          "city": "Marianna",
+          "state": "FL",
+          "aliases": [
+            "chipola junior college"
+          ]
+        },
+        {
+          "name": "College of Central Florida",
+          "city": "Ocala",
+          "state": "FL",
+          "aliases": [
+            "central florida community college"
+          ]
+        },
+        {
+          "name": "Daytona State College",
+          "city": "Daytona Beach",
+          "state": "FL",
+          "aliases": [
+            "daytona beach community college"
+          ]
+        },
+        {
+          "name": "Eastern Florida State College",
+          "city": "Cocoa",
+          "state": "FL",
+          "aliases": [
+            "brevard community college"
+          ]
+        },
+        {
+          "name": "Florida Gateway College",
+          "city": "Lake City",
+          "state": "FL",
+          "aliases": [
+            "lake city community college"
+          ]
+        },
+        {
+          "name": "Florida SouthWestern State College",
+          "city": "Fort Myers",
+          "state": "FL",
+          "aliases": [
+            "florida southwestern state college"
+          ],
+          "formerly": [
+            "Edison State College"
+          ],
+          "not": [
+            "ohio"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Florida State College at Jacksonville",
+          "city": "Jacksonville",
+          "state": "FL",
+          "aliases": [
+            "florida community college at jacksonville"
+          ]
+        },
+        {
+          "name": "College of the Florida Keys",
+          "city": "Key West",
+          "state": "FL",
+          "aliases": [
+            "the college of the florida keys"
+          ],
+          "formerly": [
+            "Florida Keys Community College"
+          ]
+        },
+        {
+          "name": "Gulf Coast State College",
+          "city": "Panama City",
+          "state": "FL",
+          "formerly": [
+            "Gulf Coast Community College"
+          ],
+          "not": [
+            "mississippi"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Hillsborough College",
+          "city": "Tampa",
+          "state": "FL",
+          "note": "Renamed from Hillsborough Community College on 2025-07-01.",
+          "formerly": [
+            "Hillsborough Community College"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Indian River State College",
+          "city": "Fort Pierce",
+          "state": "FL",
+          "aliases": [
+            "indian river community college"
+          ]
+        },
+        {
+          "name": "Lake-Sumter State College",
+          "city": "Leesburg",
+          "state": "FL",
+          "aliases": [
+            "lake sumter state college",
+            "lake-sumter community college"
+          ]
+        },
+        {
+          "name": "Miami Dade College",
+          "city": "Miami",
+          "state": "FL",
+          "aliases": [
+            "miami-dade college",
+            "miami dade community college"
+          ]
+        },
+        {
+          "name": "North Florida College",
+          "city": "Madison",
+          "state": "FL",
+          "formerly": [
+            "North Florida Community College",
+            "North Florida Junior College"
+          ],
+          "not": [
+            "university of north florida"
+          ]
+        },
+        {
+          "name": "Northwest Florida State College",
+          "city": "Niceville",
+          "state": "FL",
+          "aliases": [
+            "okaloosa-walton college",
+            "okaloosa walton community college"
+          ]
+        },
+        {
+          "name": "Palm Beach State College",
+          "city": "Lake Worth",
+          "state": "FL",
+          "aliases": [
+            "palm beach community college"
+          ]
+        },
+        {
+          "name": "Pasco-Hernando State College",
+          "city": "New Port Richey",
+          "state": "FL",
+          "aliases": [
+            "pasco hernando state college",
+            "pasco-hernando community college"
+          ]
+        },
+        {
+          "name": "Pensacola State College",
+          "city": "Pensacola",
+          "state": "FL",
+          "aliases": [
+            "pensacola junior college"
+          ]
+        },
+        {
+          "name": "Polk State College",
+          "city": "Winter Haven",
+          "state": "FL",
+          "aliases": [
+            "polk community college"
+          ]
+        },
+        {
+          "name": "St. Johns River State College",
+          "city": "Palatka",
+          "state": "FL",
+          "aliases": [
+            "st johns river state college",
+            "saint johns river state college",
+            "st. johns river community college"
+          ]
+        },
+        {
+          "name": "St. Petersburg College",
+          "city": "St. Petersburg",
+          "state": "FL",
+          "aliases": [
+            "st petersburg college",
+            "saint petersburg college"
+          ]
+        },
+        {
+          "name": "Santa Fe College",
+          "city": "Gainesville",
+          "state": "FL",
+          "aliases": [
+            "santa fe community college"
+          ],
+          "not": [
+            "new mexico"
+          ],
+          "requirePlace": true,
+          "placeNames": [
+            "Santa Fe Community College"
+          ],
+          "note": "Santa Fe Community College is also the name of a college in Santa Fe, New Mexico; the current name Santa Fe College is the Florida one alone."
+        },
+        {
+          "name": "Seminole State College of Florida",
+          "city": "Sanford",
+          "state": "FL",
+          "formerly": [
+            "Seminole Community College"
+          ],
+          "not": [
+            "oklahoma"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "South Florida State College",
+          "city": "Avon Park",
+          "state": "FL",
+          "aliases": [
+            "south florida community college"
+          ]
+        },
+        {
+          "name": "State College of Florida, Manatee-Sarasota",
+          "city": "Bradenton",
+          "state": "FL",
+          "aliases": [
+            "state college of florida"
+          ],
+          "formerly": [
+            "Manatee Community College"
+          ],
+          "not": [
+            "seminole"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Tallahassee State College",
+          "city": "Tallahassee",
+          "state": "FL",
+          "formerly": [
+            "Tallahassee Community College"
+          ]
+        },
+        {
+          "name": "Valencia College",
+          "city": "Orlando",
+          "state": "FL",
+          "aliases": [
+            "valencia community college"
+          ]
+        }
+      ]
+    },
+    "fl-university": {
+      "label": "Florida State University System",
+      "numbering": "Florida's Statewide Course Numbering System, as above.",
+      "source": "https://www.flbog.edu/universities/",
+      "verified": null,
+      "borrow": null,
+      "members": [
+        {
+          "name": "University of Florida",
+          "city": "Gainesville",
+          "state": "FL"
+        },
+        {
+          "name": "Florida State University",
+          "city": "Tallahassee",
+          "state": "FL",
+          "not": [
+            "florida state college"
+          ]
+        },
+        {
+          "name": "Florida A&M University",
+          "city": "Tallahassee",
+          "state": "FL",
+          "aliases": [
+            "florida agricultural and mechanical university",
+            "florida a & m university"
+          ]
+        },
+        {
+          "name": "University of South Florida",
+          "city": "Tampa",
+          "state": "FL"
+        },
+        {
+          "name": "Florida Atlantic University",
+          "city": "Boca Raton",
+          "state": "FL"
+        },
+        {
+          "name": "Florida International University",
+          "city": "Miami",
+          "state": "FL"
+        },
+        {
+          "name": "University of Central Florida",
+          "city": "Orlando",
+          "state": "FL"
+        },
+        {
+          "name": "University of North Florida",
+          "city": "Jacksonville",
+          "state": "FL"
+        },
+        {
+          "name": "University of West Florida",
+          "city": "Pensacola",
+          "state": "FL"
+        },
+        {
+          "name": "Florida Gulf Coast University",
+          "city": "Fort Myers",
+          "state": "FL"
+        },
+        {
+          "name": "New College of Florida",
+          "city": "Sarasota",
+          "state": "FL"
+        },
+        {
+          "name": "Florida Polytechnic University",
+          "city": "Lakeland",
+          "state": "FL"
+        }
+      ]
+    },
+    "nc-cc": {
+      "label": "North Carolina Community College System",
+      "numbering": "One Combined Course Library: every NC community college teaches the same course codes (ENG 111, MAT 171 ...).",
+      "source": "https://www.nccommunitycolleges.edu/colleges/",
+      "verified": null,
+      "borrow": null,
+      "members": [
+        {
+          "name": "Alamance Community College",
+          "city": "Graham",
+          "state": "NC"
+        },
+        {
+          "name": "Asheville-Buncombe Technical Community College",
+          "city": "Asheville",
+          "state": "NC",
+          "aliases": [
+            "asheville buncombe technical community college",
+            "a-b tech"
+          ]
+        },
+        {
+          "name": "Beaufort County Community College",
+          "city": "Washington",
+          "state": "NC"
+        },
+        {
+          "name": "Bladen Community College",
+          "city": "Dublin",
+          "state": "NC"
+        },
+        {
+          "name": "Blue Ridge Community College",
+          "city": "Flat Rock",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Brunswick Community College",
+          "city": "Bolivia",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Caldwell Community College and Technical Institute",
+          "city": "Hudson",
+          "state": "NC",
+          "aliases": [
+            "caldwell community college & technical institute",
+            "caldwell community college"
+          ]
+        },
+        {
+          "name": "Cape Fear Community College",
+          "city": "Wilmington",
+          "state": "NC"
+        },
+        {
+          "name": "Carteret Community College",
+          "city": "Morehead City",
+          "state": "NC"
+        },
+        {
+          "name": "Catawba Valley Community College",
+          "city": "Hickory",
+          "state": "NC"
+        },
+        {
+          "name": "Central Carolina Community College",
+          "city": "Sanford",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Central Piedmont Community College",
+          "city": "Charlotte",
+          "state": "NC"
+        },
+        {
+          "name": "Cleveland Community College",
+          "city": "Shelby",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Coastal Carolina Community College",
+          "city": "Jacksonville",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "College of The Albemarle",
+          "city": "Elizabeth City",
+          "state": "NC",
+          "aliases": [
+            "college of the albemarle"
+          ]
+        },
+        {
+          "name": "Craven Community College",
+          "city": "New Bern",
+          "state": "NC"
+        },
+        {
+          "name": "Davidson-Davie Community College",
+          "city": "Thomasville",
+          "state": "NC",
+          "aliases": [
+            "davidson davie community college",
+            "davidson county community college"
+          ]
+        },
+        {
+          "name": "Durham Technical Community College",
+          "city": "Durham",
+          "state": "NC"
+        },
+        {
+          "name": "Edgecombe Community College",
+          "city": "Tarboro",
+          "state": "NC"
+        },
+        {
+          "name": "Fayetteville Technical Community College",
+          "city": "Fayetteville",
+          "state": "NC"
+        },
+        {
+          "name": "Forsyth Technical Community College",
+          "city": "Winston-Salem",
+          "state": "NC"
+        },
+        {
+          "name": "Gaston College",
+          "city": "Dallas",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Guilford Technical Community College",
+          "city": "Jamestown",
+          "state": "NC"
+        },
+        {
+          "name": "Halifax Community College",
+          "city": "Weldon",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Haywood Community College",
+          "city": "Clyde",
+          "state": "NC"
+        },
+        {
+          "name": "Isothermal Community College",
+          "city": "Spindale",
+          "state": "NC"
+        },
+        {
+          "name": "James Sprunt Community College",
+          "city": "Kenansville",
+          "state": "NC"
+        },
+        {
+          "name": "Johnston Community College",
+          "city": "Smithfield",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Lenoir Community College",
+          "city": "Kinston",
+          "state": "NC"
+        },
+        {
+          "name": "Martin Community College",
+          "city": "Williamston",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Mayland Community College",
+          "city": "Spruce Pine",
+          "state": "NC"
+        },
+        {
+          "name": "McDowell Technical Community College",
+          "city": "Marion",
+          "state": "NC"
+        },
+        {
+          "name": "Mitchell Community College",
+          "city": "Statesville",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Montgomery Community College",
+          "city": "Troy",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Nash Community College",
+          "city": "Rocky Mount",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Pamlico Community College",
+          "city": "Grantsboro",
+          "state": "NC"
+        },
+        {
+          "name": "Piedmont Community College",
+          "city": "Roxboro",
+          "state": "NC",
+          "not": [
+            "central piedmont",
+            "south piedmont",
+            "western piedmont"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Pitt Community College",
+          "city": "Winterville",
+          "state": "NC"
+        },
+        {
+          "name": "Randolph Community College",
+          "city": "Asheboro",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Richmond Community College",
+          "city": "Hamlet",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Roanoke-Chowan Community College",
+          "city": "Ahoskie",
+          "state": "NC",
+          "aliases": [
+            "roanoke chowan community college"
+          ]
+        },
+        {
+          "name": "Robeson Community College",
+          "city": "Lumberton",
+          "state": "NC"
+        },
+        {
+          "name": "Rockingham Community College",
+          "city": "Wentworth",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Rowan-Cabarrus Community College",
+          "city": "Salisbury",
+          "state": "NC",
+          "aliases": [
+            "rowan cabarrus community college"
+          ]
+        },
+        {
+          "name": "Sampson Community College",
+          "city": "Clinton",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Sandhills Community College",
+          "city": "Pinehurst",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "South Piedmont Community College",
+          "city": "Wadesboro",
+          "state": "NC"
+        },
+        {
+          "name": "Southeastern Community College",
+          "city": "Whiteville",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Southwestern Community College",
+          "city": "Sylva",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Stanly Community College",
+          "city": "Albemarle",
+          "state": "NC"
+        },
+        {
+          "name": "Surry Community College",
+          "city": "Dobson",
+          "state": "NC"
+        },
+        {
+          "name": "Tri-County Community College",
+          "city": "Murphy",
+          "state": "NC",
+          "aliases": [
+            "tri county community college"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Vance-Granville Community College",
+          "city": "Henderson",
+          "state": "NC",
+          "aliases": [
+            "vance granville community college"
+          ]
+        },
+        {
+          "name": "Wake Technical Community College",
+          "city": "Raleigh",
+          "state": "NC",
+          "aliases": [
+            "wake tech community college"
+          ]
+        },
+        {
+          "name": "Wayne Community College",
+          "city": "Goldsboro",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Western Piedmont Community College",
+          "city": "Morganton",
+          "state": "NC"
+        },
+        {
+          "name": "Wilkes Community College",
+          "city": "Wilkesboro",
+          "state": "NC",
+          "requirePlace": true
+        },
+        {
+          "name": "Wilson Community College",
+          "city": "Wilson",
+          "state": "NC",
+          "requirePlace": true
+        }
+      ]
+    },
+    "sc-tech": {
+      "label": "South Carolina Technical College System",
+      "numbering": "Common course numbering across the 16 technical colleges (ENG 101, MAT 110 ...).",
+      "source": "https://www.sctechsystem.edu/colleges/",
+      "verified": null,
+      "borrow": null,
+      "members": [
+        {
+          "name": "Aiken Technical College",
+          "city": "Graniteville",
+          "state": "SC"
+        },
+        {
+          "name": "Central Carolina Technical College",
+          "city": "Sumter",
+          "state": "SC",
+          "requirePlace": true
+        },
+        {
+          "name": "Denmark Technical College",
+          "city": "Denmark",
+          "state": "SC"
+        },
+        {
+          "name": "Florence-Darlington Technical College",
+          "city": "Florence",
+          "state": "SC",
+          "aliases": [
+            "florence darlington technical college"
+          ]
+        },
+        {
+          "name": "Greenville Technical College",
+          "city": "Greenville",
+          "state": "SC",
+          "requirePlace": true
+        },
+        {
+          "name": "Horry-Georgetown Technical College",
+          "city": "Conway",
+          "state": "SC",
+          "aliases": [
+            "horry georgetown technical college"
+          ]
+        },
+        {
+          "name": "Midlands Technical College",
+          "city": "West Columbia",
+          "state": "SC"
+        },
+        {
+          "name": "Northeastern Technical College",
+          "city": "Cheraw",
+          "state": "SC",
+          "requirePlace": true
+        },
+        {
+          "name": "Orangeburg-Calhoun Technical College",
+          "city": "Orangeburg",
+          "state": "SC",
+          "aliases": [
+            "orangeburg calhoun technical college"
+          ]
+        },
+        {
+          "name": "Piedmont Technical College",
+          "city": "Greenwood",
+          "state": "SC",
+          "not": [
+            "georgia piedmont"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Spartanburg Community College",
+          "city": "Spartanburg",
+          "state": "SC",
+          "aliases": [
+            "spartanburg technical college"
+          ],
+          "not": [
+            "methodist"
+          ]
+        },
+        {
+          "name": "Technical College of the Lowcountry",
+          "city": "Beaufort",
+          "state": "SC"
+        },
+        {
+          "name": "Tri-County Technical College",
+          "city": "Pendleton",
+          "state": "SC",
+          "aliases": [
+            "tri county technical college"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Trident Technical College",
+          "city": "North Charleston",
+          "state": "SC"
+        },
+        {
+          "name": "Williamsburg Technical College",
+          "city": "Kingstree",
+          "state": "SC"
+        },
+        {
+          "name": "York Technical College",
+          "city": "Rock Hill",
+          "state": "SC",
+          "requirePlace": true
+        }
+      ]
+    },
+    "al-cc": {
+      "label": "Alabama Community College System",
+      "numbering": "Common course numbering across the system's colleges (ENG 101, MTH 112 ...) for the statewide general-studies curriculum.",
+      "source": "https://www.accs.edu/colleges/",
+      "verified": null,
+      "borrow": null,
+      "members": [
+        {
+          "name": "Bevill State Community College",
+          "city": "Jasper",
+          "state": "AL"
+        },
+        {
+          "name": "Bishop State Community College",
+          "city": "Mobile",
+          "state": "AL"
+        },
+        {
+          "name": "Calhoun Community College",
+          "city": "Tanner",
+          "state": "AL",
+          "aliases": [
+            "john c. calhoun state community college",
+            "john c calhoun state community college",
+            "calhoun state community college"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Central Alabama Community College",
+          "city": "Alexander City",
+          "state": "AL"
+        },
+        {
+          "name": "Chattahoochee Valley Community College",
+          "city": "Phenix City",
+          "state": "AL"
+        },
+        {
+          "name": "Coastal Alabama Community College",
+          "city": "Bay Minette",
+          "state": "AL",
+          "formerly": [
+            "Faulkner State Community College",
+            "Jefferson Davis Community College",
+            "Alabama Southern Community College"
+          ]
+        },
+        {
+          "name": "J. F. Drake State Community and Technical College",
+          "city": "Huntsville",
+          "state": "AL",
+          "aliases": [
+            "drake state community and technical college",
+            "drake state community & technical college",
+            "drake state technical college"
+          ]
+        },
+        {
+          "name": "Enterprise State Community College",
+          "city": "Enterprise",
+          "state": "AL"
+        },
+        {
+          "name": "Gadsden State Community College",
+          "city": "Gadsden",
+          "state": "AL"
+        },
+        {
+          "name": "Wallace Community College",
+          "city": "Dothan",
+          "state": "AL",
+          "aliases": [
+            "george c. wallace community college",
+            "george c wallace community college",
+            "wallace community college dothan"
+          ],
+          "not": [
+            "selma",
+            "hanceville",
+            "wallace state",
+            "lurleen"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Wallace Community College Selma",
+          "city": "Selma",
+          "state": "AL",
+          "aliases": [
+            "george corley wallace state community college",
+            "wallace community college - selma"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Lurleen B. Wallace Community College",
+          "city": "Andalusia",
+          "state": "AL",
+          "aliases": [
+            "lurleen b wallace community college"
+          ]
+        },
+        {
+          "name": "Wallace State Community College",
+          "city": "Hanceville",
+          "state": "AL",
+          "aliases": [
+            "wallace state community college hanceville"
+          ],
+          "not": [
+            "selma",
+            "corley"
+          ]
+        },
+        {
+          "name": "Ingram State Technical College",
+          "city": "Deatsville",
+          "state": "AL"
+        },
+        {
+          "name": "Jefferson State Community College",
+          "city": "Birmingham",
+          "state": "AL",
+          "requirePlace": true
+        },
+        {
+          "name": "Lawson State Community College",
+          "city": "Birmingham",
+          "state": "AL"
+        },
+        {
+          "name": "Marion Military Institute",
+          "city": "Marion",
+          "state": "AL"
+        },
+        {
+          "name": "Northeast Alabama Community College",
+          "city": "Rainsville",
+          "state": "AL"
+        },
+        {
+          "name": "Northwest-Shoals Community College",
+          "city": "Muscle Shoals",
+          "state": "AL",
+          "aliases": [
+            "northwest shoals community college"
+          ]
+        },
+        {
+          "name": "Reid State Technical College",
+          "city": "Evergreen",
+          "state": "AL"
+        },
+        {
+          "name": "Shelton State Community College",
+          "city": "Tuscaloosa",
+          "state": "AL"
+        },
+        {
+          "name": "Snead State Community College",
+          "city": "Boaz",
+          "state": "AL"
+        },
+        {
+          "name": "Southern Union State Community College",
+          "city": "Wadley",
+          "state": "AL"
+        },
+        {
+          "name": "H. Councill Trenholm State Community College",
+          "city": "Montgomery",
+          "state": "AL",
+          "aliases": [
+            "trenholm state community college",
+            "trenholm state technical college"
+          ]
+        }
+      ]
+    },
+    "tn-cc": {
+      "label": "Tennessee Board of Regents community colleges",
+      "numbering": "Common course numbering for the general-education core across the 13 community colleges (ENGL 1010, MATH 1530 ...).",
+      "source": "https://www.tbr.edu/institutions",
+      "verified": null,
+      "borrow": null,
+      "members": [
+        {
+          "name": "Chattanooga State Community College",
+          "city": "Chattanooga",
+          "state": "TN",
+          "aliases": [
+            "chattanooga state technical community college"
+          ]
+        },
+        {
+          "name": "Cleveland State Community College",
+          "city": "Cleveland",
+          "state": "TN",
+          "not": [
+            "cleveland state university",
+            "ohio"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Columbia State Community College",
+          "city": "Columbia",
+          "state": "TN",
+          "not": [
+            "columbia college",
+            "columbia university"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Dyersburg State Community College",
+          "city": "Dyersburg",
+          "state": "TN"
+        },
+        {
+          "name": "Jackson State Community College",
+          "city": "Jackson",
+          "state": "TN",
+          "not": [
+            "jackson state university"
+          ],
+          "requirePlace": true
+        },
+        {
+          "name": "Motlow State Community College",
+          "city": "Lynchburg",
+          "state": "TN"
+        },
+        {
+          "name": "Nashville State Community College",
+          "city": "Nashville",
+          "state": "TN",
+          "aliases": [
+            "nashville state technical community college"
+          ]
+        },
+        {
+          "name": "Northeast State Community College",
+          "city": "Blountville",
+          "state": "TN",
+          "aliases": [
+            "northeast state technical community college"
+          ]
+        },
+        {
+          "name": "Pellissippi State Community College",
+          "city": "Knoxville",
+          "state": "TN",
+          "aliases": [
+            "pellissippi state technical community college"
+          ]
+        },
+        {
+          "name": "Roane State Community College",
+          "city": "Harriman",
+          "state": "TN"
+        },
+        {
+          "name": "Southwest Tennessee Community College",
+          "city": "Memphis",
+          "state": "TN"
+        },
+        {
+          "name": "Volunteer State Community College",
+          "city": "Gallatin",
+          "state": "TN"
+        },
+        {
+          "name": "Walters State Community College",
+          "city": "Morristown",
+          "state": "TN"
+        }
+      ]
+    }
+  }
+}

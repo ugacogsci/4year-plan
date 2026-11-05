@@ -14,8 +14,9 @@
  *     is offered for the student to confirm, as the title matcher's guesses are;
  *   - whether a line earns credit at all stays with the published rules: the
  *     model's "no credit" only flags the line, and its hours keep counting;
- *   - an official list, a document's printed equivalent, or the student's own
- *     choice is never sent, so it is never overridden.
+ *   - an official list, a sister-school answer (transfer-sisters.ts), a
+ *     document's printed equivalent, or the student's own choice is never
+ *     sent, so it is never overridden.
  * Every decision is labelled an estimate with its one-line reason; the
  * school's own evaluation decides.
  */
@@ -100,7 +101,9 @@ function settleable(record: TranscriptRecord, c: TranscriptCourseRecord): boolea
   if (!c.use || !(c.status === 'completed' || c.status === 'transfer' || c.status === 'in_progress')) return false;
   if (!lineIsForeign(record, c)) return false;
   if (c.counts !== 'hours') return false;
-  if (c.matchedBy === 'official' || c.matchedBy === 'printed' || c.matchedBy === 'student' || c.maybeDeclined) return false;
+  // UGA's answer at sister schools (transfer-sisters.ts) is a published
+  // answer for the same course number, so it is settled like the school's own list's.
+  if (c.matchedBy === 'official' || c.matchedBy === 'sisters' || c.matchedBy === 'printed' || c.matchedBy === 'student' || c.maybeDeclined) return false;
   if (c.basis && c.basis.from !== 'none') return false;
   return true;
 }

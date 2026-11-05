@@ -34,9 +34,16 @@
  * code before it ("ACC201 202" is ACC201 and ACC202; "!101" is the bare code
  * 101). The read date is the day the file was saved. If the page showed a
  * challenge, the file says so and the script stops.
+ *
+ *   node scripts/data/uga-transfer.mjs --words
+ *
+ * reads nothing: it only copies the match and not words below into
+ * index.json for every school it lists. Every other run does the same
+ * after its reads, so a word corrected here never waits for that school's
+ * next read (those words decide which school's list a transcript opens).
  */
 import { mkdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -54,30 +61,38 @@ const GAP_MS = 2000;
  */
 export const SCHOOLS = [
   // University System of Georgia (USG)
-  { key: '005248', name: 'Georgia Institute of Technology', system: 'usg', match: ['georgia institute of technology', 'georgia tech'], not: ['technical college'] },
+  // "Georgia Tech" is also the end of several technical colleges' names as
+  // transcripts and the portal print them ("Wiregrass Georgia Tech College",
+  // "Middle Georgia Tech"), and the longer match word would win over theirs.
+  { key: '005248', name: 'Georgia Institute of Technology', system: 'usg', match: ['georgia institute of technology', 'georgia tech'], not: ['technical college', 'tech college', 'technical institute', 'wiregrass', 'middle georgia', 'heart of georgia', 'central georgia', 'north georgia', 'south georgia', 'west georgia', 'east georgia', 'coastal georgia'] },
   { key: '005251', name: 'Georgia State University', system: 'usg', match: ['georgia state university', 'georgia state'], not: ['middle georgia', 'east georgia', 'south georgia'] },
   { key: '005359', name: 'Kennesaw State University', system: 'usg', match: ['kennesaw state'] },
   { key: '005253', name: 'Georgia Southern University', system: 'usg', match: ['georgia southern'] },
-  { key: '005336', name: 'Augusta University', system: 'usg', match: ['augusta university'] },
+  // Augusta State University kept this school code when it became Augusta
+  // University (2013), so UGA's list under it is the same school's list.
+  { key: '005336', name: 'Augusta University', system: 'usg', match: ['augusta university', 'augusta state university'] },
   { key: '005855', name: 'Valdosta State University', system: 'usg', match: ['valdosta state'] },
   { key: '005900', name: 'University of West Georgia', system: 'usg', match: ['university of west georgia'] },
-  { key: '005252', name: 'Georgia College & State University', system: 'usg', match: ['georgia college & state', 'georgia college and state', 'georgia college'] },
-  { key: '005497', name: 'University of North Georgia', system: 'usg', match: ['university of north georgia'] },
-  { key: '005123', name: 'Columbus State University', system: 'usg', match: ['columbus state'] },
+  // "East Georgia College", "North Georgia College", "Middle Georgia College"
+  // and "South Georgia College" are other System schools' former names.
+  { key: '005252', name: 'Georgia College & State University', system: 'usg', match: ['georgia college & state', 'georgia college and state', 'georgia college'], not: ['east georgia', 'north georgia', 'middle georgia', 'south georgia'] },
+  { key: '005497', name: 'University of North Georgia', system: 'usg', match: ['university of north georgia', 'north georgia college'] },
+  // Columbus State Community College is in Ohio.
+  { key: '005123', name: 'Columbus State University', system: 'usg', match: ['columbus state'], not: ['community college'] },
   { key: '005145', name: 'Clayton State University', system: 'usg', match: ['clayton state'] },
   { key: '005250', name: 'Georgia Southwestern State University', system: 'usg', match: ['georgia southwestern'] },
   { key: '005220', name: 'Fort Valley State University', system: 'usg', match: ['fort valley state'] },
   { key: '005004', name: 'Albany State University', system: 'usg', match: ['albany state'] },
   { key: '005609', name: 'Savannah State University', system: 'usg', match: ['savannah state'] },
-  { key: '005439', name: 'Middle Georgia State University', system: 'usg', match: ['middle georgia state university', 'middle georgia state'] },
+  { key: '005439', name: 'Middle Georgia State University', system: 'usg', match: ['middle georgia state university', 'middle georgia state', 'middle georgia college', 'macon state college'] },
   { key: '004796', name: 'Georgia Gwinnett College', system: 'usg', match: ['georgia gwinnett'] },
   { key: '005167', name: 'Dalton State College', system: 'usg', match: ['dalton state'] },
   { key: '005001', name: 'Abraham Baldwin Agricultural College', system: 'usg', match: ['abraham baldwin'] },
   { key: '005078', name: 'College of Coastal Georgia', system: 'usg', match: ['coastal georgia'] },
-  { key: '005200', name: 'East Georgia State College', system: 'usg', match: ['east georgia state'] },
+  { key: '005200', name: 'East Georgia State College', system: 'usg', match: ['east georgia state', 'east georgia college'] },
   { key: '005237', name: 'Georgia Highlands College', system: 'usg', match: ['georgia highlands'] },
   { key: '005256', name: 'Gordon State College', system: 'usg', match: ['gordon state'] },
-  { key: '005619', name: 'South Georgia State College', system: 'usg', match: ['south georgia state'] },
+  { key: '005619', name: 'South Georgia State College', system: 'usg', match: ['south georgia state', 'south georgia college'] },
   { key: '005725', name: 'Atlanta Metropolitan State College', system: 'usg', match: ['atlanta metropolitan'] },
   // Technical College System of Georgia (TCSG): UGA takes general-education courses only.
   { key: '000462', name: 'Athens Technical College', system: 'tcsg', match: ['athens technical', 'athens tech'] },
@@ -87,7 +102,11 @@ export const SCHOOLS = [
   { key: '001709', name: 'Central Georgia Technical College', system: 'tcsg', match: ['central georgia technical', 'central georgia tech'] },
   { key: '005441', name: 'Chattahoochee Technical College', system: 'tcsg', match: ['chattahoochee technical', 'chattahoochee tech'] },
   { key: '004172', name: 'Coastal Pines Technical College', system: 'tcsg', match: ['coastal pines'] },
-  { key: '005704', name: 'Columbus Technical College', system: 'tcsg', match: ['columbus technical', 'columbus tech'] },
+  // "Columbus Technical Institute" was this college's name until 2000 (the
+  // portal still prints it) and Ohio's Columbus State Community College's
+  // until 1987, both in a city named Columbus: a name that shows Ohio opens
+  // no list.
+  { key: '005704', name: 'Columbus Technical College', system: 'tcsg', match: ['columbus technical', 'columbus tech'], not: [', oh', 'ohio'] },
   { key: '002860', name: 'Georgia Northwestern Technical College', system: 'tcsg', match: ['georgia northwestern'] },
   { key: '003226', name: 'Georgia Piedmont Technical College', system: 'tcsg', match: ['georgia piedmont'] },
   { key: '005168', name: 'Gwinnett Technical College', system: 'tcsg', match: ['gwinnett technical', 'gwinnett tech'] },
@@ -99,8 +118,9 @@ export const SCHOOLS = [
   { key: '006555', name: 'South Georgia Technical College', system: 'tcsg', match: ['south georgia technical', 'south georgia tech'] },
   { key: '005652', name: 'Southeastern Technical College', system: 'tcsg', match: ['southeastern technical'] },
   { key: '005670', name: 'Southern Crescent Technical College', system: 'tcsg', match: ['southern crescent'] },
-  { key: '007058', name: 'Southern Regional Technical College', system: 'tcsg', match: ['southern regional technical'] },
-  { key: '006342', name: 'West Georgia Technical College', system: 'tcsg', match: ['west georgia technical', 'west georgia tech'] },
+  { key: '007058', name: 'Southern Regional Technical College', system: 'tcsg', match: ['southern regional technical', 'southwest georgia technical', 'southwest georgia tech', 'moultrie technical'] },
+  // "Southwest Georgia Technical College" is Southern Regional's former name.
+  { key: '006342', name: 'West Georgia Technical College', system: 'tcsg', match: ['west georgia technical', 'west georgia tech'], not: ['southwest georgia'] },
   { key: '004557', name: 'Wiregrass Georgia Technical College', system: 'tcsg', match: ['wiregrass georgia technical', 'wiregrass'] },
   // Private and out-of-state schools UGA students often come from.
   { key: '005111', name: 'Clemson University', system: 'other', match: ['clemson'] },
@@ -155,7 +175,8 @@ export const SCHOOLS = [
   { key: '005869', name: 'Valencia College', system: 'other', match: ['valencia college', 'valencia community college'] },
   { key: '005457', name: 'Miami Dade College', system: 'other', match: ['miami dade college', 'miami-dade college', 'miami dade community college'] },
   { key: '005653', name: 'Santa Fe College', system: 'other', match: ['santa fe college', 'santa fe community college'], not: ['new mexico', 'nm'] },
-  { key: '005794', name: 'Tallahassee Community College', system: 'other', match: ['tallahassee community college'] },
+  // Renamed Tallahassee State College in 2025; the same college and list.
+  { key: '005794', name: 'Tallahassee Community College', system: 'other', match: ['tallahassee community college', 'tallahassee state college'] },
   { key: '005232', name: 'Florida State College at Jacksonville', system: 'other', match: ['florida state college at jacksonville', 'florida state college jacksonville'] },
   { key: '005074', name: 'Broward College', system: 'other', match: ['broward college', 'broward community college'] },
   { key: '004177', name: 'Hillsborough Community College', system: 'other', match: ['hillsborough community college'] },
@@ -361,22 +382,23 @@ async function main() {
   const args = process.argv.slice(2);
   const fb = args.indexOf('--from-browser');
   const browserDir = fb >= 0 ? args[fb + 1] : null;
-  const picked = args.filter((a, i) => a !== '--fetch' && (fb < 0 || (i !== fb && i !== fb + 1)));
+  const wordsOnly = args.includes('--words');
+  const picked = args.filter((a, i) => a !== '--fetch' && a !== '--words' && (fb < 0 || (i !== fb && i !== fb + 1)));
   const only = picked.length > 0 ? new Set(picked) : null;
-  if (!browserDir && !args.includes('--fetch')) {
+  if (!browserDir && !args.includes('--fetch') && !wordsOnly) {
     // Reading the portal directly needs the owner's say-so (its page carries
     // a reCAPTCHA badge); the default way is the browser hand-off above.
     console.error('Nothing read: pass --from-browser <dir> (the usual way) or --fetch (direct, only with the owner\'s say-so).');
     process.exit(1);
   }
-  if (!browserDir && !(await robotsAllow())) {
+  if (!browserDir && !wordsOnly && !(await robotsAllow())) {
     console.error('robots.txt no longer allows the portal for our agent: stopping.');
     process.exit(2);
   }
   mkdirSync(OUT, { recursive: true });
   const indexPath = join(OUT, 'index.json');
   const index = existsSync(indexPath) ? JSON.parse(readFileSync(indexPath, 'utf8')) : { schools: [] };
-  for (const school of SCHOOLS) {
+  for (const school of wordsOnly ? [] : SCHOOLS) {
     if (only && !only.has(school.key) && !only.has(school.name)) continue;
     let key, listed, rows, n, readAt;
     if (browserDir) {
@@ -416,6 +438,18 @@ async function main() {
     index.schools = [...index.schools.filter((s) => s.key !== key), entry];
     console.log(`${school.name} [${key}] ${listed ?? '?'}: ${n} rows, ${Object.keys(rows).length} courses`);
   }
+  // Every entry takes this file's match and not words, read today or not:
+  // they decide which school's list a transcript opens, and an index that
+  // kept a list's words from the day it was read opened Georgia Tech's list
+  // for "Wiregrass Georgia Tech College" and Columbus State University's for
+  // Ohio's Columbus State Community College after the words here were fixed.
+  const words = new Map(SCHOOLS.filter((s) => s.key).map((s) => [s.key, s]));
+  index.schools = index.schools.map((e) => {
+    const s = words.get(e.key);
+    if (!s) return e;
+    const { key, name, system, match: _m, not: _n, readAt, rows, courses, ...rest } = e;
+    return { key, name, system, match: s.match, ...(s.not ? { not: s.not } : {}), readAt, rows, courses, ...rest };
+  });
   index.source = PORTAL;
   index.note = "UGA Admissions' Transfer Equivalency Search. UGA calls it a guide that is not complete and can change; the official evaluation comes after admission.";
   index.legend = { number: 'a UGA course', GXX: 'general-education core elective', GHX: 'core elective that also meets the U.S. history requirement', TXX: 'transfer elective credit only', NTFR: 'does not transfer' };
@@ -423,4 +457,6 @@ async function main() {
   writeFileSync(indexPath, JSON.stringify(index, null, 1) + '\n');
 }
 
-await main();
+// Only when run as a script: lib/planner/__transfer.check.mjs imports SCHOOLS
+// to see that index.json carries these match and not words.
+if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) await main();
