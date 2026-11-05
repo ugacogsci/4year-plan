@@ -180,7 +180,8 @@
    "name": "Augusta University",
    "system": "usg",
    "match": [
-    "augusta university"
+    "augusta university",
+    "augusta state university"
    ],
    "readAt": "2026-11-04",
    "rows": 1469,
@@ -517,6 +518,9 @@
    "match": [
     "columbus state"
    ],
+   "not": [
+    "community college"
+   ],
    "readAt": "2026-11-04",
    "rows": 1228,
    "courses": 1115
@@ -528,6 +532,10 @@
    "match": [
     "columbus technical",
     "columbus tech"
+   ],
+   "not": [
+    ", oh",
+    "ohio"
    ],
    "readAt": "2026-11-04",
    "rows": 99,
@@ -615,7 +623,8 @@
    "name": "East Georgia State College",
    "system": "usg",
    "match": [
-    "east georgia state"
+    "east georgia state",
+    "east georgia college"
    ],
    "readAt": "2026-11-04",
    "rows": 249,
@@ -832,6 +841,12 @@
     "georgia college and state",
     "georgia college"
    ],
+   "not": [
+    "east georgia",
+    "north georgia",
+    "middle georgia",
+    "south georgia"
+   ],
    "readAt": "2026-11-04",
    "rows": 1444,
    "courses": 1118
@@ -867,7 +882,18 @@
     "georgia tech"
    ],
    "not": [
-    "technical college"
+    "technical college",
+    "tech college",
+    "technical institute",
+    "wiregrass",
+    "middle georgia",
+    "heart of georgia",
+    "central georgia",
+    "north georgia",
+    "south georgia",
+    "west georgia",
+    "east georgia",
+    "coastal georgia"
    ],
    "readAt": "2026-11-04",
    "rows": 2665,
@@ -1257,7 +1283,9 @@
    "system": "usg",
    "match": [
     "middle georgia state university",
-    "middle georgia state"
+    "middle georgia state",
+    "middle georgia college",
+    "macon state college"
    ],
    "readAt": "2026-11-04",
    "rows": 895,
@@ -1756,7 +1784,8 @@
    "name": "South Georgia State College",
    "system": "usg",
    "match": [
-    "south georgia state"
+    "south georgia state",
+    "south georgia college"
    ],
    "readAt": "2026-11-04",
    "rows": 313,
@@ -1813,7 +1842,10 @@
    "name": "Southern Regional Technical College",
    "system": "tcsg",
    "match": [
-    "southern regional technical"
+    "southern regional technical",
+    "southwest georgia technical",
+    "southwest georgia tech",
+    "moultrie technical"
    ],
    "readAt": "2026-11-05",
    "rows": 158,
@@ -1916,7 +1948,8 @@
    "name": "Tallahassee Community College",
    "system": "other",
    "match": [
-    "tallahassee community college"
+    "tallahassee community college",
+    "tallahassee state college"
    ],
    "readAt": "2026-11-04",
    "rows": 122,
@@ -2245,7 +2278,8 @@
    "name": "University of North Georgia",
    "system": "usg",
    "match": [
-    "university of north georgia"
+    "university of north georgia",
+    "north georgia college"
    ],
    "readAt": "2026-11-05",
    "rows": 2149,
@@ -2485,6 +2519,9 @@
    "match": [
     "west georgia technical",
     "west georgia tech"
+   ],
+   "not": [
+    "southwest georgia"
    ],
    "readAt": "2026-11-05",
    "rows": 123,
