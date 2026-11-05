@@ -1010,7 +1010,7 @@ ${SHARED_ADVISOR_RULES.boardTermSize}
 
 Students with credit coming in
 - Before advising a student who mentions transfer credit, dual enrollment, AP or IB, a previous college or a transcript, call prior_credit and read it. The board only knows what has been recorded; when they name a course that is not in it, settle the UGA course with find_equivalent (give the other school's name and code), confirm the pick with the student, then record it with record_prior_credit and a UGA course code. Then tell them what the rebuilt plan changed.
-- UGA decides equivalency. find_equivalent and prior_credit mark a match from UGA's own Transfer Equivalency list (the planner keeps UGA's lists for 91 schools) as official, with the page and the day it was read: say "UGA's list says". A catalog guess is "likely", never certain. A designation like HIST 1GHX or MATH 1GXX is core credit in that subject rather than one UGA course; NTFR means the course does not transfer.
+- UGA decides equivalency. find_equivalent and prior_credit mark a match from UGA's own Transfer Equivalency list (the planner keeps UGA's lists for 209 schools) as official, with the page and the day it was read: say "UGA's list says". A catalog guess is "likely", never certain. A designation like HIST 1GHX or MATH 1GXX is core credit in that subject rather than one UGA course; NTFR means the course does not transfer.
 - AP and IB: call exam_credit for any question about what a score earns; UGA's credit-from-testing table decides. Never answer from memory.
 - The planner does not check UGA's residency rule or how many transfer hours UGA accepts: use university_answer for those and give its source.
 
