@@ -46,6 +46,28 @@
    "courses": 94
   },
   {
+   "key": "005010",
+   "name": "Appalachian State University",
+   "system": "other",
+   "match": [
+    "appalachian state university"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 356,
+   "courses": 317
+  },
+  {
+   "key": "004007",
+   "name": "Arizona State University",
+   "system": "other",
+   "match": [
+    "arizona state university"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 350,
+   "courses": 313
+  },
+  {
    "key": "000462",
    "name": "Athens Technical College",
    "system": "tcsg",
@@ -148,6 +170,29 @@
    "courses": 329
   },
   {
+   "key": "005074",
+   "name": "Broward College",
+   "system": "other",
+   "match": [
+    "broward college",
+    "broward community college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 144,
+   "courses": 137
+  },
+  {
+   "key": "001356",
+   "name": "Calhoun Community College",
+   "system": "other",
+   "match": [
+    "calhoun community college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 103,
+   "courses": 55
+  },
+  {
    "key": "001709",
    "name": "Central Georgia Technical College",
    "system": "tcsg",
@@ -160,6 +205,18 @@
    "courses": 183
   },
   {
+   "key": "005102",
+   "name": "Central Piedmont Community College",
+   "system": "other",
+   "match": [
+    "central piedmont community college",
+    "central piedmont"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 122,
+   "courses": 111
+  },
+  {
    "key": "005441",
    "name": "Chattahoochee Technical College",
    "system": "tcsg",
@@ -170,6 +227,29 @@
    "readAt": "2026-10-14",
    "rows": 283,
    "courses": 282
+  },
+  {
+   "key": "001084",
+   "name": "Chattanooga State Community College",
+   "system": "other",
+   "match": [
+    "chattanooga state"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 134,
+   "courses": 116
+  },
+  {
+   "key": "005106",
+   "name": "Chipola College",
+   "system": "other",
+   "match": [
+    "chipola college",
+    "chipola junior college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 53,
+   "courses": 49
   },
   {
    "key": "005145",
@@ -192,6 +272,21 @@
    "readAt": "2026-10-14",
    "rows": 578,
    "courses": 557
+  },
+  {
+   "key": "002848",
+   "name": "Cleveland State Community College",
+   "system": "other",
+   "match": [
+    "cleveland state community college"
+   ],
+   "not": [
+    "cleveland state university",
+    "ohio"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 67,
+   "courses": 55
   },
   {
    "key": "005837",
@@ -283,6 +378,28 @@
    "courses": 342
   },
   {
+   "key": "005156",
+   "name": "Duke University",
+   "system": "other",
+   "match": [
+    "duke university"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 84,
+   "courses": 68
+  },
+  {
+   "key": "005180",
+   "name": "East Carolina University",
+   "system": "other",
+   "match": [
+    "east carolina university"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 175,
+   "courses": 170
+  },
+  {
    "key": "005200",
    "name": "East Georgia State College",
    "system": "usg",
@@ -292,6 +409,18 @@
    "readAt": "2026-10-14",
    "rows": 241,
    "courses": 222
+  },
+  {
+   "key": "005073",
+   "name": "Eastern Florida State College",
+   "system": "other",
+   "match": [
+    "eastern florida state college",
+    "brevard community college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 146,
+   "courses": 132
   },
   {
    "key": "005184",
@@ -322,6 +451,51 @@
    "readAt": "2026-10-14",
    "rows": 590,
    "courses": 518
+  },
+  {
+   "key": "005229",
+   "name": "Florida Atlantic University",
+   "system": "other",
+   "match": [
+    "florida atlantic university"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 298,
+   "courses": 280
+  },
+  {
+   "key": "005221",
+   "name": "Florida Gulf Coast University",
+   "system": "other",
+   "match": [
+    "florida gulf coast university"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 119,
+   "courses": 100
+  },
+  {
+   "key": "005206",
+   "name": "Florida International University",
+   "system": "other",
+   "match": [
+    "florida international university"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 225,
+   "courses": 205
+  },
+  {
+   "key": "005232",
+   "name": "Florida State College at Jacksonville",
+   "system": "other",
+   "match": [
+    "florida state college at jacksonville",
+    "florida state college jacksonville"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 190,
+   "courses": 181
   },
   {
    "key": "005219",
@@ -491,6 +665,18 @@
    "courses": 405
   },
   {
+   "key": "005278",
+   "name": "Greenville Technical College",
+   "system": "other",
+   "match": [
+    "greenville technical college",
+    "greenville tech"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 97,
+   "courses": 85
+  },
+  {
    "key": "005168",
    "name": "Gwinnett Technical College",
    "system": "tcsg",
@@ -501,6 +687,49 @@
    "readAt": "2026-10-14",
    "rows": 340,
    "courses": 319
+  },
+  {
+   "key": "004177",
+   "name": "Hillsborough Community College",
+   "system": "other",
+   "match": [
+    "hillsborough community college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 156,
+   "courses": 150
+  },
+  {
+   "key": "001324",
+   "name": "Indiana University Bloomington",
+   "system": "other",
+   "match": [
+    "indiana university bloomington",
+    "indiana university"
+   ],
+   "not": [
+    "purdue",
+    "indianapolis",
+    "southeast",
+    "northwest",
+    "kokomo",
+    "east",
+    "south bend"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 487,
+   "courses": 451
+  },
+  {
+   "key": "001352",
+   "name": "Jefferson State Community College",
+   "system": "other",
+   "match": [
+    "jefferson state community college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 91,
+   "courses": 46
   },
   {
    "key": "005359",
@@ -538,6 +767,17 @@
    "courses": 249
   },
   {
+   "key": "005385",
+   "name": "Liberty University",
+   "system": "other",
+   "match": [
+    "liberty university"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 243,
+   "courses": 217
+  },
+  {
    "key": "006373",
    "name": "Louisiana State University",
    "system": "other",
@@ -566,6 +806,19 @@
    "courses": 666
   },
   {
+   "key": "005457",
+   "name": "Miami Dade College",
+   "system": "other",
+   "match": [
+    "miami dade college",
+    "miami-dade college",
+    "miami dade community college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 328,
+   "courses": 188
+  },
+  {
    "key": "005439",
    "name": "Middle Georgia State University",
    "system": "usg",
@@ -576,6 +829,28 @@
    "readAt": "2026-10-14",
    "rows": 850,
    "courses": 804
+  },
+  {
+   "key": "005584",
+   "name": "Midlands Technical College",
+   "system": "other",
+   "match": [
+    "midlands technical college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 56,
+   "courses": 52
+  },
+  {
+   "key": "001480",
+   "name": "Mississippi State University",
+   "system": "other",
+   "match": [
+    "mississippi state university"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 292,
+   "courses": 287
   },
   {
    "key": "005415",
@@ -590,6 +865,18 @@
    "readAt": "2026-10-14",
    "rows": 91,
    "courses": 86
+  },
+  {
+   "key": "000850",
+   "name": "Nashville State Community College",
+   "system": "other",
+   "match": [
+    "nashville state community college",
+    "nashville state"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 90,
+   "courses": 51
   },
   {
    "key": "005496",
@@ -660,6 +947,53 @@
    "courses": 121
   },
   {
+   "key": "005531",
+   "name": "Palm Beach State College",
+   "system": "other",
+   "match": [
+    "palm beach state college",
+    "palm beach community college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 134,
+   "courses": 130
+  },
+  {
+   "key": "000319",
+   "name": "Pellissippi State Community College",
+   "system": "other",
+   "match": [
+    "pellissippi state"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 91,
+   "courses": 81
+  },
+  {
+   "key": "002660",
+   "name": "Pennsylvania State University",
+   "system": "other",
+   "match": [
+    "pennsylvania state university",
+    "penn state"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 474,
+   "courses": 444
+  },
+  {
+   "key": "005535",
+   "name": "Pensacola State College",
+   "system": "other",
+   "match": [
+    "pensacola state college",
+    "pensacola junior college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 73,
+   "courses": 73
+  },
+  {
    "key": "005537",
    "name": "Piedmont University",
    "system": "other",
@@ -670,6 +1004,22 @@
    "readAt": "2026-10-14",
    "rows": 629,
    "courses": 595
+  },
+  {
+   "key": "001631",
+   "name": "Purdue University",
+   "system": "other",
+   "match": [
+    "purdue university"
+   ],
+   "not": [
+    "global",
+    "fort wayne",
+    "northwest"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 294,
+   "courses": 255
   },
   {
    "key": "005568",
@@ -692,6 +1042,22 @@
    "readAt": "2026-10-14",
    "rows": 279,
    "courses": 227
+  },
+  {
+   "key": "005653",
+   "name": "Santa Fe College",
+   "system": "other",
+   "match": [
+    "santa fe college",
+    "santa fe community college"
+   ],
+   "not": [
+    "new mexico",
+    "nm"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 191,
+   "courses": 187
   },
   {
    "key": "005631",
@@ -785,6 +1151,18 @@
    "courses": 193
   },
   {
+   "key": "003649",
+   "name": "Southern New Hampshire University",
+   "system": "other",
+   "match": [
+    "southern new hampshire university",
+    "snhu"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 126,
+   "courses": 118
+  },
+  {
    "key": "007058",
    "name": "Southern Regional Technical College",
    "system": "tcsg",
@@ -796,6 +1174,18 @@
    "courses": 150
   },
   {
+   "key": "001728",
+   "name": "Southern Union State Community College",
+   "system": "other",
+   "match": [
+    "southern union state community college",
+    "southern union"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 110,
+   "courses": 99
+  },
+  {
    "key": "005628",
    "name": "Spelman College",
    "system": "other",
@@ -805,6 +1195,64 @@
    "readAt": "2026-10-14",
    "rows": 140,
    "courses": 116
+  },
+  {
+   "key": "005606",
+   "name": "St. Petersburg College",
+   "system": "other",
+   "match": [
+    "st. petersburg college",
+    "st petersburg college",
+    "saint petersburg college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 115,
+   "courses": 108
+  },
+  {
+   "key": "005794",
+   "name": "Tallahassee Community College",
+   "system": "other",
+   "match": [
+    "tallahassee community college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 122,
+   "courses": 118
+  },
+  {
+   "key": "006003",
+   "name": "Texas A&M University",
+   "system": "other",
+   "match": [
+    "texas a&m university",
+    "texas a & m university"
+   ],
+   "not": [
+    "qatar",
+    "commerce",
+    "corpus",
+    "kingsville",
+    "west texas",
+    "international",
+    "san antonio",
+    "texarkana",
+    "central texas"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 125,
+   "courses": 110
+  },
+  {
+   "key": "001592",
+   "name": "The Ohio State University",
+   "system": "other",
+   "match": [
+    "ohio state university"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 306,
+   "courses": 261
   },
   {
    "key": "001830",
@@ -820,6 +1268,29 @@
    "readAt": "2026-10-14",
    "rows": 1651,
    "courses": 1458
+  },
+  {
+   "key": "005789",
+   "name": "Tri-County Technical College",
+   "system": "other",
+   "match": [
+    "tri-county technical college",
+    "tri county technical college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 94,
+   "courses": 80
+  },
+  {
+   "key": "005049",
+   "name": "Trident Technical College",
+   "system": "other",
+   "match": [
+    "trident technical college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 74,
+   "courses": 68
   },
   {
    "key": "001738",
@@ -857,6 +1328,24 @@
    "courses": 249
   },
   {
+   "key": "006866",
+   "name": "University of Arkansas",
+   "system": "other",
+   "match": [
+    "university of arkansas"
+   ],
+   "not": [
+    "little rock",
+    "pine bluff",
+    "monticello",
+    "fort smith",
+    "medical"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 218,
+   "courses": 191
+  },
+  {
    "key": "005233",
    "name": "University of Central Florida",
    "system": "other",
@@ -879,6 +1368,24 @@
    "courses": 368
   },
   {
+   "key": "001836",
+   "name": "University of Illinois Urbana-Champaign",
+   "system": "other",
+   "match": [
+    "university of illinois urbana",
+    "university of illinois at urbana",
+    "urbana-champaign",
+    "uiuc"
+   ],
+   "not": [
+    "chicago",
+    "springfield"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 182,
+   "courses": 158
+  },
+  {
    "key": "001837",
    "name": "University of Kentucky",
    "system": "other",
@@ -888,6 +1395,36 @@
    "readAt": "2026-10-14",
    "rows": 400,
    "courses": 389
+  },
+  {
+   "key": "005815",
+   "name": "University of Miami",
+   "system": "other",
+   "match": [
+    "university of miami"
+   ],
+   "not": [
+    "ohio",
+    "miami university"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 308,
+   "courses": 291
+  },
+  {
+   "key": "001839",
+   "name": "University of Michigan",
+   "system": "other",
+   "match": [
+    "university of michigan"
+   ],
+   "not": [
+    "dearborn",
+    "flint"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 115,
+   "courses": 98
   },
   {
    "key": "001840",
@@ -900,6 +1437,23 @@
    "readAt": "2026-10-14",
    "rows": 394,
    "courses": 382
+  },
+  {
+   "key": "006875",
+   "name": "University of Missouri",
+   "system": "other",
+   "match": [
+    "university of missouri"
+   ],
+   "not": [
+    "kansas city",
+    "st. louis",
+    "st louis",
+    "science and technology"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 215,
+   "courses": 194
   },
   {
    "key": "005816",
@@ -980,6 +1534,21 @@
    "courses": 154
   },
   {
+   "key": "005820",
+   "name": "University of Virginia",
+   "system": "other",
+   "match": [
+    "university of virginia"
+   ],
+   "not": [
+    "wise",
+    "college at wise"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 171,
+   "courses": 156
+  },
+  {
    "key": "005900",
    "name": "University of West Georgia",
    "system": "usg",
@@ -1002,6 +1571,18 @@
    "courses": 1372
   },
   {
+   "key": "005869",
+   "name": "Valencia College",
+   "system": "other",
+   "match": [
+    "valencia college",
+    "valencia community college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 132,
+   "courses": 120
+  },
+  {
    "key": "001871",
    "name": "Vanderbilt University",
    "system": "other",
@@ -1011,6 +1592,17 @@
    "readAt": "2026-10-14",
    "rows": 355,
    "courses": 244
+  },
+  {
+   "key": "005570",
+   "name": "Virginia Commonwealth University",
+   "system": "other",
+   "match": [
+    "virginia commonwealth university"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 163,
+   "courses": 142
   },
   {
    "key": "005859",
@@ -1023,6 +1615,21 @@
    "readAt": "2026-10-14",
    "rows": 389,
    "courses": 244
+  },
+  {
+   "key": "000528",
+   "name": "Wallace State Community College",
+   "system": "other",
+   "match": [
+    "wallace state community college",
+    "wallace state"
+   ],
+   "not": [
+    "selma"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 41,
+   "courses": 39
   },
   {
    "key": "005895",
@@ -1066,6 +1673,17 @@
    "readAt": "2026-10-14",
    "rows": 156,
    "courses": 154
+  },
+  {
+   "key": "005989",
+   "name": "York Technical College",
+   "system": "other",
+   "match": [
+    "york technical college"
+   ],
+   "readAt": "2026-11-04",
+   "rows": 30,
+   "courses": 23
   },
   {
    "key": "005990",
