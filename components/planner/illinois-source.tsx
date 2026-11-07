@@ -40,7 +40,7 @@ import {
   adaptIllinoisPrograms,
   attachRequirementIds,
   buildIllinoisData,
-  missingPrerequisiteGroups,
+  illinoisPrereqCheck,
   type CourseFacts,
   type IllinoisCourse,
   type IllinoisData,
@@ -48,7 +48,6 @@ import {
   type RawGradeFile,
   type RawIllinoisProgram,
   type RawProgramFile,
-  type PrereqSpec,
   type RawSectionFile,
   type RequirementBlock,
   type SectionSummary,
@@ -650,21 +649,9 @@ export function buildContext(
     gradeFootnote: core.meta?.gradeFootnote ?? null,
     /**
      * illinois-data owns the canonical prerequisite rule, so it is injected
-     * rather than left to autoplan's own copy.
-     *
-     * The cast is real and narrow. PlanPrereqGroup is PrereqGroup without the
-     * `shape` field, so the two types are not interchangeable in general, but
-     * every spec that reaches this matcher came out of prereqs.json and is a
-     * PrereqSpec. Anything else would be a caller handing the scheduler a
-     * prerequisite the parser never produced.
+     * rather than left to autoplan's own copy (illinoisPrereqCheck).
      */
-    prereqCheck: (spec, earlier, sameTerm, equivalents) =>
-      missingPrerequisiteGroups(
-        (spec ?? null) as PrereqSpec | null,
-        earlier,
-        sameTerm,
-        equivalents,
-      ),
+    prereqCheck: illinoisPrereqCheck,
   };
 
   return { context, requirements: blocks };

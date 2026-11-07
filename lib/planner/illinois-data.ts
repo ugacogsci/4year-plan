@@ -14,6 +14,7 @@ import type {
   RequirementRow,
 } from './scheduler';
 import type { AnyCourseRule } from './any-course';
+import type { PrereqMatcher } from './autoplan';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects.ts';
 import { registrationFits } from './meeting-fit.ts';
 import { HAND_READINGS_HELD, HEADER_LISTS_HELD, READ_AS_RELEASED, SELECT_LINES_HELD } from './held-degrees.ts';
@@ -1707,6 +1708,26 @@ export function missingPrerequisiteGroups(
 
   return { missing, uncertain, priorLearning };
 }
+
+/**
+ * The prerequisite rule the Illinois context hands the scheduler
+ * (illinois-source.tsx buildContext), named so the plan build in a worker
+ * sets the very same one on its copy of the context (plan-build.ts): a
+ * function cannot cross to a worker.
+ *
+ * The cast is real and narrow. PlanPrereqGroup is PrereqGroup without the
+ * `shape` field, so the two types are not interchangeable in general, but
+ * every spec that reaches this matcher came out of prereqs.json and is a
+ * PrereqSpec. Anything else would be a caller handing the scheduler a
+ * prerequisite the parser never produced.
+ */
+export const illinoisPrereqCheck: PrereqMatcher = (spec, earlier, sameTerm, equivalents) =>
+  missingPrerequisiteGroups(
+    (spec ?? null) as PrereqSpec | null,
+    earlier,
+    sameTerm,
+    equivalents,
+  );
 
 // ---------------------------------------------------------------------------
 // 2. Catalog course -> Course

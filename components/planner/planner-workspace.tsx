@@ -57,7 +57,7 @@ import { CourseExplorer } from './course-explorer';
 import { ElectivePools } from './elective-pools';
 import { IssueBadge } from './issue-badge';
 import { groupIssues, reviewTitle } from './plan-health';
-import { earlyFinishNote, needsAttention } from '@/lib/planner/attention';
+import { earlyFinishNote } from '@/lib/planner/attention';
 import { CANNOT_FINISH_ID, rankedFlags, recordKind, statedHours, triageIssues, type CreditGap } from '@/lib/planner/warnings-triage';
 import {
   askQuestion,
@@ -92,9 +92,9 @@ import { illinoisProgress, illinoisProgressGuard } from './illinois-progress';
 import { StudentProfilePanel, type AreaRow } from './student-profile-panel';
 import { DoubleDawgsPicker } from './double-dawgs-picker';
 import { DoubleDawgsTiming } from './double-dawgs-timing';
-import { defaultGraduateFinish, degreeTermOrder, doubleDawgsContext, doubleDawgsIssues, doubleDawgsLedger, doubleDawgsOptions, doubleDawgsProgress, generateDoubleDawgs, selectSharedCourses, sharedUndergraduateRequirements, withDoubleDawgsGraduateRules } from '@/lib/planner/double-dawgs';
+import { degreeTermOrder, doubleDawgsContext, doubleDawgsIssues, doubleDawgsLedger, doubleDawgsProgress, sharedUndergraduateRequirements, withDoubleDawgsGraduateRules } from '@/lib/planner/double-dawgs';
 import { pathwaysFor, sampleCoursesFor, samplePlansFor } from '@/lib/planner/uga-planning-guidance';
-import { holdMaybe, maybeCodes, maybeIssues, maybeLines, openMaybeOnBoard, withoutMaybe } from '@/lib/planner/transfer-maybe';
+import { maybeCodes, maybeIssues, maybeLines, openMaybeOnBoard, withoutMaybe } from '@/lib/planner/transfer-maybe';
 import { ProgramPicker } from './program-picker';
 import { UGA_COMING_SOON } from '@/lib/planner/uga-degree-fixes';
 import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
@@ -116,7 +116,7 @@ import {
   type LoadedProgram,
 } from './illinois-source';
 import { illinoisMinorOptions, MINOR_ID_PREFIX, type RawMinorFile } from '@/lib/planner/illinois-minors';
-import { majorCodesOf, minorPlanNotes, planBesideDegree, rowLabel, uncheckedMinorNote, upperApartNote, upperLevelApart, MINOR_UPPER_APART_HOURS } from '@/lib/planner/illinois-minor-plan';
+import { majorCodesOf, rowLabel, uncheckedMinorNote, upperLevelApart, MINOR_UPPER_APART_HOURS } from '@/lib/planner/illinois-minor-plan';
 import { comparePrograms, CS_MINOR, placementsOnBoard, resolveProgram, secondMajorsWithinReach, type ProgramSide } from '@/lib/planner/programs-compare';
 import {
   isUgaGraduateDegree,
@@ -138,12 +138,9 @@ import {
   awayCredits,
   describeCreditProgress,
   describeCreditTotal,
-  difficultyEstimatesApply,
   extendForAway,
-  generatePlan,
   planCreditRange,
   prereqNeedsAdmission,
-  spreadHardOutcome,
   validatePlan,
   type Arrival,
   type AutoplanInput,
@@ -202,6 +199,8 @@ import { transcriptCourseCredits, transcriptCreditSummary, transcriptExemptCodes
 import { alreadyTaken } from '@/lib/planner/already-taken';
 import { ugaShownNotes } from '@/lib/planner/uga-plan-notes';
 import { auditUgaBoard, ugaProgressLoss } from './uga-board-audit';
+import { builtFromOf, planBuildInput, type PlanBuildData, type PlanBuildJob, type PlanBuildResult } from './plan-build';
+import { buildPlanApart, cancelPlanBuilds, PlanBuildSuperseded } from './plan-build-client';
 import { admissionGoal, chooseAdmission, describeAdmissionChoice, goalFromQuery, readEntry, type AdmissionChoice } from '@/lib/planner/admission-route';
 import { routeQuestion, sectionRowsFrom, type AskContext, type PlannedCourse } from '@/lib/planner/ask-router';
 import { createSamplePlan, sampleCourses, samplePrograms } from '@/lib/planner/sample-data';
@@ -1568,12 +1567,27 @@ export function PlannerWorkspace({
   }, [careerText, isUga, isCatalogSchool, isGraduatePlan]);
 
   /**
+   * Which Rebuild is the latest (buildPlan counts them), and the plan tab,
+   * context and degree on screen now. A board built in the worker lands
+   * seconds later: by then another Rebuild may be under way, the student may
+   * be on another plan, or the degree or record may have changed, and that
+   * board is not shown (composePlan). `rebuildStale` asks for the build again
+   * when only the data changed under it.
+   */
+  const buildRun = useRef(0);
+  const buildScope = useRef<{ activePlanId: string; context: PlanningContext | null; loaded: typeof loaded }>({ activePlanId, context, loaded });
+  // oxlint-disable-next-line react/react-compiler
+  buildScope.current = { activePlanId, context, loaded };
+  const rebuildStale = useRef(false);
+
+  /**
    * The build behind Rebuild, and behind the "can't finish" fixes: `trial`
    * builds the board for another plan shape or credit number and returns it
    * without showing it (nothing saved, nothing announced), so a fix is tried
    * through the very path its button's rebuild takes (cannot-finish.ts).
+   * `run` is the Rebuild it shows a board for (buildRun).
    */
-  const composePlan = useCallback((trial: BuildTrial | null): TrialBuilt | null => {
+  const composePlan = useCallback(async (trial: BuildTrial | null, run = 0): Promise<TrialBuilt | null> => {
     const buildStartedAt = performance.now();
     const shape = trial?.shape ?? planShape;
     const minC = trial?.min ?? minimumTermCredits;
@@ -1693,39 +1707,27 @@ export function PlannerWorkspace({
       }
     }
     /*
-     * The audit of a board the build weighs (AutoplanInput.boardAudit and
-     * careerAudit): its own held classes, this build's degree, catalog and
-     * hours, as the UGA harness audits a candidate. Read off the board on
-     * screen (ugaAuditOn), it took the previous board's held classes until the
-     * effect after the build, and on a first build no degree at all, so every
-     * candidate read no rows unmet.
+     * The build itself runs in a worker (plan-build.ts), so the page answers
+     * while it builds; only data crosses, and the functions generatePlan was
+     * handed here (the UGA board audit a candidate is weighed by, the career
+     * matcher) are made there from it. What it reads: the degree's data,
+     * kept in the worker while it stands, and this build's settings.
      */
     const priorHours = priorHoursOf(answers, exams, examCredit.entries, catalogCredits);
-    let courseById: Map<string, Course> | null = null;
-    // One audit a board: the unmet rows (builtAudit) and the issues (builtAuditIssues) both read it.
-    const audits = new WeakMap<PlanState, ReturnType<typeof auditUgaBoard>>();
-    const auditOfBoard = (board: PlanState, bookedFor?: Record<string, string | null>): ReturnType<typeof auditUgaBoard> => {
-      const known = audits.get(board);
-      if (known) return known;
-      courseById ??= new Map(context.courses.map((course) => [course.id, course]));
-      const held = board.completedCourseIds.flatMap((id) => courseById?.get(id)?.code ?? []).map(normCode);
-      const hours = planCreditRange(distinctHeld(held, context).codes, context).min + priorHours;
-      const audit = auditUgaBoard({ board, context, undergraduate: loaded, graduate: loaded.doubleDawgsGraduate, priorCodes: held, bookedFor,
-        extraCredits: hours - planCreditRange(held, context).min + horizon.assumedHours,
-        transcript: answers?.transcript, dualLevel: uga?.dualLevelCourses, coreCredit: coreCredit?.used, languagePlaced: answers?.languageYears ?? null,
-        validation: { ...validateOptions(), programName: loaded.program.name, priorCredits: hours + horizon.assumedHours } });
-      audits.set(board, audit);
-      return audit;
-    };
-    const builtAudit = (board: PlanState, bookedFor?: Record<string, string | null>): number => ugaUnmetRows(auditOfBoard(board, bookedFor));
-    const builtAuditIssues = (board: PlanState, bookedFor?: Record<string, string | null>) => auditOfBoard(board, bookedFor).issues;
-    let planInput: AutoplanInput = {
-      requirements: loaded.blocks,
+    const data: PlanBuildData = {
       context,
-      prior: priorHere,
-      horizon,
-      preferences: { creditsPerTerm: { min: minC, target: tgtC, max: 18 }, priorities },
-      programId: loaded.summary.id,
+      catalog,
+      loaded,
+      dualLevel: uga?.dualLevelCourses,
+      languages: core?.languages ?? null,
+      equivalents: core?.equivalents ?? undefined,
+    };
+    const job: PlanBuildJob = {
+      input: {
+        prior: priorHere,
+        horizon,
+        preferences: { creditsPerTerm: { min: minC, target: tgtC, max: 18 }, priorities },
+        programId: loaded.summary.id,
         electiveHoursLimit:
           isUga && 'electiveHours' in loaded ? loaded.electiveHours : undefined,
         fillToDegreeTotal:
@@ -1742,164 +1744,83 @@ export function PlannerWorkspace({
           ? gradSettings.autoPrerequisiteLevelRange
           : undefined,
 
-      // The published total is what the plan must reach; the blocks alone
-      // name 82 of Finance's 124 credits. The student's own words rank the
-      // electives that fill the rest.
-      // A published total of 0 is a page the crawl could not read a total from,
-      // not a degree of no credits: English BALAS planned 2 terms and 28 hours.
-      degreeTotal: publishedTotal || (isIllinois && !isGraduatePlan ? 120 : null),
-      interests: [setup.studying, careerText].join(' '),
-      // Goals come from what the student wants to do, never from the major's
-      // name: "Psychology" alone was booking psychopathology as their goal.
-      career: careerText,
-      // The degree check holds the matcher's board to the board audit too (AutoplanInput.careerAudit).
-      ...(careerFit ? { careerFit, ...(isUga ? { careerAudit: (g: GeneratedPlan) => builtAudit(g.plan, g.bookedFor) } : {}) } : {}),
-      // And the free choices' check (AutoplanInput.boardAudit), at UGA by the audit the board bar reads.
-      ...(isUga ? { boardAudit: (g: GeneratedPlan) => builtAudit(g.plan, g.bookedFor) } : {}),
-      /*
-       * The difficulty gate (autoplan.ts difficultyGated) keeps no board with
-       * more issues needing attention than the board built without the
-       * difficulty estimates; at UGA the audit's own issues, read as the board
-       * bar reads them. A "can't finish" fix builds that board alone
-       * (difficultyGate: false): the gate's board never finishes later.
-       */
-      ...(isUga ? { boardAttention: (g: GeneratedPlan) => builtAuditIssues(g.plan, g.bookedFor).filter(needsAttention).length } : {}),
-      // And row by row, as a swap is checked (ugaProgressLoss): fewer unmet rows never buy less of another row.
-      ...(isUga ? { boardProgressLost: (g: GeneratedPlan, floor: GeneratedPlan) => ugaProgressLoss(auditOfBoard(floor.plan, floor.bookedFor), auditOfBoard(g.plan, g.bookedFor)) } : {}),
-      ...(trial ? { difficultyGate: false } : {}),
-      programName: loaded.program.name,
-      programCollege: loaded.program.college,
-      arrival: arrivalOf(answers),
-      // The review's own rule, so the planner arranges year one for the
-      // student the review measures it for, and no one else.
-      firstYear: isIllinois && !isGraduatePlan && enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
-      admissionRoute,
-      // Illinois's residency rule, from its transfer-credit page: 45 hours at
-      // Illinois, 21 of them at the 300 level or above. What the student has
-      // already taken here comes from their own record; transfer and exam
-      // credit is not residence, whatever course it became.
-      residency: isIllinois && !isGraduatePlan
+        // The published total is what the plan must reach; the blocks alone
+        // name 82 of Finance's 124 credits. The student's own words rank the
+        // electives that fill the rest.
+        // A published total of 0 is a page the crawl could not read a total from,
+        // not a degree of no credits: English BALAS planned 2 terms and 28 hours.
+        degreeTotal: publishedTotal || (isIllinois && !isGraduatePlan ? 120 : null),
+        interests: [setup.studying, careerText].join(' '),
+        // Goals come from what the student wants to do, never from the major's
+        // name: "Psychology" alone was booking psychopathology as their goal.
+        career: careerText,
+        // A "can't finish" fix builds the board without the difficulty gate (plan-build.ts planBuildInput says why).
+        ...(trial ? { difficultyGate: false } : {}),
+        programName: loaded.program.name,
+        programCollege: loaded.program.college,
+        arrival: arrivalOf(answers),
+        // The review's own rule, so the planner arranges year one for the
+        // student the review measures it for, and no one else.
+        firstYear: isIllinois && !isGraduatePlan && enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
+        admissionRoute,
+        // Illinois's residency rule, from its transfer-credit page: 45 hours at
+        // Illinois, 21 of them at the 300 level or above. What the student has
+        // already taken here comes from their own record; transfer and exam
+        // credit is not residence, whatever course it became.
+        residency: isIllinois && !isGraduatePlan
+          ? {
+              hours: 45,
+              upperLevel: 21,
+              heldHours: transcriptResidentHours(answers?.transcript).total,
+              heldUpper: transcriptResidentHours(answers?.transcript).upper,
+              source: 'https://admissions.illinois.edu/transferring-credit/',
+            }
+          : null,
+      },
+      // At UGA a candidate board is weighed by the board audit the board bar reads, with the validator's settings as they stand now.
+      ugaAudit: isUga
+        ? { priorHours, assumedHours: horizon.assumedHours, coreCredit: coreCredit?.used, languagePlaced: answers?.languageYears ?? null, validation: validateOptions() }
+        : null,
+      transcript: answers?.transcript,
+      doubleDawgs: doubleDawgsPathway && loaded.doubleDawgsGraduate && uga
         ? {
-            hours: 45,
-            upperLevel: 21,
-            heldHours: transcriptResidentHours(answers?.transcript).total,
-            heldUpper: transcriptResidentHours(answers?.transcript).upper,
-            source: 'https://admissions.illinois.edu/transferring-credit/',
+            pathway: doubleDawgsPathway,
+            sharedCodes: answers?.doubleDawgsSharedCodes,
+            graduateFinish: answers?.doubleDawgsGraduateSeason && answers?.doubleDawgsGraduateYear ? { season: answers.doubleDawgsGraduateSeason, year: answers.doubleDawgsGraduateYear } : null,
           }
         : null,
+      spreadHard: Boolean(shape.spreadHard) && !doubleDawgsPathway,
+      // Illinois minors (beta) are planned beside the degree, degree first, from what the student holds.
+      minors: isIllinois ? { heldCodes: priorHere.courseCodes.map(normCode), publishedTotal } : null,
     };
-    /**
-     * A transfer line the planner only thinks "may be" a course (Parkland's
-     * BUS 101 "may be BUS 101"): where the board would book that course, it
-     * is held for the build instead, with the hours held unchanged, so the
-     * board does not schedule what the student may already have; the board
-     * below then leaves its requirement open until the student confirms or
-     * rejects the line (transfer-maybe.ts). No such line, the same one build.
-     */
-    let generated: GeneratedPlan;
-    let maybe: { codes: string[] } = { codes: [] };
+    // The tab, degree and data this board is for: a result that lands after any of them changed is not shown (buildScope).
+    const scope = buildScope.current;
+    let built: PlanBuildResult;
     try {
-      const held = holdMaybe(planInput.prior, answers?.transcript, (code) => byCode.get(normCode(code))?.credits ?? null, (p) => {
-        if (doubleDawgsPathway && loaded.doubleDawgsGraduate && uga) {
-          const finish = { season: horizon.gradSeason, year: horizon.gradYear };
-          const options = doubleDawgsOptions(doubleDawgsPathway, loaded, loaded.doubleDawgsGraduate, byCode, uga.dualLevelCourses);
-          return generateDoubleDawgs({ undergraduate: { ...planInput, prior: p }, undergraduateProgram: loaded.program, graduate: loaded.doubleDawgsGraduate, pathway: doubleDawgsPathway,
-            shared: selectSharedCourses(doubleDawgsPathway, options, answers?.doubleDawgsSharedCodes, p.courseCodes),
-            graduateFinish: answers?.doubleDawgsGraduateSeason && answers?.doubleDawgsGraduateYear ? { season: answers.doubleDawgsGraduateSeason, year: answers.doubleDawgsGraduateYear } : defaultGraduateFinish(finish),
-          });
-        }
-        return generatePlan({ ...planInput, prior: p });
-      });
-      if (held.codes.length > 0) planInput = { ...planInput, prior: held.prior };
-      maybe = held;
-      generated = held.generated;
+      built = await buildPlanApart(data, job, careerFit ?? null, { board: !trial });
+    } catch (error) {
+      if (error instanceof PlanBuildSuperseded || trial) return null;
+      if (run !== buildRun.current) return null;
+      setStatus(`The draft could not be generated: ${error instanceof Error ? error.message : 'unknown error'}`);
+      return null;
     }
-    catch (error) { if (trial) return null; setStatus(`The draft could not be generated: ${error instanceof Error ? error.message : 'unknown error'}`); return null; }
-    let builtFrom = planInput;
-    /**
-     * "Spread my hard classes out": one hardest-band course a term, kept only
-     * when it costs nothing. At one a term a Computer Engineering plan with
-     * six required hardest-band courses and six terms had nowhere for a
-     * seventh, grew two terms and nineteen credits, and said nothing about
-     * why. spreadHardOutcome decides, and its note names the check that
-     * failed or says what the kept plan really does.
-     */
-    if (shape.spreadHard && !doubleDawgsPathway && !difficultyEstimatesApply(context, priorities)) {
-      // At UGA on Balanced (or another preference) the board has no bands to spread: say how to get it rather than "changed nothing".
-      generated.notes.push('At UGA, which courses are hardest is an estimate from student ratings, and the planner uses it only when Preferences is set to Lightest, Best-rated teaching or Challenge me. Choose Lightest in Preferences to spread the hardest courses out, one a term where the degree allows.');
-    } else if (shape.spreadHard && !doubleDawgsPathway) {
-      const spreadInput = { ...planInput, preferences: { ...planInput.preferences, maxHardCourses: 1 } };
-      const spread = generatePlan(spreadInput);
-      const outcome = spreadHardOutcome(generated, spread, {
-        difficulty: (code) => context.grades?.get(code)?.difficulty ?? null,
-        bands: context.bands ?? null,
-      });
-      if (outcome.adopt) {
-        generated = spread;
-        builtFrom = spreadInput;
-      }
-      generated.notes.push(outcome.note);
-    }
-
-    // What compare_programs rebuilds with a second program's courses beside these.
-    if (!trial) lastBuild.current = { input: builtFrom, plan: generated };
-
-    /**
-     * Illinois minors (beta), degree first: the plan above is the degree's
-     * own, and planBesideDegree adds what fits of each checked minor without
-     * costing the degree a row the rail shows met, a term over 18 or a term
-     * past the finish. compare_programs keeps the degree's own plan above.
-     */
-    const minorsToPlan = isIllinois ? (loaded.minors ?? []).filter((minor) => minor.checked) : [];
-    if (minorsToPlan.length > 0) {
-      const heldCodes = priorHere.courseCodes.map(normCode);
-      const codesOf = (g: GeneratedPlan) => g.terms.flatMap((term) => term.codes.map(normCode));
-      const degreeRows = (g: GeneratedPlan) => illinoisProgress({
-        blocks: loaded.blocks,
-        boardCodes: codesOf(g),
-        priorCodes: heldCodes,
-        byCode,
-        pools: livePools({ base: g.pools.filter((pool) => !pool.requirementId.startsWith(MINOR_ID_PREFIX)), blocks: loaded.blocks, boardCodes: codesOf(g), priorCodes: heldCodes, context }),
-        language: g.language,
-        satisfiedByPriorCredit: g.satisfiedByPriorCredit,
-        languages: core?.languages ?? null,
-        equivalents: core?.equivalents ?? undefined,
-        degreeTotal: publishedTotal,
-        programName: loaded.program.name,
-      });
-      const before = degreeRows(generated);
-      const spreadNote = shape.spreadHard ? (generated.notes[generated.notes.length - 1] ?? null) : null;
-      const outcome = planBesideDegree(generatePlan, builtFrom, generated, minorsToPlan, {
-        heldCodes,
-        creditsOf: (code) => byCode.get(normCode(code))?.credits ?? null,
-        degreeCheck: (g) => {
-          const now = degreeRows(g);
-          const lost = before.filter((row, index) => row.satisfied && !now[index]?.satisfied);
-          return lost.length > 0 ? `it would leave ${lost.map((row) => row.area.label).join('; ')} short` : null;
-        },
-      });
-      const chosen = outcome.generated;
-      const notes = chosen === generated ? [...generated.notes] : [...chosen.notes, ...(spreadNote ? [spreadNote] : [])];
-      // The minor's own rows are the rail's to show, with its name on them,
-      // and what did not fit is in the notes: its pools, unmet rows and
-      // unplaced courses would otherwise reach the review list as the degree's.
-      generated = {
-        ...chosen,
-        pools: chosen.pools.filter((pool) => !pool.requirementId.startsWith(MINOR_ID_PREFIX)),
-        unsatisfied: chosen.unsatisfied.filter((row) => !row.requirementId.startsWith(MINOR_ID_PREFIX)),
-        notPlaced: chosen.notPlaced.filter((row) => !(row.requirementId ?? '').startsWith(MINOR_ID_PREFIX)),
-        notes: [...notes, ...minorPlanNotes(outcome, minorsToPlan)],
-      };
-      const major = majorCodesOf(generated.bookedFor ?? {}, loaded.blocks);
-      for (const minor of minorsToPlan) {
-        const counted = illinoisProgress({
-          blocks: minor.blocks, boardCodes: codesOf(generated), priorCodes: heldCodes, byCode, pools: [],
-          language: null, satisfiedByPriorCredit: [], equivalents: core?.equivalents ?? undefined, degreeTotal: null, programName: minor.name,
-        }).flatMap((row) => row.codes ?? []);
-        const apart = upperLevelApart(counted, major, (code) => byCode.get(normCode(code))?.credits ?? null);
-        if (apart.hours < MINOR_UPPER_APART_HOURS) generated.notes.push(upperApartNote(minor.name, apart));
+    if (!trial) {
+      // A newer Rebuild was asked for: its board is the one shown.
+      if (run !== buildRun.current) return null;
+      const now = buildScope.current;
+      // The student moved to another plan (the move stops the build and says so), or the degree or record changed while it built: build again for what stands now.
+      if (now.activePlanId !== scope.activePlanId) return null;
+      if (now.context !== scope.context || now.loaded !== scope.loaded) {
+        if (now.context && now.loaded) rebuildStale.current = true;
+        else setStatus('');
+        return null;
       }
     }
+    let generated = built.generated;
+    const maybe = { codes: built.maybeCodes };
+
+    // What compare_programs rebuilds with a second program's courses beside these: the degree's own board, before any minor.
+    if (!trial) lastBuild.current = { input: builtFromOf(planBuildInput(data, job, careerFit ?? null), built), plan: built.degreeOnly ?? generated };
     if (isIllinois) {
       for (const minor of loaded.minors ?? []) if (!minor.checked) generated.notes.push(uncheckedMinorNote(minor));
     }
@@ -1979,7 +1900,7 @@ export function PlannerWorkspace({
     // Only the parts of the report a board edit cannot change (reportOf).
     setReport(reportOf(generated));
     track('plan_generated', { outcome: 'ok', terms: generated.plan.terms.length, durationMs: performance.now() - buildStartedAt });
-    repickedFor.current = repickSignature(priorities, planInput.interests ?? '');
+    repickedFor.current = repickSignature(priorities, job.input.interests ?? '');
     studentAdded.current = new Set();
     setBoardEdited(false);
     /**
@@ -1995,7 +1916,7 @@ export function PlannerWorkspace({
     // every check the board shows, not only unplaced courses.
     announceBuild.current = true;
     return null;
-  }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, setup, byCode, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga, careerFit]);
+  }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, setup, byCode, catalog, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga, careerFit]);
   /**
    * Rebuild: the board for the plan's own shape and credit numbers, shown.
    *
@@ -2003,34 +1924,94 @@ export function PlannerWorkspace({
    * teaching or a challenge gets a build that weighs the difficulty
    * estimates against the board built without them (autoplan.ts
    * difficultyGated): two to four builds where there was one, up to about
-   * 22 seconds alone on UGA's densest degrees, all on this thread (Balanced
-   * builds once, as before). So the page says it is building and
-   * paints that before the build starts (a timer past one frame, which a
-   * hidden tab still runs, where an animation frame would wait for the tab
-   * to show), and a second request before then replaces the first. Moving
-   * the build off the page (a worker) is the real fix: its inputs carry the
-   * audit closures.
+   * 22 seconds alone on UGA's densest degrees (Balanced builds once, as
+   * before). Since 2026-11-07 it builds in a worker (plan-build.ts), so the
+   * page answers while it does; before, it held the page for the whole
+   * build. The page says it is building and paints that first (a timer past
+   * one frame, which a hidden tab still runs, where an animation frame would
+   * wait for the tab to show).
    *
-   * Said on screen too (`building`): the status line is for screen readers,
-   * so on a Rebuild the old board stayed as it was, the page froze, and a
-   * second click ran a second whole build after the first (2026-11-05).
-   * While it builds, the board dims, says so, and Rebuild waits.
+   * A request with new settings replaces the build under way (the worker
+   * drops it); the same settings asked for again (an effect run again) leave
+   * it be. While it builds, the board dims, says so and takes no edits (the
+   * board it was built from would replace them), Rebuild waits, and ARCH and
+   * ALMA wait for the new board before they read or change it (whenBuilt).
    */
   const pendingBuild = useRef<number | null>(null);
   const [building, setBuilding] = useState(false);
+  /**
+   * The build asked for or under way: the settings it builds with (its
+   * composePlan), the plan tab it is for, and the career matcher the board
+   * on screen was built with before it (builtWithFit, put back if it stops).
+   */
+  const buildUnderWay = useRef<{ run: number; compose: typeof composePlan; tab: string; fitBefore: string } | null>(null);
+  /** Counts builds that ended, shown or not: the effects after a build run once each, whether or not `building` was ever painted. */
+  const [buildsEnded, setBuildsEnded] = useState(0);
   const buildPlan = useCallback(() => {
+    if (buildUnderWay.current?.compose === composePlan) return;
     if (pendingBuild.current !== null) window.clearTimeout(pendingBuild.current);
+    const run = ++buildRun.current;
+    buildUnderWay.current = { run, compose: composePlan, tab: activePlanId, fitBefore: buildUnderWay.current?.fitBefore ?? builtWithFit.current };
     setStatus('Building your plan…');
     setBuilding(true);
     pendingBuild.current = window.setTimeout(() => {
       pendingBuild.current = null;
-      try {
-        composePlan(null);
-      } finally {
-        setBuilding(false);
-      }
+      void composePlan(null, run)
+        .catch((error: unknown) => console.error('[plan build]', error))
+        .finally(() => {
+          if (buildRun.current !== run) return;
+          buildUnderWay.current = null;
+          setBuilding(false);
+          setBuildsEnded((n) => n + 1);
+        });
     }, 20);
-  }, [composePlan]);
+  }, [composePlan, activePlanId]);
+  /**
+   * Another plan tab opened (switched to, duplicated or closed) while one
+   * built: that build stops, since its board is for the plan the student
+   * left, and the tab now open works at once. The plan left keeps its board.
+   */
+  useEffect(() => {
+    const under = buildUnderWay.current;
+    if (!under || under.tab === activePlanId) return;
+    if (pendingBuild.current !== null) window.clearTimeout(pendingBuild.current);
+    pendingBuild.current = null;
+    buildRun.current += 1;
+    buildUnderWay.current = null;
+    rebuildStale.current = false;
+    builtWithFit.current = under.fitBefore;
+    cancelPlanBuilds();
+    setBuilding(false);
+    setBuildsEnded((n) => n + 1);
+    notify('The other plan stopped building', 'It keeps the board it had. Press Rebuild there to build it again.', 'info');
+    // Keyed on the tab alone: a change of plan is the one thing that stops a build.
+  }, [activePlanId]);
+  /** Built again for the data that stands now, when it changed under a build (composePlan). */
+  useEffect(() => {
+    if (buildUnderWay.current || !rebuildStale.current) return;
+    rebuildStale.current = false;
+    if (context && loaded) buildPlan();
+  }, [buildsEnded, context, loaded, buildPlan]);
+  /**
+   * Resolves once no build is asked for or under way, after the board it
+   * built is on screen and in `live`: ARCH and ALMA read the board after a
+   * rebuild they asked for (set_plan_shape, a credit change) the way they did
+   * when the build held the page. Two minutes at most, so a turn never hangs.
+   */
+  const buildWaiters = useRef<Array<() => void>>([]);
+  const whenBuilt = useCallback((): Promise<void> => {
+    if (!buildUnderWay.current) return Promise.resolve();
+    return new Promise((resolve) => {
+      buildWaiters.current.push(resolve);
+      window.setTimeout(resolve, 120_000);
+    });
+  }, []);
+  useEffect(() => {
+    if (buildUnderWay.current) return;
+    const waiting = buildWaiters.current;
+    buildWaiters.current = [];
+    for (const resolve of waiting) resolve();
+  }, [buildsEnded]);
   /*
    * The career matcher arrives a moment after the goal (it loads in the
    * background): a board built before it, and not edited since, is built
@@ -3167,9 +3148,15 @@ export function PlannerWorkspace({
       const out: TriedFix[] = [];
       let partial = false;
       const all = fixCandidates(finishSettings, 7, finishNow);
+      // Built in the worker, behind any Rebuild; a Rebuild asked for meanwhile leaves these fixes for a board that is going.
+      const askedAt = buildRun.current;
       for (const [i, candidate] of all.entries()) {
         await new Promise((resolve) => setTimeout(resolve, 0));
-        const built = composePlan(trialShape(candidate));
+        const built = buildRun.current === askedAt ? await composePlan(trialShape(candidate)) : null;
+        if (buildRun.current !== askedAt) {
+          partial = true;
+          break;
+        }
         const state = built ? trialFinish(built) : null;
         if (state) out.push(triedFix(candidate, state, Math.round(built?.ms ?? 0), finishNow));
         const working = out.filter((t) => t.fully).length;
@@ -3465,7 +3452,7 @@ export function PlannerWorkspace({
    * ALMA's tools run between renders.
    */
   function markCourseCompleted(courseId: string, termId: string) {
-    if (!plan) return;
+    if (!plan || boardBusy()) return;
     const course = courseIndex.get(courseId);
     if (!course) return;
     const completedCodes = [...new Set([
@@ -3519,6 +3506,18 @@ export function PlannerWorkspace({
   }
 
   /**
+   * While a build is under way, the board it lands replaces this one, edits
+   * and all: an edit, an undo or an import waits for it, and says so (the
+   * board itself takes no clicks then). Checked where each starts, so no
+   * part of a change is made and no "done" is said for one not made.
+   */
+  function boardBusy(): boolean {
+    if (!buildUnderWay.current) return false;
+    notify('Your plan is still building', 'Make the change once the new plan is on the board.', 'info');
+    return true;
+  }
+
+  /**
    * One change to the board, and its undo step. A student's edit is a step of
    * its own. ALMA's edits while it answers one message share the step the
    * turn's first change pushed (almaChanged), so "Undo these changes" takes
@@ -3529,7 +3528,7 @@ export function PlannerWorkspace({
    */
   function commit(next: PlanState, options: { by?: 'student' | 'alma'; summary?: string; added?: string[]; alreadyTaken?: string[]; shapeBefore?: PlanShape; operation?: 'add' | 'remove' | 'move' | 'reorder' | 'replace' } = {}) {
     const before = boardNow();
-    if (!before) return;
+    if (!before || boardBusy()) return;
     track('plan_change', { operation: options.alreadyTaken ? 'completed' : options.operation ?? (options.added?.length ? 'add' : 'edit'), actor: options.by === 'alma' ? 'assistant' : 'student' });
     if (options.by === 'alma' && almaTurn.current) almaChanged(options.summary ?? null);
     else setUndoStack((current) => pushUndo(current, { before, alreadyTakenCourseCodes: live.current.answers?.alreadyTakenCourseCodes ?? [], ...(options.shapeBefore ? { planShape: options.shapeBefore } : {}) }));
@@ -3603,7 +3602,7 @@ export function PlannerWorkspace({
   }
 
   function addCourse(courseId: string, termId: string) {
-    if (!plan) return;
+    if (!plan || boardBusy()) return;
     const course = courseIndex.get(courseId);
     if (!course) return;
     // A course the catalog lets a student repeat may go on again (THEA 359 for Stage Management's 8 hours).
@@ -3780,7 +3779,7 @@ export function PlannerWorkspace({
 
   /** Put the course the student chose into the slot, in place of the plan's suggestion. */
   function chooseElective(termId: string, oldId: string, newId: string) {
-    if (!plan) return;
+    if (!plan || boardBusy()) return;
     const oldCourse = courseIndex.get(oldId);
     const course = courseIndex.get(newId);
     if (!course) return;
@@ -3816,7 +3815,7 @@ export function PlannerWorkspace({
   }
 
   function removeCourse(courseId: string, termId: string) {
-    if (!plan) return;
+    if (!plan || boardBusy()) return;
     const course = courseIndex.get(courseId);
     commit({
       ...plan,
@@ -3837,7 +3836,7 @@ export function PlannerWorkspace({
     targetCourseId?: string,
     placeAfter = false,
   ) {
-    if (!plan || targetCourseId === courseId) return;
+    if (!plan || targetCourseId === courseId || boardBusy()) return;
     const destination = plan.terms.find((t) => t.id === toTermId);
     if (!destination) return;
     const course = courseIndex.get(courseId);
@@ -3880,6 +3879,7 @@ export function PlannerWorkspace({
    * plan shape change together (summer-terms.ts), in one undo step.
    */
   function commitSummer(change: Extract<SummerChange, { ok: true }>, by: 'student' | 'alma', summary: string) {
+    if (boardBusy()) return;
     commit(change.board, { by, summary, shapeBefore: planShapeRef.current });
     planShapeRef.current = change.shape;
     setPlanShape(change.shape);
@@ -3922,7 +3922,7 @@ export function PlannerWorkspace({
   /** "Add a summer" on the board bar: an empty column, scrolled into view. Nothing is rebuilt or moved. */
   function addSummerByHand(year: number) {
     const board = planRef.current;
-    if (!board) return;
+    if (!board || boardBusy()) return;
     const change = addSummer(board, planShapeRef.current, year);
     if (!change.ok) {
       notify(change.reason, undefined, 'info');
@@ -3950,6 +3950,7 @@ export function PlannerWorkspace({
 
   function removeSummerByHand(termId: string) {
     setSummerToRemove(null);
+    if (boardBusy()) return;
     const board = planRef.current;
     const term = board?.terms.find((t) => t.id === termId);
     const year = term ? summerYearOf(term.label) : null;
@@ -4331,11 +4332,6 @@ export function PlannerWorkspace({
     return distinctHeld([...L.completedCodes].filter((code) => !forfeited.has(code)), L.context).codes;
   }
 
-  /** Requirement rows a UGA board audit leaves unmet, as the board bar counts them. */
-  function ugaUnmetRows(audit: ReturnType<typeof ugaAuditOn>): number {
-    return audit ? audit.areas.filter((row) => !row.satisfied).length + audit.issues.filter((issue) => issue.id.startsWith('uga-pool-')).length : 0;
-  }
-
   function ugaAuditOn(board: PlanState) {
     const L = live.current;
     if (!isUga || !L.context || !L.loaded) return null;
@@ -4621,7 +4617,7 @@ export function PlannerWorkspace({
     const lang = report?.language;
     const table = core?.languages ?? context?.languages;
     const replacement = courseIndex.get(replacementId);
-    if (!plan || !lang || !table || !replacement) return;
+    if (!plan || !lang || !table || !replacement || boardBusy()) return;
     const other = table.languages.find((l) => l.levels.some((lv) => lv.flat().some((c) => normCode(c) === normCode(replacement.code))));
     if (!other) return;
     const startIndex = lang.codes.findIndex((code) => byCode.get(normCode(code))?.id === courseId);
@@ -4649,6 +4645,7 @@ export function PlannerWorkspace({
 
   /** Put a course from the dropdown where the card is. A slot stays a slot; a list card stays on its list. */
   function swapCourse(courseId: string, termId: string, replacementId: string) {
+    if (boardBusy()) return;
     if (electiveOf.get(courseId)?.kind === 'language') {
       switchLanguage(courseId, replacementId);
       return;
@@ -4927,6 +4924,25 @@ export function PlannerWorkspace({
    * student has said yes.
    */
   const advisorExecute: AdvisorExecutor = async (name, input, call) => {
+    // A rebuild under way (one this turn asked for, or Rebuild pressed): the call reads and changes the board it builds, not the one going.
+    const waited = Boolean(buildUnderWay.current);
+    await whenBuilt();
+    /*
+     * A turn that has changed nothing yet began while a Rebuild the student
+     * asked for was building (the page answers while it builds): undoing the
+     * turn puts back the rebuilt board it works on, not the one the Rebuild
+     * replaced. A rebuild the turn asked for itself is already its step
+     * (almaChanged before it), which puts the old board back.
+     */
+    const turn = almaTurn.current;
+    if (waited && turn && !turn.pushed) {
+      const now = boardNow();
+      if (now) {
+        turn.before = now;
+        turn.settings = settingsNow();
+        turn.transcript = live.current.answers?.transcript ?? null;
+      }
+    }
     // A change this call makes is filed under it, for the reply's undo.
     if (almaTurn.current) almaTurn.current.toolId = call?.id ?? null;
     const L = live.current;
@@ -6971,7 +6987,7 @@ export function PlannerWorkspace({
    */
   function undo() {
     const entry = undoStack.at(-1);
-    if (!entry) return;
+    if (!entry || boardBusy()) return;
     if (entry.alreadyTakenCourseCodes && answers && onAnswersChange) {
       creditRestored.current = true;
       onAnswersChange({ ...answers, alreadyTakenCourseCodes: entry.alreadyTakenCourseCodes });
@@ -7082,7 +7098,7 @@ export function PlannerWorkspace({
     input.accept = 'application/json,.json';
     input.onchange = async () => {
       const file = input.files?.[0];
-      if (!file) return;
+      if (!file || boardBusy()) return;
       try {
         const parsed = JSON.parse(await file.text()) as {
           plan?: unknown;
@@ -7655,6 +7671,7 @@ export function PlannerWorkspace({
         priorities={priorities}
         onPrioritiesChange={setPriorities}
         onRepick={() => {
+          if (boardBusy()) return;
           const { changes: changed, unchanged } = repickElectives(priorities);
           const picks = [...electiveOf.values()].length;
           if (unchanged) {

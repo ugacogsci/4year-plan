@@ -1625,13 +1625,14 @@ p.requirement-unnamed {
   color: #7f93ab;
 }
 
-/* A Rebuild in progress (planner-workspace.tsx buildPlan): the old board dims and says so, since the build holds the page. */
+/* A Rebuild in progress (planner-workspace.tsx buildPlan): the old board dims, says so and takes no edits, since the new board replaces it. The rest of the page works while it builds. */
 .plan-board-building {
   position: relative;
   cursor: progress;
 }
 .plan-board-building > * {
   opacity: 0.45;
+  pointer-events: none;
 }
 .plan-board-building::before {
   content: 'Building your plan…';

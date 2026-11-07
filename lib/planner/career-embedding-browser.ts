@@ -115,7 +115,9 @@ export async function loadCareerFit(school: 'illinois' | 'uga', text: string): P
       });
       goals.set(query, vector);
     }
-    return careerFitFor({ text: goal, vector: await vector, school: school === 'uga' ? 'UGA' : 'Illinois', ...(paths ? { pathways: paths } : {}) }, courses);
+    const input = { text: goal, vector: await vector, school: school === 'uga' ? 'UGA' : 'Illinois', ...(paths ? { pathways: paths } : {}) };
+    // With what it was made from, so a plan built in a worker reads the goal the same way (plan-build.ts).
+    return { ...careerFitFor(input, courses), source: { input, vectors: courses } };
   } catch (error) {
     broken = true;
     console.warn('[career matcher] not available; goal courses are matched by their words.', error);

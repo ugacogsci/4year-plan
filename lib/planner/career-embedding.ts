@@ -274,6 +274,14 @@ export interface CareerFit {
   aboutLanguages: boolean;
   /** What a board's goal picks are capped by (GOAL_GROUP_CAP): the course's subject, or "world languages" for a beginner language course. */
   capGroup(code: string): string;
+  /** What it was made from, where the browser made it (career-embedding-browser.ts): a plan build in a worker makes the same one from it (plan-build.ts). */
+  source?: CareerFitSource;
+}
+
+/** careerFitFor's two arguments, which are data, where the matcher it returns is functions. */
+export interface CareerFitSource {
+  input: Parameters<typeof careerFitFor>[0];
+  vectors: CourseVectors;
 }
 
 /**
