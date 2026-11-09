@@ -162,8 +162,8 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-.planner-app .rail .rail-presets > :last-child:nth-child(odd),
-.planner-app .rail .rail-presets > :nth-last-child(2):nth-child(odd):has(+ .rail-preset:empty) { grid-column: 1 / -1; }
+.planner-app .rail .rail-presets > .rail-preset:not(:empty):last-of-type:nth-of-type(odd),
+.planner-app .rail .rail-presets > .rail-preset:nth-last-of-type(2):nth-of-type(odd):has(+ .rail-preset:empty) { grid-column: 1 / -1; }
 .planner-app .rail .rail-presets > .rail-preset:empty { display: none; }
 /* Clubs: the list stays inside the rail's column. */
 .planner-app .rail .club-name,
@@ -315,10 +315,19 @@
 
 /* Keyboard focus stays visible on every button family (the button and card
    rules above set their own box-shadow, which used to replace the ring). */
-.planner-app :is([data-slot='button'], [data-slot='dropdown-menu-trigger'], .rebuild-button, .profile-menu-trigger, .plan-tab-button, .plan-group-name):focus-visible,
+.planner-app :is([data-slot='button'], [data-slot='dropdown-menu-trigger'], .rebuild-button, .profile-menu-trigger):focus-visible,
 .onb :is([data-slot='button'], button):focus-visible {
   box-shadow: var(--ds-focus) !important;
   opacity: 1;
+}
+/* Plan and group names are text fields (always "focus-visible" in Chrome),
+   so they get a quiet underline while editing instead of the button ring. */
+.planner-app :is(.plan-tab-button, .plan-group-name):focus {
+  box-shadow: inset 0 -1px 0 var(--ds-text-3) !important;
+}
+.planner-app .plan-tab-shell[data-warning='true'] .plan-tab-button {
+  padding-right: 12px;
+  text-overflow: ellipsis;
 }
 
 /* Dark menus and lists: the highlighted row stands out from the menu itself. */
@@ -326,35 +335,40 @@
   background: color-mix(in srgb, var(--ds-text) 12%, var(--ds-elevated));
 }
 
-/* Board bar: wrap instead of squeezing the warning chip to a dot. */
-.planner-app .board-bar { flex-wrap: wrap; row-gap: 4px; }
+/* Board bar: the warning keeps a readable width (it shrinks with an ellipsis,
+   never to a dot); only the "finishes early" note takes a second row. */
+.planner-app .attention-bar { flex: 1 1 0; min-width: 180px; }
+.planner-app .attention-chip { min-width: 0; }
+.planner-app .board-bar:has(.board-bar-note) { flex-wrap: wrap; row-gap: 4px; }
 .planner-app .board-bar-note { order: 5; flex: 1 0 100%; font-size: var(--ds-sm); }
-.planner-app .attention-chip { min-width: 140px; }
 
 /* Programs lists: two-line minor and certificate names get their own height. */
 .planner-app .rail .program-results { grid-auto-rows: max-content; }
 
-/* The course card on the map fits the shorter map (desktop; phones keep their bottom sheet). */
+/* The course card on the map fits the map: below its top edge on desktop,
+   the whole map height (scrolling inside) on a phone. */
 @media (min-width: 681px) {
   .planner-app .map-inspector { max-height: calc(100% - 60px); }
+}
+@media (max-width: 680px) {
+  .planner-app .map-inspector { top: 8px !important; bottom: 8px; max-height: none; }
 }
 
 /* A card's note badge never covers its Options button, and steps aside on hover. */
 .planner-app .course-card > [data-slot='dropdown-menu-trigger'] { position: relative; z-index: 6; }
 .planner-app .course-card:is(:hover, :focus-within) .course-card-issues { right: 64px; }
 
-/* Setup: an AP/IB row never grows wider than its box. */
+/* Setup: an AP/IB row stays inside its box; a long exam name wraps, and on a
+   narrow screen the score picker and remove button move to the next line. */
 .onb .prior-chosen { grid-template-columns: minmax(0, 1fr); }
-.onb .prior-chosen li { min-width: 0; }
-.onb .prior-chosen .prior-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.onb .prior-chosen li { min-width: 0; flex-wrap: wrap; }
+.onb .prior-chosen .prior-name { flex: 1 1 160px; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.onb .prior-chosen select { flex: 1 1 140px; min-width: 0; max-width: 100%; }
 
-/* Setup credit review: the course picker keeps room for its label. */
-@media (min-width: 600px) {
-  .onb .transcript-counts { min-width: 200px; flex: 0 1 260px; }
-}
-
-/* Phones: the suggested question sits above the message box, so a tap lands in the box. */
-@media (max-width: 680px) {
+/* Narrow composers (phones and the tablet drawer): the suggested question sits
+   above the message box, so a tap lands in the box; once a conversation has
+   started the FAQ list makes way for it. */
+@media (max-width: 1180px) {
   .planner-app .bot-compose .bot-suggestion {
     position: static;
     grid-column: 1 / -1;
@@ -362,15 +376,13 @@
     justify-self: start;
     transform: none;
   }
+  .planner-app .bot-panel[data-conversation='true'] .bot-faqs { display: none; }
 }
 
-/* Touch screens: main controls are at least 40px to tap. */
+/* Touch screens: board controls are at least 40px to tap (the header and map
+   zoom keep their size: at 40px they no longer fit a phone). */
 @media (pointer: coarse) {
-  .planner-app .app-header :is(button, a),
-  .planner-app .profile-menu-trigger,
-  .onb :is(.onb-theme, .onb-account),
   .planner-app .board-bar [data-slot='button'],
-  .planner-app .map-zoom button,
   .planner-app .course-card > [data-slot='dropdown-menu-trigger'] {
     min-width: 40px;
     min-height: 40px;
