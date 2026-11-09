@@ -1023,7 +1023,7 @@
   --map-chrome-line-strong: color-mix(in srgb, var(--orion-map-contrast) 24%, transparent);
   --map-chrome-text: color-mix(in srgb, var(--orion-map-contrast) 72%, transparent);
   --map-chrome-text-dim: color-mix(in srgb, var(--orion-map-contrast) 52%, transparent);
-  --map-chrome-ring: 0 0 0 3px color-mix(in srgb, var(--ds-accent) 50%, transparent);
+  --map-chrome-ring: 0 0 0 3px rgb(255 255 255 / 0.4);
 }
 
 /* Search. */

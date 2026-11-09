@@ -156,7 +156,13 @@ export function CurrentTermColumn({
             <>
               , or{' '}
               {/* A link, not a button: it reads as part of the sentence and wraps with it. */}
-              <a href="#upload" className="current-term-upload" onClick={(event) => { event.preventDefault(); onUpload(); }}>
+              <a
+                href="#upload"
+                role="button"
+                className="current-term-upload"
+                onClick={(event) => { event.preventDefault(); onUpload(); }}
+                onKeyDown={(event) => { if (event.key === ' ') { event.preventDefault(); onUpload(); } }}
+              >
                 upload a screenshot of your {scheduleFrom ?? 'class'} schedule
               </a>
               ,

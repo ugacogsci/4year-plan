@@ -457,8 +457,9 @@ body,
 }
 
 .planner-app .plan-board {
-  gap: 12px;
+  gap: var(--col-gap);
   padding: 4px 12px 16px;
+  scroll-padding-inline: 12px;
 }
 .planner-app .semester-column {
   border: 1px solid var(--ds-border);
@@ -651,16 +652,16 @@ body,
   content: '';
   position: absolute;
   top: 5px;
-  right: 5px;
+  right: 26px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--ds-warning);
   box-shadow: 0 0 0 2px var(--ds-surface);
 }
-.planner-app .plan-tab-shell[data-warning='true'] .plan-tab-button:focus,
-.planner-app .plan-group-name:focus,
-.planner-app .plan-tab-button:focus { box-shadow: none; }
+.planner-app .plan-tab-shell[data-warning='true'] .plan-tab-button:focus:not(:focus-visible),
+.planner-app .plan-group-name:focus:not(:focus-visible),
+.planner-app .plan-tab-button:focus:not(:focus-visible) { box-shadow: none; }
 .planner-app .plan-tab-button { font-size: var(--ds-sm); font-weight: 500; }
 .planner-app .plan-group-name {
   width: 64px;

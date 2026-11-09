@@ -162,7 +162,9 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-.planner-app .rail .rail-presets > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+.planner-app .rail .rail-presets > :last-child:nth-child(odd),
+.planner-app .rail .rail-presets > :nth-last-child(2):nth-child(odd):has(+ .rail-preset:empty) { grid-column: 1 / -1; }
+.planner-app .rail .rail-presets > .rail-preset:empty { display: none; }
 /* Clubs: the list stays inside the rail's column. */
 .planner-app .rail .club-name,
 .planner-app .rail .club-group-head { max-width: 100%; overflow-wrap: anywhere; }
@@ -197,9 +199,6 @@
 
 /* ---- the composer ---- */
 .planner-app .bot-compose textarea:placeholder-shown { overflow-y: hidden; }
-.planner-app .bot-faqs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-.planner-app .bot-faqs::-webkit-scrollbar { display: none; }
-.planner-app .bot-faqs > * { flex: 0 0 auto; }
 
 /* ---- setup ---- */
 .onb .onb-lang-row { grid-template-columns: minmax(0, 1fr); }
@@ -310,4 +309,70 @@
   .planner-app[data-rail='closed']:has(.bot-history[data-open='false']) { grid-template-columns: 0 minmax(460px, 1fr) 0; }
   .planner-app[data-rail='closed'] .rail,
   .planner-app .bot-history[data-open='false'] { overflow: hidden; border: 0; }
+}
+
+/* ---- release QA, Nov 9 --------------------------------------------------- */
+
+/* Keyboard focus stays visible on every button family (the button and card
+   rules above set their own box-shadow, which used to replace the ring). */
+.planner-app :is([data-slot='button'], [data-slot='dropdown-menu-trigger'], .rebuild-button, .profile-menu-trigger, .plan-tab-button, .plan-group-name):focus-visible,
+.onb :is([data-slot='button'], button):focus-visible {
+  box-shadow: var(--ds-focus) !important;
+  opacity: 1;
+}
+
+/* Dark menus and lists: the highlighted row stands out from the menu itself. */
+:root[data-planner-theme='dark'] :is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='context-menu-content'], [data-slot='select-content'], [data-slot='combobox-content']) :is([data-slot$='-item'], [data-slot$='-sub-trigger']):is([data-highlighted], :focus) {
+  background: color-mix(in srgb, var(--ds-text) 12%, var(--ds-elevated));
+}
+
+/* Board bar: wrap instead of squeezing the warning chip to a dot. */
+.planner-app .board-bar { flex-wrap: wrap; row-gap: 4px; }
+.planner-app .board-bar-note { order: 5; flex: 1 0 100%; font-size: var(--ds-sm); }
+.planner-app .attention-chip { min-width: 140px; }
+
+/* Programs lists: two-line minor and certificate names get their own height. */
+.planner-app .rail .program-results { grid-auto-rows: max-content; }
+
+/* The course card on the map fits the shorter map (desktop; phones keep their bottom sheet). */
+@media (min-width: 681px) {
+  .planner-app .map-inspector { max-height: calc(100% - 60px); }
+}
+
+/* A card's note badge never covers its Options button, and steps aside on hover. */
+.planner-app .course-card > [data-slot='dropdown-menu-trigger'] { position: relative; z-index: 6; }
+.planner-app .course-card:is(:hover, :focus-within) .course-card-issues { right: 64px; }
+
+/* Setup: an AP/IB row never grows wider than its box. */
+.onb .prior-chosen { grid-template-columns: minmax(0, 1fr); }
+.onb .prior-chosen li { min-width: 0; }
+.onb .prior-chosen .prior-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Setup credit review: the course picker keeps room for its label. */
+@media (min-width: 600px) {
+  .onb .transcript-counts { min-width: 200px; flex: 0 1 260px; }
+}
+
+/* Phones: the suggested question sits above the message box, so a tap lands in the box. */
+@media (max-width: 680px) {
+  .planner-app .bot-compose .bot-suggestion {
+    position: static;
+    grid-column: 1 / -1;
+    order: -1;
+    justify-self: start;
+    transform: none;
+  }
+}
+
+/* Touch screens: main controls are at least 40px to tap. */
+@media (pointer: coarse) {
+  .planner-app .app-header :is(button, a),
+  .planner-app .profile-menu-trigger,
+  .onb :is(.onb-theme, .onb-account),
+  .planner-app .board-bar [data-slot='button'],
+  .planner-app .map-zoom button,
+  .planner-app .course-card > [data-slot='dropdown-menu-trigger'] {
+    min-width: 40px;
+    min-height: 40px;
+  }
 }

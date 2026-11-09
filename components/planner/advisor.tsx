@@ -728,16 +728,12 @@ export function BotPanel({
               </div>
             );
           })}
-          {activity && (
-            <div className={`bot-tool ${activity.state === 'running' ? '' : activity.state}`}>
-              {activity.state === 'running' ? (
-                <AssistantMark thinking size={16} />
-              ) : activity.state === 'ok' ? (
-                <Check aria-hidden="true" />
-              ) : (
-                <CircleAlert aria-hidden="true" />
-              )}
-              <span className={activity.state === 'running' ? 'bot-shimmer' : undefined}>
+          {/* Only the step in progress shows here; a finished step is already in the conversation above,
+              and the thinking indicator below comes back while the assistant decides what to do next. */}
+          {activity && activity.state === 'running' && (
+            <div className="bot-tool">
+              <AssistantMark thinking size={16} />
+              <span className="bot-shimmer">
                 {activity.label}
                 {activity.detail ? ` — ${activity.detail}` : ''}
               </span>
@@ -748,7 +744,7 @@ export function BotPanel({
               <div className="bot-msg assistant"><RichText text={streaming} /></div>
             </div>
           )}
-          {busy && !streaming && !activity && (
+          {busy && !streaming && activity?.state !== 'running' && (
             <div className="bot-row">
               <Typing />
             </div>

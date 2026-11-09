@@ -253,6 +253,8 @@ export function Onboarding({
   const school = schoolById(answers.schoolId);
   const response = setupResponse(answers);
   useEffect(() => { setInsightScreen(SCREENS[step] ?? 'university', answers.schoolId); }, [step, answers.schoolId]);
+  // A new step (or leaving the setup assistant) starts at the top, with its progress bar and heading in view.
+  useEffect(() => { if (window.scrollY > 0) window.scrollTo({ top: 0 }); }, [step, guided]);
   const emphasisRequirements = useMemo(
     () =>
       (catalog?.requirements ?? []).filter((requirement) =>
