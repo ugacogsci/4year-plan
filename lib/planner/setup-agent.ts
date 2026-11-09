@@ -22,6 +22,8 @@ export const setupReplySchema = z.object({
   patch: setupPatchSchema,
   programConfirmed: z.boolean(),
   creditReviewed: z.boolean(),
+  /** The student chose to add prior credit later (the model's credit "later"), so the board asks for it; sent only when true. */
+  creditDeferred: z.literal(true).optional(),
 }).strict();
 /**
  * What the model is asked to return (app/api/setup structured output):
@@ -52,11 +54,46 @@ export const setupWireSchema = z.object({
     language: z.string().nullable(),
   }).strict(),
   programConfirmed: z.boolean(),
-  creditReviewed: z.boolean(),
+  /**
+   * What the conversation says about prior credit (AP, IB, dual enrollment,
+   * transfer, courses taken). The box records no exam scores, so a student
+   * who only says they have credit ("AP credit for calculus and English",
+   * "about 45 credits") has not added it: their reminder stays (2026-11-09).
+   * Before, the model marked credit reviewed as soon as a student "said what
+   * credit they have", the reminder went, and a plan could be built without
+   * that credit on it. fromSetupWire turns this into creditReviewed.
+   */
+  // A string, not an enum: the SDK's output format keeps no enum, so a stray "None" would fail the whole turn. creditVerdict reads it.
+  credit: z.string().describe('One of: none, later, listed, mentioned, unknown.'),
 }).strict();
 
-/** The wire reply as setupReplySchema reads it: unchanged (null) fields left out, the emphasis list a map. doubleDawgsPathwayId keeps no null (a clear is not expressible on the wire). */
-export function fromSetupWire(wire: unknown): unknown {
+export type CreditVerdict = 'none' | 'later' | 'listed' | 'mentioned' | 'unknown';
+/** The model's credit answer, read leniently: any other word is "unknown", which settles nothing. */
+export function creditVerdict(value: unknown): CreditVerdict {
+  const word = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return word === 'none' || word === 'later' || word === 'listed' || word === 'mentioned' ? word : 'unknown';
+}
+
+/**
+ * Whether the conversation settles prior credit: the student said they have
+ * none, chose to add it later, or named the courses they have taken by code
+ * (recorded as alreadyTakenCourseCodes, in this turn or an earlier one).
+ * Credit only mentioned waits for the "Add prior credit" panel, an upload or
+ * a later answer.
+ */
+export function creditSettled(credit: unknown, takenCodes: unknown): boolean {
+  const verdict = creditVerdict(credit);
+  return verdict === 'none' || verdict === 'later' || (verdict === 'listed' && Array.isArray(takenCodes) && takenCodes.length > 0);
+}
+
+/**
+ * The wire reply as setupReplySchema reads it: unchanged (null) fields left
+ * out, the emphasis list a map, `credit` read as creditReviewed (and
+ * creditDeferred for "later"). doubleDawgsPathwayId keeps no null (a clear is
+ * not expressible on the wire). savedCodes: the course codes already in the
+ * student's answers, which count for "listed" as this turn's do.
+ */
+export function fromSetupWire(wire: unknown, savedCodes: readonly string[] = []): unknown {
   if (!wire || typeof wire !== 'object') return wire;
   const w = wire as { patch?: Record<string, unknown> } & Record<string, unknown>;
   if (!w.patch || typeof w.patch !== 'object') return wire;
@@ -66,7 +103,10 @@ export function fromSetupWire(wire: unknown): unknown {
     if (key === 'emphasisSelections' && Array.isArray(value)) patch[key] = Object.fromEntries((value as Array<{ requirementId: string; optionIds: string[] }>).map((e) => [e.requirementId, e.optionIds]));
     else patch[key] = value;
   }
-  return { ...w, patch };
+  // The browser's reply keeps its shape (setupReplySchema): a page opened before an update still reads it.
+  const { credit, ...rest } = w;
+  const taken = [...savedCodes, ...(Array.isArray(patch.alreadyTakenCourseCodes) ? patch.alreadyTakenCourseCodes : [])];
+  return { ...rest, patch, creditReviewed: creditSettled(credit, taken), ...(creditVerdict(credit) === 'later' ? { creditDeferred: true as const } : {}) };
 }
 
 export type SetupMessage = { role: 'user' | 'assistant'; content: string };

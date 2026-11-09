@@ -179,12 +179,19 @@ export interface CreditGap {
   currentTerm?: string | null;
   currentAssumed?: number;
   currentClasses?: number;
+  /**
+   * The student chose in setup to add their AP or other prior credit later
+   * (setupConfirmations.creditDeferred) and has entered none since. Setup
+   * lets them build without it, so the board asks for it (2026-11-09).
+   */
+  deferred?: boolean;
 }
 
 /** A shortfall of more than this many hours between what was said and what is recorded asks for the record. */
 const SAID_SLACK = 6;
 
 const RECORD_ASK = 'Add your classes or upload a transcript to get an accurate check.';
+const DEFERRED_ASK = 'Pick your AP or IB exams or upload a transcript to get an accurate check.';
 
 /**
  * The semester in progress, when it is the only term the plan assumes credit
@@ -227,6 +234,8 @@ export function recordPrompt(gap: CreditGap | null | undefined): string | null {
       : `Your ${now} classes are not added yet. Add them in the ${now} column to get an accurate check.`;
   }
   if (gap.assumed > 0) return `Your classes from ${gap.assumedTerms || 'your earlier terms'} are not recorded yet. ${RECORD_ASK}`;
+  // After the semester in progress, whose empty column asks first (triageIssues).
+  if (gap.deferred && !emptyCurrent(gap)) return `You said you would add your AP or other prior credit later. ${DEFERRED_ASK}`;
   return null;
 }
 
@@ -236,15 +245,17 @@ export function recordPrompt(gap: CreditGap | null | undefined): string | null {
  * that are not on the record ('said'), earlier terms not recorded
  * ('earlier'), the semester in progress counted as nothing ('current-empty')
  * or as a usual full load until its classes are added ('current-assumed'),
- * or none. The first three explain a shortfall; the last does not explain a
- * lack of room, since the plan already counts that term's hours.
+ * prior credit the student said in setup they would add later ('deferred'),
+ * or none. All but 'current-assumed' explain a shortfall; that one does not
+ * explain a lack of room, since the plan already counts that term's hours.
  */
-export function recordKind(gap: CreditGap | null | undefined): 'none' | 'said' | 'earlier' | 'current-empty' | 'current-assumed' {
+export function recordKind(gap: CreditGap | null | undefined): 'none' | 'said' | 'earlier' | 'current-empty' | 'current-assumed' | 'deferred' {
   if (!gap) return 'none';
   if (gap.said !== null) return gap.recorded + SAID_SLACK >= gap.said ? 'none' : 'said';
   if (currentOnly(gap)) return 'current-assumed';
   if (gap.assumed > 0) return 'earlier';
   if (emptyCurrent(gap)) return 'current-empty';
+  if (gap.deferred) return 'deferred';
   return 'none';
 }
 
@@ -406,7 +417,7 @@ export function triageIssues(
       : {
           id: 'stated-hours',
           severity: 'warning',
-          title: promptText.replace(` ${RECORD_ASK}`, ''),
+          title: promptText.replace(` ${RECORD_ASK}`, '').replace(` ${DEFERRED_ASK}`, ''),
           message: `The plan counts only the classes it can see, so requirements those credits fill read as missing. Upload your transcript or academic history (a screenshot works), pick your AP or IB exams, or tell ${options.bot ?? 'the assistant'} what you took, and the plan is rebuilt around it.`,
           termId: '',
         });

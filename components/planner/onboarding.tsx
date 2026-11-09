@@ -23,8 +23,10 @@ import { illinoisMinorOptions } from '@/lib/planner/illinois-minors';
 import { graduateProgramOptions, loadIllinoisGraduatePrograms } from '@/lib/planner/illinois-graduate';
 import type { IllinoisProgramSummary } from '@/lib/planner/illinois-load';
 import {
+  ACADEMIC_YEAR_LABEL,
   EMPTY_ANSWERS,
   UNDECIDED_PROGRAM_ID,
+  hasPriorCreditEntered,
   applyExamCredit,
   defaultProgramYears,
   inferAcademicYear,
@@ -163,13 +165,8 @@ function FitNoteBox({ note }: { note: FitNote }) {
   );
 }
 
-const ACADEMIC_YEAR_OPTIONS: Array<{ value: Exclude<AcademicYear, ''>; label: string }> = [
-  { value: 'first', label: 'First year' },
-  { value: 'second', label: 'Second year' },
-  { value: 'third', label: 'Third year' },
-  { value: 'fourth', label: 'Fourth year' },
-  { value: 'fifth-plus', label: 'Fifth year or later' },
-];
+const ACADEMIC_YEAR_OPTIONS: Array<{ value: Exclude<AcademicYear, ''>; label: string }> =
+  (['first', 'second', 'third', 'fourth', 'fifth-plus'] as const).map((value) => ({ value, label: ACADEMIC_YEAR_LABEL[value] }));
 
 const GRADUATION_SEASONS: Exclude<GraduationSeason, ''>[] = ['Spring', 'Summer', 'Fall'];
 const SETUP_STEPS = ['University', 'Programs', 'About you', 'Details', 'Credit', 'Plan'];
@@ -630,6 +627,12 @@ export function Onboarding({
     window.setTimeout(() => onDone(next), 1400);
   }
 
+  /** A saved plan and no saved conversation, on the assistant's screen: it asks what has changed (guided-setup.tsx). */
+  const returning = Boolean(onResume && programChoicesReady && detailsComplete && guided && step === 1 && !initial?.setupConversation?.length);
+  const progress = guided
+    ? { steps: ['University', 'About you', 'Plan'], at: step === 0 ? 0 : step === 5 ? 2 : 1 }
+    : { steps: SETUP_STEPS, at: step };
+
   return (
     <div className="onb" data-theme={theme} data-school={school?.id} style={school ? ({ ['--school' as string]: school.accent }) : undefined}>
       <header className="onb-header">
@@ -649,27 +652,31 @@ export function Onboarding({
         </button>
       </header>
       <div className="onb-inner">
-        <div className="onb-progress" aria-label={`Setup step ${step + 1} of ${SETUP_STEPS.length}: ${SETUP_STEPS[step]}`}>
-          <span>{guided && step === 1 ? 'About you' : SETUP_STEPS[step]}</span>
+        {/* The assistant's path is three screens (University, About you, Plan), not the form's six: its bar read a third done on the last question, and "step 2 of 6: Programs" to a screen reader. */}
+        <div className="onb-progress" aria-label={`Setup step ${progress.at + 1} of ${progress.steps.length}: ${progress.steps[progress.at]}`}>
+          <span>{progress.steps[progress.at]}</span>
           {!guided && <small>{step + 1} / {SETUP_STEPS.length}</small>}
-          <i aria-hidden="true"><b style={{ width: `${((step + 1) / SETUP_STEPS.length) * 100}%` }} /></i>
+          <i aria-hidden="true"><b style={{ width: `${((progress.at + 1) / progress.steps.length) * 100}%` }} /></i>
         </div>
 
         {!guided && step > 0 && step < 5 && <div className="guided-actions"><button className="setup-mode-link" onClick={() => {
           setAnswers((current) => ({ ...current, setupConfirmations: {
+            ...current.setupConfirmations,
             programConfirmed: Boolean(current.setupConfirmations?.programConfirmed || step > 1 || current.programIds.some((id) => id !== UNDECIDED_PROGRAM_ID)),
             graduationConfirmed: Boolean(current.setupConfirmations?.graduationConfirmed || graduationEdited || step > 3),
-            creditReviewed: Boolean(current.setupConfirmations?.creditReviewed || current.transcript || current.exams.length || current.alreadyTakenCourseCodes.length || current.transferText.trim()),
+            // Credit really entered: an exam with no score counts for nothing on the plan (hasPriorCreditEntered).
+            creditReviewed: Boolean(current.setupConfirmations?.creditReviewed || hasPriorCreditEntered(current)),
           } }));
           setGuided(true); setStep(1);
         }}>Use the setup assistant</button></div>}
         {onResume && programChoicesReady && detailsComplete && step < 5 && (
           <p className="onb-resume">
-            Your answers from last time are filled in below.{' '}
+            {/* The assistant's screen shows no saved answers unless last time's conversation was saved: "filled in below" was not true there. Read from what was saved, so the note does not change after this visit's first reply. */}
+            {returning ? 'Back again?' : 'Your answers from last time are filled in below.'}{' '}
             <button type="button" onClick={onResume}>
               Continue with my saved plan
-            </button>{' '}
-            or change anything and build it again.
+            </button>{returning ? ',' : ''}{' '}
+            {returning ? 'or tell the assistant below what has changed.' : 'or change anything and build it again.'}
           </p>
         )}
 
@@ -709,7 +716,7 @@ export function Onboarding({
           </section>
         )}
 
-        {step === 1 && guided && <GuidedSetup key={answers.schoolId} answers={answers} catalog={catalog} onChange={setAnswers}
+        {step === 1 && guided && <GuidedSetup key={answers.schoolId} answers={answers} catalog={catalog} onChange={setAnswers} returning={returning}
           onManual={(carried) => { setAnswers(carried); setGraduationEdited(Boolean(carried.graduationYear)); setGuided(false); }} onBack={() => setStep(0)} onFinish={finish} />}
 
         {step === 1 && !guided && (

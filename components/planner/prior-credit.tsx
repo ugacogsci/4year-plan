@@ -378,7 +378,7 @@ export function PriorCredit({
           <input
             className="prior-search"
             value={query}
-            placeholder="Search an exam, e.g. Calculus, Biology, Psychology"
+            placeholder="Search an exam, e.g. Calculus"
             onChange={(e) => setQuery(e.target.value)}
           />
         )}

@@ -103,12 +103,13 @@ export interface Quiet {
   /**
    * The record prompt that explains the shortfall: 'said' (hours the student
    * named are not on the record), 'earlier' (earlier terms not recorded),
-   * 'current-empty' (the semester in progress counts nothing yet). The
+   * 'current-empty' (the semester in progress counts nothing yet),
+   * 'deferred' (prior credit the student said in setup they would add later). The
    * current-semester prompt that counts the term as a usual full load
    * ('current-assumed') does not explain a lack of room, so it does not
    * silence the item.
    */
-  record?: 'none' | 'said' | 'earlier' | 'current-empty' | 'current-assumed';
+  record?: 'none' | 'said' | 'earlier' | 'current-empty' | 'current-assumed' | 'deferred';
   /**
    * The student has a transcript on the board. With one, the semester in
    * progress counted as a usual load ('current-assumed') does explain the
@@ -123,7 +124,7 @@ export interface Quiet {
 
 /** True when the record prompt explains the shortfall, so the item stays off (the harness and sweep use the same test). */
 export function recordExplains(quiet: Quiet): boolean {
-  if (quiet.record === 'said' || quiet.record === 'earlier' || quiet.record === 'current-empty') return true;
+  if (quiet.record === 'said' || quiet.record === 'earlier' || quiet.record === 'current-empty' || quiet.record === 'deferred') return true;
   return quiet.record === 'current-assumed' && Boolean(quiet.transcript);
 }
 

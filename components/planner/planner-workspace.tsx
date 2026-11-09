@@ -216,6 +216,7 @@ import type { Course, IssueSeverity, PlanIssue, PlanState, PlanTerm, SemesterSea
 import {
   UNDECIDED_PROGRAM_ID,
   clearAnswers,
+  hasPriorCreditEntered,
   schoolById,
   type OnboardingAnswers,
   type ProgramLevel,
@@ -2416,6 +2417,8 @@ export function PlannerWorkspace({
     currentTerm: currentView?.term.label ?? null,
     currentAssumed: currentView?.assumedHours ?? 0,
     currentClasses: currentView?.classes.length ?? 0,
+    // Credit the student said in setup they would add later, until some is entered (exams with scores, transfer credit, a transcript, classes taken).
+    deferred: Boolean(answers?.setupConfirmations?.creditDeferred) && !hasPriorCreditEntered({ exams, transferText: answers?.transferText ?? '', transcript: answers?.transcript ?? null, alreadyTakenCourseCodes: answers?.alreadyTakenCourseCodes ?? [] }),
   }), [answers, context, completedCodes, exams, examCredit, catalogCredits, assumedCredit, currentView]);
 
   /** The summers the board bar offers to add (summer-terms.ts). */

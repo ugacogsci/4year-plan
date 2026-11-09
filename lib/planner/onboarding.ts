@@ -108,6 +108,14 @@ export interface PriorExam {
 }
 
 export type AcademicYear = '' | 'first' | 'second' | 'third' | 'fourth' | 'fifth-plus';
+/** How a year reads on screen: the form's choices and the setup assistant's summary ("Fifth year or later", never "fifth-plus year"). */
+export const ACADEMIC_YEAR_LABEL: Record<Exclude<AcademicYear, ''>, string> = {
+  first: 'First year',
+  second: 'Second year',
+  third: 'Third year',
+  fourth: 'Fourth year',
+  'fifth-plus': 'Fifth year or later',
+};
 export type GraduationSeason = '' | 'Spring' | 'Summer' | 'Fall';
 
 /**
@@ -270,7 +278,18 @@ export function suggestGraduationTarget(
 
 export interface OnboardingAnswers {
   setupConversation?: Array<{ role: 'user' | 'assistant'; content: string }>;
-  setupConfirmations?: { programConfirmed: boolean; creditReviewed: boolean; graduationConfirmed: boolean };
+  setupConfirmations?: {
+    programConfirmed: boolean;
+    creditReviewed: boolean;
+    graduationConfirmed: boolean;
+    /**
+     * The student chose to add their prior credit later ("I'll add credit
+     * later", or said so to the assistant), 2026-11-09. Setup lets them on;
+     * the board then asks for it until some is entered (warnings-triage.ts
+     * recordPrompt), so a plan is never silently built without it.
+     */
+    creditDeferred?: boolean;
+  };
   schoolId: SchoolId | null;
   /** Undergraduate or graduate/professional catalog and planning defaults. */
   programLevel: ProgramLevel;
@@ -358,6 +377,19 @@ export const EMPTY_ANSWERS: OnboardingAnswers = {
   languageYears: null,
   language: '',
 };
+
+/**
+ * Prior credit actually entered (2026-11-09): an exam with its score, transfer
+ * credit described, a transcript or record read, or classes taken. Naming a
+ * language, or an exam with no score yet (which counts for nothing on the
+ * plan), is not credit and does not settle setup's prior-credit question.
+ */
+export function hasPriorCreditEntered(a: Pick<OnboardingAnswers, 'exams' | 'transferText' | 'transcript' | 'alreadyTakenCourseCodes'>): boolean {
+  return (a.exams ?? []).some((exam) => String(exam.score ?? '').trim() !== '')
+    || Boolean(a.transferText?.trim())
+    || Boolean(a.transcript)
+    || (a.alreadyTakenCourseCodes ?? []).length > 0;
+}
 
 /** Retain every earlier answer when reopening setups saved with three questions. */
 export function setupResponse(answers: Pick<OnboardingAnswers, 'studying' | 'timeline' | 'after'>): string {
