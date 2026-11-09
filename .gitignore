@@ -49,3 +49,6 @@ data/ratemyprofessors/*.tmp
 # Copies of the career matcher's model and runtime, made by
 # scripts/career/browser-assets.mjs from node_modules (about 38 MB).
 public/career-model/
+
+# Georgia Tech crawl caches (raw HTML/JSON, ~85 MB); re-parse offline from them, never commit
+data/gatech-raw/

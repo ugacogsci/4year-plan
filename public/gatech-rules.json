@@ -1,0 +1,722 @@
+{
+  "school": "gatech",
+  "catalogEdition": "2026-2027",
+  "catalogEditionEvidence": "Every cached catalog page is headed \"2026-2027 Edition\".",
+  "builtAt": "2026-11-09T07:41:31.635Z",
+  "fetchedAt": "2026-11-09T07:25:29.192Z",
+  "rulesIndex": "https://catalog.gatech.edu/rules/",
+  "degree": {
+    "minTotalHours": 120,
+    "wellnessHours": 2,
+    "minTotalWithWellness": 122,
+    "quote": {
+      "url": "https://catalog.gatech.edu/rules/13/",
+      "quote": "A bachelor's degree program must require at least 120 credit hours, plus the Wellness Requirement, for a total of 122 credit hours."
+    },
+    "programTotalsDiffer": "Each degree page states its own total, and pages differ on whether the 2 wellness hours are inside it: Computer Science says \"a total of 124 credit hours for graduation, plus a two-hour Wellness course\"; Aerospace Engineering lists the wellness row inside its table and prints Total Credit Hours 131. Use the degree page total and check which way it counts wellness; 120 + 2 is the floor.",
+    "upperDivision": {
+      "inMajorMin": 21,
+      "overallMin": 39,
+      "quote": {
+        "url": "https://catalog.gatech.edu/rules/13/",
+        "quote": "A bachelor's degree program must require at least 21 credit hours of upper division courses in the major field and at least 39 credit hours of upper division work overall."
+      },
+      "note": "Upper division means 3000-level or higher. Rule XIII does not define it; degree pages do, e.g. Biomedical Engineering: \"A minimum of 39 credit hours of upper-division coursework (3000-level or higher) is required to graduate.\""
+    },
+    "minGpa": 2,
+    "minGpaQuote": {
+      "url": "https://catalog.gatech.edu/rules/13/",
+      "quote": "must have a grade-point average for their entire academic program of at least 2.00"
+    },
+    "rotcMax": {
+      "basicHours": 4,
+      "advancedHours": 6,
+      "quote": {
+        "url": "https://catalog.gatech.edu/rules/13/",
+        "quote": "A degree program may include a maximum of four hours of basic ROTC and a maximum of six hours of advanced ROTC."
+      }
+    },
+    "additionalDegree": {
+      "extraHoursMin": 36,
+      "quote": {
+        "url": "https://catalog.gatech.edu/rules/13/",
+        "quote": "earn credit for a total of at least 36 credit hours in excess of the requirement for any previous degrees earned."
+      }
+    },
+    "catalogYearChoice": {
+      "url": "https://catalog.gatech.edu/rules/13/",
+      "quote": "may satisfy the requirements for a bachelor's degree by meeting all of the requirements associated with any one curriculum year that has been in effect during their period of enrollment in the Institute"
+    },
+    "curriculumYear": {
+      "url": "https://catalog.gatech.edu/rules/2/",
+      "quote": "Requirements for degrees and minors shall be specified for each Curriculum Year, which is comprised of a Summer Session plus the immediately following Fall Semester and Spring Semester."
+    },
+    "tenYearRule": {
+      "url": "https://catalog.gatech.edu/rules/13/",
+      "quote": "Coursework that was completed more than ten years prior to the conferral of the degree must be reviewed by the student's major school"
+    },
+    "url": "https://catalog.gatech.edu/rules/13/"
+  },
+  "residency": {
+    "minHoursAtGT": 45,
+    "finalHoursWindow": 45,
+    "maxTransferHoursInFinalWindow": 7,
+    "minOfFinalWindowAtGT": 38,
+    "quotes": [
+      {
+        "url": "https://catalog.gatech.edu/rules/13/",
+        "quote": "All students must complete a minimum of 45 hours required for their degree in residence at Georgia Tech."
+      },
+      {
+        "url": "https://catalog.gatech.edu/rules/13/",
+        "quote": "This means that 38 of the final 45 credit hours required for an undergraduate degree must be completed in residence at Georgia Tech."
+      }
+    ],
+    "crossEnrollment": {
+      "countsAsResidence": true,
+      "eligibility": "Degree-seeking juniors and seniors; at most two courses per term; grade of C or better; must also carry 3+ hours at GT.",
+      "quote": {
+        "url": "https://catalog.gatech.edu/rules/11/",
+        "quote": "Credits earned under cross enrollment will be treated as transfer credit but will count as in-residence credit toward a degree."
+      }
+    },
+    "concurrentRegistration": {
+      "countsAsResidence": false,
+      "summerOnlyWithoutPetition": true,
+      "quote": {
+        "url": "https://catalog.gatech.edu/rules/11/",
+        "quote": "Credits earned under concurrent registration will be treated as transfer credit and will not count as in-residence credit toward a degree."
+      },
+      "finalWindow": {
+        "url": "https://catalog.gatech.edu/rules/11/",
+        "quote": "Courses completed through concurrent registration will not be degree applicable if enrolled in the student's last 45-hours of degree completion."
+      }
+    },
+    "honorsMinHoursAtGT": {
+      "hours": 60,
+      "quote": {
+        "url": "https://catalog.gatech.edu/rules/13/",
+        "quote": "A student must have earned at least 60 semester credit hours (excluding remedial coursework) at Georgia Tech to graduate with highest honor, with high honor, or with honor."
+      }
+    },
+    "url": "https://catalog.gatech.edu/rules/13/"
+  },
+  "classStanding": {
+    "basis": "Earned credit hours (attempted hours for which credit was successfully earned), classified at the end of each term. Rule VI.A does not say whether AP/IB/transfer hours count here; the change-of-major rule in the same regulation counts them explicitly, and planners conventionally count them.",
+    "quote": {
+      "url": "https://catalog.gatech.edu/rules/6/",
+      "quote": "shall be classified at the end of each academic term by the Office of the Registrar on the basis of the total number of attempted credit hours for which they have successfully earned credit"
+    },
+    "levels": [
+      {
+        "name": "Freshman",
+        "minHours": 0,
+        "maxHours": 29
+      },
+      {
+        "name": "Sophomore",
+        "minHours": 30,
+        "maxHours": 59
+      },
+      {
+        "name": "Junior",
+        "minHours": 60,
+        "maxHours": 89
+      },
+      {
+        "name": "Senior",
+        "minHours": 90,
+        "maxHours": null
+      }
+    ],
+    "enrollmentStatus": {
+      "fullTimeMinHours": 12,
+      "partTime": {
+        "min": 6,
+        "max": 11
+      },
+      "quote": {
+        "url": "https://catalog.gatech.edu/rules/6/",
+        "quote": "Students scheduled for at least twelve (12) credit hours in a semester are classified as full-time students"
+      }
+    },
+    "url": "https://catalog.gatech.edu/rules/6/"
+  },
+  "termLoad": {
+    "maxHours": {
+      "fall": {
+        "good": 21,
+        "warning": 16,
+        "probation": 14
+      },
+      "spring": {
+        "good": 21,
+        "warning": 16,
+        "probation": 14
+      },
+      "summer": {
+        "good": 16,
+        "warning": 14,
+        "probation": 12
+      }
+    },
+    "quotes": [
+      {
+        "url": "https://catalog.gatech.edu/rules/6/",
+        "quote": "The maximum number of credit hours for which an undergraduate student may register in a Fall Semester or Spring Semester, based on their academic standing, is as follows:"
+      },
+      {
+        "url": "https://catalog.gatech.edu/rules/6/",
+        "quote": "The maximum number of credit hours for which an undergraduate student may register in a regular Summer Session, based on their academic standing, is as follows:"
+      }
+    ],
+    "tableCheck": "Read from the two Schedule Load tables in Rule VI.E and matched to the numbers above at build time.",
+    "phase1RegistrationCap": {
+      "hours": 18,
+      "terms": [
+        "Fall",
+        "Spring"
+      ],
+      "quote": {
+        "url": "https://catalog.gatech.edu/rules/6/",
+        "quote": "During Phase 1 Registration, the Institute reserves the right to limit undergraduate students to 18 credits maximum for the Fall Semester and Spring Semester"
+      }
+    },
+    "overload": {
+      "rule": "Above the maximum needs a recommendation from the major school and approval by the Institute Undergraduate Curriculum Committee, in advance.",
+      "quotes": [
+        {
+          "url": "https://catalog.gatech.edu/rules/6/",
+          "quote": "Requests for schedule overloads must be recommended by the student's major school and approved by the Institute Undergraduate Curriculum Committee or Institute Graduate Curriculum Committee, as appropriate."
+        },
+        {
+          "url": "https://catalog.gatech.edu/rules/9/",
+          "quote": "Any hours above these limits must obtain prior approval from the Undergraduate Institute Curriculum Committee or the Graduate Institute Curriculum Committee, as appropriate."
+        }
+      ]
+    },
+    "auditCountsTowardLoad": {
+      "url": "https://catalog.gatech.edu/rules/9/",
+      "quote": "Such a course counts at full value in computing the student's course load for an academic term."
+    },
+    "minimumLoad": "Rule IX.B states a 3-hour minimum for graduate students only; none is stated for undergraduates. 12 hours is full-time.",
+    "url": "https://catalog.gatech.edu/rules/6/"
+  },
+  "calendar": {
+    "system": "semester",
+    "terms": [
+      {
+        "term": "Fall",
+        "instructionWeeks": 15,
+        "examWeeks": 1
+      },
+      {
+        "term": "Spring",
+        "instructionWeeks": 15,
+        "examWeeks": 1
+      },
+      {
+        "term": "Summer",
+        "instructionWeeks": 11,
+        "examWeeks": 1,
+        "accelerated": true
+      }
+    ],
+    "quote": {
+      "url": "https://catalog.gatech.edu/rules/2/",
+      "quote": "Georgia Tech's standard Academic Calendar consists of a Fall Semester, a Spring Semester, and an accelerated Summer Session."
+    },
+    "weeksQuote": {
+      "url": "https://catalog.gatech.edu/rules/2/",
+      "quote": "A normal Summer Session includes approximately eleven weeks of instruction plus one week of final examinations."
+    },
+    "academicYearStartsWith": "Summer",
+    "academicYearQuote": {
+      "url": "https://registrar.gatech.edu/current-students/calendars",
+      "quote": "At Georgia Tech, the academic year begins at the start of the Summer semester, continues through the Fall semester, and concludes at the end of the Spring semester."
+    },
+    "summerSessions": [
+      {
+        "id": "Summer-Full",
+        "label": "Summer - Full"
+      },
+      {
+        "id": "Summer-May",
+        "label": "Summer - May"
+      },
+      {
+        "id": "Summer-Early",
+        "label": "Summer - Early"
+      },
+      {
+        "id": "Summer-Late",
+        "label": "Summer - Late"
+      }
+    ],
+    "summerSessionsSource": "https://registrar.gatech.edu/current-academic-calendar (session filter of the registrar's calendar; the dates behind it are not public to a crawler)",
+    "tentativeFiveTerm": [
+      {
+        "term": "Summer 2027",
+        "First Day of Classes": "May 17",
+        "Breaks, Holidays, and/or Recess": "May 31, Jun 18, Jul 5 Jul 6",
+        "Cross Registration Deadline": "Apr 15",
+        "Final Instructional Class Days": "July 26-27",
+        "Reading Period": "Jul 30",
+        "Final Exams": "Aug 2-5",
+        "Commencement": "No ceremony"
+      },
+      {
+        "term": "Fall 2027",
+        "First Day of Classes": "Aug 23",
+        "Breaks, Holidays, and/or Recess": "Sep 6, Nov 24, Nov 25-26 (Fall Break TBD)",
+        "Cross Registration Deadline": "Jul 15",
+        "Final Instructional Class Days": "Dec 6-7",
+        "Reading Period": "Dec 8, Dec 9: 8:00am - 2:40pm, Dec 14: 8:00am - 10:50am",
+        "Final Exams": "Dec 9-16",
+        "Commencement": "TBD"
+      },
+      {
+        "term": "Spring 2028",
+        "First Day of Classes": "Jan 10",
+        "Breaks, Holidays, and/or Recess": "Jan 17 Mar 6-10",
+        "Cross Registration Deadline": "Nov 15",
+        "Final Instructional Class Days": "Apr 24-25",
+        "Reading Period": "Apr 26 Apr 27: 8:00am - 2:40pm May 2: 8:00am - 10:50am",
+        "Final Exams": "Apr 27-May 4",
+        "Commencement": "TBD"
+      },
+      {
+        "term": "Summer 2028",
+        "First Day of Classes": "May 15",
+        "Breaks, Holidays, and/or Recess": "May 29, Jun 19, Jul 3 Jul 4",
+        "Cross Registration Deadline": "Apr 15",
+        "Final Instructional Class Days": "Jul 24-25",
+        "Reading Period": "Jul 28",
+        "Final Exams": "Jul 31-Aug 3",
+        "Commencement": "No ceremony"
+      },
+      {
+        "term": "Fall 2028",
+        "First Day of Classes": "Aug 21",
+        "Breaks, Holidays, and/or Recess": "Sep 4, Nov 22, Nov 23-24 (Fall Break TBD)",
+        "Cross Registration Deadline": "Jul 15",
+        "Final Instructional Class Days": "Dec 4-5",
+        "Reading Period": "Dec 6 Dec 7: 8:00am -2:40pm Dec 12: 8:00am - 10:50am",
+        "Final Exams": "Dec 7-14",
+        "Commencement": "TBD"
+      }
+    ],
+    "tentativeFiveTermSource": "https://registrar.gatech.edu/tentative-five-term-school-calendar",
+    "datedCalendarNotRead": "The registrar's dated 2026-2027 and 2027-2028 calendars load from https://registrar.gatech.edu/calevents/proxy, which answered 403 {\"error\":\"Origin not allowed\"} to this crawler on 2026-11-09. Not worked around.",
+    "url": "https://catalog.gatech.edu/rules/2/"
+  },
+  "grades": {
+    "scale": {
+      "A": 4,
+      "B": 3,
+      "C": 2,
+      "D": 1,
+      "F": 0
+    },
+    "plusMinus": false,
+    "passingGrade": "D",
+    "notInGpa": [
+      "S",
+      "U",
+      "V",
+      "I",
+      "W",
+      "NR",
+      "IJ"
+    ],
+    "gpaTruncated": {
+      "url": "https://catalog.gatech.edu/rules/5/",
+      "quote": "Grade-point averages are truncated after two decimal places."
+    },
+    "majorMinimums": "Many majors require C or better in named courses (degree pages say so, e.g. Computer Science: all required CS courses with C or better). Not a university rule.",
+    "repeats": {
+      "noRepeatAfterBOrHigher": true,
+      "creditCountsOnce": true,
+      "allAttemptsInGpa": true,
+      "failingRepeatForfeitsEarlierCredit": true,
+      "quotes": [
+        {
+          "url": "https://catalog.gatech.edu/rules/9/",
+          "quote": "Students may not repeat courses in which the grade of 'B' or higher has been earned previously."
+        },
+        {
+          "url": "https://catalog.gatech.edu/rules/9/",
+          "quote": "All grades and hours will count in determining the student's grade-point average (GPA), but the course will be counted only once for credit toward a degree."
+        },
+        {
+          "url": "https://catalog.gatech.edu/rules/5/",
+          "quote": "forfeits the original credit in the event the student should fail the course on a subsequent attempt."
+        }
+      ]
+    },
+    "gradeSubstitution": {
+      "maxCourses": 2,
+      "eligibleGrades": [
+        "D",
+        "F"
+      ],
+      "oncePerCourse": true,
+      "notInFinalTerm": true,
+      "gtCoursesOnly": true,
+      "quotes": [
+        {
+          "url": "https://catalog.gatech.edu/policies/grading-gpa/grade-substitution/",
+          "quote": "Undergraduate students may repeat for grade substitution up to two GT courses with posted letter grades of D or F."
+        },
+        {
+          "url": "https://catalog.gatech.edu/policies/grading-gpa/grade-substitution/",
+          "quote": "A course can be taken for grade substitution only once and must be repeated prior to the final term of enrollment in which the student graduates."
+        }
+      ],
+      "url": "https://catalog.gatech.edu/policies/grading-gpa/grade-substitution/"
+    },
+    "withdrawal": {
+      "lastDayWithoutPenalty": "60% of the term (exact date on the registrar calendar)",
+      "quote": {
+        "url": "https://catalog.gatech.edu/rules/5/",
+        "quote": "Withdrawals from individual courses without penalty are not permitted after 60 percent of the academic term has passed"
+      }
+    },
+    "transferMinGrade": {
+      "grade": "C",
+      "passCountsAsC": true,
+      "notInGpa": true,
+      "quote": {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/credit-tests-scores/transfer-credit/",
+        "quote": "The basic policy regarding the acceptance of courses by transfer is to allow credit for courses completed with satisfactory grades (\"C\" or better)"
+      },
+      "url": "https://catalog.gatech.edu/academics/undergraduate/credit-tests-scores/transfer-credit/"
+    },
+    "url": "https://catalog.gatech.edu/rules/5/"
+  },
+  "passFail": {
+    "maxHoursTowardDegree": 9,
+    "onlyArea": "Free Electives",
+    "notAllowedFor": [
+      "Core IMPACTS",
+      "major requirements",
+      "minor requirements",
+      "certificate requirements",
+      "institutional requirements (e.g. Wellness)"
+    ],
+    "secondDegreeDoesNotAddMore": true,
+    "programsMayAllowFewer": "Degree pages may set a lower cap (Computer Science: up to six hours of free electives pass/fail).",
+    "beyondCap": "Earns institutional credit that does not count toward graduation.",
+    "gradeModeDeadline": "Same day as the last day to withdraw without penalty.",
+    "quotes": [
+      {
+        "url": "https://catalog.gatech.edu/rules/10/",
+        "quote": "Courses taken to satisfy Core IMPACTS requirements, courses required for major, minor and certificate programs, courses that satisfy institutional requirements may not be taken as Pass/Fail."
+      },
+      {
+        "url": "https://catalog.gatech.edu/rules/10/",
+        "quote": "No more than nine credit hours of Pass/Fail coursework may be counted towards an undergraduate degree in the Free Electives area."
+      },
+      {
+        "url": "https://catalog.gatech.edu/rules/10/",
+        "quote": "The totality of the allotted pass/fail credit hours remains at a maximum of nine, even with the addition of a second undergraduate degree."
+      }
+    ],
+    "url": "https://catalog.gatech.edu/rules/10/"
+  },
+  "creditByExam": {
+    "advancedStandingMaxHours": 9,
+    "quote": {
+      "url": "https://catalog.gatech.edu/rules/12/",
+      "quote": "Students may not use more than nine credits of advanced standing to meet degree requirements."
+    },
+    "apIbMustPrecedeEnrollment": {
+      "url": "https://catalog.gatech.edu/academics/undergraduate/credit-tests-scores/transfer-credit/",
+      "quote": "Once enrolled at Georgia Tech, students are not allowed to take College Board (Advanced Placement and SAT II), International Baccalaureate or A-Level Examinations for credit."
+    },
+    "noClep": {
+      "url": "https://catalog.gatech.edu/academics/undergraduate/credit-tests-scores/transfer-credit/",
+      "quote": "Georgia Tech does not grant credit for the College Level General Educational Development Tests, CLEP"
+    },
+    "url": "https://catalog.gatech.edu/rules/12/"
+  },
+  "changeOfMajor": {
+    "unrestrictedUntilHours": 60,
+    "quote": {
+      "url": "https://catalog.gatech.edu/rules/6/",
+      "quote": "will be permitted one unrestricted transfer between majors until they have accumulated credit for sixty hours"
+    },
+    "restrictedPrograms": [
+      "Industrial and Systems Engineering",
+      "Mechanical Engineering",
+      "Music Technology"
+    ],
+    "restrictedQuote": {
+      "url": "https://catalog.gatech.edu/rules/6/",
+      "quote": "Some programs have existing change-of-major conditions due to grade, GPA, or other requirements such as presentation of a portfolio that may limit change of major."
+    },
+    "newCatalog": {
+      "url": "https://catalog.gatech.edu/rules/6/",
+      "quote": "Students who change their majors must complete the degree requirements in the Catalog that was effective for the term in which the change of major became official, or any subsequent Catalog."
+    },
+    "url": "https://catalog.gatech.edu/rules/6/"
+  },
+  "academicStanding": {
+    "minGpa": 2,
+    "quote": {
+      "url": "https://catalog.gatech.edu/rules/6/",
+      "quote": "The minimum satisfactory grade-point average (GPA) is 2.00 for all undergraduate students"
+    },
+    "levels": [
+      "good",
+      "warning",
+      "probation",
+      "dismissal"
+    ],
+    "loadDependsOnStanding": true,
+    "url": "https://catalog.gatech.edu/rules/6/"
+  },
+  "foreignLanguage": {
+    "universityWide": false,
+    "finding": "No university-wide foreign-language requirement. Rules I-XXII, the Core IMPACTS pages and the undergraduate academics pages state none, and Core IMPACTS has no language area.",
+    "whereLanguageIsRequired": [
+      "Applied Languages and Intercultural Studies (ALIS) majors, by design.",
+      "The International Plan designation available inside many majors (\"This program has specific language requirements\", e.g. Aerospace, Chemical and Biomolecular Engineering, Architecture, Chemistry and Biochemistry IP pages).",
+      "Any other major that states it on its own degree page; check each degree page (the programs build owns this)."
+    ],
+    "howLanguageCountsInCore": "Language courses on the HUM list count toward Arts, Humanities & Ethics, but at most 3 hours from one introductory 1002/2001/2002 course (see that area's limits).",
+    "advancedStandingForLanguage": {
+      "url": "https://catalog.gatech.edu/rules/12/",
+      "quote": "The only courses for which Advanced Standing credit may be given are 1001, 1002, 2001, and/or 2002 in the languages currently offered in the School of Modern Languages at Georgia Tech."
+    },
+    "evidenceSource": "data/gatech-raw/programs/ (degree pages cached by the programs crawler) for the International Plan and ALIS wording."
+  },
+  "changesForFall2026And2027": {
+    "summary": "Nothing on the current (2026-2027) pages is marked as new for Fall 2026. Students entering Summer 2026, Fall 2026 or Spring 2027 follow the 2026-2027 catalog (a curriculum year is Summer + Fall + Spring). The 2027-2028 catalog is not published yet, so Fall 2027 rules cannot be known; the registrar's tentative calendar already lists Summer 2027 through Fall 2028 term dates.",
+    "datedChangesOnThePages": [
+      {
+        "effective": "Summer 2024",
+        "change": "Core IMPACTS replaced the old Core Areas A-F for incoming students (older catalog years keep the old core).",
+        "quote": {
+          "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/",
+          "quote": "Core IMPACTS Requirements (for incoming Summer 2024 students and any student updating their Catalog year to 2024-25):"
+        }
+      },
+      {
+        "effective": "May 1, 2023",
+        "change": "Current implementation of the Georgia legislative requirements (history/constitution, including the non-credit Canvas exams).",
+        "quote": {
+          "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+          "quote": "All incoming undergraduate students who first matriculate at Georgia Tech on or after May 1, 2023 will be required to follow these implementation requirements."
+        }
+      },
+      {
+        "effective": "2019",
+        "change": "Grade substitution rewritten; substitutions under the pre-2019 policy count toward the two-course limit.",
+        "quote": {
+          "url": "https://catalog.gatech.edu/policies/grading-gpa/grade-substitution/",
+          "quote": "Grades excluded under previous Institute rules (such as the Grade Substitution policy that was in effect up until 2019) count toward the maximum two courses allowed for substitution."
+        }
+      }
+    ],
+    "cannotKnow": "Earlier catalog editions are under /archived-catalogs/, which robots.txt disallows, so the 2025-2026 text cannot be diffed against 2026-2027 here."
+  },
+  "coreCurriculum": {
+    "file": "public/gatech-core.json",
+    "areas": [
+      {
+        "id": "institutional-priority",
+        "label": "Institutional Priority",
+        "hours": {
+          "min": 3,
+          "max": 3
+        }
+      },
+      {
+        "id": "mathematics-quantitative",
+        "label": "Mathematics & Quantitative Skills",
+        "hours": {
+          "min": 4,
+          "max": 4
+        }
+      },
+      {
+        "id": "political-science-us-history",
+        "label": "Political Science & U.S. History",
+        "hours": {
+          "min": 3,
+          "max": 3
+        }
+      },
+      {
+        "id": "arts-humanities-ethics",
+        "label": "Arts, Humanities & Ethics",
+        "hours": {
+          "min": 6,
+          "max": 6
+        }
+      },
+      {
+        "id": "communicating-in-writing",
+        "label": "Communicating in Writing",
+        "hours": {
+          "min": 6,
+          "max": 6
+        }
+      },
+      {
+        "id": "technology-mathematics-sciences",
+        "label": "Technology, Mathematics & Sciences",
+        "hours": {
+          "min": 12,
+          "max": 14
+        }
+      },
+      {
+        "id": "social-sciences",
+        "label": "Social Sciences",
+        "hours": {
+          "min": 9,
+          "max": 9
+        }
+      }
+    ],
+    "fieldOfStudyHours": 18
+  },
+  "wellness": {
+    "hours": 2,
+    "courses": [
+      "APPH 1040",
+      "APPH 1050",
+      "APPH 1060"
+    ],
+    "countsOutside120": true,
+    "quote": {
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/wellness-requirement/",
+      "quote": "All undergraduate students attending Georgia Tech must satisfactorily complete a wellness requirement."
+    },
+    "medicalExemption": {
+      "url": "https://catalog.gatech.edu/rules/13/",
+      "quote": "Unless medically exempted, all students are required to satisfy the wellness requirement prior to graduation, as specified in the Core Curriculum section of the Catalog."
+    },
+    "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/wellness-requirement/"
+  },
+  "ethics": {
+    "universityWide": false,
+    "attribute": "ETHS",
+    "courseCount": 41,
+    "rule": "Not a university-wide requirement: some majors require an ETHS course, and some name their own ethics course instead. A course may count for ETHS and for Humanities or Social Sciences at the same time.",
+    "quotes": [
+      {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/humanities/",
+        "quote": "Some Georgia Tech major degree programs require completion of a separate Ethics (ETHS) requirement."
+      },
+      {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/ethics/",
+        "quote": "While some courses (as designated) meet Humanities or Social Science requirements, not all of the courses listed below will meet Core IMPACTS (general education) requirements."
+      },
+      {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/social-sciences/",
+        "quote": "Some Social Sciences courses may also carry the Georgia Tech assigned Ethics (ETHS) attribute. These courses may be used to serve both purposes."
+      }
+    ],
+    "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/ethics/"
+  },
+  "legislative": {
+    "id": "georgia-legislative",
+    "label": "Georgia Legislative Requirements (U.S. and Georgia History and Constitution)",
+    "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+    "law": {
+      "url": "https://catalog.gatech.edu/rules/13/",
+      "quote": "The Georgia law, as amended March 4, 1953, requires that before graduation all students pass examinations or pass comparable courses in United States and Georgia history and in the United States and Georgia Constitutions."
+    },
+    "effective": {
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+      "quote": "All incoming undergraduate students who first matriculate at Georgia Tech on or after May 1, 2023 will be required to follow these implementation requirements."
+    },
+    "hours": 0,
+    "hoursNote": "No hours of its own: met by a course the student takes anyway (usually the Political Science & U.S. History pick or a Social Sciences course) or by a non-credit exam.",
+    "overlapWithCore": {
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+      "quote": "Courses taken to satisfy Core Area E requirements (Social Sciences) can also be used to satisfy the legislative requirements, as specified above. The courses(s) can serve both purposes."
+    },
+    "parts": [
+      {
+        "id": "us-history",
+        "label": "United States History",
+        "tag": "Legislative: U.S. History",
+        "courses": [
+          "HIST 2111",
+          "HIST 2112"
+        ],
+        "courseCredit": "Taken at GT, transferred, or awarded for an AP or IB score.",
+        "exam": true
+      },
+      {
+        "id": "georgia-history",
+        "label": "Georgia History",
+        "tag": "Legislative: Georgia History",
+        "courses": [
+          "HIST 2111",
+          "HIST 2112"
+        ],
+        "courseCredit": "Only when taken at Georgia Tech (or shown as satisfied on a USG/TCSG transcript). AP or IB credit for HIST 2111/2112 does not meet Georgia History.",
+        "quote": {
+          "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+          "quote": "when completed at Georgia Tech, these courses satisfy both the United States History and the Georgia History legislative requirements."
+        },
+        "exam": true
+      },
+      {
+        "id": "us-constitution",
+        "label": "United States Constitution",
+        "tag": "Legislative: U.S. Constitution",
+        "courses": [
+          "INTA 1200",
+          "POL 1101",
+          "PUBP 3000"
+        ],
+        "courseCredit": "Taken at GT or transferred; AP credit counts only for INTA 1200 or POL 1101.",
+        "exam": true
+      },
+      {
+        "id": "georgia-constitution",
+        "label": "Constitution of Georgia",
+        "tag": "Legislative: Georgia Constitution",
+        "courses": [
+          "INTA 1200",
+          "POL 1101",
+          "PUBP 3000"
+        ],
+        "courseCredit": "Only when taken at Georgia Tech (or shown as satisfied on a USG/TCSG transcript).",
+        "quote": {
+          "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+          "quote": "receiving credit for either of these courses when taken at Georgia Tech satisfies both the United States Constitution and the Constitution of Georgia legislative requirements."
+        },
+        "exam": true
+      }
+    ],
+    "examOption": {
+      "rule": "Each of the four can instead be met by a non-credit Canvas exam, passed at 60% or higher. No credit, not on the transcript, satisfies nothing else. Take it before reaching 90 credit hours.",
+      "passingScore": 0.6,
+      "takeBeforeHours": 90,
+      "info": "https://oue.gatech.edu/glr-requirement",
+      "quotes": [
+        {
+          "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+          "quote": "Earn a satisfactory score (60% or higher) on the United States History Non-Credit Canvas Course Examination."
+        },
+        {
+          "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+          "quote": "Students who elect to satisfy this legislative requirement by examination should do so before completing 90 or more credit hours."
+        },
+        {
+          "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+          "quote": "An examination taken to satisfy this legislative requirement does not carry any academic credit and does not satisfy any other requirement for graduation."
+        }
+      ]
+    },
+    "staleWording": "The constitution-history page still calls the Social Sciences area \"Core Area E\" (pre-2024 naming) and says it needs one of HIST 2111, HIST 2112, POL 1101, INTA 1200, PUBP 3000; under Core IMPACTS that five-course list is the Political Science & U.S. History area.",
+    "planningNote": "One HIST 2111/2112 course taken at GT meets both history parts, and one INTA 1200/POL 1101/PUBP 3000 taken at GT meets both constitution parts. The Political Science & U.S. History area needs only ONE of these, so a student who picks HIST still owes the two constitution parts (another listed course, which can count as Social Sciences, or the exams), and one who picks POL/INTA/PUBP still owes the two history parts."
+  }
+}

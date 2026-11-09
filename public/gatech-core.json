@@ -1,0 +1,5212 @@
+{
+  "school": "gatech",
+  "catalogEdition": "2026-2027",
+  "builtAt": "2026-11-09T07:41:31.631Z",
+  "fetchedAt": "2026-11-09T07:24:53.163Z",
+  "source": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/",
+  "usgInfo": "https://www.usg.edu/curriculum/core-impacts",
+  "appliesTo": {
+    "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/",
+    "quote": "Core IMPACTS Requirements (for incoming Summer 2024 students and any student updating their Catalog year to 2024-25):"
+  },
+  "olderCatalogs": "Students on a 2023-2024 or older catalog year follow the old Core Areas A-F, published only in the archived catalogs (robots.txt disallows /archived-catalogs/, so not read here).",
+  "oneCourseOneArea": {
+    "rule": "One course may not satisfy two Core IMPACTS areas. It MAY also count for the ETHS attribute, the legislative requirements, and major requirements that list it.",
+    "quote": {
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/citizenship/",
+      "quote": "Students may also take an additional course from this list to satisfy the Social Sciences area, but may not use one course to satisfy two Core IMPACTS areas."
+    }
+  },
+  "noPassFail": {
+    "url": "https://catalog.gatech.edu/policies/grading-gpa/pass-fail-system-rules/",
+    "quote": "Courses taken to satisfy Core IMPACTS requirements, courses required for major, minor and certificate programs, courses that satisfy institutional requirements may not be taken as Pass/Fail."
+  },
+  "thirtyHourRule": {
+    "rule": "After 30 earned hours, a student who has not finished Mathematics & Quantitative Skills or Communicating in Writing must take the next course toward it every term they enroll.",
+    "quotes": [
+      {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/mathematics/",
+        "quote": "students who have earned 30 hours but have not completed Mathematics & Quantitative Skills must enroll in the next course necessary to make progress toward completing this Area in every semester in which they take classes."
+      },
+      {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/writing/",
+        "quote": "students who have earned 30 hours but have not completed Communicating in Writing must enroll in the next course necessary to make progress toward completing this Area in every semester in which they take classes."
+      }
+    ]
+  },
+  "hoursSummary": {
+    "sevenAreas": {
+      "min": 43,
+      "max": 45
+    },
+    "fieldOfStudy": 18,
+    "basis": "Sum of the area hours above; Georgia Tech prints no core total. Institutional Priority, Mathematics, Political Science & U.S. History and Writing are sized from their course lists, the other three are stated."
+  },
+  "areas": [
+    {
+      "id": "institutional-priority",
+      "usgArea": "I",
+      "label": "Institutional Priority",
+      "catalogShortName": "Institution",
+      "programPageHeading": "Institutional Priority",
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/institution/",
+      "hours": {
+        "min": 3,
+        "max": 3
+      },
+      "hoursStated": false,
+      "hoursBasis": "One course; CS 1301 is 3 credit hours. The page states no area total.",
+      "rule": "Complete CS 1301, or another CS class designated by the student's School.",
+      "ruleQuote": {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/institution/",
+        "quote": "Students must complete the following to satisfy the Institutional Priority area:"
+      },
+      "choose": {
+        "courses": 1
+      },
+      "tag": "Core IMPACTS: Institutional Priority",
+      "courses": [
+        {
+          "codes": [
+            "CS 1301"
+          ],
+          "title": "Introduction to Computing",
+          "hours": 3,
+          "footnotes": [
+            "Or another CS class designated by the School"
+          ]
+        }
+      ],
+      "designatedAlternatives": {
+        "codes": [
+          "CS 1315",
+          "CS 1371"
+        ],
+        "basis": "Not on the core page (its footnote says only \"Or another CS class designated by the School\"). Seen as \"or\" rows under Institutional Priority on degree pages cached in data/gatech-raw/programs/ (e.g. Applied Languages and Intercultural Studies lists CS 1301 or CS 1315 or CS 1371; Aerospace Engineering requires CS 1371). Read the degree page for each major."
+      },
+      "notes": []
+    },
+    {
+      "id": "mathematics-quantitative",
+      "usgArea": "M",
+      "label": "Mathematics & Quantitative Skills",
+      "catalogShortName": "Mathematics",
+      "programPageHeading": "Mathematics and Quantitative Skills",
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/mathematics/",
+      "hours": {
+        "min": 4,
+        "max": 4
+      },
+      "hoursStated": false,
+      "hoursBasis": "One course; both listed options are 4 credit hours. The page states no area total.",
+      "rule": "Complete one course: MATH 1552 (required for Architecture, Computing, Engineering and Sciences majors) or MATH 1712 (an option for Business and Liberal Arts programs). The degree program decides.",
+      "ruleQuote": {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/mathematics/",
+        "quote": "Students must complete one of the following courses to satisfy the Mathematics & Quantitative Skills area:"
+      },
+      "choose": {
+        "courses": 1
+      },
+      "tag": "Core IMPACTS: Mathematics & Quantitative Skills",
+      "courses": [
+        {
+          "codes": [
+            "MATH 1552"
+          ],
+          "title": "Integral Calculus",
+          "hours": 4,
+          "footnotes": [
+            "MATH 1552 is required for students majoring in programs in the College of Architecture, College of Computing, College of Engineering or College of Sciences."
+          ]
+        },
+        {
+          "codes": [
+            "MATH 1712"
+          ],
+          "title": "Survey of Calculus",
+          "hours": 4,
+          "footnotes": [
+            "MATH 1712 is an option that may be completed by programs in the College of Business, College of Liberal Arts"
+          ]
+        }
+      ],
+      "notes": [
+        "In the case of a degree (major) that is jointly offered and the Colleges' requirements in this area are different, the student must complete the course that is specified in the curriculum for the degree, regardless of which college is the declared \"home\" of the student. This area of the Core Curriculum is driven by the requirements of the specific degree program, not by the general requirements of the College, if a degree is jointly offered.",
+        "Effective Fall 2012, for freshmen entering the University System of Georgia system Fall 2012, students who have earned 30 hours but have not completed Mathematics & Quantitative Skills must enroll in the next course necessary to make progress toward completing this Area in every semester in which they take classes."
+      ]
+    },
+    {
+      "id": "political-science-us-history",
+      "usgArea": "P",
+      "label": "Political Science & U.S. History",
+      "catalogShortName": "Citizenship",
+      "programPageHeading": "Political Science and U.S. History",
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/citizenship/",
+      "hours": {
+        "min": 3,
+        "max": 3
+      },
+      "hoursStated": false,
+      "hoursBasis": "One course (\"select one\"); every listed course is 3 credit hours.",
+      "rule": "Select one course. A second course from this list may count toward Social Sciences, but one course may not satisfy two Core IMPACTS areas.",
+      "ruleQuote": {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/citizenship/",
+        "quote": "Students must select one of the following courses to satisfy the Political Science & U.S. History area:"
+      },
+      "choose": {
+        "courses": 1
+      },
+      "tag": "Core IMPACTS: Political Science & U.S. History",
+      "courses": [
+        {
+          "codes": [
+            "HIST 2111"
+          ],
+          "title": "Survey of U.S. History I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HIST 2112"
+          ],
+          "title": "Survey of U.S. History II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 1200"
+          ],
+          "title": "American Government in Comparative Perspective",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "POL 1101"
+          ],
+          "title": "Government of the United States",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3000"
+          ],
+          "title": "American Constitutional Issues",
+          "hours": 3
+        }
+      ],
+      "notes": [
+        "Students must also complete all requirements for the Georgia Legislative Requirements. Click here for more information on Georgia Legislative Requirements.",
+        "Students may also take an additional course from this list to satisfy the Social Sciences area, but may not use one course to satisfy two Core IMPACTS areas."
+      ]
+    },
+    {
+      "id": "arts-humanities-ethics",
+      "usgArea": "A",
+      "label": "Arts, Humanities & Ethics",
+      "catalogShortName": "Humanities",
+      "programPageHeading": "Arts, Humanities, and Ethics",
+      "programPagePlaceholder": "Any HUM",
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/humanities/",
+      "hours": {
+        "min": 6,
+        "max": 6
+      },
+      "hoursStated": true,
+      "hoursBasis": "Stated on the page.",
+      "rule": "6 credit hours of courses carrying the HUM attribute. At most 3 of those hours may come from one introductory (1002-, 2001- or 2002-numbered) modern language course that carries HUM; credit from a second such course never counts here.",
+      "ruleQuote": {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/humanities/",
+        "quote": "Students must complete 6 credit hours of courses that carry the Arts, Humanities & Ethics (HUM) attribute."
+      },
+      "choose": {
+        "hours": 6
+      },
+      "attribute": "HUM",
+      "tag": "HUM",
+      "limits": [
+        {
+          "rule": "introductory-modern-language-cap",
+          "maxHours": 3,
+          "appliesTo": "one course numbered 1002, 2001 or 2002 in a modern language, carrying HUM",
+          "quote": {
+            "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/humanities/",
+            "quote": "Students are permitted to apply a maximum of 3 credit hours from one introductory (1002-, 2001-, or 2002-numbered) Modern Language course that carries the HUM attribute toward their Core IMPACTS area humanities requirement."
+          }
+        }
+      ],
+      "courses": [
+        {
+          "codes": [
+            "ARBC 1002"
+          ],
+          "title": "Elementary Arabic II",
+          "hours": 4
+        },
+        {
+          "codes": [
+            "ARBC 1501"
+          ],
+          "title": "Understanding Arab Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARBC 2001"
+          ],
+          "title": "Intermediate Arabic I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARBC 2002"
+          ],
+          "title": "Intermediate Arabic II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARBC 2301"
+          ],
+          "title": "Arabic Arts, Science and Technology Through History",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARBC 3001"
+          ],
+          "title": "Advanced Arabic I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARBC 3002"
+          ],
+          "title": "Advanced Arabic II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARBC 3401"
+          ],
+          "title": "Perspectives on the Arab-Israeli Conflict",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARBC 3501"
+          ],
+          "title": "Men-Women In Islam",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARBC 3692"
+          ],
+          "title": "Arabic for Business and Technology I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARCH 2111"
+          ],
+          "title": "History of Architecture I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARCH 2112"
+          ],
+          "title": "History of Architecture II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARCH 3007"
+          ],
+          "title": "Art & Architecture in Greece",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARCH 3008"
+          ],
+          "title": "Art & Architecture in Italy I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ARCH 3009"
+          ],
+          "title": "Art & Architecture in Italy II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHIN 1002"
+          ],
+          "title": "Elementary Chinese II",
+          "hours": 4
+        },
+        {
+          "codes": [
+            "CHIN 1501"
+          ],
+          "title": "Chinese for Heritage Learners I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHIN 2001"
+          ],
+          "title": "Intermediate Chinese I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHIN 2002"
+          ],
+          "title": "Intermediate Chinese II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHIN 2501"
+          ],
+          "title": "Chinese For Heritage Learners II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHIN 3003"
+          ],
+          "title": "Intermediate Chinese III",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHIN 3004"
+          ],
+          "title": "Advanced Chinese I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHIN 3021"
+          ],
+          "title": "Chinese Society and Culture I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHIN 3022"
+          ],
+          "title": "Chinese Society and Culture II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHIN 3400"
+          ],
+          "title": "China: A Cultural Odyssey",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHIN 3401"
+          ],
+          "title": "A Kaleidoscope of Chinese Language",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHIN 3691"
+          ],
+          "title": "Chinese for Current Events",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHIN 3692"
+          ],
+          "title": "Business Chinese",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 1002"
+          ],
+          "title": "Elementary French II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 2001"
+          ],
+          "title": "Intermediate French I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 2002"
+          ],
+          "title": "Intermediate French II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3000"
+          ],
+          "title": "Survey of French Literature",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3001"
+          ],
+          "title": "French Literature from 1800 to 1900",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3002"
+          ],
+          "title": "French Literature from 1900 to Present",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3004"
+          ],
+          "title": "Drama Workshop",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3011"
+          ],
+          "title": "France Today I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3012"
+          ],
+          "title": "France Today II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3014"
+          ],
+          "title": "Introduction to Contemporary France",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3015"
+          ],
+          "title": "Social Identities in Contemporary French Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3017"
+          ],
+          "title": "Paris: Modernity Today",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3030"
+          ],
+          "title": "French Phonetics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3040"
+          ],
+          "title": "Reading and Translation",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3061"
+          ],
+          "title": "France: Culture, Economy, Commerce I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3062"
+          ],
+          "title": "France: Culture, Economy and Commerce II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3110"
+          ],
+          "title": "Comics & Graphic Arts",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3120"
+          ],
+          "title": "French Conversation and Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3121"
+          ],
+          "title": "Advanced Composition",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3500"
+          ],
+          "title": "Field Work Abroad",
+          "hours": {
+            "min": 1,
+            "max": 3
+          }
+        },
+        {
+          "codes": [
+            "FREN 3551"
+          ],
+          "title": "French for the Professions I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3692"
+          ],
+          "title": "French for Business and Technology I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3693"
+          ],
+          "title": "French for Business and Technology II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "FREN 3694"
+          ],
+          "title": "French for Business and Technology Abroad",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 1002"
+          ],
+          "title": "Elementary German II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 2001"
+          ],
+          "title": "Intermediate German I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 2002"
+          ],
+          "title": "Intermediate German II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 3010"
+          ],
+          "title": "Introduction to German Literature",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 3011"
+          ],
+          "title": "Germany Today",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 3024"
+          ],
+          "title": "Conversation and Composition",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 3026"
+          ],
+          "title": "German Stylistics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 3030"
+          ],
+          "title": "Crossing Borders in Literature & Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 3055"
+          ],
+          "title": "German Fairy Tales: From the Grimm Brothers to Disney",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 3071"
+          ],
+          "title": "Introductory Business German I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 3110"
+          ],
+          "title": "Television & Electronic Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 3695"
+          ],
+          "title": "German Business and Technology: Structure, Communication and Correspondence",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 3696"
+          ],
+          "title": "German Business and Technology: Current Issues",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "GRMN 3697"
+          ],
+          "title": "German Business and Technology: Communication",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ID 2202"
+          ],
+          "title": "History of Modern Industrial Design",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ID 2241"
+          ],
+          "title": "History of Art 1",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ID 2242"
+          ],
+          "title": "History of Art 2",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "JAPN 1002"
+          ],
+          "title": "Elementary Japanese II",
+          "hours": 4
+        },
+        {
+          "codes": [
+            "JAPN 2001"
+          ],
+          "title": "Intermediate Japanese I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "JAPN 2002"
+          ],
+          "title": "Intermediate Japanese II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "JAPN 3001"
+          ],
+          "title": "Advanced Japanese I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "JAPN 3691"
+          ],
+          "title": "Technical and Scientific Japanese",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "JAPN 3692"
+          ],
+          "title": "Business Japanese",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "JAPN 3693"
+          ],
+          "title": "Japan Today",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "KOR 1002"
+          ],
+          "title": "Elementary Korean II",
+          "hours": 4
+        },
+        {
+          "codes": [
+            "KOR 2001"
+          ],
+          "title": "Intermediate Korean I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "KOR 2002"
+          ],
+          "title": "Intermediate Korean II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "KOR 3001"
+          ],
+          "title": "Advanced Korean I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "KOR 3002"
+          ],
+          "title": "Advanced Korean II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "KOR 3410"
+          ],
+          "title": "Korean Culture: Old and New",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "KOR 3415"
+          ],
+          "title": "Korea in Media: K-Pop, Film, and Drama",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "KOR 3691"
+          ],
+          "title": "Business Korean",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "KOR 3692"
+          ],
+          "title": "Current Issues and Technology in Korea",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "KOR 3693"
+          ],
+          "title": "Exploring Modern Korea",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LING 2100"
+          ],
+          "title": "Introduction to Linguistics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LING 3100"
+          ],
+          "title": "Applications of Linguistics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 2000"
+          ],
+          "title": "Introduction to Literature, Media, and Communication",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 2050"
+          ],
+          "title": "Seminar in Literature, Media, and Communication",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 2060"
+          ],
+          "title": "Introduction to Literary Studies",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 2100"
+          ],
+          "title": "Introduction to Science, Technology and Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 2200"
+          ],
+          "title": "Introduction to Gender Studies",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 2400"
+          ],
+          "title": "Introduction to Media Studies",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 2500"
+          ],
+          "title": "Introduction to Film",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 2600"
+          ],
+          "title": "Introduction to Performance Studies",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3102"
+          ],
+          "title": "Science, Technology, and the Classical Tradition",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3104"
+          ],
+          "title": "The Age of Scientific Discovery",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3106"
+          ],
+          "title": "The Age of Scientific Revolution",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3112"
+          ],
+          "title": "Evolution and the Industrial Age",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3202"
+          ],
+          "title": "Studies in Fiction",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3204"
+          ],
+          "title": "Poetry and Poetics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3206"
+          ],
+          "title": "Communication & Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3208"
+          ],
+          "title": "African American Literature and Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3210"
+          ],
+          "title": "Ethnicity in American Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3212"
+          ],
+          "title": "Women, Literature, and Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3214"
+          ],
+          "title": "Science Fiction",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3215"
+          ],
+          "title": "Science Fiction Film and Television",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3219"
+          ],
+          "title": "Literature and Medicine",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3225"
+          ],
+          "title": "Gender Studies in the Disciplines",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3226"
+          ],
+          "title": "Major Authors",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3228"
+          ],
+          "title": "Shakespeare",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3234"
+          ],
+          "title": "Creative Writing",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3236"
+          ],
+          "title": "Writing for the Stage and Screen",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3252"
+          ],
+          "title": "Studies in Film and Television",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3253"
+          ],
+          "title": "Animation",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3254"
+          ],
+          "title": "Film History",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3255"
+          ],
+          "title": "Cinema and Digital Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3256"
+          ],
+          "title": "Major Filmmakers",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3257"
+          ],
+          "title": "Global Cinema",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3258"
+          ],
+          "title": "Documentary Film",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3259"
+          ],
+          "title": "Experimental Film",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3262"
+          ],
+          "title": "Performance Studies",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3263"
+          ],
+          "title": "Music, Culture, and Society",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3302"
+          ],
+          "title": "Science, Technology, and Ideology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3304"
+          ],
+          "title": "Science, Technology, and Gender",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3306"
+          ],
+          "title": "Science, Technology, and Race",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3308"
+          ],
+          "title": "Environmentalism and Ecocriticism",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3310"
+          ],
+          "title": "The Rhetoric of Scientific Inquiry",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3314"
+          ],
+          "title": "Technologies of Representation",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3316"
+          ],
+          "title": "Science, Technology, and Postcolonialism",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3318"
+          ],
+          "title": "Biomedicine and Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3352"
+          ],
+          "title": "Film and/as Technology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3405"
+          ],
+          "title": "Media, Culture, and Society",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3502"
+          ],
+          "title": "Ancient and Medieval Literature and Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3504"
+          ],
+          "title": "Renaissance Literature and Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3506"
+          ],
+          "title": "Enlightenment and Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3511"
+          ],
+          "title": "American Literature & Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3512"
+          ],
+          "title": "British and Continental Romanticism",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3514"
+          ],
+          "title": "Victorian Literature and Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3516"
+          ],
+          "title": "Literary and Cultural Modernism",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3518"
+          ],
+          "title": "Literary and Cultural Postmodernism",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3520"
+          ],
+          "title": "Contemporary Issues in Literature & Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ML 2500"
+          ],
+          "title": "Think Globally, Act Locally: An Introduction to Cross-Cultural Studies",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "MUSI 2010"
+          ],
+          "title": "Fundamentals of Musicianship I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "MUSI 2011"
+          ],
+          "title": "Fundamentals of Musicianship II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "MUSI 2700"
+          ],
+          "title": "Introduction to Music Theory",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "MUSI 3450"
+          ],
+          "title": "Survey of Music Technology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "MUSI 3621"
+          ],
+          "title": "Musicians & their Music",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "MUSI 3630"
+          ],
+          "title": "The History of Jazz, the Roots and Evolution of an American Musical Art Form",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PERS 1002"
+          ],
+          "title": "Elementary Persian II",
+          "hours": 4
+        },
+        {
+          "codes": [
+            "PERS 2001"
+          ],
+          "title": "Intermediate Persian I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PERS 2002"
+          ],
+          "title": "Intermediate Persian II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 2010"
+          ],
+          "title": "Introduction to Philosophical Analysis",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 2025"
+          ],
+          "title": "Philosophical Analysis of Policy Choices",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3050"
+          ],
+          "title": "Political Philosophy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3102"
+          ],
+          "title": "Ancient Philosophy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3103"
+          ],
+          "title": "Modern Philosophy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3105"
+          ],
+          "title": "Ethical Theories",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3109"
+          ],
+          "title": "Engineering Ethics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3113"
+          ],
+          "title": "Logic and Critical Thinking",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3115"
+          ],
+          "title": "Philosophy of Science",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3127"
+          ],
+          "title": "Science, Technology, and Human Values",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3135"
+          ],
+          "title": "Philosophy of Technology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3140"
+          ],
+          "title": "Philosophy of Food",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "RUSS 1002"
+          ],
+          "title": "Elementary Russian II",
+          "hours": 4
+        },
+        {
+          "codes": [
+            "RUSS 1250"
+          ],
+          "title": "Vampires and Memory of Stalinism in Post-Soviet Russia",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "RUSS 1692"
+          ],
+          "title": "Intensive Elementary Russian II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "RUSS 2001"
+          ],
+          "title": "Intermediate Russian I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "RUSS 2002"
+          ],
+          "title": "Intermediate Russian II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "RUSS 2460"
+          ],
+          "title": "Russian Modernist and Dystopian Fiction",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "RUSS 2691"
+          ],
+          "title": "Intensive Intermediate Russian I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "RUSS 2692"
+          ],
+          "title": "Intensive Intermediate Russian II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "RUSS 3001"
+          ],
+          "title": "Advanced Russian I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "RUSS 3002"
+          ],
+          "title": "Advanced Russian II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "RUSS 3222"
+          ],
+          "title": "The Russian Twentieth Century in Literature and Film",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "RUSS 3691"
+          ],
+          "title": "Intensive Advanced Russian",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "RUSS 3692"
+          ],
+          "title": "Advanced Reading and Composition for Business, Science and Technology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 1002"
+          ],
+          "title": "Elementary Spanish II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 2001"
+          ],
+          "title": "Intermediate Spanish I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 2002"
+          ],
+          "title": "Intermediate Spanish II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3050"
+          ],
+          "title": "Introduction to Reading Hispanic Literature",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3061"
+          ],
+          "title": "Spanish for Business I: Fundamentals",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3064"
+          ],
+          "title": "Medical Spanish",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3101"
+          ],
+          "title": "Spanish Conversation: Issues and Strategies I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3111"
+          ],
+          "title": "Composition: Analysis and Development I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3122"
+          ],
+          "title": "Cultural History of Spain II: Nineteenth and Twentieth Century Spain",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3211"
+          ],
+          "title": "Spain Today",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3235"
+          ],
+          "title": "Latin America Today",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3242"
+          ],
+          "title": "Society in Hispanic Literature",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3260"
+          ],
+          "title": "Identity in Hispanic American Literature",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3500"
+          ],
+          "title": "Science Fiction in Latin America",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3692"
+          ],
+          "title": "Business and Culture in the Hispanic World",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3693"
+          ],
+          "title": "Science and Technology in the Hispanic World",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3694"
+          ],
+          "title": "Business and Culture in the Hispanic World: Seminar Abroad",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3697"
+          ],
+          "title": "Spanish for Health Care Professionals",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SPAN 3698"
+          ],
+          "title": "Health Care Industry in Spain",
+          "hours": 3
+        }
+      ],
+      "notes": [
+        "Any courses listed in prior catalogs as satisfying the humanities or ethics requirement and that were completed while that catalog was in effect may also be used to satisfy these requirements.",
+        "Academic units must formally request approval for courses they deem eligible to carry a Core IMPACTS area attribute from the Institute Undergraduate General Education and Policy Subcommittee, the Institute Undergraduate Curriculum Committee, and the University System of Georgia General Education Council.",
+        "Students are permitted to apply a maximum of 3 credit hours from one introductory (1002-, 2001-, or 2002-numbered) Modern Language course that carries the HUM attribute toward their Core IMPACTS area humanities requirement. Please note that: students may apply the maximum of 3 credit hours from one 1002-, 2001-, or 2002-numbered Modern Language course toward their Core IMPACTS Area humanities requirement only if that course carries the HUM attribute. students may not apply any credits from more than one 1002-, 2001-, or 2002-numbered Modern Language course toward their Core IMPACTS Area humanities requirement regardless of whether or not the course(s) carry the HUM attribute. students who apply the maximum of 3 credit hours from one introductory (1002-, 2001-, or 2002-numbered) Modern Language course carrying the HUM attribute toward their Core IMPACTS Area humanities requirement must satisfy the remaining 3 credit hours required to complete the Core IMPACTS area humanities requirement by applying credit hours from courses carrying the HUM attribute OTHER THAN introductory (1002-, 2001-, or 2002-numbered) Modern Language courses.",
+        "Transfer students are asked to please be aware that when they see courses on their GT record that are listed with an \"X\" in the number (JAPN 10X2, for example) it means that these are transfer courses and although they were not equated exactly with a GT course, they may have been accepted to meet a Core IMPACTS Area such as Arts, Humanities & Ethics and Social Sciences. If they review their records in DegreeWorks, they will be able to see how their transfer credit applies to their GT degree program. Transfer students should consult their academic advisors for more information."
+      ]
+    },
+    {
+      "id": "communicating-in-writing",
+      "usgArea": "C",
+      "label": "Communicating in Writing",
+      "catalogShortName": "Writing",
+      "programPageHeading": "Communicating in Writing",
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/writing/",
+      "hours": {
+        "min": 6,
+        "max": 6
+      },
+      "hoursStated": false,
+      "hoursBasis": "Both listed courses are required, 3 credit hours each.",
+      "rule": "Complete ENGL 1101 and ENGL 1102.",
+      "ruleQuote": {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/writing/",
+        "quote": "Students must complete both of the following courses to satisfy the Communicating in Writing area:"
+      },
+      "choose": {
+        "all": true
+      },
+      "tag": "Core IMPACTS: Communicating in Writing",
+      "courses": [
+        {
+          "codes": [
+            "ENGL 1101"
+          ],
+          "title": "English Composition I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ENGL 1102"
+          ],
+          "title": "English Composition II",
+          "hours": 3
+        }
+      ],
+      "notes": [
+        "Effective Fall 2012, for freshmen entering the University System of Georgia system Fall 2012, students who have earned 30 hours but have not completed Communicating in Writing must enroll in the next course necessary to make progress toward completing this Area in every semester in which they take classes."
+      ]
+    },
+    {
+      "id": "technology-mathematics-sciences",
+      "usgArea": "T",
+      "label": "Technology, Mathematics & Sciences",
+      "catalogShortName": "STEM",
+      "programPageHeading": "Technology, Mathematics, and Sciences",
+      "programPagePlaceholder": "Lab Science",
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/stem/",
+      "hours": {
+        "min": 12,
+        "max": 14
+      },
+      "hoursStated": true,
+      "hoursBasis": "Stated as 8 credit hours of lab sciences plus 4-6 credit hours of mathematics.",
+      "rule": "8 credit hours of lab science from the Sciences list, plus 4-6 credit hours of mathematics from the list for the student's college. College of Engineering and School of Physics students must take PHYS 2211 and PHYS 2212.",
+      "ruleQuote": {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/stem/",
+        "quote": "Students will select 8 credit hours of lab sciences and 4-6 credit hours of Mathematics from the course lists below."
+      },
+      "parts": [
+        {
+          "id": "lab-science",
+          "label": "Sciences",
+          "hours": {
+            "min": 8,
+            "max": 8
+          },
+          "choose": {
+            "hours": 8
+          },
+          "tag": "Core IMPACTS: Lab Science",
+          "courses": [
+            {
+              "codes": [
+                "CHEM 1211K"
+              ],
+              "title": "Principles of Chemistry I",
+              "hours": 4
+            },
+            {
+              "codes": [
+                "CHEM 1212K"
+              ],
+              "title": "Principles of Chemistry II",
+              "hours": 4
+            },
+            {
+              "codes": [
+                "CHEM 1310"
+              ],
+              "title": "Principles of General Chemistry for Engineers",
+              "hours": 4
+            },
+            {
+              "codes": [
+                "BIOS 1220"
+              ],
+              "title": "Biology of Sex & Death",
+              "hours": 4
+            },
+            {
+              "codes": [
+                "BIOS 1107",
+                "BIOS 1107L"
+              ],
+              "title": "Principles of Biology I and Principles of Biology I Laboratory",
+              "hours": 4
+            },
+            {
+              "codes": [
+                "BIOS 1108",
+                "BIOS 1108L"
+              ],
+              "title": "Principles of Biology II and Principles of Biology II Laboratory",
+              "hours": 4
+            },
+            {
+              "codes": [
+                "EAS 1600"
+              ],
+              "title": "Introduction to Environmental Science",
+              "hours": 4
+            },
+            {
+              "codes": [
+                "EAS 1601"
+              ],
+              "title": "Habitable Planet",
+              "hours": 4
+            },
+            {
+              "codes": [
+                "EAS 2600"
+              ],
+              "title": "Earth Processes",
+              "hours": 4
+            },
+            {
+              "codes": [
+                "PHYS 1111K"
+              ],
+              "title": "Introductory Physics I",
+              "hours": 4
+            },
+            {
+              "codes": [
+                "PHYS 2211"
+              ],
+              "title": "Principles of Physics I",
+              "hours": 4,
+              "footnotes": [
+                "College of Engineering and School of Physics students must complete PHYS 2211 and PHYS 2212."
+              ]
+            },
+            {
+              "codes": [
+                "PHYS 2212"
+              ],
+              "title": "Principles of Physics II",
+              "hours": 4,
+              "footnotes": [
+                "College of Engineering and School of Physics students must complete PHYS 2211 and PHYS 2212."
+              ]
+            }
+          ],
+          "footnotes": [
+            "College of Engineering and School of Physics students must complete PHYS 2211 and PHYS 2212."
+          ]
+        },
+        {
+          "id": "math-architecture-engineering-sciences",
+          "label": "Mathematics",
+          "audience": "All students with majors in the Colleges of Architecture, Engineering and Sciences",
+          "hours": {
+            "min": 4,
+            "max": 4
+          },
+          "choose": {
+            "all": true
+          },
+          "courses": [
+            {
+              "codes": [
+                "MATH 1551"
+              ],
+              "title": "Differential Calculus",
+              "hours": 2
+            },
+            {
+              "codes": [
+                "MATH 1553"
+              ],
+              "title": "Introduction to Linear Algebra",
+              "hours": 2
+            }
+          ],
+          "tag": "Core IMPACTS: Technology, Mathematics & Sciences (Mathematics)",
+          "footnotes": []
+        },
+        {
+          "id": "math-computing-cmpe-ee",
+          "label": "Mathematics",
+          "audience": "All students with majors in the College of Computing and Computer Engineering, Electrical Engineering",
+          "hours": {
+            "min": 6,
+            "max": 6
+          },
+          "choose": {
+            "all": true
+          },
+          "courses": [
+            {
+              "codes": [
+                "MATH 1551"
+              ],
+              "title": "Differential Calculus",
+              "hours": 2
+            },
+            {
+              "codes": [
+                "MATH 1554"
+              ],
+              "title": "Linear Algebra",
+              "hours": 4
+            }
+          ],
+          "tag": "Core IMPACTS: Technology, Mathematics & Sciences (Mathematics)",
+          "footnotes": []
+        },
+        {
+          "id": "math-all-other-majors",
+          "label": "Mathematics",
+          "audience": "All other majors",
+          "hours": {
+            "min": 4,
+            "max": 4
+          },
+          "choose": {
+            "courses": 1
+          },
+          "courses": [
+            {
+              "codes": [
+                "MATH 1711"
+              ],
+              "title": "Finite Mathematics",
+              "hours": 4
+            },
+            {
+              "codes": [
+                "MATH 1551",
+                "MATH 1553"
+              ],
+              "title": "Differential Calculus and Introduction to Linear Algebra",
+              "hours": 4
+            }
+          ],
+          "tag": "Core IMPACTS: Technology, Mathematics & Sciences (Mathematics)",
+          "footnotes": [
+            "In the case of a degree (major) that is jointly offered and the Colleges' requirements in this area are different, the student must complete the course that is specified in the curriculum for the degree, regardless of which college is the declared \"home\" of the student. This area of the Core Curriculum is driven by the requirements of the specific degree program, not by the general requirements of the College, if a degree is offered jointly."
+          ]
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "social-sciences",
+      "usgArea": "S",
+      "label": "Social Sciences",
+      "catalogShortName": "Social Sciences",
+      "programPageHeading": "Social Sciences",
+      "programPagePlaceholder": "Any SS",
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/social-sciences/",
+      "hours": {
+        "min": 9,
+        "max": 9
+      },
+      "hoursStated": true,
+      "hoursBasis": "Stated on the page.",
+      "rule": "9 credit hours of courses carrying the SS attribute. Credit is not awarded for both POL 1101 and INTA 1200. ECON 2100, 2101, 2105 and 2106 earn 3 hours, or 6 when ECON 2105 is completed with ECON 2106.",
+      "ruleQuote": {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/social-sciences/",
+        "quote": "Students will select 9 credit hours of courses that carry the Social Sciences (SS) attribute."
+      },
+      "choose": {
+        "hours": 9
+      },
+      "attribute": "SS",
+      "tag": "SS",
+      "limits": [
+        {
+          "rule": "no-credit-for-both",
+          "codes": [
+            "POL 1101",
+            "INTA 1200"
+          ],
+          "quote": {
+            "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/social-sciences/",
+            "quote": "Credit is not awarded for both POL 1101 and INTA 1200."
+          }
+        },
+        {
+          "rule": "econ-principles-cap",
+          "codes": [
+            "ECON 2100",
+            "ECON 2101",
+            "ECON 2105",
+            "ECON 2106"
+          ],
+          "maxHours": 3,
+          "maxHoursWhen": {
+            "codes": [
+              "ECON 2105",
+              "ECON 2106"
+            ],
+            "maxHours": 6
+          },
+          "quote": {
+            "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/social-sciences/",
+            "quote": "Students can receive 3 credit hours for any of the following: ECON 2100, ECON 2101, ECON 2105, ECON 2106. Students may receive 6 credit hours if ECON 2105 is completed with ECON 2106."
+          }
+        }
+      ],
+      "courses": [
+        {
+          "codes": [
+            "ARCH 3135"
+          ],
+          "title": "City Literacy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CP 2010"
+          ],
+          "title": "Foundations of Urban and Regional Development",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CP 2020"
+          ],
+          "title": "Introduction to Urban and Regional Planning",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CP 2030"
+          ],
+          "title": "Atlanta Past, Present, and Future",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CP 2040"
+          ],
+          "title": "Cities of Tomorrow",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CP 2233"
+          ],
+          "title": "Sustainable Urban Development",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CP 2235"
+          ],
+          "title": "World Cities",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ECON 2010"
+          ],
+          "title": "Exploring Social Challenges with Data",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ECON 2020"
+          ],
+          "title": "Introduction to Sports Economics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ECON 2030"
+          ],
+          "title": "Economics of Games and Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ECON 2040"
+          ],
+          "title": "Economics of Sustainability and Conservation",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ECON 2050"
+          ],
+          "title": "Survey of International Economics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ECON 2060"
+          ],
+          "title": "Applied Microeconomics for Entrepreneurs",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ECON 2100"
+          ],
+          "title": "Economic Analysis and Policy Problems",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ECON 2101"
+          ],
+          "title": "The Global Economy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ECON 2105"
+          ],
+          "title": "Principles of Macroeconomics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ECON 2106"
+          ],
+          "title": "Principles of Microeconomics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ECON 3300"
+          ],
+          "title": "Economics of International Energy Markets",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HIST 2111"
+          ],
+          "title": "Survey of U.S. History I",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HIST 2112"
+          ],
+          "title": "Survey of U.S. History II",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 1031"
+          ],
+          "title": "Europe Since the Renaissance",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 1081"
+          ],
+          "title": "Engineering in History",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 1090"
+          ],
+          "title": "This is Archaeology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2001"
+          ],
+          "title": "Early American History",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2002"
+          ],
+          "title": "The American Revolution and Constitution",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2006"
+          ],
+          "title": "History of the Old South to 1865",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2007"
+          ],
+          "title": "History of the New South since 1865",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2013"
+          ],
+          "title": "Modern America: World War II and After",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2015"
+          ],
+          "title": "History of Sports in America",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2016"
+          ],
+          "title": "Social Issues and Public Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2017"
+          ],
+          "title": "Environmental Sociology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2018"
+          ],
+          "title": "Food and Society",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2036"
+          ],
+          "title": "Revolutionary Europe: 1789-1914",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2037"
+          ],
+          "title": "Twentieth Century Europe: 1914 to Present",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2040"
+          ],
+          "title": "History of Islamic Societies",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2041"
+          ],
+          "title": "History of the Modern Middle East",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2050"
+          ],
+          "title": "Global Health and Society",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2051"
+          ],
+          "title": "Colonial Latin America and the World",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2052"
+          ],
+          "title": "North American Borderlands",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2053"
+          ],
+          "title": "Modern Latin American History",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2061"
+          ],
+          "title": "Traditional Asia and Its Legacy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2062"
+          ],
+          "title": "Asia in the Modern World",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2080"
+          ],
+          "title": "Introduction to the History of Disease and Medicine",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2081"
+          ],
+          "title": "The Scientific Revolution",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2082"
+          ],
+          "title": "Technology and Science in the Industrial Age",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2084"
+          ],
+          "title": "Technology and Society",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2085"
+          ],
+          "title": "Reel History I: US History through Hollywood Films",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2087"
+          ],
+          "title": "Games, Computers, and Intelligence",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2100"
+          ],
+          "title": "Sci, Tech & Modern World",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2101"
+          ],
+          "title": "Historical and Social Research",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3002"
+          ],
+          "title": "History of American Business",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3003"
+          ],
+          "title": "Sociology of Economic Institutions",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3005"
+          ],
+          "title": "American Environmental History",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3006"
+          ],
+          "title": "United States Labor History",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3007"
+          ],
+          "title": "Sociology of Work, Industry, and Occupations",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3008"
+          ],
+          "title": "Class, Power, and Social Inequality",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3009"
+          ],
+          "title": "The American Civil War",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3011"
+          ],
+          "title": "The City in American History",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3012"
+          ],
+          "title": "Urban Sociology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3015"
+          ],
+          "title": "History of the Vietnam War",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3016"
+          ],
+          "title": "Women and Gender in the United States",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3017"
+          ],
+          "title": "Sociology of Gender",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3018"
+          ],
+          "title": "New Religions and Cults in America",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3019"
+          ],
+          "title": "The Family, Sexuality, and Social Change in America",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3020"
+          ],
+          "title": "Gender and Technology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3021"
+          ],
+          "title": "Women in Science and Engineering",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3022"
+          ],
+          "title": "Gender and Sports",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3023"
+          ],
+          "title": "Slaves without Masters: Free People of Color before 1865",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3024"
+          ],
+          "title": "African American History to 1865",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3025"
+          ],
+          "title": "African American History since 1865",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3026"
+          ],
+          "title": "Sociology of Race and Ethnicity",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3027"
+          ],
+          "title": "The Civil Rights Movement",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3028"
+          ],
+          "title": "Ancient Greece: Gods, Heroes, and RuinS",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3029"
+          ],
+          "title": "Ancient Rome: From Greatness to Ruins",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3030"
+          ],
+          "title": "Medieval Europe: 350 to 1400",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3031"
+          ],
+          "title": "European Labor History",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3032"
+          ],
+          "title": "Modern European Intellectual History",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3033"
+          ],
+          "title": "Medieval England",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3035"
+          ],
+          "title": "Britain from 1815-1914",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3036"
+          ],
+          "title": "Britain Since 1914",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3038"
+          ],
+          "title": "The French Revolution",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3039"
+          ],
+          "title": "Modern France",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3041"
+          ],
+          "title": "Modern Spain",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3046"
+          ],
+          "title": "Science, Politics, and Culture in Nazi Germany",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3048"
+          ],
+          "title": "Modern Russian History and Society",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3051"
+          ],
+          "title": "Women and the Politics of Gender in the Middle East",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3055"
+          ],
+          "title": "Globalization in the Modern Era",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3061"
+          ],
+          "title": "Modern China",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3062"
+          ],
+          "title": "Modern Japan",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3064"
+          ],
+          "title": "Sociology of Development",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3065"
+          ],
+          "title": "History of Global Societies",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3066"
+          ],
+          "title": "Sociology of Politics and Society",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3067"
+          ],
+          "title": "Revolutionary Movements in the Modern World",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3068"
+          ],
+          "title": "Social Movements",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3070"
+          ],
+          "title": "Culture and Society",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3071"
+          ],
+          "title": "Sociology of Crime",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3072"
+          ],
+          "title": "Sociology of Education",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3073"
+          ],
+          "title": "Sociology of Sports",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3082"
+          ],
+          "title": "Sociology of Science",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3084"
+          ],
+          "title": "Culture and Technology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3086"
+          ],
+          "title": "Sociology of Medicine and Health",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3087"
+          ],
+          "title": "History of Medicine",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3088"
+          ],
+          "title": "Race, Medicine & Science",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3089"
+          ],
+          "title": "Science, Technology and Sports",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3100"
+          ],
+          "title": "Introduction to Museum Studies",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3102"
+          ],
+          "title": "Social Theory and Social Structure",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 1050"
+          ],
+          "title": "The World Today",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 1110"
+          ],
+          "title": "Introduction to International Relations",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 1200"
+          ],
+          "title": "American Government in Comparative Perspective",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2030"
+          ],
+          "title": "Ethics in International Affairs",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2040"
+          ],
+          "title": "Science, Technology, and International Affairs",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2042"
+          ],
+          "title": "Introduction to Global WMD Issues",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2050"
+          ],
+          "title": "Introduction to Global Development",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2100"
+          ],
+          "title": "Theoretical Approaches to Great Power Relations",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2120"
+          ],
+          "title": "Introduction to International Security",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2210"
+          ],
+          "title": "Comparative Political Philosophies and Ideologies",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2220"
+          ],
+          "title": "Government and Politics of Europe",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2221"
+          ],
+          "title": "Politics of the European Union",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2230"
+          ],
+          "title": "Government and Politics of Asia",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2241"
+          ],
+          "title": "Government, Politics and Society of Latin America",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2260"
+          ],
+          "title": "Government, Politics and Society of the Middle East",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3010"
+          ],
+          "title": "International Technology Transfer",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3012"
+          ],
+          "title": "War in the 20th Century",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3020"
+          ],
+          "title": "Contemporary Mexico",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3031"
+          ],
+          "title": "Human Rights in a Technological World",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3040"
+          ],
+          "title": "Energy, Environment, and Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3042"
+          ],
+          "title": "Energy and International Security",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3043"
+          ],
+          "title": "Space Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3044"
+          ],
+          "title": "Global Politics of Technology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3050"
+          ],
+          "title": "The Meaning of Global Citizenship",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3101"
+          ],
+          "title": "International Institutions",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3102"
+          ],
+          "title": "The Problem of Proliferation",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3103"
+          ],
+          "title": "The Challenge of Terrorism",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3104"
+          ],
+          "title": "International Negotiations",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3110"
+          ],
+          "title": "U.S. Foreign Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3111"
+          ],
+          "title": "U.S. Defense Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3120"
+          ],
+          "title": "European Security Issues",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3121"
+          ],
+          "title": "Foreign Policies of Russia and Eurasia",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3130"
+          ],
+          "title": "Foreign Policy of China",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3131"
+          ],
+          "title": "Pacific Security Issues",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3203"
+          ],
+          "title": "Comparative Politics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3220"
+          ],
+          "title": "Government and Politics of Germany",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3221"
+          ],
+          "title": "Post-Soviet Government and Politics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3223"
+          ],
+          "title": "Transatlantic Relations",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3230"
+          ],
+          "title": "Government and Politics of China",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3231"
+          ],
+          "title": "Government and Politics of Japan",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3232"
+          ],
+          "title": "Sustainable Megaregion",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3240"
+          ],
+          "title": "Government and Politics of Africa",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3241"
+          ],
+          "title": "Latin American Politics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3242"
+          ],
+          "title": "Soccer and Global Politics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3243"
+          ],
+          "title": "US - Latin American Relations",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3260"
+          ],
+          "title": "Middle East Relations",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3301"
+          ],
+          "title": "International Political Economy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3303"
+          ],
+          "title": "Political Economy of Development",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3304"
+          ],
+          "title": "International Trade and Production",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3321"
+          ],
+          "title": "Political Economy of European Integration",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3330"
+          ],
+          "title": "Political Economy of China",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 3331"
+          ],
+          "title": "Political Economy of Japan",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "POL 1101"
+          ],
+          "title": "Government of the United States",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "POL 2101"
+          ],
+          "title": "State and Local Government",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 1101"
+          ],
+          "title": "Introduction to General Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2015"
+          ],
+          "title": "Research Methods",
+          "hours": 4
+        },
+        {
+          "codes": [
+            "PSYC 2103"
+          ],
+          "title": "Human Development Over the Life Span",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2210"
+          ],
+          "title": "Social Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2220"
+          ],
+          "title": "Industrial/Organizational Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2230"
+          ],
+          "title": "Abnormal Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2240"
+          ],
+          "title": "Personality Theory",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2250"
+          ],
+          "title": "Cross-Cultural Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2270"
+          ],
+          "title": "Introduction to Engineering Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2280"
+          ],
+          "title": "Psychology of Creativity and Art",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2760"
+          ],
+          "title": "Human Language Processing",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 3012"
+          ],
+          "title": "Introduction to Cognitive Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 3040"
+          ],
+          "title": "Sensation and Perception",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 3041"
+          ],
+          "title": "Human Sensation and Perception",
+          "hours": 4
+        },
+        {
+          "codes": [
+            "PUBP 2010"
+          ],
+          "title": "Political Processes",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 2012"
+          ],
+          "title": "Foundations of Public Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 2030"
+          ],
+          "title": "Organizations and Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3000"
+          ],
+          "title": "American Constitutional Issues",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3016"
+          ],
+          "title": "Judicial Process",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3020"
+          ],
+          "title": "Applied Political Economy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3030"
+          ],
+          "title": "Policy Analysis",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3042"
+          ],
+          "title": "Data Science for Public Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3120"
+          ],
+          "title": "Statistical Analysis for Public Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3130"
+          ],
+          "title": "Research Methods and Problem Solving",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3201"
+          ],
+          "title": "Introduction to Social Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3214"
+          ],
+          "title": "African American Politics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3230"
+          ],
+          "title": "STEM Education Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3315"
+          ],
+          "title": "Environmental Policy and Politics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3320"
+          ],
+          "title": "Climate Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3350"
+          ],
+          "title": "Energy Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3510"
+          ],
+          "title": "Politics and Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3600"
+          ],
+          "title": "Sustainability, Technology, and Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3610"
+          ],
+          "title": "Pre-Law Seminar",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "SOC 1101"
+          ],
+          "title": "Introduction to Sociology",
+          "hours": 3
+        }
+      ],
+      "notes": [
+        "Any courses completed that were listed in prior catalogs as satisfying the Social Sciences Core IMPACTS area and were completed while that catalog was in effect may also be used to satisfy this requirement.",
+        "Credit is not awarded for both POL 1101 and INTA 1200.",
+        "Academic units must formally request approval for courses they deem eligible to carry the Social Sciences (SS) attribute from the Institute Undergraduate General Education and Policy Subcommittee, the Institute Undergraduate Curriculum Committee and the University System of Georgia General Education Council.",
+        "Students can receive 3 credit hours for any of the following: ECON 2100, ECON 2101, ECON 2105, ECON 2106. Students may receive 6 credit hours if ECON 2105 is completed with ECON 2106.",
+        "Transfer Students: Please be aware that when you see courses on your GT record that are listed with an \"X\" in the number (ECON 3XXX or JAPN 10X2, for example) it means that these are transfer courses and although there were not equated exactly with a GT course, they may have been accepted to meet a Core IMPACTS area such as Arts, Humanities & Ethics and Social Sciences. If you review your records in DegreeWorks, you will be able to see how your transfer credit applies to your GT degree program. Refer to your academic advisor for more information."
+      ]
+    }
+  ],
+  "fieldOfStudy": {
+    "id": "field-of-study",
+    "label": "Field of Study",
+    "programPageHeading": "Field of Study",
+    "hours": {
+      "min": 18,
+      "max": 18
+    },
+    "hoursStated": true,
+    "rule": "18 credit hours specific to each undergraduate program; the courses are on the degree page, not here.",
+    "quote": {
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/",
+      "quote": "The Field of Study area is comprised of 18 credit hours specific to each undergraduate program."
+    },
+    "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/"
+  },
+  "otherRequirements": {
+    "wellness": {
+      "id": "wellness",
+      "label": "Wellness Requirement",
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/wellness-requirement/",
+      "rule": "One 2-hour wellness course. It sits on top of the 120-hour minimum (120 + 2 = 122).",
+      "quote": {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/wellness-requirement/",
+        "quote": "All undergraduate students attending Georgia Tech must satisfactorily complete a wellness requirement."
+      },
+      "choose": {
+        "courses": 1
+      },
+      "hours": 2,
+      "tag": "Wellness",
+      "courses": [
+        {
+          "codes": [
+            "APPH 1040"
+          ],
+          "title": "Scientific Foundations of Health",
+          "hours": 2,
+          "footnotes": [
+            "Previously offered as HPS 1040 (Health)."
+          ]
+        },
+        {
+          "codes": [
+            "APPH 1050"
+          ],
+          "title": "The Science of Physical Activity and Health",
+          "hours": 2
+        },
+        {
+          "codes": [
+            "APPH 1060"
+          ],
+          "title": "Flourishing: Strategies for Well-being and Resilience",
+          "hours": 2
+        }
+      ],
+      "footnotes": [
+        "Previously offered as HPS 1040 (Health)."
+      ],
+      "medicalExemption": {
+        "url": "https://catalog.gatech.edu/rules/13/",
+        "quote": "Unless medically exempted, all students are required to satisfy the wellness requirement prior to graduation, as specified in the Core Curriculum section of the Catalog."
+      }
+    },
+    "ethics": {
+      "id": "ethics-attribute",
+      "label": "Ethics Attribute (ETHS)",
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/ethics/",
+      "universityWide": false,
+      "rule": "Not a university-wide requirement: some majors require an ETHS course, and some name their own ethics course instead. A course may count for ETHS and for Humanities or Social Sciences at the same time.",
+      "quotes": [
+        {
+          "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/humanities/",
+          "quote": "Some Georgia Tech major degree programs require completion of a separate Ethics (ETHS) requirement."
+        },
+        {
+          "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/ethics/",
+          "quote": "While some courses (as designated) meet Humanities or Social Science requirements, not all of the courses listed below will meet Core IMPACTS (general education) requirements."
+        },
+        {
+          "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/social-sciences/",
+          "quote": "Some Social Sciences courses may also carry the Georgia Tech assigned Ethics (ETHS) attribute. These courses may be used to serve both purposes."
+        }
+      ],
+      "attribute": "ETHS",
+      "tag": "ETHS",
+      "courses": [
+        {
+          "codes": [
+            "BIOS 4651"
+          ],
+          "title": "Bioethics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CHBE 4515"
+          ],
+          "title": "Chemical Process Safety",
+          "hours": 1
+        },
+        {
+          "codes": [
+            "CS 4001"
+          ],
+          "title": "Computing, Society, and Professionalism",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "CS 4726"
+          ],
+          "title": "Privacy, Technology, Policy, and Law",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "ECE 2028"
+          ],
+          "title": "AI Foundations",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 1081"
+          ],
+          "title": "Engineering in History",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2061"
+          ],
+          "title": "Traditional Asia and Its Legacy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2084"
+          ],
+          "title": "Technology and Society",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 2100"
+          ],
+          "title": "Sci, Tech & Modern World",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "HTS 3032"
+          ],
+          "title": "Modern European Intellectual History",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "INTA 2030"
+          ],
+          "title": "Ethics in International Affairs",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3102"
+          ],
+          "title": "Science, Technology, and the Classical Tradition",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3112"
+          ],
+          "title": "Evolution and the Industrial Age",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3219"
+          ],
+          "title": "Literature and Medicine",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3304"
+          ],
+          "title": "Science, Technology, and Gender",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3308"
+          ],
+          "title": "Environmentalism and Ecocriticism",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "LMC 3318"
+          ],
+          "title": "Biomedicine and Culture",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "MGT 3608"
+          ],
+          "title": "Technology Law and Ethics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "MGT 4047"
+          ],
+          "title": "Ethics & Accounting",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "MGT 4726"
+          ],
+          "title": "Privacy, Technology, Policy, and Law",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "NS 4322"
+          ],
+          "title": "Naval Leadership and Ethics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3105"
+          ],
+          "title": "Ethical Theories",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3109"
+          ],
+          "title": "Engineering Ethics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3127"
+          ],
+          "title": "Science, Technology, and Human Values",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3140"
+          ],
+          "title": "Philosophy of Food",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 3180"
+          ],
+          "title": "Biomedical Ethics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PHIL 4176"
+          ],
+          "title": "Environmental Ethics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 1101"
+          ],
+          "title": "Introduction to General Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2015"
+          ],
+          "title": "Research Methods",
+          "hours": 4
+        },
+        {
+          "codes": [
+            "PSYC 2210"
+          ],
+          "title": "Social Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2220"
+          ],
+          "title": "Industrial/Organizational Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2230"
+          ],
+          "title": "Abnormal Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2240"
+          ],
+          "title": "Personality Theory",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 2270"
+          ],
+          "title": "Introduction to Engineering Psychology",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 3031"
+          ],
+          "title": "Experimental Analysis of Behavior",
+          "hours": 4
+        },
+        {
+          "codes": [
+            "PSYC 4050"
+          ],
+          "title": "History and Systems",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PSYC 4270"
+          ],
+          "title": "Psychological Testing",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3244"
+          ],
+          "title": "Stem Cell Science, Policy, and Ethics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 3600"
+          ],
+          "title": "Sustainability, Technology, and Policy",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 4630"
+          ],
+          "title": "Law, Medicine, and Ethics",
+          "hours": 3
+        },
+        {
+          "codes": [
+            "PUBP 4726"
+          ],
+          "title": "Privacy, Technology, Policy and Law",
+          "hours": 3
+        }
+      ]
+    },
+    "legislative": {
+      "id": "georgia-legislative",
+      "label": "Georgia Legislative Requirements (U.S. and Georgia History and Constitution)",
+      "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+      "law": {
+        "url": "https://catalog.gatech.edu/rules/13/",
+        "quote": "The Georgia law, as amended March 4, 1953, requires that before graduation all students pass examinations or pass comparable courses in United States and Georgia history and in the United States and Georgia Constitutions."
+      },
+      "effective": {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+        "quote": "All incoming undergraduate students who first matriculate at Georgia Tech on or after May 1, 2023 will be required to follow these implementation requirements."
+      },
+      "hours": 0,
+      "hoursNote": "No hours of its own: met by a course the student takes anyway (usually the Political Science & U.S. History pick or a Social Sciences course) or by a non-credit exam.",
+      "overlapWithCore": {
+        "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+        "quote": "Courses taken to satisfy Core Area E requirements (Social Sciences) can also be used to satisfy the legislative requirements, as specified above. The courses(s) can serve both purposes."
+      },
+      "parts": [
+        {
+          "id": "us-history",
+          "label": "United States History",
+          "tag": "Legislative: U.S. History",
+          "courses": [
+            "HIST 2111",
+            "HIST 2112"
+          ],
+          "courseCredit": "Taken at GT, transferred, or awarded for an AP or IB score.",
+          "exam": true
+        },
+        {
+          "id": "georgia-history",
+          "label": "Georgia History",
+          "tag": "Legislative: Georgia History",
+          "courses": [
+            "HIST 2111",
+            "HIST 2112"
+          ],
+          "courseCredit": "Only when taken at Georgia Tech (or shown as satisfied on a USG/TCSG transcript). AP or IB credit for HIST 2111/2112 does not meet Georgia History.",
+          "quote": {
+            "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+            "quote": "when completed at Georgia Tech, these courses satisfy both the United States History and the Georgia History legislative requirements."
+          },
+          "exam": true
+        },
+        {
+          "id": "us-constitution",
+          "label": "United States Constitution",
+          "tag": "Legislative: U.S. Constitution",
+          "courses": [
+            "INTA 1200",
+            "POL 1101",
+            "PUBP 3000"
+          ],
+          "courseCredit": "Taken at GT or transferred; AP credit counts only for INTA 1200 or POL 1101.",
+          "exam": true
+        },
+        {
+          "id": "georgia-constitution",
+          "label": "Constitution of Georgia",
+          "tag": "Legislative: Georgia Constitution",
+          "courses": [
+            "INTA 1200",
+            "POL 1101",
+            "PUBP 3000"
+          ],
+          "courseCredit": "Only when taken at Georgia Tech (or shown as satisfied on a USG/TCSG transcript).",
+          "quote": {
+            "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+            "quote": "receiving credit for either of these courses when taken at Georgia Tech satisfies both the United States Constitution and the Constitution of Georgia legislative requirements."
+          },
+          "exam": true
+        }
+      ],
+      "examOption": {
+        "rule": "Each of the four can instead be met by a non-credit Canvas exam, passed at 60% or higher. No credit, not on the transcript, satisfies nothing else. Take it before reaching 90 credit hours.",
+        "passingScore": 0.6,
+        "takeBeforeHours": 90,
+        "info": "https://oue.gatech.edu/glr-requirement",
+        "quotes": [
+          {
+            "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+            "quote": "Earn a satisfactory score (60% or higher) on the United States History Non-Credit Canvas Course Examination."
+          },
+          {
+            "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+            "quote": "Students who elect to satisfy this legislative requirement by examination should do so before completing 90 or more credit hours."
+          },
+          {
+            "url": "https://catalog.gatech.edu/academics/undergraduate/core-curriculum/constitution-history/",
+            "quote": "An examination taken to satisfy this legislative requirement does not carry any academic credit and does not satisfy any other requirement for graduation."
+          }
+        ]
+      },
+      "staleWording": "The constitution-history page still calls the Social Sciences area \"Core Area E\" (pre-2024 naming) and says it needs one of HIST 2111, HIST 2112, POL 1101, INTA 1200, PUBP 3000; under Core IMPACTS that five-course list is the Political Science & U.S. History area.",
+      "planningNote": "One HIST 2111/2112 course taken at GT meets both history parts, and one INTA 1200/POL 1101/PUBP 3000 taken at GT meets both constitution parts. The Political Science & U.S. History area needs only ONE of these, so a student who picks HIST still owes the two constitution parts (another listed course, which can count as Social Sciences, or the exams), and one who picks POL/INTA/PUBP still owes the two history parts."
+    }
+  },
+  "tagsByCourse": {
+    "APPH 1040": [
+      "Wellness"
+    ],
+    "APPH 1050": [
+      "Wellness"
+    ],
+    "APPH 1060": [
+      "Wellness"
+    ],
+    "ARBC 1002": [
+      "HUM"
+    ],
+    "ARBC 1501": [
+      "HUM"
+    ],
+    "ARBC 2001": [
+      "HUM"
+    ],
+    "ARBC 2002": [
+      "HUM"
+    ],
+    "ARBC 2301": [
+      "HUM"
+    ],
+    "ARBC 3001": [
+      "HUM"
+    ],
+    "ARBC 3002": [
+      "HUM"
+    ],
+    "ARBC 3401": [
+      "HUM"
+    ],
+    "ARBC 3501": [
+      "HUM"
+    ],
+    "ARBC 3692": [
+      "HUM"
+    ],
+    "ARCH 2111": [
+      "HUM"
+    ],
+    "ARCH 2112": [
+      "HUM"
+    ],
+    "ARCH 3007": [
+      "HUM"
+    ],
+    "ARCH 3008": [
+      "HUM"
+    ],
+    "ARCH 3009": [
+      "HUM"
+    ],
+    "ARCH 3135": [
+      "SS"
+    ],
+    "BIOS 1107": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "BIOS 1107L": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "BIOS 1108": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "BIOS 1108L": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "BIOS 1220": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "BIOS 4651": [
+      "ETHS"
+    ],
+    "CHBE 4515": [
+      "ETHS"
+    ],
+    "CHEM 1211K": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "CHEM 1212K": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "CHEM 1310": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "CHIN 1002": [
+      "HUM"
+    ],
+    "CHIN 1501": [
+      "HUM"
+    ],
+    "CHIN 2001": [
+      "HUM"
+    ],
+    "CHIN 2002": [
+      "HUM"
+    ],
+    "CHIN 2501": [
+      "HUM"
+    ],
+    "CHIN 3003": [
+      "HUM"
+    ],
+    "CHIN 3004": [
+      "HUM"
+    ],
+    "CHIN 3021": [
+      "HUM"
+    ],
+    "CHIN 3022": [
+      "HUM"
+    ],
+    "CHIN 3400": [
+      "HUM"
+    ],
+    "CHIN 3401": [
+      "HUM"
+    ],
+    "CHIN 3691": [
+      "HUM"
+    ],
+    "CHIN 3692": [
+      "HUM"
+    ],
+    "CP 2010": [
+      "SS"
+    ],
+    "CP 2020": [
+      "SS"
+    ],
+    "CP 2030": [
+      "SS"
+    ],
+    "CP 2040": [
+      "SS"
+    ],
+    "CP 2233": [
+      "SS"
+    ],
+    "CP 2235": [
+      "SS"
+    ],
+    "CS 1301": [
+      "Core IMPACTS: Institutional Priority"
+    ],
+    "CS 1315": [
+      "Core IMPACTS: Institutional Priority"
+    ],
+    "CS 1371": [
+      "Core IMPACTS: Institutional Priority"
+    ],
+    "CS 4001": [
+      "ETHS"
+    ],
+    "CS 4726": [
+      "ETHS"
+    ],
+    "EAS 1600": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "EAS 1601": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "EAS 2600": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "ECE 2028": [
+      "ETHS"
+    ],
+    "ECON 2010": [
+      "SS"
+    ],
+    "ECON 2020": [
+      "SS"
+    ],
+    "ECON 2030": [
+      "SS"
+    ],
+    "ECON 2040": [
+      "SS"
+    ],
+    "ECON 2050": [
+      "SS"
+    ],
+    "ECON 2060": [
+      "SS"
+    ],
+    "ECON 2100": [
+      "SS"
+    ],
+    "ECON 2101": [
+      "SS"
+    ],
+    "ECON 2105": [
+      "SS"
+    ],
+    "ECON 2106": [
+      "SS"
+    ],
+    "ECON 3300": [
+      "SS"
+    ],
+    "ENGL 1101": [
+      "Core IMPACTS: Communicating in Writing"
+    ],
+    "ENGL 1102": [
+      "Core IMPACTS: Communicating in Writing"
+    ],
+    "FREN 1002": [
+      "HUM"
+    ],
+    "FREN 2001": [
+      "HUM"
+    ],
+    "FREN 2002": [
+      "HUM"
+    ],
+    "FREN 3000": [
+      "HUM"
+    ],
+    "FREN 3001": [
+      "HUM"
+    ],
+    "FREN 3002": [
+      "HUM"
+    ],
+    "FREN 3004": [
+      "HUM"
+    ],
+    "FREN 3011": [
+      "HUM"
+    ],
+    "FREN 3012": [
+      "HUM"
+    ],
+    "FREN 3014": [
+      "HUM"
+    ],
+    "FREN 3015": [
+      "HUM"
+    ],
+    "FREN 3017": [
+      "HUM"
+    ],
+    "FREN 3030": [
+      "HUM"
+    ],
+    "FREN 3040": [
+      "HUM"
+    ],
+    "FREN 3061": [
+      "HUM"
+    ],
+    "FREN 3062": [
+      "HUM"
+    ],
+    "FREN 3110": [
+      "HUM"
+    ],
+    "FREN 3120": [
+      "HUM"
+    ],
+    "FREN 3121": [
+      "HUM"
+    ],
+    "FREN 3500": [
+      "HUM"
+    ],
+    "FREN 3551": [
+      "HUM"
+    ],
+    "FREN 3692": [
+      "HUM"
+    ],
+    "FREN 3693": [
+      "HUM"
+    ],
+    "FREN 3694": [
+      "HUM"
+    ],
+    "GRMN 1002": [
+      "HUM"
+    ],
+    "GRMN 2001": [
+      "HUM"
+    ],
+    "GRMN 2002": [
+      "HUM"
+    ],
+    "GRMN 3010": [
+      "HUM"
+    ],
+    "GRMN 3011": [
+      "HUM"
+    ],
+    "GRMN 3024": [
+      "HUM"
+    ],
+    "GRMN 3026": [
+      "HUM"
+    ],
+    "GRMN 3030": [
+      "HUM"
+    ],
+    "GRMN 3055": [
+      "HUM"
+    ],
+    "GRMN 3071": [
+      "HUM"
+    ],
+    "GRMN 3110": [
+      "HUM"
+    ],
+    "GRMN 3695": [
+      "HUM"
+    ],
+    "GRMN 3696": [
+      "HUM"
+    ],
+    "GRMN 3697": [
+      "HUM"
+    ],
+    "HIST 2111": [
+      "Core IMPACTS: Political Science & U.S. History",
+      "Legislative: Georgia History",
+      "Legislative: U.S. History",
+      "SS"
+    ],
+    "HIST 2112": [
+      "Core IMPACTS: Political Science & U.S. History",
+      "Legislative: Georgia History",
+      "Legislative: U.S. History",
+      "SS"
+    ],
+    "HPS 1040": [
+      "Wellness"
+    ],
+    "HTS 1031": [
+      "SS"
+    ],
+    "HTS 1081": [
+      "ETHS",
+      "SS"
+    ],
+    "HTS 1090": [
+      "SS"
+    ],
+    "HTS 2001": [
+      "SS"
+    ],
+    "HTS 2002": [
+      "SS"
+    ],
+    "HTS 2006": [
+      "SS"
+    ],
+    "HTS 2007": [
+      "SS"
+    ],
+    "HTS 2013": [
+      "SS"
+    ],
+    "HTS 2015": [
+      "SS"
+    ],
+    "HTS 2016": [
+      "SS"
+    ],
+    "HTS 2017": [
+      "SS"
+    ],
+    "HTS 2018": [
+      "SS"
+    ],
+    "HTS 2036": [
+      "SS"
+    ],
+    "HTS 2037": [
+      "SS"
+    ],
+    "HTS 2040": [
+      "SS"
+    ],
+    "HTS 2041": [
+      "SS"
+    ],
+    "HTS 2050": [
+      "SS"
+    ],
+    "HTS 2051": [
+      "SS"
+    ],
+    "HTS 2052": [
+      "SS"
+    ],
+    "HTS 2053": [
+      "SS"
+    ],
+    "HTS 2061": [
+      "ETHS",
+      "SS"
+    ],
+    "HTS 2062": [
+      "SS"
+    ],
+    "HTS 2080": [
+      "SS"
+    ],
+    "HTS 2081": [
+      "SS"
+    ],
+    "HTS 2082": [
+      "SS"
+    ],
+    "HTS 2084": [
+      "ETHS",
+      "SS"
+    ],
+    "HTS 2085": [
+      "SS"
+    ],
+    "HTS 2087": [
+      "SS"
+    ],
+    "HTS 2100": [
+      "ETHS",
+      "SS"
+    ],
+    "HTS 2101": [
+      "SS"
+    ],
+    "HTS 3002": [
+      "SS"
+    ],
+    "HTS 3003": [
+      "SS"
+    ],
+    "HTS 3005": [
+      "SS"
+    ],
+    "HTS 3006": [
+      "SS"
+    ],
+    "HTS 3007": [
+      "SS"
+    ],
+    "HTS 3008": [
+      "SS"
+    ],
+    "HTS 3009": [
+      "SS"
+    ],
+    "HTS 3011": [
+      "SS"
+    ],
+    "HTS 3012": [
+      "SS"
+    ],
+    "HTS 3015": [
+      "SS"
+    ],
+    "HTS 3016": [
+      "SS"
+    ],
+    "HTS 3017": [
+      "SS"
+    ],
+    "HTS 3018": [
+      "SS"
+    ],
+    "HTS 3019": [
+      "SS"
+    ],
+    "HTS 3020": [
+      "SS"
+    ],
+    "HTS 3021": [
+      "SS"
+    ],
+    "HTS 3022": [
+      "SS"
+    ],
+    "HTS 3023": [
+      "SS"
+    ],
+    "HTS 3024": [
+      "SS"
+    ],
+    "HTS 3025": [
+      "SS"
+    ],
+    "HTS 3026": [
+      "SS"
+    ],
+    "HTS 3027": [
+      "SS"
+    ],
+    "HTS 3028": [
+      "SS"
+    ],
+    "HTS 3029": [
+      "SS"
+    ],
+    "HTS 3030": [
+      "SS"
+    ],
+    "HTS 3031": [
+      "SS"
+    ],
+    "HTS 3032": [
+      "ETHS",
+      "SS"
+    ],
+    "HTS 3033": [
+      "SS"
+    ],
+    "HTS 3035": [
+      "SS"
+    ],
+    "HTS 3036": [
+      "SS"
+    ],
+    "HTS 3038": [
+      "SS"
+    ],
+    "HTS 3039": [
+      "SS"
+    ],
+    "HTS 3041": [
+      "SS"
+    ],
+    "HTS 3046": [
+      "SS"
+    ],
+    "HTS 3048": [
+      "SS"
+    ],
+    "HTS 3051": [
+      "SS"
+    ],
+    "HTS 3055": [
+      "SS"
+    ],
+    "HTS 3061": [
+      "SS"
+    ],
+    "HTS 3062": [
+      "SS"
+    ],
+    "HTS 3064": [
+      "SS"
+    ],
+    "HTS 3065": [
+      "SS"
+    ],
+    "HTS 3066": [
+      "SS"
+    ],
+    "HTS 3067": [
+      "SS"
+    ],
+    "HTS 3068": [
+      "SS"
+    ],
+    "HTS 3070": [
+      "SS"
+    ],
+    "HTS 3071": [
+      "SS"
+    ],
+    "HTS 3072": [
+      "SS"
+    ],
+    "HTS 3073": [
+      "SS"
+    ],
+    "HTS 3082": [
+      "SS"
+    ],
+    "HTS 3084": [
+      "SS"
+    ],
+    "HTS 3086": [
+      "SS"
+    ],
+    "HTS 3087": [
+      "SS"
+    ],
+    "HTS 3088": [
+      "SS"
+    ],
+    "HTS 3089": [
+      "SS"
+    ],
+    "HTS 3100": [
+      "SS"
+    ],
+    "HTS 3102": [
+      "SS"
+    ],
+    "ID 2202": [
+      "HUM"
+    ],
+    "ID 2241": [
+      "HUM"
+    ],
+    "ID 2242": [
+      "HUM"
+    ],
+    "INTA 1050": [
+      "SS"
+    ],
+    "INTA 1110": [
+      "SS"
+    ],
+    "INTA 1200": [
+      "Core IMPACTS: Political Science & U.S. History",
+      "Legislative: Georgia Constitution",
+      "Legislative: U.S. Constitution",
+      "SS"
+    ],
+    "INTA 2030": [
+      "ETHS",
+      "SS"
+    ],
+    "INTA 2040": [
+      "SS"
+    ],
+    "INTA 2042": [
+      "SS"
+    ],
+    "INTA 2050": [
+      "SS"
+    ],
+    "INTA 2100": [
+      "SS"
+    ],
+    "INTA 2120": [
+      "SS"
+    ],
+    "INTA 2210": [
+      "SS"
+    ],
+    "INTA 2220": [
+      "SS"
+    ],
+    "INTA 2221": [
+      "SS"
+    ],
+    "INTA 2230": [
+      "SS"
+    ],
+    "INTA 2241": [
+      "SS"
+    ],
+    "INTA 2260": [
+      "SS"
+    ],
+    "INTA 3010": [
+      "SS"
+    ],
+    "INTA 3012": [
+      "SS"
+    ],
+    "INTA 3020": [
+      "SS"
+    ],
+    "INTA 3031": [
+      "SS"
+    ],
+    "INTA 3040": [
+      "SS"
+    ],
+    "INTA 3042": [
+      "SS"
+    ],
+    "INTA 3043": [
+      "SS"
+    ],
+    "INTA 3044": [
+      "SS"
+    ],
+    "INTA 3050": [
+      "SS"
+    ],
+    "INTA 3101": [
+      "SS"
+    ],
+    "INTA 3102": [
+      "SS"
+    ],
+    "INTA 3103": [
+      "SS"
+    ],
+    "INTA 3104": [
+      "SS"
+    ],
+    "INTA 3110": [
+      "SS"
+    ],
+    "INTA 3111": [
+      "SS"
+    ],
+    "INTA 3120": [
+      "SS"
+    ],
+    "INTA 3121": [
+      "SS"
+    ],
+    "INTA 3130": [
+      "SS"
+    ],
+    "INTA 3131": [
+      "SS"
+    ],
+    "INTA 3203": [
+      "SS"
+    ],
+    "INTA 3220": [
+      "SS"
+    ],
+    "INTA 3221": [
+      "SS"
+    ],
+    "INTA 3223": [
+      "SS"
+    ],
+    "INTA 3230": [
+      "SS"
+    ],
+    "INTA 3231": [
+      "SS"
+    ],
+    "INTA 3232": [
+      "SS"
+    ],
+    "INTA 3240": [
+      "SS"
+    ],
+    "INTA 3241": [
+      "SS"
+    ],
+    "INTA 3242": [
+      "SS"
+    ],
+    "INTA 3243": [
+      "SS"
+    ],
+    "INTA 3260": [
+      "SS"
+    ],
+    "INTA 3301": [
+      "SS"
+    ],
+    "INTA 3303": [
+      "SS"
+    ],
+    "INTA 3304": [
+      "SS"
+    ],
+    "INTA 3321": [
+      "SS"
+    ],
+    "INTA 3330": [
+      "SS"
+    ],
+    "INTA 3331": [
+      "SS"
+    ],
+    "JAPN 1002": [
+      "HUM"
+    ],
+    "JAPN 2001": [
+      "HUM"
+    ],
+    "JAPN 2002": [
+      "HUM"
+    ],
+    "JAPN 3001": [
+      "HUM"
+    ],
+    "JAPN 3691": [
+      "HUM"
+    ],
+    "JAPN 3692": [
+      "HUM"
+    ],
+    "JAPN 3693": [
+      "HUM"
+    ],
+    "KOR 1002": [
+      "HUM"
+    ],
+    "KOR 2001": [
+      "HUM"
+    ],
+    "KOR 2002": [
+      "HUM"
+    ],
+    "KOR 3001": [
+      "HUM"
+    ],
+    "KOR 3002": [
+      "HUM"
+    ],
+    "KOR 3410": [
+      "HUM"
+    ],
+    "KOR 3415": [
+      "HUM"
+    ],
+    "KOR 3691": [
+      "HUM"
+    ],
+    "KOR 3692": [
+      "HUM"
+    ],
+    "KOR 3693": [
+      "HUM"
+    ],
+    "LING 2100": [
+      "HUM"
+    ],
+    "LING 3100": [
+      "HUM"
+    ],
+    "LMC 2000": [
+      "HUM"
+    ],
+    "LMC 2050": [
+      "HUM"
+    ],
+    "LMC 2060": [
+      "HUM"
+    ],
+    "LMC 2100": [
+      "HUM"
+    ],
+    "LMC 2200": [
+      "HUM"
+    ],
+    "LMC 2400": [
+      "HUM"
+    ],
+    "LMC 2500": [
+      "HUM"
+    ],
+    "LMC 2600": [
+      "HUM"
+    ],
+    "LMC 3102": [
+      "ETHS",
+      "HUM"
+    ],
+    "LMC 3104": [
+      "HUM"
+    ],
+    "LMC 3106": [
+      "HUM"
+    ],
+    "LMC 3112": [
+      "ETHS",
+      "HUM"
+    ],
+    "LMC 3202": [
+      "HUM"
+    ],
+    "LMC 3204": [
+      "HUM"
+    ],
+    "LMC 3206": [
+      "HUM"
+    ],
+    "LMC 3208": [
+      "HUM"
+    ],
+    "LMC 3210": [
+      "HUM"
+    ],
+    "LMC 3212": [
+      "HUM"
+    ],
+    "LMC 3214": [
+      "HUM"
+    ],
+    "LMC 3215": [
+      "HUM"
+    ],
+    "LMC 3219": [
+      "ETHS",
+      "HUM"
+    ],
+    "LMC 3225": [
+      "HUM"
+    ],
+    "LMC 3226": [
+      "HUM"
+    ],
+    "LMC 3228": [
+      "HUM"
+    ],
+    "LMC 3234": [
+      "HUM"
+    ],
+    "LMC 3236": [
+      "HUM"
+    ],
+    "LMC 3252": [
+      "HUM"
+    ],
+    "LMC 3253": [
+      "HUM"
+    ],
+    "LMC 3254": [
+      "HUM"
+    ],
+    "LMC 3255": [
+      "HUM"
+    ],
+    "LMC 3256": [
+      "HUM"
+    ],
+    "LMC 3257": [
+      "HUM"
+    ],
+    "LMC 3258": [
+      "HUM"
+    ],
+    "LMC 3259": [
+      "HUM"
+    ],
+    "LMC 3262": [
+      "HUM"
+    ],
+    "LMC 3263": [
+      "HUM"
+    ],
+    "LMC 3302": [
+      "HUM"
+    ],
+    "LMC 3304": [
+      "ETHS",
+      "HUM"
+    ],
+    "LMC 3306": [
+      "HUM"
+    ],
+    "LMC 3308": [
+      "ETHS",
+      "HUM"
+    ],
+    "LMC 3310": [
+      "HUM"
+    ],
+    "LMC 3314": [
+      "HUM"
+    ],
+    "LMC 3316": [
+      "HUM"
+    ],
+    "LMC 3318": [
+      "ETHS",
+      "HUM"
+    ],
+    "LMC 3352": [
+      "HUM"
+    ],
+    "LMC 3405": [
+      "HUM"
+    ],
+    "LMC 3502": [
+      "HUM"
+    ],
+    "LMC 3504": [
+      "HUM"
+    ],
+    "LMC 3506": [
+      "HUM"
+    ],
+    "LMC 3511": [
+      "HUM"
+    ],
+    "LMC 3512": [
+      "HUM"
+    ],
+    "LMC 3514": [
+      "HUM"
+    ],
+    "LMC 3516": [
+      "HUM"
+    ],
+    "LMC 3518": [
+      "HUM"
+    ],
+    "LMC 3520": [
+      "HUM"
+    ],
+    "MATH 1551": [
+      "Core IMPACTS: Technology, Mathematics & Sciences (Mathematics)"
+    ],
+    "MATH 1552": [
+      "Core IMPACTS: Mathematics & Quantitative Skills"
+    ],
+    "MATH 1553": [
+      "Core IMPACTS: Technology, Mathematics & Sciences (Mathematics)"
+    ],
+    "MATH 1554": [
+      "Core IMPACTS: Technology, Mathematics & Sciences (Mathematics)"
+    ],
+    "MATH 1711": [
+      "Core IMPACTS: Technology, Mathematics & Sciences (Mathematics)"
+    ],
+    "MATH 1712": [
+      "Core IMPACTS: Mathematics & Quantitative Skills"
+    ],
+    "MGT 3608": [
+      "ETHS"
+    ],
+    "MGT 4047": [
+      "ETHS"
+    ],
+    "MGT 4726": [
+      "ETHS"
+    ],
+    "ML 2500": [
+      "HUM"
+    ],
+    "MUSI 2010": [
+      "HUM"
+    ],
+    "MUSI 2011": [
+      "HUM"
+    ],
+    "MUSI 2700": [
+      "HUM"
+    ],
+    "MUSI 3450": [
+      "HUM"
+    ],
+    "MUSI 3621": [
+      "HUM"
+    ],
+    "MUSI 3630": [
+      "HUM"
+    ],
+    "NS 4322": [
+      "ETHS"
+    ],
+    "PERS 1002": [
+      "HUM"
+    ],
+    "PERS 2001": [
+      "HUM"
+    ],
+    "PERS 2002": [
+      "HUM"
+    ],
+    "PHIL 2010": [
+      "HUM"
+    ],
+    "PHIL 2025": [
+      "HUM"
+    ],
+    "PHIL 3050": [
+      "HUM"
+    ],
+    "PHIL 3102": [
+      "HUM"
+    ],
+    "PHIL 3103": [
+      "HUM"
+    ],
+    "PHIL 3105": [
+      "ETHS",
+      "HUM"
+    ],
+    "PHIL 3109": [
+      "ETHS",
+      "HUM"
+    ],
+    "PHIL 3113": [
+      "HUM"
+    ],
+    "PHIL 3115": [
+      "HUM"
+    ],
+    "PHIL 3127": [
+      "ETHS",
+      "HUM"
+    ],
+    "PHIL 3135": [
+      "HUM"
+    ],
+    "PHIL 3140": [
+      "ETHS",
+      "HUM"
+    ],
+    "PHIL 3180": [
+      "ETHS"
+    ],
+    "PHIL 4176": [
+      "ETHS"
+    ],
+    "PHYS 1111K": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "PHYS 2211": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "PHYS 2212": [
+      "Core IMPACTS: Lab Science"
+    ],
+    "POL 1101": [
+      "Core IMPACTS: Political Science & U.S. History",
+      "Legislative: Georgia Constitution",
+      "Legislative: U.S. Constitution",
+      "SS"
+    ],
+    "POL 2101": [
+      "SS"
+    ],
+    "PSYC 1101": [
+      "ETHS",
+      "SS"
+    ],
+    "PSYC 2015": [
+      "ETHS",
+      "SS"
+    ],
+    "PSYC 2103": [
+      "SS"
+    ],
+    "PSYC 2210": [
+      "ETHS",
+      "SS"
+    ],
+    "PSYC 2220": [
+      "ETHS",
+      "SS"
+    ],
+    "PSYC 2230": [
+      "ETHS",
+      "SS"
+    ],
+    "PSYC 2240": [
+      "ETHS",
+      "SS"
+    ],
+    "PSYC 2250": [
+      "SS"
+    ],
+    "PSYC 2270": [
+      "ETHS",
+      "SS"
+    ],
+    "PSYC 2280": [
+      "SS"
+    ],
+    "PSYC 2760": [
+      "SS"
+    ],
+    "PSYC 3012": [
+      "SS"
+    ],
+    "PSYC 3031": [
+      "ETHS"
+    ],
+    "PSYC 3040": [
+      "SS"
+    ],
+    "PSYC 3041": [
+      "SS"
+    ],
+    "PSYC 4050": [
+      "ETHS"
+    ],
+    "PSYC 4270": [
+      "ETHS"
+    ],
+    "PUBP 2010": [
+      "SS"
+    ],
+    "PUBP 2012": [
+      "SS"
+    ],
+    "PUBP 2030": [
+      "SS"
+    ],
+    "PUBP 3000": [
+      "Core IMPACTS: Political Science & U.S. History",
+      "Legislative: Georgia Constitution",
+      "Legislative: U.S. Constitution",
+      "SS"
+    ],
+    "PUBP 3016": [
+      "SS"
+    ],
+    "PUBP 3020": [
+      "SS"
+    ],
+    "PUBP 3030": [
+      "SS"
+    ],
+    "PUBP 3042": [
+      "SS"
+    ],
+    "PUBP 3120": [
+      "SS"
+    ],
+    "PUBP 3130": [
+      "SS"
+    ],
+    "PUBP 3201": [
+      "SS"
+    ],
+    "PUBP 3214": [
+      "SS"
+    ],
+    "PUBP 3230": [
+      "SS"
+    ],
+    "PUBP 3244": [
+      "ETHS"
+    ],
+    "PUBP 3315": [
+      "SS"
+    ],
+    "PUBP 3320": [
+      "SS"
+    ],
+    "PUBP 3350": [
+      "SS"
+    ],
+    "PUBP 3510": [
+      "SS"
+    ],
+    "PUBP 3600": [
+      "ETHS",
+      "SS"
+    ],
+    "PUBP 3610": [
+      "SS"
+    ],
+    "PUBP 4630": [
+      "ETHS"
+    ],
+    "PUBP 4726": [
+      "ETHS"
+    ],
+    "RUSS 1002": [
+      "HUM"
+    ],
+    "RUSS 1250": [
+      "HUM"
+    ],
+    "RUSS 1692": [
+      "HUM"
+    ],
+    "RUSS 2001": [
+      "HUM"
+    ],
+    "RUSS 2002": [
+      "HUM"
+    ],
+    "RUSS 2460": [
+      "HUM"
+    ],
+    "RUSS 2691": [
+      "HUM"
+    ],
+    "RUSS 2692": [
+      "HUM"
+    ],
+    "RUSS 3001": [
+      "HUM"
+    ],
+    "RUSS 3002": [
+      "HUM"
+    ],
+    "RUSS 3222": [
+      "HUM"
+    ],
+    "RUSS 3691": [
+      "HUM"
+    ],
+    "RUSS 3692": [
+      "HUM"
+    ],
+    "SOC 1101": [
+      "SS"
+    ],
+    "SPAN 1002": [
+      "HUM"
+    ],
+    "SPAN 2001": [
+      "HUM"
+    ],
+    "SPAN 2002": [
+      "HUM"
+    ],
+    "SPAN 3050": [
+      "HUM"
+    ],
+    "SPAN 3061": [
+      "HUM"
+    ],
+    "SPAN 3064": [
+      "HUM"
+    ],
+    "SPAN 3101": [
+      "HUM"
+    ],
+    "SPAN 3111": [
+      "HUM"
+    ],
+    "SPAN 3122": [
+      "HUM"
+    ],
+    "SPAN 3211": [
+      "HUM"
+    ],
+    "SPAN 3235": [
+      "HUM"
+    ],
+    "SPAN 3242": [
+      "HUM"
+    ],
+    "SPAN 3260": [
+      "HUM"
+    ],
+    "SPAN 3500": [
+      "HUM"
+    ],
+    "SPAN 3692": [
+      "HUM"
+    ],
+    "SPAN 3693": [
+      "HUM"
+    ],
+    "SPAN 3694": [
+      "HUM"
+    ],
+    "SPAN 3697": [
+      "HUM"
+    ],
+    "SPAN 3698": [
+      "HUM"
+    ]
+  },
+  "engineMapping": {
+    "labelToTags": {
+      "any hum": [
+        "HUM"
+      ],
+      "arts, humanities, and ethics": [
+        "HUM"
+      ],
+      "arts, humanities & ethics": [
+        "HUM"
+      ],
+      "any ss": [
+        "SS"
+      ],
+      "social sciences": [
+        "SS"
+      ],
+      "lab science": [
+        "Core IMPACTS: Lab Science"
+      ],
+      "institutional priority": [
+        "Core IMPACTS: Institutional Priority"
+      ],
+      "mathematics and quantitative skills": [
+        "Core IMPACTS: Mathematics & Quantitative Skills"
+      ],
+      "mathematics & quantitative skills": [
+        "Core IMPACTS: Mathematics & Quantitative Skills"
+      ],
+      "political science and u.s. history": [
+        "Core IMPACTS: Political Science & U.S. History"
+      ],
+      "political science & u.s. history": [
+        "Core IMPACTS: Political Science & U.S. History"
+      ],
+      "communicating in writing": [
+        "Core IMPACTS: Communicating in Writing"
+      ],
+      "technology, mathematics, and sciences": [
+        "Core IMPACTS: Lab Science",
+        "Core IMPACTS: Technology, Mathematics & Sciences (Mathematics)"
+      ],
+      "technology, mathematics & sciences": [
+        "Core IMPACTS: Lab Science",
+        "Core IMPACTS: Technology, Mathematics & Sciences (Mathematics)"
+      ],
+      "wellness requirement": [
+        "Wellness"
+      ],
+      "ethics": [
+        "ETHS"
+      ]
+    },
+    "howToUse": [
+      "Illinois reads gen-ed membership from each course's genEd tags (RawIllinoisCourse.genEd -> CourseFacts.genEd and IllinoisCourse.tags, lib/planner/illinois-data.ts) and maps a requirement label to the tags it accepts with GENED_MAP / genEdForLabel. For Georgia Tech, set each course's genEd to tagsByCourse[code] ?? [] when building the course file, and use labelToTags as the Georgia Tech GENED_MAP (school-keyed, not merged into the Illinois map).",
+      "Georgia Tech degree pages print every core area as its own heading with real course rows (CS 1371; MATH 1552; HIST 2111 or ...; ENGL 1101 + 1102), so most of the core parses as ordinary required/choose blocks with no gen-ed handling at all.",
+      "Only three placeholder rows need tags: \"Any HUM\" (6) -> HUM, \"Any SS\" (9) -> SS, \"Lab Science\" (4 each, usually twice) -> Core IMPACTS: Lab Science. They are hours rows with no course, the shape illinois-data.ts reads as { kind: 'hours', hours, genEd: genEdForLabel(label) }.",
+      "MUST GATE: adaptIllinoisPrograms runs withCampusGenEd on every program, and a program without an Illinois campus table gets an appended \"General Education Requirements (campus)\" area holding Illinois categories and the Illinois third-semester language requirement. No Georgia Tech page has that table, so every Georgia Tech degree would get it. Skip withCampusGenEd (and genEdRulesFromText / GENED_CAMPUS_SIZE) when the school is gatech.",
+      "exclusiveGroup: all seven Core IMPACTS areas share ONE ledger at Georgia Tech (a course counts for one area only; see oneCourseOneArea). The Illinois rule (each category its own ledger, Cultural Studies exclusive) does not fit. ETHS and the legislative tags are separate ledgers that may reuse a core course.",
+      "Wellness is a 2-hour required area on every degree page (\"Wellness Requirement\": APPH 1040 or 1050 or 1060) and counts on top of the 120-hour minimum.",
+      "The legislative requirement has no hours. Check it as a rule over the plan (has the student a GT HIST 2111/2112, and a GT INTA 1200/POL 1101/PUBP 3000?) and otherwise tell the student about the non-credit exams; do not book hours for it."
+    ]
+  }
+}
