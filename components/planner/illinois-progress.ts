@@ -23,7 +23,8 @@
  * graduating is the one kind of wrong this rail must never be.
  */
 
-import { degreeSubjects, normaliseCode } from '@/lib/planner/autoplan';
+import { courseleafOfContext, degreeSubjects, normaliseCode } from '@/lib/planner/autoplan';
+import type { CourseleafSchool } from '@/lib/planner/school-config';
 import type { GenEdCredit, LanguagePlan, LanguageTable, PlanRequirement, PoolReport } from '@/lib/planner/autoplan';
 import type { CourseChoice, RequirementBlock } from '@/lib/planner/illinois-data';
 import { withoutMinorPageHeading } from '@/lib/planner/illinois-minors';
@@ -61,6 +62,19 @@ export interface IllinoisProgressInput {
   genEdCredits?: GenEdCredit[];
   /** The degree's name, which names its major subject ("Psychology, BSLAS" is PSYC). */
   programName?: string;
+  /**
+   * The semester in progress with no classes entered yet, and the credits the
+   * plan counts for it until they are (plan-start.ts currentAssumedHours).
+   * Georgia Tech's open hours rows say they wait on it (countOnce); nothing
+   * counts it toward a row.
+   */
+  currentTerm?: { label: string; assumedHours: number } | null;
+  /**
+   * Held courses the plan counted for a take-every-course row in place of
+   * the course it names (GeneratedPlan.standIns, Georgia Tech): the row
+   * counts them the same way, so the rail agrees with the plan.
+   */
+  standIns?: Array<{ requirementId: string; held: string; for: string }>;
 }
 
 /** A recommendation must preserve the same requirement counts shown in the rail. */
@@ -89,10 +103,52 @@ interface Sized {
   codes: string[];
 }
 
+/**
+ * The CourseLeaf school a catalog is, read the way the engine reads it
+ * (autoplan.ts courseleafOfContext: the course numbers' shape), once per
+ * catalog map, so a Georgia Tech switch in school-config.ts reaches the rail
+ * and an Illinois board reads exactly as it did.
+ */
+const schoolOfCatalog = new WeakMap<Map<string, Course>, CourseleafSchool | null>();
+function schoolOf(byCode: Map<string, Course>): CourseleafSchool | null {
+  if (schoolOfCatalog.has(byCode)) return schoolOfCatalog.get(byCode) ?? null;
+  const sample: Course[] = [];
+  for (const course of byCode.values()) {
+    sample.push(course);
+    if (sample.length >= 200) break;
+  }
+  const school = courseleafOfContext({ courses: sample });
+  schoolOfCatalog.set(byCode, school);
+  return school;
+}
+
 export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
   const { blocks, byCode, pools } = input;
+  const school = schoolOf(byCode);
   const board = input.boardCodes.map(normaliseCode);
-  const prior = new Set([...input.priorCodes].map(normaliseCode));
+  /*
+   * Where each course counts once (countOnce, Georgia Tech), a held course
+   * under the name the degree's rows use. ME 1670 and CEE 1770 are one class
+   * under two numbers (index twins): the plan holds both names and the
+   * workspace keeps one of them (distinctHeld), CEE 1770, first in code
+   * order. Mechanical Engineering's Field of Study names ME 1670, and it read
+   * 15 of 18 with ME 1670 in the Fall 2026 column (2026-11-09 browser test).
+   * Renamed only where no row names the name held and a row names its twin.
+   */
+  const named = new Set<string>();
+  if (school?.countOnce) {
+    for (const block of blocks) {
+      const rule = block.rule;
+      if (rule.kind !== 'all' && rule.kind !== 'choose' && rule.kind !== 'pool') continue;
+      for (const choice of rule.choices) for (const code of [...choice.codes, ...(choice.substitutes ?? []), ...(choice.bundles ?? []).flat()]) named.add(normaliseCode(code));
+    }
+  }
+  const heldName = (code: string): string => {
+    if (!school?.countOnce || named.has(code)) return code;
+    return (input.equivalents?.get(code) ?? []).map(normaliseCode).find((twin) => named.has(twin)) ?? code;
+  };
+  const heldAs = new Set([...input.priorCodes].map(normaliseCode));
+  const prior = new Set([...heldAs].map(heldName));
   // Held first, then the board in term order: the count reads the way the
   // scheduler filled it, earned credit before planned credit.
   const have: string[] = [];
@@ -134,8 +190,18 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
     }
   });
   const related = (a: string | undefined, b: string): boolean => Boolean(a) && (parentOf.get(a as string) === b || parentOf.get(b) === a);
+  /**
+   * A required course whose hours the page puts in a list (Georgia Tech's
+   * CourseChoice.countsIn: Biology's PHYS 2211, printed with no hours, is Lab
+   * Science's), by the list's block: that list counts it beside the row.
+   */
+  const countsInOf = new Map<string, string>();
+  for (const block of blocks) {
+    if (block.rule.kind !== 'all') continue;
+    for (const choice of block.rule.choices) if (choice.countsIn) countsInOf.set(normaliseCode(choice.codes[0]), choice.countsIn);
+  }
   /** Whether a code is already another major row's, unless that row and this one nest. */
-  const takenElsewhere = (code: string): boolean => spentMajor.has(code) && !related(spentBy.get(code), currentBlock);
+  const takenElsewhere = (code: string): boolean => spentMajor.has(code) && !related(spentBy.get(code), currentBlock) && countsInOf.get(code) !== currentBlock;
   const spentGenEd = new Map<string, Set<string>>();
   const spend = (ledger: Set<string>, code: string): void => {
     if (ledger === spentMajor && !spentBy.has(code)) spentBy.set(code, currentBlock);
@@ -150,13 +216,70 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
     return made;
   };
 
+  /**
+   * Where each course counts once (school-config countOnce, Georgia Tech), the
+   * courses a take-every-course row names as its only course, by the rows
+   * naming each: a row with alternatives counts one of the others first, as
+   * the plan books it. Public Policy's "Political Science and U.S. History"
+   * (HIST 2111 ... POL 1101 or PUBP 3000) counted POL 1101, first on the board,
+   * and the Major Requirements row that names POL 1101 alone read 0 of 3 next
+   * to the PUBP 3000 the plan booked for it.
+   */
+  const soleRowOf = new Map<string, Set<string>>();
+  if (school?.countOnce) {
+    for (const block of blocks) {
+      if (block.rule.kind !== 'all') continue;
+      for (const choice of block.rule.choices) {
+        if (choice.codes.length !== 1 || (choice.bundles?.length ?? 0) > 1) continue;
+        for (const code of [choice.codes[0], ...(input.equivalents?.get(normaliseCode(choice.codes[0])) ?? [])].map(normaliseCode)) soleRowOf.set(code, (soleRowOf.get(code) ?? new Set<string>()).add(block.id));
+      }
+    }
+  }
+  const soleElsewhere = (code: string): boolean => [...(soleRowOf.get(code) ?? [])].some((id) => id !== currentBlock);
+  /**
+   * And, there, a list's courses (a lecture-lab row's lab with it), which a
+   * row with alternatives leaves to the list where another alternative is on
+   * the board: Neuroscience's Field of Study "BIOS 1107 or BIOS 1207" counted
+   * BIOS 1107 beside the BIOS 1207 the plan booked for it, and Any Lab
+   * Science, which lists BIOS 1107, read 4 of 8.
+   */
+  const listMembers = new Set<string>();
+  /** The courses each list holds on the live board (live-pools.ts), the plan's own booking for it first. */
+  const listHeld = new Set<string>();
+  if (school?.countOnce) {
+    for (const block of blocks) {
+      if (block.rule.kind !== 'pool') continue;
+      for (const choice of block.rule.choices) for (const code of [...choice.codes, ...(school.pairHours ? (choice.bundles ?? []).flat() : [])]) listMembers.add(normaliseCode(code));
+    }
+    for (const pool of pools) for (const code of [...pool.picked, ...pool.fromPriorCredit]) listHeld.add(normaliseCode(code));
+  }
+  /**
+   * How much a list wants a code, where each course counts once: one a list
+   * holds and would fall short without (what the rows have spent counted
+   * out), then one a list names or holds to spare, then none.
+   */
+  const listWants = (code: string): number => {
+    if (!listHeld.has(code)) return listMembers.has(code) ? 1 : 0;
+    const needs = pools.some((pool) => {
+      const mine = [...pool.fromPriorCredit, ...pool.picked].map(normaliseCode);
+      if (!mine.includes(code)) return false;
+      const rest = mine.filter((c) => c !== code && !spentMajor.has(c));
+      const hours = rest.reduce((sum, c) => sum + (creditsOf(c) ?? 0), 0);
+      return (pool.hoursTarget !== null && hours < pool.hoursTarget) || (pool.countTarget !== null && rest.length < pool.countTarget);
+    });
+    return needs ? 2 : 1;
+  };
   /** The held code that meets one row of a list, honouring "CS 210 or CS 211" and the page's substitutes. */
   const choiceHit = (choice: CourseChoice): string | null => {
-    for (const raw of [...choice.codes, ...choice.substitutes]) {
-      const code = normaliseCode(raw);
-      if (haveSet.has(code) && !takenElsewhere(code)) return code;
-    }
-    return null;
+    const candidates = [...choice.codes, ...choice.substitutes].map(normaliseCode).filter((code) => haveSet.has(code) && !takenElsewhere(code));
+    if (!school?.countOnce) return candidates[0] ?? null;
+    const open = candidates.filter((code) => !soleElsewhere(code));
+    const best = [...open].sort((a, b) => listWants(a) - listWants(b))[0] ?? candidates[0] ?? null;
+    if (best !== null) return best;
+    // A held course the plan counted for this row in place of the one it names (GeneratedPlan.standIns): CHEM 1310 for CHEM 1211K.
+    const named = new Set(choice.codes.map(normaliseCode));
+    const standIn = (input.standIns ?? []).find((s) => s.requirementId === currentBlock && named.has(normaliseCode(s.for)) && prior.has(normaliseCode(s.held)) && !takenElsewhere(normaliseCode(s.held)));
+    return standIn ? normaliseCode(standIn.held) : null;
   };
   /** What a list row is worth: the held course's own credits, else the page's number for the row. */
   const choiceCredits = (choice: CourseChoice, hit: string | null): number => {
@@ -341,7 +464,11 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
             bundle: bundle.map(normaliseCode),
             hits: bundle.map(normaliseCode).filter((code) => haveSet.has(code) && !takenElsewhere(code)),
           }));
-          const best = scored.reduce((a, b) => (b.hits.length > a.hits.length ? b : a));
+          // Where each course counts once (countOnce), a set the board holds whole before a longer one it holds part of:
+          // Computer Science's Junior Design counted CS 2701 and LMC 3403 of "CS 2701, CS 4699, LMC 3403" beside the
+          // whole "CS 4723, LMC 3403" the plan booked, and the CS 2701 a free elective had taken read as the row's.
+          const whole = (s: { bundle: string[]; hits: string[] }) => (school?.countOnce && s.hits.length === s.bundle.length ? 1 : 0);
+          const best = scored.reduce((a, b) => (whole(b) > whole(a) || (whole(b) === whole(a) && b.hits.length > a.hits.length) ? b : a));
           needed += best.bundle.reduce((sum, code) => sum + (creditsOf(code) ?? 0), 0);
           listed += best.bundle.length;
           for (const hit of best.hits) {
@@ -381,7 +508,33 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
       const needed = Math.min(rule.n, rule.choices.length) || rule.n;
       let count = 0;
       const counted: string[] = [];
-      for (const choice of rule.choices) {
+      /*
+       * Where each course counts once (countOnce), the rows whose course no
+       * list holds or names go first (listWants): Civil Engineering Geosystems' "Select three"
+       * breadth row counted CEE 3051, 4100 and 4300 in page order beside a
+       * CEE 4600 it had booked, and the concentration's "Select one" list,
+       * which names CEE 3051 and 4300, read 0 of 3.
+       */
+      if (school?.countOnce) {
+        // One at a time, each time the row a list wants least, since each one taken changes what the lists can spare.
+        const left = [...rule.choices];
+        while (count < needed) {
+          let best: { at: number; hit: string; wants: number } | null = null;
+          left.forEach((choice, at) => {
+            const hit = choiceHit(choice);
+            if (hit === null) return;
+            const wants = listWants(hit);
+            if (best === null || wants < best.wants) best = { at, hit, wants };
+          });
+          if (best === null) break;
+          const { at, hit } = best as { at: number; hit: string; wants: number };
+          left.splice(at, 1);
+          spend(spentMajor, hit);
+          counted.push(hit);
+          count += 1;
+        }
+      }
+      for (const choice of school?.countOnce ? [] : rule.choices) {
         if (count >= needed) break;
         const hit = choiceHit(choice);
         if (hit === null) continue;
@@ -433,10 +586,36 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
         // nested inside this one counted (they are part of its hours), then
         // the board left to right.
         const nestedHere = [...spentBy].filter(([, by]) => parentOf.get(by) === block.id).map(([code]) => code);
-        for (const raw of [...live.fromPriorCredit, ...nestedHere, ...live.picked]) {
+        // And a required course whose hours the page puts here (countsInOf), before a course the list chose: PHYS 2211 is Biology's Lab Science.
+        const countedHere = have.filter((code) => countsInOf.get(code) === block.id);
+        /*
+         * Where a list's hours are held to one language (PoolConstraint
+         * singleHours, school-config oneLanguageLists), only that language's
+         * courses count: the first semesters of four languages are not twelve
+         * hours of one, and International Affairs' Modern Languages read met
+         * with CHIN, FREN, GRMN and JAPN 1001 on the board.
+         */
+        const oneList = school?.oneLanguageLists ? rule.constraints.find((c) => c.single && c.singleHours) : undefined;
+        let inOne: Set<string> | null = null;
+        if (oneList) {
+          const listed = [...live.fromPriorCredit, ...live.picked].map(normaliseCode);
+          let most: { codes: string[]; hours: number } = { codes: [], hours: -1 };
+          for (const list of oneList.lists) {
+            const members = new Set(list.codes.map(normaliseCode));
+            const codes = listed.filter((code) => members.has(code));
+            const hours = codes.reduce((sum, code) => sum + (creditsOf(code) ?? 0), 0);
+            if (hours > most.hours) most = { codes, hours };
+          }
+          inOne = new Set(most.codes.map((code) => (heldAs.has(code) ? heldName(code) : code)));
+        }
+        for (const raw of [...live.fromPriorCredit, ...nestedHere, ...countedHere, ...live.picked.filter((code) => !countedHere.includes(normaliseCode(code)))]) {
           if (full()) break;
-          const code = normaliseCode(raw);
+          // A held course under the name the rows use (heldName), as `have` holds it; the live pool names it as the record does.
+          const code = heldAs.has(normaliseCode(raw)) ? heldName(normaliseCode(raw)) : normaliseCode(raw);
           if (takenElsewhere(code)) continue;
+          if (inOne && !inOne.has(code)) continue;
+          // Where each course counts once (countOnce), only what the student holds toward the degree and the board: a held course the plan forfeited is not in priorCodes.
+          if (school?.countOnce && !haveSet.has(code)) continue;
           claim(code, creditsOf(code) ?? 0);
         }
       } else {
@@ -444,6 +623,12 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
           if (full()) break;
           const hit = choiceHit(choice);
           if (hit === null) continue;
+          // A lecture-lab row counts whole where the school says so (school-config pairHours): its lab on the board is the row's too.
+          const pair = school?.pairHours && choice.bundles?.length === 1 && choice.bundles[0].map(normaliseCode).includes(hit) ? choice.bundles[0].map(normaliseCode) : null;
+          if (pair) {
+            for (const code of pair) if (haveSet.has(code) && !takenElsewhere(code)) claim(code, creditsOf(code) ?? 0);
+            continue;
+          }
           claim(hit, choiceCredits(choice, hit));
         }
       }
@@ -519,7 +704,9 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
       // "Concentration Coursework, 28 hours" is courses in the major, not any
       // spare course: counting Spanish and chemistry toward a psychology
       // concentration showed a student progress they had not made.
-      const majorOnly = /\b(concentration|major)\b/i.test(`${entry.block.label} ${entry.block.areaLabel}`) && ownSubjects.size > 0;
+      // A row the page heads "Free Electives" is any course, wherever it sits, where the school says so (school-config freeElectivesAnySubject).
+      const freeRow = school?.freeElectivesAnySubject === true && /\bfree\s+electives?\b/i.test(entry.block.label);
+      const majorOnly = !freeRow && /\b(concentration|major)\b/i.test(`${entry.block.label} ${entry.block.areaLabel}`) && ownSubjects.size > 0;
       const counted: string[] = [];
       let hours = 0;
       const want = entry.row.needed ?? 0;
@@ -553,9 +740,19 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
        * the other rows. Only a block whose words say so is read that way; a
        * block that says "Electives, 12 hours" is twelve hours of electives.
        */
-      const aboutTotal = /\bso that there (?:are|is) at least\b|\bto (?:reach|bring the total to|total)\b|\btoward the degree\b/i.test(`${entry.block.label} ${entry.block.note}`);
+      /*
+       * Where the school says so (school-config freeElectivesAnySubject),
+       * "Free Electives" with no level of its own is that block too: Georgia
+       * Tech's pages print it as what the named areas leave of the total, so
+       * a course past a row's hours, or a research elective a row counts in
+       * courses, is one of its hours. Counted without the 0xxx support
+       * courses (MATH 0999), which earn no degree credit.
+       */
+      const toTotal = freeRow && floor === null;
+      const aboutTotal = toTotal || /\bso that there (?:are|is) at least\b|\bto (?:reach|bring the total to|total)\b|\btoward the degree\b/i.test(`${entry.block.label} ${entry.block.note}`);
       const total = input.degreeTotal ?? null;
-      const reached = aboutTotal && total !== null && boardTotal >= total;
+      const degreeHours = toTotal ? have.filter((code) => levelOf(code) > 0).reduce((sum, code) => sum + (creditsOf(code) ?? 0), 0) + (input.priorHours ?? 0) : boardTotal;
+      const reached = aboutTotal && total !== null && degreeHours >= total;
       entry.row.earned = reached ? want : Math.min(hours, want);
       entry.row.codes = counted;
       const parts = [
@@ -567,6 +764,28 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
         : parts.length > 0
           ? `${parts.join(', and ')}.`
           : 'Filled by whatever no other requirement claims. Nothing spare is on the board yet.';
+      /*
+       * Where each course counts once (countOnce, Georgia Tech) and the
+       * semester in progress has no classes entered yet (input.currentTerm),
+       * hours the board leaves open wait on those classes: the plan counts
+       * that semester as about 15 credits, which no row can count until its
+       * courses are known. Still shown open, never met by the estimate.
+       */
+      const waiting = school?.countOnce && input.currentTerm && input.currentTerm.assumedHours > 0 && !reached && entry.row.earned < want;
+      if (waiting && input.currentTerm) {
+        entry.row.note = `${entry.row.note} Waiting for your ${input.currentTerm.label} classes: the plan counts about ${input.currentTerm.assumedHours} credits for ${input.currentTerm.label} until you add them, and they count here or leave room for electives.`;
+      }
+      /*
+       * And there a row of hours the page names no course, level or subject
+       * for, other than its free electives, is counted from spare courses
+       * only as a stand-in: Public Policy's "Minor or Certificate
+       * Requirement" counted PUBP courses where the page says a PUBP minor is
+       * not allowed, and International Affairs' "History Requirement" an
+       * INTA course. The note says an advisor decides what counts.
+       */
+      if (school?.countOnce && !freeRow && !aboutTotal && floor === null && !majorOnly && counted.length > 0) {
+        entry.row.note = `${entry.row.note} The page names no courses for these hours, so these are stand-ins: ask your advisor which courses count here.`;
+      }
     }
   }
 
@@ -615,8 +834,14 @@ function headingOf(label: string): string {
   return clause.length >= 8 ? clause : trimmed;
 }
 
+/**
+ * A course's level on the three-digit scale the rules carry (illinois-data
+ * levelFloorIn): CS 225 is 200 and Georgia Tech's CS 2110 is 200 too. The
+ * four-digit number used to read as no level at all, and NRE's "Free
+ * Electives (2000-level or higher)" read 0 of 9 beside nine spare hours.
+ */
 function levelOf(code: string): number {
-  const m = code.match(/\b(\d)\d\d[A-Z]?$/);
+  const m = code.match(/\b(\d)\d{2,3}[A-Z]?$/);
   return m ? Number(m[1]) * 100 : 0;
 }
 

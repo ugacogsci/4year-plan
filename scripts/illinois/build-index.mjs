@@ -304,6 +304,15 @@ mkdirSync(OUT, { recursive: true });
  */
 const indexRows = [];
 let positioned = 0;
+/**
+ * Georgia Tech only: who a course is meant for, when the catalog says one
+ * group of students only ('heritage-learners', 'first-year'; read from titles
+ * and descriptions by scripts/gatech/courses.mjs audienceOf). It rides on the
+ * index row so a plan filling an open elective can skip a course its student
+ * cannot take. Illinois's catalog has no such field, so no Illinois row has it.
+ */
+const audienceByCode = new Map();
+if (!IS_ILLINOIS) for (const c of raw.catalog.json.courses ?? []) if (c?.code && c.audience) audienceByCode.set(normCode(c.code), c.audience);
 /** Old codes whose rows a renumbered course reads; they ship in grades.json though no index row has their code. */
 const renumberSources = new Set();
 for (const course of data.courses) {
@@ -366,6 +375,7 @@ for (const course of data.courses) {
     row.mapPosition = pos;
     positioned += 1;
   }
+  if (audienceByCode.has(code)) row.audience = audienceByCode.get(code);
 
   indexRows.push(row);
 }
@@ -752,6 +762,32 @@ for (const [code, fact] of data.facts) {
   const all = [...new Set([...(fact.exclusions ?? []), ...twins])];
   if (all.length) exclusionRows[code] = all;
 }
+/**
+ * Georgia Tech only. scripts/gatech/courses.mjs (creditExclusionsOf) reads
+ * the credit exclusions worded in ways exclusionsIn does not take, pair by
+ * pair, onto each catalog row as exclusionsFromText: "Students cannot receive
+ * credit for ECON 2100 and ECON 2101 or for ECON 2100 and ECON 2105 /2106 ...",
+ * "No credit allowed for MGT 3000 and ACCT 2101", "CS 4001 and 4002". Without
+ * them exclusions.json had no ECON pair and an Economics board booked ECON
+ * 2100, 2101, 2105 and 2106 together (2026-11-09). Each pair is written both
+ * ways, beside what the adapter read. Illinois's catalog has no such field.
+ */
+if (!IS_ILLINOIS) {
+  let added = 0;
+  for (const c of raw.catalog.json.courses ?? []) {
+    const code = c?.code ? normCode(c.code) : null;
+    if (!code || !data.facts.has(code)) continue;
+    for (const x of c.exclusionsFromText ?? []) {
+      const other = normCode(x.code);
+      if (!data.facts.has(other) || other === code) continue;
+      for (const [a, b] of [[code, other], [other, code]]) {
+        const list = exclusionRows[a] ?? (exclusionRows[a] = []);
+        if (!list.includes(b)) { list.push(b); added += 1; }
+      }
+    }
+  }
+  if (added) console.log(`    ${added} exclusion entries read pair by pair from the catalog's wording (exclusionsFromText)`);
+}
 write('exclusions.json', exclusionRows);
 
 /**
@@ -790,8 +826,39 @@ if (raw.offerings.json) {
       renumbered[now] = before;
     }
   }
-  write('offerings.json', { source: file.source, fetchedAt: file.fetchedAt, terms: termIds, courses, renumbered });
-  if (Object.keys(renumbered).length) console.log(`    ${Object.keys(renumbered).length} renumbered language courses carry their old number's history (${Object.entries(renumbered).map(([a, b]) => `${a} was ${b}`).join(', ')})`);
+  /**
+   * Georgia Tech only. scripts/gatech/offerings.mjs already joined a
+   * renumbered course's history into courses[now] (CEE 4405 holds CEE 3400's
+   * terms, same title and same description) and names the number it ran
+   * under in file.renumbered; carrying that through lets a plan say "ran as
+   * CEE 3400" (the loader reads it into offeringAliases).
+   *
+   * `elsewhere` is the terms a course ran only away from Atlanta (study
+   * abroad, GT-Lorraine, the Freshman Short Summer Session), with the campus
+   * names: RUSS 3691 and RUSS 3692 ran only on "Georgia Tech Studies Abroad",
+   * in Summer 2024, 2025 and 2026, so `courses` has no term for them and the
+   * planner said "has not run". Kept apart from `courses`, which stays the
+   * Atlanta sections a student registers for, so a reader can place such a
+   * course in a summer or say "study abroad only" without mistaking it for
+   * an Atlanta course. Only index rows and crawled terms are kept.
+   */
+  let elsewhere = null;
+  if (!IS_ILLINOIS) {
+    for (const [now, before] of Object.entries(file.renumbered ?? {})) {
+      if (courses[now] && !renumbered[now]) renumbered[now] = before;
+    }
+    elsewhere = {};
+    for (const row of indexRows) {
+      const away = Object.entries(file.elsewhere?.[row.code] ?? {}).filter(([t]) => termIds.includes(t));
+      if (away.length) elsewhere[row.code] = Object.fromEntries(away.sort(([a], [b]) => termIds.indexOf(a) - termIds.indexOf(b)));
+    }
+  }
+  write('offerings.json', { source: file.source, fetchedAt: file.fetchedAt, terms: termIds, courses, renumbered, ...(elsewhere ? { elsewhere } : {}) });
+  if (Object.keys(renumbered).length) console.log(`    ${Object.keys(renumbered).length} renumbered ${IS_ILLINOIS ? 'language ' : ''}courses carry their old number's history (${Object.entries(renumbered).map(([a, b]) => `${a} was ${b}`).join(', ')})`);
+  if (elsewhere) {
+    const only = Object.keys(elsewhere).filter((c) => !courses[c]);
+    console.log(`    ${Object.keys(elsewhere).length} courses ran in a crawled term only away from Atlanta (elsewhere), ${only.length} of them never in Atlanta (${only.slice(0, 12).join(', ')}${only.length > 12 ? ', ...' : ''})`);
+  }
   console.log(`    ${Object.keys(courses).length} courses ran in at least one of ${termIds.length} recent terms (${termIds.join(', ')})`);
 } else {
   notes.push('No offering history was available to this build, so every course is assumed to run every fall and spring.');

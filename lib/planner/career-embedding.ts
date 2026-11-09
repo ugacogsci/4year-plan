@@ -264,6 +264,21 @@ export interface CareerFit {
   strength(code: string): number;
   /** Cosine between the goal and the course, or null without a vector. */
   similarity(code: string): number | null;
+  /**
+   * How close the course is to the goal as it is read (with its pathway,
+   * expandGoal), for every course with a vector, goal course or not: what an
+   * open list none of whose courses is a goal course is ordered by
+   * (school-config openPicks; Georgia Tech's Any HUM for "machine learning
+   * engineer"). The cosine itself, not the goal courses' rank against
+   * careers in general (CourseVectorsMeta.hubs): inside one list that
+   * correction rewards a course for being far from every career, and put HTS
+   * 2062 Asia in the Modern World second for a game developer's social
+   * science, where the cosine puts PUBP 3042 Data Science for Public Policy
+   * and HTS 1081 Engineering in History. Null without a vector, and for a
+   * beginner language course when the goal is not about languages, as
+   * strength is. Absent on a matcher made before it existed.
+   */
+  closeness?(code: string): number | null;
   /** Cosine between two courses, or null when either has no vector. */
   between(a: string, b: string): number | null;
   /** "closest to your goal (dentist): 3rd of 6,225 courses by meaning", or null for a course that is not a goal course. */
@@ -467,6 +482,10 @@ export function careerFitFor(input: { text: string; vector: Float32Array | numbe
     similarity: (code) => {
       const i = v.index.get(code);
       return i === undefined ? null : sims[i];
+    },
+    closeness: (code) => {
+      const i = v.index.get(code);
+      return i === undefined || excluded(i) ? null : sims[i];
     },
     between: (a, b) => {
       const i = v.index.get(a);

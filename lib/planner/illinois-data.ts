@@ -182,6 +182,8 @@ export interface RawProgramGroup {
   kind?: 'all' | 'choose' | 'menu' | 'unknown';
   courses: RawProgramCourse[];
   note: string;
+  /** The page's footnotes under this group, verbatim, where the crawl kept them (Georgia Tech). */
+  footnotes?: string[];
 }
 
 export interface RawProgramArea {
@@ -583,6 +585,13 @@ export interface PoolConstraint {
   hours?: number;
   /** Courses whose credit contributes to `hours`. */
   hourCodes?: string[];
+  /**
+   * With `single`: the hours that have to come from ONE of `lists`, where the
+   * sentence sizes them in hours rather than courses ("Students must complete
+   * twelve credit hours of the same language"); `n` is then 0. Georgia Tech
+   * only (school-config oneLanguageLists).
+   */
+  singleHours?: number;
 }
 
 export type RequirementRule =
@@ -722,6 +731,12 @@ export function splitLanguageRequirement(text: string): { language: { semesters:
 
 export interface CourseChoice {
   codes: string[];
+  /**
+   * Georgia Tech: a required course the page prints without hours, whose
+   * hours a list elsewhere on the page counts, by that list's block id
+   * (markHoursElsewhere): Biology's PHYS 2211 is Lab Science's.
+   */
+  countsIn?: string;
   /**
    * UGA: one of the most taken courses an open elective block's sample adds
    * for the free choices' reading (uga-source.tsx broadElectiveCourses); a
@@ -3734,7 +3749,20 @@ export function optionListsIn(
   if (lists.length === 0) return null;
   const core = rows.filter((row) => !inList.has(row));
   // A table that is all lists stays as it reads, except in the select-line reading where it has two or more.
-  if (core.length === 0 && !(readingSelectLines && lists.length > 1 && lists.every((list) => list.n !== null || list.hours !== null))) return null;
+  /*
+   * And, where each course counts once (school-config countOnce, Georgia
+   * Tech), an unheaded table that is one counted list from its first row:
+   * International Affairs' "Economics Requirement (select one):" (3) over
+   * ECON 2100, 2101, 2105 and 2106 read as all four required, nine hours the
+   * page never asked for. Not a table that prints a course twice: Civil
+   * Engineering Transportation's "Select three of the following" lists CEE
+   * 4803 for two special topics, and read as a choice of three rows it booked
+   * CEE 4803 for two of them, which the board holds once (2 of 3); the list
+   * reading it had counts three different courses.
+   */
+  const oneCountedList = readingSchool.countOnce && !(group.label ?? '').trim() && lists.length === 1 && lists[0].n !== null && lists[0].rows.length === rows.length && comments.length === 1 && comments[0].at === 0
+    && new Set(rows.map((row) => normCode(row.code))).size === rows.length;
+  if (core.length === 0 && !oneCountedList && !(readingSelectLines && lists.length > 1 && lists.every((list) => list.n !== null || list.hours !== null))) return null;
   const uncredited = (row: RawProgramCourse) => (row.credits === null || row.credits === undefined) && !requiredRun.has(row);
   if (orWithCredited) return core.some(uncredited) ? null : { core, lists };
   // Every row left over must be one the page gives hours of its own, as required rows have; a row
@@ -5911,6 +5939,165 @@ export function withCampusGenEd(raw: RawIllinoisProgram): RawIllinoisProgram {
   return { ...raw, areas: [...areas, area] };
 }
 
+/**
+ * A list read at the level its own heading names (school-config
+ * listLevelFromHeading). Georgia Tech's "Biology Electives 3000-level or
+ * higher" (21 hours) arrives as every BIOS course, BIOS 1107 up; planned as
+ * printed, a Biology freshman's 21 hours took BIOS 2310 and BIOS 2610 and the
+ * rail counted BIOS 1107L toward them. The heading's floor (levelFloorIn) keeps
+ * the rows at or above it. Not where the heading offers something besides the
+ * level ("any MUSI 4000-level courses or ensemble courses", "4000-level or
+ * higher CP courses or other electives"), and never down to an empty list.
+ *
+ * Only a whole subject the crawl spelled out loses its rows below the floor
+ * (`wholeSubject`): a row the page lists on purpose stays. Chemistry's
+ * "3000-level Technical Electives" lists MATH 2552 beside every 3000-level
+ * course of three colleges, and its footnote names it; Music Technology's
+ * "MUSI Upper Division (4000-level) Elective" lists every VIP course, and its
+ * footnote says any VIP team is eligible. Both lost those rows to the
+ * heading's level, and the rail would not count them. A subject is spelled
+ * out where the list holds at least half of the catalog's courses of it
+ * below the floor that the degree does not require elsewhere (Biology's
+ * every BIOS course from BIOS 1107; ME's ME 2205 and four special topics,
+ * every ME course under 3000 but the four the degree requires), and only a
+ * subject the heading names, or any where it names none: VIP is not MUSI.
+ */
+function listAtHeadingLevel(rule: RequirementRule, heading: string, wholeSubject: (subject: string, floor: number, listed: ReadonlySet<string>) => boolean = () => true): RequirementRule {
+  if (!heading) return rule;
+  /*
+   * Hours that name no course take the heading's level too, where the table
+   * itself has no words: Environmental Science's "Upper Division Electives"
+   * (7 hours) is its area's name over an empty table, and the rail counted
+   * BIOS 1108 and AECT 2030 toward it.
+   */
+  if (rule.kind === 'hours' && (rule.minLevel ?? null) === null && !(rule.genEd && rule.genEd.length > 0)) {
+    const floor = levelFloorIn(heading, '');
+    return floor !== null && floor > 100 && !/\bor\b(?!\s+(?:higher|above))/i.test(heading) ? { ...rule, minLevel: floor } : rule;
+  }
+  if (rule.kind !== 'pool') return rule;
+  const floor = levelFloorIn(heading, '');
+  if (floor === null || floor <= 100) return rule;
+  const at = heading.search(/\d{3,4}\s*-?\s*level|\b(?:upper|advanced)\b/i);
+  if (at >= 0 && /\bor\b(?!\s+(?:higher|above))/i.test(heading.slice(at))) return rule;
+  const levelOf = (code: string): number => {
+    const m = normCode(code).match(/\s(\d{3,4})[A-Z]?$/);
+    return m ? Math.floor(Number(m[1]) / levelUnit()) * 100 : 0;
+  };
+  const listed = new Set(rule.choices.flatMap((choice) => choice.codes.map(normCode)));
+  // The subjects the heading names by code ("ME 3000-level Electives", "MUSI Upper Division"); none for "Biology Electives".
+  const named = new Set((heading.match(/\b[A-Z]{2,4}\b/g) ?? []).filter((word) => [...listed].some((code) => code.startsWith(`${word} `))));
+  const trimmed = new Map<string, boolean>();
+  const trims = (code: string): boolean => {
+    const subject = normCode(code).split(' ')[0];
+    if (named.size > 0 && !named.has(subject)) return false;
+    if (!trimmed.has(subject)) trimmed.set(subject, wholeSubject(subject, floor, listed));
+    return trimmed.get(subject) === true;
+  };
+  const choices = rule.choices.filter((choice) => choice.codes.some((code) => levelOf(code) >= floor || !trims(code)));
+  if (choices.length === 0 || choices.length === rule.choices.length) return rule;
+  const kept = new Set(choices.flatMap((choice) => choice.codes.map(normCode)));
+  return {
+    ...rule,
+    choices,
+    lists: rule.lists.map((list) => ({ ...list, codes: list.codes.filter((code) => kept.has(normCode(code))) })),
+  };
+}
+
+/**
+ * A list's count, where the page's own hours for it say more: "Select one of
+ * the following:" over a 9-hour cell of three-hour courses (Mechanical
+ * Engineering Automation and Robotic Systems) is three courses, as the plan
+ * books it and the rail counts it in hours; read as one course as well, the
+ * board marked two of the three "elective slot", free to swap (repick.ts
+ * planMarks fills a list's count first). The count goes when no n of its
+ * courses can reach the hours. And where a choice is a lecture and its lab
+ * (pairHours) and the hours alone already mean n choices: Civil
+ * Engineering's "Select one of the following:" (4) over BIOS 1107 and its
+ * lab, BIOS 1108 and its lab, or EAS 2600 is one four-hour choice, and
+ * counted in courses the lab read as a second, an "elective slot". Georgia
+ * Tech only (countOnce).
+ */
+/**
+ * A language list whose footnote holds its hours to one language, read as
+ * that: "Students must complete twelve credit hours of the same language"
+ * (International Affairs' Modern Languages) and "Modern Language courses must
+ * be in the same language" (Economics and International Affairs). Without it
+ * the list was 272 courses in ten languages filled four-ways, CHIN 1001, FREN
+ * 1001, GRMN 1001 and JAPN 1001, and the rail read it met (2026-11-09 browser
+ * test). The list is split by subject, each one language, and a single-list
+ * constraint holds the hours to one of them: the sentence's own number, else
+ * the list's. Georgia Tech only (school-config oneLanguageLists).
+ */
+function inOneLanguage(rule: RequirementRule, group: RawProgramGroup | undefined): RequirementRule {
+  if (rule.kind !== 'pool') return rule;
+  const text = (group?.footnotes ?? []).find((f) => /\bsame language\b/i.test(f));
+  if (!text) return rule;
+  const bySubject = new Map<string, string[]>();
+  for (const choice of rule.choices) {
+    const subject = normCode(choice.codes[0]).split(' ')[0];
+    bySubject.set(subject, [...(bySubject.get(subject) ?? []), ...choice.codes.map(normCode)]);
+  }
+  if (bySubject.size < 2) return rule;
+  const said = text.match(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})\s+(?:credit\s+)?(?:hours?|hrs?|credits?)\b/i)?.[1]?.toLowerCase();
+  const hours = said ? (NUMBER_WORDS[said] ?? Number(said)) : rule.hours;
+  if (!hours || !Number.isFinite(hours) || hours <= 0) return rule;
+  const lists = [...bySubject].map(([subject, codes]) => ({ label: subject, codes }));
+  return { ...rule, constraints: [...rule.constraints, { text: text.trim(), n: 0, lists, single: true, singleHours: hours }] };
+}
+
+function countTheHoursAllow(rule: RequirementRule, byCode: Map<string, IllinoisCourse>, pairs: boolean): RequirementRule {
+  if (rule.kind !== 'pool' || rule.n === null || rule.hours === null || rule.choices.length === 0) return rule;
+  const creditsOfCode = (code: string, choice: CourseChoice, most: boolean): number => {
+    const course = byCode.get(normCode(code));
+    return course ? ((most ? course.creditsMax : undefined) ?? course.credits ?? 0) : ((most ? choice.creditsMax : null) ?? choice.credits ?? 0);
+  };
+  const worthOf = (choice: CourseChoice, most: boolean): number => (pairs && choice.bundles?.length === 1
+    ? choice.bundles[0].reduce((sum, code) => sum + creditsOfCode(code, choice, most), 0)
+    : (most ? Math.max : Math.min)(...choice.codes.map((code) => creditsOfCode(code, choice, most))));
+  const most = rule.choices.map((choice) => worthOf(choice, true)).sort((a, b) => b - a).slice(0, rule.n).reduce((sum, credits) => sum + credits, 0);
+  if (most > 0 && most < rule.hours) return { ...rule, n: null };
+  const least = Math.min(...rule.choices.map((choice) => worthOf(choice, false)));
+  if (pairs && rule.choices.some((choice) => choice.bundles?.length === 1) && least > 0 && least * rule.n >= rule.hours) return { ...rule, n: null };
+  return rule;
+}
+
+/**
+ * A required course the page prints without hours, in a table with no hours
+ * of its own, that a list elsewhere on the page names: its hours are that
+ * list's (CourseChoice.countsIn), where each course counts once
+ * (school-config countOnce). Biology's Major Requirements print PHYS 2211 and
+ * PHYS 2212 with no hours and its 22 hours leave them out: they are the Lab
+ * Science area's eight. Public Policy's POL 1101 is three of Any SS's nine.
+ * Read as eight hours more, the rail showed Free Electives short on a board
+ * at the degree total, and the plan booked two more lab sciences beside them.
+ */
+function markHoursElsewhere(raw: RawIllinoisProgram, programBlocks: RequirementBlock[]): void {
+  const listOf = new Map<string, string>();
+  for (const block of programBlocks) {
+    if (block.rule.kind !== 'pool' || (block.rule.hours === null && block.rule.n === null)) continue;
+    for (const choice of block.rule.choices) for (const code of choice.codes) if (!listOf.has(normCode(code))) listOf.set(normCode(code), block.id);
+  }
+  if (listOf.size === 0) return;
+  programBlocks.forEach((block, index) => {
+    if (block.rule.kind !== 'all') return;
+    const [ai, gi] = block.id.slice(raw.id.length + 2).split('::').map(Number);
+    const group = raw.areas?.[ai]?.groups?.[gi];
+    if (!group || (group.hours ?? null) !== null) return;
+    let changed = false;
+    const choices = block.rule.choices.map((choice) => {
+      if (choice.codes.length !== 1 || (choice.bundles?.length ?? 0) > 0) return choice;
+      const code = normCode(choice.codes[0]);
+      // An indented row is one of a list's (Georgia Tech's crawl marks them), not a required course.
+      const row = (group.courses ?? []).find((r) => normCode(r.code) === code && (r.or ?? []).length === 0) as (RawProgramCourse & { indented?: boolean }) | undefined;
+      const list = listOf.get(code);
+      if (!row || (row.credits ?? null) !== null || row.indented || !list || list.split('::')[1] === String(ai)) return choice;
+      changed = true;
+      return { ...choice, countsIn: list };
+    });
+    if (changed) programBlocks[index] = { ...block, rule: { ...block.rule, choices } };
+  });
+}
+
 export function adaptIllinoisPrograms(
   file: RawProgramFile,
   byCode: Map<string, IllinoisCourse>,
@@ -5999,6 +6186,33 @@ export function adaptIllinoisPrograms(
     const byRule = requirementRulesForProgram(raw, byCode);
     // A page read by hand (hand-readings.ts, Family 4b), where its reading is not held.
     const byArea = (illinoisReadings && readingHeaderLists && !HAND_READINGS_HELD.has(raw.id) ? handReading(raw.id, byRule, byCode) : null) ?? byRule;
+    /*
+     * Whether a list spells out a whole subject below its heading's floor
+     * (listAtHeadingLevel): it holds at least half of the catalog's courses of
+     * that subject under the floor, leaving out the ones the degree lists in
+     * another group (required there). Georgia Tech only (listLevelFromHeading).
+     */
+    const wholeSubject = (() => {
+      if (!school.listLevelFromHeading) return undefined;
+      const groupsOf = new Map<string, Set<string>>();
+      raw.areas?.forEach((area, ai) => area.groups?.forEach((group, gi) => {
+        for (const row of group.courses ?? []) for (const code of [row.code, ...(row.or ?? [])]) {
+          const key = normCode(code);
+          groupsOf.set(key, (groupsOf.get(key) ?? new Set<string>()).add(`${ai}::${gi}`));
+        }
+      }));
+      const levelOfCode = (code: string): number => {
+        const m = normCode(code).match(/\s(\d{3,4})[A-Z]?$/);
+        return m ? Math.floor(Number(m[1]) / levelUnit()) * 100 : 0;
+      };
+      return (subject: string, floor: number, listed: ReadonlySet<string>): boolean => {
+        // Named elsewhere: in a group of the page besides this list's own.
+        const elsewhere = (code: string) => (groupsOf.get(code)?.size ?? 0) > (listed.has(code) ? 1 : 0);
+        const below = [...byCode.keys()].map(normCode).filter((code) => code.startsWith(`${subject} `) && levelOfCode(code) >= 100 && levelOfCode(code) < floor && !elsewhere(code));
+        if (below.length === 0) return true;
+        return below.filter((code) => listed.has(code)).length * 2 >= below.length;
+      };
+    })();
 
     raw.areas?.forEach((area, ai) => {
       const areaId = `${raw.id}::${ai}`;
@@ -6013,7 +6227,9 @@ export function adaptIllinoisPrograms(
       for (const block of rules.blocks) {
         enumeratedRows += block.rows;
         const label = block.label || areaLabel;
-        const rule = block.rule;
+        const leveled = school.listLevelFromHeading ? listAtHeadingLevel(block.rule, label, wholeSubject) : block.rule;
+        const counted = school.countOnce ? countTheHoursAllow(leveled, byCode, school.pairHours) : leveled;
+        const rule = school.oneLanguageLists ? inOneLanguage(counted, area.groups?.[block.groupIndex]) : counted;
 
         programBlocks.push({
           // Still the group's own index, so a plan saved before pools existed
@@ -6112,6 +6328,7 @@ export function adaptIllinoisPrograms(
       (b) => b.rule.kind === 'gened' && b.rule.sizeFromCampus,
     ).length;
 
+    if (school.countOnce) markHoursElsewhere(raw, programBlocks);
     blocks.set(raw.id, programBlocks);
     programs.push({
       id: raw.id,

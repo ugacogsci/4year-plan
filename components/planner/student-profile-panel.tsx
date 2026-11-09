@@ -27,6 +27,22 @@ import { ProgramPicker, type ProgramOption } from './program-picker';
 import { EmphasisPicker } from './emphasis-picker';
 import type { UgaSelectionRequirement } from './uga-source';
 import { SCHOOLS, type ProgramLevel } from '@/lib/planner/onboarding';
+import { courseleafOf } from '@/lib/planner/school-config';
+
+/**
+ * The preferences a school's data can act on (school-config.ts). Workload and
+ * teaching weigh grade history and instructor ratings: a CourseLeaf school
+ * with neither (Georgia Tech) is not offered Lightest, Best-rated teaching,
+ * Challenge me or those two knobs, which could not change a pick. Time of
+ * day, format and "Fits my schedule" need published sections. UGA and
+ * Illinois keep every one.
+ */
+function preferencesFor(schoolShort: string): { weighs: boolean; sections: boolean } {
+  const leaf = courseleafOf(SCHOOLS.find((s) => s.short === schoolShort)?.id);
+  return { weighs: !leaf || leaf.gradeData || leaf.ratings, sections: !leaf || leaf.sections };
+}
+const WEIGHING_PRESETS: ReadonlySet<PriorityPreset> = new Set<PriorityPreset>(['lightest', 'teaching', 'challenge']);
+const WEIGHING_KNOBS: ReadonlySet<string> = new Set(['workload', 'teaching']);
 
 const PRESET_ROWS: Array<[Exclude<PriorityPreset, 'custom'>, string]> = [
   ['balanced', 'Balanced'],
@@ -240,6 +256,10 @@ export function StudentProfilePanel({
   programGuidance,
 }: RailProps) {
   const assumptionsBodyRef = useRef<HTMLElement>(null);
+  const offered = preferencesFor(schoolShort);
+  const presetRows = offered.weighs ? PRESET_ROWS : PRESET_ROWS.filter(([name]) => !WEIGHING_PRESETS.has(name));
+  // "Fits my schedule" weighs the time and format asked of a term's sections (quality.ts), so it goes with them.
+  const knobs = KNOBS.filter((knob) => (offered.weighs || !WEIGHING_KNOBS.has(knob)) && (offered.sections || knob !== 'schedule'));
   const rows = areas.map((row, index) => ({
     row,
     // The label is not a key. Two areas on one degree page can print the same
@@ -336,6 +356,9 @@ export function StudentProfilePanel({
                   <span>{figureOf(row)}</span>
                 </div>
                 {row.area.hours > 0 && <Bar percent={row.percent} />}
+                {!row.satisfied && waitingOf(row.note) && (
+                  <p className="requirement-wait" title={waitingOf(row.note)!.sentence}>{waitingOf(row.note)!.short}</p>
+                )}
               </div>
             ))}
             {unnamed.map(({ row, key }, index) => (
@@ -475,7 +498,7 @@ export function StudentProfilePanel({
           <span className="rail-priorities-head">What makes a class a good pick</span>
           <fieldset className="rail-presets">
             <legend className="sr-only">Priority presets</legend>
-            {PRESET_ROWS.map(([name, label]) => (
+            {presetRows.map(([name, label]) => (
               <button
                 key={name}
                 type="button"
@@ -497,7 +520,7 @@ export function StudentProfilePanel({
               </button>
             ))}
           </fieldset>
-          {KNOBS.map((knob) => (
+          {knobs.map((knob) => (
             <div key={knob} className="rail-knob">
               <span>{PRIORITY_LABELS[knob]}</span>
               <fieldset className="rail-knob-seg">
@@ -519,39 +542,45 @@ export function StudentProfilePanel({
               </fieldset>
             </div>
           ))}
-          <label className="rail-check">
-            <input
-              type="checkbox"
-              checked={priorities.challenge === true}
-              // Ticking it sets workload to skip: lighter and harder pull opposite ways (priorities.ts normalizePriorities).
-              onChange={(event) =>
-                onPrioritiesChange(event.target.checked ? { ...priorities, workload: 0, challenge: true } : { ...priorities, challenge: false })
-              }
-            />
-            <span>Challenge me: prefer more demanding electives (required courses don&apos;t change)</span>
-          </label>
-          <label className="rail-check">
-            <input
-              type="checkbox"
-              checked={priorities.noEarly}
-              onChange={(event) => onPrioritiesChange({ ...priorities, noEarly: event.target.checked })}
-            />
-            <span>Nothing before 9 a.m.</span>
-          </label>
-          <div className="rail-field">
-            <span>Format</span>
-            <NativeSelect
-              aria-label="Class format"
-              value={priorities.format}
-              onChange={(event) =>
-                onPrioritiesChange({ ...priorities, format: event.target.value as Priorities['format'] })
-              }
-            >
-              <NativeSelectOption value="any">Either</NativeSelectOption>
-              <NativeSelectOption value="in-person">In person</NativeSelectOption>
-              <NativeSelectOption value="online">Online</NativeSelectOption>
-            </NativeSelect>
-          </div>
+          {offered.weighs && (
+            <label className="rail-check">
+              <input
+                type="checkbox"
+                checked={priorities.challenge === true}
+                // Ticking it sets workload to skip: lighter and harder pull opposite ways (priorities.ts normalizePriorities).
+                onChange={(event) =>
+                  onPrioritiesChange(event.target.checked ? { ...priorities, workload: 0, challenge: true } : { ...priorities, challenge: false })
+                }
+              />
+              <span>Challenge me: prefer more demanding electives (required courses don&apos;t change)</span>
+            </label>
+          )}
+          {offered.sections && (
+            <>
+              <label className="rail-check">
+                <input
+                  type="checkbox"
+                  checked={priorities.noEarly}
+                  onChange={(event) => onPrioritiesChange({ ...priorities, noEarly: event.target.checked })}
+                />
+                <span>Nothing before 9 a.m.</span>
+              </label>
+              <div className="rail-field">
+                <span>Format</span>
+                <NativeSelect
+                  aria-label="Class format"
+                  value={priorities.format}
+                  onChange={(event) =>
+                    onPrioritiesChange({ ...priorities, format: event.target.value as Priorities['format'] })
+                  }
+                >
+                  <NativeSelectOption value="any">Either</NativeSelectOption>
+                  <NativeSelectOption value="in-person">In person</NativeSelectOption>
+                  <NativeSelectOption value="online">Online</NativeSelectOption>
+                </NativeSelect>
+              </div>
+            </>
+          )}
           <button type="button" className="rail-action" onClick={onRepick}>
             Re-pick the planner&apos;s choices
           </button>
@@ -561,8 +590,10 @@ export function StudentProfilePanel({
               ? ' Workload uses Illinois grade history, and teaching the Teachers Ranked as Excellent lists; where a course has neither, student ratings of its instructors fill in.'
               : schoolShort === 'UGA'
                 ? ' UGA publishes no grade history, so workload and teaching are estimates from student ratings of the instructors on UGA\'s Schedule of Classes.'
-                : ` No grade history or instructor ratings are loaded for ${schoolShort}, so workload and teaching do not change the picks.`}
-            {' '}A lighter, harder or better-taught plan is kept only where it costs no required course and no later finish. Missing ratings do not lower a course&apos;s rank.
+                : offered.weighs
+                  ? ` No grade history or instructor ratings are loaded for ${schoolShort}, so workload and teaching do not change the picks.`
+                  : ` No grade history or instructor ratings are loaded for ${schoolShort}, so picks are not weighed for workload or teaching.`}
+            {offered.weighs && <>{' '}A lighter, harder or better-taught plan is kept only where it costs no required course and no later finish. Missing ratings do not lower a course&apos;s rank.</>}
           </p>
         </div>
       </details>
@@ -643,6 +674,19 @@ function targetOf(row: AreaRow): number {
  * is noise. A count of courses or semesters has to say so, or "1/1" under
  * "Cultural Studies" reads as one hour.
  */
+/**
+ * The rail's own word that an open row waits on the semester in progress
+ * (illinois-progress.ts writes it only where each course counts once, Georgia
+ * Tech, and only when the board hands it that semester): "Waiting for your
+ * Fall 2026 classes." under the row, the whole sentence on hover. Null for
+ * every other note, so no other school's rows change.
+ */
+function waitingOf(note: string | undefined): { short: string; sentence: string } | null {
+  const sentence = note?.match(/Waiting for your [^:.]+ classes(?::[^.]*)?\./)?.[0];
+  if (!sentence) return null;
+  return { short: `${sentence.match(/^Waiting for your [^:.]+ classes/)![0]}.`, sentence };
+}
+
 function figureOf(row: AreaRow): string {
   const unit = row.unit ?? 'hr';
   const target = targetOf(row);

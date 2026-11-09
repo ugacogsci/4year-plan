@@ -3542,6 +3542,20 @@ p.requirement-unnamed {
   grid-column: 2;
 }
 
+/* "Waiting for your Fall 2026 classes." under an open row (student-profile-panel.tsx
+   waitingOf; Georgia Tech only, where the rail is told the semester in progress). */
+.requirement-wait {
+  margin: 0;
+  font-size: var(--fs-micro);
+  color: var(--ink-dim);
+}
+
+.planner-app .requirement-row > .requirement-wait {
+  grid-column: 2;
+  color: var(--orion-dim);
+  font-style: italic;
+}
+
 .planner-app .requirement-unnamed,
 .planner-app .rail-section > summary,
 .planner-app .rail-field > span,
@@ -6521,6 +6535,24 @@ button.unofficial-label:focus-visible,
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1;
+}
+
+/*
+ * The same initials on the header's panel button, where a logo sits for
+ * Illinois and UGA: a 28px badge like their 28px logo, on the desktop and the
+ * phone. The button's shared [data-slot=button] padding squeezed it to an 8px
+ * strip, and the narrow-screen rule that hides a text label hid it outright.
+ * Only a school with no logo file renders this span.
+ */
+.planner-app .rail-toggle:has(> .rail-school-text) {
+  padding: 0;
+}
+.planner-app .rail-toggle > .rail-school-text {
+  display: grid;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
 }
 
 .planner-app .bot-launch {

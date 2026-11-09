@@ -261,7 +261,16 @@ function setsGroup(ctx, { label, sets, kind, from, basis, footnotes, hours = nul
 // ---------------------------------------------------------------------------
 
 const NEGATIVE_SPLIT = /\b(?:with the exception of|except(?:ing)?(?: for)?|excluding|other than)\b|\bexclusions?\s*:/i;
-const NEGATIVE_WHOLE = /\b(?:not allowed|are not|is not|may not|cannot|can not|not be (?:used|included)|not permitted|exclude[sd]?)\b/i;
+/**
+ * "must not": Mechanical Engineering's footnote "ME Electives must be 3000-level electives. ... ME
+ * Elective must not duplicate any other material used for BSME degree." read its last sentence
+ * as "ME Elective", any ME course 1000-4999, so the ME 3000-level Electives list offered ME 2205,
+ * 2801, 2803, 2813 and 2853 (2026-11-09). That sentence limits the list; it names none. It is the
+ * only "must not" sentence in gatech-programs.json (two occurrences, both this one). With the
+ * band read from the footnote's own exclusions (readCourseText, `bands`) the list is ME 3000-4999
+ * less the excluded and the required courses: 62 courses, none below 3000.
+ */
+const NEGATIVE_WHOLE = /\b(?:not allowed|are not|is not|may not|must not|cannot|can not|not be (?:used|included)|not permitted|exclude[sd]?)\b/i;
 const CAP = /\b(?:maximum|max\.|at most|no more than|limit(?:ed)?(?: to)?|up to)\b/i;
 const ADVICE = /\b(?:recommended|encouraged|strongly advised|consult|highly encouraged)\b/i;
 /** "Any course numbered 3000 or above with significant engineering content": a judgement, not a list. */
@@ -368,6 +377,7 @@ function readCourseText(ctx, text, { words = false, levels: forced = null } = {}
   let judgement = false;
   let subjectRule = false;
   let firstLevels = null;
+  const bands = [];
   const sentences = String(text ?? '').replace(/\s+/g, ' ').split(/(?<=[.;])\s+(?=[A-Z*])|\s+-\s+(?=Limit|Maximum)/);
   for (const raw of sentences) {
     let s = raw.trim();
@@ -415,7 +425,23 @@ function readCourseText(ctx, text, { words = false, levels: forced = null } = {}
       }
       subjectRule = true;
       why.push(`${[...subjects].sort().join(', ')} ${band[0]}000-${band[1]}999`);
+      if (!forced && lv !== null) bands.push({ subjects, band });
     }
+  }
+  /*
+   * A footnote does not rule out what its level already leaves out. "ME Electives must be
+   * 3000-level electives. ME 3141, ME 3700, ..., ME 4699, ME 4741, ME 4742, ME 4753, and ME 4903
+   * are not allowed" names 4000-level courses it does not allow, so its "3000-level" is 3000-level
+   * and up: the band reaches the highest level its own exclusions name in those subjects.
+   */
+  for (const { subjects, band } of bands) {
+    const top = Math.max(band[1], ...[...exclude].map((c) => ctx.all.get(c)).filter((k) => k && k.n < 5000 && subjects.has(k.subject)).map((k) => Math.floor(k.n / 1000)));
+    if (top <= band[1]) continue;
+    for (const c of ctx.undergrad) {
+      const b = Math.floor(c.n / 1000);
+      if (subjects.has(c.subject) && !c.noise && b > band[1] && b <= top) include.add(c.code);
+    }
+    why.push(`${[...subjects].sort().join(', ')} ${band[1] + 1}000-${top}999 (its exclusions name courses there)`);
   }
   for (const c of explicit) include.add(c);
   if (explicit.size) why.push(`${explicit.size} course${explicit.size === 1 ? '' : 's'} named`);
@@ -459,7 +485,12 @@ function juniorDesignSets(ctx, text) {
   if (!/Junior Design Options are as follows/i.test(text)) return null;
   const sets = [];
   for (const m of text.matchAll(/Option\s*(\d)\s*-\s*([\s\S]*?)(?=Option\s*\d\s*-|Six credits|$)/g)) {
-    const words = m[2];
+    // The two Music Technology pages print the advisor note right after Option 5 ("Option 5 - CS
+    // 4723 (3 hours), LMC 3403 (3 hours) = 6 hours *See advisor for requirements to substitute
+    // Research Option OR VIP Option ..."), and its "Research Option" read as Option 5's own words,
+    // so the option was left out and both boards kept only Options 1 and 4 (2026-11-09). The note
+    // is about substitutions, not part of the option.
+    const words = m[2].split(/\*\s*See advisor\b/i)[0];
     // Option 4 prints two ways; the first is the one with its own courses.
     const first = words.split(/\bOR\b/)[0];
     const codes = [...new Set(codesIn(first))].filter((c) => ctx.all.has(c));

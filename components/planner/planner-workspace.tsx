@@ -252,7 +252,7 @@ import { rematchForSchool } from '@/lib/planner/transcript-rematch';
 import { horizonFor, stepRegular, termOrd } from '@/lib/planner/plan-start';
 import { currentClasses, currentPlanTerm, currentQuestion, termIdOf, termOfLine, termLoadFor, withCurrentClass, withCurrentConfirmed, withInstructorsOfTerm, withoutCurrentClass } from '@/lib/planner/current-term';
 import { CurrentTermColumn, ElsewhereTermColumn } from './current-term-column';
-import { distinctHeld, heldTowardDegree, type GenEdCredit, type PlanRequirement, type PriorCredit } from '@/lib/planner/autoplan';
+import { distinctHeld, heldTowardDegree, type GenEdCredit, type PlanPrereq, type PlanRequirement, type PriorCredit } from '@/lib/planner/autoplan';
 import { boardChecker, genEdCandidates, genEdWhy, notRegistrable, planMarks, repickBoard, repickSignature, type RepickChange } from '@/lib/planner/repick';
 import { creditUse, editFlags, enteringAsFirstYear, flagsCaused, isEditFlag, momentumReview, priorCreditUse, summerSuggestions, withSummer } from '@/lib/planner/review';
 import { buildAdvisorPacket, cardRole, type AdvisorPacket, type CardRole } from '@/lib/planner/advisor-packet';
@@ -1018,9 +1018,13 @@ export function PlannerWorkspace({
    * engineering goal and an ex-pre-med the pre-med track; every timeline
    * reader still reads the whole of it from answers.timeline.
    */
-  const setup = useMemo(() => setupWords(answers), [answers]);
+  const setup = useMemo(() => {
+    const words = setupWords(answers);
+    // "..., started Fall 2026. I want to go into investment banking." left the goal "Started. I want ..." (school-config.ts `plainNotes`).
+    return leaf?.plainNotes ? { ...words, goals: withoutStrayStart(words.goals) } : words;
+  }, [answers, leaf]);
   /** The rail's goal box: the setup's goals until the student types their own, which then win (careerWordsFor). */
-  const [careerInterests, setCareerInterests] = useState(() => setupWords(answers).goals);
+  const [careerInterests, setCareerInterests] = useState(() => (leaf?.plainNotes ? withoutStrayStart(setupWords(answers).goals) : setupWords(answers).goals));
   /**
    * The student dropped their goal, through ALMA or by emptying the rail's
    * box. careerInterests starts as the setup's goals and an empty one falls
@@ -1034,7 +1038,10 @@ export function PlannerWorkspace({
    * slot holds the whole setup paragraph there, untouched by the student; it
    * reads as the setup's goals (restoredCareerWords).
    */
-  const careerTyped = useMemo(() => restoredCareerWords(careerInterests, answers), [careerInterests, answers]);
+  const careerTyped = useMemo(() => {
+    const words = restoredCareerWords(careerInterests, answers);
+    return leaf?.plainNotes ? withoutStrayStart(words) : words;
+  }, [careerInterests, answers, leaf]);
   /** What the student said they want to do: the only words career tracks and topics are read from. */
   const careerText = careerWordsFor(setup, careerTyped, careerCleared);
   /**
@@ -1941,8 +1948,10 @@ export function PlannerWorkspace({
     setChooserOnMap(false);
     setTargetTermId(generated.plan.terms[0]?.id ?? '');
     setPlanNotes(generated.notes);
-    // Only the parts of the report a board edit cannot change (reportOf).
-    setReport(reportOf(generated));
+    // Only the parts of the report a board edit cannot change (reportOf), and
+    // the held courses the plan counted in place of a row's own (Georgia Tech
+    // only; withStandIns), which the rail counts the same way.
+    setReport(withStandIns(reportOf(generated), generated));
     track('plan_generated', { outcome: 'ok', terms: generated.plan.terms.length, durationMs: performance.now() - buildStartedAt });
     repickedFor.current = repickSignature(priorities, job.input.interests ?? '');
     studentAdded.current = new Set();
@@ -2860,6 +2869,16 @@ export function PlannerWorkspace({
         priorHours: priorHoursOf(answers, exams, examCredit.entries, catalogCredits) - towardDegree.hoursOff,
         genEdCredits: isGraduatePlan ? [] : genEdCreditsOf(answers, exams, examCredit.entries, catalogCredits),
         programName: loaded.program.name,
+        /*
+         * The semester in progress with no classes yet, and the held courses
+         * the plan counted in place of a row's own: the board showed "Field of
+         * Study 14/18" for a Biology student with AP Chemistry while the plan
+         * counted CHEM 1310 there, and no row said it waited on the Fall 2026
+         * classes. illinois-progress.ts reads both only where each course
+         * counts once (Georgia Tech), so Illinois's rows are as before.
+         */
+        currentTerm: currentView && currentView.assumedHours > 0 ? { label: currentView.term.label, assumedHours: currentView.assumedHours } : null,
+        standIns: standInsOf(report),
       });
       const plannedMinors = (loaded.minors ?? []).filter((minor) => minor.checked);
       if (plannedMinors.length === 0) return degreeRows;
@@ -2956,6 +2975,7 @@ export function PlannerWorkspace({
     context,
     credits.total.min,
     isLeaf, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits, coreCredit, priorCreditHours, recordedCredits, ugaAudit,
+    currentView,
   ]);
 
   /**
@@ -2970,7 +2990,8 @@ export function PlannerWorkspace({
       ? validatePlan(plan, boardContext, {
           minimumTermCredits, programName: loaded?.program.name, programCollege: leaf?.collegeRules && !isGraduatePlan ? loaded?.program.college : undefined,
           standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
-          priorCredits: priorCreditHours, away: report?.away, language: report?.language,
+          // With the hours the build assumed for a term in progress, as placing the course counted them (school-config.ts `countAssumedHours`).
+          priorCredits: priorCreditHours + (leaf?.countAssumedHours ? assumedCredit.hours : 0), away: report?.away, language: report?.language,
           firstYear: isLeaf && !isGraduatePlan ? enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript) : false,
           arrival: isLeaf && !isGraduatePlan ? arrivalOf(answers) : undefined,
         }).filter(
@@ -3024,7 +3045,7 @@ export function PlannerWorkspace({
     });
     return [completionIssue, ...rows]
       .filter((issue): issue is PlanIssue => Boolean(issue))
-      .map((issue) => ({ ...issue, message: withCourseCodes(issue.message) }));
+      .map((issue) => ({ ...issue, message: withCourseCodes(leaf?.plainNotes ? titleStandingWording(issue.message) : issue.message) }));
   }, [
     plan,
     context,
@@ -3036,7 +3057,7 @@ export function PlannerWorkspace({
     activeProgramTotal,
     areas,
     pools,
-    isLeaf, leaf, school, isGraduatePlan, loaded, priorCreditHours, report, answers, weeklyFits, completedCodes, boardContext, ugaAudit,
+    isLeaf, leaf, school, isGraduatePlan, loaded, priorCreditHours, report, answers, weeklyFits, completedCodes, boardContext, ugaAudit, assumedCredit.hours,
   ]);
 
   // ---- a plan the settings cannot finish (cannot-finish.ts) ------------------
@@ -4086,6 +4107,13 @@ export function PlannerWorkspace({
     const label = board.terms.find((t) => t.id === termId)?.label ?? (currentView?.term.id === termId ? currentView.term.label : 'that term');
     setStatus(name ? `${course.code}, ${label}: your instructor is ${name}.` : `${course.code}, ${label}: instructor not set.`);
   }
+  /**
+   * "My instructor" needs somewhere to name one from: a term's sections or a
+   * course's syllabi. A CourseLeaf school that publishes neither here
+   * (school-config.ts `sections` and `syllabi` off: Georgia Tech) gets no
+   * picker, and no "syllabus answers" line about syllabi it does not have.
+   */
+  const instructorsOffered = !leaf || leaf.sections || leaf.syllabi;
   const instructorControl: InstructorControl = {
     chosen: (courseId, termId) => {
       const course = courseIndex.get(courseId);
@@ -4336,7 +4364,7 @@ export function PlannerWorkspace({
       maxTermCredits: 18,
       programName: L.loaded?.program.name,
       programCollege: leaf?.collegeRules && !isGraduatePlan ? L.loaded?.program.college : undefined,
-      priorCredits: L.priorCreditHours,
+      priorCredits: L.priorCreditHours + (leaf?.countAssumedHours ? L.assumedCredit.hours : 0),
       standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
       away: L.report?.away,
       language: L.language,
@@ -4464,6 +4492,8 @@ export function PlannerWorkspace({
       priorHours: L.priorForOptions.unmatchedCredits - held.hoursOff,
       genEdCredits: isGraduatePlan ? [] : L.priorForOptions.genEdCredits,
       programName: L.loaded.program.name,
+      // Counted as the rail counts them (Georgia Tech only; read where each course counts once).
+      standIns: standInsOf(L.report),
     });
   }
 
@@ -4911,7 +4941,10 @@ export function PlannerWorkspace({
     if (choice && (!choice.front || choice.route?.applySemesters)) {
       lines.push(`Which route in, from how the student entered ${school?.short ?? 'the university'}: ${describeAdmissionChoice(choice)}`);
     }
-    lines.push(`Instructors: "(my instructor: X)" after a course is the instructor the student set for it in that term; a course without it is not set (the student sets it by clicking the course, then My instructor). The term in progress is ${currentTermLabel(new Date())}.`);
+    // A school with no picker (Georgia Tech: no sections or syllabi loaded) is not told the student can set one.
+    lines.push(instructorsOffered
+      ? `Instructors: "(my instructor: X)" after a course is the instructor the student set for it in that term; a course without it is not set (the student sets it by clicking the course, then My instructor). The term in progress is ${currentTermLabel(new Date())}.`
+      : `No instructors are loaded for ${school?.short ?? 'this university'}, and the board has no way to set one. The term in progress is ${currentTermLabel(new Date())}.`);
     /**
      * The semester in progress (current-term.ts), before the planned terms:
      * "this semester" and "my current classes" are these, the student's real
@@ -4927,6 +4960,74 @@ export function PlannerWorkspace({
       lines.push(cur.classes.length > 0
         ? `${label}, THIS SEMESTER, in progress (the student's real classes, the board's first column, not planned): ${listed.join('; ')}.${cur.question === 'confirm' ? ' The student has not yet said these are their current classes; if an answer depends on it, check with them.' : ''}${cur.assumedHours > 0 ? ` The plan also counts about ${cur.assumedHours} more credits for ${label} until the student adds the rest.` : ''} "This semester", "this term", "now" and "my classes" mean these: call term_summary or term_syllabi with "${label}" or "this term", and course_syllabus for one of them (it returns the instructor the student set for it). They count as in progress: held, conditional on passing, never planned again, and no tool moves anything into or out of ${label}. The planned terms below start after it.`
         : `${label}, THIS SEMESTER, in progress: no classes added yet${cur.assumedHours > 0 ? `; the plan counts it as about ${cur.assumedHours} credits until the student adds them` : ''}. For a question about this semester ("how's my attendance this semester", "who's my professor for ECON 2105"), ask which classes they are taking now: they can add them in the ${label} column ("Add a class you're taking now"), or you record each, once they name it, with record_prior_credit and in_progress true. The planned terms below start after it.`);
+    }
+    /*
+     * Georgia Tech's TOWER read a first-year's Spring 2027 and Fall 2027 as
+     * "the first year", and named its tools to the student ("I tried both in
+     * a what_if"). The board says what year one is, and how to speak of a
+     * tool (school-config.ts `plainNotes`).
+     */
+    if (leaf?.plainNotes) {
+      const firstFallSpring = board.terms.find((t) => t.season !== 'Summer')?.label ?? null;
+      const firstYear = enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript);
+      if (cur && firstFallSpring && firstYear) {
+        lines.push(`Year one (the student's first year): ${cur.term.label}, the semester in progress, and ${firstFallSpring}; the terms after those are year two and on.`);
+      }
+      /*
+       * "Can I graduate a semester early?" from a first-year whose plan
+       * already ends in Fall 2029: TOWER counted early from Fall 2029, the
+       * finish the student chose, and spoke of Spring 2029 (QA, 2026-11-09).
+       * On time is eight falls and springs from the first term here.
+       */
+      const firstRegular = board.terms.find((t) => t.season !== 'Summer') ?? null;
+      const began = cur?.ref ?? (firstRegular ? { season: firstRegular.season, year: Number(firstRegular.label.match(/\b(20\d\d)\b/)?.[1] ?? firstRegular.year) } : null);
+      if (began && firstYear && (!L.answers?.academicYear || L.answers.academicYear === 'first')) {
+        const termName = (t: { season: string; year: number }) => `${t.season} ${t.year}`;
+        const onTime = stepRegular(began, 7);
+        const h = horizonFor(L.answers, new Date(), planShapeRef.current, board.terms);
+        const finish = { season: h.gradSeason, year: h.gradYear };
+        const ord = (t: { season: string; year: number }) => t.year * 2 + (t.season === 'Spring' ? 0 : t.season === 'Summer' ? 0.5 : 1);
+        const ahead = ord(onTime) - ord(finish);
+        const relation = ahead === 0
+          ? 'the on-time finish'
+          : ahead < 0
+            ? 'later than the on-time finish'
+            : Number.isInteger(ahead)
+              ? `${ahead} ${ahead === 1 ? 'semester' : 'semesters'} before the on-time finish, so the student has already chosen to finish early`
+              : 'before the on-time finish, so the student has already chosen to finish early';
+        lines.push(`Finish: the plan is built to finish in ${termName(finish)}, ${relation}. On time is ${termName(onTime)}, eight falls and springs from ${termName(began)}. "Early" and "a semester early" are counted from ${termName(onTime)}: a semester early is ${termName(stepRegular(onTime, -1))}.${ahead > 0 ? ` Asked about finishing early, say the plan already aims at ${termName(finish)} and whether it fits there; do not count a further semester from ${termName(finish)}.` : ''}`);
+      }
+      /*
+       * Each course the plan left out, with the row it was for and what that
+       * row takes: TOWER read HIST 2111 (Political Science and U.S. History,
+       * one course) and HIST 2112 (Social Sciences, 9 hours from a list) as
+       * "two required history courses (the U.S. History requirement)".
+       */
+      const leftOut = (L.report?.notPlaced ?? []).flatMap((n) => {
+        const block = n.requirementId ? L.loaded?.blocks.find((b) => b.id === n.requirementId) : undefined;
+        if (!block) return [];
+        const name = block.label && block.areaLabel && block.label !== block.areaLabel ? `${block.areaLabel}: ${block.label}` : block.label || block.areaLabel;
+        const rule = block.rule;
+        const choice = rule.kind === 'all' ? rule.choices.find((c) => c.codes.some((code) => normCode(code) === normCode(n.code))) : undefined;
+        const takes = choice
+          ? choice.codes.length > 1 ? `one course, any one of ${choice.codes.join(', ')}` : 'this course'
+          : rule.kind === 'choose'
+            ? `${rule.n} of its ${rule.choices.length} choices`
+            : rule.kind === 'pool'
+              ? `${rule.hours !== null ? `${rule.hours} hours` : `${rule.n ?? 'some'} courses`} from its list of ${rule.choices.length}, any of them`
+              : null;
+        const pool = L.pools.find((p) => p.requirementId === n.requirementId);
+        const row = L.areas.find((r) => r.area.label === block.label || r.area.label === block.areaLabel);
+        const count = pool && pool.hoursTarget !== null
+          ? `${pool.hours}/${pool.hoursTarget} hr on the rail`
+          : row ? `${row.earned}/${row.needed ?? row.area.hours} ${row.unit ?? 'hr'} on the rail` : null;
+        const said = [takes ? `takes ${takes}` : null, count].filter(Boolean).join('; ');
+        return [`${n.code} for ${name}${said ? ` (${said})` : ''}`];
+      });
+      if (leftOut.length > 0) {
+        lines.push(`Left out of the plan, each for its own row: ${leftOut.join('; ')}. Each row is short only by what it takes (where it lists choices, any one of them fills it): name the row each one is for, and never call them one requirement that needs all of them.`);
+      }
+      lines.push('Speak of a tool by what it did ("I tested the change", "the review of the board says", "the planner ranks it"), never by its name (what_if, review_board or any other).');
     }
     for (const term of board.terms) {
       const courses = term.courseIds
@@ -7414,7 +7515,8 @@ export function PlannerWorkspace({
     // first term was open, the start note, the career track's note, the
     // goal's courses.
     ...(isUga ? ugaShownNotes(planNotes, ugaStartNote) : planNotes),
-    ...(core?.meta?.notes ?? []).map((note) => studentWording(note, school?.short ?? 'University')),
+    // The blank-hours count only where it changes a total (school-config.ts `blankHoursNote`): Georgia Tech's ~800 of ~142,000 lines read as a statistic.
+    ...(core?.meta?.notes ?? []).filter((note) => leaf?.blankHoursNote !== false || !BLANK_HOURS_NOTE.test(note)).map((note) => studentWording(note, school?.short ?? 'University')),
     ...(isUga
       ? [
           'This planning draft uses requirements and prerequisites from the UGA Bulletin. DegreeWorks and your advisor remain the official check for graduation.',
@@ -7442,7 +7544,11 @@ export function PlannerWorkspace({
         ]
       : []),
     'Prerequisites are parsed from catalog sentences. Anything about placement or consent is not checked here.',
-  ];
+  ]
+    // A school with no grade data (school-config.ts `gradeData` off: Georgia Tech) weighs nothing, and its own caveat says so.
+    .filter((note) => leaf?.gradeData !== false || !WEIGHED_NONE_NOTE.test(note))
+    // "The 24 hours you bring" were 9 held and 15 assumed for Fall 2026 (school-config.ts `countAssumedHours`).
+    .map((note) => (leaf?.countAssumedHours ? heldApartFromAssumed(note, assumedCredit) : note));
 
   /**
    * "Print for my advisor": the board, what each course is for, a backup for
@@ -7484,7 +7590,7 @@ export function PlannerWorkspace({
     // without a record line. The record's own lines are listed from the record.
     const shown = new Set([...transcriptCodes(record), ...priced.flatMap((e) => e.codes)].map(normCode));
     const entered = [...completedCodes].filter((code) => !shown.has(code));
-    setPacket(
+    const built =
       buildAdvisorPacket({
         school: {
           id: school?.id ?? 'demo',
@@ -7530,8 +7636,11 @@ export function PlannerWorkspace({
         alternatives: alternativesFor,
         madeOn: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
         ...(packetSchedules.length > 0 ? { schedules: packetSchedules } : {}),
-      }),
-    );
+      });
+    // No placement note for a course whose prerequisite is already met (school-config.ts `plainNotes`).
+    setPacket(leaf?.plainNotes && board
+      ? withoutMetPlacement(built, board, (id) => courseIndex.get(id)?.code ?? null, completedCodes, context?.prereqs)
+      : built);
   };
 
   return (
@@ -8187,7 +8296,7 @@ export function PlannerWorkspace({
               onRemove={removeCurrentClass}
               onConfirm={confirmCurrentClasses}
               onSelect={selectCurrentClass}
-              instructors={instructorControl}
+              instructors={instructorsOffered ? instructorControl : undefined}
               busy={programBusy}
               scheduleFrom={school?.scheduleFrom ?? 'your student portal'}
               onUpload={openRecordUpload}
@@ -8233,7 +8342,7 @@ export function PlannerWorkspace({
                 onSwapCourse={swapCourse}
                 electiveOf={electiveOf}
                 goalReasons={goalReasons}
-                instructors={instructorControl}
+                instructors={instructorsOffered ? instructorControl : undefined}
                 width={termWidths[term.id]}
                 onWidthChange={resizeTerm}
                 onRemoveSummer={summerRemovable(plan, term.id) ? askRemoveSummer : undefined}
@@ -8285,7 +8394,7 @@ export function PlannerWorkspace({
         onAddCourse={addCourse}
         onRemoveCourse={removeCourse}
         highlightedCourseIds={replacementCourseIds}
-        instructors={plan ? instructorControl : undefined}
+        instructors={plan && instructorsOffered ? instructorControl : undefined}
         goalReasons={plan ? goalReasons : undefined}
         instructorTyping={instructorTyping}
       />
@@ -8327,7 +8436,7 @@ export function PlannerWorkspace({
           ask={askBot}
         />
       )}
-      {packet && <AdvisorPacketDialog packet={packet} onClose={closePacket} />}
+      {packet && <AdvisorPacketDialog packet={packet} onClose={closePacket} schoolId={school?.id} />}
     </main>
   );
 }
@@ -8383,8 +8492,141 @@ function scheduleSentence(terms: Array<{ label: string; year: number; term: stri
   return `Class schedules are published for ${termsInWords(terms)}. A card's section times come from its own term's schedule when that is published, else the latest schedule of the same season (the card says which); the planner's own choices still weigh ${scoringLabel ?? 'the first crawled term'}'s sections.`;
 }
 
+/** build-index's count of degree-page course lines with blank credit hours. */
+const BLANK_HOURS_NOTE = /^(\d+) of (\d+) program course rows have no credits\.$/;
+/**
+ * A senior standing the planner read from a course's title (autoplan.ts
+ * SENIOR_TITLE: "Inter Capstone Design"), said as what it is. The validator
+ * words it as a rule ("CS 4723 needs senior standing ... The catalog says:
+ * The course title ... marks it for seniors; the catalog states no
+ * standing."), which contradicts itself. Any other message is returned as is.
+ */
+const TITLE_STANDING = /^(\S+ \S+) needs senior standing, which is (\d+) earned hours, and this plan has (\d+) before ([^.]+)\. The catalog says: The course title, "([^"]*)", marks it for seniors; the catalog states no standing\.$/;
+function titleStandingWording(message: string): string {
+  const m = message.match(TITLE_STANDING);
+  if (!m) return message;
+  const [, code, needed, has, term, title] = m;
+  return `${code}'s title, "${title}", suggests it is for seniors (${needed} earned hours), and this plan has ${has} before ${term}. The catalog gives no standing rule, so ask your advisor whether it matters.`;
+}
+
+/**
+ * autoplan's round-up note counts the hours a build assumed for a term in
+ * progress (about 15 for an empty Fall 2026) among "the N hours you bring".
+ * Said apart: "the 9 hours you bring and about 15 counted for Fall 2026", or
+ * "the about 15 hours counted for Fall 2026" when nothing else is held. A
+ * note with no such phrase, or one whose count is under the assumed hours (a
+ * board saved before classes were added), is returned as is.
+ */
+function heldApartFromAssumed(note: string, assumed: { hours: number; terms: string }): string {
+  if (assumed.hours <= 0 || !assumed.terms) return note;
+  return note.replace(/with the (\d+) hours you bring/, (whole, n: string) => {
+    const held = Number(n) - assumed.hours;
+    if (held < 0) return whole;
+    return held > 0
+      ? `with the ${held} ${plural(held, 'hour')} you bring and about ${assumed.hours} counted for ${assumed.terms}`
+      : `with about ${assumed.hours} hours counted for ${assumed.terms}`;
+  });
+}
+
+/**
+ * The packet's "Courses that depend on a placement score", less each course
+ * whose prerequisite a held course, or one earlier on the board, already
+ * meets. advisor-packet.ts lists every course whose prerequisite sentence
+ * names a placement test, so an AP student's MATH 1554 ("MATH 1113 or MATH
+ * 1551 or a qualifying ... placement test score") was listed with MATH 1551
+ * held. Only the groups that offer the placement are read, and a course whose
+ * prerequisite cannot be read stays listed. The placement question is
+ * re-asked for the courses left, or dropped with them.
+ */
+function withoutMetPlacement(
+  packet: AdvisorPacket,
+  board: PlanState,
+  codeOf: (id: string) => string | null,
+  held: ReadonlySet<string>,
+  prereqs: ReadonlyMap<string, PlanPrereq> | undefined,
+): AdvisorPacket {
+  if (!prereqs) return packet;
+  const at = new Map(board.terms.map((term, index) => [term.label, index]));
+  const codesIn = board.terms.map((term) => term.courseIds.flatMap((id) => {
+    const code = codeOf(id);
+    return code ? [normCode(code)] : [];
+  }));
+  const met = (code: string, label: string): boolean => {
+    const spec = prereqs.get(normCode(code));
+    const index = at.get(label);
+    if (!spec || index === undefined) return false;
+    const placing = spec.groups.filter((group) => group.priorLearning || /placement|\baleks\b|proficiency (?:test|exam)/i.test(group.source));
+    if (placing.length === 0) return false;
+    const before = new Set(held);
+    for (let k = 0; k < index; k += 1) for (const c of codesIn[k]) before.add(c);
+    return placing.every((group) => group.any.some((c) => before.has(normCode(c)) || (group.concurrent && codesIn[index].includes(normCode(c)))));
+  };
+  const dropped = new Set<string>();
+  const assumptions = packet.assumptions.flatMap((assumption) => {
+    if (assumption.kind !== 'placement') return [assumption];
+    const items = assumption.items.filter((item) => {
+      const m = item.match(/^(.+?) in (.+?): "/);
+      if (!m || !met(m[1], m[2])) return true;
+      dropped.add(m[1]);
+      return false;
+    });
+    return items.length > 0 ? [{ ...assumption, items }] : [];
+  });
+  if (dropped.size === 0) return packet;
+  const left = [...new Set(assumptions.filter((a) => a.kind === 'placement').flatMap((a) => a.items.map((item) => item.slice(0, item.indexOf(' in ')))))];
+  const questions = packet.questions.flatMap((question) => {
+    if (question.topic !== 'placement') return [question];
+    return left.length > 0 ? [{ ...question, text: `Which placement score do I need for ${left.join(', ')}, and when do I take the test?` }] : [];
+  });
+  return { ...packet, assumptions, questions };
+}
+
+/**
+ * A setup goal less the sentences that only say the student started here:
+ * goal-words.ts reads "..., started Fall 2026." as a dated goal, drops the date
+ * and keeps "Started.", and keeps "Started at Georgia Tech this fall." as
+ * "Started at Georgia Tech." (QA, 2026-11-09). A sentence that opens on a
+ * start word and says nothing the student wants goes; every other sentence
+ * is kept exactly as written ("I started coding at 12 and want to build
+ * games" stays).
+ */
+const START_ONLY = /^\s*(?:(?:i|i've|i\s+have|we)\s+)?(?:just\s+|only\s+|recently\s+)?(?:started|starting|began|beginning|begun|entered|enrolled|transferred|arrived)\b/i;
+const WANTS = /\b(?:want|wants|wanted|wanna|would\s+(?:like|love)|'d\s+(?:like|love)|hope|hoping|plan(?:s|ning)?\s+(?:to|on)|aim|aiming|dream|goal|goals|interest|interests|interested|passion|passionate|curious|love|enjoy|like\s+to|consider|considering|thinking|pursue|pursuing|become|becoming|explore|exploring|focus|go\s+into|get\s+into|career|work\s+(?:in|at|on|for|as|with))\b/i;
+function withoutStrayStart(goals: string): string {
+  if (!goals) return goals;
+  const sentences = goals.match(/[^.!?]+(?:[.!?]+|$)/g) ?? [goals];
+  return sentences
+    .filter((sentence) => !(START_ONLY.test(sentence) && !WANTS.test(sentence)))
+    .join('')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/** The held courses a plan counted in place of a row's own (GeneratedPlan.standIns), kept on the board's report. */
+type ReportStandIns = { standIns?: GeneratedPlan['standIns'] };
+
+/**
+ * The report with the plan's stand-ins, when it has any. Only Georgia Tech's
+ * builds name them (each course counts once there), so an Illinois or UGA
+ * report is the same object reportOf made. A saved board keeps the field
+ * (readReport keeps every field it does not check).
+ */
+function withStandIns(report: PlanReport, generated: GeneratedPlan): PlanReport {
+  if (!generated.standIns || generated.standIns.length === 0) return report;
+  const kept: PlanReport & ReportStandIns = { ...report, standIns: generated.standIns };
+  return kept;
+}
+
+function standInsOf(report: PlanReport | null | undefined): GeneratedPlan['standIns'] {
+  const held = (report as (PlanReport & ReportStandIns) | null | undefined)?.standIns;
+  return Array.isArray(held) ? held : undefined;
+}
+
+/** autoplan's grade-history count when no course on the board had any (Weighed 0 of N). */
+const WEIGHED_NONE_NOTE = /^Weighed 0 of \d+ courses against grade history\b/;
+
 function studentWording(note: string, here: string): string {
-  const rows = note.match(/^(\d+) of (\d+) program course rows have no credits\.$/);
+  const rows = note.match(BLANK_HOURS_NOTE);
   if (rows) {
     const total = Number(rows[2]);
     return `${here} degree pages leave the credit hours blank on ${Number(rows[1]).toLocaleString()} of the ${total.toLocaleString()} course ${plural(total, 'line')} they print, so a total built from them can come out low.`;

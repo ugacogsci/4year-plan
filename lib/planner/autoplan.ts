@@ -81,6 +81,8 @@ export interface PlanCourseChoice {
   repeat?: RepeatAsk;
   /** UGA: a most taken course an open elective block's sample adds for the free choices (CourseChoice.common). */
   common?: boolean;
+  /** Georgia Tech: the list whose hours this required course counts in, the page printing none for it (CourseChoice.countsIn). */
+  countsIn?: string;
 }
 
 /** One named list inside a pool, so a constraint can point at it. */
@@ -109,6 +111,8 @@ export interface PlanPoolConstraint {
   hours?: number;
   /** Courses whose credit contributes to `hours`. */
   hourCodes?: string[];
+  /** With `single`: hours that have to come from one of `lists` (illinois-data PoolConstraint.singleHours); `n` is then 0. */
+  singleHours?: number;
 }
 
 export type PlanRule =
@@ -642,6 +646,14 @@ export interface Horizon {
    * UGA's professor ratings).
    */
   light?: Array<{ season: SemesterSeason; year: number }>;
+  /**
+   * The semester in progress before the first planned term, and the credits
+   * counted for it until its classes are entered (plan-start.ts horizonFor,
+   * which the workspace hands over whole). Read only to say which of the
+   * page's open hours wait on those classes (Georgia Tech, countOnce).
+   */
+  current?: { season: SemesterSeason; year: number } | null;
+  currentAssumedHours?: number;
 }
 
 /** A light term's ceiling: full time, and one hardest-band course. */
@@ -1220,6 +1232,12 @@ export interface UnsatisfiedRequirement {
     | 'filled-by-electives';
   message: string;
   url: string;
+  /**
+   * Georgia Tech: the semester in progress these open hours wait on (a
+   * 'filled-by-electives' row the board has no courses for while that
+   * semester's classes are not entered and it counts as about 15 credits).
+   */
+  waitingOn?: string;
 }
 
 /** What a pool asked for, and what the board actually holds against it. */
@@ -1370,6 +1388,14 @@ export interface GeneratedPlan {
   admission: { name: string; path: string; source: string; requiredBy: string; codes: string[]; eligibility: string[]; notes: string[] } | null;
   /** Requirements already met by credit the student walked in with. */
   satisfiedByPriorCredit: Array<{ requirementId: string; label: string; codes: string[] }>;
+  /**
+   * Georgia Tech (countOnce): held courses a take-every-course row counts in
+   * place of the course it names, because the catalog will not credit both
+   * and a later course accepts either (standInFor): an AP student's CHEM 1310
+   * for Field of Study's CHEM 1211K. The rail counts them the same way when
+   * it is handed them (illinois-progress.ts standIns), and the notes say so.
+   */
+  standIns?: Array<{ requirementId: string; held: string; for: string }>;
   /** Which requirement each booked course was chosen for, by code; null for a prerequisite or an elective. */
   bookedFor?: Record<string, string | null>;
   /**
@@ -3283,6 +3309,19 @@ function fillPool(slot: PlanSlot, pool: PoolContext): PoolFill {
     } else if (c.single && lists.length > 1) {
       let best: { fill: string[] } | null = null;
       for (const list of lists) {
+        // Sized in hours (singleHours, Georgia Tech's "twelve credit hours of the same language"): courses until the list's hours reach it.
+        if (c.singleHours) {
+          let hours = [...held].filter((code) => list.codes.has(code)).reduce((sum, code) => sum + pool.creditsOf(code), 0);
+          const fill: string[] = [];
+          for (const code of openBy(pool.order, list.codes)) {
+            if (hours >= c.singleHours) break;
+            fill.push(code);
+            hours += pool.creditsOf(code);
+          }
+          if (hours < c.singleHours) continue;
+          if (!best || cheaperFill({ fill }, best, pool.order)) best = { fill };
+          continue;
+        }
         const already = [...held].filter((code) => list.codes.has(code)).length;
         const need = c.n - already;
         const fill = need <= 0 ? [] : openBy(pool.order, list.codes).slice(0, need);
@@ -3373,6 +3412,7 @@ function constraintStatus(
   count: number;
   hoursTarget: number | null;
   hours: number;
+  inOneList?: boolean;
 } {
   const lists = c.lists.map((l) => ({ label: l.label, codes: new Set(l.codes.map(normaliseCode)) }));
   if (lists.length === 0)
@@ -3414,6 +3454,24 @@ function constraintStatus(
   }
 
   if (c.single && lists.length > 1) {
+    // Sized in hours (singleHours): the list holding the most hours, and its hours against the sentence's.
+    if (c.singleHours) {
+      let most: { label: string; picked: string[]; hours: number } = { label: lists[0].label, picked: [], hours: 0 };
+      for (const list of lists) {
+        const picked = [...held].filter((code) => list.codes.has(code)).sort();
+        const inList = picked.reduce((sum, code) => sum + creditsOf(code), 0);
+        if (inList > most.hours) most = { label: list.label, picked, hours: inList };
+      }
+      return {
+        met: most.hours >= c.singleHours,
+        from: most.picked.length > 0 ? most.label : null,
+        picked: most.picked,
+        count: most.picked.length,
+        hoursTarget: c.singleHours,
+        hours: most.hours,
+        inOneList: true,
+      };
+    }
     let best: { label: string; picked: string[] } = { label: lists[0].label, picked: [] };
     for (const list of lists) {
       const picked = [...held].filter((code) => list.codes.has(code)).sort();
@@ -3446,7 +3504,11 @@ function constraintProgress(c: {
   count: number;
   hoursTarget: number | null;
   hours: number;
+  /** Hours held to one list (PlanPoolConstraint.singleHours), whose lists are subjects. */
+  inOneList?: boolean;
+  from?: string | null;
 }): string {
+  if (c.inOneList) return `This plan has ${c.hours} of the ${c.hoursTarget} hours in one subject${c.from ? ` (${c.from})` : ''}`;
   const parts = [
     c.n > 0 ? `${c.count} of ${c.n} required selections` : null,
     c.hoursTarget !== null
@@ -5008,6 +5070,9 @@ export function firstTermCourse(course: Course | undefined, ctx: Pick<PlanningCo
   if (!course) return false;
   const code = normaliseCode(course.code);
   if (courseLevel(code) >= 200 || (course.creditsMax ?? course.credits) > 2) return false;
+  // Where the catalog's build read it from the description (index.json `audience`, Georgia Tech's only):
+  // CS 1100 Pathways in Computing, "Small group discussions with first year students", sat in a third spring.
+  if (catalogAudienceOf(course) === 'first-year') return !arrival.transfer;
   if (arrival.international && audienceOf(course, ctx) === 'international') return true;
   const clauses = [ctx.prereqs?.get(code)?.text ?? '', ...(ctx.sections?.get(code)?.restrictions ?? [])]
     .flatMap((text) => text.split(/[.;|]/))
@@ -5635,6 +5700,290 @@ function levelFits(code: string, hoursBefore: number, standing: StandingThreshol
   if (level >= 400) return hoursBefore >= standing.junior;
   if (level >= 300) return hoursBefore >= standing.sophomore;
   return true;
+}
+
+/*
+ * Georgia Tech's open picks (school-config openPicks): the long lists a
+ * board chooses from (Any HUM, Any SS) and its free electives, read from the
+ * catalog and the goal. Every Georgia Tech board took ARBC 1501, ARBC 3501,
+ * CP 2020 and CP 2233 whatever the student wanted, because nothing on those
+ * lists is a goal course and the alphabet broke the tie; and the alphabet's
+ * picks included CHIN 1501 Chinese for Heritage Learners I, CHIN 1002
+ * Elementary Chinese II without CHIN 1001, and MATH 0999 Support for College
+ * Algebra as a free elective (2026-11-09 browser test).
+ */
+
+/** Who the catalog writes a course for (index.json `audience`, illinois-load.ts CatalogAudience), or null for anyone. */
+function catalogAudienceOf(course: Course | undefined): string | null {
+  const said = (course as { audience?: unknown } | undefined)?.audience;
+  return typeof said === 'string' && said.length > 0 ? said : null;
+}
+
+/** "Chinese for Heritage Learners I", "Heritage Hindi II", "Russian for Heritage Speakers": the title says so where the build did not. */
+const HERITAGE_TITLE = /\bheritage (?:learners?|speakers?|students?)\b|^heritage [a-z]+ (?:i{1,3}|iv)$/i;
+
+/** A learning-support course (MATH 0999 Support for College Algebra): numbered below 1000, institutional credit with no degree hours. */
+const LEARNING_SUPPORT = /^[A-Z]{2,5} 0\d{3}[A-Z]?$/;
+
+/** "Elementary Chinese II" and the "I" before it: a title's last part, and the part it follows. */
+const SECOND_PART = /^(.*\S)\s+(II|III|IV|2|3|4)$/i;
+const PART_BEFORE: Record<string, string> = { II: 'I', III: 'II', IV: 'III', '2': '1', '3': '2', '4': '3' };
+/** A subject that teaches a world language from its first semester: it has an "Elementary Arabic I". */
+const FIRST_LANGUAGE_COURSE = /^elementary [a-z]+ i$/i;
+
+/** "Ecology Laboratory" beside "Ecology", "... Lab" beside "...": a lab titled as its subject's lecture. */
+const LAB_TITLE = /^(.*\S)\s+(?:laboratory|lab)$/i;
+/** "Biological Principles for Majors": written for that subject's majors. Not "for Non-Majors". */
+const FOR_MAJORS = /\bfor (?:[a-z&]+ )?majors\b/i;
+/**
+ * A course whose content the student chooses or the term decides: no free
+ * elective of the planner's own. Research rows by their names (Research
+ * Assistantship, Undergraduate Research, Research Project), not every title
+ * with the word in it: PSYC 2012 Introduction to Research Methods and HTS 2101
+ * Historical and Social Research are ordinary classroom courses.
+ */
+const OPEN_TOPIC_TITLE = /\b(?:thesis|independent study|special topics?|internships?|intern assistantship|honors|undergraduate research|reading or research|research (?:assistantship|project|capstone)|vertically integrated project)\b|^introduction to research$/i;
+/**
+ * A course that trains a student for a campus role, not one toward a degree:
+ * CETL 2000 Undergraduate Teaching Assistant Preparation ("May be used as free
+ * elective credit with department approval") was a free elective on 31 boards,
+ * seven of them in a freshman's first term; the peer-tutor and residence-life
+ * courses beside it say they count toward no degree.
+ */
+const ROLE_TITLE = /\b(?:teaching assistant(?:ship)?|teaching assistantship|(?:peer|k-12) tutoring|tutor training|residence life)\b/i;
+/** A department's first-year seminar by its title (ECE 1100 ECE Discovery Practicum, CS 1100 Pathways in Computing, GT 1000 Freshman Seminar). */
+const FIRST_YEAR_SEMINAR_WORDS = /\b(?:discovery|pathways|orientation|seminar|freshman|first[- ]year)\b/i;
+/**
+ * A course its title writes for one field's engineers, or for engineers,
+ * where the program is not that field or not engineering: AE 2611 Technical
+ * Communications for Aerospace Engineers was a Finance student's last free
+ * hour, and CS 1371 Computing for Engineers stood beside a business major's
+ * CS 1301. "For Scientists and Engineers" is for either.
+ */
+function forOtherEngineers(title: string, programName: string | undefined): boolean {
+  // "for Aerospace Engineers", and "for Civil and Environmental Engineering" (CEE 1070 Engineering Graphics, a Biology student's last free hour once AE 2611 was barred).
+  const m = /\bfor ((?:[a-z]+ )*)engineer(?:s|ing)\b/i.exec(title);
+  if (!m || /\bscientists\b/i.test(m[1])) return false;
+  const name = (programName ?? '').toLowerCase();
+  const field = m[1].trim().toLowerCase().split(/\s+/).filter((w) => w.length > 0 && w !== 'and');
+  return field.length === 0 ? !/\bengineering\b/.test(name) : !field.some((w) => name.includes(w));
+}
+/** A course run for study or work away from campus, credit to be arranged (FREN 3500 Field Work Abroad, 1 to 3 hours). */
+const AWAY_TITLE = /\b(?:abroad|field work|fieldwork|study tour)\b/i;
+
+interface OpenPickReading {
+  /** A second part -> the courses of its subject titled as the part before it (CHIN 1002 -> CHIN 1001). */
+  firstParts: Map<string, string[]>;
+  /** The subjects that teach a world language from its first semester (ARBC, CHIN, FREN, ...). */
+  languages: Set<string>;
+  /** Each of those subjects' language by name, from its "Elementary Arabic I": ARBC -> arabic. */
+  languageNames: Map<string, string>;
+  /** Labs titled as a lecture of their subject (BIOS 2301 Ecology Laboratory, BIOS 2300 Ecology): booked with the lecture, never a free elective alone. */
+  labs: Set<string>;
+  /**
+   * An officer-training (ROTC) subject: a third or more of its titles name a
+   * service (AS 1110 Heritage and Values of the Air Force I, NS 1321
+   * Introduction to Naval Sciences). Its courses prepare cadets "for field
+   * training and leadership positions in the detachment": AS 2210 Team and
+   * Leadership Fundamentals I took CETL 2000's last free hour.
+   */
+  serviceSubjects: Set<string>;
+}
+const openPickReadingCache = new WeakMap<object, OpenPickReading>();
+/** The catalog's sequences and languages, read from its titles once a catalog. */
+function openPickReadingOf(courses: readonly Course[]): OpenPickReading {
+  const known = openPickReadingCache.get(courses);
+  if (known) return known;
+  const byTitle = new Map<string, string[]>();
+  const languages = new Set<string>();
+  const languageNames = new Map<string, string>();
+  for (const course of courses) {
+    const code = normaliseCode(course.code);
+    const subject = code.split(' ')[0];
+    const title = course.title.replace(/\s+/g, ' ').trim();
+    const key = `${subject}|${title.toLowerCase()}`;
+    byTitle.set(key, [...(byTitle.get(key) ?? []), code]);
+    if (FIRST_LANGUAGE_COURSE.test(title)) {
+      languages.add(subject);
+      languageNames.set(subject, title.toLowerCase().replace(/^elementary\s+/, '').replace(/\s+i$/, ''));
+    }
+  }
+  const firstParts = new Map<string, string[]>();
+  for (const course of courses) {
+    const m = SECOND_PART.exec(course.title.replace(/\s+/g, ' ').trim());
+    if (!m) continue;
+    const code = normaliseCode(course.code);
+    const before = (byTitle.get(`${code.split(' ')[0]}|${m[1].toLowerCase()} ${PART_BEFORE[m[2].toUpperCase()].toLowerCase()}`) ?? []).filter((c) => c !== code);
+    if (before.length > 0) firstParts.set(code, before);
+  }
+  const labs = new Set<string>();
+  for (const course of courses) {
+    const m = LAB_TITLE.exec(course.title.replace(/\s+/g, ' ').trim());
+    const code = normaliseCode(course.code);
+    if (m && (byTitle.get(`${code.split(' ')[0]}|${m[1].toLowerCase()}`) ?? []).some((c) => c !== code)) labs.add(code);
+  }
+  const bySubject = new Map<string, { all: number; service: number }>();
+  for (const course of courses) {
+    const subject = normaliseCode(course.code).split(' ')[0];
+    const tally = bySubject.get(subject) ?? { all: 0, service: 0 };
+    tally.all += 1;
+    if (/\b(?:air force|naval|navy|army|military|marine corps)\b/i.test(course.title)) tally.service += 1;
+    bySubject.set(subject, tally);
+  }
+  const serviceSubjects = new Set([...bySubject].filter(([, t]) => t.service > 0 && t.service * 3 >= t.all).map(([subject]) => subject));
+  const made = { firstParts, languages, languageNames, labs, serviceSubjects };
+  openPickReadingCache.set(courses, made);
+  return made;
+}
+
+/**
+ * The language subjects a student holds a course taught in that language of
+ * (Elementary, Intermediate or Advanced, or a title naming the language: CHIN
+ * 3022 Chinese Society and Culture II), from `have`. A culture course taught
+ * in English does not count: ARBC 1501 Understanding Arab Culture made ARBC
+ * 2002 Intermediate Arabic II read as a course the student could follow.
+ */
+function languagesHeld(have: Iterable<string>, reading: OpenPickReading, byCode: ReadonlyMap<string, Course>): Set<string> {
+  const out = new Set<string>();
+  for (const code of have) {
+    const subject = code.split(' ')[0];
+    if (!reading.languages.has(subject) || out.has(subject)) continue;
+    const title = (byCode.get(code)?.title ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const name = reading.languageNames.get(subject) ?? '';
+    if (/^(?:elementary|intermediate|advanced)\b/.test(title) || (name.length > 0 && new RegExp(`\\b${name.replace(/[^a-z ]/g, '')}\\b`).test(title))) out.add(subject);
+  }
+  return out;
+}
+
+/**
+ * Courses one may take in place of another as a first course: two courses
+ * with no prerequisites of their own, of one subject and level, that a
+ * prerequisite of the catalog's accepts either of (CS 1331 asks for "CS 1301
+ * or CS 1315 or CS 1371"). Read once a catalog. A free elective is never the
+ * second of them: once CS 1301 was booked, CS 1315 and CS 1371 were the
+ * cheapest computing courses left, and 25 boards held two or three of them.
+ */
+const interchangeableCache = new WeakMap<object, Map<string, Set<string>>>();
+function interchangeableFirsts(prereqs: Map<string, PlanPrereq> | undefined): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  if (!prereqs) return out;
+  const known = interchangeableCache.get(prereqs);
+  if (known) return known;
+  const entry = (code: string) => (prereqs.get(code)?.groups ?? []).length === 0;
+  for (const spec of prereqs.values()) {
+    for (const group of spec.groups) {
+      const codes = [...new Set(group.any.map(normaliseCode))].filter(entry);
+      if (codes.length < 2) continue;
+      for (const a of codes) {
+        for (const b of codes) {
+          // One level: courseLevel reads a four-digit number's first three digits (CS 1301 is 130), so its hundreds digit.
+          if (a === b || a.split(' ')[0] !== b.split(' ')[0] || Math.floor(courseLevel(a) / 100) !== Math.floor(courseLevel(b) / 100)) continue;
+          out.set(a, new Set([...(out.get(a) ?? []), b]));
+        }
+      }
+    }
+  }
+  interchangeableCache.set(prereqs, out);
+  return out;
+}
+
+/** How many of the crawl's falls and springs a course ran in (Georgia Tech's offerings.json), or null where the crawl read no terms. */
+function regularRunsOf(ctx: Pick<PlanningContext, 'offerings' | 'offeringTerms'>, code: string): number | null {
+  if (!ctx.offerings || !ctx.offeringTerms || ctx.offeringTerms.length === 0) return null;
+  return (ctx.offerings.get(code) ?? []).filter((term) => /^(fa|sp)\d{4}$/.test(term)).length;
+}
+
+/**
+ * Why a course is a poor open pick (school-config openPicks), or null: a
+ * course for heritage learners (or any other group the build names in
+ * `audience`, first-year students apart), a learning-support course, and,
+ * where `have` (the courses held and booked) is given, one that has not run
+ * lately (`ranLately`), a second part whose first part is not among them and
+ * a world language's course past its first semester (numbered 2000 or more)
+ * with no course of that language among them. The last three are for a long
+ * list across departments, where nothing books the rest of the sequence:
+ * KOR 3692 Current Issues and Technology in Korea sat near "machine learning
+ * engineer" by meaning, and is taught in Korean.
+ */
+function openPickMisfit(code: string, course: Course | undefined, reading: OpenPickReading, have: { has(code: string): boolean } | null, haveSubjects: ReadonlySet<string> | null, ranLately?: (code: string) => boolean): string | null {
+  const audience = catalogAudienceOf(course);
+  if (audience === 'heritage-learners' || HERITAGE_TITLE.test(course?.title.trim() ?? '')) return 'for heritage learners of the language';
+  // Any other group the build reads a course as written for, but first-year students (firstTermCourse places those).
+  if (audience !== null && audience !== 'first-year') return `written for ${audience.replace(/-/g, ' ')}`;
+  if (LEARNING_SUPPORT.test(code)) return 'a learning-support course, which earns no degree hours';
+  // And a support course taken beside the one it supports (MATH 1499 Support for Differential Calculus, beside MATH 1551): a Biology board's last free hour.
+  if (/^support for\b/i.test(course?.title.trim() ?? '')) return 'a support course taken beside the course it supports';
+  // A teaching assistantship or tutor training (ROLE_TITLE): Biology's 3000-level elective list took BIOS 4696 Biology Undergraduate Teaching Assistantship, which a department offers to a student it picks.
+  if (ROLE_TITLE.test(course?.title ?? '')) return 'a campus role a department picks the student for';
+  if (have === null || haveSubjects === null) return null;
+  // Not run in the crawl's four latest falls and springs: CS 3311, last in Fall 2024.
+  if (ranLately && !ranLately(code)) return 'has not run in the last four falls and springs';
+  const first = reading.firstParts.get(code);
+  if (first && !first.some((c) => have.has(c))) return `the second part of ${first[0]}, which the board does not hold`;
+  const subject = code.split(' ')[0];
+  if (reading.languages.has(subject) && courseLevel(code) >= 200 && !haveSubjects.has(subject)) return `a ${subject} course past its first semester, with no ${subject} course on the board`;
+  return null;
+}
+
+/**
+ * A Georgia Tech list of world-language courses (school-config openPicks):
+ * nine in ten of its courses from subjects that teach a language from its
+ * first semester (OpenPickReading.languages), across two or more of them.
+ * The subjects, or null for any other list. International Affairs' Modern
+ * Languages ("twelve credit hours of the same language") is 272 courses of
+ * ARBC to SPAN, and its fill took CHIN 1001, FREN 1001, GRMN 1001 and JAPN
+ * 1001: each language's second semester went behind for a student without
+ * its first (openPickMisfit), so every language's first came first.
+ */
+function languageRowSubjects(options: ReadonlyArray<readonly string[]>, reading: OpenPickReading): Set<string> | null {
+  const codes = [...new Set(options.flat().map(normaliseCode))];
+  if (codes.length < 8) return null;
+  const subjects = new Set<string>();
+  let taught = 0;
+  for (const code of codes) {
+    const subject = code.split(' ')[0];
+    if (!reading.languages.has(subject)) continue;
+    taught += 1;
+    subjects.add(subject);
+  }
+  return subjects.size >= 2 && taught >= 0.9 * codes.length ? subjects : null;
+}
+
+/** A language course in its sequence by title: Elementary, Intermediate or Advanced (FREN 1001 to 2002). */
+const LANGUAGE_SEQUENCE_TITLE = /^(?:elementary|intermediate|advanced)\b/i;
+/**
+ * A culture course of the School of Modern Languages taught in English: its
+ * 34XX numbers ("the 34XX courses reflect culture courses taught in English",
+ * Global Economics and Modern Languages; CHIN 3400 China: A Cultural Odyssey).
+ */
+const ENGLISH_TAUGHT_CULTURE = /^[A-Z]{2,5} 34\d\d$/;
+
+/**
+ * The catalog's courses by title, for a course another holds the same
+ * title as (sameTitleHeld). Titles four courses or fewer share: a course and
+ * its cross-listings or renumberings (CEE 3040 and ME 3340 Fluid Mechanics),
+ * not "Special Topics" or "Research Assistantship", which dozens carry.
+ */
+const titleIndexCache = new WeakMap<object, Map<string, string[]>>();
+function sameTitleIndexOf(courses: readonly Course[]): Map<string, string[]> {
+  const known = titleIndexCache.get(courses);
+  if (known) return known;
+  const all = new Map<string, string[]>();
+  for (const course of courses) {
+    const key = course.title.toLowerCase().replace(/[^a-z0-9 ]+/g, '').replace(/\s+/g, ' ').trim();
+    if (key.length === 0) continue;
+    all.set(key, [...(all.get(key) ?? []), normaliseCode(course.code)]);
+  }
+  const index = new Map<string, string[]>();
+  for (const [key, codes] of all) if (codes.length >= 2 && codes.length <= 4 && !OPEN_TOPIC_TITLE.test(key)) for (const code of codes) index.set(code, codes.filter((c) => c !== code));
+  titleIndexCache.set(courses, index);
+  return index;
+}
+
+/** The goal's closeness as a sort key (CareerFit.closeness): closer first, and a course it has no reading for after every one it has. */
+function closenessKey(fit: CareerFit | undefined, code: string): number {
+  const near = fit?.closeness?.(code) ?? null;
+  return near === null ? 9 : -Math.round(near * 10000) / 10000;
 }
 
 /**
@@ -6411,13 +6760,31 @@ function admissionRequirements(route: AdmissionRoute, requirements: PlanRequirem
  * rows only; a pool or a count over sets would need a rule of its own, and
  * none of the crawled pages has one.
  */
-export function resolveBundles(requirements: PlanRequirement[], prior: PriorCredit, ctx: Pick<PlanningContext, 'courses' | 'equivalents'>): PlanRequirement[] {
+export function resolveBundles(requirements: PlanRequirement[], prior: PriorCredit, ctx: Pick<PlanningContext, 'courses' | 'equivalents'> & Partial<Pick<PlanningContext, 'schoolId' | 'offerings' | 'offeringTerms'>>): PlanRequirement[] {
   if (!requirements.some((r) => r.rule.kind === 'all' && r.rule.choices.some((c) => c.bundles && c.bundles.length > 0))) return requirements;
   const held = new Set<string>();
   for (const code of prior.courseCodes) {
     for (const alt of expandEquivalents(normaliseCode(code), ctx.equivalents ?? new Map())) held.add(alt);
   }
   const byCode = new Map(ctx.courses.map((c) => [normaliseCode(c.code), c]));
+  /*
+   * At Georgia Tech (school-config openPicks), with nothing held, the set
+   * whose courses have run lately: the fewest that have not run in any of
+   * the crawl's four latest falls and springs. Computer Science's Junior
+   * Design lists CS 3311, CS 3312, LMC 3431 and LMC 3432 first; CS 3311 and
+   * LMC 3432 last ran in Fall 2024, and CS 4723 and LMC 3403, the fifth
+   * option, run every fall and spring. A tie keeps the page's order, and a
+   * set naming a course the catalog lacks (Option 4's CS 4699) is not taken
+   * for its record.
+   */
+  const recent = courseleafOfContext(ctx)?.openPicks === true && ctx.offerings
+    ? new Set((ctx.offeringTerms ?? []).filter((term) => /^(fa|sp)\d{4}$/.test(term)).slice(0, 4))
+    : null;
+  // A set with a course this catalog does not have is never taken for its record: nothing could book that course.
+  const notRunLately = (bundle: string[]): number =>
+    recent === null || recent.size === 0 ? 0
+      : bundle.some((code) => !byCode.has(normaliseCode(code))) ? Number.POSITIVE_INFINITY
+        : bundle.filter((code) => !(ctx.offerings?.get(normaliseCode(code)) ?? []).some((term) => recent.has(term))).length;
   return requirements.map((requirement) => {
     const rule = requirement.rule;
     if (rule.kind !== 'all' || !rule.choices.some((c) => c.bundles && c.bundles.length > 0)) return requirement;
@@ -6433,6 +6800,9 @@ export function resolveBundles(requirements: PlanRequirement[], prior: PriorCred
       // require the other in the same fall. The general set is the default.
       const special = (bundle: string[]) => /\b(accelerated|honors)\b/i.test(byCode.get(normaliseCode(bundle[0]))?.title ?? '');
       let best = choice.bundles.find((bundle) => !special(bundle)) ?? choice.bundles[0];
+      if (recent !== null) {
+        for (const bundle of choice.bundles) if (!special(bundle) && notRunLately(bundle) < notRunLately(best)) best = bundle;
+      }
       let bestHeld = best.filter((code) => held.has(normaliseCode(code))).length;
       for (const bundle of choice.bundles) {
         const n = bundle.filter((code) => held.has(normaliseCode(code))).length;
@@ -7963,6 +8333,51 @@ function difficultyFloorInput(input: AutoplanInput): AutoplanInput {
 }
 
 /**
+ * Georgia Tech (school-config planEmptyCurrentTerm): a first-year in their
+ * first semester, with none of its classes entered, gets that semester
+ * planned as the board's first term, with the courses the degree starts with
+ * (the plan's own first-term picks), in place of the about 15 credits the
+ * workspace counts for it (plan-start.ts horizonFor: currentAssumedHours,
+ * added to the prior credit's hours with no course behind them). Those 15
+ * named no course, so every required course had seven terms: a third of
+ * Georgia Tech's degrees could not finish (ME 4182 did not fit), boards ran
+ * 5 to 17 credits past the total, and seniors' courses came before senior
+ * standing (2026-11-09 browser test, GATECH_CURRENT inventory). The board
+ * then holds the term itself, so the workspace shows no second column for it
+ * and counts nothing assumed on top (horizonFor boardTerms, assumedCredit).
+ * Only a student who began this term by their own words (not a record that
+ * stops short of it), with nothing else assumed and all of the term's load
+ * unentered; classes entered for it plan as before. Null where none of that holds.
+ */
+function withEmptyCurrentTermPlanned(input: AutoplanInput): { input: AutoplanInput; term: string; assumed: number } | null {
+  const h = input.horizon as Horizon & {
+    began?: { season: SemesterSeason; year: number } | null;
+    beganFrom?: string | null;
+    assumedHours?: number;
+    assumedTerms?: Array<{ season: SemesterSeason; year: number }>;
+  };
+  const cur = h.current;
+  if (!cur || cur.season === 'Summer') return null;
+  if (!courseleafOfContext(input.context)?.planEmptyCurrentTerm) return null;
+  const assumed = Math.max(0, h.currentAssumedHours ?? 0);
+  if (assumed < 12) return null;
+  if (!h.began || h.began.season !== cur.season || h.began.year !== cur.year || h.beganFrom === 'record') return null;
+  if ((h.assumedHours ?? assumed) > assumed) return null;
+  const ord = (t: { season: SemesterSeason; year: number }) => t.year * 3 + (t.season === 'Spring' ? 0 : t.season === 'Summer' ? 1 : 2);
+  if (ord({ season: h.startSeason, year: h.startYear }) <= ord(cur)) return null;
+  if ((h.away ?? []).some((a) => a.season === cur.season && a.year === cur.year)) return null;
+  return {
+    input: {
+      ...input,
+      horizon: { ...h, startSeason: cur.season, startYear: cur.year, current: null, currentAssumedHours: 0, assumedHours: 0, assumedTerms: [] } as Horizon,
+      prior: { ...input.prior, unmatchedCredits: Math.max(0, input.prior.unmatchedCredits - assumed) },
+    },
+    term: `${cur.season} ${cur.year}`,
+    assumed,
+  };
+}
+
+/**
  * The student's board. Difficulty, where the context carries estimates or
  * the student asked for the lightest schedule or a challenge, is weighed by
  * difficultyGated against the board built without it; the gates' own builds
@@ -7971,6 +8386,14 @@ function difficultyFloorInput(input: AutoplanInput): AutoplanInput {
  * the gate's floor, which decides whether a fix finishes.
  */
 export function generatePlan(input: AutoplanInput): GeneratedPlan {
+  const now = withEmptyCurrentTermPlanned(input);
+  if (now) {
+    const out = generatePlan(now.input);
+    const first = out.terms.find((term) => term.label === now.term);
+    const codes = first?.codes ?? [];
+    const note = `None of your ${now.term} classes are entered yet, so this plan starts with ${now.term} and fills it with the courses this degree starts with${codes.length > 0 ? ` (${codes.join(', ')})` : ''}, rather than counting it as about ${now.assumed} credits that meet no requirement. If you are taking other classes, change ${now.term} to match them (or upload your schedule) and rebuild: the rest of the plan builds on them.`;
+    return { ...out, notes: [note, ...out.notes] };
+  }
   // A free-choices board outside the gate's own builds is built without the estimates (AutoplanInput.withEstimates).
   if (input.freeChoices !== undefined) return generatePlanFinished(input.withEstimates ? input : { ...input, context: floorContextOf(input.context) });
   if (input.plainEngine === true || input.difficultyGate === false) return generatePlanFinished(difficultyFloorInput(input));
@@ -11321,8 +11744,72 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const degreeRead = degreeSubjectsOf(input.requirements, input.programName);
   const nestedParent = nestedParents(input.requirements);
   const who: Audience = { college: input.programCollege ?? null, primary: degreeRead.primary };
+  /**
+   * Georgia Tech's open picks (school-config openPicks, openPickMisfit): the
+   * catalog's sequences and languages, and the goal the long lists are
+   * ordered by (CareerFit.closeness), on the board the career matcher ranks
+   * the general picks of (careerGated: not its electives-only board).
+   */
+  const openPicks = courseleafOfContext(ctx)?.openPicks === true;
+  const openReading = openPicks ? openPickReadingOf(ctx.courses) : null;
+  /*
+   * The goal orders the long lists under either scope the career gate tries
+   * (careerGated): its closeness is the last key before the chain, after
+   * every rule the gate guards, and with the gate's 'electives' board it was
+   * off, so IE General and Biology kept ARBC 1501 and CP 2020 by the alphabet.
+   */
+  const openFit = openPicks ? input.careerFit : undefined;
+  // The crawl's four latest falls and springs, and whether a course ran in one (openPickMisfit; the fill's dormant rule).
+  const recentRuns = openPicks && ctx.offerings ? new Set((ctx.offeringTerms ?? []).filter((term) => /^(fa|sp)\d{4}$/.test(term)).slice(0, 4)) : null;
+  const ranLately = recentRuns && recentRuns.size > 0 ? (code: string): boolean => (ctx.offerings?.get(code) ?? []).some((term) => recentRuns.has(term)) : undefined;
   /** Courses written for another group of students, which the planner never suggests as a free elective. */
-  const electiveBarred = electiveBarFor(ctx, byCode, { ...who, programName: input.programName }, input.fillerRules === false);
+  const barredBefore = electiveBarFor(ctx, byCode, { ...who, programName: input.programName }, input.fillerRules === false);
+  /*
+   * Nor, at Georgia Tech, a heritage learners' or learning-support course
+   * (openPickMisfit); another program's first-year seminar (once MATH 0999
+   * was barred, CS 1100 Pathways in Computing, written for first-year
+   * computing students, was a Finance student's one-hour elective, and an
+   * IT Management student's, whose degree requires CS 1301; one in the
+   * major's own subject may be, and goes in the first term,
+   * firstTermCourse); a course its
+   * title writes for another subject's majors (BIOS 1207 Biological
+   * Principles for Majors, a Finance student's free elective); or a lab
+   * titled as a lecture of its subject, which comes with that lecture (BIOS
+   * 2301 Ecology Laboratory, alone on the same board); or a special topics,
+   * research, independent study, internship, thesis or honors course, which
+   * a long list already takes last (poolOrderFor's `aside`): CS 2801 and
+   * CHEM 2801 Special Topics, one credit each, filled the last hour of
+   * Computer Science and Finance boards.
+   */
+  /*
+   * And another program's first-year seminar where the degree requires its
+   * own by name: Computer Engineering's ECE 1100 ECE Discovery Practicum,
+   * beside which CS 1100 was a free elective on ten boards (its subject, CS,
+   * is the one the degree's rows name most).
+   */
+  const ownSeminar = openReading
+    ? [...requiredByNameOf(input.requirements)].some((c) => {
+        const course = byCode.get(c);
+        return !!course && courseLevel(c) < 200 && (course.creditsMax ?? course.credits) <= 1 && (catalogAudienceOf(course) === 'first-year' || FIRST_YEAR_SEMINAR_WORDS.test(course.title));
+      })
+    : false;
+  const required = openReading ? requiredByNameOf(input.requirements) : null;
+  const electiveBarred = openReading
+    ? (code: string): string | null => {
+        const course = byCode.get(code);
+        return barredBefore(code) ?? openPickMisfit(code, course, openReading, null, null)
+          ?? (catalogAudienceOf(course) === 'first-year' && course && (course.cluster !== degreeRead.primary || (ownSeminar && !required?.has(code))) ? 'written for first-year students of another program' : null)
+          ?? (course && ROLE_TITLE.test(course.title) ? 'training for a campus role, not a course toward a degree' : null)
+          ?? (openReading.serviceSubjects.has(code.split(' ')[0]) ? 'an officer-training (ROTC) course, taken by its cadets' : null)
+          ?? (course && FOR_MAJORS.test(course.title) && course.cluster !== degreeRead.primary ? `written for ${course.cluster} majors` : null)
+          ?? (course && forOtherEngineers(course.title, input.programName) ? 'written for another program\'s engineers' : null)
+          // A registration placeholder: UCGA 2001 Cross Enroll-Agnes Scott (1 to 21 hours) took the last free hour once CETL 2000 was barred; and hours arranged as wide as that.
+          ?? (course && (/\bcross[- ]?enrol/i.test(course.title) || (course.creditsMax ?? course.credits) - course.credits >= 5) ? 'a placeholder for credit arranged elsewhere or by the term' : null)
+          ?? (course && AWAY_TITLE.test(course.title) ? 'taken on a program away from campus' : null)
+          ?? (openReading.labs.has(code) ? 'a laboratory taken with its lecture' : null)
+          ?? (course && OPEN_TOPIC_TITLE.test(course.title) ? 'a special topics, research or similar course, taken when the student chooses one' : null);
+      }
+    : barredBefore;
   /**
    * Behind an application or someone's approval (admissionGate): never a
    * pick the planner makes on its own while the list or category has another
@@ -11359,6 +11846,108 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     });
   };
   const conflicts = buildConflicts(ctx.exclusions);
+  /**
+   * At Georgia Tech (openPicks), a list pick whose prerequisite an exclusion
+   * with a course in `have` or on the record shuts (groupClosedByExclusion):
+   * the student could never register for it, so it goes behind every other.
+   * And one that will not count beside a course the degree requires by name:
+   * Business Administration's Any SS took ECON 2101 The Global Economy,
+   * which does not count with the ECON 2105 and ECON 2106 its Field of Study
+   * names, and the row read "excluded".
+   */
+  const openShut = (code: string, have: Set<string>): boolean =>
+    openReading !== null && (
+      [...(conflicts.get(code) ?? [])].some((other) => requiredByNameOf(input.requirements).has(other) && !have.has(code)) ||
+      (ctx.prereqs?.get(code)?.groups ?? []).some((group) => group.confidence !== 'low' && group.any.length > 0 &&
+        !group.any.some((raw) => expandEquivalents(normaliseCode(raw), equivalents).some((alt) => have.has(alt) || earned.has(alt))) &&
+        groupClosedByExclusion(group, conflicts, [have, earned], equivalents) !== null));
+  /*
+   * Georgia Tech's free electives against the board (school-config
+   * openPicks), in the elective fill and the year-one repair's small
+   * courses. Not the second of two courses one may take in place of the
+   * other: an alternative of a row of two to six (Business Administration's
+   * Institutional Priority, "CS 1301 or CS 1315 or CS 1371": a Finance board
+   * booked CS 1315 in its first fall and CS 1301 for the row in Spring 2029),
+   * or a first course the catalog accepts in place of one the board holds
+   * (interchangeableFirsts: CS 1315 and CS 1371 beside a Computer Science
+   * major's CS 1301). Nor a second part whose first part the board lacks, a
+   * language's course past its first semester with no course taught in that
+   * language on the board (ARBC 2002 Intermediate Arabic II beside ARBC 1501
+   * Understanding Arab Culture, an Urban Planning student's last free
+   * elective), or a course that has not run in the crawl's four latest falls
+   * and springs (openPickMisfit). Nor a course whose prerequisite an
+   * exclusion with a course on the board shuts (groupClosedByExclusion):
+   * Neuroscience Business booked MGT 4047, which asks for ACCT 2102, beside
+   * the MGT 3000 that ACCT 2102 cannot count with.
+   */
+  const openRowAlternatives = new Map<string, string[]>();
+  if (openReading) {
+    for (const requirement of input.requirements) {
+      const rule = requirement.rule;
+      if (rule.kind !== 'all' && rule.kind !== 'choose') continue;
+      for (const choice of rule.choices) {
+        const codes = choice.codes.map(normaliseCode);
+        if (codes.length < 2 || codes.length > 6) continue;
+        for (const code of codes) openRowAlternatives.set(code, [...(openRowAlternatives.get(code) ?? []), ...codes.filter((c) => c !== code)]);
+      }
+    }
+  }
+  const openFirsts = openReading ? interchangeableFirsts(ctx.prereqs) : null;
+  const openRedundantIn = (code: string, sets: ReadonlyArray<Set<string>>): boolean =>
+    openReading !== null &&
+    ((openRowAlternatives.get(code) ?? []).some((c) => sets.some((set) => set.has(c))) || [...(openFirsts?.get(code) ?? [])].some((c) => sets.some((set) => set.has(c))));
+  /*
+   * At Georgia Tech (openPicks), a course whose title a course held, booked
+   * or required by name carries (sameTitleIndexOf): the same material under
+   * another code. An aerospace-propulsion ME student's free elective was CEE
+   * 3040 Fluid Mechanics beside the ME 3340 Fluid Mechanics the major
+   * requires (2026-11-09 browser test).
+   */
+  const openTitles = openReading ? sameTitleIndexOf(ctx.courses) : null;
+  const openSameTitle = (code: string, sets: ReadonlyArray<{ has(code: string): boolean }>): boolean =>
+    openTitles !== null && (openTitles.get(code) ?? []).some((c) => requiredByNameOf(input.requirements).has(c) || sets.some((set) => set.has(c)));
+  /*
+   * And on a list, the second of the first courses one may take in place of
+   * another (interchangeableFirsts), where a course held or booked, one the
+   * degree requires by name, or a row of alternatives elsewhere on the page
+   * already gives the student one: International Affairs' Institutional
+   * Priority ("CS 1315 or CS 1301") booked CS 1301 and its Field of Study
+   * "Select one" list took CS 1315; NRE's took CS 1301 beside the CS 1371
+   * ME 2016 asks for. A course a row elsewhere lists as one of its
+   * alternatives is that row's to book, not the list's.
+   */
+  const openRowsOf = new Map<string, Set<string>>();
+  if (openReading) {
+    for (const requirement of input.requirements) {
+      const rule = requirement.rule;
+      if (rule.kind !== 'all' && rule.kind !== 'choose') continue;
+      for (const choice of rule.choices) {
+        if (choice.codes.length < 2 || choice.codes.length > 6) continue;
+        for (const raw of choice.codes) {
+          const code = normaliseCode(raw);
+          openRowsOf.set(code, new Set([...(openRowsOf.get(code) ?? []), requirement.id]));
+        }
+      }
+    }
+  }
+  const openRowElsewhere = (code: string, rowId: string | undefined): boolean => [...(openRowsOf.get(code) ?? [])].some((id) => id !== rowId);
+  const openIntroTwin = (code: string, rowId: string | undefined, have: { has(code: string): boolean }): boolean => {
+    if (!openReading || rowId === undefined) return false;
+    const firsts = openFirsts?.get(code);
+    if (!firsts || firsts.size === 0) return false;
+    if (openRowElsewhere(code, rowId)) return true;
+    return [...firsts].some((c) => have.has(c) || earned.has(c) || requiredByNameOf(input.requirements).has(c) || openRowElsewhere(c, rowId));
+  };
+  const openBoardMisfit = (code: string, sets: ReadonlyArray<Set<string>>, languages: ReadonlySet<string> | null): boolean => {
+    if (!openReading) return false;
+    if (openRedundantIn(code, sets)) return true;
+    if (openSameTitle(code, sets)) return true;
+    const holds = { has: (c: string) => sets.some((set) => set.has(c)) };
+    if (openPickMisfit(code, byCode.get(code), openReading, holds, languages ?? new Set<string>(), ranLately) !== null) return true;
+    return (ctx.prereqs?.get(code)?.groups ?? []).some((group) => group.confidence !== 'low' && group.any.length > 0 &&
+      !group.any.some((raw) => expandEquivalents(normaliseCode(raw), equivalents).some((alt) => holds.has(alt))) &&
+      groupClosedByExclusion(group, conflicts, [...sets], equivalents) !== null);
+  };
 
   const notes: string[] = [];
   /**
@@ -11813,6 +12402,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * board.
    */
   const historySeasons = courseleafOfContext(ctx)?.seasonAwareChoices === true;
+  /** Each course counts toward one requirement (school-config countOnce), and a list's lecture-lab row is worth its pair's hours (pairHours): Georgia Tech. */
+  const countOnce = courseleafOfContext(ctx)?.countOnce === true;
+  const pairHours = courseleafOfContext(ctx)?.pairHours === true;
   const seasonless = rememberedBy((code: string): number => {
     const course = byCode.get(code);
     const listed = summerOnlyListed(course) || (historySeasons && course !== undefined && course.offeredIn.length > 0);
@@ -11895,9 +12487,17 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     for (const sub of standIns?.get(code) ?? []) if (earned.has(sub)) return sub;
     const by = conflictWith(code, conflicts, [earned]);
     if (by !== null && standsInByPrereq(by, code)) return by;
+    // Where each course counts once (Georgia Tech), any held course the catalog will not credit beside it that stands in, not only the first:
+    // ECON 2100 shuts ECON 2105 and ECON 2106, and the courses after it accept ECON 2106 in its place.
+    if (by !== null && courseleafOfContext(ctx)?.countOnce === true) {
+      const other = [...(conflicts.get(code) ?? [])].sort().find((held) => held !== by && earned.has(held) && standsInByPrereq(held, code));
+      if (other) return other;
+    }
     return null;
   };
   const forfeits: Array<{ held: string; for: string }> = [];
+  /** Held courses a required row counted in place of its own course (GeneratedPlan.standIns), where each course counts once. */
+  const standInsUsed: Array<{ requirementId: string; held: string; for: string }> = [];
 
   /** Every pool, kept so the report can be written against the placed board. */
   const poolFills: Array<{ slot: PlanSlot; fill: PoolFill }> = [];
@@ -11950,11 +12550,20 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * `have` is a snapshot of what is chosen when the pool runs, which is why the
    * memo is built per pool rather than once.
    */
-  const poolOrderFor = (have: Set<string>, together?: Map<string, string[]>, sequence = new Set<string>(), breadth: { broad: boolean; core: boolean; hours?: number | null; upper?: boolean } = { broad: false, core: false }) => {
+  const poolOrderFor = (have: Set<string>, together?: Map<string, string[]>, sequence = new Set<string>(), breadth: { broad: boolean; core: boolean; hours?: number | null; upper?: boolean; rowId?: string } = { broad: false, core: false }, listed?: ReadonlySet<string>) => {
     const memo = new Map<string, number>();
     const ruleWants = breadth.broad && ruleRows.length > 0 ? ruleWantsFor(have) : null;
     // At UGA the language courses the student holds and the board has booked, for ugaLanguageBehind (SPAN 1110 booked: SPAN 1001 is behind it).
     const languageHad = ctx.schoolId === 'uga' ? [...input.prior.courseCodes, ...have] : [];
+    // At Georgia Tech the languages held and booked, for a language course past its first semester (openPickMisfit): a course taught in one, not a culture course taught in English (languagesHeld).
+    const haveSubjects = openReading && breadth.broad ? languagesHeld([...have, ...input.prior.courseCodes.map(normaliseCode)], openReading, byCode) : null;
+    /*
+     * And in a long list there a course the degree requires by name counts as
+     * held for what a candidate drags in: Any HUM is filled before Communicating
+     * in Writing, so every LMC course on it ("ENGL 1102.") read as one course
+     * dearer than ARBC 1501, though every board books ENGL 1102.
+     */
+    const costHave = haveSubjects ? new Set([...have, ...requiredByNameOf(input.requirements)]) : have;
     // Remembered by code (rememberedBy) for the pool's sorts, as its
     // prerequisite cost already is: nothing it reads changes while the pool
     // fills, `have` included, and the comparator asked for each key a dozen
@@ -11975,7 +12584,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        */
       const spec = ctx.prereqs?.get(code);
       const unverifiable = spec && spec.text.length > 0 && !spec.parsed && !(input.standingRead === true && standingIsAll(spec)) ? 1 : 0;
-      const extra = prerequisiteCost(code, have, ctx.prereqs, equivalents, byCode, memo, new Set());
+      const extra = prerequisiteCost(code, costHave, ctx.prereqs, equivalents, byCode, memo, new Set());
       // A course billed as "1 to 4 hours" counts for one hour here, because one
       // is the only number the catalog guarantees. Filling an eighteen-hour
       // pool out of those makes the eighteen meaningless, so among equally
@@ -12110,9 +12719,51 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const lone = ctx.schoolId === 'uga' && ((breadth.core && ugaLanguageCourse(ctx.languages, code, input.prior.languageName)) || ugaAcceleratedCourse(code) || ugaLanguageBehind(ctx.languages, code, languageHad, input.prior.languageSemesters, input.prior.languageName)) ? 1 : 0;
       const schedule = ctx.schoolId === 'uga' ? [signals.offSchedule(code), lone, breadth.core && meetsTwo.size > 0 && !meetsTwo.has(code) ? 1 : 0, (breadth.core && (coreOutsider?.(code) ?? 0) > 0) || (breadth.broad && (coreOutsider?.(code) ?? 0) >= 4) ? 1 : 0] : [];
       const wantedHere = breadth.broad && lastTies && !subjectHere && signals.band(code) === POPULAR_BANDS.length ? 1 : wanted;
+      /*
+       * Georgia Tech's open picks (school-config openPicks): a heritage
+       * learners' or learning-support course behind every other, and in a long
+       * list across departments a second part whose first part the board lacks
+       * and a language's course past its first semester too (openPickMisfit);
+       * and in such a list, where nothing before it decides, the course closest
+       * to the goal by meaning (closenessKey), not the alphabet: ARBC 1501 and
+       * CP 2020 were every student's Any HUM and Any SS.
+       */
+      // On a department's own list too, a second part whose first part the board lacks (MATH 4262 Mathematical Statistics II with no MATH 4261, a Probability and Statistics concentration's pick).
+      const partBefore = openReading && !haveSubjects ? openReading.firstParts.get(code) : undefined;
+      // Not where the list itself offers the first part: Lab Science's BIOS 1108 Principles of Biology II beside the BIOS 1107 the same list books.
+      const lacksFirst = partBefore !== undefined && !partBefore.some((c) => have.has(c) || earned.has(c) || (listed?.has(c) ?? false));
+      // And the same material under another code (openSameTitle), and a second first course in place of another (openIntroTwin).
+      const misfit = openReading ? [openPickMisfit(code, byCode.get(code), openReading, haveSubjects ? have : null, haveSubjects, ranLately) === null && !openShut(code, have) && !lacksFirst && !openSameTitle(code, [have]) && !openIntroTwin(code, breadth.rowId, have) ? 0 : 1] : [];
+      /*
+       * Among the courses the goal wants (wantedHere), on any Georgia Tech
+       * list, the one it wants most (CareerFit.strength) before the rest of
+       * the priorities: an aerospace-propulsion ME student's ME 3000-level
+       * Electives took ME 4451 Robotics (31st of 2,683 for the goal) over ME
+       * 4011 Internal Combustion Engines (17th) on the quality score alone
+       * (2026-11-09 browser test). The closeness of every course, goal course
+       * or not, orders the long lists only (goalNear): on a department's own
+       * list it changed half the picks of a whole-catalog goal run and put
+       * 37 more hours past the degree totals (aerospace propulsion, 212
+       * boards), where the courses each list drags in had tied.
+       */
+      const goalNear = openFit && breadth.broad ? [closenessKey(openFit, code)] : [];
+      const goalMost = openFit ? [wantedHere === 0 ? -Math.round(openFit.strength(code) * 100) / 100 : 0] : [];
+      /*
+       * And at Georgia Tech, on any list, how often the course runs: one the
+       * crawl saw in at most one of its six falls and springs behind every
+       * other before the student's goal and the courses it drags in have
+       * their say, and one it saw in two behind those it saw in three or more
+       * (once a year or better) after them. Approaches to Intelligence took
+       * CS 4649 (Spring 2027 only) over CS 4650, CS 4510 and CS 4635, which
+       * ran seven to nine of nine terms, on the prerequisite chain alone.
+       */
+      const runs = openReading ? regularRunsOf(ctx, code) : null;
+      // One the nine crawled terms never ran behind one they ran once: RUSS 3691 (none) was the ALIS Russian list's pick.
+      const seldom = runs === null ? [] : [runs <= 1 ? ((ctx.offerings?.get(code) ?? []).length === 0 ? 2 : 1) : 0];
+      const yearly = runs === null ? [] : [runs === 2 ? 1 : 0];
       const key = input.goalRows
-        ? [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, ...schedule, clash, aside, wantedHere, own, extra, unverifiable, ...offered, ...rules, ...light, ...common, variable, ...byPriority, chain, ...lastTie]
-        : [inCatalog, ...inSequence, listAudience(code), gatedPick(code), ...track, ...schedule, unverifiable, clash, aside, wantedHere, own, extra, ...offered, ...rules, ...light, ...common, variable, ...byPriority, chain, ...lastTie];
+        ? [inCatalog, ...inSequence, listAudience(code), ...misfit, gatedPick(code), ...track, ...schedule, ...seldom, clash, aside, wantedHere, ...goalMost, own, extra, ...yearly, unverifiable, ...offered, ...rules, ...light, ...common, variable, ...byPriority, ...goalNear, chain, ...lastTie]
+        : [inCatalog, ...inSequence, listAudience(code), ...misfit, gatedPick(code), ...track, ...schedule, ...seldom, unverifiable, clash, aside, wantedHere, ...goalMost, own, extra, ...yearly, ...offered, ...rules, ...light, ...common, variable, ...byPriority, ...goalNear, chain, ...lastTie];
       const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
       if (traced && normaliseCode(traced) === code) console.error(`  [PLAN_DEBUG] ${code} list-pick key [inCatalog, audience, gated, shutsTrack, ${pickServe ? 'servesTrack, ' : ''}unverifiable, clash, aside, wanted, own, extra, ${light.length ? 'light, ' : ''}variable, unknown, -score, -known, chain] = ${JSON.stringify(key)}`);
       return key;
@@ -12211,7 +12862,52 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * the second slot shared keeps it out of the unsatisfied list, where it would
    * read as a hole in the degree that is not there.
    */
-  const pickFromOption = (row: string[]): { code: string; shared: boolean } | null => {
+  /*
+   * Where each course counts once (countOnce, Georgia Tech): the courses a
+   * take-every-course row names as its only course, by the rows naming each
+   * (every version of it), so a list and another row's alternatives leave them
+   * to that row; and each held course, by the requirement that counted it.
+   * Public Policy's "Political Science and U.S. History" took POL 1101, which
+   * its Major Requirements row names alone, and the rail read that row 0 of 3.
+   */
+  const reservedBy = new Map<string, Set<string>>();
+  if (countOnce) {
+    for (const r of input.requirements) {
+      if (r.rule.kind !== 'all') continue;
+      for (const choice of r.rule.choices) {
+        if (choice.codes.length !== 1) continue;
+        for (const version of expandEquivalents(normaliseCode(choice.codes[0]), equivalents)) reservedBy.set(version, (reservedBy.get(version) ?? new Set<string>()).add(r.id));
+      }
+    }
+  }
+  const reservedElsewhere = (code: string, requirementId: string | null): boolean => [...(reservedBy.get(code) ?? [])].some((id) => id !== requirementId);
+  const heldCountedBy = new Map<string, string>();
+  const heldCountedElsewhere = (code: string, requirementId: string | null): boolean => {
+    const by = heldCountedBy.get(code);
+    return by !== undefined && by !== requirementId;
+  };
+  const countHeld = (codes: string[], requirementId: string): void => {
+    if (!countOnce) return;
+    for (const code of codes) for (const version of expandEquivalents(code, equivalents)) if (!heldCountedBy.has(version)) heldCountedBy.set(version, requirementId);
+  };
+
+  const pickFromOption = (row: string[], requirementId: string | null = null): { code: string; shared: boolean } | null => {
+    if (countOnce) {
+      // A held course another requirement counted is that one's; a fresh alternative no other row names alone goes first, and a course already booked last.
+      const held = row.find((code) => earned.has(code) && !heldCountedElsewhere(code, requirementId) && !reservedElsewhere(code, requirementId));
+      if (held) return { code: held, shared: false };
+      const option = forThisStudent(row).filter((code) => !earned.has(code));
+      const fresh = option.filter((code) => chosenEquivalent(code) === null);
+      const keepsCredit = fresh.filter((code) => conflictWith(code, conflicts, [earned]) === null);
+      // Never one the catalog will not credit beside a held course of this same row: that course is the row's answer, counted elsewhere or not (below).
+      const pool = keepsCredit.length > 0 ? keepsCredit : row.some((code) => earned.has(code)) ? [] : fresh;
+      const open = best(pool.filter((code) => !reservedElsewhere(code, requirementId))) ?? best(pool);
+      if (open) return { code: open, shared: false };
+      const taken = best([...new Set(option.map(chosenEquivalent).filter((code): code is string => code !== null))]);
+      if (taken) return { code: taken, shared: true };
+      const anyHeld = row.find((code) => earned.has(code));
+      return anyHeld ? { code: anyHeld, shared: true } : null;
+    }
     for (const code of row) if (earned.has(code)) return { code, shared: false };
     const option = forThisStudent(row);
     // Reuse an ordinary/online/honors version already selected by another
@@ -12412,6 +13108,16 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const genEdDone = new Set<string>();
   /** Courses each "to include" pool's nested rows have counted, by the pool's id. */
   const nestedCounted = new Map<string, Set<string>>();
+  // A required course whose hours the page puts in a list (CourseChoice.countsIn) is part of that list's hours, as a nested row's are, where each course counts once (countOnce).
+  if (countOnce) {
+    for (const r of input.requirements) {
+      if (r.rule.kind !== 'all') continue;
+      for (const choice of r.rule.choices) {
+        if (!choice.countsIn) continue;
+        nestedCounted.set(choice.countsIn, (nestedCounted.get(choice.countsIn) ?? new Set<string>()).add(normaliseCode(choice.codes[0])));
+      }
+    }
+  }
 
   /*
    * At UGA a course counts once within a family of areas (uga-program-
@@ -12605,7 +13311,105 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const family = familyOfRow(requirement);
         const ownHeld = new Set(slot.options.flat().map(normaliseCode));
         // The held courses a row of this list's family claimed, or an earlier list of it counted, are not this list's (familyUsed).
-        const earnedHere = family === null ? earned : new Set([...earned].filter((code) => !usedInFamily(family, code) || !ownHeld.has(code)));
+        const earnedHere = countOnce
+          // Where each course counts once (countOnce), nor a held course another requirement counted or a take-every-course row names alone.
+          // Nor one the catalog will not credit beside a course another row requires by name and the student lacks, which
+          // that row books and so forfeits it (the forfeit below): Construction Science's Field of Study requires ECON 2100, and
+          // Any SS counted the ECON 2105 and ECON 2106 a student held, which then counted for nothing (2026-11-09).
+          // And not the held course that row counts in that course's place (standInFor): the row's, as its own course would be.
+          ? new Set([...earned].filter((code) => !heldCountedElsewhere(code, requirement.id) && !reservedElsewhere(code, requirement.id)
+            && ![...(conflicts.get(code) ?? [])].some((other) => {
+              if (!reservedElsewhere(other, requirement.id) || earned.has(other)) return false;
+              const standIn = [...(conflicts.get(other) ?? [])].sort().find((held) => earned.has(held) && standsInByPrereq(held, other)) ?? null;
+              return standIn === null || standIn === code;
+            })))
+          : family === null ? earned : new Set([...earned].filter((code) => !usedInFamily(family, code) || !ownHeld.has(code)));
+        // A lecture-lab row the page prints as one is worth the pair's hours here (pairHours): BIOS 1107 and its lab, four of Lab Science's eight.
+        const pairCredits = pairHours && slot.together ? (code: string): number => creditsOf(code) + (slot.together?.get(code) ?? []).reduce((sum, partner) => sum + creditsOf(partner), 0) : creditsOf;
+        /*
+         * Georgia Tech's language rows (languageRowSubjects): one language,
+         * walked in its sequence. International Affairs says "twelve credit
+         * hours of the same language" and booked the first semester of four;
+         * Economics and International Affairs ("Modern Language courses must
+         * be in the same language") the same. The language is the one the
+         * student holds a course taught in, or one another row of the page
+         * has booked (Global Economics and Modern Languages' CHIN 4500); else
+         * the one whose courses on the list reach the row's hours with
+         * courses that ran lately, closest to the goal, then the one whose
+         * sequence runs most often. Its courses go first, a heritage
+         * learners' course or one that has not run lately last; where the row
+         * starts the language, the sequence's Elementary, Intermediate and
+         * Advanced courses by number, then the rest by number, a culture
+         * course taught in English (34XX) after them.
+         */
+        const languageKey = ((): ((code: string) => number[]) | null => {
+          if (!openReading || slot.kind !== 'pool') return null;
+          const subjects = languageRowSubjects(slot.options, openReading);
+          if (!subjects) return null;
+          const listed = [...new Set(slot.options.flat().map(normaliseCode))].filter((c) => byCode.has(c));
+          const number = (c: string) => Number.parseInt(c.split(' ')[1] ?? '0', 10) || 0;
+          const stale = (c: string) => openPickMisfit(c, byCode.get(c), openReading, null, null) !== null || (ranLately !== undefined && !ranLately(c));
+          /*
+           * The sequence by number only where the row starts the language (it
+           * lists the subject's "Elementary ... I"); a row of 3000- and
+           * 4000-level courses (International Affairs and Modern Language's 21
+           * hours) keeps the list's own order inside the language, which counts
+           * the courses each drags in: "Advanced Chinese I" first booked CHIN
+           * 1001 to 2002 for it, eleven hours no row of the page counts.
+           */
+          const starts = new Set(listed.filter((c) => FIRST_LANGUAGE_COURSE.test(byCode.get(c)?.title.trim() ?? '')).map((c) => c.split(' ')[0]));
+          const within = (c: string): number[] => starts.has(c.split(' ')[0])
+            // One the crawl saw in at most one fall or spring behind (ALIS Spanish took SPAN 3050, once in nine terms, by its number).
+            ? [stale(c) ? 1 : 0, (regularRunsOf(ctx, c) ?? 2) <= 1 ? 1 : 0, ENGLISH_TAUGHT_CULTURE.test(c) ? 1 : 0, LANGUAGE_SEQUENCE_TITLE.test(byCode.get(c)?.title.trim() ?? '') ? 0 : 1, number(c)]
+            : [stale(c) ? 1 : 0];
+          const byOrder = (a: string, b: string) => {
+            const x = within(a);
+            const y = within(b);
+            for (let i = 0; i < x.length; i += 1) if (x[i] !== y[i]) return x[i] - y[i];
+            return 0;
+          };
+          const weight = new Map<string, number>();
+          for (const s of languagesHeld([...satisfiedForPrereq, ...chosen.keys()], openReading, byCode)) if (subjects.has(s)) weight.set(s, (weight.get(s) ?? 0) + 10);
+          for (const [code, why] of chosen) {
+            const s = code.split(' ')[0];
+            const kind = why.requirementId === null ? null : input.requirements.find((r) => r.id === why.requirementId)?.rule.kind;
+            if (subjects.has(s) && kind !== undefined && kind !== null && kind !== 'pool') weight.set(s, (weight.get(s) ?? 0) + 1);
+          }
+          const target = slot.hoursTarget ?? 0;
+          const reading = [...subjects].map((s) => {
+            const fresh = listed.filter((c) => c.split(' ')[0] === s && !stale(c)).sort(byOrder);
+            let hours = 0;
+            let steady = 0;
+            for (const c of fresh) {
+              if (target > 0 && hours >= target) break;
+              hours += creditsOf(c);
+              steady += regularRunsOf(ctx, c) ?? 0;
+            }
+            const near = openFit ? Math.max(-1, ...listed.filter((c) => c.split(' ')[0] === s).map((c) => openFit.closeness?.(c) ?? -1)) : 0;
+            return { s, held: weight.get(s) ?? 0, reaches: target === 0 || hours >= target ? 1 : 0, near: Math.round(near * 100) / 100, steady };
+          });
+          reading.sort((a, b) => b.held - a.held || b.reaches - a.reaches || b.near - a.near || b.steady - a.steady || a.s.localeCompare(b.s));
+          const language = reading[0]?.s;
+          if (!language) return null;
+          const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
+          if (traced && slot.options.some((o) => o.map(normaliseCode).includes(normaliseCode(traced)))) console.error(`  [PLAN_DEBUG] language row "${slot.label}": ${language} (${JSON.stringify(reading.slice(0, 4))})`);
+          const memo = new Map<string, number[]>();
+          return (code: string): number[] => {
+            let key = memo.get(code);
+            if (!key) {
+              key = code.split(' ')[0] === language ? [0, ...within(code)] : [1];
+              memo.set(code, key);
+            }
+            return key;
+          };
+        })();
+        const languageFirst = (a: string, b: string): number => {
+          if (!languageKey) return 0;
+          const x = languageKey(a);
+          const y = languageKey(b);
+          for (let i = 0; i < x.length; i += 1) if (x[i] !== y[i]) return x[i] - y[i];
+          return 0;
+        };
         const fill = fillPool(slot, {
           byCode,
           earned: earnedHere,
@@ -12619,11 +13423,23 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             ...(family === null ? [] : [...(requiredInFamily.get(family) ?? [])].filter((code) => !input.requirements.some((r) => r.areaId === requirement.areaId && r.rule.kind === 'all' && r.rule.choices.some((choice) => choice.codes.map(normaliseCode).includes(code))))),
             // Nor a held course the family counted elsewhere: the student has it, and it is not this list's to book again.
             ...[...earned].filter((code) => !earnedHere.has(code)),
+            // Where each course counts once (countOnce), a course a take-every-course row names alone is that row's.
+            ...(countOnce ? [...reservedBy.keys()].filter((code) => reservedElsewhere(code, requirement.id)) : []),
           ]),
-          creditsOf,
-          order: ((inOrder) => (a: string, b: string) => seasonless(a) - seasonless(b) || (ctx.schoolId === 'uga' ? Number(ugaGraduate(a)) - Number(ugaGraduate(b)) : 0) || inOrder(a, b))(poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()]), slot.together, sequence, { broad, core: broadCore, hours: slot.hoursTarget, upper: (anyCourse?.minLevel ?? 0) >= 3 })),
+          creditsOf: pairCredits,
+          order: ((inOrder) => (a: string, b: string) => seasonless(a) - seasonless(b) || (ctx.schoolId === 'uga' ? Number(ugaGraduate(a)) - Number(ugaGraduate(b)) : 0) || languageFirst(a, b) || inOrder(a, b))(poolOrderFor(new Set([...satisfiedForPrereq, ...chosen.keys()]), slot.together, sequence, { broad, core: broadCore, hours: slot.hoursTarget, upper: (anyCourse?.minLevel ?? 0) >= 3, ...(openReading ? { rowId: requirement.id } : {}) }, openReading ? new Set(slot.options.flat().map(normaliseCode)) : undefined)),
           reachable: (code) => (rankDepth.get(code) ?? 0) < terms.length,
-          conflict: (code, insidePool) => conflictFor(code, insidePool),
+          /*
+           * Where each course counts once (countOnce), nor a course the
+           * catalog will not credit beside one a take-every-course row names
+           * alone, which that row books later: Business Finance's Any SS took
+           * ECON 2101, which shuts the ECON 2105 and ECON 2106 its Field of
+           * Study requires (exclusions.json, 2026-11-09 rebuild), and Field
+           * of Study read 12 of 18.
+           */
+          conflict: countOnce
+            ? ((rowsOwn) => (code: string, insidePool?: Set<string>) => conflictFor(code, insidePool) ?? conflictWith(code, conflicts, [rowsOwn]))(new Set([...reservedBy.keys()].filter((other) => reservedElsewhere(other, requirement.id) && !earned.has(other))))
+            : (code, insidePool) => conflictFor(code, insidePool),
           versionsOf: (code) => expandEquivalents(code, equivalents),
           nested: nestedCounted.get(requirement.id),
         });
@@ -12638,13 +13454,37 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           let hours = 0;
           let count = 0;
           const needed: string[] = [];
-          for (const code of fill.free) {
+          /*
+           * Where each course counts once (countOnce), the held courses no
+           * other requirement names go first, so a row that can use one keeps
+           * it: an aerospace student holding ECON 2105, ECON 2106 and PSYC
+           * 1101 had Any SS take both ECON courses, and its Economics row,
+           * "ECON 2100, 2101, 2105 or 2106", booked ECON 2100, which the
+           * catalog will not credit beside them.
+           */
+          const namedElsewhere = (code: string): number => input.requirements.filter((r) => r.id !== requirement.id && (r.rule.kind === 'all' || r.rule.kind === 'choose' || r.rule.kind === 'pool') && r.rule.choices.some((choice) => choice.codes.some((c) => normaliseCode(c) === code))).length;
+          const heldOrder = countOnce ? [...fill.free].sort((a, b) => namedElsewhere(a) - namedElsewhere(b)) : fill.free;
+          // A held lecture's held lab is part of its row's hours where the pair counts whole (pairHours), as the fill counted it.
+          const heldPartners = (code: string): string[] => (countOnce && pairHours ? (slot.together?.get(code) ?? []).filter((partner) => earnedHere.has(partner) && !fill.free.includes(partner)) : []);
+          for (const code of heldOrder) {
             if ((slot.hoursTarget === null || hours >= slot.hoursTarget) && (slot.picks === null || count >= slot.picks)) break;
             needed.push(code);
-            hours += creditsOf(code);
+            hours += creditsOf(code) + heldPartners(code).reduce((sum, partner) => sum + creditsOf(partner), 0);
             count += 1;
           }
           useInFamily(family, needed);
+          /*
+           * Where each course counts once (countOnce), the list holds only the
+           * held courses it needs, and those are its own, a held lecture's held
+           * lab with it: an Economics student holding BIOS 1107 and its lab
+           * had Lab Science count the pair's four hours, and "STEM, Business or
+           * Policy Courses" count the lab again, so the rail read Lab Science
+           * 7 of 8 once the lists kept the plan's held credit.
+           */
+          if (countOnce) {
+            fill.free = [...needed, ...needed.flatMap(heldPartners).filter((partner, at, all) => all.indexOf(partner) === at && !needed.includes(partner))];
+            countHeld(fill.free, requirement.id);
+          }
         }
         free.push(...fill.free);
         picked.push(...fill.picked);
@@ -13157,7 +13997,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
          */
         const elsewhere = rememberedBy((code: string): number => ((coreOutsider?.(code) ?? 0) >= 4 ? 1 : 0));
         const scored = slot.options
-          .map((option) => pickFromOption(option))
+          .map((option) => pickFromOption(option, requirement.id))
           .filter((entry): entry is { code: string; shared: boolean } => entry !== null)
           .sort((a, b) =>
             // At UGA a graduate course (ugaGraduate) only where no undergraduate option is left: Statistics' "STAT 4520 or STAT 6520".
@@ -13184,15 +14024,23 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         const excludedHere: Array<{ code: string; by: string }> = [];
         let filled = 0;
         const rowFamily = familyOfRow(requirement);
+        /** Courses this row names that another requirement already counts, where each course counts once (countOnce). */
+        const countedOnceElsewhere: string[] = [];
         for (const entry of scored) {
           if (!earned.has(entry.code)) continue;
           if (filled >= want) break;
           // A held course another row of this row's family has (heldOwner) is that row's.
           if (ownedElsewhere(entry.code, requirement)) continue;
+          // Where each course counts once (countOnce), one another requirement counted is that one's.
+          if (countOnce && heldCountedElsewhere(entry.code, requirement.id)) {
+            countedOnceElsewhere.push(entry.code);
+            continue;
+          }
           // Held credit counts once, under whichever version the rows name first (fillPool).
           if (expandEquivalents(entry.code, equivalents).some((version) => version !== entry.code && heldHere.has(version))) continue;
           free.push(entry.code);
           heldHere.add(entry.code);
+          countHeld([entry.code], requirement.id);
           filled += 1;
         }
 
@@ -13204,6 +14052,11 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             continue;
           }
           if (entry.shared) {
+            // Where each course counts once (countOnce), the course is the other requirement's, and this row is short of it.
+            if (countOnce) {
+              countedOnceElsewhere.push(entry.code);
+              continue;
+            }
             // A trimmed UGA row does not count a course its own area booked: the audit spends it there once.
             if (slot.sharedFirst && areaOfRequirement.get(chosen.get(entry.code)?.requirementId ?? '') === requirement.areaId) continue;
             // Nor, at UGA, one another row of its family booked or counted (familyUsed): Franklin's biology and social science rows both counted ANTH 2045.
@@ -13221,6 +14074,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             free.push(standIn);
             heldHere.add(standIn);
             filled += 1;
+            if (countOnce && standIn !== entry.code) standInsUsed.push({ requirementId: requirement.id, held: standIn, for: entry.code });
             continue;
           }
           // The course the degree page lists here is one the catalog says will
@@ -13253,6 +14107,12 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
               conflictWith(entry.code, conflicts, [chosen, heldHere]) === null;
             if (onlyHeld) {
               forfeits.push({ held: by, for: entry.code });
+              // Every held course the booked one shuts, where each course counts once (countOnce): ECON 2100 shuts ECON 2105 and ECON 2106 both.
+              if (countOnce) {
+                for (const other of [...(conflicts.get(entry.code) ?? [])].sort()) {
+                  if (other !== by && earned.has(other) && !expandEquivalents(entry.code, equivalents).includes(other)) forfeits.push({ held: other, for: entry.code });
+                }
+              }
               picked.push(entry.code);
               heldHere.add(entry.code);
               filled += 1;
@@ -13275,7 +14135,18 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // codes inside it are alternatives, so a slot counts as available
         // when any one of its alternatives is in the catalog.
         const known = slot.options.filter((alts) => forThisStudent(alts).some((code) => byCode.has(code))).length;
-        if (filled < want && excludedHere.length > 0) {
+        if (filled < want && excludedHere.length === 0 && countedOnceElsewhere.length > 0) {
+          // Where each course counts once (countOnce), what is left on this row counts for another requirement already.
+          const named = [...new Set(countedOnceElsewhere)].sort();
+          unsatisfied.push({
+            requirementId: slot.requirementId,
+            areaLabel: slot.areaLabel,
+            label: slot.label,
+            reason: 'excluded',
+            message: `${named.join(', ')} ${named.length === 1 ? 'counts' : 'count'} for another requirement of this degree already, and a course counts toward one requirement. Ask your advisor what to take here instead.`,
+            url: slot.url,
+          });
+        } else if (filled < want && excludedHere.length > 0) {
           /**
            * The shortfall the student can do something about, said plainly.
            *
@@ -13484,7 +14355,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     // With the free choices' reading, a version for this student on the coming year's schedule where the
     // group has one: MATH 2260's calculus was MATH 2300H, the honors one, for an Agribusiness freshman.
     const fitting = lastTies ? open.filter((alt) => listAudience(alt) === 0 && signals.offSchedule(alt) === 0) : open;
-    const among = fitting.length > 0 ? fitting : open;
+    /*
+     * At Georgia Tech (openPicks), one that runs at least once a year where
+     * the group has one: CEE 4600's "CEE 1770 or ME 1670" booked CEE 1770,
+     * which ran once in nine terms, beside ME 1670, which runs every term,
+     * and three Civil boards' CE Electives then counted it (2026-11-09).
+     */
+    const steady = openReading ? (fitting.length > 0 ? fitting : open).filter((alt) => (regularRunsOf(ctx, alt) ?? 2) >= 2) : [];
+    const among = steady.length > 0 ? steady : fitting.length > 0 ? fitting : open;
     /*
      * "CS 101 or equivalent programming experience" (MATH 257): the other
      * courses of the group are that experience when the board has one; with
@@ -13568,6 +14446,41 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   };
   closeOver(chosen.keys(), false);
 
+  /*
+   * At Georgia Tech (openPicks), a prerequisite the closure booked that a
+   * take-every-course row lists as one of its alternatives is that row's
+   * course, in place of the alternative the row booked, where nothing else
+   * asks for that one: Nuclear and Radiological Engineering's Institutional
+   * Priority ("CS 1371 or CS 1301") booked CS 1301, and NRE 3208 then added
+   * CS 1371, two first programming courses on one board; so did Music
+   * Technology's, for ME 2016 (2026-11-09).
+   */
+  if (openReading) {
+    for (const added of addedPrerequisites.slice()) {
+      const pre = added.code;
+      if (!addedPrerequisites.includes(added) || (chosen.get(pre)?.requirementId ?? null) !== null || earned.has(pre)) continue;
+      for (const requirement of input.requirements) {
+        const rule = requirement.rule;
+        if (rule.kind !== 'all' || nestedParent.has(requirement.id) || [...nestedParent.values()].includes(requirement.id)) continue;
+        const choice = rule.choices.find((ch) => ch.bundles === undefined && ch.codes.length >= 2 && ch.codes.length <= 6 && ch.codes.map(normaliseCode).includes(pre));
+        if (!choice) continue;
+        const booked = choice.codes.map(normaliseCode).find((c) => c !== pre && !earned.has(c) && chosen.get(c)?.requirementId === requirement.id);
+        if (!booked || pinned.has(booked) || addedPrerequisites.some((a) => a.requiredBy === booked)) continue;
+        const names = new Set(expandEquivalents(booked, equivalents));
+        const asked = [...chosen.keys()].some((other) => other !== booked && (ctx.prereqs?.get(other)?.groups ?? []).some((group) => group.any.some((raw) => names.has(normaliseCode(raw))) && !group.any.some((raw) => normaliseCode(raw) === pre)));
+        if (asked) continue;
+        const why = chosen.get(booked);
+        if (!why) continue;
+        chosen.delete(booked);
+        chosen.set(pre, why);
+        for (let i = addedPrerequisites.length - 1; i >= 0; i -= 1) if (addedPrerequisites[i].code === pre) addedPrerequisites.splice(i, 1);
+        const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
+        if (traced && [pre, booked].includes(normaliseCode(traced))) console.error(`  [PLAN_DEBUG] ${pre}, booked as a prerequisite, takes ${booked}'s place on ${requirement.label || requirement.areaLabel}`);
+        break;
+      }
+    }
+  }
+
   /**
    * A prerequisite the closure booked that a pool of the degree lists counts
    * for that pool, and a pick of the pool's own that it leaves spare goes
@@ -13589,7 +14502,16 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * Dietetics and Nutrition boards then ran 12 credits past the degree, and
    * their notes blamed the required courses (2026-10-28).
    */
-  if (ctx.schoolId === 'uga' || (!plainEngine && input.goalRows)) {
+  /*
+   * A lecture and its lab a list let go together (pairHours, below): never a
+   * free elective again, where the fill would take the lecture back alone.
+   * Architecture's Any Lab Science released BIOS 1108 and BIOS 1108L for the
+   * PHYS 2211 that ARCH 4015 needs, and the fill booked BIOS 1108 as an
+   * elective in BIOS, without its lab (2026-11-09).
+   */
+  const releasedWithLab = new Set<string>();
+  // And where each course counts once (countOnce, Georgia Tech) on every board: Neuroscience's PSYC 1101, booked for NEUR 2001, is one of Any SS's courses, not three hours past the degree.
+  if (ctx.schoolId === 'uga' || (!plainEngine && input.goalRows) || countOnce) {
     const uga = ctx.schoolId === 'uga';
     const creditedToPool = new Set<string>();
     const creditedBy = new Map<string, { slot: PlanSlot; fill: PoolFill }>();
@@ -13656,9 +14578,19 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       if (slot.hoursTarget === null && slot.picks === null) continue;
       if ((slot.constraints ?? []).length > 0 || fill.nested.length > 0 || nestedParent.has(slot.requirementId) || [...nestedParent.values()].includes(slot.requirementId)) continue;
       const listed = new Set(slot.options.flat().map(normaliseCode));
+      /*
+       * At Georgia Tech (openPicks) one introductory language course at most,
+       * outside a language row (languageRowSubjects): "a maximum of 3 credit
+       * hours from one introductory (1002-, 2001-, or 2002-numbered) Modern
+       * Language course" counts toward Any HUM, and International Affairs and
+       * Modern Language's Any HUM counted the CHIN 1002, 2001 and 2002 its
+       * language row's CHIN 3003 asks for.
+       */
+      const introLanguage = (c: string) => openReading !== null && openReading.languages.has(c.split(' ')[0]) && /^(?:elementary|intermediate)\b/i.test(byCode.get(c)?.title.trim() ?? '');
+      let introLeft = openReading !== null && !languageRowSubjects(slot.options, openReading) ? 1 - [...fill.free, ...fill.picked].filter(introLanguage).length : Number.POSITIVE_INFINITY;
       const prerequisitesHere = [...new Set(addedPrerequisites.map((a) => a.code))].filter(
         (code) => listed.has(code) && !creditedToPool.has(code) && (chosen.get(code)?.requirementId ?? null) === null && !fill.picked.includes(code) && !fill.free.includes(code),
-      );
+      ).filter((code) => !introLanguage(code) || (introLeft -= 1) >= 0);
       // Not one a row of the list's family counted (familyUsed): Political Science's Area VI language row counts SPAN 2001, so World Languages does not.
       const slotRow = uga ? input.requirements.find((r) => r.id === slot.requirementId) : undefined;
       const slotFamily = slotRow ? familyOfRow(slotRow) : null;
@@ -13683,13 +14615,35 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const extras = [...prerequisitesHere, ...majorHere, ...languageHere];
       if (extras.length === 0) continue;
       const counted = () => [...fill.free, ...fill.picked, ...extras];
+      /*
+       * Where a lecture-lab row is worth its pair's hours (pairHours), the
+       * pair counts and goes whole: Music Technology's Any Lab Science booked
+       * BIOS 1107 and 1108 with their labs, and PHYS 2211 and 2212, which ECE
+       * 3710 needs and the list names, ran eight hours past the degree.
+       */
+      const partnersOf = (code: string): string[] => (pairHours ? (slot.together?.get(code) ?? []).filter((partner) => !earned.has(partner) && chosen.get(partner)?.requirementId === slot.requirementId) : []);
+      const pairWorth = (c: string): number => creditsOf(c) + partnersOf(c).reduce((sum, partner) => sum + creditsOf(partner), 0);
       const met = (codes: string[]) =>
-        (slot.hoursTarget === null || codes.reduce((sum, c) => sum + creditsOf(c), 0) >= slot.hoursTarget) && (slot.picks === null || codes.length >= slot.picks);
+        (slot.hoursTarget === null || codes.reduce((sum, c) => sum + (pairHours ? pairWorth(c) : creditsOf(c)), 0) >= slot.hoursTarget) && (slot.picks === null || codes.length >= slot.picks);
       const released: string[] = [];
       for (const code of fill.picked.slice().reverse()) {
-        if (extras.includes(code) || slot.together?.has(code) || [...(slot.together?.values() ?? [])].some((partners) => partners.includes(code))) continue;
+        const wholePair = pairHours && (slot.together?.has(code) ?? false);
+        if (extras.includes(code) || (slot.together?.has(code) && !wholePair) || [...(slot.together?.values() ?? [])].some((partners) => partners.includes(code))) continue;
         if (!met(counted().filter((c) => c !== code))) continue;
-        if (countedElsewhere(code, slot.requirementId) || namedInPlan(code) || addedPrerequisites.some((a) => a.requiredBy === code)) continue;
+        if (wholePair) {
+          // The pair goes whole where nothing outside it names one of its courses: a lab and its lecture name each other.
+          const pair = [code, ...partnersOf(code)];
+          const named = (member: string) => { const names = new Set(expandEquivalents(member, equivalents)); return [...chosen.keys()].some((other) => !pair.includes(other) && (ctx.prereqs?.get(other)?.groups ?? []).some((group) => group.any.some((raw) => names.has(normaliseCode(raw))))); };
+          if (pair.some((member) => countedElsewhere(member, slot.requirementId) || named(member) || addedPrerequisites.some((a) => a.requiredBy === member))) continue;
+        } else if (countedElsewhere(code, slot.requirementId) || namedInPlan(code) || addedPrerequisites.some((a) => a.requiredBy === code)) continue;
+        if (wholePair) {
+          for (const partner of partnersOf(code)) {
+            chosen.delete(partner);
+            pairRest.delete(partner);
+            releasedWithLab.add(partner);
+          }
+          releasedWithLab.add(code);
+        }
         /*
          * Nor a pick a list before this one counted as its own (creditedBy)
          * where that list reads short without it: Honors Interdisciplinary
@@ -13713,6 +14667,28 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       fill.alternatives = [...released.reverse(), ...fill.alternatives.filter((c) => !released.includes(c))];
       const traced = typeof process !== 'undefined' && process.env ? process.env.PLAN_DEBUG : undefined;
       if (traced && [...released, ...extras].includes(normaliseCode(traced))) console.error(`  [PLAN_DEBUG] pool "${(slot.label ?? '').slice(0, 50)}": ${extras.join(', ')} (booked elsewhere) count here, ${released.join(', ')} released`);
+    }
+    /*
+     * Where each course counts once (countOnce), a prerequisite the closure
+     * booked that is another of a take-every-course row's alternatives is that
+     * row's course, and the row's own pick goes: a Music Technology ME freshman's
+     * Institutional Priority took CS 1301 and the closure booked CS 1371, the
+     * row's other alternative, for ME 2016, three hours past the degree.
+     */
+    if (countOnce) {
+      for (const r of input.requirements) {
+        if (r.rule.kind !== 'all') continue;
+        for (const choice of r.rule.choices) {
+          const codes = choice.codes.map(normaliseCode);
+          if (codes.length < 2) continue;
+          const booked = codes.find((c) => chosen.get(c)?.requirementId === r.id && !earned.has(c));
+          const added = booked ? codes.find((c) => c !== booked && chosen.has(c) && (chosen.get(c)?.requirementId ?? null) === null && !creditedToPool.has(c) && addedPrerequisites.some((a) => a.code === c)) : undefined;
+          if (!booked || !added) continue;
+          if (namedInPlan(booked) || addedPrerequisites.some((a) => a.requiredBy === booked) || reservedElsewhere(booked, r.id) || countedElsewhere(booked, r.id)) continue;
+          chosen.set(added, { requirementId: r.id, label: chosen.get(booked)?.label ?? r.label });
+          chosen.delete(booked);
+        }
+      }
     }
   }
 
@@ -15646,6 +16622,34 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    */
   {
     const placedAll = () => new Set([...placed.values()].flat());
+    /** Georgia Tech's order of a list's substitutes (openPicks; see the swap below). */
+    const substituteOrder = (listed: string[], code: string, own: boolean): string[] => {
+      if (!openReading) return listed;
+      const board = placedAll();
+      const holds = new Set([...board, ...earned]);
+      const languages = languagesHeld(holds, openReading, byCode);
+      const never = (c: string) => (ctx.offerings ? (ctx.offerings.get(c) ?? []).length === 0 : false);
+      const away = (c: string) => AWAY_TITLE.test(byCode.get(c)?.title ?? '') && reallyVariable(ctx.creditRanges?.get(c));
+      const rank = (c: string): number[] => {
+        if (own && c === code) return [-1];
+        const runs = regularRunsOf(ctx, c);
+        return [
+          never(c) || away(c) ? 1 : 0,
+          openPickMisfit(c, byCode.get(c), openReading, holds, languages, ranLately) !== null || openShut(c, holds) ? 1 : 0,
+          runs !== null && runs <= 1 ? 1 : 0,
+          creditsOf(c) < creditsOf(code) ? 1 : 0,
+        ];
+      };
+      const keyed = listed.map((c, i) => ({ c, i, k: rank(c) }));
+      keyed.sort((a, b) => {
+        for (let j = 0; j < Math.max(a.k.length, b.k.length); j += 1) {
+          const d = (a.k[j] ?? 0) - (b.k[j] ?? 0);
+          if (d !== 0) return d;
+        }
+        return a.i - b.i;
+      });
+      return keyed.map((x) => x.c);
+    };
     const hoursAt = (index: number) => {
       let h = priorCreditTotal + (awayBefore[index] ?? awayCreditTotal);
       for (const t of terms) if (t.index < index) h += planCreditRange(placed.get(t.id) ?? [], ctx).min;
@@ -15725,7 +16729,30 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
        * held 14, and a four-hour ATMS 420 would have taken its place.
        */
       const own = chooseFills.some((c) => c.fill === fill);
-      const candidates = (own ? [code, ...fill.alternatives] : fill.alternatives).filter((alt) => usable(alt, code, slot));
+      const listed = (own ? [code, ...fill.alternatives] : fill.alternatives).filter((alt) => usable(alt, code, slot));
+      /*
+       * At Georgia Tech (openPicks) a substitute the list's own order puts
+       * last (openPickMisfit, a prerequisite an exclusion shuts) comes after
+       * every other, then one the crawl saw run in at most one fall or
+       * spring, then one of fewer hours than the pick it stands in for; and a
+       * course of study or work away from campus at hours to be arranged, or
+       * one the nine crawled terms never ran, comes last of all. The list's
+       * order already put FREN 3500 Field Work Abroad (1 to 3 hours, not run
+       * in nine terms) 191st of 197 on Any HUM, and the substitution, which
+       * took the first that fit, put it in LMC 3318's place: a 3-hour pick
+       * became 1.
+       */
+      /*
+       * And never at all, there, a course the nine crawled terms never ran, a
+       * course away from campus at hours to be arranged, or one whose hours
+       * run below the pick's and start under three (a variable course at its
+       * low end): last of all was still first to fit, and FREN 3500 took
+       * MUSI 3450's place on Music Technology's Any HUM at one hour, and on
+       * a Biomedical Engineering freshman's (2026-11-09 browser test). The
+       * pick stays not placed and the board says so.
+       */
+      const unseatable = (c: string) => c !== code && ((ctx.offerings ? (ctx.offerings.get(c) ?? []).length === 0 : false) || AWAY_TITLE.test(byCode.get(c)?.title ?? '') || (reallyVariable(ctx.creditRanges?.get(c)) && creditsOf(c) < creditsOf(code)));
+      const candidates = openReading ? substituteOrder(listed, code, own).filter((c) => !unseatable(c)) : listed;
       let alt: string | undefined;
       let term: (typeof terms)[number] | undefined;
       for (const c of candidates) {
@@ -15956,7 +16983,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const nestedHeld = fill.nested.filter((code) => onBoard.has(code) || earned.has(code));
     const held = [...fill.free, ...nestedHeld, ...picked];
     const heldSet = new Set(held);
-    const hours = held.reduce((sum, code) => sum + creditsOf(code), 0);
+    // A lecture-lab row's lab on the board is the row's hours too (pairHours), as the list counted it when it chose.
+    const partnerHours = (code: string): number => (pairHours ? (slot.together?.get(code) ?? []).filter((partner) => onBoard.has(partner) || earned.has(partner)).reduce((sum, partner) => sum + creditsOf(partner), 0) : 0);
+    const hours = held.reduce((sum, code) => sum + creditsOf(code) + partnerHours(code), 0);
     const constraints = (slot.constraints ?? []).map((c) => ({
       text: c.text,
       n: c.n,
@@ -16150,10 +17179,13 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       prereqs: ctx.prereqs,
       creditRanges: ctx.creditRanges,
       creditsOf,
-      dormant: dormantCheck(ctx),
+      // At Georgia Tech a course that has not run in the last four falls and springs is as good as dormant (ranLately):
+      // CS 3311 Project Design, last run in Fall 2024, was a game developer's free elective once Junior Design took CS 4723.
+      dormant: ranLately ? ((dormant) => (code: string) => dormant(code) || !ranLately(code))(dormantCheck(ctx)) : dormantCheck(ctx),
       closedToMajor: closedToMajorCheck(ctx, input.programName, input.programCollege),
       rare: rareCheck(ctx),
-      barred: electiveBarred,
+      // Nor a lecture or lab a list released with its partner (releasedWithLab): booked again, the lecture came back alone.
+      barred: releasedWithLab.size > 0 ? (code: string) => (releasedWithLab.has(code) ? 'a lecture and lab its list let go together' : electiveBarred(code)) : electiveBarred,
       lightFirst: lightFirst(prefs.priorities),
       challenge: challengeOf(prefs.priorities),
       opensGoal: goalOpenersOf(ctx, careerProfileOf(input), prefs.priorities),
@@ -16193,7 +17225,14 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const ranked = input.electiveRanking?.get(rankingKey) ?? rankedElectivePool(ctx, scoring, () => false, Infinity, input.electiveLevelRange);
     input.electiveRanking?.set(rankingKey, ranked);
     const past = pastIntroductions();
-    const candidates = ranked.filter((code) => !(plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who) || behindApplication(code) || introductionPast(code, past)));
+    /*
+     * Georgia Tech's free electives against the board (openBoardMisfit),
+     * which the static bar (electiveBarred) cannot see.
+     */
+    const heldLanguages = openReading ? languagesHeld([...plannedAll, ...earned], openReading, byCode) : null;
+    /** The quick part, asked again as the fill books: what stands in for a course the board already holds. */
+    const openRedundant = (code: string): boolean => openRedundantIn(code, [plannedAll, earned]);
+    const candidates = ranked.filter((code) => !(plannedAll.has(code) || earned.has(code) || exempt.has(code) || creditsOf(code) <= 0 || titleClosesTo(byCode.get(code), who) || behindApplication(code) || introductionPast(code, past) || openBoardMisfit(code, [plannedAll, earned], heldLanguages)));
     let total = priorCreditTotal + awayCreditTotal + [...placed.values()].flat().reduce((sum, code) => sum + creditsOf(code), 0);
     /**
      * Where the hours past the degree total come from, so the note names the
@@ -16285,6 +17324,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     const topicCodes = new Set(trackRows.length ? careerProfileOf(input).topics.flatMap((topic) => topic.courses.map(normaliseCode)) : []);
     const rowHeld = (codes: string[]) => codes.some((raw) => expandEquivalents(normaliseCode(raw), equivalents).some((c) => plannedAll.has(c) || earned.has(c)));
     const rowAlreadyMet = (code: string): boolean => {
+      // At Georgia Tech, a course that stands in for one the fill has booked since (openRedundant).
+      if (openReading && !trackWanted.has(code) && openRedundant(code)) return true;
       if (trackRows.length === 0 || trackWanted.has(code) || topicCodes.has(code)) return false;
       const naming = trackRows.filter((row) => row.codes.some((c) => normaliseCode(c) === code));
       return naming.length > 0 && naming.every((row) => rowHeld(row.codes));
@@ -16719,6 +17760,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             if (!course) return false;
             if (!trackWanted.has(code) && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga', goalSubjects)) return false;
             if (rowAlreadyMet(code)) return false;
+            // At Georgia Tech, a course the catalog writes for first-year students (`audience`) is no free elective after year one: AE 1355 Aerospace Systems Design Competition I sat in an Aerospace student's second fall.
+            if (openReading && catalogAudienceOf(course) === 'first-year' && !yearOne.includes(term.index)) return false;
             if (tooBig(creditsOf(code))) return false;
             if (outOfSeason(course, term, published.has(code))) return false;
             // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
@@ -16887,6 +17930,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           if (!course) return false;
           if (!trackWanted.has(code) && !row && !subjectRoomLeft(course.cluster, perSubject, majors.primary, majors.subjects, ctx.schoolId === 'uga', goalSubjects)) return false;
           if (!row && rowAlreadyMet(code)) return false;
+          if (openReading && !row && catalogAudienceOf(course) === 'first-year' && !yearOne.includes(term.index)) return false;
           if (tooBig(creditsOf(code))) return false;
           if (outOfSeason(course, term, published.has(code))) return false;
           // Nor, in the improved engine, a pick with no section in the crawled term's schedule.
@@ -18242,6 +19286,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       const versionHeld = (c: string) => expandEquivalents(c, equivalents).some((twin) => twin !== c && (onBoard.has(twin) || earned.has(twin)));
       // Nor a first course in a subject the degree takes the student past (pastIntroductions).
       const past = pastIntroductions();
+      // And at Georgia Tech, what the elective fill passes over against the board (openBoardMisfit): CS 1315 and CS 1371 were a Computer Science major's year-one courses beside CS 1301.
+      const languagesHere = openReading ? languagesHeld([...onBoard, ...earned], openReading, byCode) : null;
       return ctx.courses
         .map((c) => normaliseCode(c.code))
         .filter((c) => {
@@ -18250,7 +19296,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
             needFor(c) === null && courseLevel(c) < 300 && !reallyVariable(ctx.creditRanges?.get(c)) &&
             !(input.notTowardDegree?.(c)) && electiveBarred(c) === null && titleClosesTo(byCode.get(c), who) === false &&
             !versionHeld(c) && !signals.offSchedule(c) && !introductionPast(c, past) && !loneLab(c, onBoard) &&
-            conflictWith(c, conflicts, [earned, onBoard]) === null && fitsAt(c, index);
+            conflictWith(c, conflicts, [earned, onBoard]) === null && fitsAt(c, index) &&
+            !(openReading && openBoardMisfit(c, [onBoard, earned], languagesHere));
         });
     };
     /** Among small courses alike, the one more students take, never the code (freeChoiceSignals). */
@@ -18609,7 +19656,9 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
         // her first spring from 15 to 14, and with twelve hours a term set
         // the review told her the setting was why.
         const left = from.filter((c) => c !== code);
-        const floor = yearOne.includes(term.index) ? Math.max(credits.min, 15) : credits.min;
+        // At Georgia Tech, which has no fifteen-hour momentum review (school-config momentumReview), a course written for first-year students (`audience`) leaves the term it goes from at the student's minimum: CS 1100, required on every Computer Science board, sat in a first spring of 15 beside a first fall of 15.
+        const firstYearOnly = openReading !== null && catalogAudienceOf(course) === 'first-year' && courseleafOfContext(ctx)?.momentumReview === false;
+        const floor = yearOne.includes(term.index) && !firstYearOnly ? Math.max(credits.min, 15) : credits.min;
         if (pinned.has(code)) continue;
         const onTop = left.length === 0 || sizeOf(left) >= Math.min(floor, sizeOf(from));
         /**
@@ -21004,6 +22053,40 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     }
   }
 
+  /*
+   * Georgia Tech (countOnce): the page's open hours a first-year board leaves
+   * to the semester in progress. With Fall 2026 under way and none of its
+   * classes entered, the plan counts it as about 15 credits (plan-start.ts),
+   * and with them the board reaches the degree's total on the courses the
+   * degree names, so the fill books no electives: every first-year board in
+   * the browser showed Free Electives 0 of 7 under "134 of 126", beside a
+   * note that "the plan uses editable elective cards for them" with none on
+   * the board (2026-11-09). Those hours wait on that semester's classes,
+   * which will be some of the board's own first-year courses or count here,
+   * and the note says so. Only where the courses on the board and the held
+   * credit, without the semester in progress, are short of the total.
+   */
+  const assumedNow = countOnce ? Math.max(0, input.horizon.currentAssumedHours ?? 0) : 0;
+  if (assumedNow > 0 && input.horizon.current && degreeTotalPublished !== null) {
+    const inCourses = plannedCredits.min + priorCredits - assumedNow + awayCreditTotal;
+    if (inCourses < degreeTotalPublished) {
+      const term = `${input.horizon.current.season} ${input.horizon.current.year}`;
+      for (const u of unsatisfied) {
+        if (u.reason !== 'filled-by-electives') continue;
+        const requirement = input.requirements.find((r) => r.id === u.requirementId);
+        if (!requirement || requirement.rule.kind !== 'hours') continue;
+        const hours = requirement.rule.hours;
+        u.message = `${hours} credit ${hours === 1 ? 'hour is' : 'hours are'} open on the catalog page, and ${hours === 1 ? 'it waits' : 'they wait'} on your ${term} classes. The plan counts ${term} as about ${assumedNow} credits until you add them, which brings it to the ${degreeTotalPublished} this degree takes; the courses on the board and the credit you hold come to ${inCourses}. Add your ${term} classes and rebuild: they count here, or the plan books electives here in their place.`;
+        u.waitingOn = term;
+      }
+    }
+  }
+  // A held course counted in place of the one a row names (standInsUsed) is said, never silent.
+  for (const s of standInsUsed) {
+    const row = input.requirements.find((r) => r.id === s.requirementId);
+    notes.push(`${s.held}, which you hold, counts for ${(row?.label || row?.areaLabel || 'this degree').trim()} in place of ${s.for}: the catalog does not give credit for both, and the courses that ask for ${s.for} accept ${s.held}. Confirm with your advisor that this degree accepts it.`);
+  }
+
   const plan: PlanState = {
     schemaVersion: 1,
     programId: input.programId ?? '',
@@ -21029,6 +22112,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
     priorLearning: priorLearningChecks,
     forfeited: [...forfeited].map((held) => ({ held, for: forfeits.find((f) => f.held === held)?.for ?? held })),
     satisfiedByPriorCredit,
+    ...(standInsUsed.length > 0 ? { standIns: standInsUsed } : {}),
     bookedFor: Object.fromEntries([...chosen].map(([code, why]) => [code, why.requirementId])),
     genEdPicks: [...chosen].flatMap(([code, why]) => {
       const req = why.requirementId ? input.requirements.find((r) => r.id === why.requirementId) : undefined;
@@ -21513,7 +22597,8 @@ export function validatePlan(
         termId: term.id,
       });
     }
-    if (codes.length > 0 && weighed < codes.length) {
+    // A school with no grade data (school-config gradeData, Georgia Tech) weighs nothing, and saying so on every term hid the real notes.
+    if (codes.length > 0 && weighed < codes.length && !(weighed === 0 && courseleafOfContext(ctx)?.gradeData === false)) {
       issues.push({
         id: `ap-weighed-${term.id}`,
         severity: 'info',

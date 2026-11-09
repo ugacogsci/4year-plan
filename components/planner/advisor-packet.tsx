@@ -23,6 +23,23 @@ import { Printer, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { AdvisorPacket, CardRole, PacketPick } from '@/lib/planner/advisor-packet';
+import { courseleafOf } from '@/lib/planner/school-config';
+
+/**
+ * The legend, chip by chip. A chip the school's data never makes (school-config:
+ * no language requirement at Georgia Tech, no campus gen ed, no career tracks)
+ * is left out unless a course on this page wears it anyway.
+ */
+const LEGEND: Array<{ kind: CardRole; says: string; needs?: 'languageRule' | 'campusGenEd' | 'careerTracks' }> = [
+  { kind: 'required', says: 'the degree names it' },
+  { kind: 'from a list', says: 'one of a list it names' },
+  { kind: 'gen ed pick', says: "the planner's pick for a category", needs: 'campusGenEd' },
+  { kind: 'elective slot', says: 'toward the total' },
+  { kind: 'career track', says: 'for the goal named', needs: 'careerTracks' },
+  { kind: 'prerequisite', says: 'a later course needs it' },
+  { kind: 'language', says: 'the language requirement', needs: 'languageRule' },
+  { kind: 'added', says: 'put there by the student' },
+];
 
 /**
  * A course next term has a row of its own when it is one of the planner's
@@ -49,8 +66,17 @@ function RoleChip({ kind }: { kind: CardRole }) {
   );
 }
 
-export function AdvisorPacketSheet({ packet }: { packet: AdvisorPacket }) {
+/**
+ * `schoolId` words the sheet for its school (school-config): the ID blank
+ * ("NetID" at Illinois, "GTID" at Georgia Tech) and the legend. Without one,
+ * or for a school outside the CourseLeaf engine (UGA), it reads as it always
+ * has: "NetID" and every chip.
+ */
+export function AdvisorPacketSheet({ packet, schoolId }: { packet: AdvisorPacket; schoolId?: string | null }) {
   const errors = packet.flags.filter((f) => f.severity === 'error').length;
+  const leaf = courseleafOf(schoolId);
+  const worn = new Set<CardRole>(packet.terms.flatMap((t) => t.courses.map((c) => c.role)));
+  const legend = LEGEND.filter((row) => !row.needs || !leaf || leaf[row.needs] || worn.has(row.kind));
   return (
     <article className="packet-sheet" aria-labelledby="packet-title">
       <header className="packet-head">
@@ -82,7 +108,7 @@ export function AdvisorPacketSheet({ packet }: { packet: AdvisorPacket }) {
         </dl>
         <p className="packet-fill" aria-hidden="true">
           <span>Name</span>
-          <span>NetID</span>
+          <span>{leaf?.studentIdName ?? 'NetID'}</span>
           <span>Advisor</span>
           <span>Meeting date</span>
         </p>
@@ -92,12 +118,13 @@ export function AdvisorPacketSheet({ packet }: { packet: AdvisorPacket }) {
       <section className="packet-section" aria-labelledby="packet-board">
         <h2 id="packet-board">The plan, term by term</h2>
         <p className="packet-legend">
-          Each course says why it is here: <RoleChip kind="required" /> the degree names it,{' '}
-          <RoleChip kind="from a list" /> one of a list it names, <RoleChip kind="gen ed pick" /> the
-          planner&apos;s pick for a category, <RoleChip kind="elective slot" /> toward the total,{' '}
-          <RoleChip kind="career track" /> for the goal named, <RoleChip kind="prerequisite" /> a later
-          course needs it, <RoleChip kind="language" /> the language requirement,{' '}
-          <RoleChip kind="added" /> put there by the student.
+          Each course says why it is here:{' '}
+          {legend.map((row, i) => (
+            <span key={row.kind}>
+              <RoleChip kind={row.kind} /> {row.says}
+              {i < legend.length - 1 ? ', ' : '.'}
+            </span>
+          ))}
         </p>
         <div className="packet-terms">
           {packet.terms.map((term) => (
@@ -293,7 +320,7 @@ export function AdvisorPacketSheet({ packet }: { packet: AdvisorPacket }) {
  * html element carries packet-open while it is up, which is what the print
  * stylesheet keys on to print this and nothing behind it.
  */
-export function AdvisorPacketDialog({ packet, onClose }: { packet: AdvisorPacket; onClose: () => void }) {
+export function AdvisorPacketDialog({ packet, onClose, schoolId }: { packet: AdvisorPacket; onClose: () => void; schoolId?: string | null }) {
   useEffect(() => {
     const root = document.documentElement;
     root.classList.add('packet-open');
@@ -332,7 +359,7 @@ export function AdvisorPacketDialog({ packet, onClose }: { packet: AdvisorPacket
           </Button>
         </div>
       </div>
-      <AdvisorPacketSheet packet={packet} />
+      <AdvisorPacketSheet packet={packet} schoolId={schoolId} />
     </dialog>,
     document.body,
   );

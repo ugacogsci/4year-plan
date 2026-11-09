@@ -1,10 +1,10 @@
 {
   "school": "gatech",
-  "fetchedAt": "2026-11-09T12:08:14.871Z",
+  "fetchedAt": "2026-11-09T15:49:46.418Z",
   "sources": {
     "catalog": {
       "source": "catalog.gatech.edu/coursesaz + registration.banner.gatech.edu course catalog (prerequisites, corequisites, attributes)",
-      "fetchedAt": "2026-11-09T12:08:09.432Z",
+      "fetchedAt": "2026-11-09T15:49:39.108Z",
       "courses": 5133
     },
     "programs": {
@@ -27,7 +27,7 @@
   "coverage": {
     "catalogCourses": 5133,
     "undergraduateCourses": 2403,
-    "withParsedPrereq": 1156,
+    "withParsedPrereq": 1191,
     "withLowConfidencePrereq": 0,
     "withPrereqTextOnly": 21,
     "withPrereqNoteOnly": 0,
@@ -45,7 +45,7 @@
     "unknownCredit": 0,
     "droppedProgramRows": 0,
     "droppedTotalRows": 0,
-    "poolGroups": 1567,
+    "poolGroups": 1550,
     "implausibleProgramTotals": 0,
     "programsWithGenEd": 0,
     "genEdCategories": 0,
@@ -54,15 +54,15 @@
   "counts": {
     "indexed": 2403,
     "positioned": 2403,
-    "withPrereqSpec": 1177,
+    "withPrereqSpec": 1212,
     "withGrades": 0,
     "gradeRows": 0,
     "withSections": 0,
     "programs": 235,
     "programsWithCourses": 212,
-    "programCourseRows": 147467,
-    "programRowsWithCredits": 141501,
-    "programRowsWithTitle": 11041,
+    "programCourseRows": 147466,
+    "programRowsWithCredits": 141496,
+    "programRowsWithTitle": 11045,
     "orphanGradeRows": 0,
     "subjectShards": 85,
     "programFiles": 235
@@ -156,12 +156,12 @@
   ],
   "artifacts": {
     "index.json": {
-      "raw": 444405,
-      "gzip": 64448
+      "raw": 449417,
+      "gzip": 65760
     },
     "prereqs.json": {
-      "raw": 423652,
-      "gzip": 21469
+      "raw": 432474,
+      "gzip": 22064
     },
     "grades.json": {
       "raw": 2,
@@ -175,6 +175,6 @@
   "notes": [
     "Georgia Tech publishes no grade distributions, so no course here shows grade history, an average or a difficulty.",
     "No section data in this build. No building, day, time or part of term can be shown.",
-    "802 of 142303 program course rows have no credits."
+    "806 of 142302 program course rows have no credits."
   ]
 }

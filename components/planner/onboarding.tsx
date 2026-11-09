@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { AlertTriangle, Moon, Sun } from 'lucide-react';
 import { NativeSelect } from '@/components/ui/native-select';
-import { ProgramMenuPicker, ProgramPicker, hasProgramMenu, loadProgramMenu, type ProgramOption } from './program-picker';
+import { ProgramMenuPicker, ProgramPicker, hasProgramMenu, loadProgramMenu, type MenuPending, type ProgramOption } from './program-picker';
 import { PriorCredit } from './prior-credit';
 import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
 import { ugaOverlapArea } from '@/lib/planner/uga-program-overrides';
@@ -239,6 +239,14 @@ export function Onboarding({
   const [catalog, setCatalog] = useState<ProgramCatalog | null>(null);
   // Georgia Tech's degrees are menus (a concentration, or two threads, picks the page); null while loading and for other schools.
   const [programMenu, setProgramMenu] = useState<ProgramMenu | null>(null);
+  /*
+   * A Georgia Tech degree whose choice is open on the programs step, and what
+   * Continue adds for it (ProgramMenuPicker MenuPending): pressing Continue
+   * with Mechanical Engineering open and no radio built an empty Undecided
+   * board. Null for the other schools, whose picker has no choice step.
+   */
+  const [menuPending, setMenuPending] = useState<MenuPending | null>(null);
+  const continueAfterAdd = useRef(false);
   const [theme, setTheme] = useState<PlannerTheme>(readStoredTheme);
   const [graduationEdited, setGraduationEdited] = useState(
     Boolean(initial?.graduationSeason || initial?.graduationYear),
@@ -654,6 +662,19 @@ export function Onboarding({
     setStep(3);
   }
 
+  /*
+   * Continue added the open degree's General path (menuPending): go on once
+   * the setup holds it, so the next step reads its program (prepareDetails
+   * sizes the finish from this render's programs). Once per press.
+   */
+  useEffect(() => {
+    if (!continueAfterAdd.current) return;
+    continueAfterAdd.current = false;
+    // oxlint-disable-next-line react/react-compiler
+    if (response.trim()) prepareDetails(); else setStep(2);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [answers.programIds]);
+
   function finish(given = answers) {
     let next = given;
     // A transfer student's record, added after the finish was suggested, decides it
@@ -767,7 +788,10 @@ export function Onboarding({
             <p className="onb-sub">
               {answers.programLevel === 'graduate'
                 ? 'Choose one or more graduate or professional degrees. Graduate certificates are optional.'
-                : 'Choose one or more majors. Minors and certificates are optional.'}
+                : courseleafOf(answers.schoolId)?.minors === false
+                  ? // No minor is offered (school-config.ts `minors` off: Georgia Tech), so none is mentioned.
+                    'Choose one or more majors.'
+                  : 'Choose one or more majors. Minors and certificates are optional.'}
             </p>
             {(answers.schoolId === 'uga' || answers.schoolId === 'illinois') && (
               <fieldset className="onb-level-toggle">
@@ -799,6 +823,7 @@ export function Onboarding({
                     onChange={updateMajors}
                     loading={catalog === null || programMenu === null}
                     kindLabel="major"
+                    onPendingChange={setMenuPending}
                   />
                 ) : (
                   <ProgramPicker
@@ -888,14 +913,27 @@ export function Onboarding({
             <div className="onb-actions">
               {!onlySchool && <button className="onb-back" onClick={() => setStep(0)}>Back</button>}
               <span className="onb-count">
-                {undecided
-                  ? 'Undecided - start with an open plan'
-                  : `${answers.programIds.length} ${answers.programLevel === 'graduate' ? 'degree program' : 'major'}${answers.programIds.length === 1 ? '' : 's'} selected`}
+                {menuPending
+                  ? menuPending.id
+                    ? `Continue adds ${menuPending.label}`
+                    : `Choose ${menuPending.pickLabel} for ${menuPending.degree}, or go back to the list`
+                  : undecided
+                    ? 'Undecided - start with an open plan'
+                    : `${answers.programIds.length} ${answers.programLevel === 'graduate' ? 'degree program' : 'major'}${answers.programIds.length === 1 ? '' : 's'} selected`}
               </span>
               <button
                 className="onb-next"
-                onClick={() => response.trim() ? prepareDetails() : setStep(2)}
-                disabled={!programChoicesReady}
+                onClick={() => {
+                  // A degree open with a General path (or an arrow-key pick): add it, then go on once it is in (the effect below).
+                  if (menuPending?.id) {
+                    continueAfterAdd.current = true;
+                    updateMajors([...answers.programIds, menuPending.id]);
+                    return;
+                  }
+                  if (response.trim()) prepareDetails();
+                  else setStep(2);
+                }}
+                disabled={!programChoicesReady || Boolean(menuPending && !menuPending.id)}
               >
                 Continue
               </button>

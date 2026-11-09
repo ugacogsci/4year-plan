@@ -10,6 +10,8 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { cn } from '@/lib/utils';
 import { clusterColor } from './cluster-color';
 import { CourseDetail } from './course-detail';
+import { useCourseDetail } from './illinois-source';
+import { courseleafOf } from '@/lib/planner/school-config';
 import { InstructorPicker, type InstructorControl } from './instructor-picker';
 import { subjectMatches } from '@/lib/planner/illinois-subjects';
 import { bucketMapCourses, hitTestMap } from '@/lib/planner/map-hit-testing';
@@ -886,6 +888,15 @@ export function CourseExplorer({
   }
 
   const selected = selectedCourseId ? courseById.get(selectedCourseId) ?? null : null;
+  /**
+   * The catalog description for the popup, where the school's index carries
+   * none (school-config.ts `popupDescription`: Georgia Tech). The same shard
+   * the popup's Course details already reads, so no extra download.
+   */
+  const describeFromShard = Boolean(courseleafOf(schoolId)?.popupDescription);
+  const { detail: selectedDetail } = useCourseDetail(selected && !selected.description ? selected.code : null, describeFromShard);
+  const selectedDescription = selected?.description
+    || (describeFromShard && selectedDetail?.course?.description ? selectedDetail.course.description : '');
   const mapPlane = resolvedPlaneSize(planeSize, stageSize);
   const mapOrigin = planeOrigin(stageSize, mapPlane);
   const selectedPoint = selected && stageSize.width > 0 && stageSize.height > 0
@@ -1226,7 +1237,7 @@ export function CourseExplorer({
                 <span>{creditLabel(selected)}</span>
               </div>
               <h3>{selected.title}</h3>
-              {selected.description && <p className="map-popup-description">{selected.description}</p>}
+              {selectedDescription && <p className="map-popup-description">{selectedDescription}</p>}
               {instructors && (() => {
                 // The term the card sits in: the one the board opened it from, else the first holding it.
                 const held = currentTerm ? [currentTerm, ...terms] : terms;

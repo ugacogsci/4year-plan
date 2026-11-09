@@ -164,7 +164,19 @@ export interface IllinoisIndexRow {
   mapPosition?: { x: number; y: number };
   /** The catalog's repeat rule (repeats.ts); absent when the course may not be repeated. */
   repeat?: RepeatRule;
+  /**
+   * Who the course is written for, where its catalog title or description
+   * says so (Georgia Tech's build): 'heritage-learners' for CHIN 1501
+   * Chinese for Heritage Learners I, 'first-year' for CS 1100 Pathways in
+   * Computing ("discussions with first year students"). Absent for anyone.
+   * The planner reads it for its open picks and first-term courses
+   * (school-config openPicks; autoplan.ts catalogAudienceOf).
+   */
+  audience?: CatalogAudience;
 }
+
+/** Who a course is written for, as index.json's `audience` says it. */
+export type CatalogAudience = 'heritage-learners' | 'first-year';
 
 export interface IllinoisIndexCourse extends IllinoisCourse {
   /** 100, 200, 300, 400. The catalog's own number, not a guess from the code. */
@@ -180,6 +192,8 @@ export interface IllinoisIndexCourse extends IllinoisCourse {
   gradeFrom?: string;
   /** The other codes this same class is filed under, when there are any. */
   twins?: string[];
+  /** Who the course is written for, where the catalog says (IllinoisIndexRow.audience). */
+  audience?: CatalogAudience;
   /**
    * False on every index row, because index.json carries no descriptions.
    * course.description is '' here and must not render as a course with nothing
@@ -616,6 +630,8 @@ export function hydrateIndexRow(row: IllinoisIndexRow): IllinoisIndexCourse {
     ...(row.twins && row.twins.length > 0 ? { twins: row.twins } : {}),
     ...(row.mapPosition ? { mapPosition: row.mapPosition } : {}),
     ...(row.repeat ? { repeat: row.repeat } : {}),
+    // Who the catalog writes it for (Georgia Tech's heritage-learner and first-year courses), read by the open picks.
+    ...(row.audience ? { audience: row.audience } : {}),
     detailLoaded: false,
   };
 }
@@ -668,6 +684,14 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
 function coreOf(s: LoaderState): Promise<IllinoisCore> {
   if (s.core) return s.core;
   const artifact = <T,>(path: string) => artifactOf<T>(s, path);
+  /*
+   * A file the school's switches say it does not publish (school-config.ts)
+   * is settled as missing without a request: Georgia Tech asked for six that
+   * do not exist on every board load, six 404s in the console.
+   */
+  const leaf = courseleafOf(s.id);
+  const optional = <T,>(path: string, published: boolean | undefined): Promise<Fetched<T>> =>
+    published === false ? Promise.resolve({ ok: false, reason: 'missing' }) : artifact<T>(path);
   const started = (async (): Promise<IllinoisCore> => {
     const meta = await metaOf(s);
     const laterTerms = sectionTermsOf(meta).filter((t) => t.id !== meta?.term?.id && t.file);
@@ -675,20 +699,20 @@ function coreOf(s: LoaderState): Promise<IllinoisCore> {
       indexResult(s),
       artifact<Record<string, PrereqSpec>>('prereqs.json'),
       artifact<IllinoisGradeSummary[]>('grades.json'),
-      artifact<IllinoisSectionsFile>('sections.json'),
+      optional<IllinoisSectionsFile>('sections.json', leaf?.sections),
       artifact<IllinoisProgramSummary[]>('programs.json'),
       artifact<Record<string, string[]>>('exclusions.json'),
       // Optional: a build without the list answers 404 here, and that is a
       // settled fact about the build, not a reason to retry the core.
-      artifact<IllinoisExcellentFile>('excellent.json'),
+      optional<IllinoisExcellentFile>('excellent.json', leaf?.ratings),
       artifact<IllinoisOfferingsFile>('offerings.json'),
-      artifact<LanguageTable>('languages.json'),
-      artifact<AdmissionTable>('admission.json'),
+      optional<LanguageTable>('languages.json', leaf?.languageRule),
+      optional<AdmissionTable>('admission.json', leaf?.collegeRules),
       // The other crawled terms, through the same cache a card's question uses (loadIllinoisSectionTerm).
       Promise.all(laterTerms.map((t) => memo(s.sectionTerms, t.id, () => artifact<IllinoisSectionsFile>(t.file as string)))),
-      artifact<{ courses: Record<string, { d: number }> }>('course-difficulty-ratings.json'),
+      optional<{ courses: Record<string, { d: number }> }>('course-difficulty-ratings.json', leaf?.ratings),
       // Optional, like the list: student ratings of the instructors, for the courses the list is silent on (course-teaching.ts).
-      artifact<CourseTeachingFile>('course-teaching-ratings.json'),
+      optional<CourseTeachingFile>('course-teaching-ratings.json', leaf?.ratings),
     ]);
 
     const results = [index, prereqs, grades, sections, programs, exclusions];

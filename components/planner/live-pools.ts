@@ -19,7 +19,7 @@
  */
 
 import { plural } from './words';
-import { normaliseCode, planCreditRange } from '@/lib/planner/autoplan';
+import { courseleafOfContext, normaliseCode, planCreditRange } from '@/lib/planner/autoplan';
 import type { PlanRequirement, PlanningContext, PoolReport, UnsatisfiedRequirement } from '@/lib/planner/autoplan';
 import type { PoolConstraint } from '@/lib/planner/illinois-data';
 
@@ -47,6 +47,7 @@ function constraintOnBoard(
   count: number;
   hoursTarget: number | null;
   hours: number;
+  inOneList?: boolean;
 } {
   const lists = constraint.lists.map((list) => ({
     label: list.label,
@@ -89,6 +90,24 @@ function constraintOnBoard(
   }
 
   if (constraint.single && lists.length > 1) {
+    // Sized in hours (PoolConstraint.singleHours, Georgia Tech's "twelve credit hours of the same language"): the list holding the most hours.
+    if (constraint.singleHours) {
+      let most: { label: string; picked: string[]; hours: number } = { label: lists[0].label, picked: [], hours: 0 };
+      for (const list of lists) {
+        const picked = [...held].filter((code) => list.codes.has(code)).sort();
+        const inList = planCreditRange(picked, context).min;
+        if (inList > most.hours) most = { label: list.label, picked, hours: inList };
+      }
+      return {
+        met: most.hours >= constraint.singleHours,
+        from: most.picked.length > 0 ? most.label : null,
+        picked: most.picked,
+        count: most.picked.length,
+        hoursTarget: constraint.singleHours,
+        hours: most.hours,
+        inOneList: true,
+      };
+    }
     let best: { label: string; picked: string[] } = { label: lists[0].label, picked: [] };
     for (const list of lists) {
       const picked = [...held].filter((code) => list.codes.has(code)).sort();
@@ -121,7 +140,11 @@ function constraintProgress(constraint: {
   count: number;
   hoursTarget: number | null;
   hours: number;
+  /** Hours held to one list (PoolConstraint.singleHours), whose lists are subjects. */
+  inOneList?: boolean;
+  from?: string | null;
 }): string {
+  if (constraint.inOneList) return `This plan has ${constraint.hours} of the ${constraint.hoursTarget} hours in one subject${constraint.from ? ` (${constraint.from})` : ''}`;
   const parts = [
     constraint.n > 0
       ? `${constraint.count} of ${constraint.n} required selections`
@@ -133,10 +156,19 @@ function constraintProgress(constraint: {
   return `This plan has ${parts.join(' and ')}`;
 }
 
-/** Every code a pool's catalog list names, whether or not the snapshot has it. */
-function membershipOf(pool: PoolReport, block: PlanRequirement | undefined): Set<string> {
+/**
+ * Every code a pool's catalog list names, whether or not the snapshot has it.
+ * Where the school counts a lecture-lab row whole (school-config pairHours),
+ * the lab the row's title names is the list's too: "BIOS 1107 Principles of
+ * Biology I and Principles of Biology I Laboratory" is four hours of Lab
+ * Science, and BIOS 1107L counted for nothing beside it.
+ */
+function membershipOf(pool: PoolReport, block: PlanRequirement | undefined, pairs = false): Set<string> {
   if (block && block.rule.kind === 'pool') {
-    return new Set(block.rule.choices.flatMap((choice) => choice.codes.map(normaliseCode)));
+    return new Set(block.rule.choices.flatMap((choice) => [
+      ...choice.codes.map(normaliseCode),
+      ...(pairs ? (choice.bundles ?? []).flat().map(normaliseCode) : []),
+    ]));
   }
   /**
    * No block for this pool, which happens only if the degree is swapped while
@@ -165,6 +197,105 @@ export interface LivePoolInput {
   reserveRequired?: boolean;
   /** UGA shares across program/core areas, but not between requirements within one area. */
   shareAcrossPrograms?: boolean;
+}
+
+/**
+ * The held and booked courses the degree's take-every-course and choose rows
+ * count, where each course counts toward one requirement (school-config
+ * countOnce, Georgia Tech). A list never holds one of them, as the plan books
+ * them and the rail counts them (illinois-progress.ts), so a list's count, its
+ * "eligible hours" and which of its cards read "from a list" or "elective
+ * slot" (repick.ts planMarks) all leave them out. A Computer Science board's
+ * PHYS 2211, which its Field of Study requires, sat on Lab Science's list
+ * after the BIOS pairs had filled it, and its card read "elective slot":
+ * TOWER offered to swap it out, which would have left Field of Study 12 of
+ * 16 (2026-11-09 browser test). An aerospace student holding ECON 2105, ECON
+ * 2106 and PSYC 1101 saw Any SS 3 of 6: the list held the HIST 2111 that the
+ * history row counts, and ECON 2106 went to the Economics row's list, full
+ * with ECON 2105.
+ *
+ * Of a row's alternatives on the board, the one no other row names as its
+ * only course, then the one the plan did not book for a list (the report's
+ * own picks and held credit), then one no list names, then held before
+ * booked and board order. A row whose hours the page puts in a list
+ * (CourseChoice.countsIn) leaves its course to that list, and a "Select"
+ * row inside a "to include" list (illinois-progress.ts parentOf) shares its
+ * courses with the list.
+ */
+function countedOnceByRows(
+  blocks: PlanRequirement[],
+  base: PoolReport[],
+  members: Set<string>[],
+  have: string[],
+  context: PlanningContext,
+  pairs: boolean,
+): Set<string> {
+  const order = [...new Set(have)];
+  const at = new Map(order.map((code, i) => [code, i]));
+  const sole = new Map<string, Set<string>>();
+  for (const block of blocks) {
+    if (block.rule.kind !== 'all') continue;
+    for (const choice of block.rule.choices) {
+      if (choice.codes.length !== 1 || (choice.bundles?.length ?? 0) > 1) continue;
+      const code = normaliseCode(choice.codes[0]);
+      for (const version of [code, ...(context.equivalents?.get(code) ?? []).map(normaliseCode)]) sole.set(version, (sole.get(version) ?? new Set<string>()).add(block.id));
+    }
+  }
+  const nested = new Set<string>();
+  blocks.forEach((block, index) => {
+    if (block.rule.kind !== 'pool' || !/\bto include\b/i.test(block.label)) return;
+    for (const later of blocks.slice(index + 1)) {
+      if (later.areaId !== block.areaId) break;
+      if ((later.rule.kind === 'choose' || later.rule.kind === 'pool') && /^select\b/i.test(later.label)) nested.add(later.id);
+    }
+  });
+  const forAList = new Set(base.flatMap((pool) => [...pool.picked, ...pool.fromPriorCredit].map(normaliseCode)));
+  const listed = (code: string) => members.some((codes) => codes.has(code));
+  const matches = (held: string, code: string) => held === normaliseCode(code) || (context.equivalents?.get(held) ?? []).map(normaliseCode).includes(normaliseCode(code));
+  /** Lower reads better: [another row's only course, the plan's pick for a list, on a list, place in held-then-board order]. */
+  const rank = (code: string, blockId: string): number[] => [
+    [...(sole.get(code) ?? [])].some((id) => id !== blockId) ? 1 : 0,
+    forAList.has(code) ? 1 : 0,
+    listed(code) ? 1 : 0,
+    at.get(code) ?? 0,
+  ];
+  const before = (a: number[], b: number[]) => {
+    for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return a[i] - b[i];
+    return 0;
+  };
+  const counted = new Set<string>();
+  for (const block of blocks) {
+    const rule = block.rule;
+    if ((rule.kind !== 'all' && rule.kind !== 'choose') || nested.has(block.id)) continue;
+    // Each choice's courses on the board, best first: a set (bundles) whole, the one with most of its courses here.
+    const hits: Array<{ codes: string[]; key: number[] }> = [];
+    for (const choice of rule.choices) {
+      if (choice.countsIn) continue;
+      const sets = choice.bundles && choice.bundles.length > 0 ? choice.bundles : [[...choice.codes, ...(choice.substitutes ?? [])]];
+      let best: { codes: string[]; key: number[] } | null = null;
+      for (const set of sets) {
+        const isSet = Boolean(choice.bundles && choice.bundles.length > 0);
+        const present = isSet
+          ? set.flatMap((code) => order.filter((held) => !counted.has(held) && matches(held, code)).slice(0, 1))
+          : order.filter((held) => !counted.has(held) && set.some((code) => matches(held, code)));
+        if (present.length === 0) continue;
+        if (isSet) {
+          // The lab of a lecture-lab row is part of it where the school counts the pair whole (pairHours).
+          if (!pairs && present.length < set.length) continue;
+          // A set on the board whole first (illinois-progress.ts reads the row the same way), then the one with most of its courses here.
+          const key = [present.length === set.length ? 0 : 1, ...rank(present[0], block.id)];
+          if (best === null || key[0] < best.key[0] || (key[0] === best.key[0] && (present.length > best.codes.length || (present.length === best.codes.length && before(key, best.key) < 0)))) best = { codes: present, key };
+        } else {
+          const first = [...present].sort((a, b) => before(rank(a, block.id), rank(b, block.id)))[0];
+          best = { codes: [first], key: [0, ...rank(first, block.id)] };
+        }
+      }
+      if (best) hits.push(best);
+    }
+    const taken = rule.kind === 'choose' ? [...hits].sort((a, b) => before(a.key, b.key)).slice(0, rule.n) : hits;
+    for (const hit of taken) for (const code of hit.codes) counted.add(code);
+  }
+  return counted;
 }
 
 /**
@@ -203,8 +334,11 @@ export function livePools({
   const board = boardCodes.map(normaliseCode);
   const boardSet = new Set(board);
   const prior = new Set(priorCodes.map(normaliseCode));
+  const pairs = courseleafOfContext(context)?.pairHours === true;
+  /** Each course counts toward one requirement (school-config countOnce, Georgia Tech). */
+  const countOnce = courseleafOfContext(context)?.countOnce === true;
   const members = base.map((pool) => {
-    const listed = membershipOf(pool, blockById.get(pool.requirementId));
+    const listed = membershipOf(pool, blockById.get(pool.requirementId), pairs);
     for (const code of [...board, ...prior])
       if (context.equivalents?.get(code)?.some((alias) => listed.has(alias))) listed.add(code);
     return listed;
@@ -224,6 +358,8 @@ export function livePools({
       const kept = block.rule.kind === 'choose' ? [...choices].sort((a, b) => Number(listed(normaliseCode(a))) - Number(listed(normaliseCode(b)))) : choices;
       for (const code of kept.slice(0, block.rule.kind === 'choose' ? block.rule.n : choices.length)) claimed.add(normaliseCode(code));
     }
+  } else if (countOnce) {
+    for (const code of countedOnceByRows(blocks, base, members, [...prior, ...board], context, pairs)) claimed.add(code);
   }
 
   // Courses this pool already held keep their pool, so a student who has not
@@ -235,6 +371,21 @@ export function livePools({
       if (!boardSet.has(code) || claimed.has(code) || !members[index].has(code)) continue;
       claimed.add(code);
       mine[index].push(code);
+    }
+    /*
+     * And, where each course counts once (countOnce, Georgia Tech), the held
+     * credit the plan counted for this list stays this list's: an aerospace
+     * student's ECON 2106, which the plan counted for Any SS beside PSYC
+     * 1101, went to the Economics row's list in held order, full with ECON
+     * 2105, and Any SS took the free elective ECON 2020 for its six hours.
+     */
+    if (countOnce) {
+      for (const raw of pool.fromPriorCredit) {
+        const code = normaliseCode(raw);
+        if (!prior.has(code) || claimed.has(code) || !members[index].has(code)) continue;
+        claimed.add(code);
+        mine[index].push(code);
+      }
     }
   });
 
@@ -260,6 +411,25 @@ export function livePools({
   }
   const at = new Map(order.map((code, i) => [code, i]));
   for (const codes of mine) codes.sort((a, b) => (at.get(a) ?? 0) - (at.get(b) ?? 0));
+  /*
+   * Where each course counts once (countOnce, Georgia Tech), a required
+   * course whose hours the page puts in this list (CourseChoice.countsIn)
+   * leads it, as the rail counts it first (illinois-progress.ts countedHere):
+   * Neuroscience's PHYS 2211 and PHYS 2212 are its Any Lab Science's eight
+   * hours, and in board order BIOS 1108 and PHYS 1111K, free electives the
+   * list also names, filled it first, so PHYS 2212's card read "elective
+   * slot" (repick.ts planMarks marks a list's courses in this order).
+   */
+  if (countOnce) {
+    const countsIn = new Map<string, string>();
+    for (const block of blocks) {
+      if (block.rule.kind !== 'all') continue;
+      for (const choice of block.rule.choices) if (choice.countsIn) countsIn.set(normaliseCode(choice.codes[0]), choice.countsIn);
+    }
+    if (countsIn.size > 0) base.forEach((pool, index) => {
+      mine[index].sort((a, b) => Number(countsIn.get(b) === pool.requirementId) - Number(countsIn.get(a) === pool.requirementId));
+    });
+  }
 
   return base.map((pool, index) => {
     const assigned = independentIds?.has(pool.requirementId) ? [...new Set([...prior, ...boardSet])].filter((code) => members[index].has(code)) : mine[index];
