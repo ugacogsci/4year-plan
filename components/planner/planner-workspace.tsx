@@ -7458,6 +7458,7 @@ export function PlannerWorkspace({
   return (
     <main
       className="planner-app"
+      data-school={school?.id}
       data-finder={finderOpen ? 'open' : 'closed'}
       data-chat={chatOpen ? 'open' : 'closed'}
       data-rail={railOpen ? 'open' : 'closed'}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Image from 'next/image';
-import { ArrowUp, Check, CircleAlert, Loader2, Square, Undo2, X } from 'lucide-react';
+import { ArrowUp, Check, CircleAlert, Square, Undo2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { aiUnavailable } from '@/lib/planner/ai-unavailable';
 import {
@@ -151,8 +151,37 @@ function toolLabel(name: AdvisorToolName, input: Record<string, unknown>): strin
       return s('name') ? `Reading student ratings for ${s('name')}` : s('code') ? `Reading student ratings for ${s('code')}'s instructors` : 'Reading student ratings';
     case 'find_clubs':
       return s('query') ? `Looking up clubs for “${s('query')}”` : s('goal') ? `Looking up clubs for ${s('goal')}` : 'Looking up clubs for your goals';
+    case 'review_board':
+      return 'Reviewing your plan';
+    case 'what_if':
+      return 'Trying a change without saving it';
+    case 'explain_choice':
+      return s('code') ? `Explaining why ${s('code')} is there` : 'Explaining a pick';
+    case 'compare_courses':
+      return 'Comparing courses';
+    case 'compare_programs':
+      return 'Comparing programs';
+    case 'find_equivalent':
+      return 'Looking up transfer equivalents';
+    case 'exam_credit':
+      return 'Checking exam credit';
+    case 'prior_credit':
+      return 'Reading your credit so far';
+    case 'record_prior_credit':
+      return 'Recording credit you hold';
+    case 'drop_prior_credit':
+      return 'Removing credit from your record';
+    case 'program_admission':
+      return 'Checking how to get into the program';
+    case 'set_plan_shape':
+      return 'Changing the shape of your plan';
+    case 'set_priorities':
+      return 'Updating your preferences';
+    case 'update_setup':
+      return 'Updating your setup';
     default:
-      return name;
+      // A tool with no label of its own reads as words, never as its code name.
+      return String(name).replace(/_/g, ' ').replace(/^\w/, (c: string) => c.toUpperCase());
   }
 }
 
@@ -315,15 +344,48 @@ export function BotLauncher({ open, onToggle }: { open: boolean; onToggle: () =>
       title={open ? 'Close planning assistant' : 'Open planning assistant'}
       onClick={onToggle}
     >
-      <span className="bot-launch-mark" aria-hidden="true">
-        <span />
-      </span>
+      <AssistantMark size={18} />
     </button>
   );
 }
 
+/**
+ * The assistant's mark: ORION's constellation, drawn as five stars and the
+ * lines between them, in the text colour. While the assistant works its
+ * stars light one after another (redesign assistant.css); nothing else moves.
+ * It replaces the hand-drawn mascot in the planner's chat (local redesign,
+ * 2026-11-08): at 16-28px it reads as a product mark, not a sticker.
+ */
+export function AssistantMark({ thinking = false, size = 20 }: { thinking?: boolean; size?: number }) {
+  return (
+    <svg
+      className={cn('assistant-mark', thinking && 'is-thinking')}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <g className="assistant-mark-lines" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+        <line x1="6" y1="4.2" x2="18.4" y2="4.9" />
+        <line x1="6" y1="4.2" x2="4.3" y2="17.9" />
+        <line x1="6" y1="4.2" x2="16.1" y2="15.5" />
+        <line x1="18.4" y1="4.9" x2="16.1" y2="15.5" />
+        <line x1="4.3" y1="17.9" x2="16.1" y2="15.5" />
+      </g>
+      <g className="assistant-mark-stars" fill="currentColor">
+        <circle cx="6" cy="4.2" r="2" />
+        <circle cx="18.4" cy="4.9" r="1.8" />
+        <circle cx="16.1" cy="15.5" r="2" />
+        <circle cx="4.3" cy="17.9" r="2.5" />
+        <circle cx="20" cy="20" r="2.2" />
+      </g>
+    </svg>
+  );
+}
+
 /** The supplied assistant artwork, switching poses while a response is being prepared. */
-function AssistantAvatar({
+export function AssistantAvatar({
   schoolId,
   thinking = false,
 }: {
@@ -399,13 +461,12 @@ function RichText({ text }: { text: string }) {
   );
 }
 
-/** Orion's typing indicator: three dots, bouncing in turn. */
+/** The assistant at work before its first words: its mark, its stars lighting in turn, and "Thinking". */
 function Typing() {
   return (
-    <div className="bot-typing" aria-label="Writing">
-      <span />
-      <span />
-      <span />
+    <div className="bot-thinking" role="status" aria-label="Thinking">
+      <AssistantMark thinking size={16} />
+      <span className="bot-shimmer">Thinking</span>
     </div>
   );
 }
@@ -601,7 +662,7 @@ export function BotPanel({
         data-open={open ? 'true' : 'false'}
       >
         <header className="bot-head">
-          <h2>{botName}</h2>
+          <h2><AssistantMark size={18} />{botName}</h2>
           <div className="bot-head-actions">
             {messages.length > 0 && (
               <button type="button" onClick={reset} title="Forget this conversation and start again">
@@ -616,7 +677,10 @@ export function BotPanel({
 
         <div className="bot-log" ref={logRef}>
           {!hasConversation && (
-            <p className="bot-empty">Ask a question whenever the plan needs a second look.</p>
+            <div className="bot-empty-state">
+              <AssistantMark size={28} />
+              <p className="bot-empty">Ask a question whenever the plan needs a second look.</p>
+            </div>
           )}
           {lines.map((line, i) => {
             if (line.kind === 'user') {
@@ -667,13 +731,13 @@ export function BotPanel({
           {activity && (
             <div className={`bot-tool ${activity.state === 'running' ? '' : activity.state}`}>
               {activity.state === 'running' ? (
-                <Loader2 aria-hidden="true" className="bot-spin" />
+                <AssistantMark thinking size={16} />
               ) : activity.state === 'ok' ? (
                 <Check aria-hidden="true" />
               ) : (
                 <CircleAlert aria-hidden="true" />
               )}
-              <span>
+              <span className={activity.state === 'running' ? 'bot-shimmer' : undefined}>
                 {activity.label}
                 {activity.detail ? ` — ${activity.detail}` : ''}
               </span>
@@ -696,9 +760,6 @@ export function BotPanel({
             {error}
           </p>
         )}
-        <div className="bot-history-avatar">
-          <AssistantAvatar schoolId={schoolId} thinking={busy} />
-        </div>
       </div>
 
       <div className="bot-prompt" data-insight-feature="assistant">

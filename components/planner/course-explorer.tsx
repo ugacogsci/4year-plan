@@ -341,7 +341,8 @@ export function CourseExplorer({
       ctx.fill();
       if (view.k >= LABEL_ZOOM) {
         ctx.globalAlpha = searchMuted || choiceMuted ? 0.18 : 0.9;
-        ctx.strokeStyle = theme === 'dark' ? '#000000' : '#ffffff';
+        // The map is a night sky in both themes (app/redesign.css), so its lines are light in both.
+        ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 0.45;
         ctx.stroke();
       }
@@ -361,7 +362,7 @@ export function CourseExplorer({
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
-    ctx.strokeStyle = theme === 'dark' ? '#000000' : '#ffffff';
+    ctx.strokeStyle = '#ffffff';
     ctx.globalAlpha = 0.68;
     ctx.lineWidth = 1.35;
 

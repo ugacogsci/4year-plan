@@ -1,0 +1,1422 @@
+/* =========================================================================
+   ORION design system: the left rail's detail sections
+
+   Loaded after app/globals.css and app/redesign.css (app/layout.tsx), so a
+   rule here wins at equal specificity. redesign.css already sets the rail
+   shell, the school and program heading, the degree bar, the section
+   summaries and the requirement rows; this file finishes everything inside
+   them from the same tokens:
+
+     disclosures   one chevron for every <details> in the rail
+     text          13px names and inputs, 12px rows and helpers,
+                   11px eyebrows and meta; 400/500/600 only
+     controls      32px (28px compact), radius --ds-r-sm, hairline border,
+                   --ds-focus ring, accent-color on every checkbox and radio
+     lists         scrolling lists sit in a bordered box, rows 28px+
+     links         text-2 with a quiet underline that firms up on hover
+
+   Removing this file restores redesign.css exactly.
+   ========================================================================= */
+
+/* ---- disclosures: one chevron for every <details> in the rail ------------
+   The old marks were a '+' / '−' glyph in a hard-coded blue-grey on the
+   sections and the browser's own triangle on the nested lists. Now every
+   summary carries the same 6px chevron at its right edge: down when shut,
+   up when open. It is absolutely placed, so the summaries keep their own
+   flex layout (label left, count right). */
+
+.planner-app .rail-completed > summary,
+.planner-app .rail-requirements > summary,
+.planner-app .rail-section > summary,
+.planner-app .rail .pool > summary,
+.planner-app .rail .club-communities > summary,
+.planner-app .rail .transcript-review > summary,
+.planner-app .rail .double-dawgs > summary,
+.planner-app .rail .double-dawgs details > summary {
+  position: relative;
+  padding-right: 24px;
+  border-radius: var(--ds-r-sm);
+  list-style: none;
+  cursor: pointer;
+}
+.planner-app .rail-completed > summary::-webkit-details-marker,
+.planner-app .rail-requirements > summary::-webkit-details-marker,
+.planner-app .rail-section > summary::-webkit-details-marker,
+.planner-app .rail .pool > summary::-webkit-details-marker,
+.planner-app .rail .club-communities > summary::-webkit-details-marker,
+.planner-app .rail .transcript-review > summary::-webkit-details-marker,
+.planner-app .rail .double-dawgs > summary::-webkit-details-marker,
+.planner-app .rail .double-dawgs details > summary::-webkit-details-marker {
+  display: none;
+}
+.planner-app .rail-completed > summary::after,
+.planner-app .rail-requirements > summary::after,
+.planner-app .rail-section > summary::after,
+.planner-app .rail .pool > summary::after,
+.planner-app .rail .club-communities > summary::after,
+.planner-app .rail .transcript-review > summary::after,
+.planner-app .rail .double-dawgs > summary::after,
+.planner-app .rail .double-dawgs details > summary::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  margin-top: -4px;
+  border: solid var(--ds-text-3);
+  border-width: 0 1.5px 1.5px 0;
+  color: transparent;
+  font-size: 0;
+  transform: translateY(-2px) rotate(45deg);
+}
+.planner-app .rail-completed[open] > summary::after,
+.planner-app .rail-requirements[open] > summary::after,
+.planner-app .rail-section[open] > summary::after,
+.planner-app .rail .pool[open] > summary::after,
+.planner-app .rail .club-communities[open] > summary::after,
+.planner-app .rail .transcript-review[open] > summary::after,
+.planner-app .rail .double-dawgs[open] > summary::after,
+.planner-app .rail .double-dawgs details[open] > summary::after {
+  content: '';
+  transform: translateY(2px) rotate(-135deg);
+}
+.planner-app .rail-completed > summary:hover::after,
+.planner-app .rail-requirements > summary:hover::after,
+.planner-app .rail-section > summary:hover::after,
+.planner-app .rail .pool > summary:hover::after,
+.planner-app .rail .club-communities > summary:hover::after,
+.planner-app .rail .transcript-review > summary:hover::after,
+.planner-app .rail .double-dawgs > summary:hover::after,
+.planner-app .rail .double-dawgs details > summary:hover::after {
+  border-color: var(--ds-text-2);
+}
+
+/* An open section gets room under its last row before the next hairline. */
+.planner-app .rail-completed[open],
+.planner-app .rail-requirements[open],
+.planner-app .rail-section[open] {
+  padding-bottom: 16px;
+}
+
+/* The counts on the right of a section summary: secondary, tabular. */
+.planner-app .rail-completed > summary > span:last-child,
+.planner-app .rail-requirements > summary strong,
+.planner-app .rail .rail-clubs-count {
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-align: right;
+}
+.planner-app .rail .rail-clubs-count { font-weight: 400; }
+
+/* ---- shared parts --------------------------------------------------------- */
+
+/* Eyebrows: the only uppercase in the rail. "Majors", "Pick from a list",
+   "For pre-med", "Primary". */
+.planner-app .rail .rail-program-label,
+.planner-app .rail .pool-list-head,
+.planner-app .rail .club-group-head,
+.planner-app .rail .program-selected-row small,
+.planner-app .rail .emphasis-group legend {
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+/* Links in the rail: secondary ink, a quiet underline that firms on hover. */
+.planner-app .rail :is(
+  .program-catalog-links a,
+  .sample-plan-links a,
+  .double-dawgs a,
+  .club-actions a,
+  .club-thin a,
+  .transcript-basis a
+) {
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--ds-border-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+  transition: color var(--ds-fast) var(--ds-ease), text-decoration-color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail :is(
+  .program-catalog-links a,
+  .sample-plan-links a,
+  .double-dawgs a,
+  .club-actions a,
+  .club-thin a,
+  .transcript-basis a
+):hover {
+  color: var(--ds-text);
+  text-decoration-color: currentColor;
+}
+.planner-app .rail .transcript-basis a { font-size: inherit; font-weight: 400; }
+.planner-app .rail :is(.double-dawgs a, .club-actions a) svg {
+  width: 12px;
+  height: 12px;
+  color: var(--ds-text-3);
+}
+
+/* Text buttons: an action that reads as words, not a box. */
+.planner-app .rail .club-more,
+.planner-app .rail .rail-note button,
+.planner-app .rail .transcript-more,
+.planner-app .rail .transcript-remove {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1.4;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail .club-more:hover,
+.planner-app .rail .rail-note button:hover,
+.planner-app .rail .transcript-more:hover {
+  color: var(--ds-text);
+}
+.planner-app .rail .transcript-remove:hover { color: var(--ds-danger); }
+
+/* Small secondary buttons: 28px, hairline, the same family as the board's. */
+.planner-app .rail .rail-action,
+.planner-app .rail .club-actions button,
+.planner-app .rail .transcript-compact .transcript-pick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: 0 1px 1px rgb(28 25 23 / 0.04);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: center;
+  text-decoration: none;
+  opacity: 1;
+  cursor: pointer;
+  transition: background var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail .rail-action:hover,
+.planner-app .rail .club-actions button:hover,
+.planner-app .rail .transcript-compact .transcript-pick:hover {
+  border-color: var(--ds-border-strong);
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+  opacity: 1;
+}
+.planner-app .rail .rail-action:disabled,
+.planner-app .rail .club-actions button:disabled { opacity: 0.5; cursor: default; }
+
+/* Text inputs and selects: 32px, hairline, surface, 13px. */
+.planner-app .rail .rail-field textarea,
+.planner-app .rail .rail-field input[type='number'],
+.planner-app .rail .rail-field select,
+.planner-app .rail .program-search input,
+.planner-app .rail .guidance-search input,
+.planner-app .rail .double-dawgs-shared input[type='search'],
+.planner-app .rail .double-dawgs-timing select {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  min-height: 32px;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: none;
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 400;
+  line-height: 1.5;
+  transition: border-color var(--ds-fast) var(--ds-ease), box-shadow var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail .rail-field textarea {
+  height: auto;
+  min-height: 80px;
+  padding: 8px;
+  resize: vertical;
+}
+.planner-app .rail .rail-field input[type='number'] { font-variant-numeric: tabular-nums; }
+.planner-app .rail .rail-field [data-slot='native-select'] {
+  height: 32px;
+  padding: 0 32px 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+}
+.planner-app .rail [data-slot='native-select-icon'] {
+  right: 8px;
+  width: 14px;
+  height: 14px;
+  color: var(--ds-text-3);
+}
+.planner-app .rail :is(input, textarea)::placeholder { color: var(--ds-text-3); opacity: 1; }
+.planner-app .rail .rail-field textarea:hover,
+.planner-app .rail .rail-field input[type='number']:hover,
+.planner-app .rail .rail-field select:hover,
+.planner-app .rail .program-search input:hover,
+.planner-app .rail .guidance-search input:hover,
+.planner-app .rail .double-dawgs-shared input[type='search']:hover,
+.planner-app .rail .double-dawgs-timing select:hover,
+.planner-app .rail .transcript-counts:hover {
+  border-color: var(--ds-border-strong);
+}
+.planner-app .rail .rail-field textarea:focus,
+.planner-app .rail .rail-field input:focus,
+.planner-app .rail .rail-field select:focus,
+.planner-app .rail .program-search input:focus,
+.planner-app .rail .guidance-search input:focus,
+.planner-app .rail .double-dawgs-shared input[type='search']:focus,
+.planner-app .rail .double-dawgs-timing select:focus,
+.planner-app .rail .transcript-counts:focus {
+  outline: none;
+  border-color: var(--ds-border-strong);
+  box-shadow: var(--ds-focus);
+}
+
+/* Every checkbox and radio in the rail takes the school's colour. */
+.planner-app .rail input[type='checkbox'],
+.planner-app .rail input[type='radio'] {
+  accent-color: var(--ds-accent);
+}
+
+/* Scrolling lists: a thin scrollbar in the border colour. */
+.planner-app .rail :is(
+  .pool-options,
+  .pool-quote,
+  .program-results,
+  .double-dawgs-options,
+  .double-dawgs-course-list,
+  .completed-course-list,
+  .transcript-list
+) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ds-border-strong) transparent;
+}
+
+/* ---- already taken: the course chips, the transcript, the credit note ---- */
+
+.planner-app .rail .completed-course-list {
+  gap: 4px;
+  max-height: 76px;
+  padding: 0 0 4px;
+}
+.planner-app .rail .completed-course-list span {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.planner-app .rail .completed-course-label {
+  margin: 12px 0 4px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.planner-app .rail .rail-credit-note {
+  margin: 4px 0 8px;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* The transcript, folded under "Already taken". */
+.planner-app .rail .transcript-compact {
+  gap: 8px;
+  margin-top: 12px;
+}
+.planner-app .rail .transcript-compact .transcript-pick:focus-within {
+  border-color: var(--ds-border-strong);
+  box-shadow: var(--ds-focus);
+}
+.planner-app .rail .transcript-compact .transcript-busy,
+.planner-app .rail .transcript-compact .transcript-error,
+.planner-app .rail .transcript-compact .transcript-summary,
+.planner-app .rail .transcript-compact .transcript-meta,
+.planner-app .rail .transcript-compact .transcript-hint {
+  margin: 0;
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 400;
+  line-height: 1.5;
+}
+.planner-app .rail .transcript-compact .transcript-summary { color: var(--ds-text); }
+.planner-app .rail .transcript-compact .transcript-busy { color: var(--ds-text-2); }
+.planner-app .rail .transcript-compact .transcript-error { color: var(--ds-danger); }
+.planner-app .rail .transcript-compact .transcript-meta,
+.planner-app .rail .transcript-compact .transcript-hint { color: var(--ds-text-3); }
+.planner-app .rail .transcript-compact .transcript-review > summary {
+  display: block;
+  min-height: 28px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 20px;
+}
+.planner-app .rail .transcript-compact .transcript-review > summary:hover { color: var(--ds-text); }
+.planner-app .rail .transcript-compact .transcript-list {
+  gap: 4px;
+  margin: 4px 0 0;
+}
+.planner-app .rail .transcript-compact .transcript-list li {
+  gap: 4px 8px;
+  padding: 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.planner-app .rail .transcript-compact .transcript-code {
+  color: var(--ds-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .rail .transcript-compact .transcript-list .transcript-meta { font-size: var(--ds-sm); }
+.planner-app .rail .transcript-compact .transcript-basis {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+
+/* Chips: what a line counts as, in the four status colours. */
+.planner-app .rail .transcript-compact .transcript-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--ds-subtle);
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: none;
+}
+.planner-app .rail .transcript-compact .transcript-chip.basis-course {
+  background: color-mix(in srgb, var(--ds-success) 12%, transparent);
+  color: var(--ds-success);
+}
+.planner-app .rail .transcript-compact .transcript-chip.basis-core,
+.planner-app .rail .transcript-compact .transcript-chip.basis-elective {
+  background: color-mix(in srgb, var(--ds-info) 12%, transparent);
+  color: var(--ds-info);
+}
+.planner-app .rail .transcript-compact .transcript-chip.basis-not-evaluated,
+.planner-app .rail .transcript-compact .transcript-chip.warn {
+  background: color-mix(in srgb, var(--ds-warning) 14%, transparent);
+  color: var(--ds-warning);
+}
+.planner-app .rail .transcript-compact .transcript-chip.basis-none {
+  background: color-mix(in srgb, var(--ds-danger) 12%, transparent);
+  color: var(--ds-danger);
+}
+
+/* A line that only "may be" a course: a tinted note with two small buttons. */
+.planner-app .rail .transcript-compact .transcript-maybe {
+  padding: 8px;
+  border-radius: var(--ds-r-sm);
+  background: color-mix(in srgb, var(--ds-warning) 10%, transparent);
+  color: var(--ds-text);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.planner-app .rail .transcript-compact .transcript-maybe button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-top: 4px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--ds-warning) 40%, var(--ds-border));
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  cursor: pointer;
+}
+.planner-app .rail .transcript-compact .transcript-maybe button:hover { background: var(--ds-subtle); }
+
+/* What a line counts as: a compact 28px select, tinted while it is only a guess. */
+.planner-app .rail .transcript-compact .transcript-counts {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+}
+.planner-app .rail .transcript-compact .transcript-counts.is-likely {
+  border-color: color-mix(in srgb, var(--ds-warning) 55%, var(--ds-border));
+  background: color-mix(in srgb, var(--ds-warning) 8%, var(--ds-surface));
+}
+.planner-app .rail .transcript-compact .transcript-actions { gap: 4px 16px; }
+
+/* ---- requirement rows: index, label, figure, a thinner neutral bar -------
+   The degree bar at the top stays the one accent bar; the twelve rows under
+   it are ink, so the column reads as a list and not as twelve red stripes. */
+
+.planner-app .requirement-row {
+  column-gap: 4px;
+  row-gap: 4px;
+}
+.planner-app .requirement-row .requirement-index {
+  align-self: start;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+}
+.planner-app .requirement-row > div {
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 18px;
+}
+.planner-app .requirement-row > div > span:first-child {
+  color: var(--ds-text);
+  font-weight: 400;
+}
+.planner-app .requirement-row > div > span:last-child {
+  color: var(--ds-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .requirement-row > div > span.requirement-unnamed { color: var(--ds-text-3); }
+.planner-app .requirement-row > .rail-bar { height: 4px; }
+.planner-app .requirement-row > .rail-bar > i { background: var(--ds-text-2); }
+.planner-app .requirement-row.is-met > .rail-bar > i { background: var(--ds-success); }
+.planner-app .rail p.requirement-unnamed {
+  margin: 8px 0 0;
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+
+/* ---- elective pools: "take 18 hours from this list" --------------------- */
+
+.planner-app .rail .pool-list {
+  gap: 0;
+  margin: 16px 0 0;
+}
+.planner-app .rail .pool-list-head { margin: 0 0 4px; }
+.planner-app .rail .pool { border-top: 1px solid var(--ds-border); }
+.planner-app .rail .pool > summary {
+  align-items: baseline;
+  gap: 8px;
+  min-height: 32px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.4;
+}
+.planner-app .rail .pool-label { color: var(--ds-text); }
+.planner-app .rail .pool-count {
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .rail .pool-count.is-short { color: var(--ds-warning); }
+
+.planner-app .rail .pool-asked,
+.planner-app .rail .pool-quote,
+.planner-app .rail .pool-rule {
+  margin: 0 0 8px;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+/* The catalog's own words, set apart as a quotation. */
+.planner-app .rail .pool-quote {
+  padding-left: 8px;
+  border-left: 2px solid var(--ds-border-strong);
+  color: var(--ds-text-2);
+}
+/* Met / Not met: a small status pill. */
+.planner-app .rail .pool-rule > span {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  margin-right: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ds-success) 12%, transparent);
+  color: var(--ds-success);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  line-height: 1;
+  vertical-align: 1px;
+}
+.planner-app .rail .pool-rule.is-short > span {
+  background: color-mix(in srgb, var(--ds-warning) 14%, transparent);
+  color: var(--ds-warning);
+}
+
+/* What the planner picked from the list. */
+.planner-app .rail .pool-courses {
+  gap: 4px;
+  margin: 0 0 8px;
+}
+.planner-app .rail .pool-courses > li {
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ds-text);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+.planner-app .rail .pool-courses svg {
+  width: 12px;
+  height: 12px;
+  color: var(--ds-success);
+  transform: translateY(2px);
+}
+.planner-app .rail .pool-courses > li > span {
+  color: var(--ds-text-3);
+  font-weight: 400;
+}
+
+/* The rest of the list: a contained, scrolling box of 28px rows. */
+.planner-app .rail .pool-options { gap: 0; margin: 0 0 12px; }
+.planner-app .rail .pool-options:not(:empty) {
+  padding: 4px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+}
+.planner-app .rail .pool-options > li { gap: 4px; }
+.planner-app .rail .pool-option {
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.4;
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail .pool-option:hover {
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+.planner-app .rail .pool-option svg {
+  width: 12px;
+  height: 12px;
+  color: var(--ds-text-3);
+}
+.planner-app .rail .pool-option-code {
+  color: var(--ds-text);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .rail .pool-option-title { color: var(--ds-text-3); }
+.planner-app .rail .pool-add {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text-2);
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail .pool-add svg { width: 14px; height: 14px; }
+.planner-app .rail .pool-add:hover:not(:disabled) {
+  background: var(--ds-muted);
+  color: var(--ds-text);
+}
+.planner-app .rail .pool-add:disabled { opacity: 0.5; }
+
+/* ---- clubs for your goals ------------------------------------------------ */
+
+.planner-app .rail .club-groups {
+  gap: 16px;
+  padding-bottom: 8px;
+}
+.planner-app .rail .club-group-head { margin: 0 0 4px; }
+.planner-app .rail .club-row {
+  gap: 2px;
+  padding: 8px 0;
+  border-top: 1px solid var(--ds-border);
+}
+.planner-app .rail .club-name {
+  gap: 4px;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  line-height: 1.4;
+  text-decoration: none;
+}
+.planner-app .rail .club-name:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--ds-border-strong);
+  text-underline-offset: 3px;
+}
+.planner-app .rail .club-name svg {
+  width: 12px;
+  height: 12px;
+  color: var(--ds-text-3);
+  transform: translateY(1px);
+}
+.planner-app .rail .club-why,
+.planner-app .rail .club-thin,
+.planner-app .rail .club-empty p {
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 400;
+  line-height: 1.5;
+}
+.planner-app .rail .club-thin,
+.planner-app .rail .club-empty p { margin: 0 0 8px; }
+.planner-app .rail .club-meta {
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-xs);
+  font-weight: 400;
+  line-height: 1.5;
+}
+.planner-app .rail .club-actions {
+  gap: 8px 12px;
+  margin: 0;
+}
+.planner-app .rail .club-more { margin: 4px 0 0; }
+
+/* Learning communities: a nested disclosure under the picks. */
+.planner-app .rail .club-communities {
+  margin-top: 8px;
+  border-top: 1px solid var(--ds-border);
+}
+.planner-app .rail .club-communities > summary {
+  display: block;
+  min-height: 32px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.planner-app .rail .club-communities > summary:hover { color: var(--ds-text); }
+
+/* Where the list came from and how old it is; amber once it is stale. */
+.planner-app .rail .club-source {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-border);
+}
+.planner-app .rail .club-source p {
+  margin: 0;
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-xs);
+  font-weight: 400;
+  line-height: 1.5;
+}
+.planner-app .rail .club-source p.club-actions { font-size: var(--ds-sm); }
+.planner-app .rail .club-source.is-stale p:first-child,
+.planner-app[data-theme='dark'] .rail .club-source.is-stale p:first-child {
+  color: var(--ds-warning);
+}
+
+/* Loading: three quiet bars. */
+.planner-app .rail .club-loading { gap: 12px; padding: 4px 0 12px; }
+.planner-app .rail .club-skeleton { gap: 8px; }
+.planner-app .rail .club-skeleton i {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ds-muted);
+}
+
+/* ---- programs: majors, minors, certificates ------------------------------ */
+
+.planner-app .rail .rail-program-level { padding: 0 0 12px; }
+.planner-app .rail .rail-program-label {
+  display: block;
+  margin: 16px 0 0;
+}
+.planner-app .rail .rail-section > summary + .rail-program-label { margin-top: 0; }
+.planner-app .rail .rail-program-level + .rail-program-label { margin-top: 4px; }
+
+.planner-app .rail .program-picker.is-compact {
+  gap: 8px;
+  margin: 8px 0 0;
+}
+.planner-app .rail .program-selected { gap: 4px; }
+.planner-app .rail .program-selected > p,
+.planner-app .rail .program-results > p {
+  margin: 0;
+  padding: 0;
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.planner-app .rail .program-results > p { padding: 8px; }
+
+/* A chosen program: a quiet card, no coloured stripe. */
+.planner-app .rail .program-picker.is-compact .program-selected-row,
+.planner-app .rail .program-selected-row {
+  gap: 8px;
+  padding: 8px 4px 8px 12px;
+  border: 1px solid var(--ds-border);
+  border-left-width: 1px;
+  border-left-color: var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text-2);
+}
+.planner-app .rail .program-selected-row > span { gap: 2px; }
+.planner-app .rail .program-selected-row strong {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.planner-app .rail .program-selected-row button {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text-3);
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail .program-selected-row button:hover {
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+.planner-app .rail .program-selected-row svg { width: 14px; height: 14px; }
+
+/* Search, with the icon inside the field. */
+.planner-app .rail .program-search > svg {
+  left: 8px;
+  width: 14px;
+  height: 14px;
+  color: var(--ds-text-3);
+}
+.planner-app .rail .program-search input { padding-left: 32px; }
+
+/* Results: an inline list in a bordered box, rows without dividers. */
+.planner-app .rail .program-results {
+  gap: 0;
+  padding: 4px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+}
+.planner-app .rail .program-picker.is-compact .program-results button,
+.planner-app .rail .program-results button {
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.4;
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail .program-results button:hover {
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+.planner-app .rail .program-results button svg {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  color: var(--ds-text-3);
+}
+.planner-app .rail .program-results button:hover svg { color: var(--ds-text); }
+
+/* Emphasis and concentration choices: one card per requirement. */
+.planner-app .rail .emphasis-picker.is-compact {
+  gap: 12px;
+  margin-top: 16px;
+}
+.planner-app .rail .emphasis-group {
+  padding: 12px;
+  border: 1px solid var(--ds-border);
+  border-left-width: 1px;
+  border-left-color: var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text-2);
+}
+.planner-app .rail .emphasis-group legend { padding: 0 4px; }
+.planner-app .rail .emphasis-picker.is-compact .emphasis-heading { gap: 2px; }
+.planner-app .rail .emphasis-heading strong {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.planner-app .rail .emphasis-heading span {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.4;
+}
+.planner-app .rail .emphasis-group > p {
+  margin: 4px 0 12px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.planner-app .rail .emphasis-options { gap: 8px; }
+.planner-app .rail .emphasis-options label {
+  gap: 8px;
+  color: var(--ds-text);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.planner-app .rail .emphasis-options input { margin-top: 3px; }
+.planner-app .rail .emphasis-options input:disabled + span { color: inherit; }
+.planner-app .rail .emphasis-options label:has(input:disabled) { opacity: 0.5; cursor: default; }
+.planner-app .rail .emphasis-group > small {
+  margin-top: 12px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .rail .emphasis-group > small.needs-choice { color: var(--ds-warning); }
+
+/* ---- Double Dawgs (UGA): a nested disclosure in Programs ----------------- */
+
+.planner-app .rail .double-dawgs,
+.planner-app .rail .sample-plan-links {
+  margin: 16px 0 0;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 400;
+  line-height: 1.5;
+}
+.planner-app .rail .double-dawgs { border-top: 1px solid var(--ds-border); }
+.planner-app .rail .double-dawgs > summary {
+  display: block;
+  min-height: 40px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  line-height: 20px;
+}
+.planner-app .rail .double-dawgs details > summary {
+  display: block;
+  min-height: 28px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 20px;
+}
+.planner-app .rail .double-dawgs details > summary:hover { color: var(--ds-text); }
+.planner-app .rail .double-dawgs p { margin: 8px 0; }
+.planner-app .rail .double-dawgs output { display: block; color: var(--ds-text-3); }
+
+.planner-app .rail .guidance-search {
+  gap: 4px;
+  margin: 4px 0 8px;
+}
+.planner-app .rail .guidance-search > span {
+  color: var(--ds-text);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+}
+
+/* The pathway radios: a contained, scrolling list. */
+.planner-app .rail .double-dawgs-options {
+  padding: 4px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+}
+.planner-app .rail .double-dawgs-options label {
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail .double-dawgs-options label:hover { background: var(--ds-subtle); }
+.planner-app .rail .double-dawgs-options label:has(input:checked) {
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+  font-weight: 500;
+}
+.planner-app .rail .double-dawgs-options input { margin-top: 3px; }
+.planner-app .rail .double-dawgs-options > p { margin: 0; padding: 4px 8px; color: var(--ds-text-3); }
+
+.planner-app .rail .double-dawgs-summary { margin-top: 12px; }
+.planner-app .rail .double-dawgs-summary strong {
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  font-weight: 500;
+}
+.planner-app .rail .double-dawgs-summary p[role='alert'] { color: var(--ds-warning); }
+.planner-app .rail .double-dawgs-summary > a {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  margin: 8px 0 0;
+}
+
+/* Shared graduate courses: checkboxes with a search above them. */
+.planner-app .rail .double-dawgs-shared { margin: 16px 0; }
+.planner-app .rail .double-dawgs-shared legend {
+  margin-bottom: 8px;
+  color: var(--ds-text);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .rail .double-dawgs-shared input[type='search'] { margin: 0 0 8px; }
+.planner-app .rail .double-dawgs-shared label {
+  gap: 8px;
+  padding: 4px 0;
+  color: var(--ds-text);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.planner-app .rail .double-dawgs-shared input[type='checkbox'] { margin-top: 3px; }
+.planner-app .rail .double-dawgs-shared label:has(input:disabled) { opacity: 0.5; }
+.planner-app .rail .double-dawgs-shared small,
+.planner-app .rail .double-dawgs-course-review small {
+  display: block;
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-xs);
+  line-height: 1.5;
+}
+.planner-app .rail .double-dawgs-course-list { padding-right: 4px; }
+.planner-app .rail .double-dawgs-course-list > p { margin: 0; color: var(--ds-text-3); }
+.planner-app .rail .double-dawgs-course-review {
+  padding: 4px 0;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+}
+
+/* Master's completion: two selects side by side. */
+.planner-app .rail .double-dawgs-timing {
+  gap: 8px;
+  margin: 16px 0 0;
+}
+.planner-app .rail .double-dawgs-timing legend {
+  margin-bottom: 8px;
+  padding: 0;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.planner-app .rail .double-dawgs-timing > div { gap: 8px; margin-top: 0; }
+.planner-app .rail .double-dawgs-timing label {
+  gap: 4px;
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+}
+.planner-app .rail .double-dawgs-timing label > span {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+}
+.planner-app .rail .double-dawgs-timing p {
+  margin: 0;
+  color: var(--ds-danger);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+
+/* Official sample plans and catalog pages: a short list of links. */
+.planner-app .rail .sample-plan-links p { margin: 0 0 4px; }
+.planner-app .rail .sample-plan-links a {
+  display: block;
+  width: fit-content;
+  margin: 4px 0;
+}
+.planner-app .rail .rail-note {
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-border);
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.planner-app .rail .program-catalog-links {
+  display: grid;
+  gap: 4px;
+}
+.planner-app .rail .program-catalog-links a { width: fit-content; }
+/* The catalog links carry an inline margin:0, so the space above them is
+   given by whatever sits just before them. */
+.planner-app .rail .rail-section > :has(+ .program-catalog-links) { margin-bottom: 16px; }
+
+/* ---- preferences: fields, helpers, priorities ---------------------------- */
+
+.planner-app .rail .rail-field {
+  gap: 4px;
+  padding-bottom: 12px;
+}
+.planner-app .rail .rail-field > span {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* Helper text under a field: secondary ink, tucked up to the field it explains. */
+.planner-app .rail .rail-helper {
+  margin: 0;
+  padding-bottom: 16px;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 400;
+  line-height: 1.5;
+}
+.planner-app .rail .rail-field + .rail-helper { margin-top: -8px; }
+
+/* "What makes a class a good pick": its own group under a hairline. */
+.planner-app .rail .rail-priorities {
+  gap: 12px;
+  margin-top: 4px;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--ds-border);
+}
+.planner-app .rail .rail-priorities-head {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.planner-app .rail .rail-priorities > .rail-field,
+.planner-app .rail .rail-priorities > .rail-helper { padding-bottom: 0; }
+
+/* Presets: a real segmented control. Five labels do not fit one row of a
+   212px rail, so the track wraps and every row fills its width; the chosen
+   one is a raised surface, the rest sit in the track. */
+.planner-app .rail .rail-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--ds-r);
+  background: var(--ds-muted);
+}
+.planner-app .rail .rail-preset {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text-2);
+  box-shadow: none;
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail .rail-preset:hover {
+  background: color-mix(in srgb, var(--ds-surface) 55%, transparent);
+  color: var(--ds-text);
+}
+.planner-app .rail .rail-preset.is-on,
+.planner-app .rail .rail-preset.is-on:hover {
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-1);
+}
+
+/* Each knob: its name, then a three-way segmented control (skip/counts/most). */
+.planner-app .rail .rail-knob {
+  gap: 4px;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.4;
+}
+.planner-app .rail .rail-knob-seg {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  margin: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--ds-r);
+  background: var(--ds-muted);
+  overflow: visible;
+}
+.planner-app .rail .rail-knob-seg label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1;
+  text-transform: capitalize;
+  cursor: pointer;
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail .rail-knob-seg label:hover {
+  background: color-mix(in srgb, var(--ds-surface) 55%, transparent);
+  color: var(--ds-text);
+}
+.planner-app .rail .rail-knob-seg label.is-on,
+.planner-app .rail .rail-knob-seg label.is-on:hover {
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-1);
+}
+
+/* In the dark theme the chosen segment is lighter than its track, not darker. */
+.planner-app[data-theme='dark'] .rail .rail-presets,
+.planner-app[data-theme='dark'] .rail .rail-knob-seg {
+  background: var(--ds-subtle);
+}
+.planner-app[data-theme='dark'] .rail .rail-preset.is-on,
+.planner-app[data-theme='dark'] .rail .rail-preset.is-on:hover,
+.planner-app[data-theme='dark'] .rail .rail-knob-seg label.is-on,
+.planner-app[data-theme='dark'] .rail .rail-knob-seg label.is-on:hover {
+  background: var(--ds-border-strong);
+}
+.planner-app[data-theme='dark'] .rail .rail-preset:hover,
+.planner-app[data-theme='dark'] .rail .rail-knob-seg label:hover {
+  background: var(--ds-muted);
+}
+
+/* Checkboxes: box on the first line, the words wrapping beside it. */
+.planner-app .rail .rail-check {
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+  cursor: pointer;
+}
+.planner-app .rail .rail-check input {
+  flex: 0 0 auto;
+  margin: 3px 0 0;
+}
+
+.planner-app .rail .rail-action { justify-self: start; }
+
+/* ---- rail chrome: close, info, restart ----------------------------------- */
+
+/* Close: a 28px ghost icon button level with the school mark. */
+.planner-app .rail-close {
+  top: 20px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text-3);
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail-close:hover {
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+.planner-app .rail-close svg { width: 16px; height: 16px; }
+
+/* Plan assumptions: the same ghost icon button at the foot of the rail. */
+.planner-app .rail .rail-info-trigger {
+  width: 28px;
+  height: 28px;
+  margin-top: 16px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text-3);
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .rail .rail-info-trigger:hover,
+.planner-app .rail .rail-info-trigger[data-popup-open],
+.planner-app .rail .rail-info-trigger[aria-expanded='true'] {
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+.planner-app .rail .rail-info-trigger svg { width: 16px; height: 16px; }
+
+/* "Change university or restart setup", at the foot of the assumptions
+   popover (portalled to <body>, so not under .planner-app). */
+.plan-assumptions-popover .rail-restart-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0;
+  padding: 12px 0 0;
+  border: 0;
+  border-top: 1px solid var(--ds-border);
+  background: transparent;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  line-height: 20px;
+  transition: color var(--ds-fast) var(--ds-ease);
+}
+.plan-assumptions-popover .rail-restart-button svg {
+  width: 14px;
+  height: 14px;
+  color: var(--ds-text-3);
+}
+.plan-assumptions-popover .rail-restart-button:hover { color: var(--ds-text); }
+.plan-assumptions-popover .rail-restart-button:hover svg { color: var(--ds-text-2); }
+.plan-assumptions-popover .rail-restart-button:focus-visible {
+  outline: none;
+  border-radius: var(--ds-r-sm);
+  box-shadow: var(--ds-focus);
+}
+
+/* ---- focus: one ring everywhere ------------------------------------------
+   Several controls above carry a resting box-shadow at higher specificity
+   than redesign.css's ring, so the ring is restated last for each of them.
+   The knob radios are visually hidden; their label shows the ring. */
+
+.planner-app .rail-completed > summary:focus-visible,
+.planner-app .rail-requirements > summary:focus-visible,
+.planner-app .rail-section > summary:focus-visible,
+.planner-app .rail .pool > summary:focus-visible,
+.planner-app .rail .club-communities > summary:focus-visible,
+.planner-app .rail .transcript-review > summary:focus-visible,
+.planner-app .rail .double-dawgs > summary:focus-visible,
+.planner-app .rail .double-dawgs details > summary:focus-visible,
+.planner-app .rail .rail-preset:focus-visible,
+.planner-app .rail .rail-preset.is-on:focus-visible,
+.planner-app .rail .rail-action:focus-visible,
+.planner-app .rail .club-actions button:focus-visible,
+.planner-app .rail .club-more:focus-visible,
+.planner-app .rail .club-name:focus-visible,
+.planner-app .rail .pool-option:focus-visible,
+.planner-app .rail .pool-add:focus-visible,
+.planner-app .rail .program-selected-row button:focus-visible,
+.planner-app .rail .program-results button:focus-visible,
+.planner-app .rail .transcript-remove:focus-visible,
+.planner-app .rail .transcript-maybe button:focus-visible,
+.planner-app .rail .rail-note button:focus-visible,
+.planner-app .rail .rail-info-trigger:focus-visible,
+.planner-app .rail-close:focus-visible {
+  outline: none;
+  box-shadow: var(--ds-focus);
+}
+.planner-app .rail .rail-knob-seg label:has(input:focus-visible),
+.planner-app .rail .rail-knob-seg label.is-on:has(input:focus-visible),
+.planner-app .rail .transcript-more:has(input:focus-visible),
+.planner-app .rail .double-dawgs-options label:has(input:focus-visible) {
+  outline: none;
+  box-shadow: var(--ds-focus);
+}
+
+/* Under 900px the rail is a drawer: the small controls grow to 32px targets. */
+@media (max-width: 900px) {
+  .planner-app .rail .rail-action,
+  .planner-app .rail .club-actions button,
+  .planner-app .rail .club-more,
+  .planner-app .rail .transcript-compact .transcript-pick,
+  .planner-app .rail .pool-add,
+  .planner-app .rail .program-selected-row button,
+  .planner-app .rail .rail-info-trigger,
+  .planner-app .rail-close {
+    min-height: 32px;
+  }
+  .planner-app .rail .pool-add,
+  .planner-app .rail .program-selected-row button,
+  .planner-app .rail .rail-info-trigger,
+  .planner-app .rail-close {
+    width: 32px;
+    height: 32px;
+  }
+  .planner-app .rail .program-selected-row button { flex-basis: 32px; }
+  .planner-app .rail .rail-preset,
+  .planner-app .rail .rail-knob-seg label {
+    height: 28px;
+  }
+}

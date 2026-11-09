@@ -1,0 +1,313 @@
+/* =========================================================================
+   ORION design system: fixes from the visual QA pass (loads last).
+   Each block names what the reviewers measured.
+   ========================================================================= */
+
+/* ---- colour: readable faint text, and a warm dark theme like the light one ----
+   --ds-text-3 measured 3.3-3.6:1 on light surfaces and 3.5-4.0:1 on dark at
+   11-12px; these reach 4.6:1 and 5:1. Dark was cool zinc beside warm stone. */
+:root,
+.planner-app,
+.onb {
+  --ds-text-3: #78716c;
+  --ds-elevated: #ffffff;
+}
+:root[data-planner-theme='dark'],
+.planner-app[data-theme='dark'],
+.onb[data-theme='dark'] {
+  --ds-bg: #0c0a09;
+  --ds-surface: #171412;
+  --ds-subtle: #1f1b19;
+  --ds-muted: #292524;
+  --ds-border: #2f2a27;
+  --ds-border-strong: #44403c;
+  --ds-text: #f5f5f4;
+  --ds-text-2: #a8a29e;
+  --ds-text-3: #8f8a85;
+  --ds-elevated: #221e1b;
+}
+:root[data-planner-theme='dark'],
+:root[data-planner-theme='dark'] body {
+  background: var(--ds-bg);
+}
+/* Menus, popovers and dialogs sit one step above the columns in dark. */
+:root[data-planner-theme='dark'] :is(
+  [data-slot='dropdown-menu-content'],
+  [data-slot='popover-content'],
+  [data-slot='select-content'],
+  [data-slot='dialog-content'],
+  [data-slot='alert-dialog-content'],
+  [data-slot='hover-card-content'],
+  [data-slot='context-menu-content']
+) {
+  background: var(--ds-elevated);
+}
+
+/* ---- course cards grow with their title (two-line titles were clipped) ----
+   The column's grid sized each card at its minimum (56px) whenever the column
+   was shorter than its cards; every card now takes its full content height. */
+.planner-app .semester-courses { grid-auto-rows: max-content; }
+.planner-app .course-card {
+  position: relative;
+  grid-template-rows: auto;
+  align-items: start;
+  overflow: visible;
+}
+.planner-app .course-card[data-resized='true'] { overflow: hidden; }
+.planner-app .course-card-body {
+  overflow: visible;
+}
+.planner-app .course-card[data-resized='true'] .course-card-body {
+  overflow: auto;
+}
+/* "Already taken" is a small check beside the menu, so it never needs a row of its own. */
+.planner-app .course-complete-button {
+  position: absolute;
+  /* No grid cell: an absolute grid item with one is placed inside that cell. */
+  grid-row: auto;
+  grid-column: auto;
+  top: 6px;
+  right: 34px;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  gap: 0;
+  justify-content: center;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text-2);
+  font-size: 0;
+  transform: none;
+}
+.planner-app .course-complete-button:hover { border-color: var(--ds-border-strong); color: var(--ds-success); }
+.planner-app .course-complete-button svg { width: 13px; height: 13px; }
+.planner-app .course-card:hover .course-complete-button,
+.planner-app .course-card:focus-within .course-complete-button { transform: none; }
+
+/* A phone has no hover: the card's menu and handle stay findable. */
+@media (hover: none) {
+  .planner-app .course-card > [data-slot='dropdown-menu-trigger'] { opacity: 0.6; }
+  .planner-app .course-card .course-drag-handle { opacity: 0.4; }
+}
+
+/* ---- the current semester column ---- */
+.planner-app .current-term-upload { display: inline; padding: 0; text-align: inherit; white-space: normal; }
+.planner-app .current-term-column .semester-add-button,
+.current-term-column .semester-add-button {
+  height: auto;
+  min-height: 32px;
+  padding-block: 6px;
+  line-height: 1.35;
+  text-align: left;
+}
+.planner-app .semester-weekly { font-size: var(--ds-xs); }
+/* Accent text on its own tint missed 4.5:1 (Illinois orange badly): a deeper shade of it. */
+.planner-app .current-term-badge { color: color-mix(in srgb, var(--ds-accent) 72%, #000); }
+.planner-app[data-theme='dark'] .current-term-badge { color: color-mix(in srgb, var(--ds-accent) 62%, #fff); }
+
+/* ---- the left rail ---- */
+/* Illinois's name was drawn in orange by a legacy rule; both schools read the same. */
+.planner-app .rail[data-school] .rail-school-name { color: var(--ds-text-2); }
+
+/* Pool headers: the count took the whole width and squeezed the name to nothing. */
+.planner-app .rail .pool > summary {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.planner-app .rail .pool-label {
+  flex: 1 1 calc(100% - 24px);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.planner-app .rail .pool-count {
+  flex: 1 1 100%;
+  order: 3;
+  min-width: 0;
+  white-space: normal;
+}
+/* Counted courses: the code stays one unit, the title takes what is left. */
+.planner-app .rail .pool-courses > li {
+  display: grid;
+  grid-template-columns: auto max-content minmax(0, 1fr);
+  column-gap: 6px;
+  white-space: nowrap;
+}
+.planner-app .rail .pool-courses > li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* List options: the title may take two lines rather than four letters. */
+.planner-app .rail .pool-option { height: auto; min-height: 28px; align-items: start; padding-block: 4px; }
+.planner-app .rail .pool-option-title {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+/* Program results: names on two lines got a 32px row and spilled out of it. */
+.planner-app .rail .program-picker.is-compact .program-results button,
+.planner-app .rail .program-results button {
+  height: auto;
+  min-height: 32px;
+  padding-block: 6px;
+  align-items: flex-start;
+  text-align: left;
+}
+/* The five presets: two even columns, not a ragged 3 + 2. */
+.planner-app .rail .rail-presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.planner-app .rail .rail-presets > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+/* Clubs: the list stays inside the rail's column. */
+.planner-app .rail .club-name,
+.planner-app .rail .club-group-head { max-width: 100%; overflow-wrap: anywhere; }
+
+/* ---- board bar, tabs ---- */
+.planner-app .board-bar .add-summer-wide { margin-inline-end: -2px; }
+.planner-app .plan-tabs { overflow-y: hidden; }
+.planner-app .plan-tab-button { transform: none; }
+
+/* ---- the page frame: extra height goes to the plan, not an empty row ---- */
+.planner-app,
+.planner-app[data-chat='open'],
+.planner-app[data-chat='closed'] {
+  grid-template-rows: var(--ds-head) var(--map-row-h, min(280px, 32vh)) minmax(430px, 1fr) auto;
+}
+@media (max-width: 1180px) {
+  .planner-app,
+  .planner-app[data-chat='open'],
+  .planner-app[data-chat='closed'] {
+    grid-template-rows: var(--ds-head) var(--map-row-h, min(280px, 32vh)) minmax(430px, 1fr) auto;
+  }
+}
+@media (max-width: 680px) {
+  .planner-app,
+  .planner-app[data-chat='open'],
+  .planner-app[data-chat='closed'] {
+    grid-template-rows: var(--ds-head) var(--map-row-h, 220px) minmax(430px, 1fr) auto;
+  }
+}
+/* Header menus opened under the sticky header; the header sits below pop-ups. */
+.planner-app .app-header { z-index: 45; }
+
+/* ---- the composer ---- */
+.planner-app .bot-compose textarea:placeholder-shown { overflow-y: hidden; }
+.planner-app .bot-faqs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.planner-app .bot-faqs::-webkit-scrollbar { display: none; }
+.planner-app .bot-faqs > * { flex: 0 0 auto; }
+
+/* ---- setup ---- */
+.onb .onb-lang-row { grid-template-columns: minmax(0, 1fr); }
+.onb .onb-lang-row select { text-overflow: ellipsis; }
+.onb form.guided-composer textarea,
+.onb .guided-composer textarea { resize: none; }
+.onb .onb-back { padding-inline: 0; }
+.orion-dialog.insights-dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }
+
+/* ---- touch targets on coarse pointers ---- */
+@media (pointer: coarse) {
+  .planner-app :is(.plan-tab-drag-handle, .plan-tab-add, .plan-group-add) { min-width: 28px; min-height: 28px; }
+  .planner-app .plan-tab-shell { height: 32px; }
+  .planner-app .bot-suggestion { min-height: 28px; }
+  .onb .setup-mode-link { padding-block: 6px; }
+}
+
+/* =========================================================================
+   The assistant's mark (advisor.tsx AssistantMark): ORION's constellation
+   in place of the hand-drawn mascot. While it works its five stars light
+   one after another and "Thinking" carries a soft sheen; nothing bounces.
+   ========================================================================= */
+.assistant-mark {
+  flex: 0 0 auto;
+  display: inline-block;
+  color: var(--ds-text);
+  vertical-align: middle;
+}
+.assistant-mark-lines { opacity: 0.32; }
+.assistant-mark.is-thinking .assistant-mark-stars circle {
+  opacity: 0.25;
+  animation: assistant-star 1.6s var(--ds-ease) infinite;
+}
+.assistant-mark.is-thinking .assistant-mark-stars circle:nth-child(2) { animation-delay: 0.2s; }
+.assistant-mark.is-thinking .assistant-mark-stars circle:nth-child(3) { animation-delay: 0.4s; }
+.assistant-mark.is-thinking .assistant-mark-stars circle:nth-child(4) { animation-delay: 0.6s; }
+.assistant-mark.is-thinking .assistant-mark-stars circle:nth-child(5) { animation-delay: 0.8s; }
+.assistant-mark.is-thinking .assistant-mark-lines { animation: assistant-lines 1.6s var(--ds-ease) infinite; }
+@keyframes assistant-star {
+  0%, 100% { opacity: 0.25; }
+  35% { opacity: 1; }
+}
+@keyframes assistant-lines {
+  0%, 100% { opacity: 0.18; }
+  50% { opacity: 0.4; }
+}
+
+/* "Thinking" and a running step's label: the text colour passing over the faint one. */
+.bot-shimmer {
+  background: linear-gradient(90deg, var(--ds-text-3) 0%, var(--ds-text-3) 35%, var(--ds-text) 50%, var(--ds-text-3) 65%, var(--ds-text-3) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: assistant-sheen 2s linear infinite;
+}
+@keyframes assistant-sheen {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-mark.is-thinking .assistant-mark-stars circle,
+  .assistant-mark.is-thinking .assistant-mark-lines,
+  .bot-shimmer { animation: none; }
+  .assistant-mark.is-thinking .assistant-mark-stars circle { opacity: 0.7; }
+  .bot-shimmer { color: var(--ds-text-2); background: none; }
+}
+
+.planner-app .bot-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-base);
+  font-weight: 500;
+}
+.planner-app .bot-tool .assistant-mark { width: 14px; height: 14px; }
+
+/* The chat's title: the mark beside the assistant's name. */
+.planner-app .bot-head h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* An empty conversation: the mark above one quiet line, set in the column's upper third. */
+.planner-app .bot-empty-state {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  padding: 8px 0;
+}
+.planner-app .bot-empty-state .assistant-mark { color: var(--ds-text-2); }
+
+/* The header button that opens the assistant: the same mark. */
+.planner-app .header-actions > .bot-launch .assistant-mark { color: var(--ds-text-2); }
+.planner-app .header-actions > .bot-launch:hover .assistant-mark,
+.planner-app .header-actions > .bot-launch.is-open .assistant-mark { color: var(--ds-text); }
+
+/* The mascot no longer stands in the chat column. */
+.planner-app .bot-history-avatar { display: none; }
+
+/* A closed rail or assistant gives its column back to the plan (it used to stay as blank space). */
+@media (min-width: 1181px) {
+  .planner-app[data-rail='closed'] { grid-template-columns: 0 minmax(460px, 1fr) 304px; }
+  .planner-app:has(.bot-history[data-open='false']) { grid-template-columns: 248px minmax(460px, 1fr) 0; }
+  .planner-app[data-rail='closed']:has(.bot-history[data-open='false']) { grid-template-columns: 0 minmax(460px, 1fr) 0; }
+  .planner-app[data-rail='closed'] .rail,
+  .planner-app .bot-history[data-open='false'] { overflow: hidden; border: 0; }
+}

@@ -1,0 +1,249 @@
+/* =========================================================================
+   ORION redesign: the editorial look
+
+   Active only on <html data-look="editorial">. Loads after every other
+   redesign file. The idea: warm paper and ink with serif headings, like a
+   well-made printed course catalogue (or Stripe Press, or Things 3).
+   Nearly everything is a token redefinition; the few component rules at the
+   end only change type, flatten a shadow or swap a glassy header for plain
+   paper. No sizes of controls, no positions, no layout.
+
+   Type
+     Newsreader (Production Type) for display headings only; Inter for
+     everything else. Why Newsreader over Fraunces: Newsreader was drawn
+     for long reading on screens and has an optical-size axis (6-72), so
+     one family stays sturdy for a 16px semester name and gets finer and
+     calmer for a 32px setup title. Fraunces is a soft, "wonky" display
+     face with a lot of personality; next to a dense planning grid it
+     reads as decoration, and it has become a template look.
+     Headings are set at 400-500 with slightly tighter tracking. The
+     wordmark is the serif in capitals, widely spaced, like a masthead.
+
+   Colour (light)                       Colour (dark)
+     bg        #f7f4ee  paper             bg        #181613  charcoal paper
+     surface   #fdfbf7  lighter paper     surface   #1f1c18
+     subtle    #f1ede5                    subtle    #26231e
+     muted     #e9e4da                    muted     #2f2b25
+     elevated  #fffdfa                    elevated  #2a2622  (menus, dialogs)
+     border    #e6e0d4                    border    #38332c
+     strong    #d3cbbb                    strong    #4d473e
+     text      #1f1b16  ink               text      #efe9de  cream ink
+     text-2    #5c544a                    text-2    #b9b0a2
+     text-3    #6d655a                    text-3    #9d9486
+     inks      success #2f6b3a, warning #8f5410, danger #a3261d, info #2c5788
+     dark      success #8fc49a, warning #dcae5e, danger #ec8f80, info #93b6df
+   The school colour is untouched (base rules still switch UGA / Illinois)
+   and stays where it already is: the degree bar, the progress bar, the
+   current-term badge, checkboxes. Primary buttons (Rebuild, Next) are ink
+   on paper through the tokens: background --ds-text, text --ds-surface.
+   The course map stays a dark plate: warm near-black #16130f (#100e0b in
+   dark), cream-white #fbf8f2 marks, framed by the paper's border.
+
+   Contrast (WCAG 2.x, computed; lowest value across bg / surface / subtle /
+   muted / elevated):
+     light  text 13.5   text-2 5.9   text-3 4.53 (5.2 on bg, 5.6 on surface,
+            4.9 on subtle)   success 5.0   warning 4.8   danger 5.8
+            info 5.9   Rebuild (paper on ink) 16.6
+     dark   text 11.6   text-2 6.6   text-3 4.7 (6.0 on bg, 5.7 on surface,
+            5.0 on elevated)   success 7.1   warning 6.9   danger 5.9
+            info 6.7   Rebuild (charcoal on cream) 14.0
+     current-term badge (accent mixed with black / white, on its 12% tint
+            over subtle): UGA 7.0 light / 6.5 dark, Illinois 4.9 / 7.2
+     map chrome text 7.4, dim placeholder 4.6 on the map's own chrome
+
+   Specificity: every token block out-ranks the base one it restates
+     :root[data-look] (0,2,0)                 > :root (0,1,0)
+     :root[data-look][data-planner-theme] (0,3,0) > :root[data-planner-theme] (0,2,0)
+     :root[data-look] .planner-app (0,3,0)    > .planner-app[data-theme] (0,2,0),
+       so the dark blocks below are (0,4,0) to win back.
+   ========================================================================= */
+
+/* Newsreader loads from <head> in app/layout.tsx (see app/redesign.css). */
+
+/* ---- tokens: light --------------------------------------------------------- */
+
+:root[data-look='editorial'],
+:root[data-look='editorial'] .planner-app,
+:root[data-look='editorial'] .onb {
+  --ds-serif: 'Newsreader', 'Iowan Old Style', 'Source Serif 4', Charter, Georgia, serif;
+
+  --ds-r-sm: 4px;
+  --ds-r: 6px;
+  --ds-r-lg: 8px;
+
+  --ds-bg: #f7f4ee;
+  --ds-surface: #fdfbf7;
+  --ds-subtle: #f1ede5;
+  --ds-muted: #e9e4da;
+  --ds-elevated: #fffdfa;
+  --ds-border: #e6e0d4;
+  --ds-border-strong: #d3cbbb;
+  --ds-text: #1f1b16;
+  --ds-text-2: #5c544a;
+  --ds-text-3: #6d655a;
+  --ds-success: #2f6b3a;
+  --ds-warning: #8f5410;
+  --ds-danger: #a3261d;
+  --ds-info: #2c5788;
+  /* Shadows in the ink's own colour, small: paper lifts, it does not float. */
+  --ds-shadow-1: 0 1px 1px rgb(31 27 22 / 0.04), 0 0 0 1px rgb(31 27 22 / 0.06);
+  --ds-shadow-2: 0 1px 2px rgb(31 27 22 / 0.05), 0 12px 32px -16px rgb(31 27 22 / 0.24), 0 0 0 1px rgb(31 27 22 / 0.07);
+}
+
+/* ---- tokens: dark (warm charcoal paper, cream ink) ------------------------- */
+
+:root[data-look='editorial'][data-planner-theme='dark'],
+:root[data-look='editorial'] .planner-app[data-theme='dark'],
+:root[data-look='editorial'] .onb[data-theme='dark'] {
+  --ds-bg: #181613;
+  --ds-surface: #1f1c18;
+  --ds-subtle: #26231e;
+  --ds-muted: #2f2b25;
+  --ds-elevated: #2a2622;
+  --ds-border: #38332c;
+  --ds-border-strong: #4d473e;
+  --ds-text: #efe9de;
+  --ds-text-2: #b9b0a2;
+  --ds-text-3: #9d9486;
+  --ds-success: #8fc49a;
+  --ds-warning: #dcae5e;
+  --ds-danger: #ec8f80;
+  --ds-info: #93b6df;
+  --ds-shadow-1: 0 1px 2px rgb(0 0 0 / 0.35), 0 0 0 1px rgb(255 246 230 / 0.05);
+  --ds-shadow-2: 0 1px 2px rgb(0 0 0 / 0.3), 0 16px 36px -14px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 246 230 / 0.07);
+}
+
+/* ---- the course map: a dark plate on the page, in both themes -------------- */
+
+:root[data-look='editorial'] .planner-app {
+  --orion-map: #16130f;
+  --orion-map-contrast: #fbf8f2;
+}
+:root[data-look='editorial'] .planner-app[data-theme='dark'] {
+  --orion-map: #100e0b;
+  --orion-map-contrast: #fbf8f2;
+}
+/* Framed by the paper's hairline (--ds-border), printed flat rather than raised.
+   The red drop zone (.is-remove-target, overlays.css) keeps its own edge. */
+:root[data-look='editorial'] .planner-app .map-stage:not(.is-remove-target),
+:root[data-look='editorial'] .planner-app[data-theme='dark'] .map-stage:not(.is-remove-target) {
+  border-color: var(--ds-border);
+  box-shadow: none;
+}
+
+/* ---- page ------------------------------------------------------------------ */
+
+:root[data-look='editorial'] body { background-color: var(--ds-bg); }
+
+/* The header is the same sheet of paper as the page: solid, no frosted blur. */
+:root[data-look='editorial'] .planner-app .app-header {
+  background: var(--ds-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Semester columns sit on the page with a hairline only. */
+:root[data-look='editorial'] .planner-app .semester-column { box-shadow: none; }
+/* The current term's dashed edge was a hairline on its own tint; one step firmer. */
+:root[data-look='editorial'] .planner-app .semester-column.current-term-column { border-color: var(--ds-border-strong); }
+
+/* ---- display type: Newsreader on headings only ----------------------------- */
+
+:root[data-look='editorial'] .planner-app .brand-name,
+:root[data-look='editorial'] .onb .onb-brand span,
+:root[data-look='editorial'] .planner-app .rail-program-name,
+:root[data-look='editorial'] .planner-app .semester-heading h3,
+:root[data-look='editorial'] .planner-app .bot-head h2,
+:root[data-look='editorial'] .onb .onb-step h1,
+:root[data-look='editorial'] .onb .onb-program-groups h2,
+:root[data-look='editorial'] .planner-loading h1,
+:root[data-look='editorial'] [data-slot='dialog-content'] [data-slot='dialog-title'],
+:root[data-look='editorial'] [data-slot='alert-dialog-content'] [data-slot='alert-dialog-title'],
+:root[data-look='editorial'] [data-slot='sheet-content'] [data-slot='sheet-title'] {
+  color: var(--ds-text);
+  font-family: var(--ds-serif);
+  /* Inter's cv11 / ss03 mean nothing (or something else) in the serif. */
+  font-feature-settings: normal;
+  font-variant-numeric: lining-nums proportional-nums;
+  font-optical-sizing: auto;
+  font-kerning: normal;
+}
+
+/* The wordmark: capitals, widely spaced, like a masthead. */
+:root[data-look='editorial'] .planner-app .brand-name,
+:root[data-look='editorial'] .onb .onb-brand span {
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  line-height: 1;
+}
+
+/* The serif's smaller x-height reads about 2px smaller than Inter, so each
+   heading is set a step up to keep its weight on the page. */
+:root[data-look='editorial'] .planner-app .rail-program-name {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+:root[data-look='editorial'] .planner-app .semester-heading h3 {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+}
+/* The stage line inside the semester name ("Junior year") stays Inter. */
+:root[data-look='editorial'] .planner-app .semester-heading h3 .semester-degree-stage {
+  font-feature-settings: 'cv11', 'ss03';
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+:root[data-look='editorial'] .planner-app .bot-head h2 {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1.25;
+}
+
+:root[data-look='editorial'] .onb .onb-step h1 {
+  font-size: 32px;
+  font-weight: 400;
+  letter-spacing: -0.018em;
+  line-height: 1.15;
+}
+:root[data-look='editorial'] .onb .onb-program-groups h2 {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+}
+
+:root[data-look='editorial'] .planner-loading h1 {
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+:root[data-look='editorial'] .planner-loading p { color: var(--ds-text-2); }
+
+:root[data-look='editorial'] [data-slot='dialog-content'] [data-slot='dialog-title'],
+:root[data-look='editorial'] [data-slot='alert-dialog-content'] [data-slot='alert-dialog-title'],
+:root[data-look='editorial'] [data-slot='sheet-content'] [data-slot='sheet-title'] {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+/* The two larger dialog titles (privacy choice, saved plans). */
+:root[data-look='editorial'] .orion-dialog.insights-dialog[data-slot='dialog-content'] [data-slot='dialog-title'],
+:root[data-look='editorial'] .orion-dialog.account-dialog[data-slot='dialog-content'] [data-slot='dialog-title'] {
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+@media (max-width: 620px) {
+  :root[data-look='editorial'] .onb .onb-step h1 { font-size: 28px; }
+}

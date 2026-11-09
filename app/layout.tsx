@@ -1,5 +1,12 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import './redesign.css';
+import './redesign/rail.css';
+import './redesign/assistant.css';
+import './redesign/overlays.css';
+import './redesign/onboarding.css';
+import './redesign/fixes.css';
+import './redesign/look-editorial.css';
 
 /**
  * School-neutral, because the student picks the school in onboarding.
@@ -37,8 +44,19 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" data-look="editorial">
+      <head>
+        {/* Fonts: Inter for everything, Newsreader for the Editorial headings. */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Newsreader:opsz,wght@6..72,400..600&display=swap"
+        />
+      </head>
+      <body>
+        {children}
+      </body>
     </html>
   );
 }

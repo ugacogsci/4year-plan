@@ -1,0 +1,1882 @@
+/* =========================================================================
+   ORION design system: overlays
+
+   Everything that floats over the page (menus, popovers, hover cards,
+   tooltips, dialogs, toasts) and the board-level bits that pop up on it (the
+   attention bar, issue marks, the building pill), plus the floating parts of
+   the course map. Tokens come from app/redesign.css.
+
+     menus      surface, hairline, 8px radius, floating shadow, 4px inset,
+                32px rows that highlight in the subtle grey
+     popovers   the same card with 12-16px of room, a 14px title
+     dialogs    12px radius, 24px of room, 16px title, buttons on the right
+     scrim      black at 40% (60% in dark), no blur
+     map        the map is dark in both themes, so its own controls are a
+                dark chrome mixed from the map colour; cards that float on
+                it are ordinary surfaces
+
+   Portalled content lives on <body>, outside .planner-app, so it reads the
+   :root tokens (light, or dark through :root[data-planner-theme='dark']).
+   Tailwind's utilities sit in a cascade layer, so a plain rule here beats
+   them; the planner's own rules are matched selector for selector, light and
+   dark, because this file loads after them.
+   ========================================================================= */
+
+/* ---- floating surfaces: one card for every menu, list and popover -------- */
+
+[data-slot='dropdown-menu-content'],
+[data-slot='dropdown-menu-sub-content'],
+[data-slot='context-menu-content'],
+[data-slot='context-menu-sub-content'],
+[data-slot='select-content'],
+[data-slot='combobox-content'],
+[data-slot='hover-card-content'],
+[data-slot='popover-content'] {
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+
+/* Lists of choices sit 4px inside their card. */
+[data-slot='dropdown-menu-content'],
+[data-slot='dropdown-menu-sub-content'],
+[data-slot='context-menu-content'],
+[data-slot='context-menu-sub-content'],
+[data-slot='select-content'],
+[data-slot='combobox-content'] {
+  padding: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ds-border-strong) transparent;
+}
+
+/* ---- menu rows ----------------------------------------------------------- */
+
+:is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='context-menu-content'], [data-slot='context-menu-sub-content'], [data-slot='select-content'], [data-slot='combobox-content'])
+  :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger'], [data-slot='dropdown-menu-checkbox-item'], [data-slot='dropdown-menu-radio-item'], [data-slot='context-menu-item'], [data-slot='context-menu-sub-trigger'], [data-slot='context-menu-checkbox-item'], [data-slot='context-menu-radio-item'], [data-slot='select-item'], [data-slot='combobox-item']) {
+  min-height: 32px;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: 0;
+  cursor: default;
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+:is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='context-menu-content'], [data-slot='context-menu-sub-content'], [data-slot='select-content'], [data-slot='combobox-content'])
+  :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger'], [data-slot='dropdown-menu-checkbox-item'], [data-slot='dropdown-menu-radio-item'], [data-slot='context-menu-item'], [data-slot='context-menu-sub-trigger'], [data-slot='context-menu-checkbox-item'], [data-slot='context-menu-radio-item'], [data-slot='select-item'], [data-slot='combobox-item']):is([data-highlighted], :focus, [data-popup-open], [data-open]) {
+  outline: none;
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+:is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='context-menu-content'], [data-slot='context-menu-sub-content'], [data-slot='select-content'], [data-slot='combobox-content'])
+  :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger'], [data-slot='dropdown-menu-checkbox-item'], [data-slot='dropdown-menu-radio-item'], [data-slot='context-menu-item'], [data-slot='context-menu-sub-trigger'], [data-slot='context-menu-checkbox-item'], [data-slot='context-menu-radio-item'], [data-slot='select-item'], [data-slot='combobox-item']) svg {
+  width: 16px;
+  height: 16px;
+  color: var(--ds-text-3);
+}
+:is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='context-menu-content'], [data-slot='context-menu-sub-content'], [data-slot='select-content'], [data-slot='combobox-content'])
+  :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger'], [data-slot='dropdown-menu-checkbox-item'], [data-slot='dropdown-menu-radio-item'], [data-slot='context-menu-item'], [data-slot='context-menu-radio-item'], [data-slot='select-item'], [data-slot='combobox-item']):is([data-disabled], [aria-disabled='true']) {
+  opacity: 0.5;
+}
+
+/* The submenu chevron and the shortcut hint stay quiet. */
+:is([data-slot='dropdown-menu-sub-trigger'], [data-slot='context-menu-sub-trigger']) > svg:last-child {
+  width: 14px;
+  height: 14px;
+  color: var(--ds-text-3);
+}
+:is([data-slot='dropdown-menu-shortcut'], [data-slot='context-menu-shortcut'], [data-slot='command-shortcut']) {
+  color: var(--ds-text-3);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+/* A destructive row is red text, and a faint red when highlighted. */
+:is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='context-menu-content']) :is([data-slot='dropdown-menu-item'], [data-slot='context-menu-item'])[data-variant='destructive'],
+:is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='context-menu-content']) :is([data-slot='dropdown-menu-item'], [data-slot='context-menu-item'])[data-variant='destructive'] svg {
+  color: var(--ds-danger);
+}
+:is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='context-menu-content']) :is([data-slot='dropdown-menu-item'], [data-slot='context-menu-item'])[data-variant='destructive']:is([data-highlighted], :focus) {
+  background: color-mix(in srgb, var(--ds-danger) 10%, transparent);
+  color: var(--ds-danger);
+}
+
+/* Checkbox and radio rows: the tick sits at the right edge. */
+:is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='context-menu-content'], [data-slot='context-menu-sub-content'])
+  :is([data-slot='dropdown-menu-checkbox-item'], [data-slot='dropdown-menu-radio-item'], [data-slot='context-menu-checkbox-item'], [data-slot='context-menu-radio-item']) {
+  padding-right: 32px;
+}
+:is([data-slot='dropdown-menu-checkbox-item-indicator'], [data-slot='dropdown-menu-radio-item-indicator']) {
+  right: 8px;
+}
+:is([data-slot='dropdown-menu-checkbox-item-indicator'], [data-slot='dropdown-menu-radio-item-indicator']) svg {
+  width: 14px;
+  height: 14px;
+  color: var(--ds-text);
+}
+
+/* Group labels are small grey captions; groups after the first get a hairline. */
+:is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content'], [data-slot='context-menu-content'], [data-slot='select-content'], [data-slot='combobox-content'])
+  :is([data-slot='dropdown-menu-label'], [data-slot='context-menu-label'], [data-slot='select-label'], [data-slot='combobox-label']) {
+  padding: 8px 8px 4px;
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0;
+}
+:is([data-slot='dropdown-menu-content'], [data-slot='dropdown-menu-sub-content']) [data-slot='dropdown-menu-group'] + [data-slot='dropdown-menu-group'] {
+  margin: 4px -4px 0;
+  padding: 4px 4px 0;
+  border-top: 1px solid var(--ds-border);
+}
+:is([data-slot='dropdown-menu-separator'], [data-slot='context-menu-separator'], [data-slot='select-separator'], [data-slot='combobox-separator'], [data-slot='command-separator']) {
+  height: 1px;
+  margin: 4px -4px;
+  background: var(--ds-border);
+}
+
+/* ---- the course card's menu, its submenus and the instructor list -------- */
+
+.course-options-menu,
+.planner-action-menu,
+.profile-menu { font-family: var(--ds-font); }
+.course-options-menu [data-slot='dropdown-menu-label'] {
+  color: var(--ds-text-2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.course-alternatives-menu {
+  max-height: min(360px, var(--available-height, 360px));
+}
+.course-alternatives-menu :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-radio-item']) {
+  align-items: flex-start;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.course-alternative-label { gap: 2px; }
+.course-alternative-label strong {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 600;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.course-alternative-label > span {
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 400;
+  line-height: 1.5;
+}
+:is(.course-options-menu, .course-alternatives-menu) small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-xs);
+  font-weight: 400;
+  line-height: 1.5;
+}
+.course-instructor-menu .course-instructor-loading {
+  margin: 4px 8px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+
+/* "Add a summer" and "Add a semester" on the board bar: their open state, and the menus they open. */
+.planner-app .board-bar .add-summer-button:is([aria-expanded='true'], [data-popup-open]) {
+  border-color: var(--ds-border-strong);
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+.planner-app .board-bar .add-summer-button svg { width: 14px; height: 14px; }
+.planner-action-menu [data-slot='dropdown-menu-label'] {
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 16px;
+}
+.planner-action-menu [data-slot='dropdown-menu-item'],
+.profile-menu [data-slot='dropdown-menu-item'] {
+  padding: 4px 8px;
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 400;
+  line-height: 20px;
+}
+
+/* ---- command palette (kept in the family if it is ever used) ------------- */
+
+[data-slot='command'] {
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+}
+[data-slot='command-input-wrapper'] {
+  height: 40px;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--ds-border);
+}
+[data-slot='command-input'] {
+  height: 40px;
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+}
+[data-slot='command-input']::placeholder { color: var(--ds-text-3); }
+[data-slot='command-list'] { padding: 4px; }
+[data-slot='command-group'] [cmdk-group-heading] {
+  padding: 8px 8px 4px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+}
+[data-slot='command-item'] {
+  min-height: 32px;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--ds-r-sm);
+  font-size: var(--ds-base);
+}
+[data-slot='command-item'][data-selected='true'] { background: var(--ds-subtle); color: var(--ds-text); }
+[data-slot='command-empty'] { padding: 24px 12px; color: var(--ds-text-3); font-size: var(--ds-base); }
+
+/* ---- popovers ------------------------------------------------------------ */
+
+[data-slot='popover-content'] {
+  gap: 8px;
+  padding: 12px;
+}
+[data-slot='hover-card-content'] { padding: 12px; }
+[data-slot='popover-header'] { gap: 4px; }
+[data-slot='popover-content'] [data-slot='popover-title'] {
+  margin: 0;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+[data-slot='popover-content'] [data-slot='popover-description'] {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+
+/* Keyboard focus inside anything that floats. */
+:is([data-slot='popover-content'], [data-slot='hover-card-content'], [data-slot='dialog-content'], [data-slot='alert-dialog-content'], [data-slot='sheet-content'], [data-slot='toast'], .packet-overlay)
+  :is(button, input, textarea, select, a, summary, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--ds-focus);
+}
+[data-slot='toast']:focus-visible {
+  outline: none;
+  box-shadow: var(--ds-shadow-2), var(--ds-focus);
+}
+
+/* Course codes in a note are links to the map. */
+.issue-course-link {
+  color: inherit;
+  font-weight: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  border-radius: var(--ds-r-sm);
+}
+.issue-course-link:hover {
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 1px;
+}
+
+/* ---- tooltips: the one inverted surface ---------------------------------- */
+
+[data-slot='tooltip-content'] {
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-text);
+  color: var(--ds-surface);
+  box-shadow: var(--ds-shadow-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* ---- dialogs, alert dialogs, sheets --------------------------------------- */
+
+[data-slot='dialog-overlay'],
+[data-slot='alert-dialog-overlay'],
+[data-slot='sheet-overlay'] {
+  background: rgb(0 0 0 / 0.4);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-planner-theme='dark'] :is([data-slot='dialog-overlay'], [data-slot='alert-dialog-overlay'], [data-slot='sheet-overlay']) {
+  background: rgb(0 0 0 / 0.6);
+}
+
+[data-slot='dialog-content'],
+[data-slot='alert-dialog-content'] {
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-lg);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+[data-slot='alert-dialog-content'] { max-width: min(420px, calc(100vw - 32px)); }
+
+[data-slot='dialog-content'] [data-slot='dialog-header'] { gap: 8px; }
+[data-slot='alert-dialog-content'] [data-slot='alert-dialog-header'] {
+  gap: 8px;
+  place-items: start;
+  text-align: left;
+}
+[data-slot='dialog-content'] [data-slot='dialog-title'],
+[data-slot='alert-dialog-content'] [data-slot='alert-dialog-title'],
+[data-slot='sheet-content'] [data-slot='sheet-title'] {
+  margin: 0;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-lg);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+[data-slot='dialog-content'] [data-slot='dialog-description'],
+[data-slot='alert-dialog-content'] [data-slot='alert-dialog-description'],
+[data-slot='sheet-content'] [data-slot='sheet-description'] {
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 400;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+[data-slot='dialog-content'] [data-slot='dialog-description'] a {
+  color: var(--ds-text);
+  text-underline-offset: 3px;
+}
+
+/* The close mark in the corner: a quiet 28px icon button. */
+[data-slot='dialog-content'] > :is([data-slot='dialog-close'], button[class*='right-2']),
+[data-slot='sheet-content'] > :is([data-slot='sheet-close'], button[class*='right-']) {
+  top: 20px;
+  right: 20px;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text-3);
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+[data-slot='dialog-content'] > :is([data-slot='dialog-close'], button[class*='right-2']):hover,
+[data-slot='sheet-content'] > :is([data-slot='sheet-close'], button[class*='right-']):hover {
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+[data-slot='dialog-content'] > :is([data-slot='dialog-close'], button[class*='right-2']) svg { width: 16px; height: 16px; }
+
+/* Footers: no shaded strip, the buttons sit on the right. */
+[data-slot='dialog-footer'],
+[data-slot='alert-dialog-footer'],
+[data-slot='sheet-footer'] {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Buttons that live outside the planner: secondary by default, the
+   shadcn default variant filled, the destructive variant red. */
+:is([data-slot='dialog-footer'], [data-slot='alert-dialog-footer'], [data-slot='sheet-footer'], .packet-toolbar-actions) button {
+  height: 32px;
+  min-height: 32px;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  letter-spacing: 0;
+  transition: background var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+:is([data-slot='dialog-footer'], [data-slot='alert-dialog-footer'], [data-slot='sheet-footer'], .packet-toolbar-actions) button:hover:not(:disabled) {
+  border-color: var(--ds-border-strong);
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+:is([data-slot='dialog-footer'], [data-slot='alert-dialog-footer'], [data-slot='sheet-footer'], .packet-toolbar-actions) button[class*='bg-primary'] {
+  border-color: transparent;
+  background: var(--ds-text);
+  color: var(--ds-surface);
+  font-weight: 600;
+}
+:is([data-slot='dialog-footer'], [data-slot='alert-dialog-footer'], [data-slot='sheet-footer'], .packet-toolbar-actions) button[class*='bg-primary']:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ds-text) 86%, var(--ds-surface));
+  color: var(--ds-surface);
+}
+:is([data-slot='dialog-footer'], [data-slot='alert-dialog-footer'], [data-slot='sheet-footer']) button[class*='bg-destructive'] {
+  border-color: transparent;
+  background: var(--ds-danger);
+  color: var(--ds-surface);
+  font-weight: 600;
+}
+:is([data-slot='dialog-footer'], [data-slot='alert-dialog-footer'], [data-slot='sheet-footer']) button[class*='bg-destructive']:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ds-danger) 86%, var(--ds-text));
+  color: var(--ds-surface);
+}
+:is([data-slot='dialog-footer'], [data-slot='alert-dialog-footer'], [data-slot='sheet-footer'], .packet-toolbar-actions) button:disabled { opacity: 0.5; }
+:is([data-slot='dialog-footer'], [data-slot='alert-dialog-footer'], [data-slot='sheet-footer'], .packet-toolbar-actions) button svg { width: 15px; height: 15px; }
+
+/* "Remove Summer 2027?" keeps its place above the sticky header; only the type changes. */
+.summer-remove-dialog {
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+}
+
+/* Sheets (none in use today; kept in the family). */
+[data-slot='sheet-content'] {
+  gap: 16px;
+  border-color: var(--ds-border);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+}
+[data-slot='sheet-header'] { gap: 8px; padding: 24px 24px 0; }
+[data-slot='sheet-footer'] { padding: 0 24px 24px; }
+
+/* ---- privacy notice and feedback (site-notice.tsx, feedback.tsx) --------- */
+
+[data-slot='dialog-content'].privacy-dialog {
+  gap: 16px;
+  padding: 24px;
+  border-radius: var(--ds-r-lg);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+}
+.privacy-dialog [data-slot='dialog-header'] { padding-right: 32px; }
+.privacy-body { gap: 24px; scrollbar-color: var(--ds-border-strong) transparent; }
+.privacy-body h3 {
+  margin: 0 0 8px;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.privacy-body p {
+  margin: 0 0 8px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-base);
+  line-height: 1.6;
+}
+
+/* The research choices (insights-controls.tsx), in the privacy notice and the first-run dialog. */
+.insights-settings {
+  gap: 12px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--ds-border);
+}
+.insights-settings > label,
+.feedback-check {
+  gap: 12px;
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+.insights-settings input,
+.feedback-check input,
+.feedback-kind input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--ds-accent);
+}
+.insights-settings small {
+  margin-top: 4px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  font-weight: 400;
+  line-height: 1.5;
+}
+.insights-settings output,
+.feedback-form output,
+.orion-dialog output {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+}
+.insights-settings p { color: var(--ds-text-2); }
+
+/* Buttons in these dialogs and in the settings: one secondary style, the main choice filled. */
+.insights-actions { gap: 8px; }
+.insights-actions button,
+.orion-dialog .insights-actions button,
+.orion-dialog .account-actions button,
+.orion-dialog .account-confirm button,
+.orion-dialog .onb-next,
+.orion-dialog .onb-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0;
+  text-align: center;
+  filter: none;
+  transition: background var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.insights-actions button:hover:not(:disabled),
+.orion-dialog .insights-actions button:hover:not(:disabled),
+.orion-dialog .account-actions button:hover:not(:disabled),
+.orion-dialog .account-confirm button:hover:not(:disabled),
+.orion-dialog .onb-back:hover:not(:disabled) {
+  border-color: var(--ds-border-strong);
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+  opacity: 1;
+}
+.orion-dialog .insights-actions button.insights-accept-all,
+.orion-dialog .onb-next,
+.orion-dialog .account-confirm button:first-of-type,
+.feedback-dialog .insights-actions button[type='submit'] {
+  border-color: transparent;
+  background: var(--ds-text);
+  color: var(--ds-surface);
+  font-weight: 600;
+}
+.orion-dialog .insights-actions button.insights-accept-all:hover:not(:disabled),
+.orion-dialog .onb-next:hover:not(:disabled),
+.orion-dialog .account-confirm button:first-of-type:hover:not(:disabled),
+.feedback-dialog .insights-actions button[type='submit']:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ds-text) 86%, var(--ds-surface));
+  color: var(--ds-surface);
+  opacity: 1;
+}
+.insights-actions button:disabled,
+.orion-dialog button:disabled,
+.orion-dialog .onb-next:disabled { opacity: 0.5; }
+.insights-actions svg { width: 15px; height: 15px; }
+
+/* The feedback form: labelled fields, 32px inputs, a focus ring. */
+.feedback-form { gap: 16px; }
+.feedback-form > label:not(.feedback-check) {
+  gap: 4px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1.5;
+}
+.feedback-form :is(textarea, input[type='email'], select) {
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 400;
+  line-height: 1.5;
+  transition: border-color var(--ds-fast) var(--ds-ease), box-shadow var(--ds-fast) var(--ds-ease);
+}
+.feedback-form :is(textarea, input[type='email'], select):hover:not(:disabled) { border-color: var(--ds-border-strong); }
+.feedback-form :is(textarea, input[type='email'], select):disabled { opacity: 0.5; }
+.feedback-form textarea { min-height: 112px; }
+.feedback-kind { gap: 20px; }
+.feedback-kind label {
+  gap: 8px;
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  cursor: pointer;
+}
+.feedback-check { font-weight: 400; }
+.feedback-check span { color: var(--ds-text-2); }
+.feedback-form p { color: var(--ds-text-2); font-size: var(--ds-sm); line-height: 1.5; }
+.feedback-form a { color: var(--ds-text-2); font-size: var(--ds-sm); text-underline-offset: 3px; }
+.feedback-form a:hover { color: var(--ds-text); }
+.feedback-form .insights-actions { justify-content: flex-end; }
+
+/* ---- account and first-run privacy dialogs (account-controls.tsx, insights-controls.tsx) ----
+   app/redesign/onboarding.css loads after this file and restyles
+   .orion-dialog.account-dialog and .orion-dialog.insights-dialog in full;
+   these rules are the shared base underneath it. */
+
+.orion-dialog,
+:root[data-planner-theme='dark'] .orion-dialog {
+  --onb-text: var(--ds-text);
+  --onb-bg: var(--ds-surface);
+  --onb-mid: var(--ds-text-2);
+  --onb-line: var(--ds-border);
+}
+[data-slot='dialog-content'].orion-dialog {
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-lg);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+}
+.orion-dialog [data-slot='dialog-title'] { padding-right: 32px; }
+.orion-dialog p {
+  margin: 0;
+  color: var(--ds-text-2);
+  font-size: var(--ds-base);
+  line-height: 1.6;
+}
+.orion-dialog .account-actions { gap: 8px; }
+.orion-dialog .account-confirm {
+  padding-top: 16px;
+  border-top: 1px solid var(--ds-border);
+}
+.orion-dialog .account-confirm p { color: var(--ds-text); }
+/* The three first-run choices read left to right and end on the filled one. */
+.orion-dialog.insights-dialog .insights-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 8px;
+}
+
+/* ---- toasts ------------------------------------------------------------- */
+
+[data-slot='toast'],
+[data-sonner-toast] {
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-lg);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+}
+[data-slot='toast-content'] {
+  gap: 12px;
+  padding: 12px 16px;
+  align-items: flex-start;
+}
+[data-slot='toast-title'],
+[data-sonner-toast] [data-title] {
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  font-weight: 600;
+  line-height: 20px;
+}
+[data-slot='toast-description'],
+[data-sonner-toast] [data-description] {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+[data-slot='toast-icon'] { margin-top: 2px; color: var(--ds-text-3); }
+[data-slot='toast-icon'] svg { width: 16px; height: 16px; }
+[data-slot='toast'][data-type='success'] [data-slot='toast-icon'] { color: var(--ds-success); }
+[data-slot='toast'][data-type='warning'] [data-slot='toast-icon'] { color: var(--ds-warning); }
+[data-slot='toast'][data-type='error'] [data-slot='toast-icon'],
+[data-slot='toast'] [data-slot='toast-icon'] .text-destructive { color: var(--ds-danger); }
+[data-slot='toast'][data-type='info'] [data-slot='toast-icon'] { color: var(--ds-info); }
+[data-slot='toast-action'] {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+}
+[data-slot='toast-action']:hover { border-color: var(--ds-border-strong); background: var(--ds-subtle); }
+[data-slot='toast-close'] {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text-3);
+}
+[data-slot='toast-close']:hover { background: var(--ds-subtle); color: var(--ds-text); }
+[data-slot='toast-close'] svg { width: 14px; height: 14px; }
+
+/* ---- what needs attention, on the board bar (attention-bar.tsx) ---------- */
+
+/* 4px of room inside the bar (taken back by the margin) so a focus ring is not clipped. */
+.planner-app .attention-bar {
+  gap: 8px;
+  margin: -4px;
+  padding: 4px;
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.4;
+}
+
+/* Each kind is a quiet status pill: a coloured dot and plain words. */
+.planner-app .attention-chip {
+  gap: 8px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: 999px;
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: 0 1px 1px rgb(28 25 23 / 0.04);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1.4;
+  transition: background var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .attention-chip:hover,
+.planner-app .attention-chip:is([aria-expanded='true'], [data-popup-open]) {
+  border-color: var(--ds-border-strong);
+  background: var(--ds-subtle);
+}
+.planner-app .attention-chip:focus-visible,
+.planner-app .attention-more:focus-visible {
+  outline: none;
+  box-shadow: var(--ds-focus);
+}
+
+/* "Nothing needs attention." reads as the all-clear pill, with a green dot. */
+.planner-app .attention-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 4px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+}
+.planner-app .attention-clear::before {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ds-success);
+  content: '';
+}
+
+/* "Show N more": a ghost button, not an underlined link. */
+.planner-app .attention-more {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  text-decoration: none;
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .attention-more:hover,
+.planner-app .attention-more:is([aria-expanded='true'], [data-popup-open]) {
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+.planner-app .attention-more-now { color: var(--ds-text); font-weight: 500; }
+
+/* The dots: one size, the four status colours. */
+.attention-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ds-text-3);
+  opacity: 1;
+}
+.attention-dot.is-warning { background: var(--ds-warning); opacity: 1; }
+.attention-dot.is-error { background: var(--ds-danger); opacity: 1; }
+.attention-dot.is-info { background: var(--ds-info); opacity: 1; }
+
+/* The list behind a chip and behind "Show N more". */
+[data-slot='popover-content'].attention-popover {
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--ds-r);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+}
+.attention-popover [data-slot='popover-title'] {
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.attention-body { scrollbar-color: var(--ds-border-strong) transparent; }
+.attention-body p {
+  margin: 0 0 8px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.attention-body ul { gap: 12px; }
+.attention-section + .attention-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ds-border);
+}
+.attention-section h3 {
+  margin: 0 0 8px;
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.attention-row {
+  grid-template-columns: 6px minmax(0, 1fr);
+  gap: 12px;
+}
+.attention-row .attention-dot { margin-top: 7px; }
+.attention-row-text { gap: 2px; }
+.attention-row-text > span {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.attention-row-title {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  line-height: 20px;
+  border-radius: var(--ds-r-sm);
+}
+.attention-row-later .attention-row-title { font-weight: 400; }
+.attention-row-title:hover {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+}
+
+/* ---- issue marks on cards, semesters and plan tabs (issue-badge.tsx) ------ */
+
+.issue-badge {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+.issue-badge:hover { background: var(--ds-subtle); }
+.planner-app .issue-badge:focus-visible,
+.issue-badge:focus-visible {
+  outline: none;
+  box-shadow: var(--ds-focus);
+}
+/* A tinted disc with the mark in the status colour, so a card is noted, not shouted at. */
+.issue-icon {
+  width: 16px;
+  height: 16px;
+  background: color-mix(in srgb, var(--ds-warning) 16%, transparent);
+  color: var(--ds-warning);
+  font-family: var(--ds-font);
+  font-size: var(--ds-xs);
+  font-weight: 600;
+  line-height: 1;
+}
+.issue-icon.is-error {
+  background: color-mix(in srgb, var(--ds-danger) 14%, transparent);
+  color: var(--ds-danger);
+}
+.issue-icon.is-info {
+  background: var(--ds-muted);
+  color: var(--ds-text-2);
+}
+.review-chip:hover .issue-icon,
+.review-chip:focus-visible .issue-icon { transform: none; }
+
+.planner-app .plan-tab-issue-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--ds-text-3);
+}
+.planner-app .plan-tab-issue-dot.is-warning { background: var(--ds-warning); }
+.planner-app .plan-tab-issue-dot.is-error { background: var(--ds-danger); }
+/* "Why this course was picked": a neutral dot. */
+.planner-app .goal-reason-badge .plan-tab-issue-dot,
+:root[data-planner-theme='dark'] .planner-app .goal-reason-badge .plan-tab-issue-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--ds-text-3);
+}
+
+/* The note behind a mark: a small hover card, not a black slab. */
+[data-slot='popover-content'].issue-tooltip {
+  gap: 4px;
+  width: min(296px, calc(100vw - 24px));
+  padding: 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.issue-tooltip strong {
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  font-weight: 600;
+  line-height: 20px;
+}
+.issue-tooltip span {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  opacity: 1;
+}
+
+/* ---- the board while a plan builds: a small floating pill --------------- */
+
+.planner-app .plan-board-building > * { opacity: 0.5; }
+.planner-app .plan-board-building::before {
+  top: 12px;
+  left: 50%;
+  z-index: 5;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: 999px;
+  background: var(--ds-surface);
+  color: var(--ds-text-2);
+  box-shadow: var(--ds-shadow-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 26px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* ---- the course map's own controls (course-explorer.tsx) -----------------
+
+   The map is dark in both themes, so the search, the filter button and the
+   zoom stack are one dark chrome mixed from the map colour itself: solid, a
+   faint white hairline, white text. */
+
+.planner-app .course-finder {
+  --map-chrome: color-mix(in srgb, var(--orion-map) 88%, var(--orion-map-contrast));
+  --map-chrome-hover: color-mix(in srgb, var(--orion-map) 80%, var(--orion-map-contrast));
+  --map-chrome-line: color-mix(in srgb, var(--orion-map-contrast) 12%, transparent);
+  --map-chrome-line-strong: color-mix(in srgb, var(--orion-map-contrast) 24%, transparent);
+  --map-chrome-text: color-mix(in srgb, var(--orion-map-contrast) 72%, transparent);
+  --map-chrome-text-dim: color-mix(in srgb, var(--orion-map-contrast) 52%, transparent);
+  --map-chrome-ring: 0 0 0 3px color-mix(in srgb, var(--ds-accent) 50%, transparent);
+}
+
+/* Search. */
+.planner-app .finder-search input,
+.planner-app[data-theme='dark'] .finder-search input {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--map-chrome-line);
+  border-radius: var(--ds-r-sm);
+  background: var(--map-chrome);
+  color: var(--orion-map-contrast);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transition: border-color var(--ds-fast) var(--ds-ease), box-shadow var(--ds-fast) var(--ds-ease);
+}
+.planner-app .finder-search input::placeholder,
+.planner-app[data-theme='dark'] .finder-search input::placeholder { color: var(--map-chrome-text-dim); }
+.planner-app .finder-search input:hover,
+.planner-app[data-theme='dark'] .finder-search input:hover { border-color: var(--map-chrome-line-strong); }
+.planner-app .finder-search input:focus-visible,
+.planner-app[data-theme='dark'] .finder-search input:focus-visible {
+  outline: none;
+  border-color: var(--map-chrome-line-strong);
+  box-shadow: var(--map-chrome-ring);
+}
+
+/* The department filter button and the zoom stack. */
+.planner-app .map-filter-button,
+.planner-app[data-theme='dark'] .map-filter-button,
+.planner-app .map-zoom button,
+.planner-app[data-theme='dark'] .map-zoom button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--map-chrome-line);
+  border-radius: var(--ds-r-sm);
+  background: var(--map-chrome);
+  color: var(--map-chrome-text);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transition: background var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .map-filter-button,
+.planner-app[data-theme='dark'] .map-filter-button { width: 32px; height: 32px; }
+.planner-app .map-zoom button,
+.planner-app[data-theme='dark'] .map-zoom button { width: 28px; height: 28px; }
+.planner-app .map-zoom { gap: 4px; }
+.planner-app .map-filter-button:hover,
+.planner-app[data-theme='dark'] .map-filter-button:hover,
+.planner-app .map-filter-button:is([aria-expanded='true'], [data-popup-open]),
+.planner-app[data-theme='dark'] .map-filter-button:is([aria-expanded='true'], [data-popup-open]),
+.planner-app .map-zoom button:hover:not(:disabled),
+.planner-app[data-theme='dark'] .map-zoom button:hover:not(:disabled) {
+  border-color: var(--map-chrome-line-strong);
+  background: var(--map-chrome-hover);
+  color: var(--orion-map-contrast);
+}
+.planner-app .map-filter-button:focus-visible,
+.planner-app .map-zoom button:focus-visible {
+  outline: none;
+  border-color: var(--map-chrome-line-strong);
+  box-shadow: var(--map-chrome-ring);
+}
+.planner-app .map-zoom button:disabled { opacity: 0.5; }
+.planner-app .map-filter-button svg,
+.planner-app .map-zoom button svg { width: 14px; height: 14px; }
+/* Arranging is on: the button turns white. */
+.planner-app .map-zoom button.is-active,
+.planner-app[data-theme='dark'] .map-zoom button.is-active,
+.planner-app .map-zoom button.is-active:hover,
+.planner-app[data-theme='dark'] .map-zoom button.is-active:hover {
+  border-color: transparent;
+  background: var(--orion-map-contrast);
+  color: var(--orion-map);
+}
+/* Some departments hidden: an accent dot in the corner. */
+.planner-app .map-filter-button.is-active { color: var(--orion-map-contrast); }
+.planner-app .map-filter-button.is-active::after {
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  background: var(--ds-accent);
+  box-shadow: 0 0 0 2px var(--map-chrome);
+}
+
+/* The code beside a hovered or selected node, and the codes at deep zoom. */
+.planner-app .map-hover-label,
+.planner-app .map-selection-label,
+.planner-app[data-theme='dark'] .map-hover-label,
+.planner-app[data-theme='dark'] .map-selection-label {
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--ds-r-sm);
+  background: color-mix(in srgb, var(--orion-map-contrast) 94%, transparent);
+  color: var(--orion-map);
+  box-shadow: 0 4px 12px -4px rgb(0 0 0 / 0.5);
+  font-family: var(--ds-font);
+  font-size: var(--ds-xs);
+  font-weight: 600;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .map-zoom-label {
+  color: var(--orion-map-contrast);
+  font-family: var(--ds-font);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.64;
+}
+/* The minimized map's one line. */
+.planner-app .map-collapsed-title {
+  color: var(--orion-map-contrast);
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Dragging a card back onto the map: a dashed red drop zone. */
+.planner-app .map-stage.is-remove-target {
+  border-color: color-mix(in srgb, var(--ds-danger) 60%, var(--ds-border));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ds-danger) 40%, transparent);
+}
+.planner-app .map-remove-target {
+  inset: 12px;
+  gap: 8px;
+  border: 1px dashed color-mix(in srgb, var(--ds-danger) 70%, var(--orion-map-contrast));
+  border-radius: var(--ds-r);
+  background: color-mix(in srgb, var(--orion-map) 86%, var(--ds-danger));
+  color: color-mix(in srgb, var(--ds-danger) 55%, var(--orion-map-contrast));
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+}
+.planner-app .map-remove-target svg { width: 20px; height: 20px; }
+
+/* ---- the department filter (portalled popover) --------------------------- */
+
+[data-slot='popover-content'].map-filter-popover,
+:root[data-planner-theme='dark'] .map-filter-popover {
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-2);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.map-filter-popover .finder-dept-search,
+:root[data-planner-theme='dark'] .map-filter-popover .finder-dept-search {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+}
+.map-filter-popover .finder-dept-search::placeholder { color: var(--ds-text-3); }
+.map-filter-popover .finder-dept-search:hover { border-color: var(--ds-border-strong); }
+.map-filter-popover .finder-dept-list,
+:root[data-planner-theme='dark'] .map-filter-popover .finder-dept-list {
+  gap: 0;
+  scrollbar-color: var(--ds-border-strong) transparent;
+}
+.map-filter-popover .finder-dept-list button,
+:root[data-planner-theme='dark'] .map-filter-popover .finder-dept-list button {
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 20px;
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+.map-filter-popover .finder-dept-list button:hover,
+:root[data-planner-theme='dark'] .map-filter-popover .finder-dept-list button:hover {
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+.map-filter-popover .finder-dept-list button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ds-accent) 55%, transparent);
+}
+.map-filter-popover .finder-dept-list button > span:last-child,
+:root[data-planner-theme='dark'] .map-filter-popover .finder-dept-list button > span:last-child {
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  font-variant-numeric: tabular-nums;
+}
+.map-filter-popover .finder-dept-list button.is-muted { opacity: 0.5; }
+.map-filter-popover .quiet {
+  margin: 0;
+  padding: 8px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+}
+
+/* ---- search results and the elective chooser on the map ------------------ */
+
+.planner-app .finder-results {
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-2);
+}
+.planner-app .finder-results-head {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ds-border);
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .finder-results ul {
+  padding: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ds-border-strong) transparent;
+}
+.planner-app .finder-results li {
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--ds-r-sm);
+}
+.planner-app .finder-results li.is-selected { background: var(--ds-subtle); }
+.planner-app .finder-result {
+  padding: 8px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.4;
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+.planner-app .finder-result:hover { background: var(--ds-subtle); color: var(--ds-text); }
+.planner-app .finder-results li.is-selected .finder-result:hover { background: var(--ds-muted); }
+.planner-app .finder-result .dept-dot { align-self: start; margin-top: 7px; }
+.planner-app .finder-result-code {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 600;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .finder-result-title {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.planner-app .finder-result-meta {
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .finder-result-add {
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text-2);
+  transition: background var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .finder-result-add:hover:not(:disabled) {
+  border-color: var(--ds-border-strong);
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+.planner-app .finder-result-add:disabled { opacity: 0.5; }
+.planner-app .finder-result-add svg { width: 14px; height: 14px; }
+.planner-app .finder-empty {
+  margin: 12px;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+}
+
+/* "Replace MATH 2250 / Fall 2027" heading the replacement list. */
+.planner-app .finder-chooser {
+  gap: 12px;
+  padding: 12px 12px 4px;
+}
+.planner-app .finder-chooser strong {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.planner-app .finder-chooser span {
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.planner-app .finder-chooser button {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text-3);
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .finder-chooser button:hover { background: var(--ds-subtle); color: var(--ds-text); }
+.planner-app .finder-chooser button svg { width: 16px; height: 16px; }
+
+/* "Back to replacements" while a replacement is open. */
+.planner-app .finder-preview-back {
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1;
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+.planner-app .finder-preview-back:hover { background: var(--ds-subtle); }
+.planner-app .finder-preview-back svg { width: 14px; height: 14px; color: var(--ds-text-2); }
+
+/* ---- the course card that opens on the map (map inspector, course-detail.tsx) ---- */
+
+.planner-app .map-inspector,
+.planner-app[data-theme='dark'] .map-inspector {
+  padding: 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ds-border-strong) transparent;
+}
+.planner-app .map-popup-heading {
+  gap: 8px;
+  font-size: var(--ds-sm);
+  line-height: 20px;
+}
+.planner-app .map-popup-heading strong {
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .map-popup-heading > span:last-child,
+.planner-app[data-theme='dark'] .map-popup-heading > span:last-child {
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .inspector-dot { width: 8px; height: 8px; }
+.planner-app .map-inspector > h3 {
+  margin: 4px 0;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+.planner-app .map-popup-description,
+.planner-app[data-theme='dark'] .map-popup-description {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+
+/* "Course details": a quiet disclosure, then labelled blocks. */
+.planner-app .map-popup-more,
+.planner-app[data-theme='dark'] .map-popup-more {
+  margin-top: 8px;
+  border-top: 1px solid var(--ds-border);
+}
+.planner-app .map-popup-more > summary {
+  padding: 8px 0 4px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  border-radius: var(--ds-r-sm);
+}
+.planner-app .map-popup-more > summary:hover { color: var(--ds-text); }
+.planner-app .map-popup-more .inspector-block {
+  margin: 0;
+  padding: 8px 0;
+  border-color: var(--ds-border);
+}
+.planner-app .map-popup-more .inspector-block h5,
+.planner-app .inspector-block h5 {
+  margin: 0 0 4px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.planner-app .map-popup-more .inspector-block p,
+.planner-app .inspector-block p {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.planner-app .map-popup-more .inspector-block p.quiet,
+.planner-app .inspector-block p.quiet,
+.planner-app .map-inspector .quiet { color: var(--ds-text-3); }
+
+/* "Restricted" on a section: a small amber pill. */
+.planner-app .section-restricted {
+  margin-left: 4px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ds-warning) 14%, transparent);
+  color: var(--ds-warning);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* The full detail view's own heading and facts (hidden inside the map popup, kept consistent). */
+.planner-app .inspector-heading { gap: 8px; }
+.planner-app .inspector-heading p { color: var(--ds-text-3); font-size: var(--ds-sm); }
+.planner-app .inspector-heading h3 {
+  color: var(--ds-text);
+  font-size: var(--ds-lg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .course-description { color: var(--ds-text-2); font-size: var(--ds-base); line-height: 1.6; }
+.planner-app .course-facts > div { font-size: var(--ds-sm); }
+.planner-app .course-facts dt { color: var(--ds-text-3); }
+.planner-app .course-facts dd { color: var(--ds-text); font-variant-numeric: tabular-nums; }
+
+/* Term picker and Add: one compact row, the action filled. */
+.planner-app .map-inspector .inspector-add,
+.planner-app[data-theme='dark'] .map-inspector .inspector-add {
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-color: var(--ds-border);
+}
+.planner-app .map-inspector [data-slot='native-select'],
+.planner-app[data-theme='dark'] .map-inspector [data-slot='native-select'] {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 28px 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  transition: border-color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .map-inspector [data-slot='native-select']:hover:not(:disabled) { border-color: var(--ds-border-strong); }
+.planner-app .map-inspector [data-slot='native-select']:disabled { opacity: 0.5; }
+.planner-app .map-inspector [data-slot='native-select-option'],
+.planner-app[data-theme='dark'] .map-inspector [data-slot='native-select-option'] {
+  background: var(--ds-surface);
+  color: var(--ds-text);
+}
+.planner-app .map-inspector [data-slot='native-select-icon'] { right: 8px; width: 14px; height: 14px; color: var(--ds-text-3); }
+.planner-app .map-inspector .inspector-add-button {
+  height: 28px;
+  min-height: 28px;
+  gap: 4px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-text);
+  color: var(--ds-surface);
+  box-shadow: none;
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 600;
+}
+.planner-app .map-inspector .inspector-add-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ds-text) 86%, var(--ds-surface));
+  color: var(--ds-surface);
+}
+.planner-app .map-inspector .inspector-add-button svg { width: 14px; height: 14px; }
+
+/* "My instructor, Fall 2027" (instructor-picker.tsx). */
+.planner-app .map-inspector .inspector-instructor,
+.planner-app[data-theme='dark'] .map-inspector .inspector-instructor {
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ds-border);
+}
+.planner-app .map-inspector .inspector-instructor-label {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+}
+.planner-app .map-inspector .inspector-instructor-note,
+.planner-app[data-theme='dark'] .map-inspector .inspector-instructor-note {
+  color: var(--ds-text-3);
+  font-size: var(--ds-xs);
+  line-height: 1.5;
+}
+.planner-app .map-inspector .inspector-instructor-own { gap: 8px; }
+.planner-app .map-inspector .inspector-instructor-own [data-slot='input'],
+.planner-app[data-theme='dark'] .map-inspector .inspector-instructor-own [data-slot='input'] {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+}
+.planner-app .map-inspector .inspector-instructor-own [data-slot='input']::placeholder { color: var(--ds-text-3); }
+
+/* ---- plan assumptions (the rail's popover) ------------------------------- */
+
+[data-slot='popover-content'].plan-assumptions-popover {
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--ds-r);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+}
+.plan-assumptions-popover [data-slot='popover-title'] {
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.plan-assumptions-body { scrollbar-color: var(--ds-border-strong) transparent; }
+.plan-assumptions-body p {
+  margin: 0 0 8px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-base);
+  line-height: 1.6;
+}
+.plan-assumptions-privacy {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ds-border);
+}
+.plan-assumptions-privacy h3 {
+  margin: 0 0 8px;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* ---- plan health list and the replacement popover (older surfaces, kept in the family) ---- */
+
+.health-popover { gap: 2px; }
+.health-item {
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text-2);
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+.health-item:hover { background: var(--ds-subtle); }
+.health-item > svg { width: 16px; height: 16px; margin-top: 2px; }
+.health-item span { color: var(--ds-text-2); font-size: var(--ds-sm); line-height: 1.5; }
+.health-item strong { color: var(--ds-text); font-size: var(--ds-base); font-weight: 500; }
+.health-error > svg { color: var(--ds-danger); }
+.health-warning > svg { color: var(--ds-warning); }
+.health-info > svg { color: var(--ds-text-3); }
+.health-empty { gap: 8px; padding: 8px; color: var(--ds-text-2); font-size: var(--ds-base); }
+.health-empty svg { width: 16px; height: 16px; color: var(--ds-success); }
+
+[data-slot='popover-content'].replacement-popover { gap: 8px; border-radius: var(--ds-r); }
+.replacement-search {
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text-3);
+}
+.replacement-search:focus-within { border-color: var(--ds-border-strong); box-shadow: var(--ds-focus); }
+.replacement-search input { color: var(--ds-text); font-size: var(--ds-base); }
+.replacement-popover .replacement-search input:focus-visible { box-shadow: none; }
+.replacement-list { scrollbar-color: var(--ds-border-strong) transparent; }
+.replacement-row { gap: 4px; border-radius: var(--ds-r-sm); }
+.replacement-row:hover { background: var(--ds-subtle); }
+.replacement-pick { gap: 8px; padding: 8px; color: var(--ds-text-2); }
+.replacement-pick strong { color: var(--ds-text); font-size: var(--ds-base); font-weight: 600; font-variant-numeric: tabular-nums; }
+.replacement-pick small,
+.replacement-pick > span:last-child { color: var(--ds-text-3); font-size: var(--ds-sm); }
+.replacement-locate { color: var(--ds-text-3); border-radius: var(--ds-r-sm); }
+.replacement-locate:hover,
+.replacement-locate:focus-visible { color: var(--ds-text); }
+.replacement-empty { padding: 12px 8px; color: var(--ds-text-2); font-size: var(--ds-base); }
+.replacement-show-all {
+  gap: 8px;
+  min-height: 32px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  font-weight: 500;
+}
+.replacement-show-all:hover { border-color: var(--ds-border-strong); background: var(--ds-subtle); color: var(--ds-text); }
+
+/* ---- the advisor packet, on screen only (advisor-packet.tsx) --------------
+   Wrapped in @media screen so the print rules in globals.css stay exactly
+   as they are. */
+
+@media screen {
+  .packet-overlay {
+    --ink-mid: var(--ds-text-2);
+    --ink-dim: var(--ds-text-3);
+    --line: var(--ds-border);
+    --line-soft: var(--ds-border);
+    --canvas: var(--ds-bg);
+    background: var(--ds-bg);
+    color: var(--ds-text);
+    font-family: var(--ds-font);
+  }
+  .packet-toolbar {
+    gap: 8px 16px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--ds-border);
+    background: var(--ds-surface);
+  }
+  .packet-toolbar p {
+    color: var(--ds-text-2);
+    font-size: var(--ds-sm);
+    line-height: 1.5;
+  }
+  .packet-toolbar-actions { gap: 8px; }
+
+  .packet-sheet {
+    margin: 24px auto 48px;
+    padding: 32px 40px 40px;
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-r-lg);
+    background: var(--ds-surface);
+    color: var(--ds-text-2);
+    box-shadow: var(--ds-shadow-1);
+    font-family: var(--ds-font);
+    font-size: var(--ds-base);
+    line-height: 1.5;
+  }
+  .packet-sheet h1,
+  .packet-sheet h2,
+  .packet-sheet h3 {
+    color: var(--ds-text);
+    font-family: var(--ds-font);
+    font-weight: 600;
+  }
+  .packet-sheet h1 {
+    margin: 4px 0 12px;
+    font-size: var(--ds-xl);
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+  .packet-sheet h2 {
+    margin: 0 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--ds-border);
+    font-size: var(--ds-md);
+    line-height: 1.4;
+    letter-spacing: 0;
+  }
+  .packet-sheet h2 small {
+    color: var(--ds-text-3);
+    font-family: var(--ds-font);
+    font-size: var(--ds-sm);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+  }
+  .packet-sheet h3 { font-size: var(--ds-base); line-height: 1.4; }
+  .packet-kicker {
+    color: var(--ds-text-3);
+    font-size: var(--ds-xs);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+  .packet-facts { gap: 4px; margin: 0 0 12px; }
+  .packet-facts dt { color: var(--ds-text-3); }
+  .packet-facts dd { color: var(--ds-text); font-variant-numeric: tabular-nums; }
+  .packet-fill { color: var(--ds-text-3); font-size: var(--ds-sm); }
+  .packet-fill span { border-bottom-color: var(--ds-border-strong); }
+  /* "Unofficial": a quiet amber note, not a striped banner. */
+  .packet-unofficial {
+    padding: 8px 12px;
+    border: 1px solid color-mix(in srgb, var(--ds-warning) 28%, transparent);
+    border-radius: var(--ds-r-sm);
+    background: color-mix(in srgb, var(--ds-warning) 8%, transparent);
+    color: var(--ds-text);
+    font-size: var(--ds-sm);
+    line-height: 1.5;
+  }
+  .packet-section { margin-top: 32px; }
+  .packet-legend { color: var(--ds-text-3); font-size: var(--ds-sm); line-height: 2; }
+
+  /* Why each course is there: small outline pills. */
+  .packet-role {
+    padding: 0 6px;
+    border: 1px solid var(--ds-border);
+    border-radius: 999px;
+    color: var(--ds-text-2);
+    font-family: var(--ds-font);
+    font-size: var(--ds-xs);
+    font-weight: 500;
+    line-height: 16px;
+  }
+  .packet-role.is-required { border-color: var(--ds-border-strong); color: var(--ds-text); }
+
+  .packet-terms { gap: 12px; }
+  .packet-term {
+    padding: 12px;
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-r);
+    background: var(--ds-surface);
+  }
+  .packet-term h3 { margin-bottom: 8px; }
+  .packet-term-credits {
+    color: var(--ds-text-3);
+    font-family: var(--ds-font);
+    font-size: var(--ds-sm);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+  .packet-term ul { gap: 8px; }
+  .packet-code {
+    color: var(--ds-text);
+    font-family: var(--ds-font);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .packet-course-title { color: var(--ds-text-2); }
+  .packet-cr {
+    color: var(--ds-text-3);
+    font-family: var(--ds-font);
+    font-size: var(--ds-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  .packet-fills { color: var(--ds-text-3); font-size: var(--ds-sm); }
+  .packet-away,
+  .packet-load { margin: 0 0 8px; font-size: var(--ds-sm); }
+  .packet-away { color: var(--ds-text-3); }
+  .packet-load { color: var(--ds-warning); }
+
+  .packet-next { font-size: var(--ds-sm); }
+  .packet-next th {
+    padding: 8px 8px 8px 0;
+    border-bottom-color: var(--ds-border);
+    color: var(--ds-text-3);
+    font-weight: 500;
+  }
+  .packet-next td { padding: 8px 8px 8px 0; border-bottom-color: var(--ds-border); }
+  .packet-why { color: var(--ds-text-3); }
+  .packet-assumption { margin-bottom: 12px; }
+  .packet-assumption h3 { color: var(--ds-text); font-weight: 500; }
+  .packet-sheet .packet-assumption ul,
+  .packet-sheet .packet-small { color: var(--ds-text-2); font-size: var(--ds-sm); }
+  .packet-source,
+  .packet-none,
+  .packet-who { color: var(--ds-text-3); font-size: var(--ds-sm); }
+  .packet-flag-list { gap: 8px; font-size: var(--ds-sm); }
+  .packet-flag { padding-left: 12px; border-left: 2px solid var(--ds-border-strong); }
+  .packet-flag.is-error { border-left-color: var(--ds-danger); }
+  .packet-flag.is-warning { border-left-color: var(--ds-warning); }
+  .packet-flag strong,
+  .packet-flag-list.is-notes strong { color: var(--ds-text); font-weight: 600; }
+  .packet-sheet .packet-questions { gap: 8px; }
+  .packet-own { border-bottom-color: var(--ds-border-strong); }
+  .packet-foot {
+    margin-top: 32px;
+    padding-top: 12px;
+    border-top-color: var(--ds-border);
+    color: var(--ds-text-3);
+    font-size: var(--ds-sm);
+  }
+}
+
+/* ---- small screens: the same rules restated where the old ones changed them ---- */
+
+@media screen and (max-width: 640px) {
+  .packet-toolbar { padding: 12px 16px; }
+  .packet-sheet {
+    margin: 0 0 32px;
+    padding: 20px 16px 24px;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 680px) {
+  /* What needs attention takes its own line and wraps; a wrapped chip is a rounded box. */
+  .planner-app .attention-chip,
+  .planner-app .attention-chip-record {
+    max-width: 100%;
+    height: auto;
+    min-height: 28px;
+    padding: 4px 12px;
+    border-radius: var(--ds-r-lg);
+  }
+}
+
+@media (max-width: 600px) {
+  [data-slot='dialog-content'].orion-dialog,
+  [data-slot='dialog-content'].feedback-dialog { padding: 20px; }
+  /* Bigger touch targets on a phone. */
+  .insights-actions button,
+  .orion-dialog .insights-actions button,
+  .orion-dialog .account-actions button,
+  .orion-dialog .account-confirm button,
+  .orion-dialog .onb-next,
+  .orion-dialog .onb-back { min-height: 40px; }
+}
+
+@media (max-width: 480px) {
+  [data-slot='dialog-content'].privacy-dialog,
+  [data-slot='dialog-content'],
+  [data-slot='alert-dialog-content'] { padding: 20px; }
+  [data-slot='dialog-content'] > :is([data-slot='dialog-close'], button[class*='right-2']) { top: 16px; right: 16px; }
+}

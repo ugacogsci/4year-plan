@@ -1,0 +1,690 @@
+/* =========================================================================
+   ORION design system
+
+   One layer, loaded after globals.css (app/layout.tsx), that defines the
+   look once and restyles every surface from it:
+
+     type     Inter, seven sizes (11 12 13 14 16 20 28), weights 400/500/600,
+              tabular figures wherever numbers line up (codes, credits)
+     colour   a warm neutral scale, one accent (the school's own colour),
+              four quiet status colours; light and dark from the same names
+     space    a 4px grid
+     shape    radii 6 / 8 / 12, hairline borders, two elevations
+     motion   120-160ms ease-out on hover and focus, nothing else moves
+
+   Earlier passes in globals.css stay underneath: this layer only restates
+   what it changes, at the same or higher specificity, so removing it
+   restores the old look exactly.
+   ========================================================================= */
+
+/* Inter and Newsreader load from <head> in app/layout.tsx: an @import here
+   would sit mid-bundle in a production build, where browsers ignore it. */
+
+/* ---- tokens ------------------------------------------------------------- */
+
+:root,
+.planner-app,
+.onb {
+  --ds-font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --ds-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
+
+  --ds-xs: 11px;
+  --ds-sm: 12px;
+  --ds-base: 13px;
+  --ds-md: 14px;
+  --ds-lg: 16px;
+  --ds-xl: 20px;
+  --ds-2xl: 28px;
+
+  --ds-r-sm: 6px;
+  --ds-r: 8px;
+  --ds-r-lg: 12px;
+
+  --ds-head: 56px;
+  --ds-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ds-fast: 120ms;
+
+  --ds-bg: #fafaf9;
+  --ds-surface: #ffffff;
+  --ds-subtle: #f5f5f4;
+  --ds-muted: #eeedeb;
+  --ds-border: #e7e5e4;
+  --ds-border-strong: #d6d3d1;
+  --ds-text: #1c1917;
+  --ds-text-2: #57534e;
+  --ds-text-3: #8c857f;
+  --ds-accent: #ba0c2f;
+  --ds-accent-text: #ffffff;
+  --ds-success: #15803d;
+  --ds-warning: #b45309;
+  --ds-danger: #b91c1c;
+  --ds-info: #2563eb;
+  --ds-shadow-1: 0 1px 2px rgb(28 25 23 / 0.05), 0 0 0 1px rgb(28 25 23 / 0.06);
+  --ds-shadow-2: 0 16px 40px -12px rgb(28 25 23 / 0.22), 0 0 0 1px rgb(28 25 23 / 0.07);
+  /* Focus is neutral: the accent is the school's red, which would read as an error. */
+  --ds-focus: 0 0 0 2px var(--ds-surface), 0 0 0 4px color-mix(in srgb, var(--ds-text) 38%, transparent);
+}
+
+/* The school's colour is the one accent: UGA red, Illinois orange. */
+.planner-app[data-school='illinois'],
+.onb[data-school='illinois'] {
+  --ds-accent: #e84a27;
+}
+
+:root[data-planner-theme='dark'],
+.planner-app[data-theme='dark'],
+.onb[data-theme='dark'] {
+  --ds-bg: #0c0c0d;
+  --ds-surface: #151516;
+  --ds-subtle: #1c1c1e;
+  --ds-muted: #242427;
+  --ds-border: #2a2a2e;
+  --ds-border-strong: #3a3a3f;
+  --ds-text: #ededef;
+  --ds-text-2: #a1a1aa;
+  --ds-text-3: #71717a;
+  --ds-accent: #f0546f;
+  --ds-success: #4ade80;
+  --ds-warning: #fbbf24;
+  --ds-danger: #f87171;
+  --ds-info: #60a5fa;
+  --ds-shadow-1: 0 1px 2px rgb(0 0 0 / 0.4), 0 0 0 1px rgb(255 255 255 / 0.06);
+  --ds-shadow-2: 0 16px 40px -12px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+.planner-app[data-theme='dark'][data-school='illinois'],
+.onb[data-theme='dark'][data-school='illinois'] {
+  --ds-accent: #ff7a45;
+}
+
+/* The old names, pointed at the new ones: every earlier rule that reads them
+   takes the system's colours, type and shapes. */
+:root[data-planner-theme='light'],
+:root[data-planner-theme='dark'] {
+  --background: var(--ds-bg);
+  --foreground: var(--ds-text);
+  --card: var(--ds-surface);
+  --card-foreground: var(--ds-text);
+  --popover: var(--ds-surface);
+  --popover-foreground: var(--ds-text);
+  --primary: var(--ds-text);
+  --primary-foreground: var(--ds-surface);
+  --secondary: var(--ds-subtle);
+  --secondary-foreground: var(--ds-text);
+  --muted: var(--ds-subtle);
+  --muted-foreground: var(--ds-text-2);
+  --accent: var(--ds-subtle);
+  --accent-foreground: var(--ds-text);
+  --destructive: var(--ds-danger);
+  --border: var(--ds-border);
+  --input: var(--ds-border-strong);
+  --ring: var(--ds-accent);
+}
+
+:root,
+.planner-app,
+.planner-app[data-theme='dark'],
+.onb {
+  --app-font-mono: var(--ds-font);
+  --app-font-serif: var(--ds-font);
+  --app-font-sans: var(--ds-font);
+  --fs-micro: var(--ds-sm);
+  --fs-label: var(--ds-xs);
+  --fs-body: var(--ds-base);
+  --fs-ui: var(--ds-base);
+  --fs-head: var(--ds-lg);
+  --fs-title: var(--ds-xl);
+}
+
+.planner-app,
+.planner-app[data-theme='dark'] {
+  --orion-bg: var(--ds-bg);
+  --orion-surface: var(--ds-surface);
+  --orion-soft: var(--ds-subtle);
+  --orion-raised: var(--ds-surface);
+  --orion-text: var(--ds-text);
+  --orion-mid: var(--ds-text-2);
+  --orion-dim: var(--ds-text-3);
+  --orion-line: var(--ds-border);
+  --orion-line-strong: var(--ds-border-strong);
+  --orion-shadow: var(--ds-shadow-2);
+  --orion-user: var(--ds-text);
+  --orion-user-text: var(--ds-surface);
+  --orion-red: var(--ds-accent);
+}
+
+/* ---- base --------------------------------------------------------------- */
+
+html,
+body,
+.planner-app,
+.onb {
+  font-family: var(--ds-font);
+  font-feature-settings: 'cv11', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+.planner-app {
+  background: var(--ds-bg);
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+}
+
+.planner-app :is(h1, h2, h3, h4) {
+  letter-spacing: -0.011em;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--ds-accent) 22%, transparent);
+  color: inherit;
+}
+
+.planner-app :focus-visible,
+.onb :focus-visible {
+  outline: none;
+  box-shadow: var(--ds-focus);
+}
+
+/* ---- page frame: a 56px header, everything below it sized from the same number ---- */
+
+.planner-app,
+.planner-app[data-chat='open'],
+.planner-app[data-chat='closed'] {
+  grid-template-rows: var(--ds-head) var(--map-row-h, min(280px, 32vh)) minmax(430px, auto) auto;
+}
+.planner-app .rail {
+  top: var(--ds-head);
+  height: calc(100dvh - var(--ds-head));
+  min-height: calc(100dvh - var(--ds-head));
+}
+.planner-app .bot-history {
+  top: var(--ds-head);
+  height: calc(100dvh - var(--ds-head));
+}
+@media (max-width: 1180px) {
+  .planner-app,
+  .planner-app[data-chat='open'],
+  .planner-app[data-chat='closed'] {
+    grid-template-rows: var(--ds-head) var(--map-row-h, min(280px, 32vh)) minmax(430px, auto) auto;
+  }
+  .planner-app .rail,
+  .planner-app .bot-history {
+    top: var(--ds-head);
+    height: calc(100dvh - var(--ds-head));
+  }
+  .planner-app .bot-panel {
+    inset: var(--ds-head) 0 0 auto;
+    height: calc(100dvh - var(--ds-head));
+  }
+}
+@media (max-width: 680px) {
+  .planner-app,
+  .planner-app[data-chat='open'],
+  .planner-app[data-chat='closed'] {
+    grid-template-rows: var(--ds-head) var(--map-row-h, 220px) minmax(430px, auto) auto;
+  }
+  .planner-app .bot-history { top: var(--ds-head); height: calc(100dvh - var(--ds-head)); }
+  .planner-app .rail { height: calc(100dvh - var(--ds-head)); }
+  .planner-app .bot-panel { top: var(--ds-head); height: calc(100dvh - var(--ds-head)); }
+}
+
+/* ---- header ------------------------------------------------------------- */
+
+.planner-app .app-header {
+  height: var(--ds-head);
+  padding: 0 16px 0 20px;
+  gap: 16px;
+  border-bottom: 1px solid var(--ds-border);
+  background: color-mix(in srgb, var(--ds-surface) 88%, transparent);
+  backdrop-filter: saturate(1.4) blur(12px);
+  -webkit-backdrop-filter: saturate(1.4) blur(12px);
+}
+.planner-app .brand { gap: 10px; }
+.planner-app .brand img {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--ds-r-sm);
+}
+.planner-app .brand-name {
+  font-family: var(--ds-font);
+  font-size: var(--ds-lg);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  transform: none;
+}
+
+/* "Unofficial": a quiet pill and one line, not a banner. */
+.planner-app .unofficial {
+  gap: 10px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+}
+.planner-app .unofficial-label {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: 999px;
+  background: var(--ds-subtle);
+  color: var(--ds-text-2);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+}
+.planner-app .unofficial-text { color: var(--ds-text-3); font-size: var(--ds-sm); }
+.planner-app .unofficial-link {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  text-decoration: none;
+}
+.planner-app .unofficial-link:hover { color: var(--ds-text); text-decoration: underline; text-underline-offset: 3px; }
+
+.planner-app .header-actions { gap: 4px; }
+.planner-app .header-actions > button,
+.planner-app .profile-menu-trigger {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text-2);
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.planner-app .header-actions > button:hover,
+.planner-app .profile-menu-trigger:hover { background: var(--ds-subtle); color: var(--ds-text); }
+.planner-app .profile-menu-trigger svg { width: 18px; height: 18px; }
+
+/* ---- buttons: one family, three weights --------------------------------- */
+
+.planner-app [data-slot='button'],
+.planner-app [data-slot='dropdown-menu-trigger'][class*='inline-flex'],
+.planner-app .board-bar [data-slot='button'],
+.planner-app .board-bar [data-slot='dropdown-menu-trigger'] {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 12px;
+  gap: 6px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: 0 1px 1px rgb(28 25 23 / 0.04);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  letter-spacing: 0;
+  transition: background var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.planner-app [data-slot='button']:hover,
+.planner-app .board-bar [data-slot='button']:hover,
+.planner-app .board-bar [data-slot='dropdown-menu-trigger']:hover {
+  border-color: var(--ds-border-strong);
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+.planner-app [data-slot='button']:disabled { opacity: 0.5; }
+.planner-app [data-slot='button'] svg { width: 15px; height: 15px; }
+
+/* The one primary action on the board. */
+.planner-app .board-bar .rebuild-button,
+.planner-app .board-bar .rebuild-button:hover {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-text);
+  color: var(--ds-surface);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 600;
+  line-height: 1;
+}
+.planner-app .board-bar .rebuild-button:hover { background: color-mix(in srgb, var(--ds-text) 86%, var(--ds-surface)); }
+
+/* ---- left rail: a sidebar, not a document -------------------------------- */
+
+.planner-app .rail {
+  padding: 20px 16px 20px 20px;
+  border-right: 1px solid var(--ds-border);
+  background: var(--ds-bg);
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+}
+.planner-app .rail-school { margin: 0 0 16px; gap: 10px; }
+.planner-app .rail-school-mark { width: 28px; height: 28px; border-radius: var(--ds-r-sm); }
+.planner-app .rail-school-name {
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  line-height: 1.3;
+}
+.planner-app .rail-program-name {
+  margin: 0 0 16px;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-xl);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+.planner-app .rail-progress { gap: 8px; margin: 0 0 12px; }
+.planner-app .rail-progress-head {
+  font-size: var(--ds-sm);
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .rail-progress-head strong { font-size: var(--ds-base); font-weight: 600; }
+.planner-app .rail-progress-head span { color: var(--ds-text-3); }
+.planner-app .rail-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ds-muted);
+}
+.planner-app .rail-bar > i {
+  border-radius: 999px;
+  background: var(--ds-accent);
+}
+
+.planner-app .rail-completed,
+.planner-app .rail-requirements,
+.planner-app .rail-section { border-top: 1px solid var(--ds-border); }
+.planner-app .rail-completed > summary,
+.planner-app .rail-requirements > summary,
+.planner-app .rail-section > summary {
+  min-height: 40px;
+  padding: 10px 0;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+}
+.planner-app .rail-section > summary:hover { color: var(--ds-text); }
+.planner-app .requirement-row {
+  padding: 8px 0;
+  font-size: var(--ds-sm);
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .requirement-row .requirement-index {
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+}
+.planner-app .requirement-row > div > span:last-child { color: var(--ds-text-3); }
+
+/* ---- course map: a calm panel, the plan stays the hero -------------------- */
+
+.planner-app .course-finder {
+  padding: 12px 12px 8px;
+  background: var(--ds-bg);
+}
+.planner-app .map-stage {
+  overflow: hidden;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-lg);
+  box-shadow: var(--ds-shadow-1);
+}
+.planner-app .finder-search input {
+  height: 32px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: var(--ds-r-sm);
+  background: rgb(255 255 255 / 0.06);
+  color: #f5f5f4;
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+}
+.planner-app .finder-search input::placeholder { color: rgb(245 245 244 / 0.55); }
+
+/* ---- board ---------------------------------------------------------------- */
+
+.planner-app .board-region { background: var(--ds-bg); }
+.planner-app .board-bar {
+  flex: 0 0 auto;
+  min-height: 48px;
+  gap: 8px;
+  padding: 8px 16px 8px 12px;
+}
+.planner-app .year-ruler-track > span {
+  color: var(--ds-text-3);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.planner-app .plan-board {
+  gap: 12px;
+  padding: 4px 12px 16px;
+}
+.planner-app .semester-column {
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-lg);
+  background: var(--ds-surface);
+  box-shadow: 0 1px 2px rgb(28 25 23 / 0.04);
+}
+.planner-app .semester-column.current-term-column {
+  border-style: dashed;
+  background: var(--ds-subtle);
+  box-shadow: none;
+}
+.planner-app .semester-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid var(--ds-border);
+}
+.planner-app .semester-heading h3 {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.planner-app .current-term-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ds-accent) 12%, transparent);
+  color: var(--ds-accent);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  vertical-align: 1px;
+}
+.planner-app .semester-credit-count {
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .semester-courses { gap: 2px; padding: 6px; }
+.planner-app .semester-note {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+
+/* A course: code and credits on one line, the title under it, the tools on hover. */
+.planner-app .course-card {
+  grid-template-columns: 14px 6px minmax(0, 1fr) 28px;
+  row-gap: 2px;
+  min-height: 56px;
+  padding: 8px 4px 8px 0;
+  border: 0;
+  border-radius: var(--ds-r);
+  background: transparent;
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+.planner-app .course-card:hover,
+.planner-app .course-card-selected {
+  border: 0;
+  background: var(--ds-subtle);
+}
+.planner-app .course-card-selected { box-shadow: inset 0 0 0 1px var(--ds-border-strong); }
+.planner-app .course-drag-handle {
+  width: 14px;
+  height: 24px;
+  color: var(--ds-text-3);
+  opacity: 0;
+  transition: opacity var(--ds-fast) var(--ds-ease);
+}
+.planner-app .course-cluster-dot {
+  align-self: start;
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 50%;
+}
+.planner-app .course-card-body { max-height: none; }
+.planner-app .course-card-code-row { align-items: baseline; gap: 6px; }
+.planner-app .course-card-code {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+.planner-app .course-card-credits {
+  color: var(--ds-text-3);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.planner-app .course-required svg,
+.planner-app .course-elective svg { width: 12px; height: 12px; }
+.planner-app .course-card-title {
+  margin-top: 0;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.4;
+}
+.planner-app .course-card > [data-slot='dropdown-menu-trigger'] {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+}
+.planner-app .course-card > [data-slot='dropdown-menu-trigger']:hover { background: var(--ds-muted); }
+.planner-app .course-card:hover > [data-slot='dropdown-menu-trigger'],
+.planner-app .course-card:focus-within > [data-slot='dropdown-menu-trigger'] { opacity: 1; }
+.planner-app .course-complete-button {
+  color: var(--ds-text-2);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+}
+
+/* ---- plan tabs ------------------------------------------------------------ */
+
+.planner-app .plan-tabs {
+  flex-basis: 44px;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--ds-border);
+}
+.planner-app .plan-tab-shell {
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text-2);
+}
+.planner-app .plan-tab-shell:hover { background: var(--ds-subtle); }
+.planner-app .plan-tab-shell[data-active='true'] {
+  border-color: var(--ds-border);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-1);
+}
+.planner-app .plan-tab-button {
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+}
+
+/* ---- the course map is a night sky in both themes (ORION's constellation) ---- */
+
+.planner-app,
+.planner-app[data-theme='dark'] {
+  --orion-map: #111113;
+  --orion-map-contrast: #ffffff;
+}
+.planner-app[data-theme='dark'] { --orion-map: #09090b; }
+.planner-app[data-theme='dark'] .map-stage { border-color: var(--ds-border); }
+
+/* ---- plan tabs, final: neutral tabs, the open one raised, a warning as a dot ---- */
+
+.planner-app .plan-tab-shell,
+.planner-app .plan-tab-shell[data-warning='true'] {
+  position: relative;
+  grid-template-columns: 20px minmax(72px, 112px) 20px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text-2);
+}
+.planner-app .plan-tab-shell:hover { background: var(--ds-subtle); }
+.planner-app .plan-tab-shell[data-active='true'],
+.planner-app .plan-tab-shell[data-warning='true'][data-active='true'] {
+  border-color: var(--ds-border);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-1);
+}
+.planner-app .plan-tab-shell[data-warning='true']::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ds-warning);
+  box-shadow: 0 0 0 2px var(--ds-surface);
+}
+.planner-app .plan-tab-shell[data-warning='true'] .plan-tab-button:focus,
+.planner-app .plan-group-name:focus,
+.planner-app .plan-tab-button:focus { box-shadow: none; }
+.planner-app .plan-tab-button { font-size: var(--ds-sm); font-weight: 500; }
+.planner-app .plan-group-name {
+  width: 64px;
+  height: 28px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+}
+.planner-app .plan-tab-drag-handle,
+.planner-app .plan-tab-add,
+.planner-app .plan-group-add {
+  color: var(--ds-text-3);
+  border-radius: var(--ds-r-sm);
+}
+.planner-app .plan-tab-add:hover,
+.planner-app .plan-group-add:hover { background: var(--ds-subtle); color: var(--ds-text); }
+
+/* Pop-ups are portalled to <body>, outside .planner-app: they take the school's
+   colour from whichever page is showing it. */
+:root:has(.planner-app[data-school='illinois']),
+:root:has(.onb[data-school='illinois']) {
+  --ds-accent: #e84a27;
+}
+:root[data-planner-theme='dark']:has(.planner-app[data-school='illinois']),
+:root[data-planner-theme='dark']:has(.onb[data-school='illinois']) {
+  --ds-accent: #ff7a45;
+}

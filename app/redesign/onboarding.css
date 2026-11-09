@@ -1,0 +1,1562 @@
+/* ORION design system: onboarding (see app/redesign.css for the tokens and rules)
+
+   The first visit: brand header, progress, one question per screen in a
+   560px column, the setup assistant, the manual forms, prior credit and the
+   transcript review, the footer notice, and the two dialogs that open over
+   it (research consent, account sign-in).
+
+   Every rule is scoped to .onb (or to the dialog's own class) so the same
+   components inside the planner (program picker, emphasis picker, transcript
+   upload in the rail and profile) keep whatever the planner layer gives them. */
+
+/* ---- tokens: the old setup palette, pointed at the system's ------------- */
+
+.onb,
+.onb[data-theme='light'],
+.onb[data-theme='dark'] {
+  --onb-bg: var(--ds-bg);
+  --onb-text: var(--ds-text);
+  --onb-mid: var(--ds-text-2);
+  --onb-dim: var(--ds-text-3);
+  --onb-line: var(--ds-border);
+  --onb-soft: var(--ds-subtle);
+  --onb-raised: var(--ds-surface);
+}
+
+/* ---- page ---------------------------------------------------------------- */
+
+.onb {
+  background: var(--ds-bg);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+}
+
+/* ---- header: the same 56px bar as the planner, without the chrome -------- */
+
+.onb .onb-header {
+  flex: 0 0 var(--ds-head);
+  height: var(--ds-head);
+  padding: 0 16px 0 20px;
+  gap: 8px;
+}
+.onb .onb-brand { gap: 10px; }
+.onb .onb-brand img {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--ds-r-sm);
+}
+.onb .onb-brand span {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-lg);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  transform: none;
+}
+
+/* "Sign in / saved plans": a quiet header action, not a bordered button. */
+.onb .onb-header .onb-account {
+  min-height: 32px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.onb .onb-header .onb-account:hover {
+  border: 0;
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+
+.onb .onb-theme {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text-2);
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.onb .onb-theme:hover { background: var(--ds-subtle); color: var(--ds-text); }
+.onb .onb-theme svg { width: 16px; height: 16px; }
+
+/* ---- the column ------------------------------------------------------------ */
+
+.onb .onb-inner {
+  width: min(560px, calc(100% - 32px));
+  max-width: none;
+  margin: 0 auto;
+  padding: 48px 0 64px;
+}
+
+/* ---- progress: one label, a count, a thin bar in the school's colour ------- */
+
+.onb .onb-progress {
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 8px 16px;
+  width: 100%;
+  margin: 0 0 40px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  font-variant-numeric: tabular-nums;
+}
+.onb .onb-progress > span {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+}
+.onb .onb-progress > small {
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+}
+.onb .onb-progress > i {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--ds-muted);
+}
+.onb .onb-progress > i > b {
+  border-radius: 999px;
+  background: var(--ds-accent);
+  transition: width 160ms var(--ds-ease);
+}
+
+/* The older numbered step list, if it is shown anywhere. */
+.onb .onb-steps { gap: 16px; margin: 0 0 40px; }
+.onb .onb-steps li { gap: 8px; color: var(--ds-text-3); font-size: var(--ds-sm); font-weight: 500; }
+.onb .onb-steps li.now { color: var(--ds-text); }
+.onb .onb-steps li.done { color: var(--ds-text-2); }
+.onb .onb-dot {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--ds-border-strong);
+  font-size: var(--ds-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.onb .onb-steps li.now .onb-dot { border-color: var(--ds-accent); background: var(--ds-accent); color: var(--ds-accent-text); }
+.onb .onb-steps li.done .onb-dot { border-color: var(--ds-success); color: var(--ds-success); }
+
+/* ---- headings ---------------------------------------------------------------- */
+
+.onb .onb-step h1 {
+  margin: 0 0 8px;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-2xl);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  text-align: center;
+  text-wrap: balance;
+}
+.onb .onb-sub {
+  max-width: 46ch;
+  margin: 0 auto 32px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-md);
+  line-height: 1.5;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+/* "Your answers from last time": a quiet note above the question. */
+.onb .onb-resume {
+  max-width: none;
+  margin: 0 0 32px;
+  padding: 12px 16px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text-2);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+  text-align: center;
+}
+.onb .onb-resume button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ds-text);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--ds-border-strong);
+  text-underline-offset: 3px;
+}
+.onb .onb-resume button:hover { color: var(--ds-text); text-decoration-color: currentColor; }
+
+/* ---- link-style actions: "Use the setup assistant", "Enter details manually" -- */
+
+.onb .guided-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: -16px 0 24px;
+}
+.onb .setup-mode-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ds-text-2);
+  font: 500 var(--ds-base)/1.4 var(--ds-font);
+  text-decoration: underline;
+  text-decoration-color: var(--ds-border-strong);
+  text-underline-offset: 3px;
+  transition: color var(--ds-fast) var(--ds-ease), text-decoration-color var(--ds-fast) var(--ds-ease);
+}
+.onb .setup-mode-link:hover { color: var(--ds-text); text-decoration-color: currentColor; }
+.onb .setup-mode-link:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- field labels and hints ---------------------------------------------------- */
+
+.onb .onb-q { gap: 4px; }
+.onb .onb-university-picker label,
+.onb .onb-q-label,
+.onb .onb-graduation legend,
+.onb .double-dawgs-timing legend {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+.onb .onb-q-hint,
+.onb .onb-q-help {
+  margin: 0 0 4px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.onb .onb-q-help { margin-bottom: 8px; }
+
+/* ---- text fields and selects: one 40px control everywhere in setup ------------- */
+
+.onb :is(
+  .onb-university-picker select,
+  .onb-details-grid select,
+  .onb-q textarea,
+  .program-search input,
+  .prior-search,
+  .onb-lang-row select,
+  .onb-lang-row input,
+  .guidance-search input,
+  .double-dawgs-shared input[type='search'],
+  .double-dawgs-timing select
+) {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  line-height: 1.4;
+  transition: border-color var(--ds-fast) var(--ds-ease), box-shadow var(--ds-fast) var(--ds-ease);
+}
+.onb :is(
+  .onb-university-picker select,
+  .onb-details-grid select,
+  .onb-lang-row select,
+  .double-dawgs-timing select
+) {
+  height: 40px;
+  padding: 0 36px 0 12px;
+}
+.onb :is(
+  .prior-search,
+  .onb-lang-row input,
+  .guidance-search input,
+  .double-dawgs-shared input[type='search']
+) {
+  height: 40px;
+  padding: 0 12px;
+}
+.onb .program-search input {
+  height: 40px;
+  padding: 0 12px 0 36px;
+}
+/* Same weight as the shared field rule above, so it wins by coming later. */
+.onb .onb-step .onb-q textarea {
+  min-height: 88px;
+  padding: 12px;
+  resize: vertical;
+  line-height: 1.6;
+}
+.onb :is(
+  .onb-q textarea,
+  .program-search input,
+  .prior-search,
+  .onb-lang-row input,
+  .guidance-search input,
+  .double-dawgs-shared input[type='search']
+)::placeholder {
+  color: var(--ds-text-3);
+  opacity: 1;
+}
+.onb :is(
+  .onb-university-picker select,
+  .onb-details-grid select,
+  .onb-q textarea,
+  .program-search input,
+  .prior-search,
+  .onb-lang-row select,
+  .onb-lang-row input,
+  .guidance-search input,
+  .double-dawgs-shared input[type='search'],
+  .double-dawgs-timing select
+):hover:not(:disabled) {
+  border-color: var(--ds-border-strong);
+}
+.onb :is(
+  .onb-university-picker select,
+  .onb-details-grid select,
+  .onb-q textarea,
+  .program-search input,
+  .prior-search,
+  .onb-lang-row select,
+  .onb-lang-row input,
+  .guidance-search input,
+  .double-dawgs-shared input[type='search'],
+  .double-dawgs-timing select
+):focus {
+  outline: 0;
+  border-color: var(--ds-border-strong);
+  box-shadow: none;
+}
+.onb :is(
+  .onb-university-picker select,
+  .onb-details-grid select,
+  .onb-q textarea,
+  .program-search input,
+  .prior-search,
+  .onb-lang-row select,
+  .onb-lang-row input,
+  .guidance-search input,
+  .double-dawgs-shared input[type='search'],
+  .double-dawgs-timing select
+):focus-visible {
+  box-shadow: var(--ds-focus);
+}
+.onb :is(
+  .onb-university-picker select,
+  .onb-details-grid select,
+  .onb-q textarea,
+  .program-search input,
+  .prior-search,
+  .onb-lang-row select,
+  .onb-lang-row input,
+  .guidance-search input,
+  .double-dawgs-shared input[type='search'],
+  .double-dawgs-timing select
+):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.onb .onb-details-grid option:disabled { color: var(--ds-text-3); }
+
+/* ---- step 1: the university --------------------------------------------------- */
+
+.onb .onb-university-picker {
+  gap: 8px;
+  max-width: none;
+  margin: 0;
+}
+.onb .onb-university-picker label { font-size: var(--ds-base); font-weight: 500; }
+.onb .onb-university-picker .onb-university-select { width: 100%; }
+.onb .onb-university-select [data-slot='native-select-icon'] {
+  right: 12px;
+  width: 16px;
+  height: 16px;
+  color: var(--ds-text-3);
+}
+.onb .onb-university-picker p {
+  margin: 4px 0 0;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.onb .onb-university-actions { max-width: none; margin-inline: 0; }
+
+/* ---- step 2: undergraduate / graduate, a segmented control --------------------- */
+
+.onb .onb-level-toggle {
+  gap: 2px;
+  width: 100%;
+  margin: 0 0 24px;
+  padding: 2px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-subtle);
+}
+.onb .onb-level-toggle button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.onb .onb-level-toggle button:last-child { border-right: 0; }
+.onb .onb-level-toggle button:hover { color: var(--ds-text); }
+.onb .onb-level-toggle button[aria-pressed='true'] {
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-1);
+}
+
+.onb .onb-program-groups { gap: 24px; width: 100%; margin: 0; }
+.onb .onb-program-groups > section { gap: 8px; }
+.onb .onb-program-groups h2 {
+  margin: 0;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+/* ---- disclosures: "Add a minor", Double Dawgs, prior credit, transcript lines -- */
+
+.onb .onb-optional-programs,
+.onb .double-dawgs,
+.onb .guided-credit {
+  border-top: 1px solid var(--ds-border);
+}
+.onb .onb-optional-programs > summary,
+.onb .double-dawgs > summary,
+.onb .guided-credit > summary,
+.onb .transcript-review > summary,
+.onb .double-dawgs-summary details > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: color var(--ds-fast) var(--ds-ease);
+}
+.onb .onb-optional-programs > summary,
+.onb .double-dawgs > summary,
+.onb .guided-credit > summary {
+  min-height: 48px;
+  padding: 12px 0;
+}
+.onb .transcript-review > summary,
+.onb .double-dawgs-summary details > summary {
+  min-height: 32px;
+  padding: 4px 0;
+}
+.onb :is(.onb-optional-programs, .double-dawgs, .guided-credit, .transcript-review, .double-dawgs-summary details) > summary::-webkit-details-marker { display: none; }
+.onb :is(.onb-optional-programs, .double-dawgs, .guided-credit, .transcript-review, .double-dawgs-summary details) > summary::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin: 0 4px 0 2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--ds-fast) var(--ds-ease);
+}
+.onb :is(.onb-optional-programs, .double-dawgs, .guided-credit, .transcript-review, .double-dawgs-summary details)[open] > summary::before {
+  transform: rotate(45deg);
+}
+.onb :is(.onb-optional-programs, .double-dawgs, .guided-credit, .transcript-review, .double-dawgs-summary details) > summary:hover,
+.onb :is(.onb-optional-programs, .double-dawgs, .guided-credit, .transcript-review, .double-dawgs-summary details)[open] > summary {
+  color: var(--ds-text);
+}
+.onb .onb-optional-programs > .program-picker { margin-bottom: 16px; }
+.onb .onb-optional-programs > .onb-q-hint { margin: 0 0 16px; }
+
+/* ---- program picker: chosen programs as cards, a search, a result list ----- */
+
+.onb .program-picker { gap: 8px; max-width: none; }
+.onb .program-selected { gap: 8px; }
+.onb .program-selected > p {
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed var(--ds-border-strong);
+  border-radius: var(--ds-r);
+  color: var(--ds-text-3);
+  font-size: var(--ds-base);
+  text-align: center;
+}
+.onb .program-selected-row {
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 8px 8px 16px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  box-shadow: none;
+}
+.onb .program-selected-row > span { gap: 2px; }
+.onb .program-selected-row small {
+  color: var(--ds-text-3);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+.onb .program-selected-row strong {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.onb .program-selected-row button {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text-3);
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.onb .program-selected-row button:hover { background: var(--ds-subtle); color: var(--ds-text); }
+.onb .program-selected-row svg { width: 14px; height: 14px; }
+
+.onb .program-search > svg {
+  left: 12px;
+  width: 16px;
+  height: 16px;
+  color: var(--ds-text-3);
+}
+
+.onb .program-results {
+  max-height: 240px;
+  padding: 4px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  scrollbar-width: thin;
+}
+.onb .program-results > p {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-base);
+}
+.onb .program-results button {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.4;
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+.onb .program-results button:hover { background: var(--ds-subtle); color: var(--ds-text); }
+.onb .program-results button svg { width: 14px; height: 14px; flex-basis: 14px; color: var(--ds-text-3); }
+.onb .program-results button:hover svg { color: var(--ds-text); }
+
+/* ---- emphasis picker (required concentrations): one card per choice -------- */
+
+.onb .emphasis-picker { gap: 12px; max-width: none; }
+.onb .emphasis-group {
+  padding: 16px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-lg);
+  background: var(--ds-surface);
+}
+/* The program name sits inside the card as an eyebrow, not on its border. */
+.onb .emphasis-group > legend {
+  float: left;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 0;
+  color: var(--ds-text-3);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+.onb .emphasis-group > legend + * { clear: both; }
+.onb .emphasis-heading { gap: 12px; }
+.onb .emphasis-heading strong {
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.onb .emphasis-heading span { color: var(--ds-text-3); font-size: var(--ds-sm); }
+.onb .emphasis-group > p {
+  margin: 4px 0 12px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.onb .emphasis-options { gap: 4px 16px; }
+.onb .emphasis-options label {
+  gap: 8px;
+  padding: 4px 0;
+  color: var(--ds-text-2);
+  font-size: var(--ds-base);
+  line-height: 1.4;
+}
+.onb .emphasis-options label:has(input:checked) { color: var(--ds-text); }
+.onb .emphasis-options input { margin-top: 2px; accent-color: var(--ds-accent); }
+.onb .emphasis-options input:disabled + span { color: inherit; }
+.onb .emphasis-options label:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+.onb .emphasis-group > small {
+  margin-top: 12px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  font-variant-numeric: tabular-nums;
+}
+.onb .emphasis-group > small.needs-choice { color: var(--ds-warning); }
+
+/* ---- step 3: the open response --------------------------------------------- */
+
+.onb .onb-questions { gap: 24px; width: 100%; margin: 0; }
+.onb .onb-skip { margin: 16px 0 0; }
+.onb .onb-skip button {
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  text-decoration: underline;
+  text-decoration-color: var(--ds-border-strong);
+  text-underline-offset: 3px;
+}
+.onb .onb-skip button:hover { color: var(--ds-text); text-decoration-color: currentColor; }
+
+/* ---- step 4: the essentials ------------------------------------------------- */
+
+.onb .onb-details-grid { gap: 24px; max-width: none; margin: 0; }
+.onb .onb-graduation { gap: 4px; }
+.onb .onb-graduation > div { gap: 12px; margin-top: 4px; }
+.onb .onb-graduation label { gap: 4px; }
+.onb .onb-graduation label > span,
+.onb .double-dawgs-timing label > span {
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+}
+.onb .double-dawgs-timing { margin: 0; }
+.onb .double-dawgs-timing legend { margin-bottom: 8px; }
+.onb .double-dawgs-timing > div { gap: 12px; }
+.onb .double-dawgs-timing label { gap: 4px; font-family: var(--ds-font); font-size: var(--ds-sm); }
+.onb .double-dawgs-timing p {
+  margin: 8px 0 0;
+  color: var(--ds-danger);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+
+/* ---- notes: a warning and a heads-up ------------------------------------------ */
+
+.onb .onb-step .onb-feasibility {
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--ds-danger) 28%, transparent);
+  border-left-width: 1px;
+  border-radius: var(--ds-r);
+  background: color-mix(in srgb, var(--ds-danger) 6%, transparent);
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+}
+.onb .onb-step .onb-feasibility > svg {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--ds-danger);
+}
+.onb .onb-step .onb-feasibility > span { gap: 2px; }
+.onb .onb-step .onb-feasibility strong {
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  font-weight: 600;
+}
+.onb .onb-step .onb-feasibility.is-soft {
+  border-color: var(--ds-border);
+  border-left-color: var(--ds-border);
+  background: var(--ds-subtle);
+  color: var(--ds-text-2);
+}
+.onb .onb-step .onb-feasibility.is-soft > svg { color: var(--ds-warning); }
+.onb .onb-step .onb-feasibility.is-soft strong { color: var(--ds-text); }
+.onb .onb-step > .onb-feasibility { margin-top: 16px; }
+
+/* ---- back / next ------------------------------------------------------------------ */
+
+.onb .onb-actions {
+  gap: 12px;
+  margin-top: 32px;
+}
+.onb .onb-count {
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.onb .onb-back,
+.onb .onb-next,
+.account-dialog .onb-back,
+.account-dialog .onb-next {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--ds-r);
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease);
+}
+/* Back is a ghost: text until hovered. */
+.onb .onb-back,
+.account-dialog .onb-back {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ds-text-2);
+}
+.onb .onb-back:hover:not(:disabled),
+.account-dialog .onb-back:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+/* Next is the one solid button on every screen, always on the right. */
+.onb .onb-next,
+.account-dialog .onb-next {
+  padding: 0 20px;
+  border-color: var(--ds-text);
+  background: var(--ds-text);
+  color: var(--ds-surface);
+}
+.onb .onb-next:hover:not(:disabled),
+.account-dialog .onb-next:hover:not(:disabled) {
+  filter: none;
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--ds-text) 86%, var(--ds-surface));
+  background: color-mix(in srgb, var(--ds-text) 86%, var(--ds-surface));
+}
+.onb .onb-back:disabled,
+.onb .onb-next:disabled,
+.account-dialog .onb-back:disabled,
+.account-dialog .onb-next:disabled {
+  filter: none;
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.onb .onb-actions .onb-next { margin-left: auto; }
+.onb .guided-navigation .onb-next { margin-left: 0; }
+
+/* ---- step 5: prior credit ------------------------------------------------------- */
+
+.onb .prior { gap: 32px; width: 100%; margin: 0; }
+.onb .prior-block { gap: 4px; }
+.onb .prior-search { margin-top: 8px; }
+
+/* Search results: the same list as the program results. */
+.onb .prior-matches {
+  gap: 0;
+  margin: 4px 0 0;
+  padding: 4px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  scrollbar-width: thin;
+}
+.onb .prior-matches button {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--ds-r-sm);
+  background: transparent;
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.4;
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+.onb .prior-matches button:hover { background: var(--ds-subtle); color: var(--ds-text); }
+.onb .prior-matches button strong {
+  margin-right: 8px;
+  color: var(--ds-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.onb .prior-matches button span { color: var(--ds-text-2); }
+
+/* What has been added: one grouped list, a row per item. */
+.onb .prior-chosen {
+  gap: 0;
+  margin: 12px 0 0;
+  overflow: hidden;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+}
+.onb .prior-chosen li,
+.onb .prior-chosen li.prior-unscored {
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 8px 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--ds-border);
+  border-radius: 0;
+  background: transparent;
+}
+.onb .prior-chosen li:last-child { border-bottom: 0; }
+.onb .prior-chosen li.prior-unscored { background: color-mix(in srgb, var(--ds-warning) 6%, transparent); }
+.onb .prior-name {
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  line-height: 1.4;
+}
+.onb .prior-name strong { font-weight: 600; font-variant-numeric: tabular-nums; }
+.onb .prior-kind {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 6px;
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-muted);
+  color: var(--ds-text-2);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1.4;
+  vertical-align: 1px;
+}
+.onb .prior-chosen select,
+.onb .prior-chosen li.prior-unscored select {
+  height: 32px;
+  max-width: 300px;
+  padding: 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+}
+.onb .prior-chosen li.prior-unscored select {
+  border-color: color-mix(in srgb, var(--ds-warning) 55%, transparent);
+}
+.onb .prior-chosen select:hover { border-color: var(--ds-border-strong); }
+.onb .prior-remove {
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text-3);
+  font-size: var(--ds-lg);
+  line-height: 1;
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.onb .prior-remove:hover { background: var(--ds-subtle); color: var(--ds-text); }
+
+.onb .prior-total {
+  margin: 12px 0 0;
+  padding: 12px 16px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+}
+.onb .prior-total strong { font-weight: 600; font-variant-numeric: tabular-nums; }
+.onb .prior-exempt { color: var(--ds-text-2); font-size: var(--ds-sm); line-height: 1.5; }
+.onb .prior-waiting {
+  margin: 8px 0 0;
+  color: var(--ds-warning);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+
+/* The language question: years (or starting semester) and which language. */
+.onb .onb-lang-row {
+  grid-template-columns: minmax(160px, 240px) minmax(0, 1fr);
+  gap: 8px;
+}
+
+/* ---- transcript upload and the line-by-line review --------------------------- */
+
+.onb .transcript { gap: 8px; }
+
+/* The upload control is a click target (there is no drop handler), so it reads
+   as a button rather than a dashed drop zone. */
+.onb .transcript-pick {
+  gap: 8px;
+  min-height: 40px;
+  margin-top: 4px;
+  padding: 0 16px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  transition: background var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease);
+}
+.onb .transcript-pick:hover {
+  border-color: var(--ds-border-strong);
+  background: var(--ds-subtle);
+  color: var(--ds-text);
+}
+.onb .transcript-pick:focus-within { border-color: var(--ds-border-strong); box-shadow: none; }
+.onb .transcript-pick:has(input:focus-visible) { box-shadow: var(--ds-focus); }
+.onb .transcript-pick:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+
+.onb .transcript-hint { color: var(--ds-text-2); font-size: var(--ds-sm); line-height: 1.5; }
+.onb .transcript-busy,
+.onb .transcript-error,
+.onb .transcript-summary { font-size: var(--ds-base); line-height: 1.5; }
+.onb .transcript-busy { color: var(--ds-text-2); }
+.onb .transcript-error { color: var(--ds-danger); }
+.onb .transcript-summary { color: var(--ds-text); }
+.onb .transcript-meta { color: var(--ds-text-2); font-size: var(--ds-sm); line-height: 1.5; }
+
+/* The review: one grouped list, a hairline between lines. */
+.onb .transcript-list {
+  gap: 0;
+  margin: 8px 0 0;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  scrollbar-width: thin;
+}
+.onb .transcript-list li {
+  gap: 8px 12px;
+  padding: 8px 8px 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--ds-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+}
+.onb .transcript-list li:last-child { border-bottom: 0; }
+.onb .transcript-list li.off { opacity: 0.6; }
+.onb .transcript-code {
+  color: var(--ds-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.onb .transcript-line .transcript-meta { font-size: var(--ds-sm); }
+
+.onb .transcript-chip {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-muted);
+  color: var(--ds-text-2);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.4;
+  text-transform: none;
+}
+.onb .transcript-chip.warn,
+.onb .transcript-chip.basis-none {
+  background: color-mix(in srgb, var(--ds-danger) 12%, transparent);
+  color: var(--ds-danger);
+}
+.onb .transcript-chip.basis-course {
+  background: color-mix(in srgb, var(--ds-success) 12%, transparent);
+  color: var(--ds-success);
+}
+.onb .transcript-chip.basis-core,
+.onb .transcript-chip.basis-elective {
+  background: color-mix(in srgb, var(--ds-info) 12%, transparent);
+  color: var(--ds-info);
+}
+.onb .transcript-chip.basis-not-evaluated {
+  background: color-mix(in srgb, var(--ds-warning) 12%, transparent);
+  color: var(--ds-warning);
+}
+.onb .transcript-basis {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.onb .transcript-basis a {
+  color: var(--ds-text);
+  text-decoration: underline;
+  text-decoration-color: var(--ds-border-strong);
+  text-underline-offset: 3px;
+}
+.onb .transcript-basis a:hover { text-decoration-color: currentColor; }
+
+/* "May be ABC 123": a tinted note with two small answers. */
+.onb .transcript-maybe {
+  padding: 8px 12px;
+  border-radius: var(--ds-r-sm);
+  background: color-mix(in srgb, var(--ds-warning) 8%, transparent);
+  color: var(--ds-text);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.onb .transcript-maybe button {
+  min-height: 28px;
+  margin-top: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  transition: background var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease);
+}
+.onb .transcript-maybe button:hover { border-color: var(--ds-border-strong); background: var(--ds-subtle); }
+
+/* What a line counts as: a compact select. */
+.onb .transcript-counts {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  transition: border-color var(--ds-fast) var(--ds-ease);
+}
+.onb .transcript-counts:hover { border-color: var(--ds-border-strong); }
+.onb .transcript-counts.is-likely {
+  border-color: color-mix(in srgb, var(--ds-warning) 55%, transparent);
+  background: color-mix(in srgb, var(--ds-warning) 8%, var(--ds-surface));
+  color: var(--ds-text);
+}
+.onb .transcript-counts:focus { outline: 0; border-color: var(--ds-border-strong); box-shadow: none; }
+.onb .transcript-counts:focus-visible { box-shadow: var(--ds-focus); }
+
+.onb .transcript-actions { gap: 8px 16px; margin-top: 4px; }
+.onb .transcript-more,
+.onb .transcript-remove {
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--ds-border-strong);
+  text-underline-offset: 3px;
+  transition: color var(--ds-fast) var(--ds-ease);
+}
+.onb .transcript-more:hover { color: var(--ds-text); text-decoration-color: currentColor; }
+.onb .transcript-more:has(input:focus-visible) { border-radius: var(--ds-r-sm); box-shadow: var(--ds-focus); }
+.onb .transcript-remove:hover { color: var(--ds-danger); text-decoration-color: currentColor; }
+.onb .transcript-add { gap: 4px; margin-top: 8px; }
+
+/* ---- Double Dawgs (UGA bachelor's + master's) ---------------------------------- */
+
+.onb .double-dawgs {
+  margin: 0;
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-base);
+  line-height: 1.5;
+}
+.onb .double-dawgs p { margin: 8px 0; }
+.onb .double-dawgs > output { display: block; padding: 0 0 12px; color: var(--ds-text-3); }
+.onb .guidance-search { gap: 4px; margin: 4px 0 8px; }
+.onb .guidance-search > span {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+}
+.onb .double-dawgs-options {
+  padding: 4px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  scrollbar-width: thin;
+}
+.onb .double-dawgs-options label {
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text-2);
+  line-height: 1.4;
+  transition: background var(--ds-fast) var(--ds-ease);
+}
+.onb .double-dawgs-options label:hover { background: var(--ds-subtle); }
+.onb .double-dawgs-options label:has(input:checked) { background: var(--ds-subtle); color: var(--ds-text); }
+.onb .double-dawgs-options input { margin-top: 2px; accent-color: var(--ds-accent); }
+.onb .double-dawgs-options > p { margin: 0; padding: 8px; color: var(--ds-text-3); }
+.onb .double-dawgs-summary {
+  margin: 12px 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+}
+.onb .double-dawgs-summary > p:first-child { margin-top: 0; }
+.onb .double-dawgs-summary strong { color: var(--ds-text); font-weight: 600; }
+.onb .double-dawgs-summary p[role='alert'] { color: var(--ds-danger); }
+.onb .double-dawgs a {
+  color: var(--ds-text);
+  text-decoration: underline;
+  text-decoration-color: var(--ds-border-strong);
+  text-underline-offset: 3px;
+}
+.onb .double-dawgs a:hover { text-decoration-color: currentColor; }
+.onb .double-dawgs-summary a { margin: 8px 0 0; }
+.onb .double-dawgs a svg { width: 12px; height: 12px; vertical-align: -1px; }
+.onb .double-dawgs-shared { margin: 16px 0; }
+.onb .double-dawgs-shared legend {
+  margin-bottom: 8px;
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.onb .double-dawgs-shared input[type='search'] { margin: 0 0 8px; }
+.onb .double-dawgs-shared label {
+  gap: 8px;
+  padding: 8px 0;
+  color: var(--ds-text);
+  line-height: 1.4;
+}
+.onb .double-dawgs-shared input[type='checkbox'] { margin-top: 2px; accent-color: var(--ds-accent); }
+.onb .double-dawgs-shared small {
+  margin-top: 2px;
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-variant-numeric: tabular-nums;
+}
+.onb .double-dawgs-shared label:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+.onb .double-dawgs-course-list { padding-right: 4px; scrollbar-width: thin; }
+.onb .double-dawgs-course-review { padding: 8px 0; color: var(--ds-text); }
+.onb .double-dawgs-course-review small {
+  display: block;
+  margin-top: 2px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+}
+
+/* ---- the setup assistant: a chat, in the shape of Claude and ChatGPT ----------- */
+
+/* The conversation: the student's turns in a soft bubble on the right, the
+   assistant's as plain text on the left. */
+.onb .guided-history {
+  gap: 16px;
+  padding: 8px 0 16px;
+  scrollbar-width: thin;
+}
+.onb .guided-message {
+  margin: 0;
+  font-family: var(--ds-font);
+  font-size: var(--ds-md);
+  line-height: 1.6;
+}
+.onb .guided-message.user {
+  max-width: 85%;
+  padding: 8px 16px;
+  border-radius: var(--ds-r-lg);
+  background: var(--ds-muted);
+  color: var(--ds-text);
+}
+.onb .guided-message.assistant {
+  max-width: 100%;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ds-text);
+}
+.onb .guided-history > output {
+  color: var(--ds-text-3);
+  font-size: var(--ds-base);
+}
+
+/* What the assistant has gathered so far, and the one-tap answers. */
+.onb .guided-summary {
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0 16px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+}
+.onb .guided-summary > span {
+  padding: 4px 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.4;
+}
+.onb .guided-summary > span:empty { display: none; }
+.onb .guided-summary > span:first-child { color: var(--ds-text); font-weight: 500; }
+.onb .guided-summary button {
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  text-decoration: none;
+  transition: background var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease);
+}
+.onb .guided-summary button:hover { border-color: var(--ds-border-strong); background: var(--ds-subtle); }
+
+/* The composer: a raised box with the send button tucked in its corner. */
+.onb .guided-composer {
+  align-items: flex-end;
+  gap: 12px;
+  padding: 12px 12px 12px 16px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r-lg);
+  background: var(--ds-surface);
+  box-shadow: var(--ds-shadow-1);
+  transition: border-color var(--ds-fast) var(--ds-ease), box-shadow var(--ds-fast) var(--ds-ease);
+}
+.onb .guided-composer:hover { border-color: var(--ds-border-strong); }
+.onb .guided-composer:has(textarea:focus-visible) {
+  border-color: var(--ds-border-strong);
+  box-shadow: var(--ds-shadow-1), var(--ds-focus);
+}
+.onb .guided-composer textarea {
+  padding: 4px 0;
+  color: var(--ds-text);
+  font: 400 var(--ds-md)/1.6 var(--ds-font);
+}
+.onb .guided-composer textarea::placeholder { color: var(--ds-text-3); opacity: 1; }
+.onb .guided-composer textarea:focus-visible { box-shadow: none; }
+.onb .guided-composer textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+.onb .guided-composer button {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-r);
+  background: var(--ds-text);
+  color: var(--ds-surface);
+  transition: background var(--ds-fast) var(--ds-ease), opacity var(--ds-fast) var(--ds-ease);
+}
+.onb .guided-composer button:hover:not(:disabled) { background: color-mix(in srgb, var(--ds-text) 86%, var(--ds-surface)); }
+.onb .guided-composer button:disabled { opacity: 0.5; cursor: not-allowed; }
+.onb .guided-composer button svg { width: 16px; height: 16px; }
+
+.onb .guided-setup > .onb-q-hint { margin: 8px 0 0; }
+.onb .guided-setup > .onb-q-hint:has(+ .guided-composer) { margin: 0 0 12px; }
+.onb .guided-credit {
+  margin: 24px 0 0;
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+}
+.onb .guided-credit > .prior { padding: 8px 0 24px; }
+.onb .guided-navigation { gap: 16px; }
+.onb .guided-navigation .setup-mode-link {
+  max-width: 70%;
+  margin-left: auto;
+  text-align: right;
+}
+
+/* ---- building the plan --------------------------------------------------------- */
+
+.onb .onb-building { padding: 48px 0; }
+.onb .onb-spinner {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto 24px;
+  border: 2px solid var(--ds-border);
+  border-top-color: var(--ds-text);
+}
+
+/* ---- footer: the Unofficial notice, privacy and feedback ------------------------ */
+
+.onb .site-footer {
+  gap: 8px;
+  max-width: none;
+  margin: 48px 0 0;
+  padding: 24px 0 0;
+  border-top: 1px solid var(--ds-border);
+  color: var(--ds-text-3);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.onb .site-footer .unofficial-label {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: 999px;
+  background: var(--ds-subtle);
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-xs);
+  font-weight: 500;
+  line-height: 1;
+}
+.onb .site-footer-notice {
+  max-width: 60ch;
+  color: var(--ds-text-3);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.onb .site-footer .unofficial-link {
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: var(--ds-r-sm);
+  color: var(--ds-text-2);
+  font-family: var(--ds-font);
+  font-size: var(--ds-sm);
+  font-weight: 500;
+  line-height: 1.4;
+  text-decoration: none;
+  transition: background var(--ds-fast) var(--ds-ease), color var(--ds-fast) var(--ds-ease);
+}
+.onb .site-footer .unofficial-link:hover { background: var(--ds-subtle); color: var(--ds-text); text-decoration: none; }
+.onb .site-footer .feedback-link { gap: 6px; }
+.onb .site-footer .feedback-link svg { width: 14px; height: 14px; }
+
+/* ---- dialogs over setup: research consent and account sign-in ------------------ */
+
+:root .orion-dialog.insights-dialog,
+:root .orion-dialog.account-dialog {
+  --onb-text: var(--ds-text);
+  --onb-bg: var(--ds-surface);
+  --onb-mid: var(--ds-text-2);
+  --onb-line: var(--ds-border);
+  width: min(560px, calc(100vw - 32px));
+  max-width: min(560px, calc(100vw - 32px));
+  gap: 16px;
+  padding: 24px;
+  border: 0;
+  border-radius: var(--ds-r-lg);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-2);
+  font: 400 var(--ds-base)/1.5 var(--ds-font);
+}
+.orion-dialog.insights-dialog [data-slot='dialog-title'],
+.orion-dialog.account-dialog [data-slot='dialog-title'] {
+  margin: 0;
+  padding-right: 24px;
+  color: var(--ds-text);
+  font: 600 var(--ds-xl)/1.3 var(--ds-font);
+  letter-spacing: -0.01em;
+}
+.orion-dialog.insights-dialog [data-slot='dialog-description'],
+.orion-dialog.account-dialog [data-slot='dialog-description'] {
+  margin-top: -8px;
+  color: var(--ds-text-2);
+  font: 400 var(--ds-base)/1.5 var(--ds-font);
+}
+.orion-dialog.insights-dialog > p,
+.orion-dialog.account-dialog > p,
+.orion-dialog.account-dialog .account-confirm p {
+  margin: 0;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  line-height: 1.5;
+}
+.orion-dialog.insights-dialog > output,
+.orion-dialog.account-dialog > output {
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+}
+
+/* The three research choices, as selectable rows. */
+.orion-dialog.insights-dialog .insights-settings {
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.orion-dialog.insights-dialog .insights-settings > label {
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  cursor: pointer;
+  transition: border-color var(--ds-fast) var(--ds-ease), background var(--ds-fast) var(--ds-ease);
+}
+.orion-dialog.insights-dialog .insights-settings > label:hover { border-color: var(--ds-border-strong); }
+.orion-dialog.insights-dialog .insights-settings > label:has(input:checked) {
+  border-color: var(--ds-border-strong);
+  background: var(--ds-subtle);
+}
+.orion-dialog.insights-dialog .insights-settings > label:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+.orion-dialog.insights-dialog .insights-settings > label:has(input:focus-visible) { box-shadow: var(--ds-focus); }
+.orion-dialog.insights-dialog .insights-settings input {
+  margin-top: 2px;
+  accent-color: var(--ds-accent);
+}
+.orion-dialog.insights-dialog .insights-settings input:focus-visible { box-shadow: none; }
+.orion-dialog.insights-dialog .insights-settings span {
+  color: var(--ds-text);
+  font-size: var(--ds-base);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.orion-dialog.insights-dialog .insights-settings small {
+  margin-top: 4px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-sm);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* The footer: secondary choices, then the one solid button on the right. */
+.orion-dialog.insights-dialog .insights-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+.orion-dialog.insights-dialog .insights-actions button,
+.orion-dialog.account-dialog .account-actions button,
+.orion-dialog.account-dialog .account-confirm button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-r);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font: 500 var(--ds-base)/1.3 var(--ds-font);
+  text-align: center;
+  transition: background var(--ds-fast) var(--ds-ease), border-color var(--ds-fast) var(--ds-ease);
+}
+.orion-dialog.insights-dialog .insights-actions button:hover:not(:disabled),
+.orion-dialog.account-dialog .account-actions button:hover:not(:disabled),
+.orion-dialog.account-dialog .account-confirm button:hover:not(:disabled) {
+  border-color: var(--ds-border-strong);
+  background: var(--ds-subtle);
+}
+.orion-dialog.insights-dialog .insights-actions button.insights-accept-all {
+  border-color: var(--ds-text);
+  background: var(--ds-text);
+  color: var(--ds-surface);
+}
+.orion-dialog.insights-dialog .insights-actions button.insights-accept-all:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ds-text) 86%, var(--ds-surface));
+  background: color-mix(in srgb, var(--ds-text) 86%, var(--ds-surface));
+}
+.orion-dialog.insights-dialog .insights-actions button:disabled,
+.orion-dialog.account-dialog .account-actions button:disabled,
+.orion-dialog.account-dialog .account-confirm button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.orion-dialog.insights-dialog .insights-actions button:focus-visible,
+.orion-dialog.account-dialog button:focus-visible {
+  outline: none;
+  box-shadow: var(--ds-focus);
+}
+
+/* Account: sign in, or the saved-plan actions as a stacked list. */
+.orion-dialog.account-dialog .account-actions { gap: 8px; }
+/* "Save this device's plan" stays the solid button inside the list. */
+.orion-dialog.account-dialog .account-actions button.onb-next {
+  min-height: 40px;
+  border-color: var(--ds-text);
+  background: var(--ds-text);
+  color: var(--ds-surface);
+}
+.orion-dialog.account-dialog .account-actions button.onb-next:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ds-text) 86%, var(--ds-surface));
+  background: color-mix(in srgb, var(--ds-text) 86%, var(--ds-surface));
+}
+.orion-dialog.account-dialog .account-confirm {
+  padding-top: 16px;
+  border-top: 1px solid var(--ds-border);
+}
+.orion-dialog.account-dialog .account-confirm p { color: var(--ds-text); font-size: var(--ds-base); }
+.orion-dialog.account-dialog .account-confirm button { min-height: 32px; margin: 12px 8px 0 0; }
+
+/* ---- small screens ------------------------------------------------------------- */
+
+@media (max-width: 620px) {
+  .onb .onb-header { padding: 0 12px 0 16px; }
+  .onb .onb-header > .onb-back.onb-account {
+    max-width: none;
+    padding: 0 8px;
+    font-size: var(--ds-sm);
+  }
+  .onb .onb-inner { padding-top: 32px; }
+  .onb .onb-progress { margin-bottom: 32px; }
+  .onb .guided-actions { margin: -8px 0 24px; }
+  .onb .onb-step h1 { font-size: var(--ds-2xl); }
+  .onb .onb-lang-row { grid-template-columns: minmax(0, 1fr); }
+  .onb .onb-actions { align-items: stretch; flex-wrap: wrap; }
+  .onb .onb-count { order: 3; flex-basis: 100%; text-align: center; }
+  .onb .guided-navigation .setup-mode-link { max-width: 100%; }
+  .onb .guided-message.user { max-width: 92%; }
+  .onb .prior-chosen li { flex-wrap: wrap; }
+  .onb .prior-chosen select,
+  .onb .prior-chosen li.prior-unscored select { max-width: 100%; }
+}
+
+@media (max-width: 600px) {
+  :root .orion-dialog.insights-dialog,
+  :root .orion-dialog.account-dialog {
+    padding: 20px;
+    font-size: var(--ds-base);
+  }
+  .orion-dialog.insights-dialog .insights-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .orion-dialog.insights-dialog .insights-actions button { min-height: 40px; }
+}
+
+@media (max-width: 360px) {
+  .onb .onb-header > .onb-back.onb-account {
+    max-width: 120px;
+    white-space: normal;
+    line-height: 1.2;
+    text-align: right;
+  }
+}

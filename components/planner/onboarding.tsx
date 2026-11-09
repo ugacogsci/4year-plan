@@ -629,7 +629,7 @@ export function Onboarding({
   }
 
   return (
-    <div className="onb" data-theme={theme} style={school ? ({ ['--school' as string]: school.accent }) : undefined}>
+    <div className="onb" data-theme={theme} data-school={school?.id} style={school ? ({ ['--school' as string]: school.accent }) : undefined}>
       <header className="onb-header">
         <div className="onb-brand" aria-label="ORION">
           <Image src="/orion-logo.png" alt="" width={48} height={48} priority />
