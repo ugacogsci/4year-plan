@@ -54,6 +54,19 @@
  *   - Which subject a prerequisite means when Banner names a subject that is no
  *     longer offered: it is printed by its description and never matched to a code.
  *
+ * PREREQUISITE PROSE is written in prereq-prose.mjs's group form (one ";"
+ * segment per group, every group needing a course of its own, which is how
+ * the engine's matcher reads it), with three data readings on top, each
+ * documented where it is built: a lab's lecture and a course's single
+ * prerequisites as what it guarantees (impliedIndex), the degree-informed
+ * count for an Or whose alternatives need different numbers of courses
+ * (chooseGroups), and the renumbered or replacement course a prerequisite also
+ * accepts (alsoAccepts). Each row's prereqReading says how the result compares
+ * with Banner's tree. measure-prereqs.mjs checks the round trip.
+ * Run order when everything is rebuilt: courses.mjs, programs.mjs --offline,
+ * offerings.mjs --parse-only, courses.mjs --offline again (it reads the
+ * programs and offerings files), then build-index.mjs.
+ *
  * Measured 2026-11-09 (Fall 2026): 5,133 courses (2,692 undergraduate); Banner
  * prerequisite replies for all 2,692 undergraduate courses, 1,187 with a table;
  * 1,204 with a clause naming a catalog course, every one of which parses into
@@ -66,6 +79,7 @@ import { catalogGet, slugOf, BlockedError as CatalogBlocked } from './catalog-ge
 import { Banner, BlockedError as BannerBlocked } from './banner.mjs';
 import {
   parsePrereqTable, parseCoreqTable, parseRestrictions, prereqTreeOf, cnfOf, renderIllinoisProse, renderGTWording, standingSentence,
+  liveTreeOf, deadAtomsOf, groupsOf, unevenOrsOf, impliedIndex, singleCodesOf, renderGroupsProse, compareReading, groupsAccept, treeAccepts, seededRandom,
 } from './prereq-prose.mjs';
 
 export const TERM = '202608';
@@ -347,7 +361,231 @@ async function main() {
   /** Attributes that are degree requirements, i.e. Georgia Tech's gen-ed tags. */
   const GEN_ED_ATTRS = new Set(['HUM', 'SS', 'ETHS']);
 
-  const stats = { prereqRead: 0, prereqNone: 0, prereqTable: 0, prereqMissing: 0, complex: 0, mixedNoParens: 0, quarterDropped: 0, unknownSubject: new Map(), coreqs: 0, coreqInProse: 0, standing: 0, creditMismatch: [] };
+  const stats = { prereqRead: 0, prereqNone: 0, prereqTable: 0, prereqMissing: 0, complex: 0, mixedNoParens: 0, quarterDropped: 0, unknownSubject: new Map(), coreqs: 0, coreqInProse: 0, standing: 0, creditMismatch: [], reading: new Map(), group: {} };
+
+  /**
+   * Corequisite tables, and the lab -> lecture pairs that go into the prose
+   * (coreqInProse), read first: a lab's lecture is one of the courses the
+   * group form (prereq-prose.mjs) knows the lab guarantees.
+   */
+  const coreqOf = new Map();
+  const proseCoreqOf = new Map();
+  for (const r of cat.rows) {
+    const coHtml = banner.readCache('coreq', `${r.subject}_${r.number}`, 'html');
+    if (coHtml === null) continue;
+    const list = parseCoreqTable(coHtml).map((c) => {
+      const codes = subjByDesc.get(c.subject.toLowerCase()) ?? [];
+      return codes.map((s) => `${s} ${c.number}`).find((x) => catalogCodes.has(x)) ?? (codes[0] ? `${codes[0]} ${c.number}` : `${c.subject} ${c.number}`);
+    }).filter((c) => c !== r.code);
+    coreqOf.set(r.code, list);
+    proseCoreqOf.set(r.code, list.filter((c) => catalogCodes.has(c) && coreqInProse(r.code, c)));
+  }
+
+  /**
+   * Prerequisites in the matcher's group form (prereq-prose.mjs explains why
+   * not the CNF). Two passes and a fixpoint: what a course guarantees (its
+   * single-course groups and its lecture) is read off the groups, and the
+   * groups are built knowing what each course guarantees.
+   */
+  /**
+   * A prerequisite that names a course which has not run in nine terms, where
+   * the catalog has its replacement, also accepts the replacement. ID 3032,
+   * 3042 and 3052 need "ID 2022" in Banner, the Industrial Design Studio 2 the
+   * degree page no longer lists (it lists ID 2024, "Industrial Design Studio
+   * 2", which runs every spring), so every Industrial Design board booked the
+   * old studio in its first fall to unlock its own junior studios. CEE 4406
+   * needs CEE 4405, which is CEE 3400 under another number; CHEM 4512 needs
+   * CHEM 4511, whose same-titled course CHEM 3521 is the one that runs.
+   *   - The renumbered pairs of public/gatech-offerings.json (same title and
+   *     description, scripts/gatech/offerings.mjs) accept each other.
+   *   - A course with no section in nine terms and exactly one other course of
+   *     the same title that has run (neither of them research, internship or
+   *     special topics, and not two steps of one subject's sequence: same
+   *     subject, under ten apart, same description) is also met by that one.
+   * Banner's own wording stays in prereqGT; prereqAlsoAccepts lists each
+   * addition. Without the offerings file there are none.
+   */
+  const offeringsRaw = existsSync('public/gatech-offerings.json') ? JSON.parse(readFileSync('public/gatech-offerings.json', 'utf8')) : null;
+  const alsoAccepts = new Map();
+  if (offeringsRaw) {
+    const add = (a, b) => { if (!alsoAccepts.has(a)) alsoAccepts.set(a, new Set()); alsoAccepts.get(a).add(b); };
+    for (const [now, before] of Object.entries(offeringsRaw.renumbered ?? {})) { add(now, before); add(before, now); }
+    const ranOwn = (code) => (offeringsRaw.courses?.[code]?.length ?? 0) > 0 && !(code in (offeringsRaw.renumbered ?? {}));
+    const NOISE_TITLE = /\b(assistantship|special topics)\b/i;
+    const T = (x) => String(x ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const ug = cat.rows.filter((r) => Number.parseInt(r.number, 10) < GT_GRAD_LEVEL && !NOISE.test(r.title) && !NOISE_TITLE.test(r.title));
+    const byTitle = new Map();
+    for (const r of ug) {
+      if (!byTitle.has(T(r.title))) byTitle.set(T(r.title), []);
+      byTitle.get(T(r.title)).push(r);
+    }
+    for (const r of ug) {
+      if (ranOwn(r.code) || alsoAccepts.has(r.code)) continue;
+      const seq = (x) => x.subject === r.subject && Math.abs(Number.parseInt(x.number, 10) - Number.parseInt(r.number, 10)) < 10 && T(x.description) === T(r.description);
+      const next = (byTitle.get(T(r.title)) ?? []).filter((x) => x.code !== r.code && ranOwn(x.code) && !seq(x));
+      if (next.length === 1) add(r.code, next[0].code);
+    }
+  }
+  /**
+   * A course for non-majors, met by the majors' own course. MGT 3000
+   * (Financial and Managerial Accounting) says "No credit allowed for MGT
+   * majors. No credit allowed for MGT 3000 and ACCT 2101. Credit not allowed
+   * for MGT 3000 and ACCT 2102." Banner's tables for MGT 4010, 4015, 4026,
+   * 4030, 4041 and 4045 name MGT 3000 alone, so the Accounting concentration,
+   * which requires ACCT 2101 and 2102 and those courses, could never meet them
+   * (MGT 4026 and MGT 4010 sat on its board unmet, 2026-11-09); MGT 3659 and
+   * MGT 4029 already read "ACCT 2101 or MGT 3000". Such a prerequisite also
+   * accepts the courses the non-majors course names as no credit with it.
+   */
+  for (const r of cat.rows) {
+    if (!/\bno credit (?:is )?(?:allowed|given|awarded) for [A-Za-z ]*majors\b/i.test(r.description ?? '')) continue;
+    const esc = r.code.replace(' ', '\\s+');
+    for (const m of (r.description ?? '').matchAll(new RegExp(String.raw`credit (?:is )?(?:not )?(?:allowed|given|awarded) for (?:both )?${esc} and ([A-Z]{2,4} \d{4}[A-Z]?)`, 'gi'))) {
+      if (catalogCodes.has(m[1])) {
+        if (!alsoAccepts.has(r.code)) alsoAccepts.set(r.code, new Set());
+        alsoAccepts.get(r.code).add(m[1]);
+      }
+    }
+  }
+  const withAlternatives = (node) => {
+    if (!node || node.op === 'false') return node;
+    if (node.op === 'atom') {
+      const alts = node.atom.kind === 'course' && node.atom.code ? [...(alsoAccepts.get(node.atom.code) ?? [])] : [];
+      if (!alts.length) return node;
+      return { op: 'or', kids: [node, ...alts.map((code) => ({ op: 'atom', atom: { ...node.atom, code, label: code, number: code.split(' ')[1], quarter: false, placeholder: false, added: true } }))] };
+    }
+    return { ...node, kids: node.kids.map(withAlternatives) };
+  };
+
+  const treeOf = new Map();
+  for (const r of cat.rows) {
+    const preHtml = banner.readCache('prereq', `${r.subject}_${r.number}`, 'html');
+    if (preHtml === null) continue;
+    const table = parsePrereqTable(preHtml);
+    if (!table.rows.length) continue;
+    const tree = prereqTreeOf(table.rows, { subjByDesc, known: catalogCodes });
+    const named = new Set(tree.atoms.filter((a) => a.kind === 'course' && a.code).map((a) => a.code));
+    const added = [...named].flatMap((c) => [...(alsoAccepts.get(c) ?? [])].filter((x) => !named.has(x) && x !== r.code).map((x) => [c, x]));
+    const node = added.length ? withAlternatives(tree.node) : tree.node;
+    treeOf.set(r.code, { table, tree, live: liveTreeOf(node, catalogCodes, r.code), added });
+  }
+  // How many prerequisite tables name each course: a rarely named course is the telling one (groupsOf).
+  const named = new Map();
+  for (const [, t] of treeOf) for (const c of new Set(t.tree.atoms.filter((a) => a.kind === 'course' && a.code).map((a) => a.code))) named.set(c, (named.get(c) ?? 0) + 1);
+  const common = (code) => named.get(code) ?? 0;
+  /**
+   * Which way through an uneven Or the degrees take (prereq-prose.mjs groupsOf,
+   * `pick`). ISYE 3133's "ISYE 2027 and MATH 2603 and CS 2316, or MATH 3215"
+   * read at one course let Industrial Engineering boards take it the term
+   * after MATH 2603, a term before ISYE 2027 (7 boards, 2026-11-09). Read at
+   * three it is exact for them. So each count is tried on what the degrees
+   * that name the course hold: for every program row list naming it, every
+   * subset of the course's prerequisite courses that list holds (with what
+   * each guarantees), and the reading that disagrees with Banner's tree least
+   * often wins. On a tie, or with no degree naming the course, the smallest
+   * count, which is never stricter than Banner. A degree counts for a course
+   * only where it names it in a row list of at most 12 courses (a required
+   * row or a real choice): Chemistry and Economics name ISYE 3133 inside
+   * school-wide pools of hundreds, which says nothing about the way their
+   * students would come to it.
+   * public/gatech-programs.json is read when present (it is built after this
+   * file, from the same catalog; only its course codes are used here).
+   */
+  const degreesNaming = new Map();
+  /**
+   * Research, internship and thesis courses a degree requires by name. NOISE
+   * keeps them out of the planner's catalog (adaptIllinoisCatalog skips a
+   * noise row) so they never fill a "pick any course" list, but where the page
+   * prints one as a required row with its hours (Construction's BC 4680
+   * Professional Internship, Public Policy's PUBP 2651 or 4651 internship) or
+   * as one of a list of at most three (Chemistry's "Research Experience",
+   * CHEM 4695 or CHEM 4699), leaving it out left the row unplannable: "None of
+   * the 2 courses the catalog lists here are in this snapshot" on five
+   * degrees, and BC 4630, which needs BC 4680, unplaced (2026-11-09). Those
+   * courses are not noise; `noiseByTitle` keeps the title's reading for the
+   * pools shape-programs.mjs builds.
+   */
+  const requiredByDegree = new Map();
+  if (existsSync('public/gatech-programs.json')) {
+    for (const p of JSON.parse(readFileSync('public/gatech-programs.json', 'utf8')).programs ?? []) {
+      const codes = new Set();
+      const named = new Set();
+      for (const a of p.areas ?? []) for (const g of a.groups ?? []) {
+        const list = g.courses ?? [];
+        for (const c of list) {
+          if (c.code) codes.add(c.code);
+          for (const extra of Object.values(c.and ?? {}).flat()) codes.add(extra);
+          if (c.code && list.length <= 12) named.add(c.code);
+          if (c.code && ((c.credits != null && !c.indented) || list.length <= 3)) {
+            for (const code of [c.code, ...(c.or ?? []), ...Object.values(c.and ?? {}).flat()]) {
+              if (!requiredByDegree.has(code)) requiredByDegree.set(code, p.id);
+            }
+          }
+        }
+      }
+      for (const c of named) {
+        if (!degreesNaming.has(c)) degreesNaming.set(c, []);
+        degreesNaming.get(c).push(codes);
+      }
+    }
+  }
+  const pickStats = { courses: 0, larger: 0 };
+  const chooseGroups = (code, live, implied, groupStats) => {
+    const base = { implied, common, stats: groupStats };
+    const uneven = unevenOrsOf(live, { implied, common });
+    if (uneven.length === 0) return groupsOf(live, base);
+    const combos = [[]];
+    for (const ks of uneven) {
+      const next = [];
+      for (const c of combos) for (const k of ks) next.push([...c, k]);
+      combos.splice(0, combos.length, ...next);
+      if (combos.length > 64) break;
+    }
+    const tries = combos.length > 64 ? [uneven.map((ks) => ks[0]), uneven.map((ks) => ks[ks.length - 1])] : combos;
+    const random = seededRandom(code);
+    const atoms = new Set();
+    const walk = (n) => { if (!n || n.op === 'false') return; if (n.op === 'atom') { if (n.atom.kind === 'course') atoms.add(n.atom.code); return; } n.kids.forEach(walk); };
+    walk(live);
+    const closed = (list) => { const h = new Set(list); for (const c of list) for (const y of implied(c)) h.add(y); return h; };
+    const scenes = [];
+    for (const codes of degreesNaming.get(code) ?? []) {
+      const S = [...atoms].filter((a) => codes.has(a) || [...codes].some((c) => implied(c).has(a)));
+      if (!S.length) continue;
+      const n = S.length <= 10 ? 2 ** S.length : 256;
+      for (let t = 0; t < n; t += 1) scenes.push(closed(S.length <= 10 ? S.filter((_, i) => (t >> i) & 1) : S.filter(() => random() < 0.5)));
+    }
+    let best = null;
+    for (const combo of tries) {
+      const groups = groupsOf(live, { implied, common, pick: (i) => combo[i] });
+      let errors = 0;
+      for (const held of scenes) if (treeAccepts(live, (a) => held.has(a.code)) !== groupsAccept(groups, (a) => held.has(a.code))) errors += 1;
+      if (!best || errors < best.errors) best = { combo, errors };
+    }
+    pickStats.courses += 1;
+    if (best.combo.some((k, i) => k !== uneven[i][0])) pickStats.larger += 1;
+    return groupsOf(live, { ...base, pick: (i) => best.combo[i] });
+  };
+  const groupsByCode = new Map();
+  let implied = () => new Set();
+  let lastSig = '';
+  for (let pass = 0; pass < 6; pass += 1) {
+    const groupStats = {};
+    pickStats.courses = 0;
+    pickStats.larger = 0;
+    for (const [code, t] of treeOf) groupsByCode.set(code, chooseGroups(code, t.live, implied, groupStats));
+    const direct = new Map();
+    for (const r of cat.rows) {
+      const own = singleCodesOf(groupsByCode.get(r.code));
+      direct.set(r.code, new Set([...own, ...(proseCoreqOf.get(r.code) ?? [])]));
+    }
+    const next = impliedIndex(direct);
+    const sig = cat.rows.map((r) => `${r.code}:${[...next(r.code)].sort().join(',')}`).join('|');
+    implied = next;
+    stats.group = { ...groupStats, ...pickStats, passes: pass + 1 };
+    if (sig === lastSig) break;
+    lastSig = sig;
+  }
+
   const courses = [];
   for (const r of cat.rows) {
     const [subject, number] = [r.subject, r.number];
@@ -357,46 +595,61 @@ async function main() {
     // Prerequisites from the Banner table.
     const preHtml = banner.readCache('prereq', `${subject}_${number}`, 'html');
     let prereqText = '', prereqGT = '', prereqCodes = [], prereqTests = [], prereqShape = null, prereqClauses = [], prereqAmbiguous = false;
+    let prereqRetired = [], prereqReading = null, prereqAlsoAccepts = {};
     if (preHtml === null) stats.prereqMissing += 1;
     else {
       stats.prereqRead += 1;
-      const table = parsePrereqTable(preHtml);
-      if (!table.rows.length) stats.prereqNone += 1;
+      const t = treeOf.get(r.code);
+      if (!t) stats.prereqNone += 1;
       else {
         stats.prereqTable += 1;
-        const tree = prereqTreeOf(table.rows, { subjByDesc, known: catalogCodes });
+        const { table, tree, live } = t;
         if (tree.mixedWithoutParens) { stats.mixedNoParens += 1; prereqAmbiguous = true; }
         for (const d of tree.unknownSubjects) stats.unknownSubject.set(d, (stats.unknownSubject.get(d) ?? 0) + 1);
         const cnf = cnfOf(tree.node);
         if (cnf.quarterDropped) stats.quarterDropped += 1;
-        if (cnf.complex) stats.complex += 1;
-        prereqText = renderIllinoisProse(cnf);
+        const groups = groupsByCode.get(r.code);
         prereqGT = renderGTWording(table.rows, tree);
         prereqCodes = [...new Set(tree.atoms.filter((a) => a.kind === 'course' && a.code && catalogCodes.has(a.code) && a.code !== r.code).map((a) => a.code))];
         prereqTests = [...new Set(tree.atoms.filter((a) => a.kind === 'test').map((a) => `${a.test} ${a.score}`.trim()))];
-        prereqShape = cnf.complex ? 'complex' : cnf.clauses.length > 1 ? 'and' : 'or';
-        // The same requirement as data: one entry per AND-ed clause, `any` the
-        // catalog courses that satisfy it, `alt` everything else that would
-        // (test scores, transfer placeholders, retired subjects).
-        prereqClauses = cnf.complex ? [] : cnf.clauses.map((cl) => ({
-          any: [...new Set(cl.filter((a) => a.kind === 'course' && a.code && catalogCodes.has(a.code) && a.code !== r.code).map((a) => a.code))],
-          alt: cl.filter((a) => !(a.kind === 'course' && a.code && catalogCodes.has(a.code))).map((a) => (a.kind === 'test' ? `${a.test} ${a.score}`.trim() : a.label)),
-        }));
+        /** Alternatives no plan can hold (retired or renamed courses, transfer placeholders), by Banner's label. */
+        prereqRetired = deadAtomsOf(tree.node, catalogCodes, r.code);
+        for (const [was, now] of t.added) (prereqAlsoAccepts[was] ??= []).push(now);
+        if (groups) {
+          prereqText = renderGroupsProse(groups);
+          prereqShape = groups.length > 1 ? 'and' : 'or';
+          /** How the group form compares with Banner's tree, on held sets a plan can produce (prereq-prose.mjs). */
+          prereqReading = compareReading(live, groups, implied, 400, seededRandom(r.code));
+          // The same requirement as data: one entry per group, `any` the
+          // catalog courses that satisfy it, `alt` the test scores that would.
+          prereqClauses = groups.map((g) => ({
+            any: [...new Set(g.filter((a) => a.kind === 'course').map((a) => a.code))],
+            alt: g.filter((a) => a.kind === 'test').map((a) => `${a.test} ${a.score}`.trim()),
+          }));
+        } else {
+          /**
+           * Every way through the table names a course no plan can hold (AE
+           * 4040, retired for AE 3021). The CNF is kept, as before: the
+           * parser drops the codes it does not know, which leaves only the
+           * current courses each way named, often none.
+           */
+          prereqReading = 'retired-only';
+          prereqText = renderIllinoisProse(cnf);
+          prereqShape = cnf.complex ? 'complex' : cnf.clauses.length > 1 ? 'and' : 'or';
+          prereqClauses = cnf.complex ? [] : cnf.clauses.map((cl) => ({
+            any: [...new Set(cl.filter((a) => a.kind === 'course' && a.code && catalogCodes.has(a.code) && a.code !== r.code).map((a) => a.code))],
+            alt: cl.filter((a) => !(a.kind === 'course' && a.code && catalogCodes.has(a.code))).map((a) => (a.kind === 'test' ? `${a.test} ${a.score}`.trim() : a.label)),
+          }));
+        }
+        stats.reading.set(prereqReading, (stats.reading.get(prereqReading) ?? 0) + 1);
       }
     }
 
-    // Corequisites.
+    // Corequisites (read above).
     const coHtml = banner.readCache('coreq', `${subject}_${number}`, 'html');
-    let coreqCodes = [];
-    if (coHtml !== null) {
-      coreqCodes = parseCoreqTable(coHtml).map((c) => {
-        const codes = subjByDesc.get(c.subject.toLowerCase()) ?? [];
-        const code = codes.map((s) => `${s} ${c.number}`).find((x) => catalogCodes.has(x)) ?? (codes[0] ? `${codes[0]} ${c.number}` : `${c.subject} ${c.number}`);
-        return code;
-      }).filter((c) => c !== r.code);
-      if (coreqCodes.length) stats.coreqs += 1;
-    }
-    const proseCoreqs = coreqCodes.filter((c) => catalogCodes.has(c) && coreqInProse(r.code, c));
+    const coreqCodes = coreqOf.get(r.code) ?? [];
+    if (coreqCodes.length) stats.coreqs += 1;
+    const proseCoreqs = proseCoreqOf.get(r.code) ?? [];
     if (proseCoreqs.length) {
       stats.coreqInProse += 1;
       prereqClauses.push({ any: proseCoreqs, alt: [], concurrent: true });
@@ -446,9 +699,12 @@ async function main() {
       prereqNote: '',
       genEd: attrs.filter((a) => GEN_ED_ATTRS.has(a)).map((a) => attrByCode.get(a) ?? a),
       sameAs: r.sameAs,
-      noise: NOISE.test(r.title),
+      noise: NOISE.test(r.title) && !requiredByDegree.has(r.code),
       url: r.url,
       // ---- Georgia Tech extras (not in the Illinois file) ----
+      /** What the title alone says (NOISE); `noise` is false where a degree requires the course by name (see requiredByDegree). */
+      noiseByTitle: NOISE.test(r.title),
+      ...(NOISE.test(r.title) && requiredByDegree.has(r.code) ? { requiredBy: requiredByDegree.get(r.code) } : {}),
       /** Every Banner catalog attribute, code and description ("SS", "Social Science Requirement"). */
       attributes: attrs.map((a) => ({ code: a, description: attrByCode.get(a) ?? a })),
       /** The prerequisite in Georgia Tech's own wording, rebuilt from the Banner table. */
@@ -465,6 +721,18 @@ async function main() {
       prereqAmbiguous,
       /** 'or' (one clause), 'and' (several), 'complex' (CNF too large; prose is the original nesting). */
       prereqShape,
+      /**
+       * How prereqText, read by the planner's matcher, compares with Banner's
+       * tree (scripts/gatech/prereq-prose.mjs): 'exact', 'looser' (admits a
+       * few held sets Banner would not, never blocks one it admits),
+       * 'retired-only' (every way through names a course no plan can hold),
+       * or null with no table.
+       */
+      prereqReading,
+      /** Alternatives Banner names that no plan can hold: retired or renamed courses, transfer placeholders. */
+      prereqRetired,
+      /** Courses the prose also accepts beside one Banner names: its renumbering or replacement ({ "ID 2022": ["ID 2024"] }; see alsoAccepts). */
+      ...(Object.keys(prereqAlsoAccepts).length ? { prereqAlsoAccepts } : {}),
       /** null when the Banner prerequisite reply is not cached (not read != none). */
       prereqRead: preHtml !== null,
       coreqCodes,
@@ -510,12 +778,18 @@ async function main() {
     console.log(`  sample: ${withCo.length}/${sampleRead.length} have a corequisite (${withCo.map((x) => x.join(' ')).join(', ') || 'none'}); ${withClass.length}/${reRead.length} have a classification restriction, ${withStanding.length} of them a standing floor (${withStanding.map((x) => x.join(' ')).join(', ') || 'none'})`);
   }
   console.log(`Banner prerequisite replies cached for ${stats.prereqRead} courses (${stats.prereqMissing} not read yet): ${stats.prereqTable} have a table, ${stats.prereqNone} say none`);
-  console.log(`  mixed And/Or without parentheses (prereqAmbiguous, read Or-first): ${stats.mixedNoParens}; CNF too large (kept nested): ${stats.complex}; quarter-system alternatives removed in ${stats.quarterDropped}`);
+  console.log(`  mixed And/Or without parentheses (prereqAmbiguous, read Or-first): ${stats.mixedNoParens}; quarter-system alternatives removed in ${stats.quarterDropped}`);
+  console.log(`  group form against Banner's tree: ${[...stats.reading].sort().map(([k, v]) => `${k} ${v}`).join(', ')} (${stats.group.passes} passes; ${stats.group.courses} courses with an Or whose alternatives need different numbers of courses, ${stats.group.larger} of them read at a larger count because the degrees naming them take that way; ${stats.group.sharedMerged ?? 0} groups merged for a shared course)`);
   if (stats.unknownSubject.size) console.log(`  subjects named by description with no current code: ${[...stats.unknownSubject].map(([d, k]) => `${d} (${k})`).join(', ')}`);
+  {
+    const used = new Map();
+    for (const c of courses) for (const [a, list] of Object.entries(c.prereqAlsoAccepts ?? {})) for (const b of list) used.set(`${a} -> ${b}`, (used.get(`${a} -> ${b}`) ?? 0) + 1);
+    console.log(`prerequisites that also accept a renumbered or replacement course: ${courses.filter((c) => c.prereqAlsoAccepts).length} (${[...used].map(([k, n]) => `${k} ${n}`).join(', ') || 'none'})`);
+  }
   console.log(`corequisites: ${stats.coreqs} courses have one; ${stats.coreqInProse} lab/recitation pairs written into the prose`);
   console.log(`standing from restrictions: ${stats.standing} courses`);
   console.log(`attributes: ${courses.filter((c) => c.attributes.length).length} courses; gen ed (HUM/SS/ETHS): ${courses.filter((c) => c.genEd.length).length}`);
-  console.log(`cross-listed: ${courses.filter((c) => c.sameAs.length).length}; noise: ${courses.filter((c) => c.noise).length}; no credit line: ${courses.filter((c) => c.credits == null).length}`);
+  console.log(`cross-listed: ${courses.filter((c) => c.sameAs.length).length}; noise: ${courses.filter((c) => c.noise).length} (research, internship and thesis courses a degree requires by name are not: ${courses.filter((c) => c.requiredBy).map((c) => c.code).join(', ') || 'none'}); no credit line: ${courses.filter((c) => c.credits == null).length}`);
   console.log(`credit lines that differ between catalog and Banner: ${stats.creditMismatch.length}${stats.creditMismatch.length ? `, e.g. ${stats.creditMismatch.slice(0, 5).join('; ')}` : ''}`);
   console.log(`Banner lists ${inBannerOnly.length} courses for ${TERM} that the catalog does not print (not added), e.g. ${inBannerOnly.slice(0, 8).join(', ')}`);
   console.log(`Banner requests this run: ${banner.requests}`);

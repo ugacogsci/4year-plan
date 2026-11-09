@@ -69,6 +69,17 @@
  * it with editable elective cards. Zero-hour reminders ("Economics
  * Requirement", "Ethics Requirement") stay notes.
  *
+ *   "N credits" in a comment row left in place  said "N credit hours", the
+ *     way the adapter reads hours (asHours), with the printed words kept in
+ *     the comment's `textAsPrinted` (version 2).
+ *   A row printed as several subjects with one number ("CHIN/FREN/GRMN/
+ *     JAPN/KOR/RUSS/SPAN 4500")  every subject's course of that number as
+ *     an alternative (slashSubjectRows, version 4; reads the cached page).
+ *   Courses a footnote counts inside a Core IMPACTS area ("Economics
+ *     Requirement", Engineering's one-of-four economics classes, the
+ *     Business Option's ECON 2106)  a block in that area, carved out of its
+ *     "Any ..." list (carveFootnotedReminders, versions 3 and 6).
+ *
  * Every shaped group carries `shaped: { kind, from, basis }`: what the row
  * said, and where its courses came from. The file carries `shaped` with the
  * version and the counts. A file already shaped at this version is left as it
@@ -93,7 +104,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-export const SHAPE_VERSION = 1;
+export const SHAPE_VERSION = 6;
 
 const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
 const numberOf = (code) => Number.parseInt(String(code).split(' ')[1] ?? '', 10);
@@ -132,14 +143,23 @@ export function loadShapeContext(root = ROOT) {
     }
   } else cacheNotes.push('data/gatech-raw/programs missing: school and college subjects not read');
 
-  return makeShapeContext({ core, catalog, schools, cacheNotes });
+  // A program page as cached (programs.mjs names it by catalog-get's slugOf: /programs/x/ -> programs__x.html).
+  const pageOf = existsSync(dir)
+    ? (url) => {
+      try {
+        const file = join(dir, `${new URL(url).pathname.replace(/^\/+|\/+$/g, '').replace(/\//g, '__').replace(/[^a-z0-9_-]+/gi, '_')}.html`);
+        return existsSync(file) ? readFileSync(file, 'utf8') : null;
+      } catch { return null; }
+    }
+    : null;
+  return makeShapeContext({ core, catalog, schools, cacheNotes, pageOf });
 }
 
-export function makeShapeContext({ core, catalog, schools = [], cacheNotes = [] }) {
+export function makeShapeContext({ core, catalog, schools = [], cacheNotes = [], pageOf = null }) {
   const all = new Map();
   for (const c of catalog.courses ?? []) {
     const code = norm(c.code);
-    if (!all.has(code)) all.set(code, { code, title: c.title ?? '', credits: c.credits ?? null, creditsMax: c.creditsMax ?? null, subject: c.subject ?? code.split(' ')[0], n: numberOf(code), noise: !!c.noise });
+    if (!all.has(code)) all.set(code, { code, title: c.title ?? '', credits: c.credits ?? null, creditsMax: c.creditsMax ?? null, subject: c.subject ?? code.split(' ')[0], n: numberOf(code), noise: !!(c.noiseByTitle ?? c.noise) });
   }
   // The undergraduate catalog: what a pool may list. Graduate (6000 and up) and
   // 0-numbered rows are not planned.
@@ -154,7 +174,7 @@ export function makeShapeContext({ core, catalog, schools = [], cacheNotes = [] 
     for (const sub of s.subjects) set.add(sub);
     colleges.set(s.college, set);
   }
-  return { core, all, undergrad, subjects, schools, colleges, cacheNotes };
+  return { core, all, undergrad, subjects, schools, colleges, cacheNotes, pageOf: pageOf ?? null };
 }
 
 // ---------------------------------------------------------------------------
@@ -254,9 +274,12 @@ function levelsIn(text) {
   if (m) return [Number(m[1]), Number(m[2])];
   m = t.match(/\b([1-4])000\s*-?\s*(?:level|lvl)?\s*(?:courses?\s+)?or\s+(?:higher|above)\b/i) ?? t.match(/\bnumbered\s+([1-4])000\s+or\s+(?:higher|above)\b/i) ?? t.match(/\bat\s+(?:the\s+)?([1-4])000[- ]level\s+or\s+(?:higher|above)/i);
   if (m) return [Number(m[1]), 4];
-  if (/\bupper[- ](?:level|division)\b/i.test(t)) return [3, 4];
+  // A level the words state outright wins over "upper division": Music Technology's "MUSI Upper
+  // Division (4000-level) Elective" is a 4000-level MUSI course, and read as 3000-4999 it offered
+  // MUSI 3771, a 3000-level studio that has not run in nine terms (four boards, 2026-11-09).
   m = t.match(/\b([1-4])000[- ]level\b/i);
   if (m) return [Number(m[1]), Number(m[1])];
+  if (/\bupper[- ](?:level|division)\b/i.test(t)) return [3, 4];
   return null;
 }
 
@@ -602,7 +625,137 @@ function misplacedCitizenshipRow(ctx, program, tally) {
   }
 }
 
+/**
+ * Courses a page counts inside a Core IMPACTS area, said in a footnote, made
+ * a block of that area. Three shapes, all in Georgia Tech's words:
+ *   - a zero-hour reminder footnoted "must complete one of the following:
+ *     ECON 2100, ECON 2101, ECON 2105 or ECON 2106. These hours will also
+ *     satisfy 3 hours of Core IMPACTS Social Sciences." (International
+ *     Affairs and Modern Languages' "Economics Requirement");
+ *   - the same sentence as a block's footnote with no row of its own
+ *     ("Engineering students must complete one of the following economics
+ *     classes: ... The course will also satisfy 3 hours of Core IMPACTS Social
+ *     Science courses", 57 engineering pages), which no block enforced: a
+ *     board met it only when its Social Sciences picks happened to include
+ *     one of the four;
+ *   - a row printed without hours whose footnote says the course counts there
+ *     ("ECON 2106 is required for students pursuing the Business Option. This
+ *     course will also satisfy 3 hours of Core IMPACTS Social Sciences", "ECON
+ *     2106 will satisfy 3 credit hours of Social Sciences"), which was booked
+ *     on top of nine Social Sciences hours, 3 hours past the total on all eight
+ *     Business Option boards (2026-11-09).
+ * Each becomes a pick-one (or the one required course) with those hours in
+ * the named area, carved out of that area's "Any ..." list so the area keeps
+ * its hours, and the reminder or row it came from goes. Once per program per
+ * set of courses; skipped where a course of the set is already required by
+ * name elsewhere on the page. A reminder that names no course (the same
+ * page's "History Requirement": "one non-US History course") stays a note.
+ */
+function carveFootnotedReminders(ctx, program, tally) {
+  const clean = (f) => String(f ?? '').replace(/[\u200b\u00a0]/g, ' ').replace(/\s+/g, ' ');
+  // "... will also satisfy 3 hours of Core IMPACTS Social Science courses" (some pages end there, no
+  // period); Materials Science: "This course may also be applied to the Core IMPACTS Social Science area."
+  const ONE_OF = /must complete one of the following(?: [A-Za-z ]+)?:\s*([^.]*?)\s*\.\s*(?:These hours|The course|This course) (?:will also satisfy (\d+) (?:credit )?hours of|may also be applied to(?: the)?) Core IMPACTS ([A-Za-z ,&]+?)(?: courses?| requirements?| area)?(?:\.|\s*$)/i;
+  const ROW = /\b([A-Z]{2,4} \d{4}[A-Z]?)\b[^.]*?(?:\.\s*This course)? will (?:also )?satisfy (\d+) (?:credit )?hours of (?:Core IMPACTS )?([A-Za-z ,&]+?)(?: requirement| courses?| and\b|\.)/i;
+  const areaFor = (name) => {
+    const want = norm(name).replace(/\s+(?:REQUIREMENT|COURSES?)$/, '').replace(/S$/, '');
+    return (program.areas ?? []).find((a) => a.impacts && norm(a.label).replace(/S$/, '').includes(want));
+  };
+  const requiredByName = new Set();
+  for (const a of program.areas ?? []) for (const g of a.groups ?? []) if (g.kind === 'all' && !g.shaped) for (const r of g.courses ?? []) if (r.credits != null) requiredByName.add(norm(r.code));
+  const done = new Set();
+  const carve = ({ codes, hours, areaName, label, basis, footnotes, from }) => {
+    const key = [...codes].sort().join('|');
+    if (done.has(key) || !codes.length || codes.some((c) => requiredByName.has(c))) return false;
+    const target = areaFor(areaName);
+    const pool = target?.groups?.find((g) => g.shaped?.kind === 'core' && g.hours >= hours + 1);
+    if (!pool) return false;
+    pool.hours -= hours;
+    pool.shaped = { ...pool.shaped, basis: `${pool.shaped.basis}; ${hours} of its hours are "${label}" (carved out beside it)` };
+    target.groups.splice(target.groups.indexOf(pool), 0, poolGroup(ctx, {
+      label, hours, rows: codes.map((x) => listRow(ctx, x)), kind: 'carved', from, basis, footnotes,
+    }));
+    done.add(key);
+    tally.carved = (tally.carved ?? 0) + 1;
+    return true;
+  };
+  const oneOf = (f) => {
+    const m = clean(f).match(ONE_OF);
+    if (!m) return null;
+    const codes = [...new Set(codesIn(m[1]).map(norm))].filter((x) => ctx.all.has(x));
+    // Where the sentence states no hours, the hours one of its courses carries (all four economics courses are 3).
+    const hours = m[2] ? Number(m[2]) : Math.min(...codes.map((c) => ctx.all.get(c)?.credits ?? Infinity));
+    return Number.isFinite(hours) ? { m, codes, hours, areaName: m[3] } : null;
+  };
+  for (const area of program.areas ?? []) {
+    for (const group of [...(area.groups ?? [])]) {
+      // A zero-hour reminder row.
+      for (const c of [...(group.comments ?? [])]) {
+        if (c.hours > 0) continue;
+        const hit = (c.footnotes ?? []).map(oneOf).find(Boolean);
+        if (!hit) continue;
+        if (!carve({ ...hit, label: c.text, basis: `its footnote: ${hit.m[0].trim()}`, footnotes: c.footnotes, from: c.text })) continue;
+        group.comments = group.comments.filter((o) => o !== c);
+        if (!group.comments.length) delete group.comments;
+        rebuildNote(group);
+      }
+      // A required row printed without hours, footnoted as counting in an area.
+      if (group.shaped?.kind === 'required' && (group.courses ?? []).length === 1 && group.courses[0].credits == null) {
+        const code = norm(group.courses[0].code);
+        const foots = [...(group.footnotes ?? []), ...(group.courses[0].footnotes ?? []), ...(area.groups ?? []).flatMap((g) => g.footnotes ?? [])];
+        const m = foots.map((f) => clean(f).match(ROW)).find((x) => x && norm(x[1]) === code);
+        if (m && ctx.all.has(code) && carve({ codes: [code], hours: Number(m[2]), areaName: m[3], label: code, basis: `its footnote: ${m[0].trim()}`, footnotes: [m[0].trim()], from: code })) {
+          area.groups = area.groups.filter((g) => g !== group);
+          continue;
+        }
+      }
+      // The sentence as a block's footnote, with no row of its own.
+      for (const f of group.footnotes ?? []) {
+        const hit = oneOf(f);
+        if (!hit) continue;
+        const label = `${hit.areaName.trim()}: one of ${hit.codes.join(', ')}`;
+        carve({ ...hit, label, basis: `a footnote of ${area.label}: ${hit.m[0].trim()}`, footnotes: [hit.m[0].trim()], from: hit.m[0].trim() });
+      }
+    }
+    area.groups = (area.groups ?? []).filter((g) => (g.courses?.length ?? 0) > 0 || (g.comments?.length ?? 0) > 0 || g.label || g.hours > 0 || g.shaped);
+  }
+}
+
+/**
+ * A row printed as several subjects with one number: "CHIN/FREN/GRMN/JAPN/
+ * KOR/RUSS/SPAN 4500 Advanced Intercultural Seminar" (International Affairs
+ * and Modern Languages, Global Economics and Modern Languages), "CX/MATH
+ * 4640". The link goes to the first subject's course only, so the row read as
+ * CHIN 4500 for every language concentration, French and Spanish included.
+ * Each subject's course of that number in the catalog becomes an alternative
+ * of the row (`or`). Read from the cached page (the link's title keeps the
+ * printed words); without the cache, rows stay as they read.
+ */
+function slashSubjectRows(ctx, program, tally) {
+  if (!ctx.pageOf) return;
+  const html = ctx.pageOf(program.url);
+  if (!html) return;
+  const printed = new Map();
+  for (const m of html.matchAll(/title="((?:[A-Z]{2,4}\/)+[A-Z]{2,4}) (\d{4}[A-Z]?)"/g)) {
+    const subjects = m[1].split('/');
+    const codes = subjects.map((sub) => `${sub} ${m[2]}`).filter((c) => ctx.all.has(c));
+    if (codes.length > 1) printed.set(codes[0], codes);
+  }
+  if (!printed.size) return;
+  for (const area of program.areas ?? []) for (const group of area.groups ?? []) for (const row of group.courses ?? []) {
+    const codes = printed.get(norm(row.code));
+    if (!codes) continue;
+    const have = new Set([norm(row.code), ...(row.or ?? []).map(norm)]);
+    const add = codes.filter((c) => !have.has(c));
+    if (!add.length) continue;
+    row.or = [...(row.or ?? []), ...add];
+    row.orFrom = `printed "${codes.map((c) => c.split(' ')[0]).join('/')} ${codes[0].split(' ')[1]}"`;
+    tally.slashRows = (tally.slashRows ?? 0) + 1;
+  }
+}
+
 function shapeProgram(ctx, program, tally) {
+  slashSubjectRows(ctx, program, tally);
   misplacedCitizenshipRow(ctx, program, tally);
   const required = requiredCodes(program);
   const programFoot = program.footnotes ?? {};
@@ -805,12 +958,31 @@ function shapeProgram(ctx, program, tally) {
         }
       }
 
+      /**
+       * The comment rows left in place said the way the adapter reads hours
+       * (asHours), as the extracted lists already are. Biochemistry's Pre-Health
+       * Option prints "Select 12 credits from the following:" (12) over 35
+       * courses with no required row beside them, so no list was extracted,
+       * the adapter took "12 credits" for twelve courses, and the board booked
+       * twelve electives, 135 hours of a 122-hour degree (2026-11-09). The
+       * printed words stay in `textAsPrinted`.
+       */
+      for (const c of group.comments ?? []) {
+        const said = asHours(c.text);
+        if (said === c.text) continue;
+        c.textAsPrinted = c.text;
+        c.text = said;
+        tally.hoursWords = (tally.hoursWords ?? 0) + 1;
+      }
+      if (group.comments?.some((c) => c.textAsPrinted)) rebuildNote(group);
+
       const empty = (group.courses?.length ?? 0) === 0 && !(group.comments?.length) && !group.label && !(group.hours > 0);
       if (!empty) out.push(group);
       out.push(...extracted);
     }
     area.groups = out;
   }
+  carveFootnotedReminders(ctx, program, tally);
 }
 
 /** One category row, shaped into a group, or null to leave it as it reads. */

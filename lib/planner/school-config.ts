@@ -33,6 +33,16 @@ export interface CourseleafSchool {
   letterSuffix: boolean;
   /** Lowest course number that is graduate level (Illinois 500, Georgia Tech 6000). */
   graduateFrom: number;
+  /**
+   * Between a row's alternatives ("CS 3750 or CS 3751"), the planner takes
+   * one that has run in a season the board holds before one whose crawled
+   * offering history (offerings.json) has it only in seasons the board lacks.
+   * Georgia Tech's CS 3750 has run in one summer of nine terms and CS 3751 in
+   * every fall and spring; taking CS 3750 left the People thread unplaced on
+   * twelve boards with no summer. Off for Illinois, whose boards stay exactly
+   * as they were (autoplan.ts seasonless; UGA keeps its Bulletin reading).
+   */
+  seasonAwareChoices: boolean;
 
   // What this school's data supports. Off means the feature is hidden, never faked.
   campusGenEd: boolean;
@@ -67,6 +77,7 @@ const COURSELEAF: Record<CourseleafId, CourseleafSchool> = {
     numberDigits: 3,
     letterSuffix: false,
     graduateFrom: 500,
+    seasonAwareChoices: false,
     campusGenEd: true,
     languageRule: true,
     collegeRules: true,
@@ -92,6 +103,7 @@ const COURSELEAF: Record<CourseleafId, CourseleafSchool> = {
     numberDigits: 4,
     letterSuffix: true,
     graduateFrom: 6000,
+    seasonAwareChoices: true,
     campusGenEd: false,
     languageRule: false,
     collegeRules: false,

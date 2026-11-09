@@ -1,5 +1,5 @@
 import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from './types';
-import type { SchoolKey } from './school-config';
+import { courseleafOf, type CourseleafSchool, type SchoolKey } from './school-config';
 import { termLoad, type GradeRow } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
 import { forSchool, interestProfile, labPartners, phraseWordsOf, UGA_CAREER_TRACKS, withHeldVariants, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
@@ -2413,6 +2413,33 @@ function catalogByCode(courses: Course[]): Map<string, Course> {
   const made = new Map(courses.map((c) => [normaliseCode(c.code), c]));
   catalogIndexCache.set(courses, made);
   return made;
+}
+
+/**
+ * The CourseLeaf school a context plans for, so a switch in school-config.ts
+ * can reach the placer; null for UGA's.
+ *
+ * UGA's context names itself (schoolId 'uga'). The CourseLeaf contexts the
+ * page builds (illinois-source.tsx buildContext), and the plan-build worker's
+ * copy of them, name no school, so the catalog's own course numbers tell
+ * (school-config numberDigits): Georgia Tech's have four digits, CS 1331 and
+ * CHEM 1211K, and Illinois's three, CS 225. Illinois is the answer wherever
+ * the numbers do not say Georgia Tech, which keeps every Illinois board, and
+ * every check's small Illinois-shaped catalog, on Illinois's switches.
+ */
+const courseleafOfCatalog = new WeakMap<object, CourseleafSchool>();
+export function courseleafOfContext(ctx: Pick<PlanningContext, 'schoolId' | 'courses'>): CourseleafSchool | null {
+  if (ctx.schoolId === 'uga') return null;
+  if (ctx.schoolId) return courseleafOf(ctx.schoolId);
+  const known = courseleafOfCatalog.get(ctx.courses);
+  if (known) return known;
+  const gatech = courseleafOf('gatech') as CourseleafSchool;
+  const shape = new RegExp(String.raw`^[A-Z]{2,4} \d{${gatech.numberDigits}}${gatech.letterSuffix ? '[A-Z]?' : ''}$`);
+  const sample = ctx.courses.slice(0, 200);
+  const four = sample.filter((c) => shape.test(normaliseCode(c.code))).length;
+  const out = (sample.length > 0 && four * 2 > sample.length ? gatech : courseleafOf('illinois')) as CourseleafSchool;
+  courseleafOfCatalog.set(ctx.courses, out);
+  return out;
 }
 
 /** The catalog by course id, kept the same way as catalogByCode: validatePlan made it for every board it read. */
@@ -11778,9 +11805,18 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    * (ugaSummerOnly). Illinois rows carry no Bulletin line, so nothing here
    * reorders an Illinois board.
    */
+  /*
+   * A course with no season on this board, by the UGA Bulletin's summer-only
+   * listing, or, where the school ranks choices by season (school-config
+   * seasonAwareChoices), by its crawled offering history: Georgia Tech's CS
+   * 3750, one summer in nine terms, behind CS 3751 on a falls-and-springs
+   * board.
+   */
+  const historySeasons = courseleafOfContext(ctx)?.seasonAwareChoices === true;
   const seasonless = rememberedBy((code: string): number => {
     const course = byCode.get(code);
-    if (!summerOnlyListed(course) || !(ctx.offeringPublished?.has(code) ?? false)) return 0;
+    const listed = summerOnlyListed(course) || (historySeasons && course !== undefined && course.offeredIn.length > 0);
+    if (!listed || !(ctx.offeringPublished?.has(code) ?? false)) return 0;
     return terms.every((t) => outOfSeason(course, t, true)) ? 1 : 0;
   });
   /**

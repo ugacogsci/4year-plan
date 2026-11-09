@@ -8,8 +8,10 @@
  *   The prerequisite table has one row per condition:
  *     And/Or | ( | Test | Score | Subject (description) | Course Number | Level | Grade | )
  *
- * WRITES: nothing. Pure functions, imported by scripts/gatech/courses.mjs and
- *   scripts/gatech/measure-prereqs.mjs.
+ * WRITES: nothing. Pure functions, imported by scripts/gatech/courses.mjs.
+ *   courses.mjs writes the GROUP FORM (groupsOf, renderGroupsProse, further
+ *   down), not the CNF: the engine's matcher gives every group a course of its
+ *   own, and the CNF repeats courses across clauses (see "WHY NOT THE CNF").
  *
  * HOW TO RUN: not on its own. `node scripts/gatech/prereq-prose.mjs --selftest`
  *   runs the worked examples at the bottom; `... --verify
@@ -340,6 +342,331 @@ export function renderIllinoisProse(cnf) {
   return parts.length ? `${parts.join('; ')}.` : '';
 }
 
+// ---------------------------------------------------------------------------
+// The group form the CourseLeaf matcher needs (what courses.mjs writes)
+// ---------------------------------------------------------------------------
+//
+// WHY NOT THE CNF. The engine's matcher (lib/planner/illinois-data.ts
+// missingPrerequisiteGroups) is a bipartite matching: every group needs a
+// course of its OWN, because Illinois writes "ECON 102 or ECON 103; ECON 102
+// or ECON 103" to mean both courses. The CNF above is logically right but
+// repeats a course across clauses, and under that matcher a repeated course
+// counts once. BIOS 3450's "(BIOS 1107 and BIOS 1107L) or (BIOS 1207 and
+// BIOS 1207L)" distributed into four clauses that two held courses can never
+// fill, so every Biochemistry board (holding BIOS 1107 and 1107L in its first
+// fall) read "BIOS 3450 still needs BIOS 1107 or BIOS 1207L". The same
+// happened to CS 2200 ("CS 2110, or ECE 2020 and ECE 2035": a CS student
+// holding CS 2110 could not fill two clauses), ECE 2026, ME 2016 and CS 4510,
+// and every course after them in a chain: 373 courses not placed, 2026-11-09.
+//
+// THE FORM. A list of groups that the matcher reads the way Banner means:
+//   - Atoms the planner can never hold are false before anything else:
+//     courses not in the catalog (BIOL 1510, MATH 1502), transfer
+//     placeholders (MATH 15X2) and quarter-system courses. ECE 2026's
+//     "MATH 1502, or MATH 15X2 and ..., or MATH 1512, or MATH 1552 and
+//     (MATH 1553 or 1554 or 1564)" is then MATH 1552 and one linear algebra.
+//   - AND concatenates its children's groups. A group another group already
+//     guarantees is dropped: BIOS 1107L is "credit or concurrent registration
+//     in BIOS 1107", so (BIOS 1107 and BIOS 1107L) is BIOS 1107L, exactly,
+//     for a planner that never books the lab without its lecture; ECE 2035
+//     needs ECE 2020, so (ECE 2020 and ECE 2035) is ECE 2035.
+//   - OR of children that need different numbers of courses cannot be said
+//     exactly in groups (CS 2110 alone, or two ECE courses). The reading is
+//     the smallest child's count: a longer child keeps its most telling
+//     groups (the courses fewest prerequisites name, see groupsOf), then the
+//     children are zipped position by position. That is LOOSER than Banner,
+//     never stricter, so it can let a course in a little early but never
+//     blocks a student Banner would admit. measure-prereqs.mjs
+//     counts, for every course, whether the reading is exact, looser or
+//     stricter than Banner's tree, on held sets the planner can produce.
+
+/** A Banner atom the planner can hold (or, for a test score, may arrive with). */
+export const isLiveAtom = (a, known, self = null) =>
+  a.kind === 'test' || (a.kind === 'course' && Boolean(a.code) && known.has(a.code) && a.code !== self && !a.quarter && !a.placeholder);
+
+/** Banner's tree with every atom the planner cannot hold set false (see above). */
+export function liveTreeOf(node, known, self = null) {
+  if (!node) return FALSE;
+  if (node.op === 'false') return FALSE;
+  if (node.op === 'atom') return isLiveAtom(node.atom, known, self) ? node : FALSE;
+  const kids = node.kids.map((k) => liveTreeOf(k, known, self));
+  if (node.op === 'or') {
+    const k = kids.filter((x) => x.op !== 'false');
+    return k.length === 0 ? FALSE : k.length === 1 ? k[0] : { op: 'or', kids: k };
+  }
+  if (kids.some((x) => x.op === 'false')) return FALSE;
+  return kids.length === 1 ? kids[0] : { op: 'and', kids };
+}
+
+/** Every atom in a tree the planner cannot hold, by label (for prereqRetired). */
+export function deadAtomsOf(node, known, self = null) {
+  const out = [];
+  const walk = (n) => {
+    if (!n || n.op === 'false') return;
+    if (n.op === 'atom') {
+      if (!isLiveAtom(n.atom, known, self) && n.atom.code !== self) out.push(n.atom.label);
+      return;
+    }
+    n.kids.forEach(walk);
+  };
+  walk(node);
+  return [...new Set(out)];
+}
+
+/** A group's atoms, each once. Keeps the `padded` mark (groupsOf). */
+const uniqAtoms = (atoms) => {
+  const seen = new Set();
+  const out = atoms.filter((a) => (seen.has(atomKey(a)) ? false : (seen.add(atomKey(a)), true)));
+  if (atoms.padded) out.padded = true;
+  return out;
+};
+
+/**
+ * Group h guarantees group g when every course in h either is in g or
+ * implies a course in g. Then (g and h) is h for any held set the planner can
+ * produce, because it never books a course before what that course implies.
+ */
+function guarantees(h, g, implied) {
+  const gKeys = new Set(g.map(atomKey));
+  const gCodes = g.filter((a) => a.kind === 'course').map((a) => a.code);
+  return h.every((x) => {
+    if (gKeys.has(atomKey(x))) return true;
+    if (x.kind !== 'course') return false;
+    const imp = implied(x.code);
+    return gCodes.some((y) => imp.has(y));
+  });
+}
+
+/** AND of groups: drop the guaranteed ones, merge two that share a course (looser, see header). */
+function reduceAnd(list, implied, stats) {
+  let out = list.map(uniqAtoms);
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (let i = 0; i < out.length && !changed; i += 1) {
+      for (let j = 0; j < out.length && !changed; j += 1) {
+        if (i === j) continue;
+        // Drop out[i] when out[j] guarantees it; of two that guarantee each other, the later goes.
+        if (guarantees(out[j], out[i], implied) && (!guarantees(out[i], out[j], implied) || j < i)) {
+          out.splice(i, 1);
+          changed = true;
+        }
+      }
+    }
+  }
+  // Two groups sharing a course: under the matcher one held course fills only one of them,
+  // while Banner lets it count for both. Their union is the looser, safe reading.
+  // Not for groups padded on purpose (groupsOf), where one course filling one group is the point.
+  for (let changed = true; changed; ) {
+    changed = false;
+    outer: for (let i = 0; i < out.length; i += 1) {
+      if (out[i].padded) continue;
+      const ki = new Set(out[i].filter((a) => a.kind === 'course').map(atomKey));
+      for (let j = i + 1; j < out.length; j += 1) {
+        if (out[j].padded) continue;
+        if (out[j].some((a) => a.kind === 'course' && ki.has(atomKey(a)))) {
+          out[i] = uniqAtoms([...out[i], ...out[j]]);
+          out.splice(j, 1);
+          if (stats) stats.sharedMerged = (stats.sharedMerged ?? 0) + 1;
+          changed = true;
+          break outer;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The live tree as matcher groups (see the header).
+ *
+ * Options:
+ *   implied(code)  the set of codes a course guarantees (its own
+ *                  single-course groups and its lecture, transitively);
+ *                  none by default.
+ *   common(code)   how many catalog prerequisites name the course (see keep).
+ *   pick(i, ks)    the count to read the i-th Or-node whose alternatives need
+ *                  different numbers of courses with; ks are the counts
+ *                  (smallest first). Default: the smallest, which is looser
+ *                  than Banner and never stricter.
+ *   stats          { orMerged, sharedMerged } counters.
+ */
+export function groupsOf(node, opts = {}) {
+  const implied = opts.implied ?? (() => new Set());
+  const common = opts.common ?? (() => 0);
+  const stats = opts.stats ?? null;
+  const pick = opts.pick ?? ((_, ks) => ks[0]);
+  let orIndex = 0;
+  const go = (n) => {
+    if (!n || n.op === 'false') return null;
+    if (n.op === 'atom') return [[n.atom]];
+    const kids = n.kids.map(go);
+    if (n.op === 'and') return reduceAnd(kids.flat(), implied, stats);
+    const ks = [...new Set(kids.map((l) => l.length))].sort((a, b) => a - b);
+    let k = ks[0];
+    if (ks.length > 1) {
+      if (stats) stats.orMerged = (stats.orMerged ?? 0) + 1;
+      k = pick(orIndex, ks);
+      orIndex += 1;
+    }
+    /**
+     * A longer alternative keeps only its k most telling groups. Dropping a
+     * group of an alternative is looser, never stricter, and keeping the group
+     * of courses few prerequisites name keeps it tight: ECE 3084's "ECE 3710
+     * and MATH 2552" keeps ECE 3710, so a Computer Engineering board that holds
+     * MATH 2552 but not yet ECE 2040 cannot take ECE 3084 early (merging the two
+     * groups, the first version of this, let it). A group is as weak as its
+     * most common course, and a test-score group is weakest (it never blocks).
+     */
+    const weakness = (g) => Math.max(...g.map((a) => (a.kind === 'test' ? Infinity : common(a.code))));
+    const keep = (l) => {
+      const order = l.map((g, i) => [i, weakness(g), g.length]).sort((a, b) => a[1] - b[1] || a[2] - b[2] || a[0] - b[0]);
+      const kept = new Set(order.slice(0, k).map(([i]) => i));
+      return l.filter((_, i) => kept.has(i));
+    };
+    /**
+     * A shorter alternative read at a larger count (pick chose it) offers its
+     * courses in every position past its own: "ISYE 2027 and MATH 2603 and
+     * CS 2316, or MATH 3215" read at three is [ISYE 2027|MATH 3215],
+     * [MATH 2603|MATH 3215], [CS 2316|MATH 3215]. Exact for the first way,
+     * stricter for the second (one probability course cannot fill three
+     * groups), which is why it is only chosen where the degrees that name the
+     * course take the first way (courses.mjs).
+     */
+    const pad = (l) => {
+      const all = uniqAtoms(l.flat());
+      return [...l, ...Array.from({ length: k - l.length }, () => all)];
+    };
+    const padded = kids.some((l) => l.length < k);
+    const shaped = kids.map((l) => (l.length > k ? keep(l) : l.length < k ? pad(l) : l));
+    const zipped = [];
+    for (let i = 0; i < k; i += 1) {
+      const g = uniqAtoms(shaped.flatMap((l) => l[i]));
+      if (padded) g.padded = true;
+      zipped.push(g);
+    }
+    return reduceAnd(zipped, implied, stats);
+  };
+  return go(node);
+}
+
+/** How many Or-nodes of a live tree have alternatives needing different numbers of courses, and those counts. */
+export function unevenOrsOf(node, opts = {}) {
+  const found = [];
+  groupsOf(node, { ...opts, pick: (i, ks) => { found[i] = ks; return ks[0]; } });
+  return found;
+}
+
+/**
+ * Course codes each course guarantees, transitively: its single-course
+ * groups (not a test-score alternative) and, for a lab or recitation, its
+ * lecture. `direct` maps code -> Set of codes.
+ */
+export function impliedIndex(direct) {
+  const memo = new Map();
+  const visit = (code, stack) => {
+    if (memo.has(code)) return memo.get(code);
+    const out = new Set();
+    if (stack.has(code)) return out;
+    stack.add(code);
+    for (const y of direct.get(code) ?? []) {
+      out.add(y);
+      for (const z of visit(y, stack)) out.add(z);
+    }
+    stack.delete(code);
+    out.delete(code);
+    memo.set(code, out);
+    return out;
+  };
+  return (code) => visit(code, new Set());
+}
+
+/** The codes a group list makes a course need outright (single-course groups, no test score). */
+export const singleCodesOf = (groups) =>
+  (groups ?? []).filter((g) => g.length === 1 && g[0].kind === 'course').map((g) => g[0].code);
+
+/** The group form as Illinois prose: one segment per group, ";" between them. '' when none. */
+export function renderGroupsProse(groups) {
+  const parts = (groups ?? []).map(clauseText).filter(Boolean);
+  return parts.length ? `${parts.join('; ')}.` : '';
+}
+
+/**
+ * The matcher, as lib/planner/illinois-data.ts runs it, for checking a group
+ * list against Banner's tree: every group needs a held course of its own; a
+ * group with a test-score alternative never blocks (the parser marks it
+ * priorLearning and the planner hands it to the student).
+ */
+export function groupsAccept(groups, has) {
+  const cands = groups.map((g) => g.filter((a) => a.kind === 'course' && has(a)).map(atomKey));
+  const by = new Map();
+  const assign = (i, seen) => {
+    for (const c of cands[i]) {
+      if (seen.has(c)) continue;
+      seen.add(c);
+      const h = by.get(c);
+      if (h === undefined || assign(h, seen)) { by.set(c, i); return true; }
+    }
+    return false;
+  };
+  return groups.every((g, i) => assign(i, new Set()) || g.some((a) => a.kind === 'test'));
+}
+
+/** Banner's tree, evaluated; a test score counts as held (the planner never blocks on one). */
+export function treeAccepts(node, has) {
+  if (!node || node.op === 'false') return false;
+  if (node.op === 'atom') return node.atom.kind === 'test' ? true : has(node.atom);
+  return node.op === 'and' ? node.kids.every((k) => treeAccepts(k, has)) : node.kids.some((k) => treeAccepts(k, has));
+}
+
+/**
+ * A seeded random source (mulberry32), so a rebuild from the same cache writes
+ * the same file: the samples below and courses.mjs's degree-informed choice
+ * draw from it, seeded by the course code.
+ */
+export function seededRandom(seedText) {
+  let a = 0;
+  for (const ch of String(seedText)) a = (Math.imul(a, 31) + ch.charCodeAt(0)) | 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Exact, looser or stricter than Banner's live tree, on random held sets of
+ * the tree's live courses closed under `implied` (the only sets a plan can
+ * hold). 'stricter' would block a student Banner admits; the form above is
+ * built so that it never happens, and this is the proof.
+ */
+export function compareReading(live, groups, implied, trials = 400, random = seededRandom('compareReading')) {
+  const codes = new Set();
+  const walk = (n) => {
+    if (!n || n.op === 'false') return;
+    if (n.op === 'atom') { if (n.atom.kind === 'course') codes.add(n.atom.code); return; }
+    n.kids.forEach(walk);
+  };
+  walk(live);
+  for (const g of groups ?? []) for (const a of g) if (a.kind === 'course') codes.add(a.code);
+  const list = [...codes];
+  let looser = false, stricter = false;
+  // Every subset when there are at most 12 courses (all but a handful of tables), else a random sample.
+  const exhaustive = list.length <= 12;
+  const n = exhaustive ? 2 ** list.length : trials;
+  for (let t = 0; t < n; t += 1) {
+    const p = t < 2 ? t : random();
+    const held = new Set(exhaustive ? list.filter((_, i) => (t >> i) & 1) : list.filter(() => random() < p));
+    for (const c of [...held]) for (const y of implied(c)) held.add(y);
+    const has = (a) => held.has(a.code);
+    const want = treeAccepts(live, has);
+    const got = groups ? groupsAccept(groups, has) : true;
+    if (got && !want) looser = true;
+    if (want && !got) stricter = true;
+  }
+  return stricter ? (looser ? 'mixed' : 'stricter') : looser ? 'looser' : 'exact';
+}
+
 /** Georgia Tech's own wording, as OSCAR printed it: "Undergraduate Semester level CS 1331 Minimum Grade of C". */
 export function renderGTWording(rows, tree = null) {
   return rows
@@ -376,7 +703,8 @@ if (process.argv.includes('--selftest')) {
   for (const [name, rows] of cases) {
     const tree = prereqTreeOf(rows, { subjByDesc, known });
     const cnf = cnfOf(tree.node);
-    console.log(`${name}:\n  GT:    ${renderGTWording(rows, tree)}\n  prose: ${renderIllinoisProse(cnf)}\n  mixed=${tree.mixedWithoutParens} complex=${cnf.complex} quarterDropped=${cnf.quarterDropped}`);
+    const groups = groupsOf(liveTreeOf(tree.node, known));
+    console.log(`${name}:\n  GT:    ${renderGTWording(rows, tree)}\n  CNF:   ${renderIllinoisProse(cnf)}\n  group form (what courses.mjs writes): ${renderGroupsProse(groups)}\n  mixed=${tree.mixedWithoutParens} complex=${cnf.complex} quarterDropped=${cnf.quarterDropped}`);
   }
   console.log(standingSentence([{ heading: 'Must be enrolled in one of the following Classifications', items: ['Junior (JR)', 'Senior (SR)'] }]));
   console.log(standingSentence([{ heading: 'Cannot be enrolled in one of the following Classifications', items: ['Freshman (FR)'] }]));

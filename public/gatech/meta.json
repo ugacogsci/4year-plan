@@ -1,10 +1,10 @@
 {
   "school": "gatech",
-  "fetchedAt": "2026-11-09T10:35:14.218Z",
+  "fetchedAt": "2026-11-09T12:08:14.871Z",
   "sources": {
     "catalog": {
       "source": "catalog.gatech.edu/coursesaz + registration.banner.gatech.edu course catalog (prerequisites, corequisites, attributes)",
-      "fetchedAt": "2026-11-09T08:54:32.301Z",
+      "fetchedAt": "2026-11-09T12:08:09.432Z",
       "courses": 5133
     },
     "programs": {
@@ -14,7 +14,11 @@
     },
     "grades": null,
     "sections": null,
-    "map": null
+    "map": {
+      "method": "all-MiniLM-L6-v2 (384d, public/gatech/course-vectors) -> umap(k=15, min_dist=0.1) -> linearly-normalised 3..97",
+      "builtAt": "2026-11-09T11:11:08.946Z",
+      "count": 2692
+    }
   },
   "term": null,
   "sectionTerms": [],
@@ -22,14 +26,14 @@
   "gradeFootnote": "No grade data loaded.",
   "coverage": {
     "catalogCourses": 5133,
-    "undergraduateCourses": 2396,
-    "withParsedPrereq": 1153,
+    "undergraduateCourses": 2403,
+    "withParsedPrereq": 1156,
     "withLowConfidencePrereq": 0,
     "withPrereqTextOnly": 21,
     "withPrereqNoteOnly": 0,
     "withStandingRequirement": 0,
     "withGrades": 0,
-    "withoutGrades": 2396,
+    "withoutGrades": 2403,
     "withGradesFromTwin": 0,
     "withGradesFromOldNumber": 0,
     "orphanGradeRows": 0,
@@ -37,28 +41,28 @@
     "sectionTerm": null,
     "programs": 235,
     "programsWithCourses": 212,
-    "variableCredit": 103,
+    "variableCredit": 109,
     "unknownCredit": 0,
     "droppedProgramRows": 0,
     "droppedTotalRows": 0,
-    "poolGroups": 1504,
+    "poolGroups": 1567,
     "implausibleProgramTotals": 0,
     "programsWithGenEd": 0,
     "genEdCategories": 0,
     "genEdCategoriesFromCampus": 0
   },
   "counts": {
-    "indexed": 2396,
-    "positioned": 0,
-    "withPrereqSpec": 1174,
+    "indexed": 2403,
+    "positioned": 2403,
+    "withPrereqSpec": 1177,
     "withGrades": 0,
     "gradeRows": 0,
     "withSections": 0,
     "programs": 235,
     "programsWithCourses": 212,
-    "programCourseRows": 147303,
-    "programRowsWithCredits": 141332,
-    "programRowsWithTitle": 11046,
+    "programCourseRows": 147467,
+    "programRowsWithCredits": 141501,
+    "programRowsWithTitle": 11041,
     "orphanGradeRows": 0,
     "subjectShards": 85,
     "programFiles": 235
@@ -152,12 +156,12 @@
   ],
   "artifacts": {
     "index.json": {
-      "raw": 359004,
-      "gzip": 46312
+      "raw": 444405,
+      "gzip": 64448
     },
     "prereqs.json": {
-      "raw": 503063,
-      "gzip": 25546
+      "raw": 423652,
+      "gzip": 21469
     },
     "grades.json": {
       "raw": 2,
@@ -165,13 +169,12 @@
     },
     "programs.json": {
       "raw": 121471,
-      "gzip": 8578
+      "gzip": 8587
     }
   },
   "notes": [
     "Georgia Tech publishes no grade distributions, so no course here shows grade history, an average or a difficulty.",
     "No section data in this build. No building, day, time or part of term can be shown.",
-    "No map data in this build. The constellation has no positions.",
-    "807 of 142139 program course rows have no credits."
+    "802 of 142303 program course rows have no credits."
   ]
 }

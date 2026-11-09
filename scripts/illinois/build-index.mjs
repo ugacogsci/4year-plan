@@ -10,8 +10,10 @@
  * public/<id>-catalog.json, <id>-programs.json, <id>-offerings.json and
  * <id>-sections.json, and writes public/<id>/. Georgia Tech
  * (scripts/gatech/build-index.mjs runs `--school gatech`) publishes no grade
- * distributions, map, teaching list, language table or admission pages, so
- * those inputs are not read for it and its meta.json says so in plain words.
+ * distributions, teaching list, language table or admission pages, so those
+ * inputs are not read for it and its meta.json says so in plain words. Its
+ * course map, public/gatech-map.json, is read when scripts/gatech/map.mjs has
+ * built it.
  * Illinois's output is byte for byte what it was before the option existed.
  *
  * Why this file exists. public/illinois-catalog.json alone is 5.95 MB and the
@@ -107,13 +109,15 @@ const RAW = {
 };
 /**
  * Inputs a school has no source for. Not read, and not reported as missing:
- * Georgia Tech publishes no grade distributions, and has no course map,
- * teaching list, language table or admission pages in this project. The
- * class-schedule file is optional there (built later from the Banner cache);
- * its absence gets the usual "no section data" note, not a missing-file one.
+ * Georgia Tech publishes no grade distributions, and has no teaching list,
+ * language table or admission pages in this project. Two of its inputs are
+ * optional instead: the class-schedule file (built later from the Banner
+ * cache) and the course map (scripts/gatech/map.mjs, from the course
+ * vectors). Without one, the usual "no section data" or "no map data" note is
+ * written, not a missing-file one.
  */
-const NOT_PUBLISHED = IS_ILLINOIS ? new Set() : new Set(['grades', 'map', 'excellent', 'languages', 'admission']);
-const OPTIONAL = IS_ILLINOIS ? new Set() : new Set(['sections']);
+const NOT_PUBLISHED = IS_ILLINOIS ? new Set() : new Set(['grades', 'excellent', 'languages', 'admission']);
+const OPTIONAL = IS_ILLINOIS ? new Set() : new Set(['sections', 'map']);
 
 const normCode = (s) => s.replace(/\s+/g, ' ').trim().toUpperCase();
 

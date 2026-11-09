@@ -3581,6 +3581,15 @@ function soleCount(text: string): number | null {
 
 /** A comment row that opens a list to choose from: "Calculus Option - Select one of the following:", "Choose 6 hours from:". */
 const OPTION_HEAD = /\b(?:select|choose|pick)\b|\boption\b|\bone of the following\b|\bfrom the following\b|\bselected from\b|\bcomplete (?:at least )?(?:\d+|one|two|three)\b|\bfrom this list\b/i;
+/**
+ * A comment row that sizes a list in its own words without a choosing verb:
+ * Neuroscience's "11 credits of additional Neuroscience Electives", under a
+ * 15-hour table whose other comment is "Select one research based elective:".
+ * Read as a plain heading, the 39 courses under it were every one required,
+ * and 31 of them had no term on a Neuroscience board (2026-11-09). No
+ * Illinois page has such a row, so no Illinois table reads differently.
+ */
+const ADDITIONAL_HOURS_HEAD = /\b\d{1,2}(?:\s*-\s*\d{1,2})?\s*(?:credit\s*)?(?:hours?|credits?)\s+(?:of\s+)?additional\b/i;
 /** Hours a comment row states: "Choose 6 hours from:", "3-4 hours selected from:", "Select an additional 6 hours". */
 const COMMENT_HOURS = /\b(\d{1,2})(?:\s*-\s*\d{1,2})?\s*(?:credit\s*)?(?:hours?|credits?)\b/i;
 /** The count a comment row opens with, where it says more than one number: "Select three of the following (excluding courses taken for the Advanced Law Option)". */
@@ -3676,7 +3685,8 @@ export function optionListsIn(
     }
     const carriedHours = leadHours;
     leadHours = null;
-    if (!OPTION_HEAD.test(comment.text) && comment.hours === null && carriedHours === null) {
+    const opensList = OPTION_HEAD.test(comment.text) || ADDITIONAL_HOURS_HEAD.test(comment.text);
+    if (!opensList && comment.hours === null && carriedHours === null) {
       // A plain heading over rows, in the select-line reading: its rows are required ("Theory" over
       // MACS 361, "Methods" over MACS 350, between the Cinema Studies track's "Choose 1:" lists).
       if (readingSelectLines) {
@@ -3706,11 +3716,11 @@ export function optionListsIn(
       const reach = run.reduce((sum, row) => sum + Math.max(...[row.code, ...(row.or ?? [])].map((c) => { const hit = byCode.get(c); return hit ? (hit.creditsMax ?? hit.credits) : 0; })), 0);
       // Rows whose least hours already make the heading's ("Mathematics:" (7) over MATH 220 or 221 and MATH 231) are all needed.
       const least = run.reduce((sum, row) => sum + Math.min(...[row.code, ...(row.or ?? [])].map((c) => byCode.get(c)?.credits ?? 0)), 0);
-      if (reach < hours || (readingSelectLines && !OPTION_HEAD.test(comment.text) && least >= hours)) {
+      if (reach < hours || (readingSelectLines && !opensList && least >= hours)) {
         // The select-line reading: rows that cannot reach their heading's hours are required rows
         // ("Science Requirements" (19) over CHEM 102 & 103, CHEM 104 & 105, IB 103 and IB 104, then
         // "Select one additional course from the following:"), not a list.
-        if (!readingSelectLines || OPTION_HEAD.test(comment.text)) return null;
+        if (!readingSelectLines || opensList) return null;
         for (const row of run) requiredRun.add(row);
         lastUntil = until;
         continue;

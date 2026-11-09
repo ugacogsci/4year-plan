@@ -15,6 +15,7 @@
  *     { school, source, fetchedAt,
  *       terms: [{ id: "fa2026", code: "202608", year, term, subjects, courses, sections, unreachable }],
  *       courses: { "CS 1301": ["sp2027", "fa2026", ...] },     newest first
+ *       renumbered: { "CEE 4405": "CEE 3400" },   courses[now] holds the other number's terms (see below)
  *       elsewhere: { "CS 1301": { "su2025": ["Georgia Tech-Lorraine"] } },
  *       campuses: { counted: [...], seen: { campus: sections } } }
  *   data/gatech-raw/banner/<term code>/page-<offset>.json.gz, every page exactly
@@ -43,10 +44,10 @@
  *     that was dropped after the term started may still be listed.
  *   - Whether the newest term (Spring 2027 today) is final. Departments still
  *     add sections before registration, so a course absent from it may yet run.
- *   - Renumbered courses. Banner carries no "formerly" field, so unlike the
- *     Illinois build (which takes renumbering from its languages table) there
- *     are no aliases here; a renumbered course's old history sits under its
- *     old code.
+ *   - Renumbered courses, except where the catalog itself shows one (the
+ *     `renumbered` pass below: same title, same description). Banner carries
+ *     no "formerly" field, so any other renumbered course's old history sits
+ *     under its old code.
  *   - Restricted sections. A course whose only section is reserved for a
  *     program (say, a cohort-only MBA section) still counts as offered.
  *
@@ -343,6 +344,53 @@ for (const want of wanted) {
   console.log(`${want.id}: ${sections.size} sections, ${home.size} courses in ${subjects.size} subjects on the counted campuses, ${[...away.keys()].filter((c) => !home.has(c)).length} courses only elsewhere${missing > 0 ? `, ${missing} sections unread` : ''}`);
 }
 
+/**
+ * Renumbered courses. Banner carries no "formerly" field, but the catalog
+ * does carry, for a handful of courses with no section in nine terms, a
+ * second course of the same title AND the same description that has run:
+ * CEE 4405 and CEE 3400 (Introduction to Geotechnical Engineering), ISYE
+ * 2028 and ISYE 3030 (Basic Statistical Methods), MATH 2740 and CS 2740
+ * (Foundations of Mathematics and Computing), CHEM 4512 and CHEM 3522. One
+ * course under two numbers; a board that books the one with no history was
+ * told it "has not run" (CEE 4405 on Geosystems, MATH 2740 on three
+ * Mathematics with Computing boards, 2026-11-09).
+ *
+ * The two histories are joined the way scripts/illinois/build-index.mjs
+ * joins Illinois's renumbered language courses: courses[now] is the union
+ * of its own terms (none) and the other number's, and renumbered[now] names
+ * the number it ran under, so a reader can always tell borrowed history from
+ * Banner's own. Only an exact match counts: the same title and description,
+ * exactly one such course, neither of them research or internship, and not
+ * two numbers of one subject less than ten apart (VIP 2601 and 2602, GT 2201
+ * and 2202 are the steps of a sequence, not one course). A course whose
+ * description changed with its number (ID 2022 and ID 2024, both "Industrial
+ * Design Studio 2") is a revision, not a renumbering, and is left alone.
+ * Needs public/gatech-catalog.json (scripts/gatech/courses.mjs); without it
+ * nothing is joined.
+ */
+const renumbered = {};
+{
+  const catalogFile = new URL('public/gatech-catalog.json', ROOT);
+  if (existsSync(catalogFile)) {
+    const NOISE_TITLE = /\b(independent study|thesis research|special problems|individual|undergraduate research|internship|co-?op\b|work experience|recitation|assistantship|special topics)\b/i;
+    const T = (x) => String(x ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const rows = JSON.parse(readFileSync(catalogFile, 'utf8')).courses.filter((c) => Number.parseInt(c.number, 10) < 5000 && !NOISE_TITLE.test(c.title));
+    const byKey = new Map();
+    for (const c of rows) {
+      const k = `${T(c.title)}|${T(c.description)}`;
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(c);
+    }
+    for (const c of rows) {
+      if (courses[c.code]?.length) continue;
+      const twins = (byKey.get(`${T(c.title)}|${T(c.description)}`) ?? []).filter((x) => x.code !== c.code && courses[x.code]?.length && !(x.subject === c.subject && Math.abs(Number.parseInt(x.number, 10) - Number.parseInt(c.number, 10)) < 10));
+      if (twins.length !== 1) continue;
+      renumbered[c.code] = twins[0].code;
+      courses[c.code] = [...courses[twins[0].code]];
+    }
+  }
+}
+
 const order = terms.map((t) => t.id);
 for (const code of Object.keys(courses)) courses[code].sort((a, b) => order.indexOf(a) - order.indexOf(b));
 const sortedCourses = Object.fromEntries(Object.entries(courses).sort(([a], [b]) => a.localeCompare(b)));
@@ -363,10 +411,12 @@ writeFileSync(OUT, JSON.stringify({
   fetchedAt,
   terms,
   courses: sortedCourses,
+  renumbered: Object.fromEntries(Object.entries(renumbered).sort(([a], [b]) => a.localeCompare(b))),
   elsewhere: sortedElsewhere,
   campuses: { counted, seen: Object.fromEntries(Object.entries(seen).sort((a, b) => b[1] - a[1])) },
 }));
 console.log(`\n${Object.keys(sortedCourses).length} courses seen on the counted campuses across ${terms.length} terms; ${Object.keys(sortedElsewhere).length} courses with a term only elsewhere`);
+console.log(`renumbered (same title and description, history joined): ${Object.entries(renumbered).map(([a, b]) => `${a} ran as ${b}`).join(', ') || 'none'}`);
 console.log(`campuses seen: ${Object.entries(seen).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} ${n}`).join('; ')}`);
 if (unknownCampuses.size) console.log(`NEW campus names, not counted until COUNTED_CAMPUSES or ELSEWHERE_CAMPUSES names them: ${[...unknownCampuses].join('; ')}`);
 if (failed.length) console.log(`FAILED terms: ${failed.map((f) => `${f.id}: ${f.why}`).join('; ')}`);
