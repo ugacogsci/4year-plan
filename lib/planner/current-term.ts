@@ -25,6 +25,7 @@
  */
 import { lineIsForeign, normalizeCourseCode, normalizeTerm, type TranscriptCourseRecord, type TranscriptRecord } from './transcript';
 import type { PlanState, PlanTerm, SemesterSeason } from './types';
+import type { SchoolKey } from './school-config';
 import { UGA_GRADUATE_FULL_TIME_HOURS } from './uga-load-rules';
 
 export type TermRef = { season: SemesterSeason; year: number };
@@ -186,7 +187,7 @@ export function withCurrentClass(
   record: TranscriptRecord | null | undefined,
   course: { code: string; title: string; credits: number },
   term: TermRef,
-  school: { id: 'uga' | 'illinois'; label: string },
+  school: { id: SchoolKey; label: string },
   now = new Date(),
 ): TranscriptRecord {
   const code = normalizeCourseCode(course.code);

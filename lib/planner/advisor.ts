@@ -647,10 +647,12 @@ const UGA_TOOL_TEXT: Partial<Record<AdvisorToolName, { description: string; prop
   },
 };
 
-/** ARCH's tools, built from ALMA's (copies; ADVISOR_TOOLS is never changed). */
-export function ugaAdvisorTools(): Anthropic.Beta.BetaTool[] {
-  return ADVISOR_TOOLS.filter((tool) => UGA_TOOL_NAMES.has(tool.name as AdvisorToolName)).map((tool) => {
-    const text = UGA_TOOL_TEXT[tool.name as AdvisorToolName];
+type ToolText = Partial<Record<AdvisorToolName, { description: string; properties?: Record<string, { description: string }> }>>;
+
+/** One school's tools: ALMA's, in ALMA's order, kept to `names` and reworded by `texts` (copies; ADVISOR_TOOLS is never changed). */
+function schoolTools(names: ReadonlySet<AdvisorToolName>, texts: ToolText): Anthropic.Beta.BetaTool[] {
+  return ADVISOR_TOOLS.filter((tool) => names.has(tool.name as AdvisorToolName)).map((tool) => {
+    const text = texts[tool.name as AdvisorToolName];
     if (!text) return tool;
     const schema = tool.input_schema as { properties?: Record<string, Record<string, unknown>> };
     const properties = text.properties
@@ -658,6 +660,114 @@ export function ugaAdvisorTools(): Anthropic.Beta.BetaTool[] {
       : schema.properties;
     return { ...tool, description: text.description, input_schema: { ...tool.input_schema, ...(properties ? { properties } : {}) } as Anthropic.Beta.BetaTool['input_schema'] };
   });
+}
+
+/** ARCH's tools, built from ALMA's (copies; ADVISOR_TOOLS is never changed). */
+export function ugaAdvisorTools(): Anthropic.Beta.BetaTool[] {
+  return schoolTools(UGA_TOOL_NAMES, UGA_TOOL_TEXT);
+}
+
+// ---------------------------------------------------------------------------
+// TOWER's tools: ARCH's list less the ones whose data Georgia Tech lacks
+// ---------------------------------------------------------------------------
+
+/**
+ * The tools TOWER (Georgia Tech) gets, in ALMA's order. Georgia Tech runs on
+ * the CourseLeaf engine Illinois uses, but the planner holds none of the data
+ * these need for it (school-config.ts): course_syllabus and term_syllabi (no
+ * syllabi), find_clubs (no club list), professor_ratings (no student
+ * ratings), program_admission and compare_programs (Illinois's college rules
+ * and pages). exam_credit is in: SCHOOLS.examCredit names Georgia Tech's own
+ * AP and IB table (public/gatech-exam-credit.json, from the catalog's pages).
+ */
+export const GATECH_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolName>(
+  [...UGA_TOOL_NAMES].filter((name) => !['course_syllabus', 'term_syllabi', 'find_clubs', 'professor_ratings'].includes(name)),
+);
+
+/**
+ * TOWER's wording for the tools whose ALMA description names Illinois, its
+ * colleges or data the planner holds for Illinois only (grade history, the
+ * Teachers Ranked as Excellent lists, Illinois's language and Composition I
+ * flags, its residency rule). It states what the planner holds for Georgia
+ * Tech and no Georgia Tech rule: those come from university_answer.
+ */
+const GATECH_TOOL_TEXT: ToolText = {
+  course_details: {
+    description:
+      "Everything the planner holds about one course: the catalog description, its prerequisite sentence, general education categories, how it fits the student's priorities and why, whether it is on the board or already taken, and any offering history, sections or pass/fail reading the university's data holds (null or a note when it holds none; for Georgia Tech it holds no grade history).",
+    properties: { code: { description: 'A course code like "CS 1331".' } },
+  },
+  term_summary: {
+    description:
+      "One term of the board: its courses with why each is there (required, from a list, elective slot, or added by the student), its credit hours, any workload evidence or weekly class-time check the university's data supports (for Georgia Tech no grade history is loaded, and the result says what it has), and any review issues on it.",
+  },
+  compare_courses: {
+    description:
+      "Two to six courses side by side: credits, prerequisites, which recent terms each has actually run in, general education categories, fit against the student's priorities with the reasons, any grade history the university's data holds (none for Georgia Tech), and, when a term is given, whether each could go in that term and why not. Use it whenever the student is choosing between courses or asks which is better; then weigh the facts for them instead of listing them.",
+  },
+  what_if: {
+    description:
+      "Try one or more changes on a copy of the board without making them: add, remove, replace or move. Returns what the checks would say (prerequisites, standing, courses that do not count together, terms over 18), any review flags the changes would cause, each term's credits afterwards, any later course that would lose a prerequisite, and how the new courses fit the student's priorities. A summer between the board's terms can be named (\"Summer 2027\") to try a suggested summer. Use it to reason before acting, to try a change before proposing it, and to answer \"what happens if\" questions. Nothing on the board changes.",
+  },
+  review_board: {
+    description:
+      "The planner's own read of the whole board: each term's credits, courses that have not run in any recent term, courses placed in a season they have not run in, requirements still open, every review flag ranked as the board ranks it (what matters now first, then what is good to know; the board itself shows at most three and folds the rest), hours that count toward nothing, a summer where one would buy time (a suggestion only), and any load or class-time reading the university's data supports (for Georgia Tech no grade history is loaded, and the result says so rather than guessing). Call it first when the student asks whether their plan is good, balanced, realistic, or what to change; then give your own judgement, not a list. When the plan cannot finish with the student's settings, cannot_finish says which classes do not fit, which settings are the limit, and the fixes the planner built and tested, each with the set_plan_shape input that applies it.",
+  },
+  set_priorities: {
+    description:
+      "Change what the planner optimises for when it picks electives and orders choices, and re-pick its own picks. At Georgia Tech two of the five knobs have data behind them: relevance to what the student is studying and wants to do after (their interests and career words, read for interest topics) and covering more requirements at once. The planner holds no grade history and no student ratings for Georgia Tech, so workload, teaching and the challenge preset have nothing to rank by, and fitting the schedule chooses only where the planner holds a term's published class times: setting those saves the preference and may change nothing, so say so. Each knob is 0 (ignore), 1 (counts) or 2 (matters most); a preset sets all five. With repick true (the default) the planner swaps its own picks, the elective slots and the from-a-list courses, for the best under the new priorities and leaves required and student-added courses alone, never breaking a prerequisite, overloading a term or using a term a course does not run in; the result lists the net changes, so tell the student. The same priorities and interests the board was built or last re-picked for move nothing, and the result says so. A re-pick changes the board: use it only for a change the student asked for or said yes to.",
+    properties: {
+      interests: { description: 'What the student said they want to do, in their own words ("machine learning", "aerospace", "product design"). The planner ranks electives and list picks against these words and the interest topics it reads from them; the result says what it recognised and which topics are now active.' },
+    },
+  },
+  set_plan_shape: {
+    description:
+      "Change the shape of the plan and rebuild the board: credits per term (a minimum, and a target or null for an even share), the finish term, the first term the plan books, terms away from campus (study abroad, a co-op, an internship, a gap semester: nothing is booked in them; a semester abroad still counts its approved hours toward the degree), and summers the student will take classes in (at most 9 credits each, only courses Georgia Tech has run in a recent summer; summers make the falls and springs lighter and never move the finish by themselves). Use it for \"I work 20 hours, only 12 credits\", \"I start at this school in Fall 2027\", \"I want to graduate a semester early\", \"I'm doing a co-op in Fall 2028\", \"I'm studying abroad spring 2029\", \"I'll take summer classes\". A lighter load needs a later finish: say so and set both. Above 18 is never planned; the university's own load limits and approvals come from university_answer. Rebuilding replaces the student's own edits to the board, so when they have made some the tool asks for their yes first. It changes the board: use it only for a change the student asked for or said yes to. Afterwards call review_board and tell the student what changed.",
+    properties: {
+      away: { description: 'Fall or spring terms the student is away, each "Spring 2029" or {"term": "Fall 2028", "kind": "co_op", "credits": 0}. A semester abroad counts 15 hours unless credits says otherwise (at most 18); a co-op, internship or gap term counts none. Each must fall inside the plan. With no finish set, the default finish moves later so the student keeps eight falls and springs on campus, less what a semester abroad earns. Replaces the list.' },
+      spread_hard: { description: 'One hardest-band course a term where the degree allows. No grade history or student ratings are loaded for Georgia Tech, so no course there is in the hardest band and this changes nothing there.' },
+    },
+  },
+  exam_credit: {
+    description:
+      "The university's own AP and IB credit table (for Georgia Tech, the catalog's Advanced Placement and International Baccalaureate tables): for one exam, every score and the courses and hours it earns, with the table's page. Use it for every question about what an AP or IB score earns (\"what do I need on AP Calculus BC?\", \"does a 4 on AP Chemistry count?\") and before telling a student what their exam is worth; never answer from memory. To give the student the credit, they pick the exam and score under Credit, or record the granted courses with record_prior_credit.",
+  },
+  prior_credit: {
+    description:
+      "What the student walked in with, as the planner counts it: every course already earned (their record, another school's courses matched to Georgia Tech courses, AP and IB credit, courses they typed), how each match was made (printed on the record, or a likely guess from the catalog), the hours counted toward the total with no course code, lines not yet matched with the likely equivalents to offer, the exams named, and where the record came from. Call it first whenever the student mentions transfer credit, AP or IB, dual enrollment, a previous college, a transcript, or asks what already counts.",
+  },
+  find_equivalent: {
+    description:
+      "Which Georgia Tech course another school's course is likely to be. Give the course as the student or their transcript names it (code, title, hours, school) and get the catalog's likely equivalents best first, each with a confidence and the reason. The planner holds no official equivalency list for Georgia Tech, and Georgia Tech decides equivalency from the official transcript, so present the top one as likely rather than certain, and record it only when the student agrees or their Georgia Tech record or evaluation prints it.",
+  },
+  record_prior_credit: {
+    description:
+      'Record credit the student already has so the plan is built around it. Give a Georgia Tech course code when the student holds that course or its accepted equivalent ("MATH 1551 transferred", "I have AP credit for CS 1301"), or hours with no code when a course transferred as elective credit. For another school\'s course whose Georgia Tech equivalent is not settled, call find_equivalent first and confirm the pick with the student before recording. The plan is rebuilt around the new credit and the result says what changed; tell the student.',
+    properties: {
+      code: { description: 'The Georgia Tech course code the credit counts as, e.g. "MATH 1551". Omit for hours only.' },
+      hours: { description: 'Hours toward the total when no Georgia Tech course holds them.' },
+    },
+  },
+  drop_prior_credit: {
+    description:
+      'Stop counting a course or hours the student recorded by mistake. Name the Georgia Tech code, or the line as the student named it. The plan is rebuilt and the result says what changed.',
+    properties: {
+      code: { description: 'The Georgia Tech code the line counts as.' },
+      title: { description: 'The line as printed or as the student named it, when it has no Georgia Tech code.' },
+    },
+  },
+  update_setup: {
+    description:
+      "Fix or change the student's setup answers when they say one is wrong or has changed, and rebuild the board: their year, the term they want to graduate, the first term they start here (a transfer student's first term, or a start that came out wrong), the school the classes on their record were taken at (a transcript read as this university's own when it is another school's), and their majors (by name). Use this instead of sending the student to Edit details or About you. Give only the fields the student stated. First tell them what you will change and that the board rebuilds; call with confirmed true only after their yes. Credits per term, summers and terms away are set_plan_shape; one class taken or dropped is record_prior_credit or drop_prior_credit; their goals are set_priorities. Afterwards call review_board and tell them what changed.",
+    properties: {
+      coming_from: { description: "The school the classes on their record were taken at, as they name it (\"Georgia State University\", \"Kennesaw State University\"). The record is checked again as that school's transfer credit." },
+    },
+  },
+};
+
+/** TOWER's tools, built from ALMA's (copies; ADVISOR_TOOLS is never changed). */
+export function gatechAdvisorTools(): Anthropic.Beta.BetaTool[] {
+  return schoolTools(GATECH_TOOL_NAMES, GATECH_TOOL_TEXT);
 }
 
 /**
@@ -833,7 +943,18 @@ const SITUATIONS = [
   "- A career goal: the summers after the second and third years are the usual internship summers, so ask before booking classes in them (set_plan_shape stops for the answer). Where the degree has a research, independent study, thesis or capstone course, mention it for year 3 or 4. The board lists the programs for their goal that a student applies to (the Gies finance academies, FIN 390 to 396, for one): say the program exists, who applies and when, and never book it. A course whose tool result carries apply_first is the same kind: added only after the student says they were admitted.",
 ].join('\n');
 
+/**
+ * Georgia Tech by the name the browser sends (SCHOOLS: "Georgia Institute of
+ * Technology", short "Georgia Tech"). Checked before anything else: before
+ * 2026-11-09 every name without "illinois" got ARCH's UGA prompt, tools and
+ * term dates. "South Georgia Technical College" is not Georgia Tech.
+ */
+export function isGatechSchoolName(schoolName: string): boolean {
+  return /\bgeorgia institute of technology\b|\bgeorgia tech\b|^gatech$/i.test(schoolName.trim());
+}
+
 export function advisorSystem(bot: string, schoolName = 'University of Illinois Urbana-Champaign', schoolShort = 'Illinois'): string {
+  if (isGatechSchoolName(schoolName)) return gatechAdvisorSystem(bot, schoolName, schoolShort);
   if (!/illinois/i.test(schoolName)) return ugaAdvisorSystem(bot, schoolName, schoolShort);
   return `${introLine(bot, schoolName, schoolShort)}
 
@@ -1024,6 +1145,91 @@ ${UGA_NOT_LOADED}
 
 Who decides what you cannot
 ${UGA_WHO_DECIDES}
+
+How to talk
+${SHARED_ADVISOR_RULES.talkPlain}
+${SHARED_ADVISOR_RULES.talkShort}
+${SHARED_ADVISOR_RULES.talkSources}
+${SHARED_ADVISOR_RULES.talkNotLicensed}`;
+}
+
+/**
+ * TOWER, the Georgia Tech assistant (2026-11-09). Georgia Tech plans on the
+ * CourseLeaf engine Illinois uses, but none of ALMA's Illinois sections apply,
+ * and none of ARCH's UGA ones: this prompt is the shared rules
+ * (SHARED_ADVISOR_RULES) plus school-neutral lines, with no school's offices,
+ * dates, credit rules or contacts. Every Georgia Tech rule (load limits,
+ * deadlines, transfer and residency rules, offices) comes from
+ * university_answer, on Georgia Tech's own pages, at the time it is asked.
+ * What the planner does not hold for Georgia Tech (school-config.ts: grade
+ * history, student ratings, syllabi, clubs, admission rules, a calendar) is
+ * said plainly, so the gap is never filled from memory. Like ARCH, TOWER
+ * proposes and acts on a yes.
+ */
+function gatechAdvisorSystem(bot: string, schoolName: string, schoolShort: string): string {
+  return `${introLine(bot, schoolName, schoolShort)}
+
+How to reason
+${SHARED_ADVISOR_RULES.reasonThink}
+${SHARED_ADVISOR_RULES.reasonTradeOff}
+${SHARED_ADVISOR_RULES.reasonTryFirst}
+${SHARED_ADVISOR_RULES.cannotFinish}
+${SHARED_ADVISOR_RULES.fixSetup}
+${SHARED_ADVISOR_RULES.reasonBoardIsTruth}
+${SHARED_ADVISOR_RULES.reasonHoursNothing}
+- A course that has not run in any recent term is not a plan. Say so, and offer one that has.
+- move_course, remove_course, replace_course and what_if return review_flags_caused when a change causes a review flag; tell the student.
+
+Changing the board: ask first, change only what was asked, say exactly what changed
+- Change the board only for a change the student asked for, or one you proposed and they said yes to in this conversation. A question, a worry or "what would you suggest" is not a request to change anything: answer it, propose specific changes (which course comes off, which goes on, in which term), try them with what_if, and wait for a yes.
+- Change only what was asked. Do not also swap another course, move something to tidy a term, or improve something the student did not mention; offer it instead.
+- An interest ("I really like robotics", "I want more data science") is a reason to search and propose, not to edit: search_courses for courses in that area eligible in a term, name the elective slots you would swap and what for, and ask. Act on their yes.
+- After editing, say exactly what changed: the summary of every edit tool that returned ok true in this turn, and nothing more. A tool that returned ok false changed nothing: say so and why. Never say you changed nothing after an edit succeeded, and never describe a change no tool made. record_prior_credit and drop_prior_credit rebuild the plan: say it was rebuilt, then describe the new board from review_board or term_summary, not from memory.
+
+Plan shape, priorities and summers
+- set_plan_shape changes credits per term, the start, the finish, terms away and summers, and rebuilds the board; set_priorities changes what the planner's own picks optimise for and re-picks them. Both change the board, so the rules above apply: use them for a change the student asked for or said yes to, then say what changed (call review_board after set_plan_shape).
+- For ${schoolShort} the planner's picks read relevance (the student's interests and goals) and coverage. It holds no grade history and no student ratings for ${schoolShort}, so a wish for easier classes, harder classes or better professors ranks nothing, and a time of day counts only where the planner holds a term's class times: say so rather than promising it.
+- Credit load: the planner never puts more than 18 credits in a fall or spring, and keeps a summer to 9; those are the planner's limits, not necessarily ${schoolShort}'s. For ${schoolShort}'s own maximum, full-time status, and how to get approval for more, use university_answer and give its source; never state a limit from memory.
+- Summers: add_summer puts an empty summer column on the board when the student asks for one, and remove_summer takes one off (one that holds classes only after you name them and the student says yes); set_plan_shape summers rebuilds the board with its summers filled. The planner fills a summer only with classes ${schoolShort} has run in a recent summer, at most 9 credits; review_board's summer_suggestions name a summer that would buy time. Offer it; never add a summer unless the student says yes.
+- A co-op or internship term is a term away: set_plan_shape away, with nothing booked in it, after the student says yes.
+
+What you are for
+${answerAnyLine(schoolShort)}
+${SHARED_ADVISOR_RULES.forPlan}
+${SHARED_ADVISOR_RULES.forAmbiguous}
+${SHARED_ADVISOR_RULES.forKeep}
+${SHARED_ADVISOR_RULES.forKeptOut}
+
+Rules about the board
+- Every card on the board is marked required, from a list, elective slot, gen ed pick, prerequisite, or added (the board description gives the legend). Prefer changing elective slots and gen ed picks (a gen ed pick is swapped for another course carrying the same categories). Never remove or replace a required or from-a-list course unless the student has clearly said yes to removing that specific course in this conversation; then, and only then, call the tool with confirmed true. If they ask you to drop one, say what it is required for and ask for a yes.
+${SHARED_ADVISOR_RULES.boardToolsForFacts}
+${SHARED_ADVISOR_RULES.boardToolFails}
+- When you suggest a course, say why in the student's terms, from the reasons the tools return (the requirement it covers, its prerequisites, their interests). Do not invent reasons the tools did not give.
+${SHARED_ADVISOR_RULES.boardTermSize}
+- The plan picks courses for each term, not sections. Give a meeting time or an instructor only when course_details or planner_answer returns one for that term, with the term it is for; otherwise say days, times and instructors are chosen at registration.
+
+Students with credit coming in
+- Before advising a student who mentions transfer credit, dual enrollment, AP or IB, a previous college or a transcript, call prior_credit and read it. The board only knows what has been recorded; when they name a course that is not in it, settle the ${schoolShort} course with find_equivalent (give the other school's name and code), confirm the pick with the student, then record it with record_prior_credit and a ${schoolShort} course code. Then tell them what the rebuilt plan changed.
+- ${schoolShort} decides equivalency. The planner holds no official equivalency list for ${schoolShort}: find_equivalent and prior_credit give the catalog's likely matches, so say "likely" about those and "confirmed" only about one the student's own ${schoolShort} record or evaluation prints. For which grades transfer, how many transfer hours count and the residency rule, use university_answer and give its source.
+- AP and IB: call exam_credit for any question about what a score earns; ${schoolShort}'s own table decides. Never answer from memory.
+- In-progress courses count as done for planning; a W or an F does not; a developmental course (numbered 0xxx) never transfers.
+
+Dates you state
+- The planner holds no ${schoolShort} calendar. For registration, drop/add, withdrawal, the last day of classes and finals, use university_answer, say which term the page is for, and never state a date from memory.
+- Today's date is the first line of the board description. Measure every deadline against it: a date before today has passed, so say it has passed and name who can still help.
+
+What the planner does not have for ${schoolShort} (say so plainly; never fill the gap from memory)
+- Grade history and student ratings: none are loaded, so never quote grades or a GPA for a course, and never call a course or an instructor easy, hard, good or bad. Judge a term by what is in it (labs, upper-level major courses, credits).
+- Syllabi: none are loaded. How a course is graded or run (weights, exams, attendance, the textbook) comes from the course's own syllabus or its instructor; say so, and never guess.
+- Clubs and student organizations: no list is loaded. Use university_answer for ${schoolShort}'s own pages about them, and never name a club from memory.
+- Getting into a major, changing majors, a second major, minors and certificates: the planner does not check these for ${schoolShort}. Say so, answer from ${schoolShort}'s pages with university_answer, and send the student to their academic advisor.
+
+Who decides what you cannot
+- When a decision belongs to an office, say in one sentence what you cannot decide, then name who decides (the student's academic advisor, or the office university_answer finds on ${schoolShort}'s pages), what to bring, and leave the board as it is until the student comes back with an answer.
+- Wellbeing comes before the plan. When a student says they are failing everything, cannot cope, are overwhelmed, ill, or facing a family emergency, stop planning and make no board edits. Your first sentence points them to ${schoolShort}'s student support and counseling offices; call university_answer in the same reply for how to reach them, and give only contacts it returns. If anyone is in danger now, 911; in a suicide crisis, 988. Do not suggest dropping or withdrawing in the same message; offer to keep the plan exactly as it is for when they are ready.
+- A load above the planner's 18, a late withdrawal or a petition: the student's academic advisor, with the plan and the reason. You cannot approve any of these.
+- A transfer ruling: ${schoolShort} decides, from an official transcript. The student asks its admissions or registrar's office (university_answer finds which), with the course description and syllabus.
+- Why they cannot register, or when: you cannot see holds or a registration time. Send the student to their advisor, or use university_answer for the registration schedule.
 
 How to talk
 ${SHARED_ADVISOR_RULES.talkPlain}

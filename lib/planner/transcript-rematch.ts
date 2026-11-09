@@ -10,8 +10,9 @@
  * Both the setup screens and the board call this when the record's school is
  * not the board's (transcript.ts recordIsForOtherSchool).
  */
-import { loadIllinoisIndex } from './illinois-load';
+import { loadIllinoisIndex, setCourseleafSchool } from './illinois-load';
 import { schoolById } from './onboarding';
+import { courseleafOf, isCourseleaf, type SchoolKey } from './school-config';
 import { loadTransferGenEd, type CatalogLite } from './transfer-match';
 import { loadUgaTransfer } from './transfer-official';
 import { matchTranscript, normalizeCourseCode, readingOfRecord, type TranscriptRecord } from './transcript';
@@ -19,24 +20,27 @@ import type { Course } from './types';
 import { loadUgaOfferings } from './uga-offerings';
 import { refineTransfers } from './transfer-ai-client';
 
-export async function rematchForSchool(record: TranscriptRecord, here: 'uga' | 'illinois', catalog: CatalogLite[]): Promise<TranscriptRecord> {
+export async function rematchForSchool(record: TranscriptRecord, here: SchoolKey, catalog: CatalogLite[]): Promise<TranscriptRecord> {
   const reading = readingOfRecord(record);
-  const guide = here === 'illinois' ? await loadTransferGenEd().catch(() => null) : null;
+  // Illinois's gen-ed guide (Parkland, IAI) is Illinois's alone (school-config.ts transferGenEdGuide).
+  const guide = courseleafOf(here)?.transferGenEdGuide ? await loadTransferGenEd().catch(() => null) : null;
   const ugaTable = here === 'uga' ? await loadUgaTransfer([reading.institution, ...reading.courses.map((c) => c.from)]).catch(() => null) : null;
   const crossListed = here === 'uga' ? (await loadUgaOfferings().catch(() => null))?.crossListed ?? null : null;
-  // Matched for this school, then the lines nothing settled decided (transfer-ai.ts).
-  const fresh = await refineTransfers(matchTranscript(reading, record.fileName, catalog, record.files ?? [record.fileName], guide, here, ugaTable, crossListed), catalog, here);
-  const was = record.schoolId === 'uga' ? 'UGA' : 'Illinois';
+  const matched = matchTranscript(reading, record.fileName, catalog, record.files ?? [record.fileName], guide, here, ugaTable, crossListed);
+  // Matched for this school, then the lines nothing settled decided (transfer-ai.ts), where the school has that step.
+  const fresh = here === 'uga' || here === 'illinois' ? await refineTransfers(matched, catalog, here) : matched;
+  const nameOf = (id: SchoolKey | undefined) => schoolById(id ?? 'illinois')?.short ?? 'another school';
+  const was = nameOf(record.schoolId);
   return {
     ...fresh,
     readAt: record.readAt,
-    notes: [`Checked again for ${here === 'uga' ? 'UGA' : 'Illinois'}: this record was first read when you planned for ${was}.`, ...fresh.notes],
+    notes: [`Checked again for ${nameOf(here)}: this record was first read when you planned for ${was}.`, ...fresh.notes],
     ...(record.currentConfirmed ? { currentConfirmed: record.currentConfirmed } : {}),
   };
 }
 
 /** The school's course list in the shape matching reads, as the upload loads it (transcript-upload.tsx catalogLite). */
-export async function loadCatalogLite(here: 'uga' | 'illinois'): Promise<CatalogLite[]> {
+export async function loadCatalogLite(here: SchoolKey): Promise<CatalogLite[]> {
   if (here === 'uga') {
     const url = schoolById('uga')?.catalog;
     if (!url) return [];
@@ -44,6 +48,8 @@ export async function loadCatalogLite(here: 'uga' | 'illinois'): Promise<Catalog
     const courses = Array.isArray(data) ? data : Array.isArray(data?.courses) ? data.courses : [];
     return courses.filter((c) => typeof c?.code === 'string').map((c) => ({ code: normalizeCourseCode(c.code), title: c.title, credits: c.credits, level: Number(c.code.match(/\d/)?.[0] ?? 0) * 100, cluster: c.cluster, tags: c.tags }));
   }
+  // The CourseLeaf loader serves one school at a time: point it at this one first.
+  if (isCourseleaf(here)) setCourseleafSchool(here);
   const index = (await loadIllinoisIndex()) ?? [];
   return index.map((c) => ({ code: normalizeCourseCode(c.code), title: c.title, credits: c.credits, level: c.level, cluster: c.cluster, tags: c.tags, ...(c.repeat ? { repeat: c.repeat } : {}) }));
 }

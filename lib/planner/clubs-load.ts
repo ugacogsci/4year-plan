@@ -1,5 +1,6 @@
 import { ILLINOIS_BASE } from './illinois-load';
 import type { IllinoisClubsFile } from './clubs';
+import type { SchoolKey } from './school-config';
 
 /**
  * A school's club file, fetched once and remembered: public/illinois/clubs.json
@@ -37,11 +38,12 @@ export type ClubsLoad =
   | { ok: true; value: IllinoisClubsFile }
   | { ok: false; reason: 'missing' | 'error' | 'server' };
 
-export type ClubSchool = 'illinois' | 'uga';
+/** Any school. Georgia Tech has no club file (school-config.ts clubs false): it loads as missing, never as another school's. */
+export type ClubSchool = SchoolKey;
 
 export const CLUBS_URL = `${ILLINOIS_BASE}/clubs.json`;
 export const UGA_CLUBS_URL = '/uga/clubs.json';
-const URLS: Record<ClubSchool, string> = { illinois: CLUBS_URL, uga: UGA_CLUBS_URL };
+const URLS: Partial<Record<ClubSchool, string>> = { illinois: CLUBS_URL, uga: UGA_CLUBS_URL };
 
 /**
  * PPAO's "UGA Pre-Health Clubs" tab (ppao.uga.edu/resources/involvement/,
@@ -81,7 +83,9 @@ function readable(v: unknown): v is IllinoisClubsFile {
 }
 
 async function fetchClubs(school: ClubSchool): Promise<ClubsLoad> {
-  const res = await fetch(URLS[school], { cache: 'no-cache' });
+  const url = URLS[school];
+  if (!url) return { ok: false, reason: 'missing' };
+  const res = await fetch(url, { cache: 'no-cache' });
   if (res.status === 404) return { ok: false, reason: 'missing' };
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   if ((res.headers.get('content-type') ?? '').includes('html')) return { ok: false, reason: 'missing' };

@@ -57,11 +57,14 @@ if one no longer matches, so a reworded rule cannot slip through unnoticed.
 
 - Each degree page prints every core area as its own heading with real course
   rows, so most of the core parses as ordinary required or "choose one" blocks.
-- Only three placeholder rows need gen-ed tags: **Any HUM** (6) means tag `HUM`,
-  **Any SS** (9) means tag `SS`, and **Lab Science** (4, usually twice) means tag
-  `Core IMPACTS: Lab Science`. `gatech-core.json` has `tagsByCourse` (437
-  courses, to fill each course's `genEd`) and `engineMapping.labelToTags` (the
-  Georgia Tech version of `GENED_MAP`).
+- Only three placeholder rows name a category instead of courses: **Any HUM**
+  (6), **Any SS** (9) and **Lab Science** (8, or 4 twice). `shape-programs.mjs`
+  (run by `programs.mjs`) replaces each with a group whose rows are the area's
+  approved list from `gatech-core.json`, sized by the row's hours, so the
+  engine reads it as an ordinary pool and needs no gen-ed tags for it. The tags
+  are still here for display: `tagsByCourse` (437 courses, to fill each course's
+  `genEd`) and `engineMapping.labelToTags` (the Georgia Tech version of
+  `GENED_MAP`).
 - **Must be gated by school:** `adaptIllinoisPrograms` calls `withCampusGenEd`
   on every program. For a Georgia Tech degree it would append an Illinois
   "General Education Requirements (campus)" area, with the Illinois

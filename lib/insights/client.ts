@@ -1,6 +1,6 @@
 'use client';
 
-import { cleanEvent, consentOf, type Consent, type EventName, type Properties, type Screen, type Feature, type InsightEvent } from './schema';
+import { cleanEvent, consentOf, INSIGHT_SCHOOLS, type Consent, type EventName, type Properties, type Screen, type Feature, type InsightEvent, type InsightSchool } from './schema';
 import type { TranscriptRecord } from '@/lib/planner/transcript';
 
 export const CONSENT_KEY = 'fourYear.insights.consent.v1';
@@ -12,7 +12,7 @@ let queue: InsightEvent[] = [];
 let sending: AbortController | null = null;
 let epoch = 0;
 let screen: Screen = 'university';
-let school: '' | 'uga' | 'illinois' = '';
+let school: '' | InsightSchool = '';
 let feature: Feature | undefined;
 let lastActivity = 0;
 let pendingMs = 0;
@@ -60,7 +60,7 @@ export function setInsightScreen(next: Screen, university?: string | null) {
   if (screen !== next) { recordTime(); feature = undefined; }
   const changed = screen !== next;
   screen = next;
-  school = university === 'uga' || university === 'illinois' ? university : '';
+  school = (INSIGHT_SCHOOLS as readonly string[]).includes(university ?? '') ? university as InsightSchool : '';
   lastActivity = Date.now();
   if (changed) track('screen_view', { device: contextNow().device });
 }

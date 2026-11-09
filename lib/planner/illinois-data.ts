@@ -20,6 +20,7 @@ import { registrationFits } from './meeting-fit.ts';
 import { HAND_READINGS_HELD, HEADER_LISTS_HELD, READ_AS_RELEASED, SELECT_LINES_HELD } from './held-degrees.ts';
 import { handReading } from './hand-readings.ts';
 import { repeatAskFor, repeatRuleOf, type RepeatAsk, type RepeatRule } from './repeats.ts';
+import { courseleafOf, type CourseleafSchool } from './school-config.ts';
 
 /**
  * Real Illinois data, adapted into the planner's shapes.
@@ -831,7 +832,122 @@ const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
  * own code set, which is what makes scanning safe: a retired code the sentence
  * still names, like MATH 347 in CS 225's prerequisite, is dropped.
  */
-const CODE_RE = /\b([A-Z]{2,4})\s?(\d{3})\b/g;
+let CODE_RE = /\b([A-Z]{2,4})\s?(\d{3})\b/g;
+
+// ---------------------------------------------------------------------------
+// Course-number shape: Illinois 'CS 225', Georgia Tech 'CS 1331' and 'CHEM 1211K'
+// ---------------------------------------------------------------------------
+
+/**
+ * This module is the CourseLeaf engine, and Illinois and Georgia Tech number
+ * their courses differently: three digits at Illinois, four at Georgia Tech,
+ * where a lab or recitation may also end in a letter (CHEM 1211K, BIOS 1107L).
+ * Every regex here that recognises a course code, and every one that reads a
+ * level out of a sentence ("300-level", "3000-level"), is built from the shape
+ * below. The default is Illinois's, and the default regexes are the literals
+ * this file always had, so an Illinois build is byte for byte what it was.
+ *
+ * The loader sets the shape for the school a student picked
+ * (illinois-load.ts setCourseleafSchool). adaptIllinoisCatalog and
+ * adaptIllinoisPrograms also read with the shape of the school their file
+ * names for the length of the call, so a file is never read with another
+ * school's numbers whatever the global setting is.
+ */
+let numberDigits: 3 | 4 = 3;
+let numberLetter = false;
+/** A course number as regex source: '\d{3}' (Illinois) or '\d{4}[A-Z]?' (Georgia Tech). */
+let NUM = String.raw`\d{3}`;
+/** One code with no groups, for .match with g and .test. */
+let CODE_TOKEN_G = /\b[A-Z]{2,4}\s?\d{3}\b/g;
+/** A prefix written as such, not followed by a number (levelRuleIn). */
+let SUBJECT_TOKEN_G = /\b([A-Za-z]{2,4})\b(?!\s?\d{3})/g;
+/** The ", or <not a course>" tail of a prerequisite menu (parsePrerequisites). */
+let ESCAPE_TAIL = /,\s*or\s+(?!\s*[A-Z]{2,4}\s?\d{3}\b)[^,;]*$/i;
+/** "300-level", "300- or 400-level"; "3000/4000-level" at Georgia Tech. */
+let LEVEL_SENTENCE = /\b[1-4]00\s*-?\s*(?:or|to|and|\/|,)?\s*(?:[1-4]00\s*-?\s*)?level\b/i;
+/** "200-400 level", "300- to 400-level". */
+let LEVEL_RANGE = /\b([1-4])00\s*-?\s*(?:to|through|-)\s*-?\s*([1-4])00\b/i;
+/** Each level a sentence names. */
+let LEVEL_NUMBER_G = /\b([1-4])00\b/g;
+/** A foot row that names a course (footHoursBlocks). */
+let FOOT_NAMES_CODE = /\b[A-Z]{2,4}\s?\d{3}\b/;
+
+/**
+ * An aside in parentheses is dropped before a level is read. Georgia Tech puts
+ * the level itself in one ("Free Electives (2000-level or higher)"), so there
+ * an aside that is a level sentence keeps its words. Illinois's reading drops
+ * every long aside, as it always has.
+ */
+const keepLevelAside = (_all: string, inner: string): string => (numberDigits === 4 && LEVEL_SENTENCE.test(inner) ? ` ${inner} ` : ' ');
+/** What the first digit of a level is worth in course numbers: 100 at Illinois, 1000 at Georgia Tech. */
+const levelUnit = (): number => (numberDigits === 4 ? 1000 : 100);
+/** A course number as a number. Georgia Tech's may end in a letter, which Number() reads as NaN. */
+const courseNumberOf = (code: string): number => {
+  const part = code.split(' ')[1] ?? '';
+  return numberLetter ? Number.parseInt(part, 10) : Number(part);
+};
+
+/**
+ * Georgia Tech's sizes: "3000-level or higher" and "upper division" read as
+ * every level from there to 4000. Illinois's readings do not use them, so its
+ * levels are what they always were.
+ */
+const OR_HIGHER = /\bor\s+(?:higher|above)\b/i;
+const UPPER_DIVISION = /\bupper[- ](?:division|level)\b/i;
+
+/**
+ * The course-number shape every code and level regex in this module reads.
+ * Default (3, false) is Illinois, and restores the original regexes exactly.
+ */
+export function setCourseNumberDigits(digits: 3 | 4 = 3, letterSuffix = false): void {
+  numberDigits = digits;
+  numberLetter = letterSuffix;
+  if (digits === 3 && !letterSuffix) {
+    NUM = String.raw`\d{3}`;
+    CODE_RE = /\b([A-Z]{2,4})\s?(\d{3})\b/g;
+    CODE_TOKEN_G = /\b[A-Z]{2,4}\s?\d{3}\b/g;
+    SUBJECT_TOKEN_G = /\b([A-Za-z]{2,4})\b(?!\s?\d{3})/g;
+    ESCAPE_TAIL = /,\s*or\s+(?!\s*[A-Z]{2,4}\s?\d{3}\b)[^,;]*$/i;
+    LEVEL_SENTENCE = /\b[1-4]00\s*-?\s*(?:or|to|and|\/|,)?\s*(?:[1-4]00\s*-?\s*)?level\b/i;
+    LEVEL_RANGE = /\b([1-4])00\s*-?\s*(?:to|through|-)\s*-?\s*([1-4])00\b/i;
+    LEVEL_NUMBER_G = /\b([1-4])00\b/g;
+    FOOT_NAMES_CODE = /\b[A-Z]{2,4}\s?\d{3}\b/;
+    return;
+  }
+  NUM = String.raw`\d{${digits}}` + (letterSuffix ? '[A-Z]?' : '');
+  const zeros = '0'.repeat(digits - 1);
+  CODE_RE = new RegExp(String.raw`\b([A-Z]{2,4})\s?(${NUM})\b`, 'g');
+  CODE_TOKEN_G = new RegExp(String.raw`\b[A-Z]{2,4}\s?${NUM}\b`, 'g');
+  // A prefix followed by a number is a course code, not a subject: "CS 1331", and "CS 13" is no code at all.
+  // Georgia Tech writes the prefix before the level ("ECE 3000/4000-level Elective"), so a round
+  // level number followed by a level word does not make the prefix a course code.
+  SUBJECT_TOKEN_G = new RegExp(
+    String.raw`\b([A-Za-z]{2,4})\b(?!\s?(?![1-4]${zeros}\s*(?:[-\/,]|or\b|to\b|level\b))\d{${digits}})`,
+    'g',
+  );
+  ESCAPE_TAIL = new RegExp(String.raw`,\s*or\s+(?!\s*[A-Z]{2,4}\s?${NUM}\b)[^,;]*$`, 'i');
+  LEVEL_SENTENCE = new RegExp(
+    String.raw`\b[1-4]${zeros}\s*-?\s*(?:or|to|and|\/|,)?\s*(?:[1-4]${zeros}\s*-?\s*)?level\b` + String.raw`|\bupper[- ](?:division|level)\b`,
+    'i',
+  );
+  LEVEL_RANGE = new RegExp(String.raw`\b([1-4])${zeros}\s*-?\s*(?:to|through|-)\s*-?\s*([1-4])${zeros}\b`, 'i');
+  LEVEL_NUMBER_G = new RegExp(String.raw`\b([1-4])${zeros}\b`, 'g');
+  // "ECE 3000/4000-level Elective" names a level, not the course ECE 3000.
+  FOOT_NAMES_CODE = new RegExp(String.raw`\b[A-Z]{2,4}\s?(?![1-4]${zeros}\s*(?:[-\/,]|or\b|to\b|level\b))${NUM}\b`);
+}
+
+/**
+ * Read with `school`'s number shape until the returned function is called.
+ * For a file that names no CourseLeaf school, the current shape stays.
+ */
+function numberShapeFor(school: CourseleafSchool | null): () => void {
+  if (!school || (school.numberDigits === numberDigits && school.letterSuffix === numberLetter)) return () => {};
+  const before = { digits: numberDigits, letter: numberLetter };
+  setCourseNumberDigits(school.numberDigits, school.letterSuffix);
+  return () => setCourseNumberDigits(before.digits, before.letter);
+}
+
+const ILLINOIS_SCHOOL = courseleafOf('illinois') as CourseleafSchool;
 
 function codesIn(text: string, known: Set<string>, selfCode?: string): string[] {
   const out: string[] = [];
@@ -986,10 +1102,18 @@ export function buildEquivalents(rows: RawIllinoisCourse[]): Map<string, string[
  * leaves it in place, so the planner can warn for free that two courses in a
  * plan will not both count.
  */
-export function exclusionsIn(description: string, selfCode: string, known: Set<string>): string[] {
+export function exclusionsIn(description: string, selfCode: string, known: Set<string>, school: CourseleafSchool = ILLINOIS_SCHOOL): string[] {
   // Built fresh per call. A shared global regex carries lastIndex between
   // calls and would skip the clause on every other course.
-  const EXCLUSION = /Credit is not given (?:toward graduation )?for(?: both)?:?\s*([^.]+)\./gi;
+  //
+  // Georgia Tech words the same rule its own ways, about 360 times: "Credit
+  // not allowed for both MATH 1551 and MATH 1550", "Credit will not be
+  // awarded for both", "Credit not awarded for both", "Credit is not allowed
+  // for both CS 4290 and any of the following courses: ...", misspellings
+  // included. Read only for Georgia Tech, so Illinois's reading is unchanged.
+  const EXCLUSION = school.id === 'illinois'
+    ? /Credit is not given (?:toward graduation )?for(?: both)?:?\s*([^.]+)\./gi
+    : /\bCredit (?:is |will )?not (?:be )?(?:given|allowed|awarded|awared|awareded)(?: toward graduation)? for(?: both)?:?\s*([^.]+)\./gi;
   /*
    * A course the clause joins to this one with "+" or "&" is its partner in
    * the unit the sentence excludes, not a course it excludes: "Credit is not
@@ -1000,7 +1124,7 @@ export function exclusionsIn(description: string, selfCode: string, known: Set<s
    * Only CMN 111 and CMN 112 in the catalog are written this way.
    */
   const self = selfCode.replace(/\s+/g, '\\s*');
-  const PARTNER = new RegExp(`${self}\\s*[+&]\\s*([A-Z]{2,5}\\s*\\d{3})|([A-Z]{2,5}\\s*\\d{3})\\s*[+&]\\s*${self}`, 'gi');
+  const PARTNER = new RegExp(`${self}\\s*[+&]\\s*([A-Z]{2,5}\\s*${NUM})|([A-Z]{2,5}\\s*${NUM})\\s*[+&]\\s*${self}`, 'gi');
   const out: string[] = [];
   const seen = new Set<string>();
   for (const m of description.matchAll(EXCLUSION)) {
@@ -1455,7 +1579,7 @@ export function parsePrerequisites(
        * "ATMS 201, MATH 241 and PHYS 211" ends in "and" and stays a list of
        * three, which is what it is.
        */
-      const ESCAPE_TAIL = /,\s*or\s+(?!\s*[A-Z]{2,4}\s?\d{3}\b)[^,;]*$/i;
+      // ESCAPE_TAIL: the ", or <not a course>" tail, built with the school's course numbers (setCourseNumberDigits).
       const orMenu =
         produced.length > 1 &&
         ESCAPE_TAIL.test(seg) &&
@@ -1566,7 +1690,7 @@ export function parsePrerequisites(
    * rest. "GWS 100 or GWS 250 and GWS 350 or GWS 370" has no pair on either
    * side of an "or" and keeps its reading.
    */
-  const PAIR = String.raw`[A-Z]{2,4}\s?\d{3}\s+and\s+(?:completion of\s+)?[A-Z]{2,4}\s?\d{3}`;
+  const PAIR = String.raw`[A-Z]{2,4}\s?` + NUM + String.raw`\s+and\s+(?:completion of\s+)?[A-Z]{2,4}\s?` + NUM;
   const orOfAnd =
     new RegExp(`${PAIR}[^;.]*?\\bor\\b\\s+(?:completion of\\s+|credit in\\s+)?${PAIR}`, 'i').test(text) ||
     new RegExp(`[;,]\\s*or\\s+(?:completion of\\s+|credit in\\s+)?${PAIR}`, 'i').test(text);
@@ -1779,6 +1903,44 @@ export function adaptIllinoisCatalog(
   file: RawCatalogFile,
   opts?: { includeGraduate?: boolean; includeNoise?: boolean },
 ): { courses: IllinoisCourse[]; facts: Map<string, CourseFacts>; equivalents: Map<string, string[]> } {
+  // The file names its school, and is read with that school's numbers and rules.
+  const school = courseleafOf(file.school) ?? ILLINOIS_SCHOOL;
+  const restore = numberShapeFor(courseleafOf(file.school));
+  try {
+    return adaptCatalogRows(file, school, opts);
+  } finally {
+    restore();
+  }
+}
+
+/**
+ * Georgia Tech's level, on the engine's scale. The catalog prints 1000 to
+ * 9000; every reader of a level here (the graduate line, the index's level,
+ * transfer matching) counts in hundreds the way Illinois does, so CS 1331 is
+ * 100 and CS 6515 is 600. The number decides, not the printed level.
+ */
+function catalogLevelOf(raw: RawIllinoisCourse, school: CourseleafSchool): number {
+  if (school.numberDigits === 3) return raw.level;
+  const n = Number.parseInt(raw.number ?? '', 10);
+  return Number.isFinite(n) ? Math.floor(n / 1000) * 100 : raw.level;
+}
+
+/**
+ * Graduate or not, by the school's own line. Illinois reads the level, as it
+ * always has (500); Georgia Tech reads the course number against its line
+ * (6000), so the answer does not depend on which scale the level is in.
+ */
+function isGraduateRow(raw: RawIllinoisCourse, school: CourseleafSchool): boolean {
+  if (school.id === 'illinois') return raw.level >= ILLINOIS_GRAD_LEVEL;
+  const n = Number.parseInt(raw.number ?? '', 10);
+  return Number.isFinite(n) ? n >= school.graduateFrom : raw.level >= school.graduateFrom;
+}
+
+function adaptCatalogRows(
+  file: RawCatalogFile,
+  school: CourseleafSchool,
+  opts?: { includeGraduate?: boolean; includeNoise?: boolean },
+): { courses: IllinoisCourse[]; facts: Map<string, CourseFacts>; equivalents: Map<string, string[]> } {
   const rows = file.courses ?? [];
   // The code set is the whole file, including graduate and independent-study
   // rows, because a prerequisite or a cross-listing can legitimately point at a
@@ -1792,7 +1954,7 @@ export function adaptIllinoisCatalog(
 
   for (const raw of rows) {
     if (!raw?.code) continue;
-    if (!opts?.includeGraduate && raw.level >= ILLINOIS_GRAD_LEVEL) continue;
+    if (!opts?.includeGraduate && isGraduateRow(raw, school)) continue;
     if (!opts?.includeNoise && raw.noise) continue;
 
     const code = normCode(raw.code);
@@ -1820,11 +1982,12 @@ export function adaptIllinoisCatalog(
       prereq,
       genEd: raw.genEd ?? [],
       equivalents: equivalents.get(code) ?? [],
-      exclusions: exclusionsIn(raw.description ?? '', code, known),
+      exclusions: exclusionsIn(raw.description ?? '', code, known, school),
       offeringKnown: false,
       catalogUrl: raw.url,
-      scheduleUrl: `${ILLINOIS_SCHEDULE_BASE}/${raw.subject}/${raw.number}`,
-      level: raw.level,
+      // Only Illinois has a per-course "terms offered" page to link; empty is "no link", as for a graduate course.
+      scheduleUrl: school.id === 'illinois' ? `${ILLINOIS_SCHEDULE_BASE}/${raw.subject}/${raw.number}` : '',
+      level: catalogLevelOf(raw, school),
       noise: raw.noise,
     };
     facts.set(code, fact);
@@ -2603,23 +2766,30 @@ export function levelFloorIn(label: string, note: string): number | null {
   const fromLabel = lowestLevelIn(label);
   if (fromLabel !== null) return fromLabel;
   const fromNote = lowestLevelIn(note);
-  if (/\badvanced\b|\bupper[- ]division\b/i.test(label)) return fromNote ?? 300;
+  // Georgia Tech also writes "Upper level Chemistry Electives".
+  const upper = numberDigits === 4 ? /\badvanced\b|\bupper[- ](?:division|level)\b/i : /\badvanced\b|\bupper[- ]division\b/i;
+  if (upper.test(label)) return fromNote ?? 300;
   return fromNote;
 }
 
+/**
+ * The floor is on the engine's three-digit scale at every school: autoplan's
+ * courseLevel reads the first three digits of a code, so 300 is Illinois's
+ * 300 level and Georgia Tech's 3000 level alike (CS 3510 reads as 351).
+ */
 function lowestLevelIn(text: string): number | null {
   const clean = (text ?? '')
     .replace(/\s+/g, ' ')
-    .replace(/\(([^()]{13,})\)/g, ' ')
+    .replace(/\(([^()]{13,})\)/g, keepLevelAside)
     .trim();
   if (!clean) return null;
   for (const raw of clean.split(/(?<=\.)\s+/)) {
     if (CAP_SENTENCE.test(raw)) continue;
     const sentence = raw.replace(/\([^()]{13,}$/, ' ');
     if (sentence.search(LEVEL_SENTENCE) < 0) continue;
-    const range = sentence.match(/\b([1-4])00\s*-?\s*(?:to|through|-)\s*-?\s*([1-4])00\b/i);
+    const range = sentence.match(LEVEL_RANGE);
     if (range) return Number(range[1]) * 100;
-    const levels = [...sentence.matchAll(/\b([1-4])00\b/g)].map((m) => Number(m[1]) * 100);
+    const levels = [...sentence.matchAll(LEVEL_NUMBER_G)].map((m) => Number(m[1]) * 100);
     if (levels.length > 0) return Math.min(...levels);
   }
   return null;
@@ -2637,7 +2807,7 @@ export function exceptionsIn(note: string): string[] {
   if (at < 0) return [];
   const sentence = text.slice(at).split(/(?<=\.)\s+/)[0];
   const out = new Set<string>();
-  for (const m of sentence.matchAll(/\b([A-Z]{2,4})\s?(\d{3})\b/g)) out.add(`${m[1]} ${m[2]}`);
+  for (const m of sentence.matchAll(CODE_RE)) out.add(`${m[1]} ${m[2]}`);
   return [...out];
 }
 
@@ -2808,6 +2978,23 @@ const PARTIAL_FULFILMENT = /\b(?:any other|one more|another|one additional|other
  * them once rather than booking six more hours of science on top of the physics
  * the student is already taking.
  */
+/**
+ * The school whose degree adaptIllinoisPrograms is reading, Illinois
+ * otherwise, so the minors and graduate readers (which call
+ * requirementRulesForProgram directly) read as they always have. Switches
+ * off what is Illinois's alone: the campus gen-ed categories and the
+ * language requirement.
+ */
+let readingSchool: CourseleafSchool = ILLINOIS_SCHOOL;
+/** Every subject prefix in a catalog, as a level sentence's subjects (levelSubjectNames). Names are the prefixes. */
+function subjectPrefixesOf(byCode: Map<string, IllinoisCourse>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const row of byCode.values()) {
+    const prefix = normCode(row.code).split(' ')[0];
+    if (prefix) out[prefix] = prefix;
+  }
+  return out;
+}
 /** True while adaptIllinoisPrograms reads a degree in READ_AS_RELEASED. */
 let readingAsReleased = false;
 /**
@@ -3145,7 +3332,14 @@ export function degreeTotalOf(program: { areas?: RawProgramArea[]; totalCredits?
 const NUMBER_WORDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
 };
-const LEVEL_SENTENCE = /\b[1-4]00\s*-?\s*(?:or|to|and|\/|,)?\s*(?:[1-4]00\s*-?\s*)?level\b/i;
+// LEVEL_SENTENCE, LEVEL_RANGE and LEVEL_NUMBER_G are built with the school's course numbers (setCourseNumberDigits).
+/**
+ * The subject prefixes (and their written names) a level sentence can name.
+ * Illinois's table by default; while adaptIllinoisPrograms reads another
+ * school's file, that school's own prefixes, from its catalog, with no
+ * written names (no Illinois department name is a Georgia Tech subject).
+ */
+let levelSubjectNames: Record<string, string> = ILLINOIS_SUBJECT_NAMES;
 /** A sentence about what may not count, which is not a sentence about what is required. */
 const CAP_SENTENCE = /\b(?:maximum of|no more than|not more than|at most|up to a maximum|may not exceed|not receive credit|cannot count|will not count)\b/i;
 
@@ -3167,7 +3361,7 @@ export function levelRuleIn(text: string, fallbackHours: number | null = null): 
   // full stop and an unclosed one is cut at the sentence's end.
   const clean = (text ?? '')
     .replace(/\s+/g, ' ')
-    .replace(/\(([^()]{13,})\)/g, ' ')
+    .replace(/\(([^()]{13,})\)/g, keepLevelAside)
     .trim();
   if (!clean) return null;
   for (const raw of clean.split(/(?<=\.)\s+/)) {
@@ -3178,12 +3372,20 @@ export function levelRuleIn(text: string, fallbackHours: number | null = null): 
     const levelAt = sentence.search(LEVEL_SENTENCE);
     if (levelAt < 0) continue;
     // "200-400 level" and "300- to 400-level" are ranges; "300 or 400 level" is two.
+    // Levels here are course numbers' own scale: 300 at Illinois, 3000 at Georgia Tech.
     const levels = new Set<number>();
-    const range = sentence.match(/\b([1-4])00\s*-?\s*(?:to|through|-)\s*-?\s*([1-4])00\b/i);
+    const unit = levelUnit();
+    const range = sentence.match(LEVEL_RANGE);
     if (range) {
-      for (let l = Number(range[1]); l <= Number(range[2]); l += 1) levels.add(l * 100);
+      for (let l = Number(range[1]); l <= Number(range[2]); l += 1) levels.add(l * unit);
     } else {
-      for (const m of sentence.matchAll(/\b([1-4])00\b/g)) levels.add(Number(m[1]) * 100);
+      for (const m of sentence.matchAll(LEVEL_NUMBER_G)) levels.add(Number(m[1]) * unit);
+    }
+    if (numberDigits === 4) {
+      // Georgia Tech: "3000-level or higher" is every level from 3000 up, and "upper division" with no
+      // number is 3000 and 4000 (39 upper-division hours are the courses numbered 3000 and above).
+      if (levels.size > 0 && OR_HIGHER.test(sentence)) for (let l = Math.min(...levels) / unit; l <= 4; l += 1) levels.add(l * unit);
+      if (levels.size === 0 && UPPER_DIVISION.test(sentence)) for (const l of [3, 4]) levels.add(l * unit);
     }
     if (levels.size === 0) continue;
 
@@ -3227,7 +3429,7 @@ export function levelRuleIn(text: string, fallbackHours: number | null = null): 
     const excluded = new Set<string>();
     const exceptAt = sentence.search(/\b(?:except|excluding|excluded courses?:?|other than|not including)\b/i);
     if (exceptAt >= 0) {
-      for (const m of sentence.slice(exceptAt).matchAll(/\b([A-Z]{2,4})\s?(\d{3})\b/g)) excluded.add(`${m[1]} ${m[2]}`);
+      for (const m of sentence.slice(exceptAt).matchAll(CODE_RE)) excluded.add(`${m[1]} ${m[2]}`);
     }
 
     const subjects = new Set<string>();
@@ -3241,15 +3443,18 @@ export function levelRuleIn(text: string, fallbackHours: number | null = null): 
      */
     const sizeAt = Math.min(hourMatches[0]?.index ?? levelAt, countMatches[0]?.index ?? levelAt, levelAt);
     const windowEnd = Math.min(exceptAt >= 0 ? exceptAt : sentence.length, levelAt + 170);
-    const body = sentence.slice(Math.max(0, sizeAt - 24), windowEnd);
+    // Georgia Tech lists the prefixes ahead of the level ("BIOS, CHEM, EAS, PHYS, ... ME 3000-level or higher
+    // courses"); a run of nothing but prefixes before the level is all subject, however long it is.
+    const prefixRun = numberDigits === 4 && /^\s*(?:[A-Z]{2,4}\b\s*(?:,|\bor\b|\band\b|\/)?\s*)+$/.test(sentence.slice(0, levelAt));
+    const body = sentence.slice(prefixRun ? 0 : Math.max(0, sizeAt - 24), windowEnd);
     // Prefixes written as such: "AGCM", "CPSC/HORT/PLPA", "ChBE". Two capitals
     // at least, so "Art" in "Art History" is a word and not the ART prefix. A
     // token that is a course code names an exclusion or an example.
-    for (const m of body.matchAll(/\b([A-Za-z]{2,4})\b(?!\s?\d{3})/g)) {
+    for (const m of body.matchAll(SUBJECT_TOKEN_G)) {
       const token = m[1];
       if ((token.match(/[A-Z]/g) ?? []).length < 2) continue;
       const upper = token.toUpperCase();
-      if (ILLINOIS_SUBJECT_NAMES[upper] !== undefined) subjects.add(upper);
+      if (levelSubjectNames[upper] !== undefined) subjects.add(upper);
     }
     // Subjects written out: "Finance", "Art History". The catalog spells some
     // with double dashes ("Art--History"), so both sides are read with dashes
@@ -3263,7 +3468,7 @@ export function levelRuleIn(text: string, fallbackHours: number | null = null): 
     const plain = (s: string) => s.replace(/-+/g, ' ').replace(/\s+/g, ' ');
     const body1 = plain(body);
     const lower = body1.toLowerCase();
-    const named = Object.entries(ILLINOIS_SUBJECT_NAMES)
+    const named = Object.entries(levelSubjectNames)
       .map(([prefix, name]) => [prefix, plain(name).toLowerCase()] as const)
       .filter(([, name]) => {
         if (name.length < 5) return false;
@@ -3313,8 +3518,9 @@ function levelPoolChoices(
     const code = normCode(row.code);
     const subject = row.cluster ?? code.split(' ')[0];
     if (!subjects.has(subject)) continue;
-    const number = Number(code.split(' ')[1] ?? '');
-    if (!levels.has(Math.floor(number / 100) * 100)) continue;
+    const number = courseNumberOf(code);
+    const unit = levelUnit();
+    if (!levels.has(Math.floor(number / unit) * unit)) continue;
     if (excluded.has(code) || alreadyNamed.has(code)) continue;
     if ((row.credits ?? 0) < rule.minCredits) continue;
     out.push({ codes: [code], title: row.title, credits: row.credits, creditsMax: row.creditsMax ?? null, substitutes: [] });
@@ -3941,7 +4147,7 @@ function plainChoicesFrom(rows: RawProgramCourse[], byCode: CatalogRowLookup): C
     // lives: 31 rows say "may be substituted", 14 "may be taken instead".
     const footnote = row.title ?? '';
     const substitutes = SUBSTITUTE_WORDING.test(footnote)
-      ? [...new Set((footnote.match(/\b[A-Z]{2,4}\s?\d{3}\b/g) ?? []).map(normCode))].filter(
+      ? [...new Set((footnote.match(CODE_TOKEN_G) ?? []).map(normCode))].filter(
           (code) => !codes.includes(code) && byCode.get(code) !== undefined,
         )
       : [];
@@ -4448,7 +4654,8 @@ export function requirementRulesForArea(
      */
     const genEdSource =
       r.rows.length === 0 ? [r.label, r.group.note ?? ''].filter(Boolean).join(' ') : '';
-    const genEd = genEdSource ? genEdRulesFromText(genEdSource) : [];
+    // Illinois's campus categories; another school's page is never read as naming them.
+    const genEd = genEdSource && readingSchool.campusGenEd ? genEdRulesFromText(genEdSource) : [];
 
     /**
      * A courseless group whose sentence names a count, a level and a subject
@@ -4605,7 +4812,7 @@ export function requirementRulesForArea(
       rule = {
         kind: 'hours',
         hours: r.ownHours,
-        genEd: genEdForLabel(r.label) ?? genEdInNote(note),
+        genEd: readingSchool.campusGenEd ? (genEdForLabel(r.label) ?? genEdInNote(note)) : null,
         label: r.label,
         minLevel: levelFloorIn(r.label, note),
         exclude: exceptionsIn(note),
@@ -4717,7 +4924,8 @@ export function requirementRulesForArea(
       // Nothing to quote, no courses, no hours. There is no requirement here to
       // report, and a row that says nothing buries the ones that do.
       if (!text) continue;
-      const split = splitLanguageRequirement(text);
+      // Illinois's campus language requirement; a school without one quotes the sentence as it is.
+      const split = readingSchool.languageRule ? splitLanguageRequirement(text) : { language: null, rest: text };
       if (split.language) {
         blocks.push({
           groupIndex: r.index,
@@ -4768,7 +4976,7 @@ export function requirementRulesForArea(
 const NOT_FOOT_HOURS =
   /^\s*(?:minimum\s+)?total\b|\bmaximum\b|\bup to\b|\bno more than\b|\bmay (?:count|apply|be applied)\b|\brecommended\b|\boptional\b|^\s*fulfilled by\b|\bfrom the (?:lists?|courses?) below\b|\bsee\b[^.]*\bbelow\b|\blist below\b|\bselect from\b|\bchoose from the following\b|\bfrom the following\b|\bselect an? (?:option|specialization)\b|\bmust include\b|\bselect one course from\b|^\s*concentration\s*$/i;
 /** A course code in a foot row's words: the row names courses this does not read ("Select three sections from GLBL 296 OR one GLBL 298 section"). */
-const FOOT_NAMES_CODE = /\b[A-Z]{2,4}\s?\d{3}\b/;
+// FOOT_NAMES_CODE: a course code in a foot row's words, built with the school's course numbers (setCourseNumberDigits).
 
 /**
  * Sized sentences at the foot of a table of course rows, read as hours of
@@ -4805,7 +5013,7 @@ function footHoursBlocks(read: AreaGroupRead[], blocks: AreaRuleBlock[], consume
     const seen = new Set<string>();
     for (const [k, c] of foot.entries()) {
       const text = c.text.replace(/[\s:]+$/, '').trim();
-      if (!text || seen.has(text.toLowerCase()) || NOT_FOOT_HOURS.test(text) || FOOT_NAMES_CODE.test(text) || genEdForLabel(text) !== null) continue;
+      if (!text || seen.has(text.toLowerCase()) || NOT_FOOT_HOURS.test(text) || FOOT_NAMES_CODE.test(text) || (readingSchool.campusGenEd && genEdForLabel(text) !== null)) continue;
       if (mine.some((b) => b.note.trim() === text || b.label.endsWith(text))) continue;
       seen.add(text.toLowerCase());
       out.push({
@@ -5744,14 +5952,32 @@ export function adaptIllinoisPrograms(
     return rows;
   };
 
+  /**
+   * The school the file names, and what of Illinois's applies to it.
+   *
+   * Illinois's campus gen-ed table and language requirement, its held and
+   * hand-made readings (keyed by Illinois program ids) and its subject names
+   * are Illinois facts. A Georgia Tech degree is read with none of them: its
+   * Core IMPACTS areas are on its own page, it has no campus language rule,
+   * and a level sentence names Georgia Tech prefixes. Course numbers are read
+   * with the file's school's shape for the length of the call.
+   */
+  const school = courseleafOf(file.school) ?? ILLINOIS_SCHOOL;
+  const illinoisReadings = school.id === 'illinois';
+  const restoreShape = numberShapeFor(courseleafOf(file.school));
+  readingSchool = school;
+  levelSubjectNames = illinoisReadings ? ILLINOIS_SUBJECT_NAMES : subjectPrefixesOf(byCode);
+
   try {
   for (const crawled of file.programs ?? []) {
     if (!crawled?.id) continue;
     // A degree held at the release's reading (READ_AS_RELEASED) is read as it was.
-    readingAsReleased = READ_AS_RELEASED.has(crawled.id);
-    readingHeaderLists = !readingAsReleased && !HEADER_LISTS_HELD.has(crawled.id);
-    readingSelectLines = !SELECT_LINES_HELD.has(crawled.id);
-    const raw = withCampusGenEd(readingAsReleased ? asReleasedProgram(crawled) : crawled);
+    readingAsReleased = illinoisReadings && READ_AS_RELEASED.has(crawled.id);
+    readingHeaderLists = !readingAsReleased && !(illinoisReadings && HEADER_LISTS_HELD.has(crawled.id));
+    readingSelectLines = !(illinoisReadings && SELECT_LINES_HELD.has(crawled.id));
+    const read = readingAsReleased ? asReleasedProgram(crawled) : crawled;
+    // Illinois's campus table, for an Illinois page that prints none. Never for another school.
+    const raw = school.campusGenEd ? withCampusGenEd(read) : read;
 
     const programBlocks: RequirementBlock[] = [];
     const areas: RequirementArea[] = [];
@@ -5762,7 +5988,7 @@ export function adaptIllinoisPrograms(
     // rest of the degree leaves it, and that cannot be seen one area at a time.
     const byRule = requirementRulesForProgram(raw, byCode);
     // A page read by hand (hand-readings.ts, Family 4b), where its reading is not held.
-    const byArea = (readingHeaderLists && !HAND_READINGS_HELD.has(raw.id) ? handReading(raw.id, byRule, byCode) : null) ?? byRule;
+    const byArea = (illinoisReadings && readingHeaderLists && !HAND_READINGS_HELD.has(raw.id) ? handReading(raw.id, byRule, byCode) : null) ?? byRule;
 
     raw.areas?.forEach((area, ai) => {
       const areaId = `${raw.id}::${ai}`;
@@ -5899,6 +6125,9 @@ export function adaptIllinoisPrograms(
     readingAsReleased = false;
     readingHeaderLists = true;
     readingSelectLines = false;
+    readingSchool = ILLINOIS_SCHOOL;
+    levelSubjectNames = ILLINOIS_SUBJECT_NAMES;
+    restoreShape();
   }
 
   return {

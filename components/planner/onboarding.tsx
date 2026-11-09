@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { AlertTriangle, Moon, Sun } from 'lucide-react';
 import { NativeSelect } from '@/components/ui/native-select';
-import { ProgramPicker, type ProgramOption } from './program-picker';
+import { ProgramMenuPicker, ProgramPicker, hasProgramMenu, loadProgramMenu, type ProgramOption } from './program-picker';
 import { PriorCredit } from './prior-credit';
 import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
 import { ugaOverlapArea } from '@/lib/planner/uga-program-overrides';
@@ -21,7 +21,9 @@ import { SiteFooter } from './site-notice';
 import { loadIllinoisMinorFile, firstFallOf, openProgram } from './illinois-source';
 import { illinoisMinorOptions } from '@/lib/planner/illinois-minors';
 import { graduateProgramOptions, loadIllinoisGraduatePrograms } from '@/lib/planner/illinois-graduate';
-import type { IllinoisProgramSummary } from '@/lib/planner/illinois-load';
+import { setCourseleafSchool, type IllinoisProgramSummary } from '@/lib/planner/illinois-load';
+import { courseleafOf } from '@/lib/planner/school-config';
+import { buildProgramMenu, programMenuOptions, type ProgramMenu } from '@/lib/planner/gatech-programs';
 import {
   ACADEMIC_YEAR_LABEL,
   EMPTY_ANSWERS,
@@ -32,6 +34,7 @@ import {
   inferAcademicYear,
   inferGraduationTarget,
   isGraduationTermPast,
+  isReadySchool,
   setupResponse,
   withSetupResponse,
   readySchools,
@@ -234,6 +237,8 @@ export function Onboarding({
   const [guided, setGuided] = useState(true);
   const [resetError, setResetError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ProgramCatalog | null>(null);
+  // Georgia Tech's degrees are menus (a concentration, or two threads, picks the page); null while loading and for other schools.
+  const [programMenu, setProgramMenu] = useState<ProgramMenu | null>(null);
   const [theme, setTheme] = useState<PlannerTheme>(readStoredTheme);
   const [graduationEdited, setGraduationEdited] = useState(
     Boolean(initial?.graduationSeason || initial?.graduationYear),
@@ -386,7 +391,10 @@ export function Onboarding({
   useEffect(() => {
     if (!answers.schoolId) return;
     let cancelled = false;
-    const url = answers.schoolId === 'uga' ? '/uga-programs.json' : '/illinois/programs.json';
+    // A CourseLeaf school (Illinois, Georgia Tech) points the shared loader at its own files first.
+    const leaf = courseleafOf(answers.schoolId);
+    if (leaf) setCourseleafSchool(leaf.id);
+    const url = leaf ? `${leaf.base}/programs.json` : '/uga-programs.json';
     void fetch(url)
       .then((response) => (response.ok ? response.json() : null))
       .then((raw: unknown) => {
@@ -434,6 +442,36 @@ export function Onboarding({
           });
           return;
         }
+        if (leaf && hasProgramMenu(leaf.id)) {
+          // Every page a plan can be built from, flat, for the setup assistant and the fit check at once;
+          // then the menu (degree, then concentration or two threads) once the parents' option lists load.
+          const summaries = (Array.isArray(raw) ? raw : []) as IllinoisProgramSummary[];
+          const plannable = summaries.filter((program) => openProgram(program));
+          const withMenu = (menu: ProgramMenu): ProgramCatalog => ({
+            undergraduateDegrees: [
+              UNDECIDED_PROGRAM,
+              ...programMenuOptions(menu).map((option) => ({ ...option, additionalCredits: 30 })),
+            ],
+            graduateDegrees: [UNDECIDED_PROGRAM],
+            minors: [],
+            undergraduateCertificates: [],
+            graduateCertificates: [],
+            requirements: [],
+            ugaPrograms: [],
+          });
+          setCatalog(withMenu(buildProgramMenu({ summaries, plannable })));
+          void loadProgramMenu(leaf.base, summaries)
+            .then((menu) => {
+              if (cancelled) return;
+              setProgramMenu(menu);
+              setCatalog(withMenu(menu));
+            })
+            // Never a picker stuck on "Loading": the flat list above still holds every page.
+            .catch(() => {
+              if (!cancelled) setProgramMenu(buildProgramMenu({ summaries, plannable }));
+            });
+          return;
+        }
         // The same degrees the planner's own Illinois menu offers: every
         // undergraduate degree it can plan (BALAS, BLS, BME and the rest too),
         // less those closed to new students.
@@ -458,13 +496,13 @@ export function Onboarding({
         // Every Illinois minor but the teacher-education ones (beta); those the
         // planner has not checked say so in their name. Certificates stay empty:
         // the catalog lists no undergraduate certificate.
-        void loadIllinoisMinorFile().then((file) => {
+        if (leaf?.minors) void loadIllinoisMinorFile().then((file) => {
           if (cancelled || !file) return;
           const minors = illinoisMinorOptions(file).map(({ id, name, totalCredits, additionalCredits }) => ({ id, name, totalCredits, additionalCredits }));
           setCatalog((current) => (current ? { ...current, minors } : current));
         });
         // Graduate and professional programs (beta); those not checked yet say so in their name.
-        void loadIllinoisGraduatePrograms().then((rows) => {
+        if (leaf?.graduate) void loadIllinoisGraduatePrograms().then((rows) => {
           if (cancelled || rows.length === 0) return;
           const grad = graduateProgramOptions(rows);
           setCatalog((current) =>
@@ -476,6 +514,7 @@ export function Onboarding({
       })
       .catch(() => {
         if (!cancelled) {
+          if (hasProgramMenu(answers.schoolId)) setProgramMenu({ degrees: [] });
           setCatalog({
             undergraduateDegrees: [UNDECIDED_PROGRAM],
             graduateDegrees: [UNDECIDED_PROGRAM],
@@ -494,7 +533,7 @@ export function Onboarding({
 
   // A transcript read for the other school (the student switched): checked again for this one (transcript-rematch.ts).
   useEffect(() => {
-    const here = answers.schoolId === 'uga' || answers.schoolId === 'illinois' ? answers.schoolId : null;
+    const here = isReadySchool(answers.schoolId) ? answers.schoolId : null;
     const record = answers.transcript;
     if (!here || !record || !recordIsForOtherSchool(record, here)) return;
     let cancelled = false;
@@ -512,7 +551,10 @@ export function Onboarding({
   }, [answers.schoolId, answers.transcript, setAnswers]);
 
   function pick(id: SchoolId) {
-    if (answers.schoolId !== id) setCatalog(null);
+    if (answers.schoolId !== id) {
+      setCatalog(null);
+      setProgramMenu(null);
+    }
     setAnswers((a) => ({
       ...a,
       schoolId: id,
@@ -749,13 +791,24 @@ export function Onboarding({
             <div className="onb-program-groups">
               <section>
                 <h2>{answers.programLevel === 'graduate' ? 'Degree programs' : 'Majors'}</h2>
-                <ProgramPicker
-                  options={degreeOptions}
-                  selectedIds={answers.programIds}
-                  onChange={updateMajors}
-                  loading={catalog === null}
-                  kindLabel={answers.programLevel === 'graduate' ? 'degree' : 'major'}
-                />
+                {hasProgramMenu(answers.schoolId) ? (
+                  <ProgramMenuPicker
+                    menu={programMenu}
+                    options={degreeOptions}
+                    selectedIds={answers.programIds}
+                    onChange={updateMajors}
+                    loading={catalog === null || programMenu === null}
+                    kindLabel="major"
+                  />
+                ) : (
+                  <ProgramPicker
+                    options={degreeOptions}
+                    selectedIds={answers.programIds}
+                    onChange={updateMajors}
+                    loading={catalog === null}
+                    kindLabel={answers.programLevel === 'graduate' ? 'degree' : 'major'}
+                  />
+                )}
                 {answers.schoolId === 'uga' && answers.programLevel === 'undergraduate' && comingSoonNote && (
                   <p className="onb-q-hint">{comingSoonNote}</p>
                 )}

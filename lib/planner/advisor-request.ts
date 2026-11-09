@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { ADVISOR_MODEL, ADVISOR_TOOLS, advisorSystem, ugaAdvisorTools, type AdvisorMessage } from './advisor';
+import { ADVISOR_MODEL, ADVISOR_TOOLS, advisorSystem, gatechAdvisorTools, isGatechSchoolName, ugaAdvisorTools, type AdvisorMessage } from './advisor';
 import { termDatesBlock } from './term-dates';
 import { ugaTermDatesBlock } from './uga-term-dates';
 
@@ -34,6 +34,12 @@ import { ugaTermDatesBlock } from './uga-term-dates';
  * (ugaAdvisorTools in advisor.ts: ALMA's tools less the Illinois-only ones,
  * worded without Illinois). Illinois dates never reach a UGA student, and
  * UGA dates never reach an Illinois one.
+ *
+ * TOWER (Georgia Tech, 2026-11-09) gets the same order with no dates block:
+ * the planner holds no Georgia Tech calendar, so the board alone follows the
+ * marks, and TOWER asks university_answer for dates. Its tools are
+ * gatechAdvisorTools (advisor.ts). Neither Illinois's nor UGA's dates reach
+ * a Georgia Tech student.
  */
 
 export const ADVISOR_MAX_TOKENS = 4096;
@@ -88,10 +94,14 @@ const isIllinois = (schoolName: string) => /illinois/i.test(schoolName);
 /** UGA, read the same way the route reads Illinois: by the school's name. */
 const isUga = (schoolName: string) => /university of georgia|^uga$/i.test(schoolName.trim());
 
+/** Georgia Tech, by its name too (advisor.ts isGatechSchoolName); checked first, so it is never read as UGA. */
+const isGatech = isGatechSchoolName;
+
 /** The step's changing text: the school's own term dates (Illinois or UGA), then the board. */
 export function stepContextBlocks(input: Pick<AdvisorRequestInput, 'board' | 'schoolName' | 'now'>): Anthropic.Beta.BetaTextBlockParam[] {
   const blocks: Anthropic.Beta.BetaTextBlockParam[] = [];
-  // Registrar dates, each school's for its own students only.
+  // Registrar dates, each school's for its own students only. A Georgia Tech name matches neither:
+  // the planner holds no Georgia Tech calendar, and TOWER asks university_answer for dates.
   if (isIllinois(input.schoolName)) blocks.push({ type: 'text', text: `${PLANNER_CONTEXT}\n\n${termDatesBlock(input.now)}` });
   else if (isUga(input.schoolName)) blocks.push({ type: 'text', text: `${PLANNER_CONTEXT}\n\n${ugaTermDatesBlock(input.now)}` });
   blocks.push({ type: 'text', text: `${blocks.length === 0 ? `${PLANNER_CONTEXT}\n\n` : ''}The board right now:\n\n${input.board}` });
@@ -150,7 +160,7 @@ export function advisorRequest(input: AdvisorRequestInput): Anthropic.Beta.Messa
   return {
     ...commonParams(input.model),
     system: [{ type: 'text', text: advisorSystem(input.bot, input.schoolName, input.schoolShort), cache_control: { type: 'ephemeral' } }],
-    tools: illinois ? ADVISOR_TOOLS : ugaAdvisorTools(),
+    tools: isGatech(input.schoolName) ? gatechAdvisorTools() : illinois ? ADVISOR_TOOLS : ugaAdvisorTools(),
     messages: messagesForStep(input.messages, stepContextBlocks(input), input.model),
   };
 }

@@ -71,8 +71,10 @@
  * build script run the same code over the shipped files.
  */
 import { readInstructorName, type InstructorName } from './instructors';
+import { courseleafOf, type SchoolKey } from './school-config';
 
-export type RatingsSchool = 'uga' | 'illinois';
+/** Any school; one with no ratings file (Georgia Tech, school-config.ts ratings false) loads none. */
+export type RatingsSchool = SchoolKey;
 
 /** One rated profile, or one person's merged profiles. */
 export interface RatedProfile {
@@ -322,7 +324,7 @@ export function ratingConsensus(p: RatedProfile): string {
 // What the tools return
 // ---------------------------------------------------------------------------
 
-const SCHOOL_SHORT: Record<RatingsSchool, string> = { uga: 'UGA', illinois: 'Illinois' };
+const SCHOOL_SHORT: Record<RatingsSchool, string> = { uga: 'UGA', illinois: 'Illinois', gatech: 'Georgia Tech' };
 
 export function ratingsNote(file: ProfessorRatingsFile): string {
   return `Student ratings, collected ${file.collectedAt}: self-selected, numbers only (overall 1-5, difficulty 1-5, percent who would take the professor again, how many ratings), each covering all of a professor's courses, with no comments or tags. Give them as the consensus of those student ratings, with the count, and the caveat at most once in the answer; never name or link where they come from, never add what students wrote, and for anything the numbers do not cover (email, office hours, exams, grading) say the ratings do not cover it.`;
@@ -721,6 +723,8 @@ const cache = new Map<RatingsSchool, Promise<ProfessorRatingsFile | null>>();
 
 /** public/<school>/professor-ratings.json, fetched once; null when it cannot be read. */
 export function loadProfessorRatings(school: RatingsSchool): Promise<ProfessorRatingsFile | null> {
+  // A school the planner holds no ratings for asks for no file: no ratings, never another school's.
+  if (school !== 'uga' && !courseleafOf(school)?.ratings) return Promise.resolve(null);
   let hit = cache.get(school);
   if (!hit) {
     hit = fetch(`/${school}/professor-ratings.json`)

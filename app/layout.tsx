@@ -7,6 +7,7 @@ import './redesign/overlays.css';
 import './redesign/onboarding.css';
 import './redesign/fixes.css';
 import './redesign/look-editorial.css';
+import './redesign/gatech.css';
 
 /**
  * School-neutral, because the student picks the school in onboarding.

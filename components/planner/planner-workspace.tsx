@@ -284,6 +284,12 @@ import { runFindClubs } from '@/lib/planner/clubs-tool';
 import { mayBookAgain } from '@/lib/planner/repeats';
 import { UnofficialBadge } from './site-notice';
 import { unofficialNotice } from '@/lib/planner/notices';
+import { courseleafOf, type SchoolKey } from '@/lib/planner/school-config';
+
+/** "Georgia Tech" as "GT": the rail toggle's mark for a school whose logo ORION does not carry. */
+function schoolInitials(short: string): string {
+  return short.split(/\s+/).filter(Boolean).map((word) => word[0]).join('').toUpperCase().slice(0, 3);
+}
 
 /** A term's courses less one sitting of a course: a course the catalog allows twice in one term (THEA 119) loses only the one the student moved or removed. */
 function withoutOne(ids: string[], id: string): string[] {
@@ -744,8 +750,10 @@ function arrivalOf(answers: OnboardingAnswers | null | undefined): Arrival {
  * could not see that "pre-med" was still stored after the student moved on to
  * UX research, and the pre-medicine track kept first claim on the electives.
  */
-function describeGoals(studying: string, career: string, schoolId: 'illinois' | 'uga' = 'illinois'): string {
-  const profile = forSchool(interestProfileOf(career), schoolId);
+function describeGoals(studying: string, career: string, schoolId: SchoolKey): string {
+  const read = forSchool(interestProfileOf(career), schoolId);
+  // Illinois's track lists name Illinois courses: a school without its own (school-config.ts `careerTracks` off) has none active.
+  const profile = courseleafOf(schoolId)?.careerTracks === false ? { ...read, tracks: [] } : read;
   const tracks = profile.tracks.map((track) => track.name);
   const topics = profile.topics.map((topic) => topic.label);
   // "Investment banking" is also a program Marcus applies to as a sophomore
@@ -789,19 +797,35 @@ export function PlannerWorkspace({
 }) {
   const school = schoolById(answers?.schoolId ?? null);
   useEffect(() => { setInsightScreen('planner', school?.id); }, [school?.id]);
-  const isIllinois = school?.id === 'illinois';
+  /**
+   * The CourseLeaf engine (Illinois, Georgia Tech) and what this school's data
+   * supports on it (school-config.ts). `isLeaf` is the engine: its catalog,
+   * its adapters, its plan build. `isIllinoisSchool` is Illinois itself, for
+   * the few sites whose words or data no other school has (ALMA's ratings).
+   * Everything else Illinois-only is read from a `leaf` switch, so a Georgia
+   * Tech board never inherits an Illinois rule.
+   */
+  const leaf = courseleafOf(school?.id);
+  const isLeaf = leaf !== null;
+  const isIllinoisSchool = school?.id === 'illinois';
   const isUga = school?.id === 'uga';
   const programLevel: ProgramLevel = answers?.programLevel ?? 'undergraduate';
-  const isGraduatePlan = (isUga || isIllinois) && programLevel === 'graduate';
-  const gradSettings = useMemo(() => graduatePlanSettings(isIllinois ? 'illinois' : 'uga'), [isIllinois]);
+  /** Graduate plans: UGA's and Illinois's; a school whose graduate catalog is not read plans undergraduate only. */
+  const leafGraduate = Boolean(leaf?.graduate);
+  const isGraduatePlan = (isUga || leafGraduate) && programLevel === 'graduate';
+  const gradSettings = useMemo(() => graduatePlanSettings(leafGraduate ? 'illinois' : 'uga'), [leafGraduate]);
   const defaultMinimumTermCredits = isGraduatePlan ? gradSettings.minimumTermCredits : 12;
   const defaultTargetTermCredits = isGraduatePlan ? gradSettings.targetTermCredits : null;
-  const isCatalogSchool = isIllinois || isUga;
-  const { status: illinoisStatus, core } = useIllinoisCore(Boolean(isIllinois));
+  const isCatalogSchool = isLeaf || isUga;
+  /** This school's id where an engine plans it ('uga', 'illinois', 'gatech'); null for the sample catalog. Never a guess at another school. */
+  const engineSchool = isUga ? 'uga' : (leaf?.id ?? null);
+  /** Whose student ratings the bot reads on a CourseLeaf board: the school's own where it collects them (school-config.ts `ratings`), else none, never Illinois's. */
+  const leafRatings: RatingsSchool | null = leaf?.ratings ? leaf.id : null;
+  const { status: illinoisStatus, core } = useIllinoisCore(isLeaf, leaf?.id);
   const [gradMenu, setGradMenu] = useState<IllinoisGraduateSummary[] | null>(null);
   const [gradCore, setGradCore] = useState<IllinoisCore | null>(null);
   useEffect(() => {
-    if (!isIllinois || !isGraduatePlan || !core) return;
+    if (!isLeaf || !isGraduatePlan || !core) return;
     let cancelled = false;
     void Promise.all([loadIllinoisGraduatePrograms(), loadIllinoisGraduateCatalog()]).then(([menu, files]) => {
       if (cancelled) return;
@@ -809,11 +833,11 @@ export function PlannerWorkspace({
       setGradCore(files ? withGraduateCourses(core, files) : null);
     });
     return () => { cancelled = true; };
-  }, [isIllinois, isGraduatePlan, core]);
+  }, [isLeaf, isGraduatePlan, core]);
   /** The core a plan reads: with the graduate courses for an Illinois graduate plan. */
-  const planCore = isIllinois && isGraduatePlan ? gradCore : core;
+  const planCore = isLeaf && isGraduatePlan ? gradCore : core;
   const { status: ugaStatus, data: uga } = useUgaData(Boolean(isUga));
-  const status = isIllinois ? illinoisStatus : isUga ? ugaStatus : 'unavailable';
+  const status = isLeaf ? illinoisStatus : isUga ? ugaStatus : 'unavailable';
   /**
    * The AP and IB credit the registrar grants, so the plan starts where the
    * student starts. Naming the exams in onboarding and then planning as if they
@@ -898,6 +922,13 @@ export function PlannerWorkspace({
   const botName = school?.bot ?? 'Assistant';
   const [dragUsable, setDragUsable] = useState(true);
   const [railOpen, setRailOpen] = useState(true);
+  /**
+   * The rail toggle's mark: the school's toggle logo while the rail is open,
+   * its logo while closed (onboarding.ts SCHOOLS), ORION's with no school.
+   * Null for a school whose logo ORION does not carry, which shows its
+   * initials instead.
+   */
+  const railLogo: string | null = school ? (railOpen ? (school.toggleLogo ?? school.logo) : school.logo) : '/orion-logo.png';
   const [minimumTermCredits, setMinimumTermCredits] = useState(
     defaultMinimumTermCredits,
   );
@@ -1014,7 +1045,14 @@ export function PlannerWorkspace({
    * every surface then reads the goal's words as before.
    */
   const [careerFitLoaded, setCareerFitLoaded] = useState<CareerFit | null>(null);
-  const careerFit = careerFitLoaded && careerFitLoaded.key === careerText.trim() ? careerFitLoaded : null;
+  /**
+   * Whose course vectors the matcher reads: UGA's, or a CourseLeaf school's
+   * once its vectors are built (school-config.ts `careerVectors`). Without
+   * them the goal still shapes the plan, by its words (career tracks and
+   * interest topics), never by another school's vectors.
+   */
+  const careerSchool = isUga || leaf?.careerVectors ? engineSchool : null;
+  const careerFit = careerSchool && careerFitLoaded && careerFitLoaded.key === careerText.trim() ? careerFitLoaded : null;
   /** The goal the last build read by meaning ('' for none), so the matcher's arrival rebuilds a board once. */
   const builtWithFit = useRef('');
   const [planShape, setPlanShape] = useState<PlanShape>(NO_SHAPE);
@@ -1091,8 +1129,8 @@ export function PlannerWorkspace({
   // ---- catalog -------------------------------------------------------------
 
   const catalog: Course[] = useMemo(
-    () => (isIllinois ? (planCore?.index ?? []) : isUga ? (uga?.courses ?? []) : sampleCourses),
-    [isIllinois, isUga, planCore, uga],
+    () => (isLeaf ? (planCore?.index ?? []) : isUga ? (uga?.courses ?? []) : sampleCourses),
+    [isLeaf, isUga, planCore, uga],
   );
   /**
    * A transcript matched for the other school (the student read it on one
@@ -1111,7 +1149,7 @@ export function PlannerWorkspace({
   onAnswersChangeLatest.current = onAnswersChange;
   useEffect(() => {
     const record = answers?.transcript;
-    const here = isUga ? 'uga' : isIllinois ? 'illinois' : null;
+    const here = engineSchool;
     if (!here || !record || !recordIsForOtherSchool(record, here) || catalog.length === 0) return;
     if (rematchingRecord.current === record) return;
     rematchingRecord.current = record;
@@ -1123,7 +1161,7 @@ export function PlannerWorkspace({
     }).catch(() => {
       rematchingRecord.current = null;
     });
-  }, [answers, isUga, isIllinois, catalog]);
+  }, [answers, engineSchool, catalog]);
   const courseIndex = useMemo(() => indexCourses(catalog), [catalog]);
   const byCode = useMemo(() => {
     const map = new Map<string, Course>();
@@ -1132,7 +1170,7 @@ export function PlannerWorkspace({
   }, [catalog]);
 
   const programOptions = useMemo(() => {
-    if (isIllinois) {
+    if (isLeaf) {
       if (isGraduatePlan) {
         return [UNDECIDED_PROGRAM, ...(gradMenu ?? [])
           .filter((p) => p.plannable && p.kind !== 'certificate' && p.kind !== 'minor')
@@ -1157,12 +1195,13 @@ export function PlannerWorkspace({
         .sort((left, right) => left.name.localeCompare(right.name))];
     }
     return samplePrograms.map((p) => ({ id: p.id, name: `${p.name}, ${p.degree}` }));
-  }, [isIllinois, isUga, core, uga, programLevel, programIds, isGraduatePlan, gradMenu]);
+  }, [isLeaf, isUga, core, uga, programLevel, programIds, isGraduatePlan, gradMenu]);
 
-  /** The Illinois minor pages, for the rail's list (onboarding reads its own copy). */
+  /** The Illinois minor pages, for the rail's list (onboarding reads its own copy). A school whose minors are not read has none. */
+  const leafMinors = Boolean(leaf?.minors);
   const [illinoisMinorFile, setIllinoisMinorFile] = useState<RawMinorFile | null>(null);
   useEffect(() => {
-    if (!isIllinois) return;
+    if (!leafMinors) return;
     let cancelled = false;
     void loadIllinoisMinorFile().then((file) => {
       if (!cancelled) setIllinoisMinorFile(file);
@@ -1170,21 +1209,21 @@ export function PlannerWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [isIllinois]);
+  }, [leafMinors]);
   const minorOptions = useMemo(
     () =>
-      isIllinois && !isGraduatePlan
+      leafMinors && !isGraduatePlan
         ? illinoisMinorOptions(illinoisMinorFile).map((option) => ({ id: option.id, name: option.name }))
         : isUga && !isGraduatePlan
         ? (uga?.programs ?? [])
             .filter((program) => program.degree === 'MINOR' && program.areaHours > 0)
             .map((program) => ({ id: program.id, name: program.name }))
         : [],
-    [isIllinois, illinoisMinorFile, isUga, isGraduatePlan, uga],
+    [leafMinors, illinoisMinorFile, isUga, isGraduatePlan, uga],
   );
   const certificateOptions = useMemo(
     () =>
-      isIllinois && isGraduatePlan
+      isLeaf && isGraduatePlan
         ? (gradMenu ?? []).filter((p) => p.kind === 'certificate' && p.plannable).map((p) => ({ id: p.id, name: graduateOptionName(p) }))
         : isUga
         ? (uga?.programs ?? [])
@@ -1195,7 +1234,7 @@ export function PlannerWorkspace({
             )
             .map((program) => ({ id: program.id, name: program.name }))
         : [],
-    [isUga, isGraduatePlan, uga, isIllinois, gradMenu],
+    [isUga, isGraduatePlan, uga, isLeaf, gradMenu],
   );
   const emphasisRequirements = useMemo(
     () =>
@@ -1376,7 +1415,7 @@ export function PlannerWorkspace({
       setFetched({ key: programKey, value: bundle });
       return;
     }
-    if (isIllinois && isGraduatePlan) {
+    if (isLeaf && isGraduatePlan) {
       if (!gradCore || !gradMenu) return;
       const picked = [...programIds, ...certificateIds]
         .map((id) => gradMenu.find((row) => row.id === id))
@@ -1394,7 +1433,7 @@ export function PlannerWorkspace({
       });
       return () => { cancelled = true; };
     }
-    if (!isIllinois || !core) return;
+    if (!isLeaf || !core) return;
     const summaries = programIds
       .map((id) => (core.programs ?? []).find((candidate) => candidate.id === id))
       .filter((summary): summary is NonNullable<typeof summary> => Boolean(summary));
@@ -1412,8 +1451,8 @@ export function PlannerWorkspace({
         summaries.length === programIds.length && sources.length === programIds.length
           ? combinePrograms(sources)
           : null;
-      // Minors (beta) sit beside the degree; a minor the crawl no longer has is dropped, never the board.
-      const minorFile = bundle && minorIds.length > 0 ? await loadIllinoisMinorFile() : null;
+      // Minors (beta) sit beside the degree; a minor the crawl no longer has is dropped, never the board. Only where minors are read (Illinois).
+      const minorFile = bundle && leafMinors && minorIds.length > 0 ? await loadIllinoisMinorFile() : null;
       if (cancelled) return;
       const minors = minorFile
         ? minorIds.map((id) => loadMinor(core, minorFile, id)).filter((minor): minor is LoadedMinor => Boolean(minor))
@@ -1426,7 +1465,7 @@ export function PlannerWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [isIllinois, isUga, isUndecided, core, uga, programIds, minorIds, selectedProgramIds, programKey, emphasisKey, answers?.emphasisSelections, emphasesComplete, isGraduatePlan, gradCore, gradMenu, certificateIds]);
+  }, [isLeaf, leafMinors, isUga, isUndecided, core, uga, programIds, minorIds, selectedProgramIds, programKey, emphasisKey, answers?.emphasisSelections, emphasesComplete, isGraduatePlan, gradCore, gradMenu, certificateIds]);
 
   const fetchedLoaded = fetched?.key === programKey ? fetched.value : null;
   // UGA core electives the student already holds (a transfer line UGA gives
@@ -1500,7 +1539,7 @@ export function PlannerWorkspace({
     [isUga, isGraduatePlan, careerText],
   );
   const context: PlanningContext | null = useMemo(() => {
-    if (isIllinois && planCore) return buildContext(planCore, loaded?.blocks ?? [], null).context;
+    if (isLeaf && planCore) return buildContext(planCore, loaded?.blocks ?? [], null).context;
     if (isUga && uga) {
       // Before the transcript's own hours, which win for a course already taken. A degree's table keeps its hours.
       setUgaTrackHours(uga, ugaTrackKey ? ugaTrackKey.split('|') : []);
@@ -1514,7 +1553,7 @@ export function PlannerWorkspace({
       };
     }
     return null;
-  }, [isIllinois, isUga, planCore, uga, loaded, ugaSamplePlans, programIds, emphasisRequirements, answers?.emphasisSelections, transcriptRecord, ugaTrackKey]);
+  }, [isLeaf, isUga, planCore, uga, loaded, ugaSamplePlans, programIds, emphasisRequirements, answers?.emphasisSelections, transcriptRecord, ugaTrackKey]);
   const boardContext = useMemo(() => doubleDawgsContext(plan, context), [plan?.doubleDawgs, context]);
 
   // ---- clubs ----------------------------------------------------------------
@@ -1525,7 +1564,8 @@ export function PlannerWorkspace({
    * words without re-ranking on each letter. Nothing here touches the board.
    */
   const deferredCareer = useDeferredValue(careerText);
-  const clubSchool = isIllinois ? 'illinois' : isUga ? 'uga' : null;
+  // Only a school with a club list (school-config.ts `clubs`): no rail card, no find_clubs, elsewhere.
+  const clubSchool = isUga ? 'uga' : leaf?.clubs ? leaf.id : null;
   const clubStudent = useMemo(
     () => (clubSchool ? clubStudentFor(deferredCareer, loaded, answers) : null),
     [clubSchool, deferredCareer, loaded, answers],
@@ -1554,10 +1594,10 @@ export function PlannerWorkspace({
   // ---- the plan -------------------------------------------------------------
 
   useEffect(() => {
-    if (!isCatalogSchool || isGraduatePlan || !careerText.trim() || !careerMatcherOn()) return;
+    if (!careerSchool || isGraduatePlan || !careerText.trim() || !careerMatcherOn()) return;
     let live = true;
     const wait = setTimeout(() => {
-      void loadCareerFit(isUga ? 'uga' : 'illinois', careerText).then((fit) => {
+      void loadCareerFit(careerSchool, careerText).then((fit) => {
         if (live && fit) setCareerFitLoaded(fit);
       });
     }, 400);
@@ -1565,7 +1605,7 @@ export function PlannerWorkspace({
       live = false;
       clearTimeout(wait);
     };
-  }, [careerText, isUga, isCatalogSchool, isGraduatePlan]);
+  }, [careerText, careerSchool, isGraduatePlan]);
 
   /**
    * Which Rebuild is the latest (buildPlan counts them), and the plan tab,
@@ -1682,9 +1722,11 @@ export function PlannerWorkspace({
      * never past eight from the plan's start, and only when 18 a term could
      * not hold what is left.
      */
-    if (isIllinois && !isGraduatePlan && !horizon.stated && horizon.began) {
+    // The total counted from: the page's, else the school's usual one (Illinois 120); a school with neither is not lengthened.
+    const horizonTotal = publishedTotal || leaf?.defaultDegreeTotal || null;
+    if (isLeaf && !isGraduatePlan && horizonTotal && !horizon.stated && horizon.began) {
       const held = priorHere.courseCodes.reduce((sum, code) => sum + (byCode.get(normCode(code))?.credits ?? 0), 0) + priorHere.unmatchedCredits;
-      const left = (publishedTotal || 120) - held;
+      const left = horizonTotal - held;
       const awayAt = new Set((horizon.away ?? []).map((a) => termOrd(a.season, a.year)));
       const campusUntil = (lastOrd: number) => {
         let n = 0;
@@ -1750,7 +1792,7 @@ export function PlannerWorkspace({
         // electives that fill the rest.
         // A published total of 0 is a page the crawl could not read a total from,
         // not a degree of no credits: English BALAS planned 2 terms and 28 hours.
-        degreeTotal: publishedTotal || (isIllinois && !isGraduatePlan ? 120 : null),
+        degreeTotal: publishedTotal || (leaf && !isGraduatePlan ? leaf.defaultDegreeTotal : null),
         interests: [setup.studying, careerText].join(' '),
         // Goals come from what the student wants to do, never from the major's
         // name: "Psychology" alone was booking psychopathology as their goal.
@@ -1762,16 +1804,17 @@ export function PlannerWorkspace({
         arrival: arrivalOf(answers),
         // The review's own rule, so the planner arranges year one for the
         // student the review measures it for, and no one else.
-        firstYear: isIllinois && !isGraduatePlan && enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
+        firstYear: isLeaf && !isGraduatePlan && enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript),
         admissionRoute,
         // Illinois's residency rule, from its transfer-credit page: 45 hours at
         // Illinois, 21 of them at the 300 level or above. What the student has
         // already taken here comes from their own record; transfer and exam
-        // credit is not residence, whatever course it became.
-        residency: isIllinois && !isGraduatePlan
+        // credit is not residence, whatever course it became. Only where the
+        // school's rule is modelled (school-config.ts `residency`).
+        residency: leaf?.residency && !isGraduatePlan
           ? {
-              hours: 45,
-              upperLevel: 21,
+              hours: leaf.residency.hours,
+              upperLevel: leaf.residency.upperLevel,
               heldHours: transcriptResidentHours(answers?.transcript).total,
               heldUpper: transcriptResidentHours(answers?.transcript).upper,
               source: 'https://admissions.illinois.edu/transferring-credit/',
@@ -1792,7 +1835,7 @@ export function PlannerWorkspace({
         : null,
       spreadHard: Boolean(shape.spreadHard) && !doubleDawgsPathway,
       // Illinois minors (beta) are planned beside the degree, degree first, from what the student holds.
-      minors: isIllinois ? { heldCodes: priorHere.courseCodes.map(normCode), publishedTotal } : null,
+      minors: leafMinors ? { heldCodes: priorHere.courseCodes.map(normCode), publishedTotal } : null,
     };
     // The tab, degree and data this board is for: a result that lands after any of them changed is not shown (buildScope).
     const scope = buildScope.current;
@@ -1822,7 +1865,7 @@ export function PlannerWorkspace({
 
     // What compare_programs rebuilds with a second program's courses beside these: the degree's own board, before any minor.
     if (!trial) lastBuild.current = { input: builtFromOf(planBuildInput(data, job, careerFit ?? null), built), plan: built.degreeOnly ?? generated };
-    if (isIllinois) {
+    if (leafMinors) {
       for (const minor of loaded.minors ?? []) if (!minor.checked) generated.notes.push(uncheckedMinorNote(minor));
     }
 
@@ -1837,7 +1880,7 @@ export function PlannerWorkspace({
      * and a last term of 3), so its note gives the arithmetic alone.
      */
     const early = generated.earlyFinish;
-    if (isIllinois && early?.settings) {
+    if (isLeaf && early?.settings) {
       const { target, minimum } = early.settings;
       const howTo = minimum === minC
         ? ` To plan it that way, put ${target} in Preferences under "Credits you want each term, about" and press Rebuild.`
@@ -1845,7 +1888,7 @@ export function PlannerWorkspace({
       generated.notes = generated.notes.map((n) => (n === early.note ? n + howTo : n));
     }
     if (horizon.startNote) generated.notes.unshift(horizon.startNote);
-    if (!publishedTotal && isIllinois && !isGraduatePlan) {
+    if (!publishedTotal && leaf?.defaultDegreeTotal && isIllinoisSchool && !isGraduatePlan) {
       generated.notes.push(`The catalog page for ${loaded.program.name} states no total, so this plan aims at 120 hours, the minimum most Illinois bachelor's degrees state (las.illinois.edu/academics/requirements/minimum). Ask your advisor for this degree's own total.`);
     }
     /**
@@ -1917,7 +1960,7 @@ export function PlannerWorkspace({
     // every check the board shows, not only unplaced courses.
     announceBuild.current = true;
     return null;
-  }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, setup, byCode, catalog, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isIllinois, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga, careerFit]);
+  }, [isCatalogSchool, isUga, isGraduatePlan, isUndecided, core, context, loaded, answers, setup, byCode, catalog, minimumTermCredits, targetTermCredits, examCredit, careerInterests, careerText, replaceActivePlan, priorities, admissionRoute, admissionChoice, isLeaf, leaf, leafMinors, isIllinoisSchool, exams, examsAligned, catalogCredits, planShape, doubleDawgsPathway, uga, careerFit]);
   /**
    * Rebuild: the board for the plan's own shape and credit numbers, shown.
    *
@@ -2097,7 +2140,7 @@ export function PlannerWorkspace({
     lastCreditKey.current = creditKey;
     if (!boardEdited) {
       buildPlan();
-      notify('Your transfer credit was checked again', `Your classes were matched to ${isUga ? 'UGA' : 'Illinois'} courses and the plan is rebuilt around them.`, 'info');
+      notify('Your transfer credit was checked again', `Your classes were matched to ${school?.short ?? 'university'} courses and the plan is rebuilt around them.`, 'info');
     } else {
       notify('Your transfer credit was checked again', 'Press Rebuild to plan around it; your edits to the board would be replaced.', 'info');
     }
@@ -2187,7 +2230,7 @@ export function PlannerWorkspace({
       return;
     }
     if (!isCatalogSchool || (context && (loaded || isUndecided))) buildPlan();
-  }, [plan, isCatalogSchool, isIllinois, isUndecided, context, loaded, buildPlan]);
+  }, [plan, isCatalogSchool, isLeaf, isUndecided, context, loaded, buildPlan]);
 
   // ---- saved on this device -------------------------------------------------
 
@@ -2383,7 +2426,7 @@ export function PlannerWorkspace({
     const now = calendarTerm(new Date());
     const lines = record.courses.filter((c) => c.use && c.status === 'in_progress' && lineIsForeign(record, c) && (() => { const t = termOfLine(c); return t !== null && t.season === now.season && t.year === now.year; })());
     if (lines.length === 0) return null;
-    const here = isUga ? 'UGA' : 'Illinois';
+    const here: string = school?.short ?? 'this university';
     return {
       termLabel: `${now.season} ${now.year}`,
       school: lines[0].from ?? record.institution ?? 'your other school',
@@ -2397,7 +2440,7 @@ export function PlannerWorkspace({
           : c.counts === 'hours' ? 'Counts as elective hours here until it is evaluated' : 'Does not count here',
       })),
     };
-  }, [answers, currentView, plan, isUga]);
+  }, [answers, currentView, plan, school?.short]);
 
   /**
    * What the student says they hold against what the plan can see: hours on
@@ -2560,7 +2603,7 @@ export function PlannerWorkspace({
               id: 'admission-route',
               severity: 'warning' as const,
               title: admissionChoice.closed
-                ? `${admissionChoice.closed.major} is closed to students already at Illinois`
+                ? `${admissionChoice.closed.major} is closed to students already at ${school?.short ?? 'this university'}`
                 : admissionChoice.route
                   ? `Getting into ${admissionChoice.route.name}: ${admissionChoice.route.path}`
                   : `Getting into ${admissionChoice.name}: no published route fits you`,
@@ -2596,7 +2639,7 @@ export function PlannerWorkspace({
             {
               id: 'residency',
               severity: 'warning' as const,
-              title: 'Residency: hours that must be taken at Illinois',
+              title: `Residency: hours that must be taken at ${school?.short ?? 'this university'}`,
               message: report.residency.shortfall ?? '',
               termId: firstTerm,
             },
@@ -2649,7 +2692,7 @@ export function PlannerWorkspace({
    */
   const [weeklySchedules, setWeeklySchedules] = useState<Map<string, WeeklySchedule> | null>(null);
   useEffect(() => {
-    if (!isIllinois || !core) return;
+    if (!isLeaf || !core) return;
     let active = true;
     void loadIllinoisSectionTerms()
       .then((maps) => {
@@ -2659,7 +2702,7 @@ export function PlannerWorkspace({
     return () => {
       active = false;
     };
-  }, [isIllinois, core]);
+  }, [isLeaf, core]);
 
   /**
    * For each board term whose class schedule is published, whether its
@@ -2669,7 +2712,7 @@ export function PlannerWorkspace({
    */
   const weeklyFits = useMemo(() => {
     const out = new Map<string, WeeklyFit>();
-    if (!plan || !isIllinois) return out;
+    if (!plan || !isLeaf) return out;
     const first = core?.meta?.term?.id && core.sections ? new Map<string, WeeklySchedule>([[core.meta.term.id, core.sections]]) : null;
     const maps = weeklySchedules ?? first;
     if (!maps) return out;
@@ -2680,7 +2723,7 @@ export function PlannerWorkspace({
       out.set(term.id, weeklyFit(codes, schedule));
     }
     return out;
-  }, [plan, isIllinois, weeklySchedules, core, courseIndex]);
+  }, [plan, isLeaf, weeklySchedules, core, courseIndex]);
   /** The degree on screen, from whichever source this school has. */
   const activeProgramName =
     plan?.doubleDawgs?.pathwayName ?? loaded?.program.name ??
@@ -2794,7 +2837,7 @@ export function PlannerWorkspace({
      * per area read "28 hr" with nothing to be a fraction of. Georgia's pages
      * do print one per area, so its rows stay per area.
      */
-    if (isIllinois) {
+    if (isLeaf) {
       // Each held class once, none forfeited, only one of a pair that does not
       // both earn credit, and none the college gives no degree hours for: the
       // same set the headline counts.
@@ -2912,7 +2955,7 @@ export function PlannerWorkspace({
     isUga,
     context,
     credits.total.min,
-    isIllinois, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits, coreCredit, priorCreditHours, recordedCredits, ugaAudit,
+    isLeaf, core, boardCodes, byCode, pools, report, activeProgramTotal, answers, examCredit, exams, catalogCredits, coreCredit, priorCreditHours, recordedCredits, ugaAudit,
   ]);
 
   /**
@@ -2925,11 +2968,11 @@ export function PlannerWorkspace({
     if (!plan) return [];
     const validation = boardContext
       ? validatePlan(plan, boardContext, {
-          minimumTermCredits, programName: loaded?.program.name, programCollege: isIllinois && !isGraduatePlan ? loaded?.program.college : undefined,
+          minimumTermCredits, programName: loaded?.program.name, programCollege: leaf?.collegeRules && !isGraduatePlan ? loaded?.program.college : undefined,
           standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
           priorCredits: priorCreditHours, away: report?.away, language: report?.language,
-          firstYear: isIllinois && !isGraduatePlan ? enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript) : false,
-          arrival: isIllinois && !isGraduatePlan ? arrivalOf(answers) : undefined,
+          firstYear: isLeaf && !isGraduatePlan ? enteringAsFirstYear([answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? ''].join(' '), answers?.transcript) : false,
+          arrival: isLeaf && !isGraduatePlan ? arrivalOf(answers) : undefined,
         }).filter(
           (issue) => (!isUga || !issue.id.startsWith('ap-weighed-')) && !(plan.doubleDawgs && issue.id.startsWith('ap-minimum-') && plan.terms.some((term) => term.id === issue.termId && degreeTermOrder(term) > degreeTermOrder(plan.doubleDawgs!.undergraduateFinish))),
         )
@@ -2944,7 +2987,7 @@ export function PlannerWorkspace({
           id: `weekly-clash-${term.id}`,
           severity: 'warning' as const,
           title: 'Class times clash',
-          message: `${term.label}: ${fit.line}. In Illinois's published ${term.label} class schedule no choice of their sections keeps them apart, and registration will not take two classes that meet at once. Move one to another term or swap it for another course.`,
+          message: `${term.label}: ${fit.line}. In ${school?.short ?? 'the university'}'s published ${term.label} class schedule no choice of their sections keeps them apart, and registration will not take two classes that meet at once. Move one to another term or swap it for another course.`,
           termId: term.id,
         },
       ];
@@ -2993,7 +3036,7 @@ export function PlannerWorkspace({
     activeProgramTotal,
     areas,
     pools,
-    isIllinois, isGraduatePlan, loaded, priorCreditHours, report, answers, weeklyFits, completedCodes, boardContext, ugaAudit,
+    isLeaf, leaf, school, isGraduatePlan, loaded, priorCreditHours, report, answers, weeklyFits, completedCodes, boardContext, ugaAudit,
   ]);
 
   // ---- a plan the settings cannot finish (cannot-finish.ts) ------------------
@@ -3005,13 +3048,13 @@ export function PlannerWorkspace({
    * Illinois), its summers and its terms away.
    */
   const finishSettings = useMemo((): PlanSettingsFacts | null => {
-    if (!plan || !context || !loaded || !isCatalogSchool || isGraduatePlan || isUndecided || plan.doubleDawgs) return null;
+    if (!plan || !context || !loaded || !engineSchool || isGraduatePlan || isUndecided || plan.doubleDawgs) return null;
     const h = horizonFor(answers, new Date(), planShape, boardTerms);
     // The usual finish (no finish of its own set), offered to a student who chose an earlier one.
     const usual = planShape.finish ? horizonFor(answers, new Date(), { ...planShape, finish: null }, boardTerms) : null;
     const inShape = (a: { season: string; year: number }) => planShape.away.some((b) => b.season === a.season && b.year === a.year);
     return boardSettings({
-      school: isUga ? 'uga' : 'illinois',
+      school: engineSchool,
       terms: plan.terms,
       shapeSummers: planShape.summers,
       droppedSummers: planShape.droppedSummers ?? [],
@@ -3021,7 +3064,7 @@ export function PlannerWorkspace({
       cap: 18,
       defaultFinish: usual ? { season: usual.gradSeason, year: usual.gradYear } : null,
     });
-  }, [plan, context, loaded, isCatalogSchool, isGraduatePlan, isUndecided, answers, planShape, boardTerms, isUga, targetTermCredits]);
+  }, [plan, context, loaded, engineSchool, isGraduatePlan, isUndecided, answers, planShape, boardTerms, targetTermCredits]);
 
   /** The falls and springs a board books, with their hours, for the room left (not a term away). */
   const termLoadsOf = useCallback((board: PlanState, away: ReadonlyArray<{ label: string }> | undefined) => {
@@ -3718,7 +3761,7 @@ export function PlannerWorkspace({
       // open chooser while the student is editing that text.
       interests: [setup.studying, setup.goals].join(' '),
       programName: source.program.name,
-      programCollege: isIllinois && !isGraduatePlan ? loaded.program.college : undefined,
+      programCollege: leaf?.collegeRules && !isGraduatePlan ? loaded.program.college : undefined,
       priorities,
       standingHours: graduateStage ? { freshman: 0, sophomore: 0, junior: 0, senior: 0 } : isGraduatePlan
         ? gradSettings.standingHours
@@ -3747,7 +3790,7 @@ export function PlannerWorkspace({
     catalog,
     setup,
     byCode,
-    isGraduatePlan, isIllinois, priorities, priorForOptions, boardContext,
+    isGraduatePlan, leaf, priorities, priorForOptions, boardContext,
   ]);
 
   const chooserOptions = { options: chooserData?.options ?? [], whys: chooserData?.whys ?? new Map<string, string>() };
@@ -3938,7 +3981,7 @@ export function PlannerWorkspace({
       `${change.term.label} added`,
       isUga
         ? 'It is empty. Add classes to it, or press Rebuild to let the planner fill it with classes the UGA Bulletin lists for summer, up to 9 credits (Rebuild replaces your own edits to the board).'
-        : 'It is empty. Add classes to it, or press Rebuild to let the planner fill it with courses Illinois has run in summer (Rebuild replaces your own edits to the board).',
+        : `It is empty. Add classes to it, or press Rebuild to let the planner fill it with courses ${school?.short ?? 'the university'} has run in summer (Rebuild replaces your own edits to the board).`,
       'info',
     );
   }
@@ -3990,7 +4033,8 @@ export function PlannerWorkspace({
    * it takes no undo step and does not mark the board as changed by hand.
    */
   function syllabiOf(code: string): Promise<SyllabusRecord[]> {
-    const load = isIllinois ? loadIllinoisSyllabi(code) : school?.id === 'uga' ? loadUgaSyllabi(code) : Promise.resolve([]);
+    // Only where syllabi are collected (school-config.ts `syllabi`): never another school's.
+    const load = leaf?.syllabi ? loadIllinoisSyllabi(code) : school?.id === 'uga' ? loadUgaSyllabi(code) : Promise.resolve([]);
     return load.catch(() => []);
   }
   /** UGA's Schedule of Classes (uga-offerings.ts) and everyone it names for a course, with their terms; null elsewhere or when unread. */
@@ -4024,7 +4068,7 @@ export function PlannerWorkspace({
     if (!course) return [];
     const [syllabi, detail, scheduled] = await Promise.all([
       syllabiOf(course.code),
-      isIllinois ? loadIllinoisCourseDetail(course.code).catch(() => null) : Promise.resolve(null),
+      isLeaf ? loadIllinoisCourseDetail(course.code).catch(() => null) : Promise.resolve(null),
       ugaScheduleOf(course.code),
     ]);
     if (scheduled) {
@@ -4083,7 +4127,7 @@ export function PlannerWorkspace({
       setStatus(`${course.code} is already counted as credit you hold, so it is not added to ${view.term.label}.`);
       return;
     }
-    const record = withCurrentClass(answers.transcript, course, view.ref, { id: school.id === 'uga' ? 'uga' : 'illinois', label: 'Added by you' });
+    const record = withCurrentClass(answers.transcript, course, view.ref, { id: school.id, label: 'Added by you' });
     onAnswersChange({ ...answers, transcript: record });
     setHeldNow(courseId, true);
     setStatus(`${course.code} added to your ${view.term.label} classes, in progress.`);
@@ -4225,6 +4269,7 @@ export function PlannerWorkspace({
     onAnswersChange: onAnswersChange ?? null,
     report,
     examTable: examCredit.entries,
+    examSource: examCredit.source,
     priorCreditHours,
     assumedCredit,
     creditGap,
@@ -4265,6 +4310,7 @@ export function PlannerWorkspace({
       onAnswersChange: onAnswersChange ?? null,
       report,
       examTable: examCredit.entries,
+      examSource: examCredit.source,
       priorCreditHours,
       assumedCredit,
       creditGap,
@@ -4289,15 +4335,15 @@ export function PlannerWorkspace({
       minimumTermCredits: L.minimumTermCredits,
       maxTermCredits: 18,
       programName: L.loaded?.program.name,
-      programCollege: isIllinois && !isGraduatePlan ? L.loaded?.program.college : undefined,
+      programCollege: leaf?.collegeRules && !isGraduatePlan ? L.loaded?.program.college : undefined,
       priorCredits: L.priorCreditHours,
       standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
       away: L.report?.away,
       language: L.language,
       // Read for this student: a transfer or a continuing sophomore is never
       // told a first-term seminar belongs in "the first year".
-      firstYear: isIllinois && !isGraduatePlan && enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
-      arrival: isIllinois && isGraduatePlan ? undefined : arrivalOf(L.answers),
+      firstYear: isLeaf && !isGraduatePlan && enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
+      arrival: isLeaf && isGraduatePlan ? undefined : arrivalOf(L.answers),
     };
   }
 
@@ -4311,13 +4357,14 @@ export function PlannerWorkspace({
    */
   function reviewFlagsOn(board: PlanState) {
     const L = live.current;
-    if (!isIllinois || !L.context || !L.loaded) return { flags: [] as Array<{ id: string; message: string }>, momentum: [] as ReturnType<typeof momentumReview>['flags'], fact: null as string | null };
+    if (!isLeaf || !L.context || !L.loaded) return { flags: [] as Array<{ id: string; message: string }>, momentum: [] as ReturnType<typeof momentumReview>['flags'], fact: null as string | null };
     const momentum = momentumReview({
       context: L.context,
       board,
       requirements: L.loaded.blocks,
       programName: L.loaded.program.name,
-      firstYear: enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
+      // The first-year momentum checks are Illinois's review (school-config.ts `momentumReview`); off, they find nothing.
+      firstYear: Boolean(leaf?.momentumReview) && enteringAsFirstYear([L.answers?.studying ?? '', L.answers?.timeline ?? '', L.answers?.after ?? ''].join(' '), L.answers?.transcript),
       targetTermCredits: L.targetTermCredits ?? null,
       built: L.report?.builtTerms ?? null,
       planAim: L.report?.aim ?? null,
@@ -4393,7 +4440,7 @@ export function PlannerWorkspace({
     if (planRef.current?.doubleDawgs) return ugaAuditOn(planRef.current)?.target ?? null;
     const loadedNow = live.current.loaded;
     if (!loadedNow) return null;
-    return loadedNow.summary.totalCredits || loadedNow.program.totalCredits || (isIllinois && !isGraduatePlan ? 120 : null);
+    return loadedNow.summary.totalCredits || loadedNow.program.totalCredits || (leaf && !isGraduatePlan ? leaf.defaultDegreeTotal : null);
   }
 
   function progressCheckOn(board: PlanState) {
@@ -4403,7 +4450,7 @@ export function PlannerWorkspace({
       const after = ugaAuditOn(candidate);
       return after ? ugaProgressLoss(current, after) : 'The degree requirements could not be checked.';
     };
-    if (!isIllinois || !L.loaded || !L.context) return undefined;
+    if (!isLeaf || !L.loaded || !L.context) return undefined;
     const held = heldTowardDegree(
       distinctHeld([...L.completedCodes].filter((code) => !(L.report?.forfeited ?? []).some((f) => normCode(f.held) === code)), L.context).codes,
       L.loaded.program.college, L.loaded.blocks as unknown as PlanRequirement[],
@@ -4437,7 +4484,7 @@ export function PlannerWorkspace({
       priorCredits: L.priorCreditHours,
       degreeTotal: degreeTotalNow(),
       programName: L.loaded.program.name,
-      programCollege: isIllinois && !isGraduatePlan ? L.loaded.program.college : undefined,
+      programCollege: leaf?.collegeRules && !isGraduatePlan ? L.loaded.program.college : undefined,
       standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
       progressCheck: progressCheckOn(board),
       arrival: arrivalOf(L.answers),
@@ -4708,7 +4755,7 @@ export function PlannerWorkspace({
       career: L.careerText,
       careerFit: L.careerFit ?? undefined,
       programName: L.loaded.program.name,
-      programCollege: isIllinois && !isGraduatePlan ? L.loaded.program.college : undefined,
+      programCollege: leaf?.collegeRules && !isGraduatePlan ? L.loaded.program.college : undefined,
       electiveLevelRange: isGraduatePlan ? gradSettings.electiveLevelRange : undefined,
       standingHours: isGraduatePlan ? gradSettings.standingHours : undefined,
       priorities: next,
@@ -4758,7 +4805,7 @@ export function PlannerWorkspace({
   function roleMarkOf(course: Course): string {
     const role = roleOf(course);
     // A course booked for an Illinois minor's row says whose it is, whatever its card shows.
-    const bookedFor = isIllinois ? live.current.report?.bookedFor?.[normCode(course.code)] : null;
+    const bookedFor = leafMinors ? live.current.report?.bookedFor?.[normCode(course.code)] : null;
     if (bookedFor && bookedFor.startsWith(MINOR_ID_PREFIX) && role !== 'prerequisite') {
       const minor = live.current.loaded?.minors?.find((m) => bookedFor.startsWith(`${m.id}::`));
       if (minor) return `minor: ${minor.name}`;
@@ -4773,7 +4820,7 @@ export function PlannerWorkspace({
    * student names asks for it.
    */
   function trackRowOf(code: string, trackName: string | undefined): string[] | null {
-    const track = forSchool(interestProfileOf(live.current.careerText), isUga ? 'uga' : 'illinois').tracks.find((t) => t.name === trackName);
+    const track = forSchool(interestProfileOf(live.current.careerText), school?.id).tracks.find((t) => t.name === trackName);
     const row = track?.courses.find((c) => c.codes.some((x) => normCode(x) === normCode(code)));
     return row ? row.codes.map(normCode) : null;
   }
@@ -4813,10 +4860,13 @@ export function PlannerWorkspace({
       lines.push(`Official UGA sample plans are final tie-breakers, not extra requirements: ${ugaSamplePlans.map((sample) => `${sample.programName} (${sample.url})`).join('; ')}.`);
     }
     // Who ALMA sends the student to for what it cannot decide: a Media student's
-    // late drop is a petition at 119 Gregory Hall, not "your advisor".
-    if (isIllinois) {
+    // late drop is a petition at 119 Gregory Hall, not "your advisor". Only
+    // where the colleges' rules are read (school-config.ts `collegeRules`).
+    if (leaf?.collegeRules) {
       const college = collegeRulesFor(L.loaded.program.college);
       lines.push(`College: ${college.name}. Its office for loads, CR/NC, grade replacement, late drops and petitions: ${college.office}.`);
+    } else lines.push(`College: ${L.loaded.program.college}. Check current ${school?.short ?? 'university'} policies with the college's advising office.`);
+    if (leafMinors) {
       // Minors (beta): what each needs, and whether the planner checked it.
       for (const minor of L.loaded.minors ?? []) {
         if (minor.checked) {
@@ -4826,11 +4876,11 @@ export function PlannerWorkspace({
           lines.push(`Minor picked but NOT checked by the planner: ${minor.name} (${minor.whyNotChecked ?? 'not on the checked list'}). None of its courses are on the board. What its page asks for, by the planner's rough reading: ${minor.inOwnWords} Page: ${minor.url}. Say plainly that the planner has not checked it, and send the student to the page and the department before planning around it.`);
         }
       }
-    } else lines.push(`College: ${L.loaded.program.college}. Check current UGA policies with the college's advising office.`);
+    }
     lines.push(
       'Marks: [required] the degree page names it. [from a list: X] fills the list X. [elective slot] the planner picked it to reach the total; swap it freely. [career track: X] a course the student\'s career track X requires; keep it unless they drop the goal, and ask before removing or replacing it. [language] part of the language sequence for the language requirement; the language is the student\'s choice, the level is not. [gen ed pick] the planner chose it for a general education category; swap it for another course that carries the same categories. [prerequisite] the planner booked it because a later course needs it. [added] the student or you put it there. "; picked for your goal: X" after a mark: the planner picked that elective or gen ed course for the student\'s goal X, and the board shows the same line on its card; when the student asks why it is there, say so in those words, and a swap for something unrelated gives up that goal.',
     );
-    if (isIllinois && L.loaded.minors?.some((minor) => minor.checked)) lines.push('[minor: X] the planner booked it for the minor X; ask before removing it, since the minor then falls short.');
+    if (leafMinors && L.loaded.minors?.some((minor) => minor.checked)) lines.push('[minor: X] the planner booked it for the minor X; ask before removing it, since the minor then falls short.');
     const plannedIds = new Set(board.terms.flatMap((term) => term.courseIds));
     const pending = new Set((L.answers?.transcript?.courses ?? []).filter((line) => line.use && line.status === 'in_progress').flatMap((line) => [line.matched, ...(line.also ?? [])].filter(Boolean)));
     const taken = board.completedCourseIds.filter((id) => !plannedIds.has(id))
@@ -4842,11 +4892,11 @@ export function PlannerWorkspace({
       lines.push(`In progress, counted conditionally and not scheduled again: ${taken.filter((code) => pending.has(code)).join(', ') || 'none'}. These are not earned yet.`);
       lines.push(`Transcript credit status: ${JSON.stringify(transcriptCreditSummary(L.answers?.transcript))}. PEDB is excluded from academic degree credits.`);
     }
-    lines.push(describeCredit(L.answers?.transcript ?? null, L.priorForOptions, L.report?.residency ?? null));
+    lines.push(describeCredit(L.answers?.transcript ?? null, L.priorForOptions, L.report?.residency ?? null, school?.short ?? 'this university'));
     lines.push(
       `Credit load: at least ${L.minimumTermCredits} credits a term, aim ${L.targetTermCredits ?? 'an even share of what is left'}, never above 18.${describeShape(planShapeRef.current)} ${scheduleSentence(sectionTermsOf(L.core?.meta), L.core?.meta?.term?.label ?? null)}`,
     );
-    lines.push(isIllinois ? describeGoals(L.setupStudying, L.careerText) : isUga ? describeGoals(L.setupStudying, L.careerText, 'uga') : `Interests and goals: ${L.careerText || 'none recorded'}.`);
+    lines.push(engineSchool ? describeGoals(L.setupStudying, L.careerText, engineSchool) : `Interests and goals: ${L.careerText || 'none recorded'}.`);
     // The rail's clubs, once the file has loaded, so the assistant and the rail name the same ones.
     const clubs = clubSchool && clubFile.current ? runFindClubs({}, clubStudentFor(L.careerText, L.loaded, L.answers), clubFile.current) : null;
     if (clubs?.ok && clubs.clubs.length > 0) {
@@ -4859,7 +4909,7 @@ export function PlannerWorkspace({
     // a transfer student the EU windows, or a CS hopeful any route at all.
     const choice = L.admissionChoice;
     if (choice && (!choice.front || choice.route?.applySemesters)) {
-      lines.push(`Which route in, from how the student entered Illinois: ${describeAdmissionChoice(choice)}`);
+      lines.push(`Which route in, from how the student entered ${school?.short ?? 'the university'}: ${describeAdmissionChoice(choice)}`);
     }
     lines.push(`Instructors: "(my instructor: X)" after a course is the instructor the student set for it in that term; a course without it is not set (the student sets it by clicking the course, then My instructor). The term in progress is ${currentTermLabel(new Date())}.`);
     /**
@@ -4952,7 +5002,7 @@ export function PlannerWorkspace({
     const ctx = L.context;
     const question = typeof input.question === 'string' ? input.question.trim() : '';
     if (name === 'university_answer') {
-      const res = await fetch('/api/ask', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question, school: school?.id ?? 'illinois' }) });
+      const res = await fetch('/api/ask', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question, school: school?.id ?? '' }) });
       const data = await res.json().catch(() => ({})) as { text?: string; error?: string; sources?: unknown; grounded?: boolean };
       return { ok: res.ok, text: data.text || data.error || 'No answer came back.', sources: Array.isArray(data.sources) ? data.sources : [], grounded: Boolean(data.grounded) };
     }
@@ -4968,7 +5018,7 @@ export function PlannerWorkspace({
       }
       if (name === 'professor_ratings') {
         // Needs no degree: a name, and the course's syllabi (at UGA its Schedule of Classes too) for its instructors and subject.
-        const ratingSchool: RatingsSchool | null = L.context?.schoolId === 'uga' ? 'uga' : isIllinois ? 'illinois' : null;
+        const ratingSchool: RatingsSchool | null = L.context?.schoolId === 'uga' ? 'uga' : leafRatings;
         if (!ratingSchool) return { ok: false, reason: 'The planner holds no student ratings for this school.' };
         const asked = typeof input.code === 'string' ? input.code : '';
         const c = asked ? (L.byCode.get(normalizeCourseCode(asked)) ?? null) : null;
@@ -5059,8 +5109,8 @@ export function PlannerWorkspace({
       const schedule = t.id === coreId ? (L.core?.sections ?? null) : (schedules?.get(t.id) ?? null);
       if (!schedule) {
         // Each school's own name: a UGA board was told "Illinois's ... class times" (audit, 2026-10-14).
-        if (!isIllinois) return { checked: false, line: null, why: `${school?.short ?? 'This university'}'s class times are not loaded here, so whether these courses fit in one week is not checked.` };
-        return { checked: false, line: null, why: `Illinois's ${t.label} class times are not published here, so whether these courses fit in one week is not checked.` };
+        if (!isLeaf) return { checked: false, line: null, why: `${school?.short ?? 'This university'}'s class times are not loaded here, so whether these courses fit in one week is not checked.` };
+        return { checked: false, line: null, why: isIllinoisSchool ? `Illinois's ${t.label} class times are not published here, so whether these courses fit in one week is not checked.` : `${school?.short ?? 'This university'}'s ${t.label} class times are not published here, so whether these courses fit in one week is not checked.` };
       }
       const codes = t.courseIds.map((id) => L.courseIndex.get(id)?.code).filter((c): c is string => Boolean(c));
       const fit = weeklyFit(codes, schedule);
@@ -5121,7 +5171,8 @@ export function PlannerWorkspace({
       return { crnc_eligible: answer.eligible, crnc_why: answer.why };
     };
     const crncAnswer = (c: Course) => {
-      if (!isIllinois) return { eligible: null, why: 'UGA credit/no-credit eligibility is not in this data; confirm with your advisor.' };
+      // Illinois's campus and college rule (college-rules.ts); a school whose rule is not read says so.
+      if (!leaf?.collegeRules) return { eligible: null, why: `${school?.short ?? 'This university'} credit/no-credit eligibility is not in this data; confirm with your advisor.` };
       if (!holding(c.id)) return crncEligibility({ role: null, tags: c.tags, college: L.loaded?.program.college });
       const role = roleOf(c);
       const code = normCode(c.code);
@@ -5323,7 +5374,7 @@ export function PlannerWorkspace({
       case 'course_details': {
         const c = courseOf(str('code'));
         if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
-        const detail = isIllinois ? await loadIllinoisCourseDetail(c.code) : null;
+        const detail = isLeaf ? await loadIllinoisCourseDetail(c.code) : null;
         const key = normCode(c.code);
         const grade = L.core?.grades?.get(key);
         const prereq = L.core?.prereqs?.get(key);
@@ -5358,7 +5409,7 @@ export function PlannerWorkspace({
       case 'course_syllabus': {
         const c = courseOf(str('code'));
         const ugaBoard = L.context?.schoolId === 'uga';
-        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${ugaBoard ? 'UGA' : 'Illinois'} catalog.` };
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         // The student's own instructor for it, where they set one on the board
         // (a class they are taking now included: the current semester's column).
         const at = holding(c.id) ?? takingNow(c.id);
@@ -5390,6 +5441,8 @@ export function PlannerWorkspace({
             syllabi: syllabiToShow(syllabi, { scheduled: teaching, termLabel: term, chosen }),
           }, await loadProfessorRatings('uga'), c.code);
         }
+        // Illinois's syllabi from here on (school-config.ts `syllabi`): never another school's, and never on another school's board.
+        if (!isIllinoisSchool || !leaf?.syllabi) return { ok: false, code: c.code, reason: `The planner holds no syllabi for ${school?.short ?? 'this university'}'s courses. The course's page in its learning system, or its instructor, has the current one.` };
         const [syllabi, detail] = await Promise.all([loadIllinoisSyllabi(c.code), loadIllinoisCourseDetail(c.code)]);
         // Who teaches it in the term that matters (its column's, or the newest
         // schedule), so a syllabus from another term or instructor can be told
@@ -5459,7 +5512,7 @@ export function PlannerWorkspace({
               syllabi,
             };
           }
-          if (!isIllinois) return { code: c.code, title: c.title, termLabel: term.label, chosen: chosenInstructor(board, term.id, c.code), teaching: null, syllabi };
+          if (!isLeaf) return { code: c.code, title: c.title, termLabel: term.label, chosen: chosenInstructor(board, term.id, c.code), teaching: null, syllabi };
           // The term's own published sections, or the latest of its season, labelled as such.
           const pick = pickSectionTerm(scheduleTerms, { id: term.id, label: term.label });
           const detail = pick ? await loadIllinoisCourseDetail(c.code).catch(() => null) : null;
@@ -5476,10 +5529,10 @@ export function PlannerWorkspace({
           };
         }));
         const courses = termSyllabiResult(inputs, want);
-        const ratingSchool: RatingsSchool | null = ugaBoard ? 'uga' : isIllinois ? 'illinois' : null;
+        const ratingSchool: RatingsSchool | null = ugaBoard ? 'uga' : leafRatings;
         return withStudentRatings({
           ok: true,
-          school: ugaBoard ? 'UGA' : 'Illinois',
+          school: school?.short ?? 'university',
           terms: picked.terms.map((t) => t.label),
           ...(picked.notes.length > 0 ? { years_of_study: picked.notes } : {}),
           term_in_progress: currentTermLabel(today),
@@ -5666,7 +5719,7 @@ export function PlannerWorkspace({
           terms: change.board.terms.map((t) => t.label),
           ...(isUga
             ? { note: `Nothing was rebuilt or moved. To fill it, add or move courses the UGA Bulletin lists for summer (course_details says whether it lists one; a course it lists for every other summer goes only in its years), or set_plan_shape summers rebuilds the board around its summers with those courses, at most 9 credits a summer. A class the Bulletin does not list for summer shows "Not offered this term" there.` }
-            : { note: `Nothing was rebuilt or moved. To fill it, add or move courses Illinois has run in summer (course_details gives the terms each ran), or set_plan_shape summers rebuilds the board around its summers.` }),
+            : { note: `Nothing was rebuilt or moved. To fill it, add or move courses ${school?.short ?? 'the university'} has run in summer (course_details gives the terms each ran), or set_plan_shape summers rebuilds the board around its summers.` }),
         };
       }
       case 'remove_summer': {
@@ -5724,7 +5777,7 @@ export function PlannerWorkspace({
           const prereq = L.core?.prereqs?.get(key);
           const grade = L.core?.grades?.get(key);
           // Illinois's course pages only; another school's board uses its own catalog.
-          const detail = isIllinois ? await loadIllinoisCourseDetail(c.code) : null;
+          const detail = isLeaf ? await loadIllinoisCourseDetail(c.code) : null;
           const verdict = term && !holding(c.id) ? check(withCourseIn(board, c.id, term.id), c, term.id) : null;
           const sched = scheduleOf(c, term ? { id: term.id, label: term.label } : null);
           rows.push({
@@ -5744,7 +5797,7 @@ export function PlannerWorkspace({
       }
       case 'explain_choice': {
         const c = courseOf(str('code'));
-        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${isIllinois ? 'Illinois' : (school?.short ?? 'university')} catalog.` };
+        if (!c) return { ok: false, reason: `${str('code') || 'That'} is not in the ${school?.short ?? 'university'} catalog.` };
         const t = holding(c.id);
         if (!t && takingNow(c.id) && nowTerm) return { ok: true, code: c.code, role: 'in progress', why: `${c.code} is a class the student is taking now, in ${nowTerm.label}, from their ${cur?.classes.find((x) => x.courseId === c.id)?.from === 'hand' ? 'own list' : 'transcript'}. The planner did not choose it; it counts as in progress toward the degree.` };
         if (!t) return { ok: false, reason: `${c.code} is not on the board.` };
@@ -5974,8 +6027,8 @@ export function PlannerWorkspace({
           ...(review.momentum.length > 0 ? { first_year_momentum: review.momentum.map((f) => f.message) } : {}),
           ...(review.fact ? { momentum_fact_say_once: review.fact } : {}),
           ...(use.beyondTotal > 0 ? { credits_beyond_total: `${use.beyondTotal} credits above the ${degreeTotalNow()} minimum. These may still be needed for particular requirements; excess hours alone do not identify courses to remove.` } : {}),
-          ...(isIllinois && use.countsNothing.length > 0 ? { counts_toward_nothing: use.countsNothing.map((c) => `${c.code} (${c.term}): ${c.why}`) } : {}),
-          ...(isIllinois && use.freeElectives.length > 0
+          ...(isLeaf && use.countsNothing.length > 0 ? { counts_toward_nothing: use.countsNothing.map((c) => `${c.code} (${c.term}): ${c.why}`) } : {}),
+          ...(isLeaf && use.freeElectives.length > 0
             ? { added_courses_filling_no_requirement: `${use.freeElectives.map((c) => `${c.code} (${c.term})`).join(', ')}: added by the student or you, each counts as free elective hours toward the total and fills no requirement. That is fine; say so rather than calling it wasted.` }
             : {}),
           ...(summers.length > 0 ? { summer_suggestions: summers.map((s) => s.text) } : {}),
@@ -6142,6 +6195,9 @@ export function PlannerWorkspace({
          */
         const goalsOf = (text: string) => {
           const read = interestProfileOf(text);
+          // Career tracks and application programs are Illinois's course lists (career-tracks.ts): a school without
+          // its own (school-config.ts `careerTracks` off) reads the goal by its topics alone, never Illinois's codes.
+          if (leaf && !leaf.careerTracks) return { ...read, tracks: [], apply: [], heard: read.heard.filter((h) => !read.tracks.some((track) => track.id === h)) };
           if (!isUga) return read;
           const own = isGraduatePlan ? { ...read, tracks: [] } : forSchool(read, 'uga');
           return { ...own, apply: [], heard: read.heard.filter((h) => !read.tracks.some((track) => track.id === h) || own.tracks.some((track) => track.id === h)) };
@@ -6155,7 +6211,7 @@ export function PlannerWorkspace({
           setCareerCleared(stored === '');
           careerTextRef.current = stored;
           live.current = { ...live.current, interestsText: [L.setupStudying, stored].join(' '), careerText: stored };
-          if (said) heard = isUga ? (goalsOf(stored).heard.length > 0 ? goalsOf(stored).heard : interestWordsFrom(stored)) : heardInterests(stored);
+          if (said) heard = isUga || (leaf && !leaf.careerTracks) ? (goalsOf(stored).heard.length > 0 ? goalsOf(stored).heard : interestWordsFrom(stored)) : heardInterests(stored);
         }
         // A Double Dawgs board is not re-picked (repickElectives says so): the priorities wait for its next Rebuild.
         const doubleDawgsBoard = Boolean(planRef.current?.doubleDawgs) && input.repick !== false;
@@ -6299,8 +6355,17 @@ export function PlannerWorkspace({
         }
         // UGA's own rule (uga-load-rules.ts), never an Illinois college's.
         // A UGA graduate plan gets the Graduate School's rule, never the undergraduate one.
-        if (overload !== null) problems.unshift(`${isUga ? (ugaGraduate ? ugaGraduateOverloadAnswer(overload) : ugaOverloadAnswer(overload)) : overloadAnswer(college, overload)} Keep the plan at 18 or under, and tell the student this.`);
-        const notes = underload !== null ? { underload: isUga ? (ugaGraduate ? ugaGraduateUnderloadNote(underload) : ugaUnderloadNote(underload)) : underloadNote(college, underload) } : {};
+        // A school whose load rules are not read (school-config.ts `collegeRules` off) says so, never Illinois's registrar.
+        const short = school?.short ?? 'this university';
+        const unreadLoadRules = Boolean(leaf && !leaf.collegeRules);
+        if (overload !== null) {
+          problems.unshift(unreadLoadRules
+            ? `${overload} hours in a fall or spring term is more than the 18 the planner ever builds a term to. The planner does not have ${short}'s overload rule; the student should ask their advisor what it requires. Keep the plan at 18 or under, and tell the student this.`
+            : `${isUga ? (ugaGraduate ? ugaGraduateOverloadAnswer(overload) : ugaOverloadAnswer(overload)) : overloadAnswer(college, overload)} Keep the plan at 18 or under, and tell the student this.`);
+        }
+        const notes = underload === null ? {} : unreadLoadRules
+          ? { underload: `${underload} credits in a fall or spring term is under 12, the usual full-time load. Part-time enrollment can affect financial aid, progress toward the degree, and visa status for an international student. The planner does not have ${short}'s rule on light terms: say this once, and have the student confirm it with their advisor before counting on one.` }
+          : { underload: isUga ? (ugaGraduate ? ugaGraduateUnderloadNote(underload) : ugaUnderloadNote(underload)) : underloadNote(college, underload) };
         if (input.finish !== undefined) {
           if (input.finish === null || input.finish === 'default') nextShape.finish = null;
           else {
@@ -6473,19 +6538,21 @@ export function PlannerWorkspace({
         };
       }
       case 'exam_credit': {
-        // Grainger's calculus pricing is Illinois's; a UGA College of Engineering degree has none.
-        const grainger = isIllinois && /engineering/i.test(L.loaded.program.college ?? '');
+        // Grainger's calculus pricing is Illinois's; a UGA or Georgia Tech College of Engineering degree has none.
+        const grainger = isIllinoisSchool && /engineering/i.test(L.loaded.program.college ?? '');
         const schedule = examSchedule(str('exam'), str('kind') || null, L.examTable, grainger);
-        if (!schedule) return { ok: false, reason: `${str('exam')} is not in the registrar's AP and IB table. Check the name, or it may earn no credit at ${isIllinois ? 'Illinois' : (school?.short ?? 'this university')}.` };
+        if (!schedule) return { ok: false, reason: `${str('exam')} is not in the registrar's AP and IB table. Check the name, or it may earn no credit at ${school?.short ?? 'this university'}.` };
         const held = (L.answers?.exams ?? []).filter((e) => e.exam === schedule.exam);
         return {
           ok: true,
           ...schedule,
-          priced_for: isIllinois && /Entering/.test(schedule.exam) ? (grainger ? 'students entering Grainger (this degree)' : 'students entering a college other than Grainger (this degree)') : 'every college',
+          priced_for: isIllinoisSchool && /Entering/.test(schedule.exam) ? (grainger ? 'students entering Grainger (this degree)' : 'students entering a college other than Grainger (this degree)') : 'every college',
           student_has: held.map((e) => `${e.kind} ${e.exam}${e.level ? ` ${e.level}` : ''}: ${e.score}`),
           // Each school's own table: public/uga-exam-credit.json was read from UGA's Registrar page.
-          source: isIllinois
+          source: isIllinoisSchool
             ? 'https://citl.illinois.edu/current-cutoff-scores (policies for students entering Summer 2026, Fall 2026 or Spring 2027)'
+            : isLeaf
+            ? (L.examSource || `${school?.short ?? 'the university'}'s published AP and IB credit table`)
             : "https://reg.uga.edu/student-records/credit-from-testing (the UGA Registrar's credit-from-testing table)",
         };
       }
@@ -6504,7 +6571,7 @@ export function PlannerWorkspace({
             term: c.term,
             status: c.status,
             from: c.from ?? (record?.home === false ? record.institution : null),
-            how: c.matchedBy === 'code' ? `${isIllinois ? 'Illinois' : (school?.short ?? 'University')} code on the record` : c.matchedBy === 'printed' ? 'equivalent printed on the document (confirmed)' : c.matchedBy === 'official' ? "the university's own transfer equivalency list" : c.matchedBy === 'sisters' ? "UGA's lists for the same course number at sister schools in the same system (UGA's evaluation decides)" : c.matchedBy === 'proposal' ? 'likely equivalent from the catalog (not confirmed)' : 'entered by the student or in chat',
+            how: c.matchedBy === 'code' ? `${school?.short ?? 'University'} code on the record` : c.matchedBy === 'printed' ? 'equivalent printed on the document (confirmed)' : c.matchedBy === 'official' ? "the university's own transfer equivalency list" : c.matchedBy === 'sisters' ? "UGA's lists for the same course number at sister schools in the same system (UGA's evaluation decides)" : c.matchedBy === 'proposal' ? 'likely equivalent from the catalog (not confirmed)' : 'entered by the student or in chat',
             ...(c.basis ? { why: c.basis.text, source: c.basis.source ?? null } : {}),
           }));
         const hoursLines = (record?.courses ?? [])
@@ -6548,8 +6615,10 @@ export function PlannerWorkspace({
           language: L.answers ? { high_school_years: L.answers.languageYears ?? null, language: L.answers.language || null } : null,
           residency: L.report?.residency ?? null,
           // Each school's own rule: a UGA student was about to be told Illinois's residency rule (audit, 2026-10-14).
-          rule: isIllinois
+          rule: isIllinoisSchool
             ? 'Illinois decides equivalency: Transferology is the estimate, the Transfer Evaluation Report the decision. Every transferable course counts at least as elective hours toward the total. Residency: 45 hours at Illinois, 21 at the 300 level or above (admissions.illinois.edu/transferring-credit/).'
+            : isLeaf
+            ? `${school?.short ?? 'The university'} decides equivalency through its own transfer evaluation; matches here are the planner's reading, not that evaluation. The planner does not check ${school?.short ?? 'the university'}'s residency rule or how many transfer hours it accepts: use university_answer for those.`
             : `UGA decides equivalency. Its Transfer Equivalency Search (${UGA_TRANSFER_PORTAL}) is UGA's own list; a match marked "the university's own transfer equivalency list" comes from the copy the planner keeps, with its page. The planner does not check UGA's residency rule or how many transfer hours UGA accepts: use university_answer for those.`,
         };
       }
@@ -6557,7 +6626,7 @@ export function PlannerWorkspace({
         const title = str('title');
         if (!title) return { ok: false, reason: 'Give the course title as printed or as the student said it.' };
         const lite = catalogLiteOf(L.catalog);
-        const proposals = proposeEquivalents({ code: str('code').toUpperCase(), title, credits: typeof input.credits === 'number' ? input.credits : null }, lite, 5, isUga ? 'uga' : 'illinois');
+        const proposals = proposeEquivalents({ code: str('code').toUpperCase(), title, credits: typeof input.credits === 'number' ? input.credits : null }, lite, 5, engineSchool ?? undefined);
         /**
          * UGA's own answer first: the planner keeps UGA's Transfer Equivalency
          * lists for the schools in public/uga-transfer/index.json, the same
@@ -6581,7 +6650,7 @@ export function PlannerWorkspace({
             ...(designation ? { meaning: designation.kind === 'none' ? 'does not transfer (NTFR)' : designation.kind === 'elective' ? 'elective credit in the subject, not a single UGA course' : designation.kind === 'core-us-history' ? 'core credit that also meets the U.S. history requirement, not a single UGA course' : 'core credit in the subject, not a single UGA course' } : {}),
           };
         };
-        if (!isIllinois && str('school')) {
+        if (!isLeaf && str('school')) {
           const table = await loadUgaTransfer([str('school')]).catch(() => null);
           listFor = ugaSchoolEntry(table?.index, str('school'))?.name ?? null;
           const hit = str('code') ? ugaLookup(table, str('school'), str('code')) : null;
@@ -6610,7 +6679,7 @@ export function PlannerWorkspace({
           ...(official ? { uga_official: official } : {}),
           ...(sisters ? { uga_sister_schools: sisters } : {}),
           ...(officialSources.length > 0 ? { sources: officialSources } : {}),
-          note: !isIllinois
+          note: !isLeaf
             ? official
               ? "uga_official is UGA's own Transfer Equivalency list for this school: say \"UGA's list says\" and give its page. A result like HIST 1GHX or MATH 1GXX is core credit in the subject (record it as hours), NTFR does not transfer. likely_equivalents below are only the catalog's guesses."
               : sisters
@@ -6618,7 +6687,9 @@ export function PlannerWorkspace({
               : `${!str('school') ? 'No school was given, so UGA\'s own lists were not read; ask which school taught it.' : listFor ? `UGA's list for ${listFor} has no line for ${str('code') || 'this course'}${str('code') ? '' : ' (give its code)'}.` : 'The planner holds no UGA list for that school.'} The student can check UGA's Transfer Equivalency Search (${UGA_TRANSFER_PORTAL}). ${proposals.length === 0 ? 'Nothing in the catalog reads as the same course; if it is college-level it may come in as elective hours.' : 'likely_equivalents are the catalog\'s guesses, not UGA\'s evaluation: present the top one as likely, confirm with the student, then record it.'}`
             : proposals.length === 0
             ? 'Nothing in the catalog reads as the same course. It still transfers as elective hours if it is college-level; record it as hours.'
-            : 'These come from the catalog\'s titles and a table of common equivalents, not from Illinois\'s evaluation. Present the top one as likely, confirm with the student, then record it.',
+            : isIllinoisSchool
+            ? 'These come from the catalog\'s titles and a table of common equivalents, not from Illinois\'s evaluation. Present the top one as likely, confirm with the student, then record it.'
+            : `These come from the catalog's titles, not from ${school?.short ?? 'the university'}'s evaluation. Present the top one as likely, confirm with the student, then record it.`,
         };
       }
       case 'update_setup': {
@@ -6705,8 +6776,8 @@ export function PlannerWorkspace({
         if (input.confirmed !== true) {
           return { ok: false, needs_confirmation: true, reason: `Tell the student you will change ${changes.join('; ')} and rebuild the board${L.boardEdited ? ', which replaces the edits they made by hand' : ''}; call again with confirmed true only after they say yes.` };
         }
-        if (typeof input.coming_from === 'string' && input.coming_from.trim() && answersNow.transcript) {
-          const here = isUga ? 'uga' : 'illinois';
+        if (typeof input.coming_from === 'string' && input.coming_from.trim() && answersNow.transcript && engineSchool) {
+          const here = engineSchool;
           next.transcript = await rematchForSchool({ ...answersNow.transcript, institution: input.coming_from.trim(), schoolId: here === 'uga' ? 'illinois' : 'uga', courses: answersNow.transcript.courses.map((c) => (isHomeTranscript(c.from ?? null, here) ? { ...c, from: null } : c)) }, here, catalogLiteOf(catalog));
         }
         if (majorIds) {
@@ -6739,18 +6810,18 @@ export function PlannerWorkspace({
         let course: Course | null = null;
         if (code) {
           course = courseOf(code);
-          if (!course) return { ok: false, reason: `${code} is not in the ${isIllinois ? 'Illinois' : (school?.short ?? 'university')} catalog. If it is another school's course, call find_equivalent with its title first.` };
+          if (!course) return { ok: false, reason: `${code} is not in the ${school?.short ?? 'university'} catalog. If it is another school's course, call find_equivalent with its title first.` };
         } else if (hours === null || hours <= 0) {
-          return { ok: false, reason: `Give ${isIllinois ? 'an Illinois' : `a ${school?.short ?? 'university'}`} course code, or the hours it transferred as.` };
+          return { ok: false, reason: `Give ${isIllinoisSchool ? 'an Illinois' : `a ${school?.short ?? 'university'}`} course code, or the hours it transferred as.` };
         }
         const record = L.answers.transcript;
         if (course && (transcriptCodes(record).includes(normCode(course.code)) || L.completedCodes.has(normCode(course.code)))) {
           return { ok: true, changed: false, message: `${course.code} is already counted as taken.` };
         }
         const line: TranscriptCourseRecord = course
-          ? { code: course.code, title: title ?? course.title, credits: course.credits, grade: null, term: inProgress && L.currentView ? L.currentView.term.label : null, status: inProgress ? 'in_progress' : from && !(isIllinois ? /^(illinois|uiuc|urbana)/i : /^(uga|university of georgia)\b/i).test(from) ? 'transfer' : 'completed', from, equivalent: null, matched: normCode(course.code), matchedBy: 'student', use: true, counts: 'course', illinoisCredits: course.credits }
+          ? { code: course.code, title: title ?? course.title, credits: course.credits, grade: null, term: inProgress && L.currentView ? L.currentView.term.label : null, status: inProgress ? 'in_progress' : from && !(isIllinoisSchool ? /^(illinois|uiuc|urbana)/i : leaf ? leaf.home : /^(uga|university of georgia)\b/i).test(from) ? 'transfer' : 'completed', from, equivalent: null, matched: normCode(course.code), matchedBy: 'student', use: true, counts: 'course', illinoisCredits: course.credits }
           : { code: title?.match(/^[A-Z]{2,5}\s?\d{3,4}[A-Z]?/i)?.[0].toUpperCase() ?? 'TRANSFER', title, credits: hours, grade: null, term: null, status: 'transfer', from, equivalent: null, matched: null, matchedBy: null, use: true, counts: 'hours' };
-        const base: TranscriptRecord = record ?? { fileName: isIllinois ? 'Told to ALMA' : `Told to ${botName}`, readAt: new Date().toISOString(), institution: null, kind: 'course_list', home: true, files: [], courses: [], exams: [], notes: [] };
+        const base: TranscriptRecord = record ?? { fileName: isIllinoisSchool ? 'Told to ALMA' : `Told to ${botName}`, readAt: new Date().toISOString(), institution: null, kind: 'course_list', home: true, files: [], courses: [], exams: [], notes: [] };
         rebuildForCredit.current = true;
         // The line and the rebuild around it are one undo step with the turn.
         almaChanged(`recorded ${course ? course.code : `${hours} hours`} as credit already held and rebuilt the plan`);
@@ -6810,7 +6881,9 @@ export function PlannerWorkspace({
         return { handled: false, note: 'Not a question the board can answer. Try university_answer.' };
       }
       case 'compare_programs': {
-        if (!isIllinois || !L.core) return { ok: false, reason: 'Comparing programs needs the Illinois catalog, which is not loaded.' };
+        // Illinois's: its dual-degree and second-major rules are its colleges' (school-config.ts `collegeRules`).
+        if (leaf && !leaf.collegeRules) return { ok: false, reason: `Comparing programs is not available for ${school?.short ?? 'this university'} in the planner. Use university_answer for the other program's requirements.` };
+        if (!isLeaf || !L.core) return { ok: false, reason: 'Comparing programs needs the Illinois catalog, which is not loaded.' };
         const core = L.core;
         // Every crawled page with a course list, BALAS majors included: the
         // rail's program menu reads the degree field, which 89 LAS pages leave
@@ -6941,7 +7014,7 @@ export function PlannerWorkspace({
         // Read-only. Rate My Professors profiles matched to a name, or to every instructor the
         // planner knows for a course (its schedule, its syllabi, the student's own choice), as a
         // rundown led by who teaches it in the term that matters (professorRatingsResult).
-        const ratingSchool: RatingsSchool | null = L.context?.schoolId === 'uga' ? 'uga' : isIllinois ? 'illinois' : null;
+        const ratingSchool: RatingsSchool | null = L.context?.schoolId === 'uga' ? 'uga' : leafRatings;
         if (!ratingSchool) return { ok: false, reason: 'The planner holds no student ratings for this school.' };
         const file = await loadProfessorRatings(ratingSchool);
         const asked = str('code');
@@ -6953,7 +7026,7 @@ export function PlannerWorkspace({
         if (c) {
           const at = holding(c.id) ?? takingNow(c.id);
           chosen = at ? chosenInstructor(board, at.id, c.code) : null;
-          if (isIllinois) {
+          if (isLeaf) {
             const [syllabi, detail] = await Promise.all([syllabiOf(c.code), loadIllinoisCourseDetail(c.code).catch(() => null)]);
             const sched = scheduleOf(c);
             const termRows = sched.termId ? (detail?.sectionsByTerm?.[sched.termId] ?? null) : (detail?.sections ?? null);
@@ -6962,7 +7035,7 @@ export function PlannerWorkspace({
             fuller = (detail?.instructors ?? []).map((i) => i.name);
             // The published sections of the term that matters lead the rundown.
             const label = sched.label;
-            if (termRows && label) schedule = { source: `Illinois's published class schedule for ${label}`, term: label, teaches: options.filter((o) => o.teaching).map((o) => ({ name: o.name, terms: [label] })) };
+            if (termRows && label) schedule = { source: `${school?.short ?? 'The university'}'s published class schedule for ${label}`, term: label, teaches: options.filter((o) => o.teaching).map((o) => ({ name: o.name, terms: [label] })) };
           } else {
             ({ names, schedule } = await ugaRatingsInput(c.code, at?.label ?? null));
           }
@@ -7172,7 +7245,7 @@ export function PlannerWorkspace({
       const code = typeof (row as { code?: unknown })?.code === 'string' ? normCode((row as { code: string }).code) : '';
       const course = code ? byCode.get(code) : undefined;
       if (!course || have.has(code) || completedCodes.has(code)) continue;
-      record = withCurrentClass(record, course, view.ref, { id: school.id === 'uga' ? 'uga' : 'illinois', label: 'Added by you' });
+      record = withCurrentClass(record, course, view.ref, { id: school.id, label: 'Added by you' });
       have.add(code);
     }
     if (record && record !== (answers.transcript ?? null)) onAnswersChange({ ...answers, transcript: record });
@@ -7214,7 +7287,7 @@ export function PlannerWorkspace({
    * student wait for a question most of them will never ask.
    */
   const askContext = useCallback(async (): Promise<AskContext | null> => {
-    if (!isIllinois || !plan) return null;
+    if (!leaf || !plan) return null;
     const full = await loadFullIllinois();
     if (!full) return null;
 
@@ -7244,7 +7317,7 @@ export function PlannerWorkspace({
     });
 
     return {
-      schoolId: 'illinois',
+      schoolId: leaf.id,
       data: full.data,
       sectionRows: sectionRowsFrom(full.sections),
       // Every crawled term, so "where does my first class meet" reads the
@@ -7257,7 +7330,7 @@ export function PlannerWorkspace({
       program: loaded?.program ?? null,
       programUrl: loaded?.urls[0]?.url ?? null,
     };
-  }, [isIllinois, plan, courseIndex, completedCodes, selectedCourse, focusTermId, loaded]);
+  }, [leaf, plan, courseIndex, completedCodes, selectedCourse, focusTermId, loaded]);
 
   // ---- render ---------------------------------------------------------------
 
@@ -7267,8 +7340,10 @@ export function PlannerWorkspace({
         <div>
           <h1>Reading the {school?.short} catalog</h1>
           <p>
-            {isIllinois
+            {isIllinoisSchool
               ? 'Courses, requirements, prerequisites, grade history and class times.'
+              : isLeaf
+              ? 'Courses, requirements, prerequisites and offering history.'
               : 'Courses, degree requirements, prerequisites, offering patterns and exam credit.'}
           </p>
         </div>
@@ -7339,7 +7414,7 @@ export function PlannerWorkspace({
     // first term was open, the start note, the career track's note, the
     // goal's courses.
     ...(isUga ? ugaShownNotes(planNotes, ugaStartNote) : planNotes),
-    ...(core?.meta?.notes ?? []).map(studentWording),
+    ...(core?.meta?.notes ?? []).map((note) => studentWording(note, school?.short ?? 'University')),
     ...(isUga
       ? [
           'This planning draft uses requirements and prerequisites from the UGA Bulletin. DegreeWorks and your advisor remain the official check for graduation.',
@@ -7351,7 +7426,7 @@ export function PlannerWorkspace({
             : []),
         ]
       : []),
-    ...(isIllinois && isGraduatePlan ? [gradSettings.caveat] : []),
+    ...(isLeaf && isGraduatePlan ? [gradSettings.caveat] : []),
     ...(programIds.length > 1
       ? [
           isGraduatePlan
@@ -7361,7 +7436,7 @@ export function PlannerWorkspace({
       : []),
     ...(minorIds.length + certificateIds.length > 0
       ? [
-          isIllinois && !isGraduatePlan
+          leafMinors && !isGraduatePlan
             ? 'Minors are a beta: a minor the planner has checked is planned from its catalog page beside your degree, which always comes first; one it has not checked is named with its page and not planned. Campus rules: 16 to 21 hours, 6 of them at the 300 or 400 level apart from your major, courses taken for a grade, and the minor declared with the department that offers it.'
             : 'Selected minors and certificates are planned from their published requirement pages and share courses where the catalog allows. Residency, grade, and application rules still need advisor confirmation.',
         ]
@@ -7382,7 +7457,7 @@ export function PlannerWorkspace({
     // Every published class schedule, so the packet can say which terms are
     // not estimates and which of their courses the schedule does not list.
     // The terms past the first load here, once, if nothing has loaded them yet.
-    const scheduleTerms = isIllinois ? sectionTermsOf(core?.meta) : [];
+    const scheduleTerms = isLeaf ? sectionTermsOf(core?.meta) : [];
     const schedules = scheduleTerms.length > 0 ? await loadIllinoisSectionTerms().catch(() => null) : null;
     const packetSchedules = scheduleTerms.map((t) => {
       const map = schedules?.get(t.id) ?? null;
@@ -7415,7 +7490,8 @@ export function PlannerWorkspace({
           id: school?.id ?? 'demo',
           name: school?.name ?? 'Your university',
           short: school?.short ?? 'your university',
-          audit: isIllinois ? 'uAchieve degree audit' : isUga ? 'DegreeWorks audit' : 'degree audit',
+          // Each school's own audit (onboarding.ts SCHOOLS auditName): uAchieve at Illinois, DegreeWorks at UGA and Georgia Tech.
+          audit: school?.auditName ?? 'degree audit',
         },
         program: {
           name: loaded?.minors?.length
@@ -7509,24 +7585,19 @@ export function PlannerWorkspace({
             title={railOpen ? 'Close progress' : 'Open progress'}
             onClick={() => setRailOpen((open) => !open)}
           >
-            <Image
-              className={`rail-toggle-school-logo${isIllinois && !railOpen ? ' is-illinois-original' : ''}`}
-              src={
-                isUga
-                  ? railOpen
-                    ? '/uga-toggle-logo.png'
-                    : '/uga-school-logo.png'
-                  : isIllinois
-                    ? railOpen
-                      ? '/illinois-toggle-logo.png'
-                      : '/illinois-school-logo.png'
-                    : '/orion-logo.png'
-              }
-              alt=""
-              width={28}
-              height={28}
-              aria-hidden="true"
-            />
+            {railLogo ? (
+              <Image
+                className={`rail-toggle-school-logo${isIllinoisSchool && !railOpen ? ' is-illinois-original' : ''}`}
+                src={railLogo}
+                alt=""
+                width={28}
+                height={28}
+                aria-hidden="true"
+              />
+            ) : (
+              // A school whose logo ORION does not carry (onboarding.ts SCHOOLS logo null): its initials, never another school's mark.
+              <span className="rail-school-text" aria-hidden="true" style={school ? ({ '--school-accent': school.accent } as CSSProperties) : undefined}>{schoolInitials(school?.short ?? '')}</span>
+            )}
           </Button>
           {isCatalogSchool && (
             <BotLauncher
@@ -7626,7 +7697,7 @@ export function PlannerWorkspace({
         }
         areas={areas}
         programLevel={programLevel}
-        supportsGraduatePrograms={isUga || isIllinois}
+        supportsGraduatePrograms={isUga || leafGraduate}
         onProgramLevelChange={changeProgramLevel}
         programs={programOptions}
         programIds={programIds}
@@ -7888,7 +7959,7 @@ export function PlannerWorkspace({
           {plan && earlyText && (
             <span className="board-bar-note" role="note">{earlyText}</span>
           )}
-          {isIllinois && suspendedNotice(programId) && (
+          {isIllinoisSchool && suspendedNotice(programId) && (
             <span className="board-bar-note" role="note">{suspendedNotice(programId)}</span>
           )}
           {plan && (
@@ -8118,7 +8189,7 @@ export function PlannerWorkspace({
               onSelect={selectCurrentClass}
               instructors={instructorControl}
               busy={programBusy}
-              scheduleFrom={isUga ? 'Athena' : 'Student Self-Service'}
+              scheduleFrom={school?.scheduleFrom ?? 'your student portal'}
               onUpload={openRecordUpload}
             />
           )}
@@ -8312,11 +8383,11 @@ function scheduleSentence(terms: Array<{ label: string; year: number; term: stri
   return `Class schedules are published for ${termsInWords(terms)}. A card's section times come from its own term's schedule when that is published, else the latest schedule of the same season (the card says which); the planner's own choices still weigh ${scoringLabel ?? 'the first crawled term'}'s sections.`;
 }
 
-function studentWording(note: string): string {
+function studentWording(note: string, here: string): string {
   const rows = note.match(/^(\d+) of (\d+) program course rows have no credits\.$/);
   if (rows) {
     const total = Number(rows[2]);
-    return `Illinois degree pages leave the credit hours blank on ${Number(rows[1]).toLocaleString()} of the ${total.toLocaleString()} course ${plural(total, 'line')} they print, so a total built from them can come out low.`;
+    return `${here} degree pages leave the credit hours blank on ${Number(rows[1]).toLocaleString()} of the ${total.toLocaleString()} course ${plural(total, 'line')} they print, so a total built from them can come out low.`;
   }
   const positions = note.match(/^(\d+) indexed courses have no map position\.$/);
   if (positions) {
@@ -8373,11 +8444,11 @@ function overTotal(planned: string, degreeTotal: number): string[] {
  * earned, the hours it counts with no course, the lines it left open, and the
  * residency rule against the plan.
  */
-function describeCredit(record: TranscriptRecord | null, prior: PriorCredit, residency: GeneratedPlan['residency'] | null): string {
+function describeCredit(record: TranscriptRecord | null, prior: PriorCredit, residency: GeneratedPlan['residency'] | null, here: string): string {
   const parts: string[] = [];
   if (!prior.known) parts.push('The student said they have credit but nothing usable was recorded, so the plan assumes a clean start.');
   if (record) {
-    const source = record.home === false ? `${record.institution ?? 'another school'}'s ${record.kind === 'transfer_report' ? 'evaluation report' : record.kind === 'degree_audit' ? 'degree audit' : record.kind === 'course_list' ? 'course list' : 'transcript'}` : record.kind === 'course_list' && record.courses.every((c) => c.matchedBy === 'student') ? 'courses the student typed or told the bot' : `the student's ${record.schoolId === 'uga' ? 'UGA' : 'Illinois'} ${record.kind === 'degree_audit' ? 'degree audit' : record.kind === 'transfer_report' ? 'evaluation report' : 'record'}`;
+    const source = record.home === false ? `${record.institution ?? 'another school'}'s ${record.kind === 'transfer_report' ? 'evaluation report' : record.kind === 'degree_audit' ? 'degree audit' : record.kind === 'course_list' ? 'course list' : 'transcript'}` : record.kind === 'course_list' && record.courses.every((c) => c.matchedBy === 'student') ? 'courses the student typed or told the bot' : `the student's ${schoolById(record.schoolId ?? null)?.short ?? here} ${record.kind === 'degree_audit' ? 'degree audit' : record.kind === 'transfer_report' ? 'evaluation report' : 'record'}`;
     const likely = record.courses.filter((c) => c.use && c.counts === 'course' && c.matchedBy === 'proposal').map((c) => `${c.code} as ${c.matched}`);
     const open = transcriptOpenLines(record).map((c) => `${c.code}${c.title ? ` ${c.title}` : ''}${c.proposals?.[0] ? ` (likely ${c.proposals[0].code})` : ''}`);
     parts.push(`Credit read from ${source} (${record.courses.length} lines).`);
@@ -8390,7 +8461,7 @@ function describeCredit(record: TranscriptRecord | null, prior: PriorCredit, res
   if (residency) {
     parts.push(
       residency.ok
-        ? `Residency (45 hours at Illinois, 21 at the 300 level or above) is met: ${residency.heldHours + residency.plannedHours} Illinois hours, ${residency.heldUpper + residency.plannedUpper} upper-level.`
+        ? `Residency (${residency.hours} hours at ${here}, ${residency.upperLevel} at the 300 level or above) is met: ${residency.heldHours + residency.plannedHours} ${here} hours, ${residency.heldUpper + residency.plannedUpper} upper-level.`
         : residency.shortfall ?? '',
     );
   }

@@ -6,7 +6,7 @@ import { sharedGuard, dailyCapUsd, readBodyCapped, visitorKey, worstCaseUsd, tok
 import { aiFailureForLog } from '@/lib/planner/ai-unavailable';
 
 const inputSchema = z.object({
-  school: z.enum(['uga', 'illinois']),
+  school: z.enum(['uga', 'illinois', 'gatech']),
   messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(6000) }).strict()).min(1).max(60),
   context: z.string().max(220000),
 });

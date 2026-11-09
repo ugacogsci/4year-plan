@@ -101,7 +101,7 @@ const COURSELEAF: Record<CourseleafId, CourseleafSchool> = {
     clubs: false,
     syllabi: false,
     ratings: false,
-    careerVectors: false,
+    careerVectors: true,
     careerTracks: false,
     transferAi: false,
     transferGenEdGuide: false,

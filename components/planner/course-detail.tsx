@@ -30,7 +30,8 @@ import { describeExcellent } from '@/lib/planner/quality';
 import type { RawSection } from '@/lib/planner/illinois-data';
 import type { Course } from '@/lib/planner/types';
 import { ugaOfferingLine } from '@/lib/planner/summer-offering';
-import type { SchoolId } from '@/lib/planner/onboarding';
+import { schoolById, type SchoolId } from '@/lib/planner/onboarding';
+import { isCourseleaf } from '@/lib/planner/school-config';
 
 const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
 
@@ -40,10 +41,10 @@ const termWord = (t: string) => {
   return m ? `${TERM_WORD[m[1]]} ${m[2]}` : t;
 };
 
-/** "Ran in Fall 2026, Spring 2026 and Fall 2025" or the plain absence, over the crawled window. */
-function offeredWords(ran: string[], window: string[], was?: string | null): string {
+/** "Ran in Fall 2026, Spring 2026 and Fall 2025" or the plain absence, over the crawled window, by the school's schedule (Illinois's Course Explorer, Georgia Tech's OSCAR). */
+function offeredWords(ran: string[], window: string[], was?: string | null, from = 'the Course Explorer'): string {
   const span = `${termWord(window[window.length - 1])} to ${termWord(window[0])}`;
-  if (ran.length === 0) return `Has not run in any term from ${span}, by the Course Explorer. Check with the department before counting on it.`;
+  if (ran.length === 0) return `Has not run in any term from ${span}, by ${from}. Check with the department before counting on it.`;
   return `Ran${was ? ` (as ${was}, its number until this year)` : ''} in ${ran.map(termWord).join(', ')} (of the ${window.length} terms from ${span}).`;
 }
 
@@ -75,12 +76,13 @@ function offeredWords(ran: string[], window: string[], was?: string | null): str
  * 'harder' and 'hardest' both sit above the 75th. The hardest tenth gets the
  * more specific sentence; everything else above the cut gets the general one.
  */
-const BAND_WORD: Record<string, string> = {
-  easier: 'In the easiest quarter of Illinois undergraduate courses by grade history',
-  typical: 'In the middle half of Illinois undergraduate courses by grade history',
-  harder: 'In the harder quarter of Illinois undergraduate courses by grade history',
-  hardest: 'In the hardest tenth of Illinois undergraduate courses by grade history',
-};
+const bandWord = (band: string, school: string): string =>
+  ({
+    easier: `In the easiest quarter of ${school} undergraduate courses by grade history`,
+    typical: `In the middle half of ${school} undergraduate courses by grade history`,
+    harder: `In the harder quarter of ${school} undergraduate courses by grade history`,
+    hardest: `In the hardest tenth of ${school} undergraduate courses by grade history`,
+  })[band] ?? '';
 
 /**
  * What to say when the sample is too small to place the course.
@@ -177,9 +179,18 @@ export function CourseDetail({
   planTerm?: PlanTermRef | null;
 }) {
   const code = normCode(course.code);
-  const isIllinois = schoolId === 'illinois';
+  // Illinois and Georgia Tech: the CourseLeaf build, with its shards, prerequisites and offerings.
+  const isLeaf = isCourseleaf(schoolId);
   const isUga = schoolId === 'uga';
-  const { detail, loading } = useCourseDetail(code, isIllinois);
+  const school = schoolById(schoolId);
+  /** The school's name in the sentences below: "which Illinois counts as", "Georgia Tech filed". */
+  const short = schoolId === 'illinois' || !school ? 'Illinois' : school.short;
+  /** Where the offering history was read: the Course Explorer at Illinois, OSCAR at Georgia Tech. */
+  const scheduleFrom = schoolId === 'illinois' || !school ? 'the Course Explorer' : school.scheduleFrom;
+  /** A build with no grade history or class times at all (Georgia Tech's) says so, rather than "not loaded". */
+  const noGradeSource = core?.meta?.sources?.grades === null;
+  const noSectionSource = Boolean(core?.meta) && !core?.meta?.term;
+  const { detail, loading } = useCourseDetail(code, isLeaf);
   const spec = core?.prereqs?.get(code) ?? null;
   const summary = core?.grades?.get(code) ?? null;
   const bands = core?.meta?.bands ?? null;
@@ -195,7 +206,7 @@ export function CourseDetail({
   const pick = pickSectionTerm(scheduleTerms, planTerm);
   const coreTermId = core?.meta?.term?.id ?? null;
   const pickedId = pick?.term.id ?? coreTermId;
-  const otherTerm = useSectionTerm(pickedId && pickedId !== coreTermId ? pickedId : null, isIllinois);
+  const otherTerm = useSectionTerm(pickedId && pickedId !== coreTermId ? pickedId : null, isLeaf);
   const termSections = pickedId === coreTermId ? (core?.sections ?? null) : otherTerm.sections;
   const sections = termSections?.get(code) ?? null;
   const scheduleLabel = pick?.term.label ?? core?.meta?.term?.label ?? null;
@@ -288,7 +299,7 @@ export function CourseDetail({
       {!loading && (detail?.course?.description || course.description) && (
         <p className="course-description">{detail?.course?.description || course.description}</p>
       )}
-      {!loading && isIllinois && detail && !detail.course?.description && (
+      {!loading && isLeaf && detail && !detail.course?.description && (
         <p className="course-description quiet">
           The catalog page has no description for this course.
         </p>
@@ -319,7 +330,7 @@ export function CourseDetail({
         {isUga && !course.prerequisiteText && (
           <p className="quiet">The UGA Bulletin lists no prerequisite sentence for this course.</p>
         )}
-        {isIllinois && !core?.prereqs && <p className="quiet">Prerequisites have not loaded.</p>}
+        {isLeaf && !core?.prereqs && <p className="quiet">Prerequisites have not loaded.</p>}
         {/**
           * Said only when the catalog page really is silent.
           *
@@ -330,13 +341,13 @@ export function CourseDetail({
           * because three Illinois pages put an enrolment restriction there and
           * nowhere else.
           */}
-        {isIllinois && core?.prereqs && !spec && (
+        {isLeaf && core?.prereqs && !spec && (
           <p className="quiet">
             The catalog page for this course lists nothing that has to come first. Read the
             description above as well, in case it names one.
           </p>
         )}
-        {isIllinois && spec && (
+        {isLeaf && spec && (
           <>
             {/* The catalog's own sentence. For the 51 courses whose page says
                 the prerequisites are published elsewhere, this IS that
@@ -344,7 +355,7 @@ export function CourseDetail({
             <p>{spec.text}</p>
             {spec.standing && (
               <p className="quiet">
-                You need to be {STANDING_ARTICLE[spec.standing]}, which Illinois counts as{' '}
+                You need to be {STANDING_ARTICLE[spec.standing]}, which {short} counts as{' '}
                 {DEFAULT_STANDING_HOURS[spec.standing]} earned hours. The plan holds this course
                 back until you get there.
               </p>
@@ -374,6 +385,8 @@ export function CourseDetail({
         <h5>How it has gone</h5>
         {isUga ? (
           <p className="quiet">Grade and instructor history is not loaded for UGA in this prototype.</p>
+        ) : noGradeSource ? (
+          <p className="quiet">Grade and instructor history is not loaded for {short} courses.</p>
         ) : grade.kind === 'none' ? (
           /* Still the honest line where there is no row anywhere, and it waits
              for the shard: a course whose numbers are filed under its other
@@ -383,13 +396,13 @@ export function CourseDetail({
             {loading
               ? 'Reading the grade history.'
               : elsewhere
-                ? 'This class is taught under more than one code, and Illinois filed its grade history under one of the others. The numbers are not published under this code.'
+                ? `This class is taught under more than one code, and ${short} filed its grade history under one of the others. The numbers are not published under this code.`
                 : 'No grade history is published for this course.'}
           </p>
         ) : (
           <>
             <p>
-              {grade.placed ? BAND_WORD[grade.band] : HELD_BACK}. Average GPA{' '}
+              {grade.placed ? bandWord(grade.band, short) : HELD_BACK}. Average GPA{' '}
               {grade.gpa ?? 'not published'}
               {grade.aPct !== null && `, ${grade.aPct}% A grades`}
               {grade.withdrawPct !== null && `, ${grade.withdrawPct}% withdrew`}.
@@ -397,8 +410,8 @@ export function CourseDetail({
             {filedUnder && (
               <p className="quiet">
                 {filedUnderOldNumber
-                  ? `Illinois filed those grades under ${filedUnder}, this course's number before it was renumbered.`
-                  : `Illinois filed those grades under ${filedUnder}. It is this same class under its other code.`}
+                  ? `${short} filed those grades under ${filedUnder}, this course's number before it was renumbered.`
+                  : `${short} filed those grades under ${filedUnder}. It is this same class under its other code.`}
               </p>
             )}
             <p className="quiet">
@@ -429,7 +442,11 @@ export function CourseDetail({
         <h5>Who teaches it</h5>
         {!core && <p className="quiet">The teaching lists have not loaded.</p>}
         {core && !core.excellent && (
-          <p className="quiet">No Teachers Ranked as Excellent list is available to this build.</p>
+          <p className="quiet">
+            {schoolId === 'illinois' || !isLeaf
+              ? 'No Teachers Ranked as Excellent list is available to this build.'
+              : `No teaching ratings are loaded for ${short} courses.`}
+          </p>
         )}
         {core?.excellent && (
           <>
@@ -466,18 +483,21 @@ export function CourseDetail({
             </p>
           </>
         )}
-        {isIllinois && !termSections && (
+        {isLeaf && noSectionSource && (
+          <p className="quiet">Class times, rooms and instructors are not loaded for {short} yet.</p>
+        )}
+        {isLeaf && !noSectionSource && !termSections && (
           <p className="quiet">
             {otherTerm.loading && scheduleLabel ? `Reading the ${scheduleLabel} schedule.` : 'The schedule has not loaded.'}
           </p>
         )}
-        {isIllinois && termSections && !sections && (
+        {isLeaf && termSections && !sections && (
           <p className="quiet">
             {scheduleLabel ? `No ${scheduleLabel} section has been read for this course.` : 'No sections read.'}
           </p>
         )}
-        {isIllinois && termSections && !sections && caveat && <p className="quiet">{caveat}</p>}
-        {isIllinois && termSections && !sections &&
+        {isLeaf && termSections && !sections && caveat && <p className="quiet">{caveat}</p>}
+        {isLeaf && termSections && !sections &&
           alsoListed.map((line) => (
             <p key={line} className="quiet">
               {line}
@@ -485,10 +505,10 @@ export function CourseDetail({
           ))}
         {core?.offeringTerms && (
           <p className={core.offerings?.get(code)?.length ? 'quiet' : undefined}>
-            {offeredWords(core.offerings?.get(code) ?? [], core.offeringTerms, core.offeringAliases?.get(code) ?? null)}
+            {offeredWords(core.offerings?.get(code) ?? [], core.offeringTerms, core.offeringAliases?.get(code) ?? null, scheduleFrom)}
           </p>
         )}
-        {isIllinois && sections && (
+        {isLeaf && sections && (
           <>
             <p>
               {sections.total} {plural(sections.total, 'section')} in {sections.termLabel}.
@@ -531,8 +551,8 @@ export function CourseDetail({
                     sections and publishes nothing for the rest. Guessing at the
                     rest would be inventing a rule the university never wrote. */}
                 {sections.restrictions.length > 0
-                  ? `Illinois says: ${sections.restrictions.slice(0, 2).join(' ')}`
-                  : 'Illinois does not say who the restriction is for. Check the section on the schedule page before you plan around it.'}
+                  ? `${short} says: ${sections.restrictions.slice(0, 2).join(' ')}`
+                  : `${short} does not say who the restriction is for. Check the section on the schedule page before you plan around it.`}
               </p>
             )}
             {rows.length === 0 && !loading && (

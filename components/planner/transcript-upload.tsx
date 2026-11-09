@@ -2,8 +2,9 @@
 
 import { useId, useMemo, useRef, useState } from 'react';
 import type { Course } from '@/lib/planner/types';
-import { loadIllinoisIndex } from '@/lib/planner/illinois-load';
+import { loadIllinoisIndex, setCourseleafSchool } from '@/lib/planner/illinois-load';
 import type { School } from '@/lib/planner/onboarding';
+import { courseleafOf, type CourseleafId } from '@/lib/planner/school-config';
 import {
   IMAGE_MEDIA_TYPES,
   TRANSCRIPT_MAX_BYTES,
@@ -27,6 +28,12 @@ import { loadUgaOfferings } from '@/lib/planner/uga-offerings';
 import { declineMaybe, maybeLines } from '@/lib/planner/transfer-maybe';
 import { aiUnavailable } from '@/lib/planner/ai-unavailable';
 import { refineTransfers } from '@/lib/planner/transfer-ai-client';
+
+/** What the typed-course box offers as an example, in each CourseLeaf school's own numbering. */
+const TYPED_EXAMPLE: Record<CourseleafId, string> = {
+  illinois: 'ECON 102, Calculus I',
+  gatech: 'ECON 2105, Differential Calculus',
+};
 
 /**
  * "Upload what you have."
@@ -72,7 +79,11 @@ export function TranscriptUpload({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [catalog, setCatalog] = useState<CatalogLite[] | null>(null);
+  /** The catalog read for matching, with the school it is for: a switch of school never matches against the last one's. */
+  const [loadedCatalog, setLoadedCatalog] = useState<{ school: string | undefined; lite: CatalogLite[] } | null>(null);
+  const catalog = loadedCatalog && loadedCatalog.school === school?.id ? loadedCatalog.lite : null;
+  /** Illinois or Georgia Tech: the CourseLeaf build's index is the catalog. */
+  const leaf = courseleafOf(school?.id);
   const [query, setQuery] = useState('');
 
   /** Load only the active university catalog for credit matching. */
@@ -88,13 +99,15 @@ export function TranscriptUpload({
       const data = (await response.json()) as Course[] | { courses?: Course[] };
       const courses = Array.isArray(data) ? data : Array.isArray(data?.courses) ? data.courses : [];
       const lite = courses.filter((c) => typeof c?.code === 'string').map((c) => ({ code: normalizeCourseCode(c.code), title: c.title, credits: c.credits, level: Number(c.code.match(/\d/)?.[0] ?? 0) * 100, cluster: c.cluster, tags: c.tags }));
-      setCatalog(lite);
+      setLoadedCatalog({ school: school.id, lite });
       return lite;
     }
-    if (school?.id !== 'illinois') return [];
+    if (!leaf) return [];
+    // The loader reads one school's build at a time; this is a no-op when it is already this one.
+    setCourseleafSchool(leaf.id);
     const index = (await loadIllinoisIndex()) ?? [];
     const lite = index.map((c) => ({ code: normalizeCourseCode(c.code), title: c.title, credits: c.credits, level: c.level, cluster: c.cluster, tags: c.tags, ...(c.repeat ? { repeat: c.repeat } : {}) }));
-    setCatalog(lite);
+    setLoadedCatalog({ school: school?.id, lite });
     return lite;
   }
 
@@ -139,7 +152,8 @@ export function TranscriptUpload({
       }
       sent = true;
       const lite = await catalogLite();
-      const guide = school?.id === 'illinois' ? await loadTransferGenEd() : null;
+      // Illinois's published guides of which campus gen-eds another college's courses meet.
+      const guide = leaf?.transferGenEdGuide ? await loadTransferGenEd() : null;
       // UGA's own equivalency list, for the schools this reading names.
       const ugaTable = school?.id === 'uga' ? await loadUgaTransfer([json.reading.institution, ...json.reading.courses.map((c) => c.from)]) : null;
       // UGA codes printed under another subject's listing of a catalog course (ATSC 1112 for GEOG 1112).
@@ -161,7 +175,7 @@ export function TranscriptUpload({
       if (addTo) {
         // More pages of the same record: the lines already settled keep the
         // student's choices, and only the new lines are matched.
-        const fresh = matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable, crossListed);
+        const fresh = matchTranscript(json.reading, names[0], lite, names, guide, school?.id, ugaTable, crossListed);
         const seen = new Set(addTo.courses.map((c) => `${c.code}|${c.term ?? ''}`));
         // A home record added to another school's record (a UGA history after a
         // Georgia State transcript): its own lines say so, or the merged record
@@ -174,7 +188,7 @@ export function TranscriptUpload({
           institution: addTo.institution ?? fresh.institution,
           files: [...(addTo.files ?? [addTo.fileName]), ...names],
           // UGA's one-hour cap on physical education runs over the whole record.
-          courses: applyTransferCaps([...addTo.courses, ...added.map((c) => ({ ...c }))], school?.id === 'uga' ? 'uga' : 'illinois'),
+          courses: applyTransferCaps([...addTo.courses, ...added.map((c) => ({ ...c }))], school?.id),
           exams: [...addTo.exams, ...fresh.exams].filter((e, i, all) => all.findIndex((o) => o.kind === e.kind && o.exam === e.exam) === i),
           notes: [...addTo.notes, ...fresh.notes.filter((n) => !addTo.notes.includes(n))],
           // A completed GECC shown on either upload stays on the record.
@@ -183,12 +197,14 @@ export function TranscriptUpload({
           usgCore: addTo.usgCore ?? fresh.usgCore ?? null,
         });
       } else {
-        const matched = matchTranscript(json.reading, names[0], lite, names, guide, school?.id === 'uga' ? 'uga' : 'illinois', ugaTable, crossListed);
+        const matched = matchTranscript(json.reading, names[0], lite, names, guide, school?.id, ugaTable, crossListed);
         onChange(matched);
-        // The lines nothing settled: one more look, course by course (transfer-ai.ts).
-        if (matched.home === false || matched.courses.some((c) => c.from)) {
+        // The lines nothing settled: one more look, course by course (transfer-ai.ts),
+        // for the schools that look is written for (UGA, and Illinois: school-config.ts transferAi).
+        const aiSchool = school?.id === 'uga' ? 'uga' : !school || leaf?.transferAi ? 'illinois' : null;
+        if (aiSchool && (matched.home === false || matched.courses.some((c) => c.from))) {
           setBusy('Checking how each class transfers');
-          onChange(await refineTransfers(matched, lite, school?.id === 'uga' ? 'uga' : 'illinois'));
+          onChange(await refineTransfers(matched, lite, aiSchool));
         }
       }
     } catch {
@@ -304,7 +320,7 @@ export function TranscriptUpload({
             <ul className="transcript-list">
               {record.courses.map((c, i) => {
                 const maybe = maybeOf.get(i);
-                const foreign = c.from ? !isHomeTranscript(c.from, school?.id === 'uga' ? 'uga' : 'illinois') : record.home === false;
+                const foreign = c.from ? !isHomeTranscript(c.from, school?.id) : record.home === false;
                 const options = countsOptions(c, foreign, known);
                 const value = c.counts === 'course' && c.matched ? `course:${c.matched}` : c.counts;
                 return (
@@ -312,7 +328,7 @@ export function TranscriptUpload({
                     <span className="transcript-line">
                       <span className="transcript-code">{c.code}</span>{' '}
                       <span className="transcript-meta">
-                        {[c.title, c.credits !== null ? `${c.credits} cr` : c.assumedCredits ? `${c.assumedCredits} cr assumed (none printed)` : null, c.grade, c.term, c.from && !isHomeTranscript(c.from, school?.id === 'uga' ? 'uga' : 'illinois') ? c.from : null, c.iai ? `IAI ${c.iai}` : null, c.also?.length ? `also ${c.also.join(', ')}` : null, c.counts === 'hours' && c.genEdTags?.length ? `counts for ${c.genEdTags.join(', ')}` : null, c.matchNote && c.counts !== 'course' ? c.matchNote : null]
+                        {[c.title, c.credits !== null ? `${c.credits} cr` : c.assumedCredits ? `${c.assumedCredits} cr assumed (none printed)` : null, c.grade, c.term, c.from && !isHomeTranscript(c.from, school?.id) ? c.from : null, c.iai ? `IAI ${c.iai}` : null, c.also?.length ? `also ${c.also.join(', ')}` : null, c.counts === 'hours' && c.genEdTags?.length ? `counts for ${c.genEdTags.join(', ')}` : null, c.matchNote && c.counts !== 'course' ? c.matchNote : null]
                           .filter(Boolean)
                           .join(' · ')}
                       </span>
@@ -411,12 +427,12 @@ export function TranscriptUpload({
         </>
       )}
 
-      {school?.id === 'illinois' && (
+      {leaf && (
         <div className="transcript-add">
           <input
             className="prior-search"
             value={query}
-            placeholder="Add a course you have credit for, by code or title (ECON 102, Calculus I)"
+            placeholder={`Add a course you have credit for, by code or title (${TYPED_EXAMPLE[leaf.id]})`}
             aria-label="Add a course you already have credit for"
             onFocus={() => void catalogLite()}
             onChange={(e) => {

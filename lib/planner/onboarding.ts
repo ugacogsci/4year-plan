@@ -1,4 +1,5 @@
 import { isOneBoxSetup } from './goal-words';
+import { isCourseleaf } from './school-config';
 import { readSavedBoard } from './saved-board';
 import type { TranscriptRecord } from './transcript';
 import { normalizeUgaCollegeId, UGA_COLLEGE_BY_ID } from './uga-colleges';
@@ -25,7 +26,13 @@ import { normalizeUgaCollegeId, UGA_COLLEGE_BY_ID } from './uga-colleges';
 /**
  * `bot` is the name of the school's assistant in the planner, taken from the
  * school's own tradition: ALMA after the Alma Mater at Illinois, ARCH after
- * the Arch at UGA.
+ * the Arch at UGA, TOWER after Georgia Tech's Tech Tower.
+ *
+ * `logo` is the school mark the side panel shows and `toggleLogo` the one on
+ * the header's panel button while the panel is open; null shows a text badge
+ * (Georgia Tech: its trademark is the owner's call). `auditName` is what the
+ * school calls its degree audit, and `scheduleFrom` where a student's class
+ * schedule lives, for the screenshot the current-term column asks for.
  */
 export const SCHOOLS = [
   {
@@ -42,6 +49,10 @@ export const SCHOOLS = [
     dropTerm: 'withdrawal',
     catalog: '/uga-catalog.json',
     examCredit: '/uga-exam-credit.json',
+    logo: '/uga-school-logo.png',
+    toggleLogo: '/uga-toggle-logo.png',
+    auditName: 'DegreeWorks audit',
+    scheduleFrom: 'Athena',
   },
   {
     id: 'illinois',
@@ -56,7 +67,34 @@ export const SCHOOLS = [
     feeders: 'Parkland College, Harper, College of DuPage',
     dropTerm: 'withdrawal',
     catalog: null,
-    examCredit: null,
+    // The registrar's AP and IB table (scripts/illinois); exam-credit.ts named it itself before SCHOOLS carried it.
+    examCredit: '/illinois-exam-credit.json',
+    logo: '/illinois-school-logo.png',
+    toggleLogo: '/illinois-toggle-logo.png',
+    auditName: 'uAchieve degree audit',
+    scheduleFrom: 'Student Self-Service',
+  },
+  {
+    id: 'gatech',
+    name: 'Georgia Institute of Technology',
+    short: 'Georgia Tech',
+    bot: 'TOWER',
+    people: 'Yellow Jackets',
+    // Tech Dark Gold: white button text on Tech Gold (#B3A369) is about 2.5:1, on this about 4.6:1.
+    accent: '#857437',
+    portal: 'OSCAR and DegreeWorks',
+    colleges: 'Computing, Engineering, Sciences',
+    town: 'Atlanta',
+    feeders: 'Georgia State, Kennesaw State, Georgia Gwinnett',
+    dropTerm: 'withdrawal',
+    // The catalog is the CourseLeaf engine's (public/gatech/*, illinois-load.ts), not a flat file.
+    catalog: null,
+    // The catalog's AP and IB tables (scripts/gatech/exam-credit.mjs), in the ExamCreditEntry shape exam-credit.ts reads.
+    examCredit: '/gatech-exam-credit.json',
+    logo: null,
+    toggleLogo: null,
+    auditName: 'DegreeWorks audit',
+    scheduleFrom: 'OSCAR',
   },
 ] as const;
 
@@ -71,8 +109,9 @@ export type SchoolId = (typeof SCHOOLS)[number]['id'];
 /**
  * The schools this build can actually plan for.
  *
- * Both schools in SCHOOLS have a catalog and degree pages behind them today.
- * The set stays separate from the roster so a school can be added to SCHOOLS
+ * Illinois and UGA have a catalog and degree pages behind them today;
+ * Georgia Tech is in SCHOOLS and joins this set once public/gatech/ is built
+ * and checked. The set stays separate from the roster so a school can be added to SCHOOLS
  * before its data exists without being offered: a demo catalog under a real
  * university's name is exactly the kind of false statement a degree planner
  * cannot make.
@@ -457,7 +496,7 @@ export function loadAnswers(): OnboardingAnswers | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<OnboardingAnswers>;
     if (!parsed.schoolId) return null;
-    const savedBoard = !Array.isArray(parsed.programIds) && parsed.schoolId === 'illinois'
+    const savedBoard = !Array.isArray(parsed.programIds) && isCourseleaf(parsed.schoolId)
       ? readSavedBoard(window.localStorage, parsed.schoolId)
       : null;
     return {
@@ -469,7 +508,7 @@ export function loadAnswers(): OnboardingAnswers | null {
       // transfer check (2026-11-04, the owner's test). A record from before
       // the field was matched for the school then picked.
       transcript: parsed.transcript
-        ? { ...parsed.transcript, schoolId: parsed.transcript.schoolId === 'uga' || parsed.transcript.schoolId === 'illinois' ? parsed.transcript.schoolId : parsed.schoolId === 'uga' ? 'uga' : 'illinois' }
+        ? { ...parsed.transcript, schoolId: parsed.transcript.schoolId === 'uga' || parsed.transcript.schoolId === 'illinois' || parsed.transcript.schoolId === 'gatech' ? parsed.transcript.schoolId : parsed.schoolId === 'uga' || parsed.schoolId === 'gatech' ? parsed.schoolId : 'illinois' }
         : null,
       programLevel: parsed.programLevel === 'graduate' ? 'graduate' : 'undergraduate',
       doubleDawgsPathwayId: parsed.schoolId === 'uga' && parsed.programLevel !== 'graduate' && typeof parsed.doubleDawgsPathwayId === 'string'

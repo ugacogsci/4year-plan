@@ -52,10 +52,17 @@ export const LOOKUP_SCHOOLS: Record<string, LookupSchool> = {
     short: 'UGA',
     domains: ['uga.edu'],
   },
+  // catalog., registrar., admission. and the colleges' sites are all under gatech.edu.
+  gatech: {
+    id: 'gatech',
+    name: 'the Georgia Institute of Technology',
+    short: 'Georgia Tech',
+    domains: ['gatech.edu'],
+  },
 };
 
 /** Students read these. "illinois" is an id, not a name. */
-export const SCHOOL_NAME: Record<string, string> = { illinois: 'Illinois', uga: 'UGA' };
+export const SCHOOL_NAME: Record<string, string> = { illinois: 'Illinois', uga: 'UGA', gatech: 'Georgia Tech' };
 
 /**
  * The model. Claude Sonnet 5.5 rather than ALMA's Opus: measured side by side

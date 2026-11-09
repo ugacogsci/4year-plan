@@ -17,7 +17,10 @@ export type Feature = typeof FEATURES[number];
 export type EventName = typeof EVENTS[number];
 export type Consent = { version: 2; usage: boolean; content: boolean; transcript?: boolean };
 export type Properties = Record<string, string | number | boolean>;
-export interface InsightEvent { id: string; name: EventName; screen: Screen; school: 'uga' | 'illinois' | ''; properties: Properties }
+/** The schools an event or a report may name (lib/planner/school-config.ts SchoolKey); anything else is stored as ''. */
+export const INSIGHT_SCHOOLS = ['uga', 'illinois', 'gatech'] as const;
+export type InsightSchool = typeof INSIGHT_SCHOOLS[number];
+export interface InsightEvent { id: string; name: EventName; screen: Screen; school: InsightSchool | ''; properties: Properties }
 export const isToken = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 export const isId = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9-]{36}$/.test(value);
 export function consentOf(raw: unknown): Consent | null {
@@ -61,7 +64,7 @@ export function cleanEvent(raw: unknown, consent: Consent): InsightEvent | null 
     if (lines.every((line) => /^[A-Z]{2,6} \d{3,5}[A-Z]? \| (?:\d{1,2}(?:\.\d{1,2})?|unknown) cr$/.test(line))) result.text = lines.join('\n');
   }
   if (e.name === 'content' && !result.text) return null;
-  return { id: e.id, name: e.name as EventName, screen: e.screen as Screen, school: includes(['uga', 'illinois'], e.school) ? e.school as 'uga' | 'illinois' : '', properties: result };
+  return { id: e.id, name: e.name as EventName, screen: e.screen as Screen, school: includes(INSIGHT_SCHOOLS, e.school) ? e.school as InsightSchool : '', properties: result };
 }
 
 export type Feedback = { id: string; kind: 'feedback' | 'bug'; message: string; replyTo: string; usefulness: string; screen: string; school: string; device: string };
@@ -73,7 +76,7 @@ export function cleanFeedback(raw: unknown): Feedback | null {
   if (replyTo && (replyTo.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(replyTo))) return null;
   return { id: f.id, kind: f.kind as Feedback['kind'], message: f.message.trim(), replyTo,
     usefulness: includes(['helpful', 'mixed', 'not_helpful'], f.usefulness) ? f.usefulness : '',
-    screen: includes(SCREENS, f.screen) ? f.screen : '', school: includes(['uga', 'illinois'], f.school) ? f.school : '',
+    screen: includes(SCREENS, f.screen) ? f.screen : '', school: includes(INSIGHT_SCHOOLS, f.school) ? f.school : '',
     device: includes(['small', 'medium', 'large'], f.device) ? f.device : '' };
 }
 export function feedbackText(f: Feedback): string {

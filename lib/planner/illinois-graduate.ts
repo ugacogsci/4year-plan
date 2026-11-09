@@ -13,6 +13,7 @@ import type { CourseFacts, PrereqSpec, SectionSummary } from './illinois-data.ts
 import { attachRequirementIds } from './illinois-data.ts';
 import type { IllinoisCore, IllinoisIndexRow, IllinoisOfferingsFile, IllinoisSectionsFile } from './illinois-load.ts';
 import { applyOfferings, hydrateIndexRow } from './illinois-load.ts';
+import type { SchoolKey } from './school-config.ts';
 
 /**
  * Illinois graduate and professional programs, read for a plan (not switched on yet).
@@ -1271,8 +1272,21 @@ export interface GraduatePlanSettings {
  * stays the planner's current Illinois 12 and `confirmed` is false until the
  * Graduate College handbook's full-time rule is read and put here.
  */
-export function graduatePlanSettings(school: 'uga' | 'illinois'): GraduatePlanSettings {
+export function graduatePlanSettings(school: SchoolKey): GraduatePlanSettings {
   const standingHours = { freshman: 0, sophomore: 0, junior: 0, senior: 0 };
+  // Georgia Tech: the planner has no graduate programs for it (school-config.ts graduate false), so
+  // nothing is claimed. Its graduate courses are the 6000s, which courseLevel reads as 600 like UGA's.
+  if (school === 'gatech') {
+    return {
+      minimumTermCredits: 12,
+      targetTermCredits: null,
+      standingHours,
+      electiveLevelRange: { min: 600, maxExclusive: 1000 },
+      autoPrerequisiteLevelRange: { min: 600, maxExclusive: 1000 },
+      caveat: 'The planner does not check Georgia Tech graduate programs. Your school and the Graduate Studies office confirm your program of study and full-time load.',
+      confirmed: false,
+    };
+  }
   if (school === 'uga') {
     return {
       minimumTermCredits: 9,

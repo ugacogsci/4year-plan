@@ -1,0 +1,31 @@
+/* ORION design system: the degree-menu picker (components/planner/program-picker.tsx ProgramMenuPicker)
+
+   Georgia Tech's degrees are menus: the student picks a degree, then a
+   concentration or two threads. The picker reuses .program-picker for the
+   list and the emphasis card (.emphasis-picker, .emphasis-group) for the
+   choice, so only what those lack is here: the card's fit inside the
+   picker, and its "Back to the list" link. Tokens are app/redesign.css's. */
+
+.program-menu-picker .program-choice {
+  max-width: none;
+  margin: 0;
+}
+
+.program-menu-picker .program-choice-cancel {
+  display: block;
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ds-text-2);
+  font: 500 var(--ds-sm)/1.4 var(--ds-font);
+  text-decoration: underline;
+  text-decoration-color: var(--ds-border-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color var(--ds-fast) var(--ds-ease), text-decoration-color var(--ds-fast) var(--ds-ease);
+}
+.program-menu-picker .program-choice-cancel:hover {
+  color: var(--ds-text);
+  text-decoration-color: currentColor;
+}

@@ -28,6 +28,7 @@
 import { genEdTagsFromText, guideSchool, iaiArea, proposeEquivalents, type CatalogLite, type EquivalentProposal, type TransferGenEdGuide } from './transfer-match';
 import { sisterAnswer, sisterNames } from './transfer-sisters';
 import type { GenEdCredit, PlanningContext } from './autoplan';
+import type { SchoolKey } from './school-config';
 import {
   ILLINOIS_GENED_TRANSFER,
   ILLINOIS_TRANSFER_POLICIES,
@@ -237,7 +238,7 @@ export interface TranscriptCourseRecord extends TranscriptCourse {
 
 /** What the student keeps, alongside the rest of their answers. */
 export interface TranscriptRecord {
-  schoolId?: 'uga' | 'illinois';
+  schoolId?: SchoolKey;
   fileName: string;
   readAt: string;
   institution: string | null;
@@ -283,7 +284,14 @@ export interface TranscriptUploadFile {
  * or several read together so a course list that spans two screenshots is
  * one list with one institution.
  */
-export type TranscriptUploadBody = (TranscriptUploadFile | { files: TranscriptUploadFile[] }) & { schoolId?: 'uga' | 'illinois' };
+export type TranscriptUploadBody = (TranscriptUploadFile | { files: TranscriptUploadFile[] }) & { schoolId?: SchoolKey };
+
+/**
+ * Georgia Tech's transfer-credit page (catalog, 2026-2027 edition, read 2026-11-09): credit for
+ * courses "completed with satisfactory grades (\"C\" or better)" that "correspond in time and
+ * content to courses offered at Georgia Tech", from an official transcript.
+ */
+export const GATECH_TRANSFER_CREDIT = 'https://catalog.gatech.edu/academics/undergraduate/credit-tests-scores/transfer-credit/';
 
 export const TRANSCRIPT_MAX_BYTES = 10 * 1024 * 1024;
 export const TRANSCRIPT_MAX_FILES = 8;
@@ -350,10 +358,12 @@ export function normalizeTerm(raw: string | null): string | null {
  * into an Illinois planner, and the codes either match the catalog or they do
  * not.
  */
-export function isHomeTranscript(institution: string | null | undefined, schoolId: 'uga' | 'illinois' = 'illinois'): boolean {
+export function isHomeTranscript(institution: string | null | undefined, schoolId: SchoolKey = 'illinois'): boolean {
   if (!institution || !institution.trim()) return true;
   const name = institution.toLowerCase();
   if (schoolId === 'uga') return /university of georgia|\buga\b/.test(name);
+  // Georgia Tech by its name, its short name or its domain; "South Georgia Technical College" is another school.
+  if (schoolId === 'gatech') return /\bgeorgia institute of technology\b|\bgeorgia tech\b|\bgatech\b/.test(name);
   if (/\b(urbana|champaign|uiuc)\b/.test(name)) return true;
   if (/university of illinois/.test(name) && !/\b(chicago|springfield|uic|uis)\b/.test(name)) return true;
   return false;
@@ -398,7 +408,7 @@ export function readingOfRecord(record: TranscriptRecord): TranscriptReading {
 
 /** A record matched for a different school than the board's: it has to be matched again before it counts here. */
 export function recordIsForOtherSchool(record: TranscriptRecord | null | undefined, schoolId: string | null | undefined): boolean {
-  return Boolean(record && record.schoolId && (schoolId === 'uga' || schoolId === 'illinois') && record.schoolId !== schoolId);
+  return Boolean(record && record.schoolId && (schoolId === 'uga' || schoolId === 'illinois' || schoolId === 'gatech') && record.schoolId !== schoolId);
 }
 
 /** Whether a line's hours will count toward the degree. */
@@ -471,7 +481,7 @@ export function matchTranscript(
   files: string[] = [fileName],
   /** Published guides of which Illinois gen-ed categories another school's courses meet. */
   guide: TransferGenEdGuide | null = null,
-  schoolId: 'uga' | 'illinois' = 'illinois',
+  schoolId: SchoolKey = 'illinois',
   /** UGA's own equivalency list for the schools the reading names (transfer-official.ts). */
   ugaTable: UgaTransferTable | null = null,
   /**
@@ -483,6 +493,10 @@ export function matchTranscript(
 ): TranscriptRecord {
   const known = new Map(catalog.map((c) => [c.code, c]));
   const uga = schoolId === 'uga';
+  /** Georgia Tech: no equivalency list, IAI guide or GECC here; its own transfer-credit page's rules. */
+  const gatech = schoolId === 'gatech';
+  /** What a sentence calls the school the record is matched for. */
+  const here = uga ? 'UGA' : gatech ? 'Georgia Tech' : 'Illinois';
   /**
    * The catalog course a UGA line names under a number the catalog does not
    * list, and why: an online, honors, writing or service-learning section
@@ -606,7 +620,7 @@ export function matchTranscript(
           illinoisCredits: creditsOfCode(code),
           counts: off ? 'none' : 'course',
           use: !off,
-          ...(fromElsewhere ? { basis: { from: 'document' as const, badge: 'course' as const, text: `Your ${uga ? 'UGA' : 'Illinois'} record lists it as ${code}.`, source: null } } : {}),
+          ...(fromElsewhere ? { basis: { from: 'document' as const, badge: 'course' as const, text: `Your ${here} record lists it as ${code}.`, source: null } } : {}),
         };
       }
       const named = ugaNamed(code);
@@ -633,7 +647,16 @@ export function matchTranscript(
         use: false,
         basis: c.status === 'no_credit'
           ? { from: 'document', badge: 'none', text: 'The document says this line earns no credit.', source: null }
-          : { from: 'rule', badge: 'none', text: `A course below college level (learning support or remedial) does not transfer to ${uga ? 'UGA' : 'Illinois'}.`, source: uga ? UGA_TRANSFER_GUIDE : ILLINOIS_TRANSFER_POLICIES },
+          : { from: 'rule', badge: 'none', text: `A course below college level (learning support or remedial) does not transfer to ${here}.`, source: uga ? UGA_TRANSFER_GUIDE : gatech ? GATECH_TRANSFER_CREDIT : ILLINOIS_TRANSFER_POLICIES },
+      };
+    }
+    // Georgia Tech grants transfer credit for a C or better only, so a D earns nothing there.
+    if (gatech && isDGrade(c.grade) && !off) {
+      return {
+        ...base,
+        counts: 'none',
+        use: false,
+        basis: { from: 'rule', badge: 'none', text: 'Georgia Tech grants transfer credit only for courses passed with a C or better, so a D does not count. Change it if Georgia Tech evaluates it otherwise.', source: GATECH_TRANSFER_CREDIT },
       };
     }
     const gradeNote = isDGrade(c.grade) && !off
@@ -824,12 +847,14 @@ export function matchTranscript(
         ...base,
         counts: 'none',
         use: false,
-        basis: { from: 'rule', badge: 'none', text: 'This looks like a vocational (career-program) course, and Illinois says vocational courses do not transfer, so it probably does not count. Change it if Illinois evaluates it otherwise.', source: ILLINOIS_TRANSFER_POLICIES },
+        basis: gatech
+          ? { from: 'rule', badge: 'none', text: 'This looks like a vocational (career-program) course, and Georgia Tech grants transfer credit only for courses that correspond to its own, so it probably does not count. Change it if Georgia Tech evaluates it otherwise.', source: GATECH_TRANSFER_CREDIT }
+          : { from: 'rule', badge: 'none', text: 'This looks like a vocational (career-program) course, and Illinois says vocational courses do not transfer, so it probably does not count. Change it if Illinois evaluates it otherwise.', source: ILLINOIS_TRANSFER_POLICIES },
       };
     }
     // Guesses below "possible" are hidden: "Program Design II" offered an
     // architecture course. The student can still pick any course by hand.
-    const proposals = proposeEquivalents({ code, title: c.title, credits: c.credits }, catalog).filter((p) => p.confidence !== 'low');
+    const proposals = proposeEquivalents({ code, title: c.title, credits: c.credits }, catalog, 3, gatech ? 'gatech' : 'illinois').filter((p) => p.confidence !== 'low');
     const best = proposals[0];
     if (best && best.confidence === 'high') {
       const also = proposals.filter((p) => p.pairedWith === best.code).map((p) => p.code);
@@ -844,7 +869,9 @@ export function matchTranscript(
         counts: off ? 'none' : 'course',
         use: !off,
         ...(also.length ? { also } : {}),
-        basis: { from: 'none', badge: 'course', text: `Counted as ${[best.code, ...also].join(' + ')}, the planner's likely match for this course. Illinois's Transfer Course Evaluation Report (or Transferology) decides.`, source: ILLINOIS_TRANSFERRING_CREDIT },
+        basis: gatech
+          ? { from: 'none', badge: 'course', text: `Counted as ${[best.code, ...also].join(' + ')}, the planner's likely match for this course. Georgia Tech's evaluation of your official transcript decides.`, source: GATECH_TRANSFER_CREDIT }
+          : { from: 'none', badge: 'course', text: `Counted as ${[best.code, ...also].join(' + ')}, the planner's likely match for this course. Illinois's Transfer Course Evaluation Report (or Transferology) decides.`, source: ILLINOIS_TRANSFERRING_CREDIT },
       };
     }
     return {
@@ -853,14 +880,23 @@ export function matchTranscript(
       proposals,
       counts: off ? 'none' : 'hours',
       use: !off,
-      basis: {
-        from: 'none',
-        badge: 'not-evaluated',
-        text: best
-          ? `Not yet evaluated by Illinois: it may be ${best.code}. It counts as hours until you confirm the course below (from Transferology or your Transfer Course Evaluation Report).`
-          : 'Not yet evaluated by Illinois: it counts as hours toward your total until Illinois evaluates it.',
-        source: ILLINOIS_TRANSFERRING_CREDIT,
-      },
+      basis: gatech
+        ? {
+            from: 'none',
+            badge: 'not-evaluated',
+            text: best
+              ? `Not yet evaluated by Georgia Tech: it may be ${best.code}. It counts as hours until you confirm the course below (from Georgia Tech's evaluation of your official transcript).`
+              : 'Not yet evaluated by Georgia Tech: it counts as hours toward your total until Georgia Tech evaluates it.',
+            source: GATECH_TRANSFER_CREDIT,
+          }
+        : {
+            from: 'none',
+            badge: 'not-evaluated',
+            text: best
+              ? `Not yet evaluated by Illinois: it may be ${best.code}. It counts as hours until you confirm the course below (from Transferology or your Transfer Course Evaluation Report).`
+              : 'Not yet evaluated by Illinois: it counts as hours toward your total until Illinois evaluates it.',
+            source: ILLINOIS_TRANSFERRING_CREDIT,
+          },
     };
   });
   applyTransferCaps(courses, schoolId);
@@ -1051,7 +1087,9 @@ export function matchTranscript(
     const fromSisters = foreign.filter((c) => c.basis?.from === 'sisters').length;
     const sisterNote = fromSisters > 0 ? ` Where UGA's own list for the school has no line, UGA's answer for the same course number at sister schools in the same system comes next: ${fromSisters} ${fromSisters === 1 ? 'line takes it, and names' : 'lines take it, and each names'} those schools.` : '';
     notes.unshift(
-      schoolId === 'uga' ? `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Each line says what it becomes at UGA and why: UGA's own equivalency list first (a UGA course, a core elective, elective hours only, or no credit), then UGA's published rules.${sisterNote} A line the list does not cover counts as hours until UGA evaluates it. UGA's evaluation after admission is the decision.` : `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Illinois decides what transfers and as which course (Transferology is the estimate, the Transfer Evaluation Report the decision).${
+      schoolId === 'uga' ? `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Each line says what it becomes at UGA and why: UGA's own equivalency list first (a UGA course, a core elective, elective hours only, or no credit), then UGA's published rules.${sisterNote} A line the list does not cover counts as hours until UGA evaluates it. UGA's evaluation after admission is the decision.` : gatech ? `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Georgia Tech decides what transfers and as which course, from your official transcript, and grants credit only for a C or better.${
+        proposed > 0 ? ` ${proposed} ${proposed === 1 ? 'has' : 'have'} a likely Georgia Tech equivalent filled in from the catalog's titles; check each.` : ''
+      }${asHours > 0 ? ` ${asHours} ${asHours === 1 ? 'counts' : 'count'} as hours toward the total until you pick the Georgia Tech course it became.` : ''}` : `${foreign.length} ${foreign.length === 1 ? 'line is' : 'lines are'} from ${where}. Illinois decides what transfers and as which course (Transferology is the estimate, the Transfer Evaluation Report the decision).${
         proposed > 0 ? ` ${proposed} ${proposed === 1 ? 'has' : 'have'} a likely Illinois equivalent filled in from the catalog's titles; check each.` : ''
       }${asHours > 0 ? ` ${asHours} ${asHours === 1 ? 'counts' : 'count'} as hours toward the total until you pick the Illinois course it became.` : ''}`,
     );
@@ -1166,7 +1204,7 @@ function guideExpired(effective: string | null, _reading: TranscriptReading): bo
  * first hour are capped or left out, first lines first, with the reason on
  * the line. Run again over a record that grows by another upload.
  */
-export function applyTransferCaps(courses: TranscriptCourseRecord[], schoolId: 'uga' | 'illinois' = 'illinois'): TranscriptCourseRecord[] {
+export function applyTransferCaps(courses: TranscriptCourseRecord[], schoolId: SchoolKey = 'illinois'): TranscriptCourseRecord[] {
   if (schoolId !== 'uga') return courses;
   let left = 1;
   for (const line of courses) {
@@ -1392,7 +1430,7 @@ export function transcriptResidentHours(record: TranscriptRecord | null | undefi
     if (c.matchedBy === 'student') continue;
     const hours = c.credits ?? 0;
     total += hours;
-    if ((record.schoolId === 'uga' ? /\b[345]\d{3}[A-Z]?$/ : /\b[34]\d\d[A-Z]?$/).test(c.matched ?? c.code)) upper += hours;
+    if ((record.schoolId === 'uga' ? /\b[345]\d{3}[A-Z]?$/ : record.schoolId === 'gatech' ? /\b[34]\d{3}[A-Z]?$/ : /\b[34]\d\d[A-Z]?$/).test(c.matched ?? c.code)) upper += hours;
   }
   return { total, upper };
 }

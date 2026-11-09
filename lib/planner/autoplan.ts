@@ -1,4 +1,5 @@
 import type { Course, PlanIssue, PlanState, PlanTerm, SemesterSeason } from './types';
+import type { SchoolKey } from './school-config';
 import { termLoad, type GradeRow } from './scheduler';
 import { ILLINOIS_SUBJECT_NAMES } from './illinois-subjects';
 import { forSchool, interestProfile, labPartners, phraseWordsOf, UGA_CAREER_TRACKS, withHeldVariants, type CareerTrack, type InterestProfile, type TrackCourse } from './career-tracks';
@@ -397,7 +398,7 @@ export interface PlanningContext {
   undergraduateCounterparts?: Map<string, string>;
   /** Registration windows for explicit combined-degree courses, in calendar terms. */
   courseNotBefore?: ReadonlyMap<string, { season: SemesterSeason; year: number }>;
-  schoolId?: 'uga' | 'illinois';
+  schoolId?: SchoolKey;
   /** Named courses in this student's official sample plans; a final tie-break only. */
   samplePlanCourses?: ReadonlySet<string>;
   /** Catalog courses in the planner's own shape. Credits and titles come from here, never from a program row. */
@@ -3477,7 +3478,7 @@ function outOfSeason(course: { offeredIn: SemesterSeason[]; summerYears?: Summer
  * falls and springs alone. Illinois's seasons come from its offering history
  * and count as they always have.
  */
-function seasonCount(course: { offeredIn: SemesterSeason[] }, ctx: { schoolId?: 'uga' | 'illinois' }): number {
+function seasonCount(course: { offeredIn: SemesterSeason[] }, ctx: { schoolId?: SchoolKey }): number {
   return ctx.schoolId === 'uga' ? regularSeasons(course.offeredIn).length : course.offeredIn.length;
 }
 

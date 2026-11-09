@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from 'react';
 import { examRows, grantCode, type ExamCreditEntry, type PriorExam, type School } from '@/lib/planner/onboarding';
+import { courseleafOf } from '@/lib/planner/school-config';
 
 export interface ExamCreditTable {
   entries: ExamCreditEntry[];
@@ -25,17 +26,47 @@ const EMPTY: ExamCreditTable = { entries: [], policy: '', source: '' };
 /**
  * Where a school's exam table lives.
  *
- * SCHOOLS carries this for UGA and nothing else, and adding Illinois to it
- * means editing lib/planner/onboarding.ts, which another agent owns. The
- * Illinois file is named here instead so the control works today; the right
- * home for this line is the School record, and it should move there.
+ * The School record's examCredit when it names one (UGA's, Georgia Tech's).
+ * A CourseLeaf school without one reads its crawl's table by the crawl's own
+ * file name, public/<prefix>-exam-credit.json (Illinois's), which is the same
+ * shape: scripts/illinois/exam-credit.mjs and scripts/gatech/exam-credit.mjs
+ * write it.
  */
 export function examCreditUrl(school: School | undefined): string | null {
   if (!school) return null;
-  if (school.examCredit) return school.examCredit;
-  if (school.id === 'illinois') return '/illinois-exam-credit.json';
-  return null;
+  const own: string | null = school.examCredit;
+  if (own) return own;
+  const leaf = courseleafOf(school.id);
+  return leaf ? `/${leaf.rawPrefix}-exam-credit.json` : null;
 }
+
+/**
+ * Table rows written in a school's own spelling of the exams.
+ *
+ * Georgia Tech's catalog writes "Mathematics - Calculus AB", "Economics
+ * (Macroeconomics)", "Physics C, Part I: Mechanics" and "United States
+ * (American) History" where a score report writes "Calculus AB",
+ * "Macroeconomics", "Physics C: Mechanics" and "United States History", so a
+ * name the strict comparison finds nothing for is tried once more with both
+ * sides spelled plainly (plainExam). Only rows of a table whose file names a
+ * school other than Illinois and UGA are marked: those two are matched exactly
+ * as they always were.
+ */
+const LOOSE_ROWS = new WeakSet<ExamCreditEntry>();
+
+const plainExam = (s: string): string =>
+  s
+    .replace(/^\s*Mathematics\s*-\s*/i, '')
+    .replace(/^\s*Economics\s*\(\s*(Macro|Micro)economics\s*\)/i, '$1economics')
+    .replace(/\s*\(American\)\s*/gi, ' ')
+    .replace(/,\s*Part I{1,2}\s*:/i, ':')
+    .replace(/\bElect\b\.?\s*(?:&|and)\s*Magnetism\b/i, 'Electricity & Magnetism')
+    .replace(/^\s*Latin\s*\(Language\s*(?:and|&)\s*Culture\)/i, 'Latin')
+    .replace(/:\s*Algebra-?\s*Based\b/i, '')
+    .replace(/^\s*World History:\s*Modern\b/i, 'World History')
+    .replace(/^\s*Studio Art:\s*/i, '')
+    .replace(/^\s*([23])-?D Art\s*(?:and|&)\s*Design\b/i, '$1-D Design')
+    .trim();
 
 let cache: { url: string; table: Promise<ExamCreditTable> } | null = null;
 
@@ -43,12 +74,16 @@ export function loadExamCredit(url: string | null): Promise<ExamCreditTable> {
   if (!url) return Promise.resolve(EMPTY);
   if (cache?.url === url) return cache.table;
   const table = fetch(url)
-    .then((res) => (res.ok ? (res.json() as Promise<Partial<ExamCreditTable>>) : null))
-    .then((data) => ({
-      entries: data?.entries ?? [],
-      policy: data?.policy ?? '',
-      source: data?.source ?? '',
-    }))
+    .then((res) => (res.ok ? (res.json() as Promise<Partial<ExamCreditTable> & { school?: string }>) : null))
+    .then((data) => {
+      const entries = data?.entries ?? [];
+      if (data?.school && data.school !== 'illinois' && data.school !== 'uga') for (const row of entries) LOOSE_ROWS.add(row);
+      return {
+        entries,
+        policy: data?.policy ?? '',
+        source: data?.source ?? '',
+      };
+    })
     .catch(() => {
       // A table that did not load must not be remembered as an empty one, or a
       // student who reloads gets "no credit" for the rest of the session.
@@ -282,13 +317,23 @@ export function resolveExam(
   const level = all.find((w) => w === 'HL' || w === 'SL') ?? null;
   const want = all.filter((w) => w !== 'HL' && w !== 'SL');
   if (want.length === 0) return null;
-  const candidates = names.filter((e) => {
+  let candidates = names.filter((e) => {
     if (e.kind !== kind) return false;
     if (kind === 'IB' && level && e.level && !e.level.startsWith(level)) return false;
     if (aliasName) return e.exam.toUpperCase() === aliasName.toUpperCase() || e.exam.split(/\s+-\s+Entering\b/i)[0].toUpperCase() === aliasName.toUpperCase();
     const base = e.exam.split(/\s+-\s+Entering\b/i)[0];
     return same(want, words(base));
   });
+  // A table in its own spelling (LOOSE_ROWS): both names spelled plainly, and
+  // the aliases above, which are Illinois's spellings, left out.
+  if (candidates.length === 0 && names.some((e) => LOOSE_ROWS.has(e))) {
+    const plainWant = words(plainExam(bare)).filter((w) => w !== 'HL' && w !== 'SL');
+    candidates = plainWant.length === 0 ? [] : names.filter((e) => {
+      if (e.kind !== kind || !LOOSE_ROWS.has(e)) return false;
+      if (kind === 'IB' && level && e.level && !e.level.startsWith(level)) return false;
+      return same(plainWant, words(plainExam(e.exam.split(/\s+-\s+Entering\b/i)[0])));
+    });
+  }
   if (candidates.length === 0) return null;
   // Calculus has a table for students entering Grainger and one for everyone else.
   // An IB exam named with no level is read as Standard Level, the level that
@@ -436,12 +481,20 @@ const PREHEALTH_PREREQS = /^(IB 15[01]|MCB 15[01]|CHEM 10[2-5]|CHEM 20[2-5]|PHYS
  * Biology department's own AP page says so and advises taking IB 150 and
  * MCB 150 on campus (biology.illinois.edu/admissions/advice-advanced-placement-ap-credit).
  */
-export function examCreditNotes(input: { words: string; examCodes: string[]; transcriptCodes: string[] }): string[] {
+export function examCreditNotes(input: {
+  words: string;
+  examCodes: string[];
+  transcriptCodes: string[];
+  /** The school's short name ("Georgia Tech"); Illinois when left out. The health-professions note below is Illinois's own advice and is given for Illinois only. */
+  school?: string;
+}): string[] {
   const notes: string[] = [];
+  const school = input.school ?? 'Illinois';
   const both = input.examCodes.filter((code) => input.transcriptCodes.includes(code));
   if (both.length > 0) {
-    notes.push(`Your exam credit and your transcript both give ${both.join(', ')}. Illinois grants a course's credit once, so ${both.length === 1 ? 'it is' : 'they are'} counted once.`);
+    notes.push(`Your exam credit and your transcript both give ${both.join(', ')}. ${school} grants a course's credit once, so ${both.length === 1 ? 'it is' : 'they are'} counted once.`);
   }
+  if (school !== 'Illinois') return notes;
   const prehealth = /\b(pre-?med\w*|medical school|med school|pre-?health|pre-?dent\w*|dental school|pharmacy|pre-?pharm\w*|physician assistant|pa school|physical therapy|pt school|pre-?pt|vet school|veterinary|pre-?vet|optometry|occupational therapy)\b/i.test(input.words);
   const science = input.examCodes.filter((code) => PREHEALTH_PREREQS.test(code));
   if (prehealth && science.length > 0) {

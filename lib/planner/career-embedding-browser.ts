@@ -14,9 +14,12 @@
  *
  * Any failure (a missing file, an old browser, no WebAssembly) is caught,
  * logged once, and answered with null for the rest of the visit: the plan
- * is then built from the goal's words, as it is with the flag off.
+ * is then built from the goal's words, as it is with the flag off. A school
+ * whose course vectors are missing answers null on its own, so Georgia Tech
+ * before its vectors are built leaves Illinois and UGA working.
  */
 import { CAREER_MODEL, careerFitFor, courseVectorsFrom, goalQuery, pathwayVectorsFrom, type CareerFit, type CourseVectors, type CourseVectorsMeta, type PathwayVectors, type PathwayVectorsMeta } from './career-embedding';
+import type { SchoolKey } from './school-config';
 
 const BASE = '/career-model/';
 
@@ -24,6 +27,14 @@ type Embed = (text: string) => Promise<Float32Array>;
 let embedder: Promise<Embed> | null = null;
 let broken = false;
 const vectors = new Map<string, Promise<CourseVectors>>();
+/**
+ * Schools whose course vectors are not on this site (a 404, or a file that
+ * would not read): that school answers null for the rest of the visit, and
+ * the model and the other schools keep working. Georgia Tech's are built
+ * separately (public/gatech/course-vectors.*); until they exist its goals
+ * are matched by their words, as with the flag off.
+ */
+const missingVectors = new Set<string>();
 const goals = new Map<string, Promise<Float32Array>>();
 let pathways: Promise<PathwayVectors | null> | null = null;
 
@@ -99,13 +110,23 @@ function loadPathways(): Promise<PathwayVectors | null> {
  * not load). Repeated calls with the same goal reuse the model, the vectors
  * and the goal's vector.
  */
-export async function loadCareerFit(school: 'illinois' | 'uga', text: string): Promise<CareerFit | null> {
+export async function loadCareerFit(school: SchoolKey, text: string): Promise<CareerFit | null> {
   const goal = text.trim();
   // What the model reads: the goal without "I want to be a" (goalQuery); none for "undecided".
   const query = goalQuery(goal);
-  if (!query || broken) return null;
+  if (!query || broken || missingVectors.has(school)) return null;
+  const vectorsLoad = loadVectors(school).catch((error: unknown) => {
+    missingVectors.add(school);
+    vectors.delete(school);
+    console.warn(`[career matcher] no course vectors for ${school}; goal courses are matched by their words.`, error);
+    return null;
+  });
+  // A school whose vectors may not be built yet (Georgia Tech) is checked before the model
+  // downloads; Illinois and UGA load all three at once, as before.
+  if (school !== 'uga' && school !== 'illinois' && !(await vectorsLoad)) return null;
   try {
-    const [embed, courses, paths] = await Promise.all([loadEmbedder(), loadVectors(school), loadPathways()]);
+    const [embed, courses, paths] = await Promise.all([loadEmbedder(), vectorsLoad, loadPathways()]);
+    if (!courses) return null;
     let vector = goals.get(query);
     if (!vector) {
       const started = performance.now();
@@ -115,7 +136,7 @@ export async function loadCareerFit(school: 'illinois' | 'uga', text: string): P
       });
       goals.set(query, vector);
     }
-    const input = { text: goal, vector: await vector, school: school === 'uga' ? 'UGA' : 'Illinois', ...(paths ? { pathways: paths } : {}) };
+    const input = { text: goal, vector: await vector, school: school === 'uga' ? 'UGA' : school === 'gatech' ? 'Georgia Tech' : 'Illinois', ...(paths ? { pathways: paths } : {}) };
     // With what it was made from, so a plan built in a worker reads the goal the same way (plan-build.ts).
     return { ...careerFitFor(input, courses), source: { input, vectors: courses } };
   } catch (error) {

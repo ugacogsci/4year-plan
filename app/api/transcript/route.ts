@@ -112,6 +112,15 @@ Do not invent lines, grades, hours or equivalents. If a line is unreadable, leav
 /** The reading for a University of Georgia student: UGA's own numbers, no Illinois equivalencies. */
 const UGA_SYSTEM = `Read the uploaded records for a University of Georgia degree planner. List every course line exactly as printed, including four-digit UGA course numbers and suffixes, and UGA's transfer designations such as HIST 1GHX, SOCI 1GXX, MATH 2TXX or NTFR exactly as printed (never replace them with a course number). Preserve the institution, sending school, grades, credit hours, term and status, and mark failed, withdrawn or explicitly no-credit lines accurately. For equivalent and equivalent_credits, copy only a UGA equivalency explicitly printed by the document; never invent a transfer equivalency. Do not apply Illinois equivalencies, IAI rules, or transfer assumptions. Return all files as one reading; do not include courses merely listed as requirements still to take in a DegreeWorks audit. Use null for unprinted values. Set hours_unit from the document. Include exam scores and subscores only when printed. The student will review and confirm the result.`;
 
+/**
+ * The reading for a Georgia Tech student: Georgia Tech's own four-digit numbers (CS 1331, CHEM
+ * 1211K), no Illinois equivalencies or IAI rules, and no UGA designations.
+ */
+const GATECH_SYSTEM = `Read the uploaded records for a Georgia Institute of Technology (Georgia Tech) degree planner. List every course line exactly as printed, including four-digit Georgia Tech course numbers and letter suffixes (CS 1331, CHEM 1211K, MATH 1551), and another school's codes the way that school prints them. Preserve the institution, sending school, grades, credit hours, term and status, and mark failed, withdrawn or explicitly no-credit lines accurately. For equivalent and equivalent_credits, copy only a Georgia Tech equivalent explicitly printed by the document (a transfer credit evaluation or a DegreeWorks audit that prints the Georgia Tech course beside another school's); never invent a transfer equivalency. Do not apply Illinois equivalencies, IAI rules, or another university's transfer assumptions. Return all files as one reading; do not include courses merely listed as requirements still to take in a DegreeWorks audit. Use null for unprinted values. Set hours_unit from the document. Include exam scores and subscores only when printed. The student will review and confirm the result.`;
+
+/** The reader's instructions for the school the student is planning for. */
+const systemFor = (schoolId: unknown): string => (schoolId === 'uga' ? UGA_SYSTEM : schoolId === 'gatech' ? GATECH_SYSTEM : SYSTEM);
+
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status });
 
 /** A file the body carries, checked, or a sentence about why it was refused. */
@@ -181,7 +190,7 @@ export async function POST(req: Request) {
 
   const admitted = sharedGuard().admit('transcript', visitorKey(req.headers), {
     model: MODEL,
-    estimateUsd: worstCaseUsd(MODEL, Math.min(MAX_INPUT_TOKENS_ESTIMATE, tokensForChars((body.schoolId === 'uga' ? UGA_SYSTEM : SYSTEM).length) + Math.ceil(total / 4)), MAX_TOKENS),
+    estimateUsd: worstCaseUsd(MODEL, Math.min(MAX_INPUT_TOKENS_ESTIMATE, tokensForChars(systemFor(body.schoolId).length) + Math.ceil(total / 4)), MAX_TOKENS),
     capUsd: dailyCapUsd(),
     names: { who: 'The transcript reader' },
   });
@@ -193,7 +202,7 @@ export async function POST(req: Request) {
     const response = await client.messages.parse({
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      system: body.schoolId === 'uga' ? UGA_SYSTEM : SYSTEM,
+      system: systemFor(body.schoolId),
       messages: [{ role: 'user', content }],
       output_config: { format: zodOutputFormat(Reading) },
     });

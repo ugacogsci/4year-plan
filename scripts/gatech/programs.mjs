@@ -24,6 +24,7 @@
  *   node scripts/gatech/programs.mjs              # crawl what is not cached, then parse
  *   node scripts/gatech/programs.mjs --offline    # parse the cache only, no request at all
  *   node scripts/gatech/programs.mjs --refresh    # re-fetch every page
+ *   node scripts/gatech/programs.mjs --offline --raw   # the pages as read, not shaped for the planner
  *   ... --out <file> --minors-out <file>          # write somewhere else (to compare before replacing)
  *   node scripts/gatech/programs.mjs --parse data/gatech-raw/programs/programs__theory-media-computer-science-bs.html
  *
@@ -61,6 +62,7 @@
  *   course.indented       an option row printed under a "Select ..." comment row
  *   comment.href          the link a comment row carries ("Any HUM" -> the Humanities list)
  *   comment.detail        the comment row's full words where it has more than one cell
+ *   comment.footnotes     the footnotes the comment row's own marks point at
  *   program.problems      rows this reader could not place, said in words (empty headings, count mismatches)
  *   file.aliases          a page linked under a second address with identical requirements,
  *                         dropped from programs: { id, url, sameAs }
@@ -76,8 +78,12 @@
  *     row accepts: the degree page names the category and its hours only.
  *     The Core IMPACTS lists live on /academics/undergraduate/core-curriculum/
  *     (read by scripts/gatech/rules-crawl.mjs, not here).
+ *     shape-programs.mjs (run at the end of this script unless --raw) fills
+ *     them from public/gatech-core.json.
  *   - Option text in footnotes ("Junior Design Options are as follows ...")
- *     is kept as text in program.footnotes; it is not turned into choices.
+ *     is kept as text in program.footnotes and on the comment row it marks
+ *     (comment.footnotes); shape-programs.mjs turns the real course choices
+ *     into choices, and the category rows into course lists.
  *   - Older catalog years: robots.txt disallows /archived-catalogs/.
  *   - ROTC, co-op, International Plan and Research Option tabs are not read.
  *   - Undergraduate certificates (47 on /programs/) are not read.
@@ -91,6 +97,7 @@ import { fileURLToPath } from 'node:url';
 import { courselistParser } from '../illinois/courselist.mjs';
 import { withoutFootnoteMarks, minorTotal } from '../illinois/minors.mjs';
 import { catalogGet, BlockedError, slugOf } from './catalog-get.mjs';
+import { loadShapeContext, shapeProgramFile } from './shape-programs.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const BASE = 'https://catalog.gatech.edu';
@@ -103,6 +110,7 @@ const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
 const OFFLINE = args.includes('--offline');
 const REFRESH = args.includes('--refresh');
+const RAW = args.includes('--raw');
 
 /** A page, from the cache or the catalog. Offline, an uncached page is null. */
 async function page(path) {
@@ -250,9 +258,19 @@ function headingBefore(tabHtml, at) {
 /** The footnotes printed under a requirement table: { '1': 'Minimum grade of C required.' }. */
 function footnotesAfter(tabHtml, tableAt) {
   const rest = tabHtml.slice(tableAt);
-  const dl = rest.match(/<\/table>\s*(?:<[^>]+>\s*)*?<dl class="sc_footnotes"[\s\S]*?<\/dl>/)?.[0] ?? '';
+  // The footnote list after this table and before the next one. A sentence may
+  // sit between them: every Electrical and Computer Engineering page prints
+  // "Courses that are cross-listed with ECE must be taken under the ECE
+  // number." first, and a reader that allowed only tags there lost all of
+  // their footnotes (the Science Elective, Probability/Statistics and ECE
+  // elective rules among them).
+  const end = rest.indexOf('</table>');
+  const after = end < 0 ? '' : rest.slice(end);
+  const next = after.indexOf('<table', 1);
+  const dl = (next < 0 ? after : after.slice(0, next)).match(/<dl class="sc_footnotes"[\s\S]*?<\/dl>/)?.[0] ?? '';
   const out = {};
-  for (const m of dl.matchAll(/<dt>([\s\S]*?)<\/dt>\s*<dd>([\s\S]*?)<\/dd>/g)) out[text(m[1])] = text(m[2]);
+  // <dd start-indent="5%"> on those same pages: attributes allowed on both tags.
+  for (const m of dl.matchAll(/<dt[^>]*>([\s\S]*?)<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/g)) out[text(m[1])] = text(m[2]);
   return out;
 }
 
@@ -387,10 +405,19 @@ function readTable(tableHtml, footnotes) {
     } else {
       problems.push(`${label}: ${g.courses.length} courses read, ${courseRows.length} course rows`);
     }
+    // Comment rows matched to their facts in order, so two rows with the same
+    // words ("Lab Science" 4, "Lab Science" 4) each keep their own marks.
+    const unmatched = [...commentRows];
     for (const c of g.comments ?? []) {
-      const row = commentRows.find((r) => r.label === c.text);
+      const k = unmatched.findIndex((r) => r.label === c.text);
+      const row = k >= 0 ? unmatched.splice(k, 1)[0] : null;
       if (row?.href) c.href = row.href;
       if (row?.detail && row.detail !== c.text) c.detail = row.detail;
+      // The footnotes this row's own marks point at ("Science Elective" ³ ->
+      // "Please select any academic course from the Schools of ..."), so a
+      // category row can be read with the words that define it.
+      const own = (row?.marks ?? []).map((m) => footnotes[m]).filter(Boolean);
+      if (own.length) c.footnotes = own;
     }
 
     // The block's hours: each row's printed hours, except a "Select" row's
@@ -836,12 +863,20 @@ try {
   const minorsFile = resolve(ROOT, flag('--minors-out') ?? 'public/gatech/minors/crawl.json');
   mkdirSync(dirname(outFile), { recursive: true });
   mkdirSync(dirname(minorsFile), { recursive: true });
-  writeFileSync(outFile, JSON.stringify({
+  const programFile = {
     school: 'gatech', source: `${BASE}/programs/`, fetchedAt, programs,
     ...(unreached?.length ? { unreached } : {}),
     ...(aliases.length ? { aliases } : {}),
     ...(failed.length ? { failed } : {}),
-  }));
+  };
+  // Shaped for the planner (shape-programs.mjs): every category row the page
+  // prints as words ("Any HUM", "Lab Science", "Free Electives", a footnoted
+  // elective) becomes a group the engine can plan. --raw writes the page as read.
+  if (!RAW) {
+    const { tally } = shapeProgramFile(programFile, loadShapeContext(ROOT));
+    log(`shaped: ${JSON.stringify(tally)}`);
+  }
+  writeFileSync(outFile, JSON.stringify(programFile));
   writeFileSync(minorsFile, JSON.stringify({
     school: 'gatech', source: `${BASE}/programs/`, fetchedAt, minors, skipped: skippedMinors,
   }));

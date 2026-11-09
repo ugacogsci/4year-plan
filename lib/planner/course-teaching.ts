@@ -21,6 +21,8 @@
  * Nothing here names a professor or where the ratings come from: the
  * reason says "students rate the instructors".
  */
+import type { SchoolKey } from './school-config';
+
 export { UGA_TEACHING_IN_PLANS, ILLINOIS_TEACHING_RATINGS_IN_PLANS } from './plan-estimates';
 
 /** One course's reading on one term's schedule (course-teaching.mjs). */
@@ -38,7 +40,7 @@ export interface RatedTeaching {
 }
 
 export interface CourseTeachingFile {
-  school: 'uga' | 'illinois';
+  school: SchoolKey;
   typical: number;
   k: number;
   courses: Record<string, RatedTeaching>;
@@ -88,14 +90,17 @@ export function teachingReading(
 /** The most a ratings reading scores at Illinois, under the Excellent list's 0.7 (recent terms) and 0.85 (teaching it now). */
 export const ILLINOIS_TEACHING_FILL_CAP = 0.6;
 
-const FILES = { uga: '/uga/course-teaching.json', illinois: '/illinois/course-teaching-ratings.json' } as const;
+/** Georgia Tech has no ratings file (school-config.ts ratings false): its teaching reads as unknown, never as another school's. */
+const FILES: Partial<Record<SchoolKey, string>> = { uga: '/uga/course-teaching.json', illinois: '/illinois/course-teaching-ratings.json' };
 const pending = new Map<string, Promise<Map<string, RatedTeaching> | null>>();
 
 /** The readings by course code, once per page; null when the file is missing (teaching then reads as before). */
-export function loadCourseTeaching(school: 'uga' | 'illinois'): Promise<Map<string, RatedTeaching> | null> {
+export function loadCourseTeaching(school: SchoolKey): Promise<Map<string, RatedTeaching> | null> {
+  const url = FILES[school];
+  if (!url) return Promise.resolve(null);
   let p = pending.get(school);
   if (!p) {
-    p = fetch(FILES[school])
+    p = fetch(url)
       .then((r) => (r.ok ? (r.json() as Promise<CourseTeachingFile>) : null))
       .then((file) => (file ? courseTeachingMap(file) : null))
       .catch(() => null);

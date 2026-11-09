@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "vinext dev",
     "build:illinois": "node --experimental-strip-types scripts/illinois/build-index.mjs && node --experimental-strip-types scripts/illinois/graduate-build.mjs",
-    "build": "npm run build:illinois && vinext build",
+    "build:gatech": "node --experimental-strip-types scripts/gatech/build-index.mjs",
+    "test:gatech-inventory": "node --experimental-strip-types lib/planner/__gatech-inventory.check.mjs",
+    "build": "npm run build:illinois && npm run build:gatech && vinext build",
     "deploy": "npm run build && wrangler deploy",
     "data:uga:pacmap": "node scripts/apply-uga-pacmap.mjs",
     "data:uga:guidance": "node scripts/uga-planning-guidance.mjs",

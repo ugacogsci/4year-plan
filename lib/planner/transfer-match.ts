@@ -18,6 +18,8 @@
  * its number suggests.
  */
 
+import type { SchoolKey } from './school-config';
+
 export interface CatalogLite {
   code: string;
   title: string;
@@ -333,8 +335,8 @@ export function proposeEquivalents(
   line: { code: string; title: string | null; credits: number | null },
   catalog: CatalogLite[],
   limit = 3,
-  /** Whose codes the catalog holds: picks the table of common equivalents (UGA's codes or Illinois's). */
-  school: 'illinois' | 'uga' = 'illinois',
+  /** Whose codes the catalog holds: picks the table of common equivalents (UGA's codes or Illinois's; Georgia Tech has none, so its titles alone are scored). */
+  school: SchoolKey = 'illinois',
 ): EquivalentProposal[] {
   if (catalog.length === 0) return [];
   const known = new Map(catalog.map((c) => [c.code, c]));
@@ -346,7 +348,7 @@ export function proposeEquivalents(
 
   if (title) {
     const key = curatedKey(title);
-    for (const rule of school === 'uga' ? CURATED_UGA : CURATED) {
+    for (const rule of school === 'uga' ? CURATED_UGA : school === 'illinois' ? CURATED : []) {
       if (rule.prefixes && rule.prefixes.length > 0 && subjects.size > 0 && !rule.prefixes.some((p) => subjects.has(p))) continue;
       if (!rule.test.test(key)) continue;
       // The table's own word that Illinois grants hours for this course, not

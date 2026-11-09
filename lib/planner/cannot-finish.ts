@@ -24,6 +24,7 @@
  * own Rebuild path and hands back the rebuilt board's finish state.
  */
 import type { PlanIssue, SemesterSeason } from './types';
+import type { SchoolKey } from './school-config';
 import { triageIssues } from './warnings-triage';
 
 /** The engine's reasons (autoplan.ts NotPlaced) that mean room or time: the settings are the limit. */
@@ -77,7 +78,7 @@ export interface FinishState {
 
 /** The student's settings that bound the plan. */
 export interface PlanSettingsFacts {
-  school: 'uga' | 'illinois';
+  school: SchoolKey;
   /** The last term the plan may use: the student's graduation date. */
   finish: TermName;
   /** The first term the plan books. */
@@ -164,7 +165,7 @@ export function termNameOf(term: { label: string }): TermName | null {
  * asks for), the terms away and the credits a semester.
  */
 export function boardSettings(input: {
-  school: 'uga' | 'illinois';
+  school: SchoolKey;
   terms: ReadonlyArray<{ label: string; season: SemesterSeason; courseIds: readonly string[] }>;
   shapeSummers: readonly number[];
   droppedSummers?: readonly number[];

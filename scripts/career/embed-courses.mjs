@@ -16,6 +16,15 @@
  * Illinois and 2.8 MB at UGA. A graduate course has no vector, and the
  * matcher falls back to word matching for it.
  *
+ * Georgia Tech, the second CourseLeaf school, reads its range from
+ * lib/planner/school-config.ts instead: four-digit numbers from 1000 up to
+ * the graduate start (6000), a letter suffix kept ("CHEM 1211K",
+ * "BIOS 1107L"). Its 0xxx learning-support courses ("MATH 0999 Support for
+ * College Algebra") carry no degree credit and get no vector. About 1 MB.
+ * Named only (`gatech`), never by default, so an Illinois or UGA run is
+ * what it was; the script reruns itself with --experimental-strip-types to
+ * read the TypeScript config.
+ *
  * Each vector is stored as 384 signed bytes and one scale (its largest
  * component / 127): public/<school>/course-vectors.bin holds the bytes in
  * the order of `codes` in public/<school>/course-vectors.json.
@@ -30,10 +39,12 @@
  * language (beginnerLanguagesOf below). The matcher keeps them out of goal
  * picks unless the goal is about languages.
  *
- *   node scripts/career/embed-courses.mjs [illinois|uga]...   (both by default; about 15 minutes)
- *   node scripts/career/embed-courses.mjs --hubs-only          recompute the hubs from the stored vectors (seconds)
- *   node scripts/career/embed-courses.mjs --languages-only     recompute beginnerLanguage from the catalogs (no model)
+ *   node scripts/career/embed-courses.mjs [illinois|uga|gatech]...   (Illinois and UGA by default; about 15 minutes, Georgia Tech alone about 3)
+ *   node scripts/career/embed-courses.mjs --hubs-only [school...]     recompute the hubs from the stored vectors (seconds)
+ *   node scripts/career/embed-courses.mjs --languages-only [school...] recompute beginnerLanguage from the catalogs (no model)
+ * (--hubs-only and --languages-only: the schools named, Illinois and UGA when none is)
  */
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,14 +55,48 @@ export const RECIPE = 'title. title. description, first 1200 characters';
 const level = (code) => { const m = code.match(/(\d{3})/); return m ? Number.parseInt(m[1], 10) : 0; };
 const norm = (code) => code.trim().replace(/\s+/g, ' ').toUpperCase();
 
+/** The schools named on the command line; Illinois and UGA when none is. */
+const named = process.argv.slice(2).filter((a) => a === 'illinois' || a === 'uga' || a === 'gatech');
+const DEFAULT_SCHOOLS = ['illinois', 'uga'];
+/** Schools whose undergraduate range comes from lib/planner/school-config.ts (Illinois and UGA keep the rule above). */
+const FROM_CONFIG = new Set(['gatech']);
+const leaves = {};
+if (named.some((s) => FROM_CONFIG.has(s))) {
+  if (!process.execArgv.some((a) => a.includes('strip-types'))) {
+    const r = spawnSync(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', ...process.execArgv, fileURLToPath(import.meta.url), ...process.argv.slice(2)], { stdio: 'inherit' });
+    process.exit(r.status ?? 1);
+  }
+  const { courseleafOf } = await import('../../lib/planner/school-config.ts');
+  for (const s of named) if (FROM_CONFIG.has(s)) leaves[s] = courseleafOf(s);
+}
+
+/**
+ * Whether a course code is an undergraduate one to embed. Illinois and UGA:
+ * its first three digits below 500 (a UGA "1301" reads 130). A school from
+ * school-config.ts: its whole number, from the first course number with
+ * all its digits (1000 at Georgia Tech) up to the graduate start.
+ */
+function undergraduateIn(school) {
+  const leaf = leaves[school];
+  if (!leaf) return (code) => !(level(code) >= 500 || level(code) === 0);
+  const re = new RegExp(`\\s(\\d{${leaf.numberDigits}})${leaf.letterSuffix ? '[A-Z]?' : ''}$`);
+  const lowest = 10 ** (leaf.numberDigits - 1);
+  return (code) => {
+    const m = code.match(re);
+    const n = m ? Number.parseInt(m[1], 10) : 0;
+    return n >= lowest && n < leaf.graduateFrom;
+  };
+}
+
 function coursesOf(school) {
   const raw = JSON.parse(readFileSync(join(ROOT, `public/${school}-catalog.json`), 'utf8'));
   const list = Array.isArray(raw) ? raw : raw.courses;
+  const undergraduate = undergraduateIn(school);
   const seen = new Set();
   const out = [];
   for (const c of list) {
     const code = norm(c.code);
-    if (seen.has(code) || level(code) >= 500 || level(code) === 0) continue;
+    if (seen.has(code) || !undergraduate(code)) continue;
     seen.add(code);
     out.push({ code, text: `${c.title}. ${c.title}. ${c.description ?? ''}`.slice(0, 1200) });
   }
@@ -83,10 +128,11 @@ export function beginnerLanguagesOf(school) {
   };
   const speaks = (d) => /\b(?:grammar|pronunciation|vocabulary|conversation(?:al)?)\b/i.test(d) || (/\bspeaking\b/i.test(d) && /\b(?:listening|reading|writing)\b/i.test(d));
   const languages = new Set(list.filter((c) => nameOf(c.title) && speaks(c.description ?? '')).map((c) => nameOf(c.title)));
+  const undergraduate = undergraduateIn(school);
   const out = {};
   for (const c of list) {
     const name = nameOf(c.title);
-    if (name && languages.has(name) && level(norm(c.code)) > 0 && level(norm(c.code)) < 500) out[norm(c.code)] = name;
+    if (name && languages.has(name) && undergraduate(norm(c.code))) out[norm(c.code)] = name;
   }
   const table = join(ROOT, `public/${school}/languages.json`);
   if (existsSync(table)) {
@@ -98,7 +144,7 @@ export function beginnerLanguagesOf(school) {
 }
 
 if (process.argv.includes('--languages-only')) {
-  for (const school of ['illinois', 'uga']) {
+  for (const school of named.length > 0 ? named : DEFAULT_SCHOOLS) {
     const metaPath = join(ROOT, `public/${school}/course-vectors.json`);
     const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
     const { beginnerLanguage: _old, ...rest } = meta;
@@ -118,7 +164,7 @@ export const REFERENCE = [
   'electrical engineer', 'chemical engineer', 'nutritionist', 'zoologist', 'historian', 'archaeologist', 'museum curator', 'political scientist', 'military officer', 'pilot',
 ];
 
-const schools = process.argv.slice(2).filter((a) => a === 'illinois' || a === 'uga');
+const schools = named;
 const { pipeline, env } = await import('@huggingface/transformers');
 env.allowRemoteModels = false;
 const fe = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'fp32' });
@@ -141,7 +187,7 @@ function hubsOf(bytes, scales) {
 }
 
 if (process.argv.includes('--hubs-only')) {
-  for (const school of ['illinois', 'uga']) {
+  for (const school of named.length > 0 ? named : DEFAULT_SCHOOLS) {
     const metaPath = join(ROOT, `public/${school}/course-vectors.json`);
     const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
     const bin = readFileSync(join(ROOT, `public/${school}/course-vectors.bin`));
@@ -153,7 +199,7 @@ if (process.argv.includes('--hubs-only')) {
   process.exit(0);
 }
 
-for (const school of schools.length > 0 ? schools : ['illinois', 'uga']) {
+for (const school of schools.length > 0 ? schools : DEFAULT_SCHOOLS) {
   const t0 = Date.now();
   const { courses, fetchedAt } = coursesOf(school);
   const bytes = new Int8Array(courses.length * D);

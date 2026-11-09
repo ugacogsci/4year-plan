@@ -25,22 +25,27 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+  courseleafSchoolId,
   coverageLine,
   loadIllinoisCore,
   loadIllinoisMeta,
   loadIllinoisProgram,
   sectionTermsOf,
+  setCourseleafSchool,
   takenPerYear,
   toGradeRow,
   type IllinoisCore,
   type IllinoisProgramSummary,
 } from '@/lib/planner/illinois-load';
+import { courseleafOf, type CourseleafId } from '@/lib/planner/school-config';
+import { schoolById } from '@/lib/planner/onboarding';
 import { askScheduleFrom, type AskSchedule } from '@/lib/planner/ask-router';
 import {
   adaptIllinoisPrograms,
   attachRequirementIds,
   buildIllinoisData,
   illinoisPrereqCheck,
+  setCourseNumberDigits,
   type CourseFacts,
   type IllinoisCourse,
   type IllinoisData,
@@ -87,44 +92,82 @@ export interface CoreState {
   coverage: string;
 }
 
-export function useIllinoisCore(enabled: boolean): CoreState {
-  const [state, setState] = useState<CoreState>({
-    status: enabled ? 'loading' : 'unavailable',
-    core: null,
-    coverage: '',
-  });
+/**
+ * The first load for one CourseLeaf school: Illinois unless told otherwise,
+ * Georgia Tech from public/gatech in the same shapes.
+ *
+ * The loader is pointed at the school before it loads, which drops every
+ * cache of the school before it, and the state remembers whose core it holds,
+ * so the render after a switch says "loading" rather than handing the new
+ * school's board the old school's catalog.
+ */
+export function useIllinoisCore(enabled: boolean, schoolId: CourseleafId = 'illinois'): CoreState {
+  const [state, setState] = useState<{ school: CourseleafId; value: CoreState }>(() => ({
+    school: schoolId,
+    value: { status: enabled ? 'loading' : 'unavailable', core: null, coverage: '' },
+  }));
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
+    setCourseleafSchool(schoolId);
     void loadIllinoisCore().then((core) => {
       if (cancelled) return;
       // An empty index is a build that did not run, not a university with no
       // courses, and the board must say so rather than render nothing.
       const ok = core.index.length > 0;
       setState({
-        status: ok ? 'ready' : 'unavailable',
-        core: ok ? core : null,
-        coverage: coverageLine(core),
+        school: schoolId,
+        value: {
+          status: ok ? 'ready' : 'unavailable',
+          core: ok ? core : null,
+          coverage: coverageLine(core),
+        },
       });
     });
     return () => {
       cancelled = true;
     };
-  }, [enabled]);
+  }, [enabled, schoolId]);
 
-  return state;
+  if (state.school !== schoolId) return { status: enabled ? 'loading' : 'unavailable', core: null, coverage: '' };
+  return state.value;
+}
+
+/**
+ * Run an adapter under one school's course numbering.
+ *
+ * illinois-data reads course codes with one module-wide setting (3 digits at
+ * Illinois, 4 and a letter at Georgia Tech) that setCourseleafSchool keeps in
+ * step with the active school. A core whose school is no longer the active
+ * one (a program read after the student switched) is adapted under its own
+ * numbering, and the active school's is put back after.
+ */
+function underSchool<T>(id: CourseleafId, run: () => T): T {
+  const active = courseleafSchoolId();
+  if (active === id) return run();
+  const own = courseleafOf(id);
+  const back = courseleafOf(active);
+  if (own) setCourseNumberDigits(own.numberDigits, own.letterSuffix);
+  try {
+    return run();
+  } finally {
+    if (back) setCourseNumberDigits(back.numberDigits, back.letterSuffix);
+  }
 }
 
 // ---------------------------------------------------------------------------
 // The second load, for the ask router only
 // ---------------------------------------------------------------------------
 
-let fullPromise: Promise<{
+type FullLoad = {
   data: IllinoisData;
   sections: RawSectionFile | null;
   schedules: AskSchedule[];
-} | null> | null = null;
+};
+
+/** One school's whole adapter run, remembered with the school it is for. */
+let full: { school: CourseleafId; promise: Promise<FullLoad | null> } | null = null;
 
 async function readJson<T>(url: string): Promise<T | null> {
   try {
@@ -137,8 +180,8 @@ async function readJson<T>(url: string): Promise<T | null> {
   }
 }
 
-/** A crawl file name meta.json may point the router at, and nothing else. */
-const SAFE_SECTION_FILE = /^illinois-sections(?:-(?:fa|sp|su|wi)\d{4})?\.json$/;
+/** A crawl file name meta.json may point the router at, and nothing else: illinois-sections-sp2027.json. */
+const safeSectionFile = (prefix: string) => new RegExp(`^${prefix}-sections(?:-(?:fa|sp|su|wi)\\d{4})?\\.json$`);
 
 /**
  * The whole adapter over the raw crawl files, once per session.
@@ -150,28 +193,32 @@ const SAFE_SECTION_FILE = /^illinois-sections(?:-(?:fa|sp|su|wi)\d{4})?\.json$/;
  * term a course sits in. The other terms' files are read here, on the first
  * question, and never on load.
  */
-export function loadFullIllinois(): Promise<{
-  data: IllinoisData;
-  sections: RawSectionFile | null;
-  schedules: AskSchedule[];
-} | null> {
-  if (fullPromise) return fullPromise;
-  fullPromise = (async () => {
+export function loadFullIllinois(schoolId: CourseleafId = courseleafSchoolId()): Promise<FullLoad | null> {
+  if (full?.school === schoolId) return full.promise;
+  const prefix = courseleafOf(schoolId)?.rawPrefix ?? 'illinois';
+  // The active school's meta only: another school's would name the wrong files.
+  const metaFor = courseleafSchoolId() === schoolId ? loadIllinoisMeta() : Promise.resolve(null);
+  // The entry exists before its promise does, so a failed read can forget this entry and no newer one.
+  const entry = { school: schoolId } as { school: CourseleafId; promise: Promise<FullLoad | null> };
+  entry.promise = (async () => {
     const [catalog, programs, grades, sections, meta] = await Promise.all([
-      readJson<RawCatalogFile>('/illinois-catalog.json'),
-      readJson<RawProgramFile>('/illinois-programs.json'),
-      readJson<RawGradeFile>('/illinois-grades.json'),
-      readJson<RawSectionFile>('/illinois-sections.json'),
-      loadIllinoisMeta(),
+      readJson<RawCatalogFile>(`/${prefix}-catalog.json`),
+      readJson<RawProgramFile>(`/${prefix}-programs.json`),
+      // A build whose meta says it had no grades or class times (Georgia
+      // Tech's) has no raw file for them either, so none is asked for.
+      metaFor.then((m) => (m?.sources?.grades === null ? null : readJson<RawGradeFile>(`/${prefix}-grades.json`))),
+      metaFor.then((m) => (m?.sources?.sections === null ? null : readJson<RawSectionFile>(`/${prefix}-sections.json`))),
+      metaFor,
     ]);
     if (!catalog) {
       // Do not memoise a failure that a retry might fix.
-      fullPromise = null;
+      if (full === entry) full = null;
       return null;
     }
-    const data = buildIllinoisData({ catalog, programs, grades, sections });
+    const data = underSchool(schoolId, () => buildIllinoisData({ catalog, programs, grades, sections }));
+    const safe = safeSectionFile(prefix);
     const others = sectionTermsOf(meta).filter(
-      (t) => t.id !== data.sectionTerm?.id && typeof t.raw === 'string' && SAFE_SECTION_FILE.test(t.raw),
+      (t) => t.id !== data.sectionTerm?.id && typeof t.raw === 'string' && safe.test(t.raw),
     );
     const otherFiles = await Promise.all(others.map((t) => readJson<RawSectionFile>(`/${t.raw}`)));
     const schedules = [sections, ...otherFiles]
@@ -179,7 +226,8 @@ export function loadFullIllinois(): Promise<{
       .map((file) => askScheduleFrom(file));
     return { data, sections, schedules };
   })();
-  return fullPromise;
+  full = entry;
+  return entry.promise;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,20 +287,25 @@ export async function loadProgram(
   core: IllinoisCore,
   summary: IllinoisProgramSummary,
 ): Promise<LoadedProgram | null> {
+  const school = core.school ?? 'illinois';
+  // The loader reads the active school's files; a core from before a switch has no program there.
+  if (school !== courseleafSchoolId()) return null;
   const raw = await loadIllinoisProgram(summary.id);
   if (!raw) return null;
   const byCode: Map<string, IllinoisCourse> = new Map(core.byCode);
-  const adapted = adaptIllinoisPrograms(
-    { school: 'illinois', source: summary.url, fetchedAt: '', programs: [raw] },
-    byCode,
-  );
-  const program = adapted.programs[0];
-  const blocks = adapted.blocks.get(summary.id) ?? [];
-  if (!program) return null;
-  // Point each course at the areas that want it, which is what colours the map
-  // and what lets the finder show "required" on a card.
-  attachRequirementIds(core.index, blocks, factsFor(core));
-  return { summary, program, blocks, url: raw.url || summary.url };
+  return underSchool(school, () => {
+    const adapted = adaptIllinoisPrograms(
+      { school, source: summary.url, fetchedAt: '', programs: [raw] },
+      byCode,
+    );
+    const program = adapted.programs[0];
+    const blocks = adapted.blocks.get(summary.id) ?? [];
+    if (!program) return null;
+    // Point each course at the areas that want it, which is what colours the map
+    // and what lets the finder show "required" on a card.
+    attachRequirementIds(core.index, blocks, factsFor(core));
+    return { summary, program, blocks, url: raw.url || summary.url };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +314,10 @@ export async function loadProgram(
 
 let minorFilePromise: Promise<RawMinorFile | null> | null = null;
 
-/** The catalog's minor pages as crawled (public/illinois/minors/crawl.json), read once; a failed read is tried again next time. */
+/**
+ * The catalog's minor pages as crawled (public/illinois/minors/crawl.json), read once; a failed read is tried again next time.
+ * Always Illinois's file, whatever school is active: only Illinois's minors are read (school-config.ts `minors`), so callers ask only for Illinois.
+ */
 export function loadIllinoisMinorFile(): Promise<RawMinorFile | null> {
   minorFilePromise ??= readJson<RawMinorFile>('/illinois/minors/crawl.json').then((file) => {
     if (!file || !Array.isArray(file.minors)) minorFilePromise = null;
@@ -295,6 +351,8 @@ export interface LoadedMinor {
  */
 export function loadMinor(core: IllinoisCore, file: RawMinorFile, id: string): LoadedMinor | null {
   if (!id.startsWith(MINOR_ID_PREFIX)) return null;
+  // Illinois's minors, read against Illinois's catalog only.
+  if ((core.school ?? 'illinois') !== 'illinois') return null;
   const raw = file.minors.find((m) => `${MINOR_ID_PREFIX}${m.id}` === id);
   if (!raw || isTeacherEducationMinor(raw)) return null;
   const byCode: Map<string, IllinoisCourse> = new Map(core.byCode);
@@ -336,9 +394,11 @@ export function loadMinor(core: IllinoisCore, file: RawMinorFile, id: string): L
  * requirements out.
  */
 export async function readPrograms(core: IllinoisCore, summaries: IllinoisProgramSummary[]): Promise<ProgramSide[]> {
+  const school = core.school ?? 'illinois';
+  if (school !== courseleafSchoolId()) return [];
   const raws = (await Promise.all(summaries.map((summary) => loadIllinoisProgram(summary.id)))).filter((raw): raw is RawIllinoisProgram => raw !== null);
   if (raws.length === 0) return [];
-  const adapted = adaptIllinoisPrograms({ school: 'illinois', source: '', fetchedAt: '', programs: raws }, new Map(core.byCode));
+  const adapted = underSchool(school, () => adaptIllinoisPrograms({ school, source: '', fetchedAt: '', programs: raws }, new Map(core.byCode)));
   const rawById = new Map(raws.map((raw) => [raw.id, raw]));
   const programById = new Map(adapted.programs.map((program) => [program.id, program]));
   return summaries.flatMap((summary) => {
@@ -619,7 +679,7 @@ export function buildContext(
     offerings: core.offerings ?? undefined,
     offeringTerms: core.offeringTerms ?? undefined,
     offeringAliases: core.offeringAliases ?? undefined,
-    ...(taken ? { taken, takenSource: `Illinois grade reports, ${gradeSpan}` } : {}),
+    ...(taken ? { taken, takenSource: `${schoolById(core.school ?? 'illinois')?.short ?? 'Illinois'} grade reports, ${gradeSpan}` } : {}),
     languages: core.languages ?? undefined,
     snapshotTerm: core.meta?.term
       ? {
@@ -1023,9 +1083,21 @@ function earlyTerms(timeline: string): number | null {
   return (WORD_NUMBER[word] ?? Number(word)) * (unit.startsWith('y') ? 2 : 1);
 }
 
-/** Today's date in Champaign, where the add deadline is kept, whatever the device's time zone. */
-function champaignDay(today: Date): { y: number; m: number; d: number } {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(today);
+/**
+ * The school a date question is asked for: its id and its campus time zone
+ * (school-config.ts CourseleafSchool has both). Left out, it is Champaign, as
+ * it was before there was a second CourseLeaf school, and UGA boards still
+ * leave it out. Written as a plain shape so this part of the file needs no
+ * import (the horizon checks run it on its own).
+ */
+export interface TermCampus {
+  id: string;
+  timeZone: string;
+}
+
+/** Today's date on campus (Champaign unless told), where the add deadline is kept, whatever the device's time zone. */
+function champaignDay(today: Date, campus?: TermCampus): { y: number; m: number; d: number } {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: campus?.timeZone ?? 'America/Chicago', year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(today);
   const part = (type: string) => Number(parts.find((p) => p.type === type)?.value);
   return { y: part('year'), m: part('month'), d: part('day') };
 }
@@ -1037,8 +1109,10 @@ function champaignDay(today: Date): { y: number; m: number; d: number } {
  * Sept 4 or Jan 29. A UGA board uses these too until UGA's calendar is read.
  */
 const ADD_BY: Record<string, [number, number]> = { 'Fall 2026': [9, 4] };
-function addDeadline(season: SemesterSeason, year: number): [number, number] {
-  return ADD_BY[`${season} ${year}`] ?? (season === 'Fall' ? [9, 4] : [1, 29]);
+/** The dates above are Illinois's registrar's; another school keeps the defaults until its own calendar is read. */
+function addDeadline(season: SemesterSeason, year: number, campus?: TermCampus): [number, number] {
+  const known = !campus || campus.id === 'illinois' ? ADD_BY[`${season} ${year}`] : undefined;
+  return known ?? (season === 'Fall' ? [9, 4] : [1, 29]);
 }
 
 /**
@@ -1048,11 +1122,11 @@ function addDeadline(season: SemesterSeason, year: number): [number, number] {
  * (Fall 2026) as "now" all year, and a plan built in October booked a full
  * load into a term half over.
  */
-export function firstOpenTerm(today: Date): { season: SemesterSeason; year: number } {
-  const day = champaignDay(today);
+export function firstOpenTerm(today: Date, campus?: TermCampus): { season: SemesterSeason; year: number } {
+  const day = champaignDay(today, campus);
   const onOrBefore = (year: number, [m, d]: [number, number]) => day.y < year || (day.y === year && (day.m < m || (day.m === m && day.d <= d)));
   for (const t of [{ season: 'Spring' as const, year: day.y }, { season: 'Fall' as const, year: day.y }, { season: 'Spring' as const, year: day.y + 1 }]) {
-    if (onOrBefore(t.year, addDeadline(t.season, t.year))) return t;
+    if (onOrBefore(t.year, addDeadline(t.season, t.year, campus))) return t;
   }
   return { season: 'Fall', year: day.y + 1 };
 }
@@ -1063,8 +1137,8 @@ export function firstOpenTerm(today: Date): { season: SemesterSeason; year: numb
  * read from it, and so is "is under way": in October Fall 2026 is in session
  * though no longer open, in January "this fall" is Fall 2027.
  */
-export function calendarTerm(today: Date): { season: SemesterSeason; year: number } {
-  const day = champaignDay(today);
+export function calendarTerm(today: Date, campus?: TermCampus): { season: SemesterSeason; year: number } {
+  const day = champaignDay(today, campus);
   return { season: day.m <= 5 ? 'Spring' : day.m <= 7 ? 'Summer' : 'Fall', year: day.y };
 }
 
@@ -1075,9 +1149,9 @@ export function calendarTerm(today: Date): { season: SemesterSeason; year: numbe
  * anyone else, or a start that is no fall after today. The finish the
  * onboarding suggests counts from it (suggestGraduationTarget).
  */
-export function firstFallOf(timeline: string, today: Date): number | null {
-  const read = readHorizon(timeline, firstOpenTerm(today), calendarTerm(today));
-  const now = calendarTerm(today);
+export function firstFallOf(timeline: string, today: Date, campus?: TermCampus): number | null {
+  const read = readHorizon(timeline, firstOpenTerm(today, campus), calendarTerm(today, campus));
+  const now = calendarTerm(today, campus);
   const nextFall = now.season === 'Fall' ? now.year + 1 : now.year;
   return read.notStarted && read.startSeason === 'Fall' && read.startYear >= nextFall ? read.startYear : null;
 }

@@ -5,6 +5,15 @@
  *   PATH="/opt/homebrew/opt/node@23/bin:$PATH" \
  *     node --experimental-strip-types scripts/illinois/build-index.mjs
  *
+ * One script, every CourseLeaf school. `--school <id>` (default illinois)
+ * picks the school from lib/planner/school-config.ts: it reads
+ * public/<id>-catalog.json, <id>-programs.json, <id>-offerings.json and
+ * <id>-sections.json, and writes public/<id>/. Georgia Tech
+ * (scripts/gatech/build-index.mjs runs `--school gatech`) publishes no grade
+ * distributions, map, teaching list, language table or admission pages, so
+ * those inputs are not read for it and its meta.json says so in plain words.
+ * Illinois's output is byte for byte what it was before the option existed.
+ *
  * Why this file exists. public/illinois-catalog.json alone is 5.95 MB and the
  * five raw files together are about 12 MB and the section crawl is still growing.
  * Three ways of getting that to a browser are closed to this app:
@@ -59,23 +68,52 @@ export async function resolve(spec, ctx, next) {
   return next(spec, ctx);
 }`),
 );
-const { buildIllinoisData, gradeFootnote, sectionTermOf, summariseSections } = await import('../../lib/planner/illinois-data.ts');
+const { buildIllinoisData, gradeFootnote, sectionTermOf, summariseSections, setCourseNumberDigits } = await import('../../lib/planner/illinois-data.ts');
+const { courseleafOf } = await import('../../lib/planner/school-config.ts');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PUBLIC = join(ROOT, 'public');
-const OUT = join(PUBLIC, 'illinois');
+
+/** --school <id>, or --school=<id>; Illinois when absent. */
+const schoolArg = (() => {
+  const args = process.argv.slice(2);
+  const eq = args.find((a) => a.startsWith('--school='));
+  if (eq) return eq.slice('--school='.length);
+  const at = args.indexOf('--school');
+  return at >= 0 ? args[at + 1] : 'illinois';
+})();
+const LEAF = courseleafOf(schoolArg);
+if (!LEAF) {
+  console.error(`--school ${schoolArg} is not a CourseLeaf school (school-config.ts knows illinois and gatech).`);
+  process.exit(1);
+}
+const SCHOOL = LEAF.id;
+const IS_ILLINOIS = SCHOOL === 'illinois';
+const OUT_NAME = LEAF.base.replace(/^\//, '');
+const OUT = join(PUBLIC, OUT_NAME);
+// Course codes are read with the school's own numbers (CS 225, CS 1331, CHEM 1211K).
+setCourseNumberDigits(LEAF.numberDigits, LEAF.letterSuffix);
 
 const RAW = {
-  catalog: 'illinois-catalog.json',
-  programs: 'illinois-programs.json',
-  grades: 'illinois-grades.json',
-  sections: 'illinois-sections.json',
-  map: 'illinois-map.json',
-  excellent: 'illinois-excellent.json',
-  offerings: 'illinois-offerings.json',
-  languages: 'illinois-languages.json',
-  admission: 'illinois-admission.json',
+  catalog: `${LEAF.rawPrefix}-catalog.json`,
+  programs: `${LEAF.rawPrefix}-programs.json`,
+  grades: `${LEAF.rawPrefix}-grades.json`,
+  sections: `${LEAF.rawPrefix}-sections.json`,
+  map: `${LEAF.rawPrefix}-map.json`,
+  excellent: `${LEAF.rawPrefix}-excellent.json`,
+  offerings: `${LEAF.rawPrefix}-offerings.json`,
+  languages: `${LEAF.rawPrefix}-languages.json`,
+  admission: `${LEAF.rawPrefix}-admission.json`,
 };
+/**
+ * Inputs a school has no source for. Not read, and not reported as missing:
+ * Georgia Tech publishes no grade distributions, and has no course map,
+ * teaching list, language table or admission pages in this project. The
+ * class-schedule file is optional there (built later from the Banner cache);
+ * its absence gets the usual "no section data" note, not a missing-file one.
+ */
+const NOT_PUBLISHED = IS_ILLINOIS ? new Set() : new Set(['grades', 'map', 'excellent', 'languages', 'admission']);
+const OPTIONAL = IS_ILLINOIS ? new Set() : new Set(['sections']);
 
 const normCode = (s) => s.replace(/\s+/g, ' ').trim().toUpperCase();
 
@@ -85,6 +123,7 @@ const normCode = (s) => s.replace(/\s+/g, ' ').trim().toUpperCase();
 
 /** A missing input is a normal state here: the section crawl may not be done. */
 function readRaw(name) {
+  if (NOT_PUBLISHED.has(Object.keys(RAW).find((k) => RAW[k] === name))) return { json: null, bytes: 0, error: 'not published for this school' };
   try {
     const text = readFileSync(join(PUBLIC, name), 'utf8');
     return { json: JSON.parse(text), bytes: Buffer.byteLength(text) };
@@ -155,7 +194,11 @@ if (!raw.catalog.json) {
 /** Build notes, plain and short. They ship in meta.json so the UI can be honest. */
 const notes = [];
 for (const [key, name] of Object.entries(RAW)) {
+  if (NOT_PUBLISHED.has(key) || OPTIONAL.has(key)) continue;
   if (!raw[key].json) notes.push(`${name} is ${raw[key].error}.`);
+}
+if (!IS_ILLINOIS) {
+  notes.push('Georgia Tech publishes no grade distributions, so no course here shows grade history, an average or a difficulty.');
 }
 
 /**
@@ -171,7 +214,7 @@ for (const [key, name] of Object.entries(RAW)) {
  * has not finished is not read: half a term would tell a student a course
  * does not run.
  */
-const EXTRA_SECTION_FILE = /^illinois-sections-(fa|sp|su|wi)(\d{4})\.json$/;
+const EXTRA_SECTION_FILE = new RegExp(`^${LEAF.rawPrefix}-sections-(fa|sp|su|wi)(\\d{4})\\.json$`);
 const extraTerms = [];
 for (const name of readdirSync(PUBLIC).filter((n) => EXTRA_SECTION_FILE.test(n)).sort()) {
   const r = readRaw(name);
@@ -191,6 +234,7 @@ console.log(`  ${pad('file', 24)} ${padL('raw', 10)} ${padL('gzip', 10)}`);
 let rawTotal = 0;
 let rawGzipTotal = 0;
 for (const [key, name] of Object.entries(RAW)) {
+  if (NOT_PUBLISHED.has(key)) continue;
   const r = raw[key];
   if (!r.json) {
     console.log(`  ${pad(name, 24)} ${padL('-', 10)} ${padL('-', 10)}  ${r.error}`);
@@ -513,6 +557,14 @@ for (const program of raw.programs.json?.programs ?? []) {
     // 'placeholder' is the honest word for a degree page whose tables we could
     // not read, and the picker has to be able to tell a student which it is.
     dataStatus: def?.dataStatus ?? 'placeholder',
+    // How a school with options groups them (Georgia Tech: a degree's threads,
+    // concentrations and options under the degree page that lists them), so
+    // the picker can group without fetching every program file. Only fields
+    // the crawl wrote; Illinois's crawl writes none, so its rows are unchanged.
+    ...(program.parent ? { parent: program.parent } : {}),
+    ...(program.optionKind ? { optionKind: program.optionKind } : {}),
+    ...(Array.isArray(program.threads) && program.threads.length > 0 ? { threads: program.threads } : {}),
+    ...(program.optionRule ? { optionRule: program.optionRule } : {}),
   });
 }
 write('programs.json', programList);
@@ -655,10 +707,18 @@ const programCourseRows = (raw.programs.json?.programs ?? []).flatMap((p) =>
 );
 const rowsWithCredits = programCourseRows.filter((r) => typeof r.credits === 'number').length;
 const rowsWithTitle = programCourseRows.filter((r) => r.title && r.title !== r.code).length;
-if (programCourseRows.length > 0 && rowsWithCredits === 0) {
+/**
+ * Georgia Tech prints an option list's hours once, on its "Select one of the
+ * following" line, and the options under it (indented: true) carry none by
+ * design. They are not rows missing their credits. Illinois's crawl marks no
+ * row indented, so its note is what it was.
+ */
+const sizedRows = programCourseRows.filter((r) => !r.indented);
+const sizedWithCredits = sizedRows.filter((r) => typeof r.credits === 'number').length;
+if (sizedRows.length > 0 && sizedWithCredits === 0) {
   notes.push('No program course row carries credits in this crawl, so requirement hours cannot be summed.');
-} else if (rowsWithCredits < programCourseRows.length) {
-  notes.push(`${programCourseRows.length - rowsWithCredits} of ${programCourseRows.length} program course rows have no credits.`);
+} else if (sizedWithCredits < sizedRows.length) {
+  notes.push(`${sizedRows.length - sizedWithCredits} of ${sizedRows.length} program course rows have no credits.`);
 }
 if (programCourseRows.length > 0 && rowsWithTitle === 0) {
   notes.push('No program course row carries a title in this crawl, only codes.');
@@ -750,7 +810,7 @@ if (raw.languages.json) {
     .filter((l) => l.levels.every((level) => level.length > 0));
   write('languages.json', { source: raw.languages.json.source, fetchedAt: raw.languages.json.fetchedAt, languages, footnotes: raw.languages.json.footnotes ?? [] });
   console.log(`    ${languages.length} languages with all four semesters in this catalog`);
-} else {
+} else if (IS_ILLINOIS) {
   notes.push('No language table was available to this build, so the language requirement is quoted rather than planned.');
 }
 
@@ -818,7 +878,7 @@ if (raw.excellent.json) {
     courses,
   });
   console.log(`  ${padL(Object.keys(courses).length, 6)} undergraduate courses with a Teachers Ranked as Excellent entry, over ${termOrder.length} terms`);
-} else {
+} else if (IS_ILLINOIS) {
   notes.push('No Teachers Ranked as Excellent list was available to this build, so teaching ratings are not known for any course.');
 }
 
@@ -826,7 +886,7 @@ const artifacts = {};
 for (const row of topLevel) artifacts[row.path] = { raw: row.raw, gzip: row.gzip };
 
 const meta = {
-  school: 'illinois',
+  school: SCHOOL,
   /**
    * The cache-busting version for every other file in this directory. public/
    * assets are not content hashed, so the loader appends ?v=<fetchedAt> to each
@@ -871,7 +931,14 @@ const meta = {
    * from.
    */
   sectionTerms: sectionTermRows,
-  bands: data.bands,
+  /**
+   * Null when no course has grade history (Georgia Tech publishes none). Cut
+   * points read off no rows are all zero, and with those the engine's
+   * elective fill booked nothing: every Georgia Tech board stopped at its
+   * required courses (an ALIS board at 31 of 122 hours). Null sends the
+   * engine to its own fallback bands, as for any school without grades.
+   */
+  bands: slimGrades.length > 0 ? data.bands : null,
   gradeFootnote: gradeFootnote(data.gradeProvenance),
   coverage,
   counts: {
@@ -908,7 +975,7 @@ const metaRow = write('meta.json', meta, { pretty: true, group: 'first paint' })
 const firstPaint = written.filter((r) => r.group === 'first paint');
 const core = written.filter((r) => r.group === 'core');
 
-console.log('AFTER, public/illinois/');
+console.log(`AFTER, public/${OUT_NAME}/`);
 console.log(`  ${pad('file', 24)} ${padL('raw', 10)} ${padL('gzip', 10)} ${padL('brotli', 10)}`);
 for (const row of [...firstPaint, ...core]) {
   console.log(
@@ -964,6 +1031,12 @@ console.log(`  ${padL(coverage.catalogCourses, 6)} catalog courses, ${coverage.u
 console.log(`  ${padL(positioned, 6)} have a map position`);
 console.log(`  ${padL(coverage.withParsedPrereq, 6)} have a parsed prerequisite, ${coverage.withLowConfidencePrereq} of those low confidence`);
 console.log(`  ${padL(coverage.withPrereqTextOnly, 6)} have a prerequisite sentence the parser could not read`);
+{
+  // Of the indexed courses whose catalog row has a prerequisite sentence, how many the parser read into groups.
+  const withText = indexRows.filter((r) => (data.facts.get(normCode(r.code))?.prereq?.text ?? '').length > 0);
+  const parsed = withText.filter((r) => data.facts.get(normCode(r.code))?.prereq?.parsed).length;
+  console.log(`  ${padL(parsed, 6)} of ${withText.length} courses with a prerequisite sentence have it parsed (${withText.length ? ((100 * parsed) / withText.length).toFixed(1) : '0.0'}%)`);
+}
 console.log(
   `  ${padL(coverage.withPrereqNoteOnly, 6)} say in prose that they have prerequisites and list none, ${prereqNoteOnly} of those shipped in prereqs.json`,
 );
@@ -999,4 +1072,4 @@ if (notes.length > 0) {
   console.log('');
 }
 
-console.log(`Wrote ${written.length} files to public/illinois in ${((Date.now() - startedAt) / 1000).toFixed(1)}s.`);
+console.log(`Wrote ${written.length} files to public/${OUT_NAME} in ${((Date.now() - startedAt) / 1000).toFixed(1)}s.`);

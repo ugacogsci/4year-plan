@@ -6507,6 +6507,22 @@ button.unofficial-label:focus-visible,
   transform: translateY(0.68px) scale(1.04);
 }
 
+/* A school with no logo file (Georgia Tech): its initials on its own colour, in the logo's box. */
+.planner-app .rail-school-text {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--school-accent, var(--orion-red));
+  color: #fff;
+  font-family: var(--app-font-serif);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
 .planner-app .bot-launch {
   display: grid;
   width: 32px;

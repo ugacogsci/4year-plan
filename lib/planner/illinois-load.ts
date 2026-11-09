@@ -15,8 +15,15 @@ import type {
   SectionSummary,
   SectionTermInfo,
 } from './illinois-data';
+import { setCourseNumberDigits } from './illinois-data';
+import { courseleafOf, type CourseleafId } from './school-config';
 
 /**
+ * The browser side of the Illinois data, and of every school on the same
+ * CourseLeaf engine (school-config.ts): Georgia Tech's build sits in
+ * public/gatech in the same shapes. setCourseleafSchool picks which one this
+ * module reads; nothing else here knows there is more than one.
+ *
  * The browser side of the Illinois data.
  *
  * scripts/illinois/build-index.mjs turns about 12 MB of raw crawl into the files
@@ -70,6 +77,7 @@ import type {
  * resolves to its not-loaded value instead of throwing.
  */
 
+/** Illinois's build. Its clubs (clubs-load.ts) and minors live here whatever school is active. */
 export const ILLINOIS_BASE = '/illinois';
 
 // ---------------------------------------------------------------------------
@@ -82,7 +90,8 @@ export interface IllinoisSourceStamp {
 }
 
 export interface IllinoisMeta {
-  school: 'illinois';
+  /** Which CourseLeaf school's build this is (build-index --school). */
+  school: CourseleafId;
   /** Cache-busting version. Every other fetch in this module carries it. */
   fetchedAt: string;
   sources: {
@@ -312,6 +321,12 @@ export interface IllinoisExcellentFile {
 }
 
 export interface IllinoisCore {
+  /**
+   * The school this core was loaded for (setCourseleafSchool). Its programs
+   * are adapted under that school's course numbering, whatever school is
+   * active by the time they are read. Absent only on a core built by hand.
+   */
+  school?: CourseleafId;
   meta: IllinoisMeta | null;
   index: IllinoisIndexCourse[];
   byId: Map<string, IllinoisIndexCourse>;
@@ -383,18 +398,79 @@ export interface IllinoisCore {
 type Fetched<T> = { ok: true; value: T } | { ok: false; reason: 'missing' | 'error' | 'server' };
 
 /**
- * Keyed by URL rather than by artifact, so a rebuild's new ?v= is a new entry
- * and the stale one is simply never asked for again.
+ * Everything this module remembers, for one school.
+ *
+ * Kept together so that switching school drops all of it at once: the index,
+ * the prerequisites, the programs, the offerings, the course shards and the
+ * per-URL responses. A load that was already under way when the student
+ * switched keeps the state it started with, finishes against its own school's
+ * files and writes nothing into the new school's caches, so a Georgia Tech
+ * board can never be handed a half-Illinois core.
  */
-const cache = new Map<string, Promise<Fetched<unknown>>>();
+interface LoaderState {
+  id: CourseleafId;
+  /** '/illinois' or '/gatech'. */
+  base: string;
+  /**
+   * Keyed by URL rather than by artifact, so a rebuild's new ?v= is a new entry
+   * and the stale one is simply never asked for again.
+   */
+  responses: Map<string, Promise<Fetched<unknown>>>;
+  shards: Map<string, Promise<Fetched<IllinoisSubjectShard>>>;
+  sectionTerms: Map<string, Promise<Fetched<IllinoisSectionsFile>>>;
+  syllabi: Map<string, Promise<Fetched<IllinoisSyllabusShard>>>;
+  programs: Map<string, Promise<Fetched<RawIllinoisProgram>>>;
+  meta: Promise<IllinoisMeta | null> | null;
+  index: Promise<Fetched<IllinoisIndexCourse[]>> | null;
+  core: Promise<IllinoisCore> | null;
+}
+
+function freshState(id: CourseleafId): LoaderState {
+  return {
+    id,
+    base: courseleafOf(id)?.base ?? ILLINOIS_BASE,
+    responses: new Map(),
+    shards: new Map(),
+    sectionTerms: new Map(),
+    syllabi: new Map(),
+    programs: new Map(),
+    meta: null,
+    index: null,
+    core: null,
+  };
+}
+
+/** The active school's state. Illinois until something says otherwise, as before there was a second school. */
+let state: LoaderState = freshState('illinois');
+
+/**
+ * Point this module at one CourseLeaf school's build.
+ *
+ * Sets the course-number shape illinois-data parses with (Illinois 'CS 225',
+ * Georgia Tech 'CS 1331' and 'CHEM 1211K') every time, and, when the school
+ * is a different one, forgets everything loaded for the last school. Calling
+ * it again with the same school keeps the caches.
+ */
+export function setCourseleafSchool(id: CourseleafId): void {
+  const leaf = courseleafOf(id);
+  if (!leaf) return;
+  setCourseNumberDigits(leaf.numberDigits, leaf.letterSuffix);
+  if (state.id !== leaf.id) state = freshState(leaf.id);
+}
+
+/** The school this module is reading now. */
+export function courseleafSchoolId(): CourseleafId {
+  return state.id;
+}
 
 const isBrowser = () => typeof window !== 'undefined' && typeof fetch === 'function';
 
 const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
 
-function fetchJson<T>(url: string, init?: RequestInit): Promise<Fetched<T>> {
+function fetchJson<T>(s: LoaderState, url: string, init?: RequestInit): Promise<Fetched<T>> {
   if (!isBrowser()) return Promise.resolve({ ok: false, reason: 'server' });
 
+  const cache = s.responses;
   const hit = cache.get(url);
   if (hit) return hit as Promise<Fetched<T>>;
 
@@ -451,23 +527,14 @@ function memo<T>(
   return started;
 }
 
-/** Drops every cached response. For a dev rebuild, and for tests. */
+/** Drops every cached response for the active school. For a dev rebuild, and for tests. */
 export function resetIllinoisCache(): void {
-  cache.clear();
-  shardCache.clear();
-  sectionTermCache.clear();
-  syllabusCache.clear();
-  programCache.clear();
-  metaPromise = null;
-  indexPromise = null;
-  corePromise = null;
+  state = freshState(state.id);
 }
 
 // ---------------------------------------------------------------------------
 // meta.json, and the version every other fetch carries
 // ---------------------------------------------------------------------------
-
-let metaPromise: Promise<IllinoisMeta | null> | null = null;
 
 /**
  * Null means the build step has not run, or its output is not deployed. The
@@ -479,14 +546,18 @@ let metaPromise: Promise<IllinoisMeta | null> | null = null;
  * this one 1.5 KB file is what makes a rebuild visible at all.
  */
 export function loadIllinoisMeta(): Promise<IllinoisMeta | null> {
-  if (metaPromise) return metaPromise;
-  const started = fetchJson<IllinoisMeta>(`${ILLINOIS_BASE}/meta.json`, { cache: 'no-cache' }).then(
+  return metaOf(state);
+}
+
+function metaOf(s: LoaderState): Promise<IllinoisMeta | null> {
+  if (s.meta) return s.meta;
+  const started = fetchJson<IllinoisMeta>(s, `${s.base}/meta.json`, { cache: 'no-cache' }).then(
     (r) => {
-      if (transient(r)) metaPromise = null;
+      if (transient(r)) s.meta = null;
       return r.ok ? r.value : null;
     },
   );
-  metaPromise = started;
+  s.meta = started;
   return started;
 }
 
@@ -497,9 +568,9 @@ export function loadIllinoisMeta(): Promise<IllinoisMeta | null> {
  * once. Without meta there is no version to stamp, and the caller has already
  * been told the data is not loaded.
  */
-async function versioned(path: string): Promise<string> {
-  const meta = await loadIllinoisMeta();
-  const url = `${ILLINOIS_BASE}/${path}`;
+async function versioned(s: LoaderState, path: string): Promise<string> {
+  const meta = await metaOf(s);
+  const url = `${s.base}/${path}`;
   return meta ? `${url}?v=${encodeURIComponent(meta.fetchedAt)}` : url;
 }
 
@@ -549,20 +620,18 @@ export function hydrateIndexRow(row: IllinoisIndexRow): IllinoisIndexCourse {
   };
 }
 
-/** One versioned artifact, fetched through the shared per-URL cache. */
-const artifact = async <T>(path: string): Promise<Fetched<T>> => fetchJson<T>(await versioned(path));
+/** One versioned artifact of one school's build, fetched through that school's per-URL cache. */
+const artifactOf = async <T>(s: LoaderState, path: string): Promise<Fetched<T>> => fetchJson<T>(s, await versioned(s, path));
 
-let indexPromise: Promise<Fetched<IllinoisIndexCourse[]>> | null = null;
-
-function indexResult(): Promise<Fetched<IllinoisIndexCourse[]>> {
-  if (indexPromise) return indexPromise;
-  const started = artifact<IllinoisIndexRow[]>('index.json').then(
+function indexResult(s: LoaderState): Promise<Fetched<IllinoisIndexCourse[]>> {
+  if (s.index) return s.index;
+  const started = artifactOf<IllinoisIndexRow[]>(s, 'index.json').then(
     (r): Fetched<IllinoisIndexCourse[]> => {
-      if (transient(r)) indexPromise = null;
+      if (transient(r)) s.index = null;
       return r.ok ? { ok: true, value: r.value.map(hydrateIndexRow) } : r;
     },
   );
-  indexPromise = started;
+  s.index = started;
   return started;
 }
 
@@ -571,15 +640,13 @@ function indexResult(): Promise<Fetched<IllinoisIndexCourse[]>> {
  * as a university that offers nothing.
  */
 export async function loadIllinoisIndex(): Promise<IllinoisIndexCourse[] | null> {
-  const r = await indexResult();
+  const r = await indexResult(state);
   return r.ok ? r.value : null;
 }
 
 // ---------------------------------------------------------------------------
 // The second wave
 // ---------------------------------------------------------------------------
-
-let corePromise: Promise<IllinoisCore> | null = null;
 
 /**
  * Everything the board needs, in one call, cached once.
@@ -595,12 +662,17 @@ let corePromise: Promise<IllinoisCore> | null = null;
  * rest of the session.
  */
 export function loadIllinoisCore(): Promise<IllinoisCore> {
-  if (corePromise) return corePromise;
+  return coreOf(state);
+}
+
+function coreOf(s: LoaderState): Promise<IllinoisCore> {
+  if (s.core) return s.core;
+  const artifact = <T,>(path: string) => artifactOf<T>(s, path);
   const started = (async (): Promise<IllinoisCore> => {
-    const meta = await loadIllinoisMeta();
+    const meta = await metaOf(s);
     const laterTerms = sectionTermsOf(meta).filter((t) => t.id !== meta?.term?.id && t.file);
     const [index, prereqs, grades, sections, programs, exclusions, excellent, offerings, languages, admission, laterSections, ratingsDifficulty, ratedTeaching] = await Promise.all([
-      indexResult(),
+      indexResult(s),
       artifact<Record<string, PrereqSpec>>('prereqs.json'),
       artifact<IllinoisGradeSummary[]>('grades.json'),
       artifact<IllinoisSectionsFile>('sections.json'),
@@ -613,14 +685,14 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
       artifact<LanguageTable>('languages.json'),
       artifact<AdmissionTable>('admission.json'),
       // The other crawled terms, through the same cache a card's question uses (loadIllinoisSectionTerm).
-      Promise.all(laterTerms.map((t) => memo(sectionTermCache, t.id, () => artifact<IllinoisSectionsFile>(t.file as string)))),
+      Promise.all(laterTerms.map((t) => memo(s.sectionTerms, t.id, () => artifact<IllinoisSectionsFile>(t.file as string)))),
       artifact<{ courses: Record<string, { d: number }> }>('course-difficulty-ratings.json'),
       // Optional, like the list: student ratings of the instructors, for the courses the list is silent on (course-teaching.ts).
       artifact<CourseTeachingFile>('course-teaching-ratings.json'),
     ]);
 
     const results = [index, prereqs, grades, sections, programs, exclusions];
-    if (!meta || results.some(transient)) corePromise = null;
+    if (!meta || results.some(transient)) s.core = null;
 
     const rows = index.ok ? index.value : [];
     if (offerings.ok) applyOfferings(rows, offerings.value);
@@ -628,8 +700,10 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
     if (!meta) missing.push('meta.json');
     if (!index.ok) missing.push('index.json');
     if (!prereqs.ok) missing.push('prereqs.json');
-    if (!grades.ok) missing.push('grades.json');
-    if (!sections.ok) missing.push('sections.json');
+    // A build that never had a source (Georgia Tech publishes no grade
+    // history; its class times are not built yet) is not missing a file.
+    if (!grades.ok && meta?.sources?.grades !== null) missing.push('grades.json');
+    if (!sections.ok && meta?.sources?.sections !== null) missing.push('sections.json');
     if (!programs.ok) missing.push('programs.json');
     if (!exclusions.ok) missing.push('exclusions.json');
     /**
@@ -648,6 +722,7 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
       : null;
 
     return {
+      school: s.id,
       meta,
       index: rows,
       byId: new Map(rows.map((c) => [c.id, c])),
@@ -710,7 +785,7 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
       missing,
     };
   })();
-  corePromise = started;
+  s.core = started;
   return started;
 }
 
@@ -727,8 +802,6 @@ export function loadIllinoisCore(): Promise<IllinoisCore> {
 const SAFE_SUBJECT = /^[A-Z][A-Z0-9]{0,9}$/;
 const SAFE_PROGRAM_ID = /^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*){0,3}$/;
 
-const shardCache = new Map<string, Promise<Fetched<IllinoisSubjectShard>>>();
-
 /**
  * The full detail for one subject: descriptions, prerequisite sentences, every
  * individual section with its building, and the per-instructor grade history.
@@ -736,9 +809,13 @@ const shardCache = new Map<string, Promise<Fetched<IllinoisSubjectShard>>>();
  * the same subject costs nothing.
  */
 export async function loadIllinoisSubjectShard(subject: string): Promise<IllinoisSubjectShard | null> {
+  return shardOf(state, subject);
+}
+
+async function shardOf(s: LoaderState, subject: string): Promise<IllinoisSubjectShard | null> {
   const key = subject.trim().toUpperCase();
   if (!SAFE_SUBJECT.test(key)) return null;
-  const r = await memo(shardCache, key, () => artifact<IllinoisSubjectShard>(`course/${key}.json`));
+  const r = await memo(s.shards, key, () => artifactOf<IllinoisSubjectShard>(s, `course/${key}.json`));
   return r.ok ? r.value : null;
 }
 
@@ -759,7 +836,8 @@ export async function loadIllinoisSubject(subject: string): Promise<RawIllinoisC
 export async function loadIllinoisCourseDetail(code: string): Promise<IllinoisCourseDetail | null> {
   const wanted = normCode(code);
   const subject = wanted.split(' ')[0] ?? '';
-  const [shard, meta] = await Promise.all([loadIllinoisSubjectShard(subject), loadIllinoisMeta()]);
+  const loader = state;
+  const [shard, meta] = await Promise.all([shardOf(loader, subject), metaOf(loader)]);
   if (!shard) return null;
   const sections = shard.sections.find((s) => normCode(s.code) === wanted) ?? null;
   const sectionsByTerm: Record<string, RawSectionCourse | null> = {};
@@ -792,8 +870,6 @@ export function sectionTermsOf(meta: IllinoisMeta | null | undefined): IllinoisS
   return meta.term ? [{ ...meta.term, file: 'sections.json' }] : [];
 }
 
-const sectionTermCache = new Map<string, Promise<Fetched<IllinoisSectionsFile>>>();
-
 /**
  * One crawled term's section summaries, by course code, with the term
  * stamped back on every row the way loadIllinoisCore stamps the first one.
@@ -805,13 +881,17 @@ const sectionTermCache = new Map<string, Promise<Fetched<IllinoisSectionsFile>>>
  * was not crawled or its file did not load.
  */
 export async function loadIllinoisSectionTerm(termId: string): Promise<Map<string, SectionSummary> | null> {
-  const meta = await loadIllinoisMeta();
+  return sectionTermOf(state, termId);
+}
+
+async function sectionTermOf(s: LoaderState, termId: string): Promise<Map<string, SectionSummary> | null> {
+  const meta = await metaOf(s);
   if (!meta) return null;
-  if (meta.term?.id === termId) return (await loadIllinoisCore()).sections;
+  if (meta.term?.id === termId) return (await coreOf(s)).sections;
   const entry = sectionTermsOf(meta).find((t) => t.id === termId);
   if (!entry?.file) return null;
   const file = entry.file;
-  const r = await memo(sectionTermCache, termId, () => artifact<IllinoisSectionsFile>(file));
+  const r = await memo(s.sectionTerms, termId, () => artifactOf<IllinoisSectionsFile>(s, file));
   if (!r.ok) return null;
   return summariesOf(r.value);
 }
@@ -831,10 +911,11 @@ function summariesOf(file: IllinoisSectionsFile): Map<string, SectionSummary> {
 
 /** Every crawled term's summaries, by term id. A term that did not load is left out. */
 export async function loadIllinoisSectionTerms(): Promise<Map<string, Map<string, SectionSummary>>> {
-  const meta = await loadIllinoisMeta();
+  const s = state;
+  const meta = await metaOf(s);
   const out = new Map<string, Map<string, SectionSummary>>();
   const terms = sectionTermsOf(meta);
-  const loaded = await Promise.all(terms.map((t) => loadIllinoisSectionTerm(t.id)));
+  const loaded = await Promise.all(terms.map((t) => sectionTermOf(s, t.id)));
   terms.forEach((t, i) => {
     const map = loaded[i];
     if (map) out.set(t.id, map);
@@ -887,8 +968,6 @@ interface IllinoisSyllabusShard {
   courses: Record<string, IllinoisSyllabus[]>;
 }
 
-const syllabusCache = new Map<string, Promise<Fetched<IllinoisSyllabusShard>>>();
-
 /**
  * A course's syllabi, newest term first. An empty list means none was found
  * in the public sources the scraper reads (most syllabi live in Canvas,
@@ -898,11 +977,10 @@ export async function loadIllinoisSyllabi(code: string): Promise<IllinoisSyllabu
   const wanted = normCode(code);
   const subject = wanted.split(' ')[0] ?? '';
   if (!SAFE_SUBJECT.test(subject)) return [];
-  const r = await memo(syllabusCache, subject, () => artifact<IllinoisSyllabusShard>(`syllabi/${subject}.json`));
+  const s = state;
+  const r = await memo(s.syllabi, subject, () => artifactOf<IllinoisSyllabusShard>(s, `syllabi/${subject}.json`));
   return r.ok ? (r.value.courses[wanted] ?? []) : [];
 }
-
-const programCache = new Map<string, Promise<Fetched<RawIllinoisProgram>>>();
 
 /**
  * One degree, exactly as it was crawled. The caller runs adaptIllinoisPrograms
@@ -915,7 +993,8 @@ const programCache = new Map<string, Promise<Fetched<RawIllinoisProgram>>>();
 export async function loadIllinoisProgram(id: string): Promise<RawIllinoisProgram | null> {
   const key = id.trim();
   if (!SAFE_PROGRAM_ID.test(key)) return null;
-  const r = await memo(programCache, key, () => artifact<RawIllinoisProgram>(`program/${key}.json`));
+  const s = state;
+  const r = await memo(s.programs, key, () => artifactOf<RawIllinoisProgram>(s, `program/${key}.json`));
   return r.ok ? r.value : null;
 }
 
@@ -977,10 +1056,11 @@ export function takenPerYear(grades: ReadonlyMap<string, { n: number }> | null |
  * still running and a count of zero would read as a term with no classes in it.
  */
 export function coverageLine(core: IllinoisCore): string {
-  if (!core.meta || core.index.length === 0) return 'Illinois data is not loaded.';
+  if (!core.meta || core.index.length === 0) return (core.school ?? 'illinois') === 'illinois' ? 'Illinois data is not loaded.' : 'The course data is not loaded.';
   const counts = core.meta.counts;
   const parts = [`${counts.indexed} courses`];
-  parts.push(core.grades ? `${counts.withGrades} with grade history` : 'grades not loaded');
+  // A build with no such source says so, rather than "not loaded" (Georgia Tech has no grade history to load).
+  parts.push(core.meta.sources?.grades === null ? 'no grade history' : core.grades ? `${counts.withGrades} with grade history` : 'grades not loaded');
   if (core.sections && core.meta.term) {
     // The other crawled terms load on demand, so their counts come from meta.
     const others = sectionTermsOf(core.meta).filter((t) => t.id !== core.meta?.term?.id && typeof t.courses === 'number');
@@ -988,7 +1068,7 @@ export function coverageLine(core: IllinoisCore): string {
       [`${counts.withSections} with ${core.meta.term.label} sections`, ...others.map((t) => `${t.courses} with ${t.label} sections`)].join(', '),
     );
   } else {
-    parts.push('sections not loaded');
+    parts.push(core.meta.sources?.sections === null ? 'no class times yet' : 'sections not loaded');
   }
   if (!core.prereqs) parts.push('prerequisites not checked');
   return `${parts.join(', ')}.`;

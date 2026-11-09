@@ -26,7 +26,7 @@ import type { RequirementArea } from '@/lib/planner/scheduler';
 import { ProgramPicker, type ProgramOption } from './program-picker';
 import { EmphasisPicker } from './emphasis-picker';
 import type { UgaSelectionRequirement } from './uga-source';
-import type { ProgramLevel } from '@/lib/planner/onboarding';
+import { SCHOOLS, type ProgramLevel } from '@/lib/planner/onboarding';
 
 const PRESET_ROWS: Array<[Exclude<PriorityPreset, 'custom'>, string]> = [
   ['balanced', 'Balanced'],
@@ -160,6 +160,39 @@ function CareerInterestsField({
   );
 }
 
+/**
+ * The school's mark at the top of the rail: UGA's and Illinois's logo files,
+ * the school's own logo when SCHOOLS names one, and otherwise its initials on
+ * its colour (Georgia Tech's logo is a trademark, and no file is shipped for
+ * it). Never another school's logo.
+ */
+function SchoolMark({ schoolShort }: { schoolShort: string }) {
+  if (schoolShort === 'UGA' || schoolShort === 'Illinois') {
+    return (
+      <Image
+        src={schoolShort === 'UGA' ? '/uga-school-logo.png' : '/illinois-school-logo.png'}
+        alt=""
+        className={schoolShort === 'UGA' ? undefined : 'is-illinois-original'}
+        width={schoolShort === 'UGA' ? 628 : 1408}
+        height={schoolShort === 'UGA' ? 628 : 1408}
+      />
+    );
+  }
+  const school = SCHOOLS.find((s) => s.short === schoolShort);
+  if (school?.logo) return <Image src={school.logo} alt="" width={256} height={256} />;
+  const initials = schoolShort
+    .split(/\s+/)
+    .map((word) => word[0] ?? '')
+    .join('')
+    .slice(0, 3)
+    .toUpperCase();
+  return (
+    <span className="rail-school-text" style={school ? { ['--school-accent' as string]: school.accent } : undefined}>
+      {initials}
+    </span>
+  );
+}
+
 export function StudentProfilePanel({
   schoolName,
   schoolShort,
@@ -241,13 +274,7 @@ export function StudentProfilePanel({
       </button>
       <div className="rail-school">
         <span className="rail-school-mark" aria-hidden="true">
-          <Image
-            src={schoolShort === 'UGA' ? '/uga-school-logo.png' : '/illinois-school-logo.png'}
-            alt=""
-            className={schoolShort === 'UGA' ? undefined : 'is-illinois-original'}
-            width={schoolShort === 'UGA' ? 628 : 1408}
-            height={schoolShort === 'UGA' ? 628 : 1408}
-          />
+          <SchoolMark schoolShort={schoolShort} />
         </span>
         <span className="rail-school-name">{schoolName}</span>
       </div>
@@ -532,7 +559,9 @@ export function StudentProfilePanel({
             Required courses and your own additions stay in place.
             {schoolShort === 'Illinois'
               ? ' Workload uses Illinois grade history, and teaching the Teachers Ranked as Excellent lists; where a course has neither, student ratings of its instructors fill in.'
-              : ' UGA publishes no grade history, so workload and teaching are estimates from student ratings of the instructors on UGA\'s Schedule of Classes.'}
+              : schoolShort === 'UGA'
+                ? ' UGA publishes no grade history, so workload and teaching are estimates from student ratings of the instructors on UGA\'s Schedule of Classes.'
+                : ` No grade history or instructor ratings are loaded for ${schoolShort}, so workload and teaching do not change the picks.`}
             {' '}A lighter, harder or better-taught plan is kept only where it costs no required course and no later finish. Missing ratings do not lower a course&apos;s rank.
           </p>
         </div>

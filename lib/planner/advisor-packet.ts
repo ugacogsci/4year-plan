@@ -675,7 +675,7 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
           ? `The plan starts you at semester ${lang.completed + 1} of ${lang.semesters} of ${lang.name}, after the ${lang.name} courses it counts you as holding.${books} That holds only if those courses count as the plan counts them.`
           : `The plan assumes you place into semester ${lang.completed + 1} of ${lang.semesters} of ${lang.name}, from ${
               // UGA counts no high school years: the setup asks where its placement test puts the student (uga-university-rules.ts).
-              input.school.id === 'uga' ? 'the level you said you start at' : input.languageYears === null ? 'the two years of high school language Illinois requires for admission, because you have not said how many you took' : `your ${years} ${plural(years, 'year')} of high school ${lang.name}`
+              input.school.id === 'uga' ? 'the level you said you start at' : input.languageYears === null ? (illinois ? 'the two years of high school language Illinois requires for admission, because you have not said how many you took' : 'two years of high school language, the planner\'s assumption, because you have not said how many you took') : `your ${years} ${plural(years, 'year')} of high school ${lang.name}`
             }.${books} The placement test decides where you start.`;
     const exempt = coursesOf(board.exemptCourseIds ?? []).map((c) => c.code);
     assumptions.push({
@@ -804,7 +804,7 @@ export function buildAdvisorPacket(input: PacketInput): AdvisorPacket {
   if (open.length > 0) {
     questions.push({
       topic: 'open-lines',
-      text: `Which course, if any, do these count as: ${open.map((c) => `${c.code}${c.proposals?.[0] ? ` (likely ${c.proposals[0].code})` : ''}`).join(', ')}? A course that is not listed in Transferology is judged from its syllabus.`,
+      text: `Which course, if any, do these count as: ${open.map((c) => `${c.code}${c.proposals?.[0] ? ` (likely ${c.proposals[0].code})` : ''}`).join(', ')}?${input.school.id === 'gatech' ? ' Bring each course\'s description and syllabus.' : ' A course that is not listed in Transferology is judged from its syllabus.'}`,
       who: illinois ? 'Undergraduate Admissions; bring the syllabi' : 'Admissions',
       source: transferSource,
     });
