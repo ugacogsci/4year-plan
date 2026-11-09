@@ -1,6 +1,6 @@
 {
   "about": "Groups of sending schools that share one course numbering, for borrowing UGA's published answer for the same course number at a sister school when a student's school has no UGA list of its own. Membership is by official system rosters (source per group), names checked one by one; a school is recognised only by its full name or a listed alias at the start of the transcript's name, never by state alone (the technical colleges' short forms, \"Athens Tech\", are aliases; \"Columbus State\" is deliberately not one, since Ohio's Columbus State Community College starts with it). requirePlace: the name alone is shared with a school elsewhere, so the transcript must also show the member's city or state. not: words that rule a match out. formerly: older names of the same institution. Whether a group may lend answers, and under which rule, is decided by the leave-one-school-out test (scripts/dev/transfer-holdout.mjs; report in keep-planner/overnight-nov5/holdout-report.md): borrow is that test's result on 2026-11-05 with the lists then held (re-run on 209 lists with learning-support codes left out, since the planner turns those off before it borrows), and null means the group did not pass, so it lends nothing. A rule such as exact/unanimous/5+ means at least 5 sister schools hold UGA's answer for the same course code and every one of them gives exactly the same answer. verified says when the roster was checked against the system's own list, or the law that names the system's members; null means drafted from knowledge, not yet checked, and never used for lending. borrow.elective (TCSG only): elective and core-elective designations (\"ACCT 2TXX\", \"MATH 1GXX\"), the one group where they passed (exact/unanimous/2+, 96.8% on 217). placeNames: when only some of a member's names are shared with a school elsewhere, the names that need the place (requirePlace then applies to those alone).",
-  "checked": "2026-11-05",
+  "checked": "2026-11-08",
   "groups": {
     "usg": {
       "label": "University System of Georgia",
@@ -856,9 +856,19 @@
     "nc-cc": {
       "label": "North Carolina Community College System",
       "numbering": "One Combined Course Library: every NC community college teaches the same course codes (ENG 111, MAT 171 ...).",
-      "source": "https://www.nccommunitycolleges.edu/colleges/",
-      "verified": null,
-      "borrow": null,
+      "source": "https://www.nccommunitycolleges.edu/students/what-we-offer/colleges/",
+      "verified": "2026-11-08: 58 colleges, name for name against the system's own college list (nccommunitycolleges.edu, all seven pages read in a browser; the page also lists the System Office, which is not a college). Every name matched as written; South Piedmont's main campus is Polkton.",
+      "borrow": {
+        "course": {
+          "rule": "exact/unanimous/5+",
+          "n": 162,
+          "accuracy": 0.981,
+          "floor": 0.947,
+          "worstSchool": 1
+        },
+        "noCredit": null,
+        "use": "North Carolina community colleges share one Combined Course Library, so they lend only to one another, and only course credit: electives and \"no credit\" were not tested enough to lend."
+      },
       "members": [
         {
           "name": "Alamance Community College",
@@ -1136,7 +1146,7 @@
         },
         {
           "name": "South Piedmont Community College",
-          "city": "Wadesboro",
+          "city": "Polkton",
           "state": "NC"
         },
         {
@@ -1511,8 +1521,18 @@
       "label": "Tennessee Board of Regents community colleges",
       "numbering": "Common course numbering for the general-education core across the 13 community colleges (ENGL 1010, MATH 1530 ...).",
       "source": "https://www.tbr.edu/institutions",
-      "verified": null,
-      "borrow": null,
+      "verified": "2026-11-08: 13 community colleges, name for name against the Tennessee Board of Regents' own pages (tbr.edu/institutions and tbr.edu/institutions/community-colleges: \"The 13 community colleges in the Tennessee Board of Regents system\"). Every name matched as written; Motlow's main campus is Tullahoma. The TBR's colleges of applied technology are not members.",
+      "borrow": {
+        "course": {
+          "rule": "exact/unanimous/5+",
+          "n": 95,
+          "accuracy": 1,
+          "floor": 0.961,
+          "worstSchool": 1
+        },
+        "noCredit": null,
+        "use": "Tennessee's community colleges share common course numbering for the general-education core, so they lend only to one another, and only course credit at 5 or more lists (the 3+ rule fails here)."
+      },
       "members": [
         {
           "name": "Chattanooga State Community College",
@@ -1558,7 +1578,7 @@
         },
         {
           "name": "Motlow State Community College",
-          "city": "Lynchburg",
+          "city": "Tullahoma",
           "state": "TN"
         },
         {

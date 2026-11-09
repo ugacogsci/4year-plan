@@ -49,7 +49,7 @@ const groupsDoc = JSON.parse(readFileSync(join(ROOT, 'scripts', 'data', 'uga-tra
 
 const STATES = { GA: 'georgia', FL: 'florida', SC: 'south carolina', NC: 'north carolina', AL: 'alabama', TN: 'tennessee', VA: 'virginia', MS: 'mississippi', KY: 'kentucky' };
 /** How a label names a group's schools: "9 other Georgia technical colleges". */
-const NOUN = { usg: 'University System of Georgia schools', tcsg: 'Georgia technical colleges', 'fl-college': 'Florida College System colleges' };
+const NOUN = { usg: 'University System of Georgia schools', tcsg: 'Georgia technical colleges', 'fl-college': 'Florida College System colleges', 'nc-cc': 'North Carolina community colleges', 'tn-cc': 'Tennessee community colleges' };
 
 const isNtfr = (r) => /^NTFR\b/.test(r);
 const isCourse = (r) => /^[A-Z]{2,5} \d{4}[A-Z]?$/.test(r);
