@@ -116,7 +116,7 @@ export type SchoolId = (typeof SCHOOLS)[number]['id'];
  * university's name is exactly the kind of false statement a degree planner
  * cannot make.
  */
-export const READY_SCHOOL_IDS: ReadonlySet<SchoolId> = new Set<SchoolId>(['illinois', 'uga']);
+export const READY_SCHOOL_IDS: ReadonlySet<SchoolId> = new Set<SchoolId>(['illinois', 'uga', 'gatech']);
 
 export function readySchools(): School[] {
   return SCHOOLS.filter((s) => READY_SCHOOL_IDS.has(s.id));
