@@ -333,20 +333,23 @@ export function ElsewhereTermColumn({ termLabel, school, here, classes }: {
       <p className="semester-note current-term-invite" role="note">
         {`Your classes at ${school} now. They count as transfer credit once you pass them, and this plan does not book them again at ${here}.`}
       </p>
-      {classes.map((c) => (
-        <article key={c.code} className="course-card current-class-card">
-          <span className="current-class-spacer" aria-hidden="true" />
-          <span className="course-cluster-dot" style={{ backgroundColor: clusterColor(c.code.split(' ')[0]) }} />
-          <div className="course-card-body">
-            <span className="course-card-code-row">
-              <span className="course-card-code">{c.code}</span>
-              {c.credits !== null && <span className="course-card-credits">{c.credits} cr</span>}
-            </span>
-            <span className="course-card-title">{c.title}</span>
-            <span className="current-class-from">{c.countsAs}</span>
-          </div>
-        </article>
-      ))}
+      {/* The same scrolling list as every other column: without it, six or more classes ran out of the bottom of the box. */}
+      <div className="semester-courses">
+        {classes.map((c) => (
+          <article key={c.code} className="course-card current-class-card">
+            <span className="current-class-spacer" aria-hidden="true" />
+            <span className="course-cluster-dot" style={{ backgroundColor: clusterColor(c.code.split(' ')[0]) }} />
+            <div className="course-card-body">
+              <span className="course-card-code-row">
+                <span className="course-card-code">{c.code}</span>
+                {c.credits !== null && <span className="course-card-credits">{c.credits} cr</span>}
+              </span>
+              <span className="course-card-title">{c.title}</span>
+              <span className="current-class-from">{c.countsAs}</span>
+            </div>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
