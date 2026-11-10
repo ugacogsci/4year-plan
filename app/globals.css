@@ -2446,7 +2446,11 @@ p.requirement-unnamed {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--school) 22%, transparent);
 }
 .onb-details-grid option:disabled { color: #627287; }
-.onb-graduation { min-width: 0; margin: 0; padding: 0; border: 0; display: grid; gap: 5px; }
+/* A column, not a grid: Safari 17 lays out a legend in a grid fieldset as if it
+   had no room on first draw, so "When do you intend to graduate?" wrapped a word
+   or two a line (and a width: 100% legend collapsed to nothing). A flex column
+   keeps the same gaps and lets the legend take the full width. */
+.onb-graduation { min-width: 0; margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 5px; }
 .onb-graduation legend { padding: 0; color: #e4ebf5; font-size: 15px; font-weight: 600; }
 .onb-graduation > div { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 5px; }
 .onb-graduation label { display: grid; gap: 5px; min-width: 0; }
