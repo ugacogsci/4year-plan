@@ -853,6 +853,30 @@ const FIRST_YEAR_PLAINLY = /\b(?:currently (?:an? )?|current |now (?:an? )?)(?:f
  * live in the dorms" is a plan).
  */
 const FIRST_YEAR_NOW = /(?:\b(?:freshman|(?:first|1st)[- ]year\s+student|(?:first|second)[- ]semester)|(?:^|[.!?;,(]\s*|\b(?:a|an|i['’]?m|i am|in my|currently|now)\s+)(?:first|1st)[- ]year)\b(?!\s+(?:seminar|comp\w*|class\w*|course\w*|dorm\w*|orientation|roommate\w*|admit\w*))/i;
+/**
+ * Georgia Tech (school-config firstYearStanding, readHorizon's
+ * `firstYearStanding`): FIRST_YEAR_NOW with three differences Illinois does
+ * not get, so its answers read exactly as before.
+ *   - "comp" after the words is a major, not composition, when it is
+ *     Computer..., Computational..., Computing or Comp Sci. Georgia Tech's
+ *     biggest majors start with it, and "I'm a first-year Computer
+ *     Engineering major" read as no standing at all: no current term, Fall
+ *     2026 never planned, the plan short of its degree (2026-11-09 browser
+ *     test). "First-year comp" and "first-year composition" are still the
+ *     English course and still rejected.
+ *   - A first year in the past is not now: "I was a freshman two years ago",
+ *     "back when I was a first-year".
+ *   - A first term under way said another way (FIRST_TERM_NOW_GT).
+ */
+const FIRST_YEAR_NOW_GT = /(?:\b(?<!\b(?:was|were|been)\s+(?:an?\s+)?)(?:freshman|(?:first|1st)[- ]year\s+student|(?:first|second)[- ]semester)|(?:^|[.!?;,(]\s*|\b(?<!\b(?:was|were|been)\s+)(?:a|an|i['’]?m|i am|in my|currently|now)\s+)(?:first|1st)[- ]year)\b(?!\s+(?:seminar|comp(?!ut|[\s.-]*sci)\w*|class\w*|course\w*|dorm\w*|orientation|roommate\w*|admit\w*|(?:year\s+)?(?:\w+\s+)?(?:years?|semesters?|terms?)\s+ago\b))/i;
+/**
+ * Georgia Tech: a first term under way without the word "first-year": "I
+ * just started at Georgia Tech", "just started college", "just started
+ * here." Only as a start of college, not "I just started thinking about
+ * grad school", and never for a transfer (TRANSFER_WORD): their first term
+ * here is not their first year.
+ */
+const FIRST_TERM_NOW_GT = /\bjust\s+(?:started|began|begun)(?=\s+(?:at\b|here\b|college\b|school\b|classes\b|uni\w*|my\s+(?:first|freshman)\b|this\s+(?:semester|term|fall|year)\b)|\s*(?:[.!;,]|$))/i;
 /** Just through the first year, in a summer: "rising sophomore", "just finished my freshman year". */
 const FIRST_YEAR_DONE = /\b(?:rising sophomore|(?:just\s+)?(?:finished|completed|done with)\s+(?:my\s+)?(?:freshman|first)[- ]year)\b/i;
 /**
@@ -1195,6 +1219,28 @@ export function readHorizon(
     enrolled?: boolean;
     /** The first open term on the day the words were written, when that is known ("incoming" meant the fall after it). */
     openWhenWritten?: { season: SemesterSeason; year: number } | null;
+    /**
+     * Georgia Tech (school-config firstYearStanding): first-year words are
+     * read with FIRST_YEAR_NOW_GT and FIRST_TERM_NOW_GT, and a `classYear`
+     * of 'first' counts as well. Absent for Illinois and UGA, which read
+     * exactly as before.
+     */
+    firstYearStanding?: boolean;
+    /**
+     * The class year the student picked and confirmed in setup (the setup
+     * card, the form's "What year of your program are you in?"): '' when
+     * none. "First year", with no start in their words or record, says what
+     * "I'm a first-year" says: their first term is under way. Before, the
+     * start-term reading never looked at it, so a first-year who filled in
+     * the form and wrote little or nothing, or wrote "first-year Computer
+     * Engineering", had no current term planned (2026-11-09). Words that
+     * say they have not started, are past the first year, or name a start
+     * still decide, as before: an incoming freshman picks "First year" too.
+     * A later year picked does not overrule first-year words, as at
+     * Illinois (the form prefills it from the words, and "Second-semester
+     * freshman" prefills Second year).
+     */
+    classYear?: string;
   } = {},
 ): {
   startSeason: SemesterSeason;
@@ -1386,8 +1432,12 @@ export function readHorizon(
   const firstYearDone = FIRST_YEAR_DONE.test(timeline) && !upperNow;
   const thisYearsFall = { season: 'Fall' as const, year: cal.season === 'Spring' ? cal.year - 1 : cal.year };
   const undated = !future && !datedStart && !pastStart && !onRecord;
+  // Georgia Tech: more ways of saying it, and the class year picked (see `known`).
+  const firstYearSaid = known.firstYearStanding
+    ? known.classYear === 'first' || FIRST_YEAR_NOW_GT.test(timeline) || (FIRST_TERM_NOW_GT.test(timeline) && !TRANSFER_WORD.test(timeline))
+    : FIRST_YEAR_NOW.test(timeline);
   const freshmanNow =
-    undated && !notStarted && !upperNow && !firstYearDone && FIRST_YEAR_NOW.test(timeline) &&
+    undated && !notStarted && !upperNow && !firstYearDone && firstYearSaid &&
     cal.season !== 'Summer' && ordOf(thisYearsFall.season, thisYearsFall.year) < nowOrd;
   // "Rising sophomore" in July: their first fall was last year's.
   const lastYearsFall = { season: 'Fall' as const, year: cal.year - 1 };

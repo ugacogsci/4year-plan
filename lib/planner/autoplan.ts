@@ -914,6 +914,21 @@ export interface AutoplanInput {
   /** False to place without sending dated courses sooner (soonerBy); set by generatePlan the same way. */
   soonerDates?: boolean;
   /**
+   * False to build without the year-two date for required 1000-level
+   * courses (school-config introEarly). Set by generatePlan only for the
+   * board it builds to check that the date costs no hours past the total.
+   */
+  introEarly?: boolean;
+  /**
+   * The codes the degree page's take-every-course rows name, every
+   * alternative and every course of an option included, before generatePlan
+   * resolves an option to the courses it books (resolveBundles): the
+   * year-two date's list (school-config introEarly). Literature, Media, and
+   * Communication's "MATH 1711 or MATH 1551 & MATH 1553" books MATH 1711,
+   * and the fill took MATH 1551 as a Spring 2030 free elective.
+   */
+  introNames?: string[];
+  /**
    * True to build the board as the engine did before the year-one, date and
    * pair work (a930f09): no moves after the elective fill, no co-requisite
    * pair or lab rules in the placer beyond the career tracks' own pairs, no
@@ -10522,7 +10537,7 @@ function generatePlanBuiltOnce(given: AutoplanInput, calculusDate: boolean, late
    * inferred pairings (AutoplanInput), and `asRead`, the requirements as
    * a930f09 read them (asReadBefore).
    */
-  type Build = { pace: boolean | 'ceiling'; sooner: boolean; plain?: boolean; pairs?: boolean; asRead?: boolean; before?: boolean; seminars?: boolean; swap?: boolean; trim?: boolean; tracks?: TrackPicks; dated?: boolean; goalRows?: boolean | 'lean'; tidy?: boolean; standing?: boolean; left?: boolean; repair?: boolean; goalGenEd?: boolean | 'after' };
+  type Build = { pace: boolean | 'ceiling'; sooner: boolean; plain?: boolean; pairs?: boolean; asRead?: boolean; before?: boolean; seminars?: boolean; swap?: boolean; trim?: boolean; tracks?: TrackPicks; dated?: boolean; goalRows?: boolean | 'lean'; tidy?: boolean; standing?: boolean; left?: boolean; repair?: boolean; goalGenEd?: boolean | 'after'; introOff?: boolean };
   /*
    * A row the page joins with "OR" alone is one pick (joinedByOr in
    * illinois-data): the LAS orientation row, LAS 101 or LAS 100 or LAS 102.
@@ -10536,6 +10551,8 @@ function generatePlanBuiltOnce(given: AutoplanInput, calculusDate: boolean, late
   const asReadBefore = (list: PlanRequirement[]): PlanRequirement[] =>
     list.map((r) => (r.rule.kind === 'pool' && r.rule.joinedByOr ? { ...r, rule: { kind: 'all', choices: r.rule.choices } } : r));
   const readsDifferently = given.requirements.some((r) => r.rule.kind === 'pool' && r.rule.joinedByOr === true);
+  /** The codes the page's take-every-course rows name, options and alternatives included (AutoplanInput.introNames). */
+  const introPageNames = [...new Set(given.requirements.flatMap((r) => (r.rule.kind === 'all' ? r.rule.choices.flatMap((choice) => [...choice.codes, ...(choice.bundles ?? []).flat()]) : [])))];
   const electiveRanking = new Map<string, string[]>();
   // The scorer's answers do not depend on the free choices' mode: one memo for its boards (freeChoicesGated).
   const qualityMemo = given.qualityMemo ?? new Map<string, Map<string, QualityResult>>();
@@ -10564,6 +10581,8 @@ function generatePlanBuiltOnce(given: AutoplanInput, calculusDate: boolean, late
     pageSubjects: degreeSubjectsOf(build.asRead ? asReadBefore(given.requirements) : given.requirements, given.programName),
     paceYearOne: build.pace,
     soonerDates: build.sooner,
+    introEarly: build.introOff === true ? false : undefined,
+    introNames: introPageNames,
     plainEngine: build.plain === true,
     seminarMoves: build.seminars === true,
     listByCost: listCost,
@@ -11170,6 +11189,31 @@ function generatePlanBuiltOnce(given: AutoplanInput, calculusDate: boolean, late
           if (tries[0].repair !== true) tries.push({ ...tries[0], repair: true });
         }
         tries.push({ ...goalRecipe, goalGenEd: 'after' });
+      }
+    }
+    /*
+     * Georgia Tech (school-config introEarly): the year-two date for required
+     * 1000-level courses may cost no hours past the degree total. Where the
+     * board kept books some, its recipe is built again without the date, and
+     * that board stands where it books fewer and the gate finds it no worse
+     * than the floor, the release and the board kept, but in its shape: the
+     * date took a ten-exam Civil Engineering student's ENGL 1102 and APPH
+     * 1040 out of a light Spring 2029, and the fill kept that term full-time
+     * with a course the degree does not need (2026-11-09).
+     */
+    const introRecipe = buildOf.get(best);
+    if (introRecipe && introRecipe.introOff !== true && courseleafOfContext(context)?.introEarly === true && measureOf(best).beyond > 0) {
+      const kept = best;
+      const rebuilt = once(horizon, { ...introRecipe, introOff: true });
+      if (!seen.has(shapeOf(rebuilt))) {
+        seen.add(shapeOf(rebuilt));
+        const worse = [...new Set([plain, released, kept].flatMap((b) => gateWorse(measureOf(rebuilt), measureOf(b))))];
+        // Worse only in its shape (SHAPE_ONLY: a year-one term under fifteen, as the student would have had without the date) is no cost beside a course the degree does not need.
+        // Only a board that stands joins the trail (shorterStands, degreeFirstOf).
+        if (worse.every((w) => SHAPE_ONLY.has(w)) && measureOf(rebuilt).beyond < measureOf(kept).beyond) {
+          trail.tried.push({ board: rebuilt, worse, how: builtAs.get(rebuilt) });
+          best = rebuilt;
+        }
       }
     }
     best = degreeFirstOf(best, plain, released, trail.tried.map((t) => t.board), horizon, measureOf);
@@ -15602,6 +15646,32 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
       if (due !== undefined) dueByTerm[code] = Math.min(dueByTerm[code] ?? due, due);
     }
   }
+  /*
+   * Georgia Tech (school-config introEarly): a 1000-level course the degree
+   * page names in a take-every-course row, or as one of such a row's
+   * alternatives or options (AutoplanInput.introNames), is due by the plan's
+   * fourth fall or spring, on a board of six or more. The date comes after
+   * the degree's own (degreeLatest, below), so it is a track's kind of date
+   * (urgencyAt 2) and never takes a chain's last seat; and it holds for
+   * every move after placement (datedBy), the light-term top-up (sparedInto)
+   * and the fill's picks (choose), which with nothing holding them sent
+   * ENGL 1101 from a Psychology freshman's first fall to Fall 2029 and
+   * Business's MATH 1553 from Spring 2028 to Fall 2029.
+   */
+  const introNamed = new Set<string>();
+  const introDated = new Set<string>();
+  let introDue = terms.length;
+  if (input.introEarly !== false && courseleafOfContext(ctx)?.introEarly === true) {
+    const regularTerms = terms.filter((t) => t.season !== 'Summer');
+    if (regularTerms.length >= 6) {
+      introDue = regularTerms[3].index;
+      for (const r of input.requirements) if (r.rule.kind === 'all') for (const choice of r.rule.choices) for (const c of choice.codes) introNamed.add(normaliseCode(c));
+      for (const c of input.introNames ?? []) introNamed.add(normaliseCode(c));
+    }
+  }
+  /** The year-two date of a required 1000-level course (introNamed), terms.length for any other. */
+  const introDueOf = (code: string): number => (introNamed.has(code) && Math.floor(courseLevel(code) / 100) === 1 ? introDue : terms.length);
+  for (const code of selected) if (introDueOf(code) < terms.length) introDated.add(code);
   /**
    * A track's dated rows, due by the last spring before the plan's last fall.
    *
@@ -15706,6 +15776,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
    */
   const degreeLatest = new Map(latestStart);
   applyDates(trackDue, true);
+  if (introDated.size > 0) applyDates(Object.fromEntries([...introDated].map((code) => [code, introDue])));
   /** No slack left: this is the last term the course can start in and still finish its chain. */
   const urgentAt = (code: string, termIndex: number): boolean => termIndex >= (latestStart.get(code) ?? terms.length);
   /**
@@ -17969,7 +18040,8 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
          * round of the fill.
          */
         if (landing && !(gap > 0 && gap < 3)) continue;
-        const ok = (code: string) => also(code) && sized(code) && fits(code);
+        // Never a required 1000-level course past its year-two date (introDueOf): Literature, Media, and Communication's fill put MATH 1551 in Spring 2030.
+        const ok = (code: string) => also(code) && sized(code) && fits(code) && (termIndex === undefined || introDueOf(code) >= termIndex);
         /*
          * At Georgia Tech with a goal, the landing course of one or two hours
          * is the one nearest the goal by meaning (closenessKey), where none is
@@ -18334,7 +18406,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           for (const raw of group.any) for (const e of expandEquivalents(normaliseCode(raw), equivalents)) waitedOn.add(e);
         }
       }
-      const due = (code: string) => Math.min(trackDue[code] ?? terms.length, dueByTerm[code] ?? terms.length);
+      const due = (code: string) => Math.min(trackDue[code] ?? terms.length, dueByTerm[code] ?? terms.length, introDueOf(code));
       const hardThere = here.filter(isHard).length;
       const options: Array<{ code: string; from: (typeof terms)[number]; size: number }> = [];
       for (const from of usedTerms) {
@@ -20125,6 +20197,13 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
           datedBy.set(code, Math.min(datedBy.get(code) ?? applicationDue, applicationDue));
         }
       }
+    }
+  }
+  // And a required 1000-level course's year-two date (introDueOf), the fill's own among them: Literature, Media, and Communication's MATH 1551 sat in Spring 2030.
+  for (const t of terms) {
+    for (const code of placed.get(t.id) ?? []) {
+      const due = introDueOf(code);
+      if (due < terms.length) datedBy.set(code, Math.min(datedBy.get(code) ?? due, due));
     }
   }
 

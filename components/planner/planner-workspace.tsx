@@ -3205,13 +3205,25 @@ export function PlannerWorkspace({
 
   const cannot: CannotFinish | null = useMemo(() => {
     if (!finishNow || !finishSettings) return null;
+    const record = recordKind(creditGap);
     return cannotFinish(finishNow, finishSettings, {
-      record: recordKind(creditGap),
+      /*
+       * Georgia Tech (school-config planEmptyCurrentTerm): an empty semester in
+       * progress does not hide a plan that cannot finish. A first-year's empty
+       * semester is planned there, so a board still showing one is a student
+       * the planner did not read as a first-year, and adding one term's classes
+       * does not explain the shortfall: wave 5's first-year Computer
+       * Engineering board stood at 126 of 129 with ECE 3150 and HIST 2111 left
+       * out, and its bar said only "Your Fall 2026 classes are not added yet"
+       * with the shortfall under "Show 8 more" (2026-11-09). The item now
+       * comes first and the record prompt beside it. Illinois and UGA as before.
+       */
+      record: leaf?.planEmptyCurrentTerm && record === 'current-empty' ? 'none' : record,
       // With a transcript, the semester in progress counted as a usual load is the cause the prompt names.
       transcript: Boolean(transcriptRecord && (transcriptRecord.courses?.length ?? 0) > 0),
       doubleDawgsPending: issues.some((i) => i.id === 'double-dawgs-rebuild'),
     });
-  }, [finishNow, finishSettings, creditGap, issues, transcriptRecord]);
+  }, [finishNow, finishSettings, creditGap, issues, transcriptRecord, leaf?.planEmptyCurrentTerm]);
 
   /**
    * The fixes, tried by building each one (composePlan) with the board's
@@ -4046,7 +4058,9 @@ export function PlannerWorkspace({
         t.id === termId ? { ...t, courseIds: t.courseIds.map((id) => (id === oldId ? newId : id)) } : t,
       ),
     };
-    const problem = isUga ? checkPlacement(candidate, course, termId).blocking[0] ?? progressCheckOn(plan)?.(candidate) : null;
+    // UGA's audit, and where the school says so (school-config towerProgressCheck: Georgia Tech) the board's rail, as TOWER's own
+    // replace_course checks it: a student's own pick from "choose a replacement" no longer takes a requirement off the board unseen.
+    const problem = isUga || leaf?.towerProgressCheck ? checkPlacement(candidate, course, termId).blocking[0] ?? progressCheckOn(plan)?.(candidate) : null;
     if (problem) { notify('Replacement needs review', problem, 'info'); return; }
     commit(candidate, { operation: 'replace' });
     // A true open-elective card remains an open-elective card after a swap.
@@ -4614,7 +4628,7 @@ export function PlannerWorkspace({
   function checkPlacement(candidate: PlanState, course: Course, termId: string) {
     const L = live.current;
     const ctx = L.context;
-    if (!ctx) return { blocking: ['The catalog is not loaded yet.'], warnings: [] as string[], credits: '' };
+    if (!ctx) return { blocking: ['The catalog is not loaded yet.'], warnings: [] as string[], credits: '', offSeason: null as string | null };
     const found = auditIssuesOn(candidate);
     const mine = found.filter((i) => i.courseId === course.id && i.termId === termId);
     const blocking = mine
@@ -4626,7 +4640,9 @@ export function PlannerWorkspace({
     const codes = (term?.courseIds ?? []).map((id) => L.courseIndex.get(id)?.code).filter((c): c is string => Boolean(c));
     const credits = planCreditRange(codes, ctx);
     if (credits.min > 18) blocking.push(`${term?.label ?? 'That term'} would be ${describeCreditTotal(credits)}, over the 18 allowed.`);
-    return { blocking: [...new Set(blocking)], warnings: [...new Set(warnings)], credits: describeCreditTotal(credits) };
+    // The board's "Not offered this term" line for this course here, read by TOWER's tools at a school with seasonGuard (Georgia Tech).
+    const offSeason = mine.find((i) => i.id.startsWith('ap-offering-'))?.message ?? null;
+    return { blocking: [...new Set(blocking)], warnings: [...new Set(warnings)], credits: describeCreditTotal(credits), offSeason };
   }
 
   /**
@@ -5535,6 +5551,26 @@ export function PlannerWorkspace({
     });
     const check = checkPlacement;
     /**
+     * Georgia Tech (school-config seasonGuard): a course going into a season
+     * it has not run in is not placed on TOWER's word alone. The board would
+     * mark it "Not offered this term" (the validator's ap-offering line, the
+     * same at Illinois), and placing it with that line as one warning among
+     * others let TOWER tell a student "the planner would accept" fall-only
+     * NRE 4214 in Spring 2030 (2026-11-09 QA). replace_course, which takes
+     * `confirmed`, asks for the student's yes, as for a required course;
+     * add_course and move_course, whose inputs have no `confirmed` (the tool
+     * schemas stay ALMA's), refuse and say the student can still place it by
+     * hand, where the board shows the same warning it shows at Illinois.
+     * Null elsewhere, after a yes, or for a course that runs in that season.
+     */
+    const seasonStop = (c: Course, label: string, verdict: { offSeason?: string | null }, canConfirm: boolean) => {
+      if (!leaf?.seasonGuard || !verdict.offSeason || (canConfirm && input.confirmed === true)) return null;
+      const say = `${c.code} does not run in ${label}: ${verdict.offSeason} Tell the student plainly that it has not run in that season, so they may not be able to register for it there and the board marks it "Not offered this term"; never say the planner accepts it there or that it fits. Offer a term it runs in.`;
+      return canConfirm
+        ? { ok: false, needs_confirmation: true, not_offered_that_term: verdict.offSeason, reason: `${say} Call again with confirmed true only if they still want it in ${label} after hearing that.` }
+        : { ok: false, not_offered_that_term: verdict.offSeason, reason: `${say} It was not placed. If they still want it in ${label} after hearing that, they can drag it there on the board themselves.` };
+    };
+    /**
      * A term an edit leaves under the student's minimum. Full-time status is
      * what a scholarship, a visa or financial aid is measured on, and moving
      * a course out of a term only reported the term it went to.
@@ -5643,11 +5679,14 @@ export function PlannerWorkspace({
         if (!term) return { ok: true, matches: hits.length, results: hits.slice(0, limit).map(describe) };
         const results: Array<ReturnType<typeof describe> & { eligible_in: string; warnings: string[] }> = [];
         const refused: string[] = [];
+        // Georgia Tech (seasonGuard): a course that has not run in this season is listed apart, never as eligible here.
+        const offSeason: string[] = [];
         for (const c of hits) {
           if (results.length >= limit || refused.length > 40) break;
           if (holding(c.id) || L.completedCodes.has(normCode(c.code))) continue;
           const verdict = check(withCourseIn(board, c.id, term.id), c, term.id);
-          if (verdict.blocking.length === 0) results.push({ ...describe(c), eligible_in: term.label, warnings: verdict.warnings });
+          if (verdict.blocking.length === 0 && leaf?.seasonGuard && verdict.offSeason) offSeason.push(`${c.code}: ${verdict.offSeason}`);
+          else if (verdict.blocking.length === 0) results.push({ ...describe(c), eligible_in: term.label, warnings: verdict.warnings });
           else refused.push(`${c.code}: ${verdict.blocking[0]}`);
         }
         return {
@@ -5656,6 +5695,9 @@ export function PlannerWorkspace({
           note: `Only courses the student could take in ${term.label} are listed.`,
           results,
           not_eligible: refused.slice(0, 6),
+          ...(offSeason.length > 0
+            ? { not_offered_that_term: offSeason.slice(0, 6), not_offered_note: `These have not run in a ${term.season.toLowerCase()} term lately, so they are not options for ${term.label}: never call them eligible or say the planner accepts them there.` }
+            : {}),
         };
       }
       case 'course_details': {
@@ -5892,6 +5934,10 @@ export function PlannerWorkspace({
         for (const t of wanted ? [wanted] : board.terms) {
           const candidate = withCourseIn(board, c.id, t.id);
           const verdict = check(candidate, c, t.id);
+          // Georgia Tech (seasonGuard): a term the course does not run in is passed over when none was named, and refused with the reason when it was.
+          const season = verdict.blocking.length === 0 ? seasonStop(c, t.label, verdict, false) : null;
+          if (season && wanted) return season;
+          if (season) { refusals.push(`${t.label}: ${verdict.offSeason}`); continue; }
           if (verdict.blocking.length === 0) {
             apply(candidate, t.id, c.id, `${c.code} added to ${t.label} by ${botName}.`, `${c.code} added to ${t.label}`, [c.id]);
             return { ok: true, summary: `${c.code} added to ${t.label}`, term: t.label, term_credits: verdict.credits, warnings: verdict.warnings };
@@ -5933,13 +5979,17 @@ export function PlannerWorkspace({
         if (already) return { ok: false, reason: `${newC.code} is already on the board in ${already.label}.` };
         if (board.completedCourseIds.includes(newC.id)) return { ok: false, reason: `${newC.code} is marked as already taken.` };
         const stop = guard(oldC, 'replaced');
-        if (stop) return stop;
         const candidate: PlanState = {
           ...board,
           terms: board.terms.map((x) => (x.id === t.id ? { ...x, courseIds: x.courseIds.map((id) => (id === oldC.id ? newC.id : id)) } : x)),
         };
+        // Georgia Tech (seasonGuard): one question covers both, so the yes to replacing a required course is given knowing the season too.
+        const early = stop && leaf?.seasonGuard ? seasonStop(newC, t.label, check(candidate, newC, t.id), true) : null;
+        if (stop) return early ? { ...stop, not_offered_that_term: early.not_offered_that_term, reason: `${stop.reason} Tell them too: ${early.reason}` } : stop;
         const verdict = check(candidate, newC, t.id);
         if (verdict.blocking.length > 0) return { ok: false, reason: `${newC.code} cannot go in ${t.label}: ${verdict.blocking.join(' ')}` };
+        const season = seasonStop(newC, t.label, verdict, true);
+        if (season) return season;
         // UGA's audit, and where the school says so (school-config towerProgressCheck: Georgia Tech) the board's rail, as the card's own swap menu checks it.
         const loss = isUga || leaf?.towerProgressCheck ? progressCheckOn(board)?.(candidate) : null;
         if (loss) return { ok: false, reason: loss, note: 'Use what_if to explain the tradeoff. This replacement was not applied.' };
@@ -5972,6 +6022,8 @@ export function PlannerWorkspace({
         const candidate = withCourseIn(without(target.board, c.id), c.id, to.id);
         const verdict = check(candidate, c, to.id);
         if (verdict.blocking.length > 0) return { ok: false, reason: `${c.code} cannot move to ${to.label}: ${verdict.blocking.join(' ')}` };
+        const season = seasonStop(c, to.label, verdict, false);
+        if (season) return { ...season, note: 'The move was not applied.' };
         const loss = isUga || leaf?.towerProgressCheck ? progressCheckOn(board)?.(candidate) : null;
         if (loss) return { ok: false, reason: loss, note: 'The move was not applied.' };
         const caused = causedBy(board, candidate);

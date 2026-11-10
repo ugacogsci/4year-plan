@@ -106,6 +106,12 @@ export function horizonFor(
    * now or later also means they are enrolled, not incoming.
    */
   const busy = latestInProgressTerm(answers?.transcript);
+  // Georgia Tech (school-config firstYearStanding): the wider first-year
+  // reading of the words, and the class year picked in setup. Illinois and
+  // UGA pass neither, so their answers read exactly as before.
+  const standing = courseleafOf(answers?.schoolId)?.firstYearStanding
+    ? { firstYearStanding: true, classYear: answers?.academicYear ?? '' }
+    : {};
   const readNow = readHorizon(
     answers ? timelineForPlanning(answers) : '',
     open,
@@ -114,6 +120,7 @@ export function horizonFor(
       firstTermOnRecord: firstIllinoisTerm(answers?.transcript),
       enrolled: Boolean(busy && termOrd(busy.season, busy.year) >= termOrd(now.season, now.year)),
       openWhenWritten: firstOpenTerm(written),
+      ...standing,
     },
   );
   const { began, beganFrom, datedStart, incoming, gradPassed: passedInWords, pastAway, notStarted, ...read } = readNow;

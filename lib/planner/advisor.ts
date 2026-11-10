@@ -1178,6 +1178,7 @@ ${SHARED_ADVISOR_RULES.fixSetup}
 ${SHARED_ADVISOR_RULES.reasonBoardIsTruth}
 ${SHARED_ADVISOR_RULES.reasonHoursNothing}
 - A course that has not run in any recent term is not a plan. Say so, and offer one that has.
+- Nor is a course in a season it has not run in: a fall-only course does not fit a spring. search_courses lists such courses under not_offered_that_term, apart from the eligible ones; add_course and move_course refuse to put one there and replace_course asks first (not_offered_that_term in the result). Tell the student it has not run in that season and offer a term it runs in; never say the planner accepts it there or that it fits.
 - move_course, remove_course, replace_course and what_if return review_flags_caused when a change causes a review flag; tell the student.
 
 Changing the board: ask first, change only what was asked, say exactly what changed

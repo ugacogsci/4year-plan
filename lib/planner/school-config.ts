@@ -98,6 +98,30 @@ export interface CourseleafSchool {
    */
   planEmptyCurrentTerm: boolean;
   /**
+   * Who is a first-year now is read the wider way (illinois-source.tsx
+   * readHorizon `firstYearStanding`): "first-year Computer Science / Computer
+   * Engineering / Computational Media" is a standing, not composition; "I
+   * just started here" counts; and the class year picked in setup ("First
+   * year") counts too when the words and record name no start (plan-start.ts).
+   * Without it a Georgia Tech first-year who said their major after
+   * "first-year", or who filled in the form, had no current term and
+   * planEmptyCurrentTerm never ran (2026-11-09). Off for Illinois, whose
+   * answers read as before.
+   */
+  firstYearStanding: boolean;
+  /**
+   * The assistant does not put a course into a season it has not run in
+   * without saying so (planner-workspace.tsx TOWER tools): search_courses
+   * lists such a course apart from the eligible ones, and add_course,
+   * move_course and replace_course stop for the student's yes, as for a
+   * required course. Illinois places it and passes the board's "Not offered
+   * this term" warning along; that left TOWER telling a Nuclear Engineering
+   * student "the planner would accept" fall-only NRE 4214 in Spring 2030
+   * (2026-11-09 QA). The board's own check of a hand move is the same at
+   * both schools. Off for Illinois.
+   */
+  seasonGuard: boolean;
+  /**
    * The open picks read the catalog and the goal (autoplan.ts openPickMisfit,
    * closenessKey). In a long list across departments (Georgia Tech's Any HUM
    * and Any SS, each about 195 courses) the courses closest to the student's
@@ -278,6 +302,20 @@ export interface CourseleafSchool {
    * them in the Fall 2026 column" (plan-start.ts). Off for Illinois.
    */
   registrationWording: boolean;
+  /**
+   * A 1000-level course the degree page names in a take-every-course row
+   * (ENGL 1101, CS 1301, CHEM 1211K, MATH 1553, or one of such a row's
+   * alternatives) is due by the plan's fourth fall or spring (autoplan.ts
+   * introDated). The core lists' picks became the most-run intro courses
+   * (POL 1101, PSYC 1101, SOC 1101), which take a term's seats before CS
+   * 1301 or CHEM 1211K by catalog number alone, and the year-one relief, the
+   * light-term top-up and the last repair then had nothing holding a
+   * required intro course back from the senior year: Electrical
+   * Engineering's CHEM 1211K, Business's MATH 1553 and Psychology's ENGL
+   * 1101 sat in Fall 2029, 69 such courses on 56 boards (2026-11-09). Off
+   * for Illinois.
+   */
+  introEarly: boolean;
   careerVectors: boolean;
   careerTracks: boolean;
   transferAi: boolean;
@@ -308,6 +346,8 @@ const COURSELEAF: Record<CourseleafId, CourseleafSchool> = {
     freeElectivesAnySubject: false,
     oneLanguageLists: false,
     planEmptyCurrentTerm: false,
+    firstYearStanding: false,
+    seasonGuard: false,
     openPicks: false,
     feasibleRoutes: false,
     levelRowsExact: false,
@@ -334,6 +374,7 @@ const COURSELEAF: Record<CourseleafId, CourseleafSchool> = {
     newCourses: false,
     setupSaysExamsEntered: false,
     registrationWording: false,
+    introEarly: false,
     careerVectors: true,
     careerTracks: true,
     transferAi: true,
@@ -357,6 +398,8 @@ const COURSELEAF: Record<CourseleafId, CourseleafSchool> = {
     freeElectivesAnySubject: true,
     oneLanguageLists: true,
     planEmptyCurrentTerm: true,
+    firstYearStanding: true,
+    seasonGuard: true,
     openPicks: true,
     feasibleRoutes: true,
     levelRowsExact: true,
@@ -383,6 +426,7 @@ const COURSELEAF: Record<CourseleafId, CourseleafSchool> = {
     newCourses: true,
     setupSaysExamsEntered: true,
     registrationWording: true,
+    introEarly: true,
     careerVectors: true,
     careerTracks: false,
     transferAi: false,
