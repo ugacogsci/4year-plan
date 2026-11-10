@@ -843,6 +843,16 @@ if (raw.offerings.json) {
    * an Atlanta course. Only index rows and crawled terms are kept.
    */
   let elsewhere = null;
+  /**
+   * Georgia Tech only, as `elsewhere` is. `notYetOffered` is the courses
+   * scripts/gatech/offerings.mjs found with no section in any crawled term
+   * and a Banner catalog record that begins inside those terms (AECT 3100,
+   * 3400, 3500, 4000 and 4500 since Summer 2025, the upper-level courses of
+   * the newest degree), each with the term id its record begins in, so a
+   * board can say "new course, not offered yet" rather than "has not run".
+   * Index rows only. Illinois writes no such field.
+   */
+  let notYetOffered = null;
   if (!IS_ILLINOIS) {
     for (const [now, before] of Object.entries(file.renumbered ?? {})) {
       if (courses[now] && !renumbered[now]) renumbered[now] = before;
@@ -852,8 +862,11 @@ if (raw.offerings.json) {
       const away = Object.entries(file.elsewhere?.[row.code] ?? {}).filter(([t]) => termIds.includes(t));
       if (away.length) elsewhere[row.code] = Object.fromEntries(away.sort(([a], [b]) => termIds.indexOf(a) - termIds.indexOf(b)));
     }
+    const fresh = Object.entries(file.notYetOffered ?? {}).filter(([code, t]) => !courses[code] && termIds.includes(t) && indexRows.some((row) => row.code === code));
+    if (fresh.length) notYetOffered = Object.fromEntries(fresh);
   }
-  write('offerings.json', { source: file.source, fetchedAt: file.fetchedAt, terms: termIds, courses, renumbered, ...(elsewhere ? { elsewhere } : {}) });
+  write('offerings.json', { source: file.source, fetchedAt: file.fetchedAt, terms: termIds, courses, renumbered, ...(elsewhere ? { elsewhere } : {}), ...(notYetOffered ? { notYetOffered } : {}) });
+  if (notYetOffered) console.log(`    ${Object.keys(notYetOffered).length} courses are not offered yet: no section in the crawled terms, a catalog record that begins inside them (${Object.keys(notYetOffered).slice(0, 12).join(', ')}${Object.keys(notYetOffered).length > 12 ? ', ...' : ''})`);
   if (Object.keys(renumbered).length) console.log(`    ${Object.keys(renumbered).length} renumbered ${IS_ILLINOIS ? 'language ' : ''}courses carry their old number's history (${Object.entries(renumbered).map(([a, b]) => `${a} was ${b}`).join(', ')})`);
   if (elsewhere) {
     const only = Object.keys(elsewhere).filter((c) => !courses[c]);

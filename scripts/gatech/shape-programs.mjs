@@ -62,12 +62,31 @@
  *   Wellness  left as it reads: APPH 1040 or APPH 1050 or APPH 1060 is one
  *     row with two alternatives, a one-of-three choice already.
  *
+ *   Lists printed as tables of their own  a row that names no course but
+ *     whose list the page prints below the requirements ("Arts Practice
+ *     Electives" -> "Arts Practice Elective Options"; "BSPP Depth Electives"
+ *     -> five tables under "BSPP Depth Elective Course Options") reads that
+ *     list (pageListFor, version 7; programs.mjs keeps the tables as
+ *     listTables and this drops them).
+ *   A trailing indented option that names no course ("VIP Courses" after
+ *     the last row of "Select three of the following:") joins that list as a
+ *     part, its footnotes with it, instead of standing as a note (version 7).
+ *   Language footnotes read whole (version 7): a level "and above" is "or
+ *     above", a number printed beside the level ("from 2002, 3000- or
+ *     4000-level") is that course in each named subject, languages named in
+ *     words ("Chinese/French/...") are their subjects (Banner's subject
+ *     list), and "can only count one ... 34XX course" is a cap, not a list.
+ *
  * What it leaves alone: a row whose words and footnotes name no course and no
  * subject ("Advisor approved courses", "AE courses from list supplied by
- * School", "Arts Practice Electives") stays an 'hours' block in the catalog's
- * words, marked `shaped.kind: 'open'` with the reason, and the planner fills
- * it with editable elective cards. Zero-hour reminders ("Economics
- * Requirement", "Ethics Requirement") stay notes.
+ * School", "Approved Electives") stays an 'hours' block, marked
+ * `shaped.kind: 'open'` with the reason, its label the row's words followed
+ * by what its own footnote says ("AE Options: AE courses from list supplied
+ * by School"; openWordsFor, version 7), and the planner fills it with
+ * editable elective cards. Zero-hour reminders ("Economics Requirement",
+ * "Ethics Requirement") stay notes, worded with their own footnote where it
+ * names what is required ("History Requirement: International Affairs and
+ * Modern Languages students must complete one non-US History course.").
  *
  *   "N credits" in a comment row left in place  said "N credit hours", the
  *     way the adapter reads hours (asHours), with the printed words kept in
@@ -104,7 +123,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-export const SHAPE_VERSION = 6;
+export const SHAPE_VERSION = 7;
 
 const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
 const numberOf = (code) => Number.parseInt(String(code).split(' ')[1] ?? '', 10);
@@ -152,10 +171,18 @@ export function loadShapeContext(root = ROOT) {
       } catch { return null; }
     }
     : null;
-  return makeShapeContext({ core, catalog, schools, cacheNotes, pageOf });
+
+  // Subject names, from Banner's subject list ("CHIN" is "Chinese"), so a footnote that names its
+  // languages in words ("(Chinese/French/German/Japanese/Korean/Russian/Spanish)") names subjects.
+  const subjectNames = new Map();
+  const subjectFile = join(root, 'data/gatech-raw/banner-catalog', catalog.term ?? '202608', 'lookup/subject.json');
+  if (existsSync(subjectFile)) {
+    for (const s of JSON.parse(readFileSync(subjectFile, 'utf8'))) if (s?.code && s?.description) subjectNames.set(unescape(String(s.description)).trim().toLowerCase(), String(s.code).trim());
+  } else cacheNotes.push(`${subjectFile} missing: subjects named in words (Chinese, French) not read`);
+  return makeShapeContext({ core, catalog, schools, cacheNotes, pageOf, subjectNames });
 }
 
-export function makeShapeContext({ core, catalog, schools = [], cacheNotes = [], pageOf = null }) {
+export function makeShapeContext({ core, catalog, schools = [], cacheNotes = [], pageOf = null, subjectNames = new Map() }) {
   const all = new Map();
   for (const c of catalog.courses ?? []) {
     const code = norm(c.code);
@@ -174,7 +201,7 @@ export function makeShapeContext({ core, catalog, schools = [], cacheNotes = [],
     for (const sub of s.subjects) set.add(sub);
     colleges.set(s.college, set);
   }
-  return { core, all, undergrad, subjects, schools, colleges, cacheNotes, pageOf: pageOf ?? null };
+  return { core, all, undergrad, subjects, schools, colleges, cacheNotes, pageOf: pageOf ?? null, subjectNames };
 }
 
 // ---------------------------------------------------------------------------
@@ -271,7 +298,13 @@ const NEGATIVE_SPLIT = /\b(?:with the exception of|except(?:ing)?(?: for)?|exclu
  * less the excluded and the required courses: 62 courses, none below 3000.
  */
 const NEGATIVE_WHOLE = /\b(?:not allowed|are not|is not|may not|must not|cannot|can not|not be (?:used|included)|not permitted|exclude[sd]?)\b/i;
-const CAP = /\b(?:maximum|max\.|at most|no more than|limit(?:ed)?(?: to)?|up to)\b/i;
+/*
+ * "can only count one": Global Economics and Modern Languages' "Students can only count one selected
+ * language concentration (CHIN/FREN/GRMN/JAPN/KOR/RUSS/SPAN) 34XX course toward 3 of the 21 credits"
+ * caps the 34XX culture courses; read as a list it offered every CHIN ... SPAN course from 1001 up
+ * (2026-11-09). The only "can only count" sentence in gatech-programs.json.
+ */
+const CAP = /\b(?:maximum|max\.|at most|no more than|limit(?:ed)?(?: to)?|up to|can only count)\b/i;
 const ADVICE = /\b(?:recommended|encouraged|strongly advised|consult|highly encouraged)\b/i;
 /** "Any course numbered 3000 or above with significant engineering content": a judgement, not a list. */
 const JUDGEMENT = /\bsignificant\b|\bcoherent theme\b|\bapproved by\b|\bsupplied by\b|\bif approved\b|\bwith permission\b/i;
@@ -281,7 +314,9 @@ function levelsIn(text) {
   const t = text.replace(/\s+/g, ' ');
   let m = t.match(/\b([1-4])000\s*-?\s*(?:,|or|and|\/|to|-)\s*-?\s*([1-4])000\s*-?\s*level/i);
   if (m) return [Number(m[1]), Number(m[2])];
-  m = t.match(/\b([1-4])000\s*-?\s*(?:level|lvl)?\s*(?:courses?\s+)?or\s+(?:higher|above)\b/i) ?? t.match(/\bnumbered\s+([1-4])000\s+or\s+(?:higher|above)\b/i) ?? t.match(/\bat\s+(?:the\s+)?([1-4])000[- ]level\s+or\s+(?:higher|above)/i);
+  // "3000-level and above" (Global Economics and Modern Languages' language footnote) is "or above":
+  // read as 3000-level only, its 21 hours lost every 4000-level course.
+  m = t.match(/\b([1-4])000\s*-?\s*(?:level|lvl)?\s*(?:courses?\s+)?(?:or|and)\s+(?:higher|above)\b/i) ?? t.match(/\bnumbered\s+([1-4])000\s+or\s+(?:higher|above)\b/i) ?? t.match(/\bat\s+(?:the\s+)?([1-4])000[- ]level\s+or\s+(?:higher|above)/i);
   if (m) return [Number(m[1]), 4];
   // A level the words state outright wins over "upper division": Music Technology's "MUSI Upper
   // Division (4000-level) Elective" is a 4000-level MUSI course, and read as 3000-4999 it offered
@@ -299,6 +334,38 @@ function subjectsIn(ctx, text) {
   // subject; a round level number ("ECE 3000/4000-level") does not.
   const bare = text.replace(/\b[A-Z]{2,4}\s?\d[\dX]{3}[A-Z]?\b(?:\s*,?\s*(?:and\s+|or\s+)?\d[\dX]{3}\b)*/g, (m) => (/X/.test(m) || !/^[A-Z]{2,4}\s?\d000\b/.test(m) ? ' ' : m));
   for (const m of bare.matchAll(/\b([A-Z]{2,4})\b/g)) if (ctx.subjects.has(m[1])) out.add(m[1]);
+  return out;
+}
+
+/**
+ * Subjects a phrase names in words, as a run of two or more names joined by
+ * "/" that are each a subject's own name in Banner's subject list: Global
+ * Economics and Modern Languages' "(Chinese/French/German/Japanese/Korean/
+ * Russian/Spanish)". Only a whole run of subject names counts ("Ethics/Law"
+ * names none).
+ */
+function subjectsNamedIn(ctx, text) {
+  const out = new Set();
+  for (const m of String(text).matchAll(/\b[A-Z][a-z]+(?:\/[A-Z][a-z]+)+\b/g)) {
+    const codes = m[0].split('/').map((w) => ctx.subjectNames?.get(w.toLowerCase()));
+    if (codes.every((c) => c && ctx.subjects.has(c))) for (const c of codes) out.add(c);
+  }
+  return out;
+}
+
+/**
+ * Course numbers a sentence prints on their own beside a level: "ARBC/CHIN/
+ * JAPN/KOR/RUSS electives from 2002, 3000- or 4000-level courses" and
+ * "electives at 2002 (or its equivalent), 3000-level and above" (the two
+ * language footnotes that say it). Not a code's number ("CHIN 2002"), not a
+ * round level ("3000-"), not a number followed by "level".
+ */
+function bareNumbersIn(text) {
+  const out = [];
+  for (const m of String(text).matchAll(/(?<![A-Z]{2,4}\s?)(?<![\d/])\b([1-4]\d{3})\b(?!\s*-?\s*(?:level|lvl)\b)(?![\d/X])/g)) {
+    const n = Number(m[1]);
+    if (n % 1000 !== 0) out.push(m[1]);
+  }
   return out;
 }
 
@@ -408,7 +475,7 @@ function readCourseText(ctx, text, { words = false, levels: forced = null } = {}
     // A choice the catalog leaves to someone ("with significant engineering content", "list supplied by
     // School", "if approved by advisor"): its named codes stand, a whole subject is not read from it.
     if (JUDGEMENT.test(s)) { judgement = true; continue; }
-    const subjects = new Set([...subjectsIn(ctx, s), ...collegeSubjectsIn(ctx, s)]);
+    const subjects = new Set([...subjectsIn(ctx, s), ...collegeSubjectsIn(ctx, s), ...subjectsNamedIn(ctx, s)]);
     const broad = /\b(?:any|all)\b/i.test(s) || lv !== null;
     if (words || broad) {
       for (const [re, subs] of SUBJECT_WORDS) if (re.test(s) && (words || broad)) for (const x of subs) subjects.add(x);
@@ -426,6 +493,18 @@ function readCourseText(ctx, text, { words = false, levels: forced = null } = {}
       subjectRule = true;
       why.push(`${[...subjects].sort().join(', ')} ${band[0]}000-${band[1]}999`);
       if (!forced && lv !== null) bands.push({ subjects, band });
+      // A number printed on its own beside the level ("from 2002, 3000- or 4000-level") is that
+      // course in each subject the sentence names: ARBC 2002, CHIN 2002, ... are in the list.
+      if (lv !== null) {
+        const added = [];
+        for (const num of bareNumbersIn(s)) {
+          for (const sub of subjects) {
+            const k = ctx.all.get(`${sub} ${num}`);
+            if (k && !k.noise && !include.has(k.code)) { include.add(k.code); added.push(k.code); }
+          }
+        }
+        if (added.length) why.push(`${added.length} course${added.length === 1 ? '' : 's'} numbered ${[...new Set(added.map((c) => c.split(' ')[1]))].join(', ')}`);
+      }
     }
   }
   /*
@@ -599,7 +678,21 @@ function selectLists(group) {
   for (const [k, c] of comments.entries()) {
     const next = comments[k + 1];
     if (next && next.at === c.at) continue; // a lead-in: the last comment at this row heads the list
-    if (c.at >= rows.length) continue;
+    if (c.at >= rows.length) {
+      /*
+       * An indented comment with no hours after the last row is one more option of the list above it,
+       * as readTable counts it: Acoustics and Vibrations prints "VIP Courses" (its footnotes: approved by
+       * a concentration faculty member, at most 3 hours of VIP and research) as the last option of
+       * "Select three of the following:". Left behind, it read as a note of its own that names no course.
+       * It names no course either way, so it joins the list as a part, its footnotes with it.
+       */
+      const prev = lists[lists.length - 1];
+      // Only a row that names no course ("VIP Courses", "Ensemble", "Research Option"); one that names a
+      // number pattern ("Any LMC 27XX, 37XX, 47XX, 325X") stays where it was.
+      const namesCourses = /\b[A-Z]{2,4}\s?\d[\dX]{3}\b/.test(c.text);
+      if (c.indented && !(c.hours > 0) && !namesCourses && prev && prev.rows[prev.rows.length - 1] === rows.length - 1) { prev.parts.push(c); prev.trailing = [...(prev.trailing ?? []), c]; }
+      continue;
+    }
     const first = rows[c.at];
     if (!first.indented && first.credits != null) continue; // a heading over required rows, not a list
     const stop = comments.find((o) => o.at > c.at)?.at ?? rows.length;
@@ -962,7 +1055,12 @@ function shapeProgram(ctx, program, tally) {
             summedCredits: 0,
             // A list to pick from: its heading offers a choice over options. One row is the row.
             kind: rows.length > 1 || credits > head.hours + 0.5 ? 'menu' : 'all',
-            ...(head.footnotes?.length ? { footnotes: head.footnotes } : {}),
+            // A trailing option that names no course ("VIP Courses") brings its footnotes along.
+            ...((() => {
+              const foot = [...(head.footnotes ?? [])];
+              for (const t of l.trailing ?? []) for (const f of t.footnotes ?? []) if (!foot.includes(f)) foot.push(f);
+              return foot.length ? { footnotes: foot } : {};
+            })()),
             ...(l.parts.length ? { parts: l.parts.map((p) => p.text) } : {}),
             shaped: { kind: 'select', from: words, basis: 'its own rows on the page, split from the required rows of its block' },
           };
@@ -980,12 +1078,26 @@ function shapeProgram(ctx, program, tally) {
       // a minor (15 hours) or certificate (12 hours)"): free electives under that name, else open hours.
       if ((group.courses?.length ?? 0) === 0 && group.hours > 0 && !group.shaped && extracted.length === 0) {
         const words = [area.label, group.note].filter(Boolean).join(': ');
+        const listed = /\bfree electives?\b/i.test(area.label ?? '') ? null : pageListFor(ctx, program, area.label);
         if (/\bfree electives?\b/i.test(area.label ?? '')) {
           group.shaped = { kind: 'free', from: words, basis: 'free electives' };
           tally.free += 1;
+        } else if (listed) {
+          // Its list printed as tables of its own below the requirements (pageListFor): Public Policy's depth lists.
+          group.courses = listed.codes.map((c) => listRow(ctx, c));
+          group.summedCredits = group.courses.reduce((n, r) => n + (r.credits ?? 0), 0);
+          group.kind = group.summedCredits > group.hours + 0.5 ? 'menu' : 'all';
+          group.shaped = { kind: 'list', from: words, basis: `the page's own list printed below the requirements: ${listed.named.map((n) => `"${n}"`).join(', ')}` };
+          tally.lists += 1;
+          tally.pageLists = (tally.pageLists ?? 0) + 1;
         } else {
           group.shaped = { kind: 'open', from: words, basis: group.note ? 'its words name no list of courses' : 'the catalog names no courses for it' };
           tally.open += 1;
+          // The row's own words, else its footnote's, in its label (openWordsFor): "Upper Division Electives:
+          // 3000/4000-level courses in any field chosen by the student".
+          const foot = (group.footnotes ?? []).filter((f) => !/^Minimum grade of [A-D] required\.?$/i.test(f.trim()));
+          const said = group.note ? tidy(group.note) : openWordsFor(area.label ?? '', foot);
+          if (said && !group.label) group.label = `${area.label}: ${said}`;
         }
       }
 
@@ -1014,6 +1126,130 @@ function shapeProgram(ctx, program, tally) {
     area.groups = out;
   }
   carveFootnotedReminders(ctx, program, tally);
+  notesInCatalogWords(program, tally);
+}
+
+/**
+ * A reminder row with no hours and no course (a note) says what its own
+ * footnote says: International Affairs and Modern Language prints "History
+ * Requirement" with the footnote "International Affairs and Modern Languages
+ * students must complete one non-US History course. These hours will also
+ * satisfy 3 hours of Core IMPACTS Social Sciences." The page names no list
+ * of non-US history courses anywhere (the HTS and INTA pages neither), so it
+ * stays a note, now in the catalog's words: the footnote's sentences up to
+ * the first that only says where the hours count (a sentence with an hour
+ * count is the Social Sciences area's business, which the board already
+ * plans). Only a group that is nothing but that one row.
+ */
+function notesInCatalogWords(program, tally) {
+  for (const area of program.areas ?? []) {
+    for (const group of area.groups ?? []) {
+      if ((group.courses?.length ?? 0) > 0 || group.hours > 0 || group.label || (group.comments?.length ?? 0) !== 1) continue;
+      const c = group.comments[0];
+      if (c.hours > 0 || !(c.footnotes?.length)) continue;
+      const said = openWordsFor(c.text, c.footnotes.filter((f) => !/^Minimum grade of [A-D] required\.?$/i.test(f.trim())));
+      const sentences = tidy(said).split(/(?<=\.)\s+/).filter(Boolean);
+      const kept = [];
+      for (const x of sentences) { if (/\b\d{1,2}\s*(?:credit\s*)?(?:hours?|credits?)\b/i.test(x)) break; kept.push(x); }
+      if (!kept.length) continue;
+      group.note = `${c.text.replace(/[\s:]+$/, '')}: ${kept.join(' ')}`;
+      tally.notesWorded = (tally.notesWorded ?? 0) + 1;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// A row's list printed as a table of its own; an open row in the catalog's words
+// ---------------------------------------------------------------------------
+
+const HEADING_FILLER = new Set(['and', 'the', 'of', 'option', 'options', 'list', 'course', 'courses']);
+
+/** A heading's content words: lower case, no punctuation, no "options"/"list"/"course(s)", a plural "s" dropped. */
+function contentWords(text) {
+  return String(text ?? '').toLowerCase().replace(/&/g, ' and ').split(/[^a-z0-9]+/)
+    .filter((w) => w && !HEADING_FILLER.has(w))
+    .map((w) => (w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w));
+}
+
+/** One letter changed, added or dropped. */
+function oneEditApart(a, b) {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i += 1;
+  const tail = (x, n) => x.slice(i + n);
+  return tail(a, 1) === tail(b, 1) || tail(a, 1) === tail(b, 0) || tail(a, 0) === tail(b, 1);
+}
+
+/** The same content words in the same order; a word of five letters or more may be one letter off. */
+function sameWords(a, b) {
+  return a.length > 0 && a.length === b.length && a.every((w, i) => w === b[i] || (w.length >= 5 && b[i].length >= 5 && oneEditApart(w, b[i])));
+}
+
+/**
+ * The course list a row names, where the degree page prints it as a table of
+ * its own (programs.mjs listTables): Arts, Entertainment, and Creative
+ * Technologies' six elective rows ("Arts Practice Electives" 9 -> the table
+ * "Arts Practice Elective Options", "Entrepreneurship and Business Elective"
+ * 3 -> "Entrepreneurship and Business Elecive Options", the page's spelling)
+ * and Public Policy's "BSPP Depth Electives" 15 -> the five tables under the
+ * heading "BSPP Depth Elective Course Options". A table is the row's when its
+ * first heading row, or a heading above it, has the row's content words in
+ * the same order (a word of five letters or more may be one letter off);
+ * every table that matches is taken (a heading over five group tables gives
+ * all five). Each course row and its "or" alternatives are options; the
+ * catalog's research and internship rows (noise) are left out, as every
+ * shaped list leaves them out. Null when no table matches.
+ */
+function pageListFor(ctx, program, words) {
+  const key = contentWords(words);
+  if (key.length === 0) return null;
+  const hits = (program.listTables ?? []).filter((t) => [t.firstArea, ...(t.headings ?? [])].some((n) => n && sameWords(contentWords(n), key)));
+  if (!hits.length) return null;
+  const codes = [];
+  for (const t of hits) {
+    for (const a of t.areas ?? []) for (const g of a.groups ?? []) for (const row of g.courses ?? []) {
+      for (const raw of [row.code, ...(row.or ?? [])]) {
+        const code = norm(raw);
+        const k = ctx.all.get(code);
+        if (!k || k.noise || k.n < 1000 || k.n >= 6000 || codes.includes(code)) continue;
+        codes.push(code);
+      }
+    }
+  }
+  if (!codes.length) return null;
+  const named = [...new Set(hits.map((t) => t.firstArea || (t.headings ?? [])[0] || ''))].filter(Boolean);
+  return { codes, named };
+}
+
+/** A footnote sentence as words: spaces before punctuation gone ("MATH 1113 , PHYS 2802" -> "MATH 1113, PHYS 2802"). */
+const tidy = (s) => String(s ?? '').replace(/\s+/g, ' ').replace(/\s+([,.;:)])/g, '$1').replace(/\(\s+/g, '(').trim();
+
+/**
+ * The catalog's own words for a row left open, so the row says what the
+ * page says about it: "AE Options: AE courses from list supplied by School",
+ * "Approved Electives: Maximum 3 credit hours CEE 2699 allowed. MATH 1113,
+ * PHYS 2802, PHYS 2XXX (AP credit), are not allowed.", "Non-Major Cluster:
+ * Free Electives and Non-Major Cluster electives can be satisfied with a
+ * minor, certificate, or other coursework. Please consult with the advisor
+ * on course selection." The footnotes that name the row, else the row's one
+ * footnote; none when its footnotes are about something else (History,
+ * Technology, and Society marks its Non-Major Cluster with a second
+ * footnote on HTS specializations, which is left out). Grade rules are not
+ * words about the row's courses and are already dropped from `foot`.
+ */
+function openWordsFor(label, foot) {
+  const key = contentWords(label);
+  const names = (f) => {
+    const w = contentWords(f);
+    return key.length > 0 && w.some((_, i) => sameWords(w.slice(i, i + key.length), key));
+  };
+  const naming = foot.filter(names);
+  const chosen = naming.length ? naming : foot.length === 1 ? foot : [];
+  // A sentence about the degree's free electives stays out of the label: "Free Electives and
+  // Non-Major Cluster electives can be satisfied with a minor, ..." in it made the board read the
+  // Non-Major Cluster as free electives (counted toward the degree total, not toward its 12 hours).
+  return chosen.map(tidy).flatMap((f) => f.split(/(?<=\.)\s+(?=[A-Z])/)).filter((x) => x && !/\bfree\s+electives?\b/i.test(x)).join(' ');
 }
 
 /** One category row, shaped into a group, or null to leave it as it reads. */
@@ -1070,6 +1306,22 @@ function shapeCategory(ctx, { text, hours, foot, area, program, required, progra
     }
   }
 
+  // The row's list, printed as a table of its own on the page (pageListFor).
+  const listed = pageListFor(ctx, program, text);
+  if (listed) {
+    tally.lists += 1;
+    tally.pageLists = (tally.pageLists ?? 0) + 1;
+    return poolGroup(ctx, {
+      label: text,
+      hours,
+      rows: listed.codes.map((c) => listRow(ctx, c)),
+      kind: 'list',
+      from: text,
+      basis: `the page's own list printed below the requirements: ${listed.named.map((n) => `"${n}"`).join(', ')}`,
+      footnotes: foot,
+    });
+  }
+
   // "Advisor approved courses": the catalog leaves the list to the advisor.
   if (/\badvisor[- ]approved\b|\bapproved by\b/i.test(text)) {
     tally.open += 1;
@@ -1114,9 +1366,10 @@ function shapeCategory(ctx, { text, hours, foot, area, program, required, progra
     }
   }
 
-  // Nothing names a course: open hours in the catalog's words.
+  // Nothing names a course: open hours in the catalog's words, its footnote's words with them (openWordsFor).
   tally.open += 1;
-  return hoursGroup({ label: text, hours, kind: 'open', from: text, basis: foot.length ? 'its footnote names no list of courses' : 'the catalog names no courses for it', footnotes: foot });
+  const said = openWordsFor(text, foot);
+  return hoursGroup({ label: said ? `${text}: ${said}` : text, hours, kind: 'open', from: text, basis: foot.length ? 'its footnote names no list of courses' : 'the catalog names no courses for it', footnotes: foot });
 }
 
 // ---------------------------------------------------------------------------
@@ -1183,6 +1436,14 @@ export function shapeProgramFile(file, ctx) {
   for (const program of file.programs ?? []) {
     if (!(program.areas?.length)) continue;
     shapeProgram(ctx, program, tally);
+  }
+  // What only the shaping reads leaves the file: the page's other lists (pageListFor) and the
+  // indent mark on comment rows (selectLists).
+  for (const program of file.programs ?? []) {
+    delete program.listTables;
+    for (const a of [...(program.areas ?? []), ...(program.extraTables ?? []).flatMap((t) => t.areas ?? [])]) {
+      for (const g of a.groups ?? []) for (const c of g.comments ?? []) delete c.indented;
+    }
   }
   file.shaped = {
     version: SHAPE_VERSION,

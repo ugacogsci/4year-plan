@@ -395,6 +395,39 @@ export function goalLabel(text: string): string {
   return t.length > 40 ? `${t.slice(0, 40).replace(/\s+\S*$/, '')}…` : t;
 }
 
+/*
+ * The clause that says what the student wants to do after the degree, for
+ * goalPhrase: "I want to be ...", "I hope to ...", "my goal is ...".
+ */
+const ASPIRATION = /\b(?:want(?:s|ed)?\s+to|hop(?:e|es|ing)\s+to|plan(?:s|ning)?\s+(?:to|on)|aim(?:s|ing)?\s+to|intend(?:s)?\s+to|wish(?:es)?\s+to|(?:would|'d)\s+(?:like|love)\s+to|dream(?:s)?\s+(?:is|of)|goal\s+is|become|becoming|career\s+(?:as|in))\b/i;
+/* The words before the goal in such a clause, "I" or not: "(I) want to go to medical school" is "medical school", "(and) want to work on electric vehicles" is "electric vehicles". */
+const GOING = /^(?:i\s*(?:'d|would|really|also)?\s*)?(?:want|hope|plan|intend|wish|aim|like|love)\s+to\s+(?:go\s+to|attend|get\s+into|apply\s+to|go\s+on\s+to|be(?:come)?|work(?:\s+(?:as|in|on|with|for))?|go\s+into|pursue|do|study)\s+(?:(?:an?|the)\s+)?/i;
+
+/**
+ * The goal in a few words, from a paragraph that may say other things first:
+ * the first clause that says what the student wants (ASPIRATION), without its
+ * framing. "I'm doing the Devices and Intelligence threads. I want to be a
+ * machine learning engineer." -> "machine learning engineer"; "... I got a 5
+ * on AP Chemistry. I want to go to medical school." -> "medical school".
+ * goalLabel's answer where no clause says so. For the reason line at Georgia
+ * Tech (career-embedding-browser.ts loadCareerFit), where the whole setup
+ * paragraph reached it: "Closest to your goal (I'm doing the Devices)"
+ * (2026-11-09 browser test).
+ */
+export function goalPhrase(text: string): string {
+  const clauses = text
+    .split(/[.;!?\n]+|,\s*/)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause.length > 0 && !UNDECIDED.test(clause));
+  // The part of the clause that says it ("I love cars and want to work on electric vehicles": the second).
+  const wanted = clauses.flatMap((clause) => clause.split(/\s(?:and|but|so|because)\s/i)).map((part) => part.trim()).find((part) => ASPIRATION.test(part));
+  if (!wanted) return goalLabel(text);
+  const bare = wanted.replace(FRAMING, '').replace(GOING, '').replace(/^[\s,:-]+|[\s,:-]+$/g, '');
+  const first = bare.split(/\s(?:and|or|but|maybe|because|so)\s/i)[0]?.trim() ?? '';
+  if (!first) return goalLabel(text);
+  return first.length > 40 ? `${first.slice(0, 40).replace(/\s+\S*$/, '')}…` : first;
+}
+
 function dot(v: CourseVectors, i: number, goal: Float32Array): number {
   const { bytes, dims } = v;
   let s = 0;

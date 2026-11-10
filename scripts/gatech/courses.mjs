@@ -768,6 +768,15 @@ export function crossListingsOf(rows, { bannerTitleOf = () => null, sectionPairs
  * side after the last "and" ("both MATH 3670 and MATH 3770 or ISYE 3770 or
  * CEE 3770"). The adapter's own reading of the "Credit not ..." wordings
  * stays as it is; build-index.mjs adds these pairs, both ways, beside it.
+ * What it cannot know: a pair the catalog never puts in words. BIOS 1107 and
+ * BIOS 1207 (and 1107L and 1207L) are each other's "or" on every degree page
+ * that names them, and their descriptions read alike, but no course
+ * description, program page, AP or IB table or rules page says their credit
+ * does not both count, and Banner's Mutual Exclusion tab is empty at Georgia
+ * Tech (banner.mjs, kind 'mexc'). So no pair is written for them: by the
+ * catalog's own words, BIOS 1207 booked beside a held BIOS 1107 still earns its
+ * credit, though it repeats the same material (2026-11-09, Neuroscience
+ * Business with ten exams).
  * Returns Map(code -> [{ code, words }]).
  */
 export function creditExclusionsOf(rows) {

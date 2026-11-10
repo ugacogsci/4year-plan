@@ -70,6 +70,13 @@ interface SemesterColumnProps {
   onRemoveSummer?: (termId: string) => void;
   /** One plain line above the courses: what the planner cannot do for this term (an empty UGA summer). */
   note?: string | null;
+  /**
+   * The semester under way that the planner filled itself (Georgia Tech,
+   * planner-workspace.tsx plannedNowOf): "Planned for you: none of your Fall
+   * 2026 classes are entered yet ...", shown as the note line. Never given
+   * for Illinois or UGA.
+   */
+  plannedNote?: string | null;
 }
 
 export function SemesterColumn({
@@ -104,6 +111,7 @@ export function SemesterColumn({
   instructors,
   onRemoveSummer,
   note,
+  plannedNote,
 }: SemesterColumnProps) {
   const columnRef = useRef<HTMLElement | null>(null);
   const coursesRef = useRef<HTMLDivElement | null>(null);
@@ -280,7 +288,7 @@ export function SemesterColumn({
           </Button>
         )}
       </header>
-      {note && <p className="semester-note" role="note">{note}</p>}
+      {(note || plannedNote) && <p className="semester-note" role="note">{note || plannedNote}</p>}
       {weekly?.line && (
         <p
           className="semester-weekly"

@@ -6542,7 +6542,9 @@ button.unofficial-label:focus-visible,
  * Illinois and UGA: a 28px badge like their 28px logo, on the desktop and the
  * phone. The button's shared [data-slot=button] padding squeezed it to an 8px
  * strip, and the narrow-screen rule that hides a text label hid it outright.
- * Only a school with no logo file renders this span.
+ * Only a school with no logo file renders this span. (A dev server started
+ * before 2026-11-09 15:52 kept serving the stylesheet without these rules,
+ * which is the thin gold bar the browser QA saw; any edit here reloads it.)
  */
 .planner-app .rail-toggle:has(> .rail-school-text) {
   padding: 0;

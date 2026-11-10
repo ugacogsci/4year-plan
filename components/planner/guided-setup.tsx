@@ -13,6 +13,7 @@ import { type UgaProgram } from './uga-source';
 import { PriorCredit } from './prior-credit';
 import { doubleDawgsTimingValid } from './double-dawgs-timing';
 import { SETUP_EXAMPLE_COUNT, setupExamples } from '@/lib/planner/setup-examples';
+import { courseleafOf } from '@/lib/planner/school-config';
 
 /** What a student reads when the setup assistant cannot answer: the form still works, with their answers. */
 const SETUP_UNAVAILABLE = 'The setup assistant is unavailable right now. Your answers are kept: choose "Enter my details manually" to go on, or try again in a bit.';
@@ -22,6 +23,54 @@ class SetupUnavailable extends Error {
   constructor(message: unknown) {
     super(typeof message === 'string' && message.trim() ? message : SETUP_UNAVAILABLE);
   }
+}
+
+/**
+ * Georgia Tech (school-config setupSaysExamsEntered): the assistant cannot
+ * record an exam score and says so, "This chat can't record exam scores, so
+ * please add your AP Chemistry 5 under ... below", with that exam and score
+ * already entered there (2026-11-09 browser QA). With scored exams entered,
+ * the sentences sending the student to add exams or scores become one saying
+ * which are entered, inviting any other. A sentence naming an exam that is
+ * not entered ("add your AP Calculus BC 5") stays as written.
+ */
+export function withEnteredExams(reply: string, exams: OnboardingAnswers['exams'] | undefined): string {
+  const scored = (exams ?? []).filter((exam) => String(exam.score ?? '').trim() !== '');
+  if (scored.length === 0) return reply;
+  const sentences = reply.match(/[^.!?]+(?:[.!?]+["\u201d\u2019)]*|$)\s*/g) ?? [reply];
+  const names = scored.map((exam) => exam.exam.toLowerCase());
+  const named = (sentence: string) => [...sentence.matchAll(/\b(?:AP|IB)\s+([A-Z][A-Za-z]+)/g)].map((m) => m[1].toLowerCase());
+  const asks = (sentence: string) =>
+    /\b(?:exams?|scores?|AP|IB)\b/.test(sentence) &&
+    (/\b(?:can(?:'|\u2019)?t|cannot|can not|unable to|not able to)\s+(?:record|save|store|enter|add)\b/i.test(sentence) ||
+      /\badd(?:ed)?\b.*\bunder\b.*Add prior credit/i.test(sentence) ||
+      /\bmake sure\b.*\b(?:exams?|scores?)\b/i.test(sentence)) &&
+    named(sentence).every((word) => names.some((name) => name.includes(word)));
+  if (!sentences.some(asks)) return reply;
+  const list = scored.map((exam) => `${exam.kind} ${exam.exam.replace(/\s+-\s+Entering.*$/, '')}${exam.level ? ` ${exam.level}` : ''} (score ${exam.score})`);
+  const words = list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}` : list[0];
+  const one = scored.length === 1;
+  const said = `Your ${words} ${one ? 'is' : 'are'} entered under "Add prior credit or upload a transcript" below, so the plan counts ${one ? 'it' : 'them'}; add any other exam there too. `;
+  let done = false;
+  return sentences.map((sentence) => {
+    if (!asks(sentence)) return sentence;
+    if (done) return '';
+    done = true;
+    return said;
+  }).join('').trim();
+}
+
+/**
+ * The conversation TOWER shows on the board, with the exams entered by the
+ * time the student presses Build (Georgia Tech, setupSaysExamsEntered): a
+ * reply written before an exam was added ("add your AP Chemistry 5 under
+ * ... below") reads as entered there, the same rewrite a reply gets when the
+ * exam is already in (withEnteredExams). Unchanged anywhere else.
+ */
+function withConversationExams(answers: OnboardingAnswers): OnboardingAnswers {
+  if (!courseleafOf(answers.schoolId)?.setupSaysExamsEntered || !answers.setupConversation?.length) return answers;
+  const history = answers.setupConversation.map((m) => (m.role === 'assistant' ? { ...m, content: withEnteredExams(m.content, answers.exams) } : m));
+  return history.every((m, i) => m.content === answers.setupConversation![i].content) ? answers : { ...answers, setupConversation: history };
 }
 
 export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFinish, returning = false }: {
@@ -141,7 +190,9 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
       }
       const colleges = [...new Set(catalog.ugaPrograms.filter((p) => next.programIds.includes(p.id)).map((p) => normalizeUgaCollegeId(p.college)).filter(Boolean))];
       if (!next.collegeId && colleges.length === 1) next.collegeId = colleges[0];
-      const history: SetupMessage[] = [...nextMessages, { role: 'assistant', content: result.reply }];
+      // Georgia Tech: a reply asking for exams already entered says they are (withEnteredExams), and is saved so for TOWER's history.
+      const reply = courseleafOf(answers.schoolId)?.setupSaysExamsEntered ? withEnteredExams(result.reply, next.exams) : result.reply;
+      const history: SetupMessage[] = [...nextMessages, { role: 'assistant', content: reply }];
       next = { ...withSetupResponse(next, nextMessages.filter((m) => m.role === 'user').map((m) => m.content).join('\n')), setupConversation: history,
         setupConfirmations: confirmed({ programConfirmed: result.programConfirmed, creditReviewed: creditReviewed || result.creditReviewed, graduationConfirmed: graduationConfirmed || Boolean(patch.graduationSeason || patch.graduationYear), ...(result.creditDeferred ? { creditDeferred: true } : {}) }) };
       onChange(next); setMessages(history); setDraft('');
@@ -202,7 +253,7 @@ export function GuidedSetup({ answers, catalog, onChange, onManual, onBack, onFi
     <div className="onb-actions guided-navigation">
       <button className="onb-back" disabled={busy} onClick={onBack}>Back</button>
       <button className="setup-mode-link" disabled={busy} onClick={manual}>{messages.length ? 'Edit details manually' : 'Skip the assistant and enter details manually'}</button>
-      {missing.length === 0 && <button className="onb-next" disabled={busy} onClick={() => onFinish(answers)}>Build my plan</button>}
+      {missing.length === 0 && <button className="onb-next" disabled={busy} onClick={() => onFinish(withConversationExams(answers))}>Build my plan</button>}
     </div>
   </section>;
 }

@@ -64,6 +64,7 @@ import {
   boardSettings,
   cannotFinish,
   finishStateOf,
+  finishes,
   fixButtonText,
   fixCandidates,
   forAdvisor,
@@ -543,11 +544,63 @@ const SEVERITY_BY_REASON: Record<string, PlanIssue['severity']> = {
   'did-not-fit': 'error',
 };
 
+/**
+ * Georgia Tech (school-config openHoursFollowBoard): "6 credit hours are
+ * open on the catalog page. The plan uses editable elective cards for them."
+ * is true only while the board's rail shows that row short; it stayed on the
+ * review list after the board booked those hours (2026-11-09 review). Booked,
+ * a Free Electives row says nothing more, and a row the page names no course
+ * for names the courses the rail counts there and sends the student to an
+ * advisor, as that rail row's own note does. The rail row is the one headed
+ * as the rail heads the block (illinois-progress.ts rowHeading); a row that
+ * matches no rail row, or more than one, stays as it was, so nothing open is
+ * ever hidden.
+ */
+function openHoursAsBooked(
+  rows: PlanIssue[],
+  unsatisfied: ReadonlyArray<{ requirementId: string; reason: string }>,
+  blocks: readonly RequirementBlock[],
+  areas: readonly AreaRow[],
+): PlanIssue[] {
+  const heading = (label: string) => {
+    const trimmed = (label ?? '').replace(/\s+/g, ' ').replace(/[\s:;,.]+$/, '').trim();
+    if (trimmed.length <= 48) return trimmed;
+    const clause = trimmed.split(/[,;:]/)[0].trim();
+    return clause.length >= 8 ? clause : trimmed;
+  };
+  const headOf = (block: RequirementBlock) => heading(block.label || block.areaLabel || (block.rule.kind === 'hours' ? block.rule.label : ''));
+  const change = new Map<string, string | null>();
+  for (const u of unsatisfied) {
+    if (u.reason !== 'filled-by-electives') continue;
+    const block = blocks.find((b) => b.id === u.requirementId);
+    if (!block) continue;
+    const head = headOf(block);
+    if (!head || blocks.filter((b) => headOf(b) === head).length !== 1) continue;
+    const matches = areas.filter((a) => a.area.label === head && (a.unit ?? 'hr') === 'hr');
+    if (matches.length !== 1) continue;
+    const row = matches[0];
+    if (row.needed === null || row.needed === undefined || row.earned < row.needed) continue;
+    const id = `unmet-${u.requirementId}-${u.reason}`;
+    const codes = row.codes ?? [];
+    change.set(id, /^free electives?\b/i.test(head) || codes.length === 0
+      ? null
+      : `The catalog page names no courses for these ${row.needed} hours. The board counts ${andList(codes)} here as stand-ins; ask your advisor which courses count.`);
+  }
+  if (change.size === 0) return rows;
+  return rows.flatMap((issue) => {
+    if (!change.has(issue.id)) return [issue];
+    const message = change.get(issue.id);
+    return message ? [{ ...issue, message }] : [];
+  });
+}
+
 /** Another plan shape or credit number to build the board for without showing it (composePlan). */
 interface BuildTrial {
   shape: PlanShape;
   min: number;
   target: number | null;
+  /** Courses held on top of the student's own credit, for the exam-credit trial (school-config fixesOnOpen); absent everywhere else. */
+  held?: string[];
 }
 interface TrialBuilt {
   generated: GeneratedPlan;
@@ -714,6 +767,10 @@ function combinePrograms(sources: SourceProgram[]): LoadedBundle | null {
  * planner's own summer ceiling, under UGA's 18-hour term limit).
  */
 const UGA_SUMMER_NOTE = 'Rebuild fills this summer with classes the UGA Bulletin lists for summer, up to 9 credits. Or add classes yourself.';
+
+/** The semester under way that the planner filled itself (Georgia Tech, plannedNowOf): said on its column, and on its packet term. */
+const plannedNowNote = (term: string) =>
+  `Planned for you: none of your ${term} classes are entered yet, so these are the courses your degree starts with. If you are taking other classes, change this column to match them.`;
 
 /** The plan shape in a sentence for ALMA's board description. Empty when nothing is set. */
 function describeShape(shape: PlanShape): string {
@@ -1672,7 +1729,8 @@ export function PlannerWorkspace({
       // still be planned as though they were starting from nothing. The
       // transcript's lines ride in the same list, already matched against the
       // catalog and checked by the student when they reviewed the reading.
-      [...examCourses(exams, examCredit.entries, (code) => byCode.has(code)), ...transcriptCodes(answers?.transcript), ...(answers?.alreadyTakenCourseCodes ?? [])],
+      // An exam-credit trial (BuildTrial.held, Georgia Tech's fixesOnOpen) adds the exam's courses; no other build has any.
+      [...examCourses(exams, examCredit.entries, (code) => byCode.has(code)), ...transcriptCodes(answers?.transcript), ...(answers?.alreadyTakenCourseCodes ?? []), ...(trial?.held ?? [])],
       Boolean(answers?.transcript),
       // Hours with no course to hold them: AP credit granted as "ECON 1--",
       // and every transfer line the student is counting as hours toward the
@@ -1894,7 +1952,16 @@ export function PlannerWorkspace({
         : ` To plan it that way, put ${target} in Preferences under "Credits you want each term, about" and ${minimum} under "at least", then press Rebuild.`;
       generated.notes = generated.notes.map((n) => (n === early.note ? n + howTo : n));
     }
-    if (horizon.startNote) generated.notes.unshift(horizon.startNote);
+    /*
+     * Where the planner planned the semester in progress itself (school-config
+     * planEmptyCurrentTerm: the board's first column is that semester), the
+     * start note ("Fall 2026 is under way and adding classes has closed, so
+     * this plan starts in Spring 2027 ... counts Fall 2026 as about 15
+     * credits") is not true of this board, and it sat above the planner's
+     * own note saying the opposite (2026-11-09 review). That note says it.
+     */
+    const plannedNow = Boolean(leaf?.planEmptyCurrentTerm && horizon.current && generated.plan.terms[0]?.label === `${horizon.current.season} ${horizon.current.year}`);
+    if (horizon.startNote && !plannedNow) generated.notes.unshift(horizon.startNote);
     if (!publishedTotal && leaf?.defaultDegreeTotal && isIllinoisSchool && !isGraduatePlan) {
       generated.notes.push(`The catalog page for ${loaded.program.name} states no total, so this plan aims at 120 hours, the minimum most Illinois bachelor's degrees state (las.illinois.edu/academics/requirements/minimum). Ask your advisor for this degree's own total.`);
     }
@@ -2426,6 +2493,24 @@ export function PlannerWorkspace({
   }, [isCatalogSchool, boardTerms, answers, planShape, byCode, courseIndex]);
 
   /**
+   * Georgia Tech (school-config planEmptyCurrentTerm): the semester under way,
+   * when the planner filled it as the board's first column because none of
+   * its classes were entered (autoplan.ts withEmptyCurrentTermPlanned, whose
+   * note the last build wrote). The column says so and the packet's "Next
+   * term" is the one after it. The note sat only in Plan assumptions and the
+   * packet, so Fall 2026 read like any planned term (2026-11-09 browser QA).
+   * Null everywhere else, Illinois and UGA always.
+   */
+  const plannedNowOf = (terms: readonly Pick<PlanTerm, 'label'>[] | undefined): string | null => {
+    if (!leaf?.planEmptyCurrentTerm || !terms?.[0]) return null;
+    const now = calendarTerm(new Date());
+    const label = `${now.season} ${now.year}`;
+    if (terms[0].label !== label) return null;
+    return planNotes.some((note) => note.startsWith(`None of your ${label} classes are entered yet`)) ? label : null;
+  };
+  const plannedNowTerm = currentView ? null : plannedNowOf(boardTerms);
+
+  /**
    * A transfer student's classes in progress at their other school, when the
    * board shows no current column of its own (ElsewhereTermColumn).
    */
@@ -2561,6 +2646,8 @@ export function PlannerWorkspace({
       priorCodes: [...completedCodes],
       context,
       shareAcrossPrograms: isUga,
+      // The held courses the plan counted in place of a row's own, as the rail is handed them (Georgia Tech only: no other report carries any).
+      standIns: standInsOf(report),
     });
   }, [report, context, loaded, boardCodes, completedCodes, plan, isUga, ugaAudit]);
 
@@ -3043,7 +3130,9 @@ export function PlannerWorkspace({
       ],
       termId: plan.terms[0]?.id ?? '',
     });
-    return [completionIssue, ...rows]
+    // Hours the page names no course for read as open only while the rail shows them short (school-config openHoursFollowBoard: Georgia Tech).
+    const shown = leaf?.openHoursFollowBoard && report && loaded && !ugaAudit ? openHoursAsBooked(rows, report.unsatisfied, loaded.blocks, areas) : rows;
+    return [completionIssue, ...shown]
       .filter((issue): issue is PlanIssue => Boolean(issue))
       .map((issue) => ({ ...issue, message: withCourseCodes(leaf?.plainNotes ? titleStandingWording(issue.message) : issue.message) }));
   }, [
@@ -3247,16 +3336,113 @@ export function PlannerWorkspace({
   }, [fixKey, cannot, finishSettings, finishNow, composePlan, trialShape, trialFinish]);
   const fixesHere = fixes && fixes.key === fixKey ? fixes : null;
   const ranked = useMemo(() => (fixesHere && !fixesHere.running && cannot && finishNow ? rankFixes(fixesHere.tried, gapOf(finishNow, finishNow)) : null), [fixesHere, cannot, finishNow]);
+  /**
+   * Georgia Tech (school-config fixesOnOpen): the fixes are tried as soon as
+   * a board its settings cannot finish is shown, smallest first, stopping at
+   * the first that works (the quick pass TOWER's board read runs), so the bar
+   * says what fixes it without a press. Nuclear Engineering's bar read "NRE
+   * 4214 doesn't fit ... Find a fix tries a summer" and only a press showed
+   * "Add Summer 2027: everything fits" (2026-11-09 review).
+   */
+  useEffect(() => {
+    if (!leaf?.fixesOnOpen || !cannot || building) return;
+    const timer = window.setTimeout(() => { void findFixes({ quick: true }); }, 800);
+    return () => window.clearTimeout(timer);
+  }, [leaf?.fixesOnOpen, cannot, building, findFixes]);
+
+  /**
+   * And the exam credit that would let it fit, for a student who entered no
+   * exam: the stuck class's prerequisite chain on this board (each course's
+   * prerequisites that the board books, back to the first term) is read for
+   * the courses an AP exam on the school's table grants, and the exam that
+   * grants the chain's earliest course (the most of the chain on a tie, the
+   * lowest score that grants them) is built once with those courses held,
+   * through the Rebuild path the fixes take. It is named only when that
+   * board finishes: NRE 4214 ends the chain MATH 1551, MATH 1552, PHYS 2211
+   * ... ME 3345, and with AP Calculus BC credit it fits by Spring 2030.
+   */
+  const examTry = useMemo(() => {
+    if (!leaf?.fixesOnOpen || !cannot || !plan || exams.length > 0 || cannot.classes.length === 0) return null;
+    // Board courses by code, with the index of the term each sits in.
+    const termOf = new Map<string, number>();
+    plan.terms.forEach((term, index) => term.courseIds.forEach((id) => {
+      const code = courseIndex.get(id)?.code;
+      if (code) termOf.set(normCode(code), index);
+    }));
+    // A course's prerequisites as codes: the parsed groups (prereqs.json), else the index's list.
+    const before = (code: string): string[] => {
+      const groups = context?.prereqs?.get(code)?.groups;
+      if (groups) return groups.flatMap((group) => group.any.map(normCode));
+      return (byCode.get(code)?.prerequisites ?? []).flatMap((id) => courseIndex.get(id)?.code ?? []).map(normCode);
+    };
+    const chain = new Map<string, number>();
+    const queue = cannot.classes.flatMap((c) => before(normCode(c.code)));
+    while (queue.length > 0) {
+      const code = queue.shift()!;
+      const at = termOf.get(code);
+      if (at === undefined || chain.has(code)) continue;
+      chain.set(code, at);
+      queue.push(...before(code));
+    }
+    if (chain.size === 0) return null;
+    let best: { exam: string; score: number | string; codes: string[]; grants: string[]; first: number } | null = null;
+    for (const row of examCredit.entries) {
+      if (row.kind !== 'AP' || row.noCredit) continue;
+      const codes = row.courses.map(normCode).filter((code) => byCode.has(code));
+      const grants = codes.filter((code) => chain.has(code) && !completedCodes.has(code));
+      if (grants.length === 0) continue;
+      const first = Math.min(...grants.map((code) => chain.get(code) ?? Infinity));
+      const better = !best || first < best.first || (first === best.first && grants.length > best.grants.length) ||
+        (first === best.first && grants.length === best.grants.length && best.exam === row.exam && Number(row.score) < Number(best.score));
+      if (better) best = { exam: row.exam, score: row.score, codes, grants, first };
+    }
+    return best ? { ...best, key: `${fixKey}|${best.exam}|${best.score}` } : null;
+  }, [leaf?.fixesOnOpen, cannot, plan, exams.length, byCode, courseIndex, context, examCredit.entries, completedCodes, fixKey]);
+  const [examFix, setExamFix] = useState<{ key: string; fits: boolean } | null>(null);
+  // The trial in flight (one per board and exam), and the one this board wants now: a re-render never starts a second build.
+  const examRun = useRef<string | null>(null);
+  const examWanted = useRef<string | null>(null);
+  examWanted.current = examTry?.key ?? null;
+  useEffect(() => {
+    if (!examTry || building || examFix?.key === examTry.key || examRun.current === examTry.key) return;
+    // After the fixes' quick pass (one build at a time in the worker), once.
+    if (!fixesHere || fixesHere.running) return;
+    const key = examTry.key;
+    examRun.current = key;
+    const askedAt = buildRun.current;
+    void (async () => {
+      try {
+        const built = await composePlan({ shape: planShape, min: minimumTermCredits, target: targetTermCredits, held: examTry.codes });
+        // A rebuild, an edit or another board since: this answer is for a board that is gone.
+        if (buildRun.current !== askedAt || examWanted.current !== key) return;
+        const state = built ? trialFinish(built) : null;
+        setExamFix({ key, fits: Boolean(state && finishes(state, finishNow)) });
+      } finally {
+        if (examRun.current === key) examRun.current = null;
+      }
+    })();
+  }, [examTry, building, examFix?.key, fixesHere, composePlan, planShape, minimumTermCredits, targetTermCredits, trialFinish, finishNow]);
+  /** The exam sentence, when its board finishes ("If you have a 4 or 5 on AP Calculus BC ..."). */
+  const examWords = examTry && examFix?.key === examTry.key && examFix.fits
+    ? `If you have a ${examTry.score === 5 ? '5' : `${examTry.score} or higher`} on AP ${examTry.exam.replace(/^Mathematics - /, '')}, add it under Already taken and press Rebuild: credit for ${andList(examTry.grants)} lets ${andList(cannot?.classes.map((c) => c.code) ?? [])} fit with no summer.`
+    : null;
+
   /** The item's words, settled once the fixes are tried (a "doesn't finish yet" item names the setting only when a change fixes it). */
   const cannotItem = useMemo(() => {
     if (!cannot) return null;
     const known = ranked && !fixesHere?.partial ? ranked : ranked && ranked.working.length > 0 ? ranked : null;
     const settled = settleItem(cannot, known);
-    return { text: settled.text, message: itemMessage({ ...cannot, text: settled.text }, settled.settled, school?.bot ?? 'the assistant') };
-  }, [cannot, ranked, fixesHere?.partial, school?.bot]);
+    const message = itemMessage({ ...cannot, text: settled.text }, settled.settled, school?.bot ?? 'the assistant');
+    if (!leaf?.fixesOnOpen) return { text: settled.text, message };
+    // Georgia Tech: what fixes it, in plain words, on the bar and to TOWER (fixesOnOpen).
+    const fix = known?.working[0] ?? null;
+    const fixWords = fix ? ` One change fits everything: ${fix.candidate.label.charAt(0).toLowerCase()}${fix.candidate.label.slice(1)} (the button below).` : '';
+    // The popover's longer words already say "a change below makes it finish"; the change itself is in the title above them.
+    return { text: `${settled.text}${fixWords}`, message: `${message}${examWords ? ` ${examWords}` : ''}`, ...(examWords ? { exam: examWords } : {}) };
+  }, [cannot, ranked, fixesHere?.partial, school?.bot, leaf?.fixesOnOpen, examWords]);
 
   /** The same for ARCH and ALMA (review_board, describeBoard), read at call time. */
-  const cannotLive = useRef<{ item: CannotFinish | null; text: { text: string; message: string } | null; settings: PlanSettingsFacts | null; now: FinishState | null; find: (opts?: { quick?: boolean }) => Promise<TriedFix[]>; ranked: ReturnType<typeof rankFixes> | null }>({ item: null, text: null, settings: null, now: null, find: async () => [], ranked: null });
+  const cannotLive = useRef<{ item: CannotFinish | null; text: { text: string; message: string; exam?: string } | null; settings: PlanSettingsFacts | null; now: FinishState | null; find: (opts?: { quick?: boolean }) => Promise<TriedFix[]>; ranked: ReturnType<typeof rankFixes> | null }>({ item: null, text: null, settings: null, now: null, find: async () => [], ranked: null });
   cannotLive.current = { item: cannot, text: cannotItem, settings: finishSettings, now: finishNow, find: findFixes, ranked };
 
   /** A fix pressed: the same change set_plan_shape makes, saved in the plan shape, and a rebuild; asked first over the student's own edits. */
@@ -5063,7 +5249,7 @@ export function PlannerWorkspace({
     const cf = cannotLive.current;
     if (cf.item && cf.settings) {
       const facts = forAdvisor(cf.item, cf.ranked, cf.settings);
-      lines.push(`Can't finish with the student's settings (first on the board bar): ${cf.text?.text ?? cf.item.text}${cf.item.maybe && !cf.ranked ? ' (cause not known yet: room is left on the board, so a setting may not be the limit)' : ''} Limiting settings: ${JSON.stringify(facts.limiting_settings)}. Tested fixes: ${typeof facts.tested_fixes === 'string' ? 'not tested yet; review_board tests them' : JSON.stringify(facts.tested_fixes)}.`);
+      lines.push(`Can't finish with the student's settings (first on the board bar): ${cf.text?.text ?? cf.item.text}${cf.text?.exam ? ` Exam credit, tested by building the board with it: ${cf.text.exam}` : ''}${cf.item.maybe && !cf.ranked ? ' (cause not known yet: room is left on the board, so a setting may not be the limit)' : ''} Limiting settings: ${JSON.stringify(facts.limiting_settings)}. Tested fixes: ${typeof facts.tested_fixes === 'string' ? 'not tested yet; review_board tests them' : JSON.stringify(facts.tested_fixes)}.`);
     }
     return lines.join('\n');
   }
@@ -5754,7 +5940,8 @@ export function PlannerWorkspace({
         };
         const verdict = check(candidate, newC, t.id);
         if (verdict.blocking.length > 0) return { ok: false, reason: `${newC.code} cannot go in ${t.label}: ${verdict.blocking.join(' ')}` };
-        const loss = isUga ? progressCheckOn(board)?.(candidate) : null;
+        // UGA's audit, and where the school says so (school-config towerProgressCheck: Georgia Tech) the board's rail, as the card's own swap menu checks it.
+        const loss = isUga || leaf?.towerProgressCheck ? progressCheckOn(board)?.(candidate) : null;
         if (loss) return { ok: false, reason: loss, note: 'Use what_if to explain the tradeoff. This replacement was not applied.' };
         const oldRole = roleOf(oldC);
         const oldMark = L.electiveOf.get(oldC.id);
@@ -5785,7 +5972,7 @@ export function PlannerWorkspace({
         const candidate = withCourseIn(without(target.board, c.id), c.id, to.id);
         const verdict = check(candidate, c, to.id);
         if (verdict.blocking.length > 0) return { ok: false, reason: `${c.code} cannot move to ${to.label}: ${verdict.blocking.join(' ')}` };
-        const loss = isUga ? progressCheckOn(board)?.(candidate) : null;
+        const loss = isUga || leaf?.towerProgressCheck ? progressCheckOn(board)?.(candidate) : null;
         if (loss) return { ok: false, reason: loss, note: 'The move was not applied.' };
         const caused = causedBy(board, candidate);
         apply(candidate, to.id, c.id, `${c.code} moved to ${to.label} by ${botName}.`, `${c.code} moved from ${from.label} to ${to.label}`);
@@ -6137,6 +6324,8 @@ export function PlannerWorkspace({
             ? {
                 cannot_finish: {
                   ...cannotFinishFacts,
+                  // Georgia Tech (fixesOnOpen): exam credit the board was built with and finished, for a student who entered none.
+                  ...(cf.text?.exam ? { exam_credit_that_fits: `${cf.text.exam} Tested by building the board with that credit. Say it only as "if you have it"; never assume the student took the exam.` } : {}),
                   note: `First on the board bar. Say in plain words why: name the student's own setting that is the limit (the finish, the credits a semester, no summer classes, a term away). Offer the tested fixes smallest first, each with what it does; apply one with set_plan_shape (the input is given) only after the student says yes, and never above 18 credits a semester. If none works fully, say what gets closest and what else the student could change.`,
                 },
               }
@@ -7590,8 +7779,7 @@ export function PlannerWorkspace({
     // without a record line. The record's own lines are listed from the record.
     const shown = new Set([...transcriptCodes(record), ...priced.flatMap((e) => e.codes)].map(normCode));
     const entered = [...completedCodes].filter((code) => !shown.has(code));
-    const built =
-      buildAdvisorPacket({
+    const packetInput: Parameters<typeof buildAdvisorPacket>[0] = {
         school: {
           id: school?.id ?? 'demo',
           name: school?.name ?? 'Your university',
@@ -7636,7 +7824,27 @@ export function PlannerWorkspace({
         alternatives: alternativesFor,
         madeOn: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
         ...(packetSchedules.length > 0 ? { schedules: packetSchedules } : {}),
-      });
+      };
+    let built = buildAdvisorPacket(packetInput);
+    /*
+     * Georgia Tech (planEmptyCurrentTerm): when the board's first column is
+     * the semester under way that the planner filled (plannedNowOf), "Next
+     * term" is the one after it, where registration is open; the packet
+     * printed Fall 2026, with backups "if it is full", in November
+     * (2026-11-09 browser QA). That term says it was planned for the student.
+     * A backup booked in the semester under way is dropped, as that term is
+     * left out of the second build. Illinois and UGA never get here.
+     */
+    const nowTerm = plannedNowOf(board.terms);
+    if (nowTerm && board.terms.length > 1 && built.next?.label === nowTerm) {
+      const nowCodes = new Set(board.terms[0].courseIds.flatMap((id) => courseIndex.get(id)?.code ?? []));
+      const after = buildAdvisorPacket({ ...packetInput, board: { ...board, terms: board.terms.slice(1) } }).next;
+      built = {
+        ...built,
+        next: after ? { ...after, courses: after.courses.map((c) => (c.backup && nowCodes.has(c.backup.code) ? { ...c, backup: null } : c)) } : null,
+        terms: built.terms.map((t) => (t.label === nowTerm ? { ...t, inProgress: plannedNowNote(nowTerm).replace('change this column', 'change this term') } : t)),
+      };
+    }
     // No placement note for a course whose prerequisite is already met (school-config.ts `plainNotes`).
     setPacket(leaf?.plainNotes && board
       ? withoutMetPlacement(built, board, (id) => courseIndex.get(id)?.code ?? null, completedCodes, context?.prereqs)
@@ -8347,6 +8555,7 @@ export function PlannerWorkspace({
                 onWidthChange={resizeTerm}
                 onRemoveSummer={summerRemovable(plan, term.id) ? askRemoveSummer : undefined}
                 note={isUga && term.season === 'Summer' && term.courseIds.length === 0 ? UGA_SUMMER_NOTE : null}
+                plannedNote={plannedNowTerm && term.label === plannedNowTerm && term.id === plan.terms[0]?.id ? plannedNowNote(plannedNowTerm) : null}
               />
             );
           })}

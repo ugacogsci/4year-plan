@@ -1,6 +1,6 @@
 {
   "school": "gatech",
-  "fetchedAt": "2026-11-09T15:49:46.418Z",
+  "fetchedAt": "2026-11-09T21:47:44.797Z",
   "sources": {
     "catalog": {
       "source": "catalog.gatech.edu/coursesaz + registration.banner.gatech.edu course catalog (prerequisites, corequisites, attributes)",
@@ -45,7 +45,7 @@
     "unknownCredit": 0,
     "droppedProgramRows": 0,
     "droppedTotalRows": 0,
-    "poolGroups": 1550,
+    "poolGroups": 1557,
     "implausibleProgramTotals": 0,
     "programsWithGenEd": 0,
     "genEdCategories": 0,
@@ -60,8 +60,8 @@
     "withSections": 0,
     "programs": 235,
     "programsWithCourses": 212,
-    "programCourseRows": 147466,
-    "programRowsWithCredits": 141496,
+    "programCourseRows": 147654,
+    "programRowsWithCredits": 141684,
     "programRowsWithTitle": 11045,
     "orphanGradeRows": 0,
     "subjectShards": 85,
@@ -169,12 +169,12 @@
     },
     "programs.json": {
       "raw": 121471,
-      "gzip": 8587
+      "gzip": 8585
     }
   },
   "notes": [
     "Georgia Tech publishes no grade distributions, so no course here shows grade history, an average or a difficulty.",
     "No section data in this build. No building, day, time or part of term can be shown.",
-    "806 of 142302 program course rows have no credits."
+    "806 of 142490 program course rows have no credits."
   ]
 }

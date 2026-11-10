@@ -45,6 +45,7 @@ import { calendarTerm, firstOpenTerm, readHorizon } from '@/components/planner/i
 import type { Horizon } from './autoplan';
 import { currentConfirmed, currentLines, currentTermFor, partlyEnteredHours, termLoadFor, termOfLine, termUnderWay } from './current-term';
 import { schoolById, timelineForPlanning, type OnboardingAnswers } from './onboarding';
+import { courseleafOf } from './school-config';
 import type { PlanShape } from './saved-board';
 import { assumedHours as assumedHoursOf, recordCoverage, uncoveredTerms } from './start-term';
 import { summersFor } from './summer-terms';
@@ -279,6 +280,13 @@ export function horizonFor(
     ? `Your ${label(horizon.current)} classes are in its column, counted as in progress until you pass them.`
     : null;
   // What the student is told about the first term, from the term the board starts in.
+  // "Adding Fall 2026 classes has closed" sat beside the board's "Add them in the Fall 2026 column": two meanings of
+  // adding (2026-11-09 browser QA). Georgia Tech says registration (school-config registrationWording); Illinois and UGA as before.
+  // `named`: Illinois and UGA's words name the term ("Adding Fall 2026 classes has closed") in one sentence and not in the
+  // other ("Fall 2026 is under way and adding classes has closed"), each kept exactly as it was.
+  const closed = (term: { season: SemesterSeason; year: number }, named: boolean) => courseleafOf(answers?.schoolId)?.registrationWording
+    ? `registration for ${label(term)} has closed`
+    : named ? `adding ${label(term)} classes has closed` : 'adding classes has closed';
   const nowUnderWay = now.season !== 'Summer' && termOrd(now.season, now.year) < termOrd(start.season, start.year);
   if (horizon.gradPassed) {
     const p = horizon.gradPassed;
@@ -307,12 +315,12 @@ export function horizonFor(
     horizon.startNote = assumed ? `Your record does not show your classes from ${assumedNames} yet. Add them (upload your transcript or tell ${bot}) so they count.${assumed}` : null;
   } else if (began) {
     horizon.startNote = nowUnderWay && termOrd(now.season, now.year) >= termOrd(began.season, began.year)
-      ? `${label(now)} is under way and adding classes has closed, so this plan starts in ${label(start)}${sameTerm(now, began) ? '' : ` and counts your finish from ${label(began)}, when you started`}. ${entered && !assumed ? entered : `Add the classes you are taking now ${addNow} so they count.`}${assumed}`
+      ? `${label(now)} is under way and ${closed(now, false)}, so this plan starts in ${label(start)}${sameTerm(now, began) ? '' : ` and counts your finish from ${label(began)}, when you started`}. ${entered && !assumed ? entered : `Add the classes you are taking now ${addNow} so they count.`}${assumed}`
       : `You started in ${label(began)}, so this plan starts in ${label(start)}, the next term you can sign up for, and counts your finish from ${label(began)}. Add the classes you have taken (upload a transcript or tell ${bot}) so they count.${assumed}`;
   } else if (incoming) {
     horizon.startNote = `Students who have not started college yet begin in the fall, so this plan starts in ${label(start)}. If you start in ${label(open)} instead, say so in About you.`;
   } else if (!datedStart && nowUnderWay && sameTerm(start, open)) {
-    horizon.startNote = `Adding ${label(now)} classes has closed, so this plan starts in ${label(start)}, the next term you can sign up for. If that is not right for you, change About you.`;
+    horizon.startNote = `${closed(now, true).charAt(0).toUpperCase()}${closed(now, true).slice(1)}, so this plan starts in ${label(start)}, the next term you can sign up for. If that is not right for you, change About you.`;
   }
   if (setStart) {
     const elsewhereNow = elsewhere && underWay && nowUnderWay && elsewhere.classesNow

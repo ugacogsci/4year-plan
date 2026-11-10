@@ -9,6 +9,13 @@
  *   courseSearchResults/courseSearchResults     GET, catalog rows for a subject or attribute
  *   courseSearchResults/getPrerequisites        POST, the prerequisite table for one course
  *   courseSearchResults/getCorequisites         POST, the corequisite table for one course
+ *   courseSearchResults/getCourseMutuallyExclusions  POST, the "Mutual Exclusion" table
+ *       for one course (kind 'mexc'; the endpoint is the data-endpoint of the "Mutual
+ *       Exclusion" tab on courseSearch/courseSearch). Georgia Tech leaves it empty: on
+ *       2026-11-09 it answered "No Mutual Exclusion information available." for CHEM 1310,
+ *       whose catalog text excludes CHEM 1211K, and for BIOS 1107, 1107L, 1207 and 1207L.
+ *       So the catalog's own sentences (courses.mjs creditExclusionsOf and the adapter's
+ *       exclusionsIn) are the only exclusion source, and Banner's silence proves nothing.
  *   (robots.txt on registration.banner.gatech.edu is a 404, so nothing is disallowed;
  *   the detail endpoints answer without a session, the listing needs one.)
  *
@@ -244,7 +251,7 @@ export class Banner {
     const key = keyOf(subject, number);
     const cached = this.readCache(kind, key, 'html');
     if (cached !== null) return cached;
-    const endpoint = { prereq: 'getPrerequisites', coreq: 'getCorequisites', attribute: 'getCourseAttributes', restriction: 'getRestrictions' }[kind];
+    const endpoint = { prereq: 'getPrerequisites', coreq: 'getCorequisites', attribute: 'getCourseAttributes', restriction: 'getRestrictions', mexc: 'getCourseMutuallyExclusions' }[kind];
     if (!endpoint) throw new Error(`unknown detail kind ${kind}`);
     const text = await this.fetchText(`/courseSearchResults/${endpoint}`, {
       method: 'POST',

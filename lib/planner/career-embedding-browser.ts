@@ -18,7 +18,7 @@
  * whose course vectors are missing answers null on its own, so Georgia Tech
  * before its vectors are built leaves Illinois and UGA working.
  */
-import { CAREER_MODEL, careerFitFor, courseVectorsFrom, goalQuery, pathwayVectorsFrom, type CareerFit, type CourseVectors, type CourseVectorsMeta, type PathwayVectors, type PathwayVectorsMeta } from './career-embedding';
+import { CAREER_MODEL, careerFitFor, courseVectorsFrom, goalPhrase, goalQuery, pathwayVectorsFrom, type CareerFit, type CourseVectors, type CourseVectorsMeta, type PathwayVectors, type PathwayVectorsMeta } from './career-embedding';
 import type { SchoolKey } from './school-config';
 
 const BASE = '/career-model/';
@@ -136,7 +136,8 @@ export async function loadCareerFit(school: SchoolKey, text: string): Promise<Ca
       });
       goals.set(query, vector);
     }
-    const input = { text: goal, vector: await vector, school: school === 'uga' ? 'UGA' : school === 'gatech' ? 'Georgia Tech' : 'Illinois', ...(paths ? { pathways: paths } : {}) };
+    // At Georgia Tech the reason line names the goal in a few words (goalPhrase), not the setup paragraph's first clause.
+    const input = { text: goal, vector: await vector, school: school === 'uga' ? 'UGA' : school === 'gatech' ? 'Georgia Tech' : 'Illinois', ...(school === 'gatech' ? { label: goalPhrase(goal) } : {}), ...(paths ? { pathways: paths } : {}) };
     // With what it was made from, so a plan built in a worker reads the goal the same way (plan-build.ts).
     return { ...careerFitFor(input, courses), source: { input, vectors: courses } };
   } catch (error) {

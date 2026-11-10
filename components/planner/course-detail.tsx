@@ -31,7 +31,30 @@ import type { RawSection } from '@/lib/planner/illinois-data';
 import type { Course } from '@/lib/planner/types';
 import { ugaOfferingLine } from '@/lib/planner/summer-offering';
 import { schoolById, type SchoolId } from '@/lib/planner/onboarding';
-import { isCourseleaf } from '@/lib/planner/school-config';
+import { courseleafOf, isCourseleaf } from '@/lib/planner/school-config';
+import { useEffect, useState } from 'react';
+
+/**
+ * Courses not offered yet, by the build's base path: offerings.json's
+ * `notYetOffered` (scripts/gatech/offerings.mjs, carried by build-index),
+ * a course with no section in any crawled term whose catalog record begins
+ * inside those terms, with the term it begins in ("AECT 3100": "su2025",
+ * the upper-level courses of Georgia Tech's newest degree). Illinois writes
+ * no such field, so its popups read as before. Read once per build, and only
+ * for a course that has not run.
+ */
+const notYetOfferedOf = new Map<string, Promise<Record<string, string> | null>>();
+function loadNotYetOffered(base: string): Promise<Record<string, string> | null> {
+  let read = notYetOfferedOf.get(base);
+  if (!read) {
+    read = fetch(`${base}/offerings.json`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ notYetOffered?: unknown }>) : null))
+      .then((file) => (file && file.notYetOffered && typeof file.notYetOffered === 'object' ? (file.notYetOffered as Record<string, string>) : null))
+      .catch(() => null);
+    notYetOfferedOf.set(base, read);
+  }
+  return read;
+}
 
 const normCode = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase();
 
@@ -191,6 +214,26 @@ export function CourseDetail({
   const noGradeSource = core?.meta?.sources?.grades === null;
   const noSectionSource = Boolean(core?.meta) && !core?.meta?.term;
   const { detail, loading } = useCourseDetail(code, isLeaf);
+  /*
+   * A course that has not run in any crawled term and whose catalog record
+   * begins inside them is new, not dormant (loadNotYetOffered): "New course,
+   * not offered yet" where it read "Has not run in any term".
+   */
+  const neverRan = Boolean(isLeaf && core?.offeringTerms && (core.offerings?.get(code)?.length ?? 0) === 0);
+  // Only where the school's build marks new courses (school-config newCourses: Georgia Tech).
+  const leafBase = courseleafOf(schoolId)?.newCourses ? courseleafOf(schoolId)?.base ?? null : null;
+  const [fresh, setFresh] = useState<{ code: string; since: string | null } | null>(null);
+  useEffect(() => {
+    if (!leafBase || !neverRan) return;
+    let live = true;
+    void loadNotYetOffered(leafBase).then((map) => {
+      if (live) setFresh({ code, since: map?.[code] ?? null });
+    });
+    return () => {
+      live = false;
+    };
+  }, [leafBase, neverRan, code]);
+  const newSince = neverRan && fresh && fresh.code === code ? fresh.since : null;
   const spec = core?.prereqs?.get(code) ?? null;
   const summary = core?.grades?.get(code) ?? null;
   const bands = core?.meta?.bands ?? null;
@@ -505,7 +548,9 @@ export function CourseDetail({
           ))}
         {core?.offeringTerms && (
           <p className={core.offerings?.get(code)?.length ? 'quiet' : undefined}>
-            {offeredWords(core.offerings?.get(code) ?? [], core.offeringTerms, core.offeringAliases?.get(code) ?? null, scheduleFrom)}
+            {newSince
+              ? `New course, not offered yet: its catalog record begins in ${termWord(newSince)}, and no section has run since, by ${scheduleFrom}. Check with the department which term it is first offered.`
+              : offeredWords(core.offerings?.get(code) ?? [], core.offeringTerms, core.offeringAliases?.get(code) ?? null, scheduleFrom)}
           </p>
         )}
         {isLeaf && sections && (

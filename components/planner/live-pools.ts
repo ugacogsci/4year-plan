@@ -197,6 +197,16 @@ export interface LivePoolInput {
   reserveRequired?: boolean;
   /** UGA shares across program/core areas, but not between requirements within one area. */
   shareAcrossPrograms?: boolean;
+  /**
+   * The held courses the plan counted in place of the one a row names
+   * (GeneratedPlan.standIns), as the rail is handed them
+   * (illinois-progress.ts standIns). Where each course counts once
+   * (countOnce), such a course is that row's and no list's: a ten-exam
+   * Construction Science board counted ECON 2106 for Field of Study's ECON
+   * 2100, and Any SS also counted it, so the CP 2020 the plan booked for Any
+   * SS read "elective slot" while the rail counted it there (2026-11-09).
+   */
+  standIns?: ReadonlyArray<{ held: string; for: string }>;
 }
 
 /**
@@ -316,6 +326,7 @@ export function livePools({
   independentIds,
   reserveRequired,
   shareAcrossPrograms,
+  standIns,
 }: LivePoolInput): PoolReport[] {
   if (base.length === 0) return base;
   if (shareAcrossPrograms) {
@@ -360,6 +371,11 @@ export function livePools({
     }
   } else if (countOnce) {
     for (const code of countedOnceByRows(blocks, base, members, [...prior, ...board], context, pairs)) claimed.add(code);
+    // A held course standing in for a row's own (standIns) is that row's, where the row's course is not here itself.
+    for (const s of standIns ?? []) {
+      const held = normaliseCode(s.held);
+      if (prior.has(held) && !boardSet.has(normaliseCode(s.for)) && !prior.has(normaliseCode(s.for))) claimed.add(held);
+    }
   }
 
   // Courses this pool already held keep their pool, so a student who has not
@@ -428,6 +444,22 @@ export function livePools({
     }
     if (countsIn.size > 0) base.forEach((pool, index) => {
       mine[index].sort((a, b) => Number(countsIn.get(b) === pool.requirementId) - Number(countsIn.get(a) === pool.requirementId));
+      /*
+       * And one the list no longer needs, its held credit counted first as
+       * the card marks count it (repick.ts planMarks), is the take-all
+       * row's alone: a ten-exam Biology student's BIOS 1107 and PHYS 2211
+       * filled Lab Science, and PHYS 2212, which Major Requirements names,
+       * read "elective slot", free to swap (2026-11-09 gate). The page says
+       * it may then count toward Free Electives, which the rail counts.
+       */
+      if (pool.hoursTarget === null) return;
+      let hours = planCreditRange(mine[index].filter((code) => prior.has(code)), context).min;
+      mine[index] = mine[index].filter((code) => {
+        if (prior.has(code)) return true;
+        if (countsIn.get(code) === pool.requirementId && hours >= pool.hoursTarget!) return false;
+        hours += planCreditRange([code], context).min;
+        return true;
+      });
     });
   }
 

@@ -67,6 +67,11 @@
  *   file.aliases          a page linked under a second address with identical requirements,
  *                         dropped from programs: { id, url, sameAs }
  *   file.unreached        undergraduate program pages in the sitemap no degree page links
+ *   file.unreachedRead    each of those read once from the cache, with why it is not a degree here
+ *                         ('older-core': it prints the pre-Core IMPACTS core; see the walk below)
+ *   program.listTables    other course lists on a degree page (no total), each { headings, firstArea,
+ *                         areas }: the lists a category row names ("Arts Practice Electives" ->
+ *                         "Arts Practice Elective Options"). Read by shape-programs.mjs, which drops it.
  *   minor.track, minorOf  a minor page printing one program of study per student group
  *                         ("Track for Aerospace Engineering Students", "Program of Study for
  *                         Business Majors") gives one record per track; minorOf is the page's id
@@ -245,7 +250,25 @@ function requirementTable(html, { plainOk = false } = {}) {
   const sections = (c) => /class="[^"]*areaheader/.test(c.html);
   const withTotal = candidates.filter(total);
   const pick = withTotal.length ? withTotal : candidates.filter(sections).length ? candidates.filter(sections) : plainOk ? candidates : [];
-  return pick.length ? { tables: pick, count: candidates.length } : null;
+  // The tables not picked, in page order: lists a category row may point into (readProgram, listTables).
+  return pick.length ? { tables: pick, count: candidates.length, others: candidates.filter((c) => !pick.includes(c)) } : null;
+}
+
+/**
+ * The h2 and h3 headings a table sits under in its tab, outermost first:
+ * Public Policy prints its depth lists as h2 "BSPP Depth Elective Course
+ * Options", then one h3 and one table per group ("Environmental and Energy
+ * Policy", "Science and Technology Policy", ...). The h3 counts only after
+ * the last h2 above the table.
+ */
+function headingsAbove(tabHtml, at) {
+  const heads = [...tabHtml.slice(0, at).matchAll(/<(h[23])[^>]*>([\s\S]{1,300}?)<\/\1>/gi)].map((m) => ({ level: m[1].toLowerCase(), words: text(m[2]).trim() })).filter((h) => h.words);
+  const h2 = [...heads].reverse().find((h) => h.level === 'h2');
+  const h3 = [...heads].reverse().find((h) => h.level === 'h3');
+  const out = [];
+  if (h2) out.push(h2.words);
+  if (h3 && heads.lastIndexOf(h3) > (h2 ? heads.lastIndexOf(h2) : -1)) out.push(h3.words);
+  return out;
 }
 
 /** The last heading printed above a table in its tab ("Concentration Requirements"), or null. */
@@ -413,6 +436,9 @@ function readTable(tableHtml, footnotes) {
       const row = k >= 0 ? unmatched.splice(k, 1)[0] : null;
       if (row?.href) c.href = row.href;
       if (row?.detail && row.detail !== c.text) c.detail = row.detail;
+      // Printed indented: one more option of the list above it ("VIP Courses" under Acoustics and
+      // Vibrations' "Select three of the following:"). shape-programs.mjs reads it and drops the mark.
+      if (row?.indented) c.indented = true;
       // The footnotes this row's own marks point at ("Science Elective" ³ ->
       // "Please select any academic course from the Schools of ..."), so a
       // category row can be read with the words that define it.
@@ -652,6 +678,24 @@ try {
     }
     if (main.length > 1) problems.push(`${main.length} requirement tables read as one degree`);
     if (!found) tableless.push(slug);
+    /*
+     * Lists a category row points into. Some degree pages print, after the
+     * requirement table, course lists that are neither the degree nor part
+     * of its sum: Arts, Entertainment, and Creative Technologies has the row
+     * "Arts Practice Electives" 9 in its table and the list "Arts Practice
+     * Elective Options" as a table of its own below it (six rows, six
+     * lists); Public Policy has "BSPP Depth Electives" 15 and, under the
+     * heading "BSPP Depth Elective Course Options", five group tables.
+     * requirementTable keeps only the tables with a total, so these were
+     * never read and those rows stayed open hours (2026-11-09: 7 of the 24
+     * rows the GT inventory could not read). Kept apart, never added to the
+     * areas or the footnotes: shape-programs.mjs reads one only for a row
+     * whose own words name it (pageListFor), and drops the field.
+     */
+    const listTables = (found?.others ?? []).map((t) => {
+      const r = readTable(t.html, footnotesAfter(t.tabHtml, t.at));
+      return { headings: headingsAbove(t.tabHtml, t.at), firstArea: r.areas[0]?.label ?? null, areas: r.areas };
+    }).filter((t) => t.areas.some((a) => a.groups.some((g) => (g.courses?.length ?? 0) > 0)));
     const blockSum = areas.reduce((n, a) => n + (a.hours ?? 0), 0);
     const blockSumMax = areas.reduce((n, a) => n + (a.hoursMax ?? a.hours ?? 0), 0);
     const courses = new Set(areas.flatMap((a) => a.groups.flatMap((g) => g.courses.map((c) => c.code))));
@@ -678,6 +722,7 @@ try {
       ...(Object.keys(footnotes).length ? { footnotes } : {}),
       ...(extraTables.length ? { extraTables: extraTables.map((r) => ({ heading: r.heading, firstArea: r.areas[0]?.label ?? null, totalCredits: r.total, areas: r.areas })) } : {}),
       ...(problems.length ? { problems } : {}),
+      ...(listTables.length ? { listTables } : {}),
     };
     programs.push(rec);
     reachedAs.set(slug, id);
@@ -761,6 +806,40 @@ try {
     ? [...new Set([...sitemap.matchAll(/<loc>https:\/\/catalog\.gatech\.edu(\/programs\/[^<]+)<\/loc>/g)].map((m) => normPath(m[1])))]
       .map(slugOfPath).filter((s) => s && !reached.has(s) && !GRADUATE_SLUG.test(s) && !minorPaths.some((p) => slugOfPath(p) === s))
     : null;
+  /*
+   * Each unreached page is read once, to say why it is not a degree here.
+   * mechanical-engineering-nuclear-engineering-bs ("Bachelor of Science in
+   * Mechanical Engineering - Nuclear Engineering", fetched 2026-11-09) prints
+   * the core Georgia Tech replaced with Core IMPACTS for students entering
+   * Summer 2024 or later ("Core A - Essential Skills" through "Core F -
+   * Courses Related to Major") and no Core IMPACTS heading, and the current
+   * Mechanical Engineering page offers "Nuclear and Radiological Engineering"
+   * as its nuclear concentration instead. Such a page is an older catalog's
+   * leftover, not a degree a student entering now can follow. Any other
+   * unreached page is listed as not checked, so a new degree is never
+   * dropped without a word.
+   */
+  const unreachedRead = [];
+  for (const s of unreached ?? []) {
+    const html = await page(`/programs/${s}/`);
+    if (!html) { unreachedRead.push({ slug: s, why: 'not read: the page is not cached (run without --offline to fetch it)' }); continue; }
+    const title = pageTitle(html);
+    const tables = requirementTable(html)?.tables ?? [];
+    const words = tables.map((t) => text(t.html)).join(' ');
+    const oldCore = /\bCore A\b[\s\S]{0,40}\bEssential Skills\b/i.test(words) && !/\bCore IMPACTS\b/i.test(words);
+    const [degreeName, option] = title.split(/\s+-\s+/);
+    const first = (option ?? '').split(/\s+/)[0]?.toLowerCase() ?? '';
+    const current = option ? programs.filter((p) => p.name.startsWith(`${degreeName} - `) && (p.concentration ?? '').toLowerCase().split(/\s+/).includes(first) && p.areas.length) : [];
+    unreachedRead.push({
+      slug: s,
+      url: `${BASE}/programs/${s}/`,
+      title,
+      read: oldCore ? 'older-core' : 'not-a-degree-here-unchecked',
+      why: oldCore
+        ? `its requirement table prints the pre-2024 core (Core A - Essential Skills ... ) and no Core IMPACTS, which every student entering Summer 2024 or later follows, and no current degree page links it${current.length ? `; the current page for it is ${current.map((p) => p.id).join(', ')}` : ''}`
+        : 'no degree page links it; not checked as a degree',
+    });
+  }
 
   // Minors. A minor page is usually one table. Some print one program of
   // study per student group ("Program of Study - Track for Aerospace
@@ -866,6 +945,7 @@ try {
   const programFile = {
     school: 'gatech', source: `${BASE}/programs/`, fetchedAt, programs,
     ...(unreached?.length ? { unreached } : {}),
+    ...(unreachedRead.length ? { unreachedRead } : {}),
     ...(aliases.length ? { aliases } : {}),
     ...(failed.length ? { failed } : {}),
   };
@@ -877,6 +957,8 @@ try {
     log(`shaped: ${JSON.stringify(tally)}`);
   }
   writeFileSync(outFile, JSON.stringify(programFile));
+  // The indent mark on comment rows is read only by shape-programs.mjs (selectLists); minors are not shaped.
+  for (const m of minors) for (const a of m.areas ?? []) for (const g of a.groups ?? []) for (const c of g.comments ?? []) delete c.indented;
   writeFileSync(minorsFile, JSON.stringify({
     school: 'gatech', source: `${BASE}/programs/`, fetchedAt, minors, skipped: skippedMinors,
   }));
@@ -888,7 +970,7 @@ try {
   log(`  ${withTable.length} with a requirement table, ${tableless.length} without (option menus): ${tableless.join(', ')}`);
   log(`  ${balanced.length} whose blocks add up to the stated total; ${withTable.length - balanced.length} do not`);
   log(`  ${programs.filter((p) => p.problems).length} with row-reading problems`);
-  if (unreached?.length) log(`  ${unreached.length} sitemap program pages no degree page links: ${unreached.join(', ')}`);
+  if (unreached?.length) log(`  ${unreached.length} sitemap program pages no degree page links: ${unreachedRead.map((u) => `${u.slug} (${u.read ?? 'not read'})`).join(', ')}`);
   if (failed.length) log(`  ${failed.length} not read: ${failed.map((f) => f.path).join(', ')}`);
   log(`${minors.length} minors (${skippedMinors.length} left out: ${skippedMinors.map((s) => `${s.path} ${s.why}`).join(', ')})`);
 } catch (e) {

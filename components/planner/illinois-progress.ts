@@ -608,7 +608,9 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
           }
           inOne = new Set(most.codes.map((code) => (heldAs.has(code) ? heldName(code) : code)));
         }
-        for (const raw of [...live.fromPriorCredit, ...nestedHere, ...countedHere, ...live.picked.filter((code) => !countedHere.includes(normaliseCode(code)))]) {
+        const boardPicks = live.picked.filter((code) => !countedHere.includes(normaliseCode(code)));
+        const fromBoard: string[] = [];
+        for (const raw of [...live.fromPriorCredit, ...nestedHere, ...countedHere, ...boardPicks]) {
           if (full()) break;
           // A held course under the name the rows use (heldName), as `have` holds it; the live pool names it as the record does.
           const code = heldAs.has(normaliseCode(raw)) ? heldName(normaliseCode(raw)) : normaliseCode(raw);
@@ -617,6 +619,28 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
           // Where each course counts once (countOnce), only what the student holds toward the degree and the board: a held course the plan forfeited is not in priorCodes.
           if (school?.countOnce && !haveSet.has(code)) continue;
           claim(code, creditsOf(code) ?? 0);
+          if (boardPicks.includes(raw)) fromBoard.push(code);
+        }
+        /*
+         * Where a level row is met course by course (school-config
+         * levelRowsExact), a list sized in hours alone gives back the
+         * smallest board courses it does not need once it is full, for the
+         * rows after it: Radiological Engineering's Engineering Elective (3
+         * hours) took a one-hour ME 2205 and then MSE 3001, in board order,
+         * and the hour its 2000-level free electives needed went with it.
+         */
+        if (school?.levelRowsExact === true && hoursTarget !== null && countTarget === null && hours > hoursTarget) {
+          for (const code of fromBoard.slice().sort((a, b) => (creditsOf(a) ?? 0) - (creditsOf(b) ?? 0))) {
+            const worth = creditsOf(code) ?? 0;
+            // Only a course this list was the one to count (spentBy), so no other row's claim is undone.
+            if (hours - worth < hoursTarget || spentBy.get(code) !== currentBlock) continue;
+            counted.splice(counted.indexOf(code), 1);
+            count -= 1;
+            hours -= worth;
+            spentBy.delete(code);
+            spentMajor.delete(code);
+            for (const alias of input.equivalents?.get(code) ?? []) spentMajor.delete(normaliseCode(alias));
+          }
         }
       } else {
         for (const choice of rule.choices) {
@@ -681,14 +705,35 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
       ...named.filter(({ block }) => block.rule.kind === 'all' || block.rule.kind === 'choose' || block.rule.kind === 'pool'),
       ...named.filter(({ block }) => block.rule.kind !== 'all' && block.rule.kind !== 'choose' && block.rule.kind !== 'pool'),
     ];
-    for (const { row } of majorFirst) {
+    /*
+     * Where each course counts once (countOnce, Georgia Tech), a required
+     * course whose hours the page puts in a list (countsInOf) is that list's
+     * hours, not its own row's; where the list was filled without it, its
+     * hours are spare, as the page says ("If they are not taken as Core
+     * IMPACTS courses, they are still required ... and may count towards
+     * Free Electives"): a ten-exam Neuroscience student's BIOS 1107 and PHYS
+     * 2211 filled Any Lab Science, PHYS 2212's four hours counted nowhere,
+     * and Breadth Electives read 13 of 15 on a board past the total
+     * (2026-11-09).
+     */
+    const listCounted = new Map<string, Set<string>>();
+    if (school?.countOnce) for (const { block, row } of named) listCounted.set(block.id, new Set(row.codes));
+    for (const { block, row } of majorFirst) {
       let hours = 0;
+      let spare = 0;
+      let elsewhere = 0;
+      if (school?.countOnce && block.rule.kind === 'all') {
+        for (const choice of block.rule.choices) if (choice.countsIn) elsewhere += creditsOf(normaliseCode(choice.codes[0])) ?? 0;
+      }
       for (const code of row.codes) {
+        const list = elsewhere > 0 ? countsInOf.get(code) : undefined;
+        if (list !== undefined && listCounted.get(list)?.has(code)) continue;
         if (countedOnce.has(code)) continue;
         countedOnce.add(code);
-        hours += creditsOf(code) ?? 0;
+        if (list !== undefined) spare += creditsOf(code) ?? 0;
+        else hours += creditsOf(code) ?? 0;
       }
-      if (row.unit === 'hr' && row.needed !== null) surplus += Math.max(0, hours - row.needed);
+      if (row.unit === 'hr' && row.needed !== null) surplus += spare + Math.max(0, hours - Math.max(0, row.needed - elsewhere));
     }
     const boardTotal = have.reduce((sum, code) => sum + (creditsOf(code) ?? 0), 0) + (input.priorHours ?? 0);
 
@@ -698,15 +743,30 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
     // PSYC even when the page lists only two PSYC courses).
     const read = degreeSubjects(blocks as unknown as PlanRequirement[], input.programName);
     const ownSubjects = new Set([...read.subjects, ...(read.primary ? [read.primary] : [])]);
-    for (const entry of leftovers) {
+    /*
+     * Where a level row is met course by course (school-config
+     * levelRowsExact), the highest level's row takes the spare courses first:
+     * Nuclear Engineering's "Free Electives (1000-level or higher)" took a
+     * held course its "(2000-level or higher)" row could have counted. The
+     * rows keep the page's order on the rail.
+     */
+    const exact = school?.levelRowsExact === true;
+    const floorOf = (entry: (typeof leftovers)[number]): number => (entry.block.rule.kind === 'hours' ? (entry.block.rule.minLevel ?? 0) : 0);
+    const fillOrder = exact ? leftovers.slice().sort((a, b) => floorOf(b) - floorOf(a)) : leftovers;
+    for (const entry of fillOrder) {
       const rule = entry.block.rule;
       const floor = rule.kind === 'hours' ? (rule.minLevel ?? null) : null;
+      // The lower courses its footnote lets count toward some of its hours (levelAllowanceIn), where levelRowsExact reads them.
+      const allowance = exact && rule.kind === 'hours' ? (rule.levelExcept ?? null) : null;
+      let allowed = 0;
       // "Concentration Coursework, 28 hours" is courses in the major, not any
       // spare course: counting Spanish and chemistry toward a psychology
       // concentration showed a student progress they had not made.
       // A row the page heads "Free Electives" is any course, wherever it sits, where the school says so (school-config freeElectivesAnySubject).
       const freeRow = school?.freeElectivesAnySubject === true && /\bfree\s+electives?\b/i.test(entry.block.label);
       const majorOnly = !freeRow && /\b(concentration|major)\b/i.test(`${entry.block.label} ${entry.block.areaLabel}`) && ownSubjects.size > 0;
+      // The subjects the row's own words name ("AE courses", illinois-data.ts subjectsNamedIn), where the school reads them: a MATH course is no AE Option.
+      const named = school?.openRowSubjects && rule.kind === 'hours' && rule.subjects?.length ? new Set(rule.subjects) : null;
       const counted: string[] = [];
       let hours = 0;
       const want = entry.row.needed ?? 0;
@@ -719,15 +779,18 @@ export function illinoisProgress(input: IllinoisProgressInput): AreaRow[] {
         // own words about what may fill the block, read once by the adapter
         // into the rule, and a 100-level course does not become advanced by
         // being spare.
-        if (floor !== null && levelOf(code) < floor) continue;
+        const below = floor !== null && levelOf(code) < floor;
+        if (below && (!allowance || !allowance.codes.includes(code) || allowed + worth > allowance.hours)) continue;
         if (majorOnly && !ownSubjects.has(code.split(' ')[0])) continue;
+        if (named && !named.has(code.split(' ')[0])) continue;
+        if (below) allowed += worth;
         taken.add(code);
         counted.push(code);
         hours += worth;
       }
       // Spare hours have no level or subject, so only a block with neither takes them.
       let spareUsed = 0;
-      if (floor === null && !majorOnly && hours < want && surplus > 0) {
+      if (floor === null && !majorOnly && !named && hours < want && surplus > 0) {
         spareUsed = Math.min(want - hours, surplus);
         surplus -= spareUsed;
         hours += spareUsed;

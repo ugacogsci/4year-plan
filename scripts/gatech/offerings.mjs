@@ -17,6 +17,7 @@
  *       courses: { "CS 1301": ["sp2027", "fa2026", ...] },     newest first
  *       renumbered: { "CEE 4405": "CEE 3400" },   courses[now] holds the other number's terms (see below)
  *       elsewhere: { "CS 1301": { "su2025": ["Georgia Tech-Lorraine"] } },
+ *       notYetOffered: { "AECT 3100": "su2025" },   no section yet; Banner record begins in that term (see below)
  *       campuses: { counted: [...], seen: { campus: sections } } }
  *   data/gatech-raw/banner/<term code>/page-<offset>.json.gz, every page exactly
  *     as Banner sent it, plus terms.json and <term code>/done.json. A rerun
@@ -391,6 +392,55 @@ const renumbered = {};
   }
 }
 
+/**
+ * Courses not offered yet: no section in any crawled term, on any campus,
+ * and a Banner course-catalog record that begins inside the crawled window,
+ * so the nine terms are all the time the course has been in the catalog.
+ * Arts, Entertainment, and Creative Technologies ("Georgia Tech's newest
+ * degree", its page says) has eleven AECT courses, all on Banner records
+ * that begin Summer 2025 (termStart 202505); AECT 1000 first ran Spring 2026,
+ * and AECT 3100, 3400, 3500, 4000 and 4500, the upper-level courses its
+ * first students have not reached, have run nowhere yet. A board that books
+ * them can say "new course, not offered yet" rather than "has not run in
+ * nine terms" (2026-11-09: six never-ran cards on two GT boards, five of
+ * them these). notYetOffered[code] is the crawled term the record begins
+ * in. A record that began before the window says nothing here: a course
+ * that existed and has not run is not new.
+ *
+ * Source: the Banner course-catalog replies scripts/gatech/courses.mjs
+ * cached (data/gatech-raw/banner-catalog/<term>/listing/subject_*.json,
+ * termStart per course), undergraduate rows of public/gatech-catalog.json
+ * only, research and internship rows left out. Without the cache, nothing.
+ */
+const notYetOffered = {};
+{
+  const catalogFile = new URL('public/gatech-catalog.json', ROOT);
+  const listingRoot = new URL('data/gatech-raw/banner-catalog/', ROOT);
+  if (existsSync(catalogFile) && existsSync(listingRoot)) {
+    const catalog = JSON.parse(readFileSync(catalogFile, 'utf8'));
+    const listing = new URL(`${catalog.term ?? '202608'}/listing/`, listingRoot);
+    const startOf = new Map();
+    if (existsSync(listing)) {
+      for (const name of readdirSync(listing).filter((n) => /^subject_[A-Z]+\.json$/.test(n))) {
+        for (const r of JSON.parse(readFileSync(new URL(name, listing), 'utf8')).rows ?? []) {
+          if (r?.subject && r?.courseNumber && r?.termStart) startOf.set(`${r.subject} ${r.courseNumber}`, String(r.termStart));
+        }
+      }
+    }
+    const idOf = new Map(terms.map((t) => [t.code, t.id]));
+    const oldest = terms.map((t) => t.code).sort()[0];
+    const NOISE = /\b(independent study|thesis research|special problems|undergraduate research|internship|co-?op\b|work experience|assistantship)\b/i;
+    for (const c of catalog.courses ?? []) {
+      const n = Number.parseInt(c.number, 10);
+      if (!(n >= 1000 && n < 5000) || c.noise || NOISE.test(c.title ?? '')) continue;
+      if (courses[c.code]?.length || elsewhere[c.code]) continue;
+      const start = startOf.get(c.code);
+      if (!start || !oldest || start < oldest || !idOf.has(start)) continue;
+      notYetOffered[c.code] = idOf.get(start);
+    }
+  }
+}
+
 const order = terms.map((t) => t.id);
 for (const code of Object.keys(courses)) courses[code].sort((a, b) => order.indexOf(a) - order.indexOf(b));
 const sortedCourses = Object.fromEntries(Object.entries(courses).sort(([a], [b]) => a.localeCompare(b)));
@@ -414,9 +464,11 @@ writeFileSync(OUT, JSON.stringify({
   renumbered: Object.fromEntries(Object.entries(renumbered).sort(([a], [b]) => a.localeCompare(b))),
   elsewhere: sortedElsewhere,
   campuses: { counted, seen: Object.fromEntries(Object.entries(seen).sort((a, b) => b[1] - a[1])) },
+  notYetOffered: Object.fromEntries(Object.entries(notYetOffered).sort(([a], [b]) => a.localeCompare(b))),
 }));
 console.log(`\n${Object.keys(sortedCourses).length} courses seen on the counted campuses across ${terms.length} terms; ${Object.keys(sortedElsewhere).length} courses with a term only elsewhere`);
 console.log(`renumbered (same title and description, history joined): ${Object.entries(renumbered).map(([a, b]) => `${a} ran as ${b}`).join(', ') || 'none'}`);
+console.log(`not offered yet (Banner record begins inside the ${terms.length} terms, no section anywhere): ${Object.entries(notYetOffered).map(([c, t]) => `${c} since ${t}`).join(', ') || 'none'}`);
 console.log(`campuses seen: ${Object.entries(seen).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} ${n}`).join('; ')}`);
 if (unknownCampuses.size) console.log(`NEW campus names, not counted until COUNTED_CAMPUSES or ELSEWHERE_CAMPUSES names them: ${[...unknownCampuses].join('; ')}`);
 if (failed.length) console.log(`FAILED terms: ${failed.map((f) => `${f.id}: ${f.why}`).join('; ')}`);

@@ -667,6 +667,15 @@ export type RequirementRule =
       minLevel?: number | null;
       /** Codes the page rules out: "Exceptions to the list are: ASTR 100, PHYS 101 and PHYS 102, and CHEM 101." */
       exclude?: string[];
+      /**
+       * Lower courses a level row's footnote lets count toward some of its
+       * hours (levelAllowanceIn): Georgia Tech's Mechanical Engineering
+       * "four of these 9 credit hours may be satisfied with ... BIOS 1107 /
+       * BIOS 1107L ... or CHEM 1212K". Null or absent where the page says none.
+       */
+      levelExcept?: { codes: string[]; hours: number } | null;
+      /** The subjects the row's own words name for its courses ("AE courses"), where the school reads them (subjectsNamedIn). */
+      subjects?: string[] | null;
     }
   /**
    * One campus general education category, as the degree page states it.
@@ -2826,6 +2835,54 @@ export function exceptionsIn(note: string): string[] {
   return [...out];
 }
 
+const ALLOWANCE_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+
+/**
+ * Lower courses a level row's footnote lets count toward some of its hours,
+ * read where the school says so (school-config levelRowsExact). Georgia
+ * Tech's Mechanical Engineering "2000-Level Electives" footnote: "Must be at
+ * 2000-Level or above; four of these 9 credit hours may be satisfied with
+ * one of the following: BIOS 1107 / BIOS 1107L , BIOS 1108 / BIOS 1108L , or
+ * CHEM 1212K ."; Nuclear and Radiological Engineering's "with the exception
+ * of 4 hours that may be satisfied with one of the following: ...". The
+ * codes are the ones named after "may be satisfied with", to the end of
+ * that sentence; null where no footnote says so.
+ */
+/**
+ * The subjects a row of hours names for its courses in its own label or note:
+ * "AE Options: AE courses from list supplied by School" is AE courses, which
+ * the page does not list. Only a code the catalog has courses under, written
+ * as "<SUBJECT> courses"; a footnote, which a page shares between rows, is not
+ * read. Null when the words name none.
+ */
+const subjectsNamedCache = new WeakMap<object, Set<string>>();
+export function subjectsNamedIn(text: string, byCode: CatalogRowLookup): string[] | null {
+  const named = [...new Set([...text.matchAll(/\b([A-Z]{2,4}) courses\b/g)].map((m) => m[1]))];
+  if (named.length === 0 || !byCode.values) return null;
+  let known = subjectsNamedCache.get(byCode);
+  if (!known) {
+    known = new Set([...byCode.values()].map((row) => normCode(row.code).split(' ')[0]));
+    subjectsNamedCache.set(byCode, known);
+  }
+  const out = named.filter((subject) => known!.has(subject));
+  return out.length > 0 ? out : null;
+}
+
+export function levelAllowanceIn(footnotes: readonly string[] | undefined): { codes: string[]; hours: number } | null {
+  for (const raw of footnotes ?? []) {
+    const text = raw.replace(/\s+/g, ' ');
+    const m = /\b(\d{1,2}|one|two|three|four|five|six)\s+(?:of these \d{1,2} (?:credit )?hours|(?:credit )?hours that)\s+may be satisfied with\b/i.exec(text);
+    if (!m) continue;
+    const hours = /^\d+$/.test(m[1]) ? Number(m[1]) : ALLOWANCE_WORDS[m[1].toLowerCase()];
+    const rest = text.slice(m.index + m[0].length);
+    const sentence = rest.split(/\s\.(?:\s|$)|(?<=[a-z0-9])\.\s+(?=[A-Z])/)[0];
+    const codes = new Set<string>();
+    for (const c of sentence.matchAll(CODE_RE)) codes.add(`${c[1]} ${c[2]}`);
+    if (hours > 0 && codes.size > 0) return { codes: [...codes], hours };
+  }
+  return null;
+}
+
 /**
  * One spelling for a category that Illinois writes several ways.
  *
@@ -4854,6 +4911,10 @@ export function requirementRulesForArea(
         label: r.label,
         minLevel: levelFloorIn(r.label, note),
         exclude: exceptionsIn(note),
+        // The footnote's lower courses that may count toward the row's level hours (levelAllowanceIn), where the school reads them.
+        ...(readingSchool.levelRowsExact ? { levelExcept: levelAllowanceIn(r.group.footnotes) } : {}),
+        // The subject its own words name for its courses (subjectsNamedIn), where the school reads it.
+        ...(readingSchool.openRowSubjects ? { subjects: subjectsNamedIn(`${r.label} ${note}`, byCode) } : {}),
       };
     } else if (genEd.length > 0) {
       /**
@@ -6028,9 +6089,11 @@ function listAtHeadingLevel(rule: RequirementRule, heading: string, wholeSubject
  * constraint holds the hours to one of them: the sentence's own number, else
  * the list's. Georgia Tech only (school-config oneLanguageLists).
  */
-function inOneLanguage(rule: RequirementRule, group: RawProgramGroup | undefined): RequirementRule {
+function inOneLanguage(given: RequirementRule, group: RawProgramGroup | undefined): RequirementRule {
+  const rule = withoutCultureCourses(given, group);
   if (rule.kind !== 'pool') return rule;
-  const text = (group?.footnotes ?? []).find((f) => /\bsame language\b/i.test(f));
+  // "21 credit hours of the same selected language concentration" (Global Economics and Modern Languages, International Affairs and Modern Language) too.
+  const text = (group?.footnotes ?? []).find((f) => /\bsame (?:selected )?language\b/i.test(f));
   if (!text) return rule;
   const bySubject = new Map<string, string[]>();
   for (const choice of rule.choices) {
@@ -6043,6 +6106,32 @@ function inOneLanguage(rule: RequirementRule, group: RawProgramGroup | undefined
   if (!hours || !Number.isFinite(hours) || hours <= 0) return rule;
   const lists = [...bySubject].map(([subject, codes]) => ({ label: subject, codes }));
   return { ...rule, constraints: [...rule.constraints, { text: text.trim(), n: 0, lists, single: true, singleHours: hours }] };
+}
+
+/**
+ * A language list whose footnote keeps the 34XX culture courses (taught in
+ * English) off it, without them: "CHIN 34XX classes or CHIN special topics
+ * courses taught in English may not be used here" (Applied Languages and
+ * Intercultural Studies), and "Students can only count one ... 34XX course
+ * toward 3 of the 21 credits" (Global Economics and Modern Languages). The
+ * plan booked CHIN 3400 and CHIN 3401 on both, so 3 to 6 of the row's hours
+ * did not count (2026-11-09 gate). Where one may count, the plan books none
+ * here, which keeps every hour the row counts a language hour; a 34XX the
+ * student takes still counts as a free elective. Georgia Tech only
+ * (school-config oneLanguageLists).
+ */
+function withoutCultureCourses(rule: RequirementRule, group: RawProgramGroup | undefined): RequirementRule {
+  if (rule.kind !== 'pool') return rule;
+  const said = (group?.footnotes ?? []).flatMap((f) => f.replace(/\s+/g, ' ').split(/(?<=[a-z)])\.\s+(?=[A-Z])/)).find((s) => /\b34XX\b/.test(s) && /\b(?:may not be used here|(?:can|may) only count one\b)/i.test(s));
+  if (!said) return rule;
+  const subjects = new Set(said.match(/\b[A-Z]{2,4}\b/g) ?? []);
+  const culture = (code: string) => {
+    const [subject, number] = normCode(code).split(' ');
+    return subjects.has(subject) && /^34\d\d$/.test(number ?? '');
+  };
+  const choices = rule.choices.filter((choice) => !choice.codes.every(culture));
+  if (choices.length === rule.choices.length || choices.length === 0) return rule;
+  return { ...rule, choices, lists: rule.lists.map((list) => ({ ...list, codes: list.codes.filter((code) => !culture(code)) })) };
 }
 
 function countTheHoursAllow(rule: RequirementRule, byCode: Map<string, IllinoisCourse>, pairs: boolean): RequirementRule {
