@@ -3938,7 +3938,7 @@ export function PlannerWorkspace({
     return out;
   }, [electiveOf, courseIndex, careerText, interestsText, careerFit]);
 
-  const chooserData = useMemo((): { label: string; options: Course[]; whys: Map<string, string> } | null => {
+  const chooserData = useMemo((): { label: string; options: Course[]; whys: Map<string, string>; emptyReason: string | null } | null => {
     if (!chooser || !plan || !context || !loaded) return null;
     const oldCourse = courseIndex.get(chooser.courseId);
     if (!oldCourse) return null;
@@ -3997,7 +3997,31 @@ export function PlannerWorkspace({
       .filter((option) => scope.codes === null || scope.codes.has(normCode(option.code)))
       .map((option) => byCode.get(normCode(option.code)))
       .filter((course): course is Course => Boolean(course));
-    return { label: sharedSlot ? `${scope.label} (replacing this course may remove shared credit)` : scope.label, options, whys: new Map(ranked.flatMap((option) => { const course = byCode.get(normCode(option.code)); return course ? [[course.id, option.reasons.slice(0, 2).join('; ') || option.why] as [string, string]] : []; })) };
+    // Why the list is empty, in the student's terms: "Replace course" on a required card showed
+    // "0 options" and "No replacements match your search." with no reason (Georgia Tech browser test, 2026-11-10).
+    const oldCode = normCode(oldCourse.code);
+    const alone = scope.codes !== null && [...scope.codes].every((code) => code === oldCode);
+    const termLabel = term?.label ?? 'that term';
+    const byName = oldCourse.pathwayRole === 'required' || blocks.some((block) => block.rule.kind === 'all' && block.rule.choices.some((choice) => {
+      const named = [...choice.codes, ...(choice.substitutes ?? [])].map(normCode);
+      return named.includes(oldCode) && named.every((code) => code === oldCode);
+    }));
+    const needing = [...new Set(plan.terms.flatMap((row) => row.courseIds).flatMap((id) => {
+      const later = courseIndex.get(id);
+      return later && later.prerequisites.includes(oldCourse.id) ? [later.code] : [];
+    }))];
+    const needs = needing.length === 0 ? '' : needing.length <= 2 ? needing.join(' and ') : `${needing.slice(0, 2).join(', ')} and ${needing.length - 2} more`;
+    const moveIt = 'Its menu can move it to another term instead.';
+    const emptyReason = options.length > 0
+      ? null
+      : alone && byName && needs
+        ? `${oldCourse.code} is required by name in your degree, and ${needs} ${needing.length === 1 ? 'needs' : 'need'} it first, so no other course can take its place. ${moveIt}`
+        : alone && byName
+          ? `${oldCourse.code} is required by name in your degree, so no other course can take its place. ${moveIt}`
+          : alone && needs
+            ? `${needs} ${needing.length === 1 ? 'needs' : 'need'} ${oldCourse.code} first, so a different course here would leave ${needing.length === 1 ? 'it' : 'them'} without a prerequisite. ${moveIt}`
+            : `No other course for this requirement fits ${termLabel} right now: each is already in your plan or taken, or does not run then, or needs a prerequisite or standing you will not have yet. Try moving ${oldCourse.code} to another term.`;
+    return { label: sharedSlot ? `${scope.label} (replacing this course may remove shared credit)` : scope.label, options, emptyReason, whys: new Map(ranked.flatMap((option) => { const course = byCode.get(normCode(option.code)); return course ? [[course.id, option.reasons.slice(0, 2).join('; ') || option.why] as [string, string]] : []; })) };
   }, [
     chooser,
     plan,
@@ -4012,7 +4036,7 @@ export function PlannerWorkspace({
     isGraduatePlan, leaf, priorities, priorForOptions, boardContext,
   ]);
 
-  const chooserOptions = { options: chooserData?.options ?? [], whys: chooserData?.whys ?? new Map<string, string>() };
+  const chooserOptions = { options: chooserData?.options ?? [], whys: chooserData?.whys ?? new Map<string, string>(), emptyReason: chooserData?.emptyReason ?? null };
   const replacementCourseIds = useMemo(
     () => new Set((chooserOnMap ? chooserData?.options ?? [] : []).map((course) => course.id)),
     [chooserData, chooserOnMap],
@@ -8624,6 +8648,7 @@ export function PlannerWorkspace({
                 replacing: courseIndex.get(chooser.courseId)?.code ?? 'the elective',
                 options: chooserOptions.options,
                 whys: chooserOptions.whys,
+                emptyReason: chooserOptions.emptyReason,
                 onPick: (courseId) => chooseElective(chooser.termId, chooser.courseId, courseId),
                 onCancel: () => {
                   setChooser(null);

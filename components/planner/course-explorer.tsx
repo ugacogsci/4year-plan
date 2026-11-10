@@ -53,6 +53,8 @@ interface CourseExplorerProps {
     onCancel: () => void;
     /** Why each option is offered, by course id, in the student's own priorities. */
     whys?: Map<string, string>;
+    /** Why there are no options at all (a course required by name, a prerequisite of a later card), in the student's terms. */
+    emptyReason?: string | null;
   } | null;
   open: boolean;
   theme: 'light' | 'dark';
@@ -1313,7 +1315,9 @@ export function CourseExplorer({
             </div>
           )}
           <p className="finder-results-head">
-            {chooser && !normalizedQuery
+            {chooser && !normalizedQuery && chooserMatches.length === 0
+              ? 'No options'
+              : chooser && !normalizedQuery
               ? `${chooserMatches.length.toLocaleString()} options · Best fit first`
               : chooser
                 ? `${chooserMatches.length.toLocaleString()} matching replacements`
@@ -1321,7 +1325,7 @@ export function CourseExplorer({
                 ? `${results.length} ${results.length === 1 ? 'match' : 'matches'}`
                 : `First ${results.length} of ${searchHits.toLocaleString()} matches`}
           </p>
-          {listRows.length === 0 && <p className="finder-empty">No replacements match your search.</p>}
+          {listRows.length === 0 && <p className="finder-empty">{chooser && !normalizedQuery && chooser.emptyReason ? chooser.emptyReason : 'No replacements match your search.'}</p>}
           <ul>
             {listRows.map((course) => {
               // A course the catalog lets a student repeat can go on again (THEA 359 for Stage Management's 8 hours).

@@ -316,6 +316,16 @@ export interface CourseleafSchool {
    * for Illinois.
    */
   introEarly: boolean;
+  /**
+   * A placement question is asked once on the board (autoplan.ts
+   * placementOnce): a course whose placement score is met by the score that
+   * places a student into another course in the same term or earlier carries
+   * no question of its own. Georgia Tech's MATH 1554 (SAT Math 620) beside
+   * MATH 1551 (SAT Math 660), the first fall of its own Computer Engineering
+   * sample schedule, read as a placement gamble on both cards (2026-11-10).
+   * Off for Illinois, whose cards read as before.
+   */
+  placementAskedOnce: boolean;
   careerVectors: boolean;
   careerTracks: boolean;
   transferAi: boolean;
@@ -375,6 +385,7 @@ const COURSELEAF: Record<CourseleafId, CourseleafSchool> = {
     setupSaysExamsEntered: false,
     registrationWording: false,
     introEarly: false,
+    placementAskedOnce: false,
     careerVectors: true,
     careerTracks: true,
     transferAi: true,
@@ -427,6 +438,7 @@ const COURSELEAF: Record<CourseleafId, CourseleafSchool> = {
     setupSaysExamsEntered: true,
     registrationWording: true,
     introEarly: true,
+    placementAskedOnce: true,
     careerVectors: true,
     careerTracks: false,
     transferAi: false,

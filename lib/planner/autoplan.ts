@@ -7412,7 +7412,7 @@ function trialStands(paced: GeneratedPlan, plain: GeneratedPlan, input: Autoplan
     }
     const firstCodes = firstYear.flatMap((t) => t.codes.map(normaliseCode));
     const isMath = degreeMath(ctx, input.requirements, [...at.keys(), ...held]);
-    const validated = validatePlan(g.plan, ctx, { minimumTermCredits: credits.min, maxTermCredits: credits.max, programName: input.programName, programCollege: input.programCollege, priorCredits: g.credits.prior, away: g.away, language, strictComposition: true });
+    const validated = validatePlan(g.plan, ctx, { minimumTermCredits: credits.min, maxTermCredits: credits.max, programName: input.programName, programCollege: input.programCollege, priorCredits: g.credits.prior, away: g.away, language, strictComposition: true, everyPlacement: true });
     return {
       errors: new Set(validated.filter((i) => i.severity === 'error').map((i) => i.id)),
       notPlaced: new Set(g.notPlaced.map((n) => normaliseCode(n.code))),
@@ -7561,7 +7561,7 @@ function gateMeasure(g: GeneratedPlan, input: AutoplanInput, language: LanguageP
   const arrival: Arrival = { transfer: input.arrival?.transfer ?? false, international: input.arrival?.international ?? false };
   const firstYear = input.firstYear ?? (!arrival.transfer && !((input.residency?.heldHours ?? 0) > 0));
   // Read for this student, as the workspace reads the board it shows (firstYear, arrival).
-  const validated = validatePlan(g.plan, ctx, { minimumTermCredits: credits.min, maxTermCredits: credits.max, programName: input.programName, programCollege: input.programCollege, priorCredits: g.credits.prior, away: g.away, language, firstYear, arrival, strictComposition: true });
+  const validated = validatePlan(g.plan, ctx, { minimumTermCredits: credits.min, maxTermCredits: credits.max, programName: input.programName, programCollege: input.programCollege, priorCredits: g.credits.prior, away: g.away, language, firstYear, arrival, strictComposition: true, everyPlacement: true });
   const at = new Map<string, number>();
   for (const t of g.terms) for (const code of t.codes) at.set(normaliseCode(code), t.index);
   const used = g.terms.filter((t) => t.codes.length > 0);
@@ -22876,6 +22876,15 @@ export interface ValidateOptions {
    * warning without it.
    */
   strictComposition?: boolean;
+  /**
+   * Every placement question kept, one per card, as generatePlan's gate has
+   * always counted them (WATCHED_WARNING ap-priorlearning). placementOnce
+   * folds a question the same score answers into the course that asks it, for
+   * the board the student sees; the gate measuring that way chose other
+   * boards for 40-odd Georgia Tech degrees (2026-11-10 inventory), and the
+   * fix is to the warning, not the plan.
+   */
+  everyPlacement?: boolean;
   /** The degree and its college, so a registration restriction naming them reads as open. */
   programName?: string;
   programCollege?: string;
@@ -22974,6 +22983,9 @@ export function validatePlan(
 ): PlanIssue[] {
   const ctx = withTitleStanding(given);
   const issues: PlanIssue[] = [];
+  // Georgia Tech (school-config placementAskedOnce): one placement question per score, below.
+  const askOnce = courseleafOfContext(ctx)?.placementAskedOnce === true && options?.everyPlacement !== true;
+  const placementAsked: PlacementAsked[] = [];
   const equivalents = ctx.equivalents ?? new Map<string, string[]>();
   const grades = ctx.grades ?? new Map<string, GradeRow>();
   const baseMatch = ctx.prereqCheck ?? defaultPrereqMatcher;
@@ -23419,14 +23431,16 @@ export function validatePlan(
          * sends every student to fix an order that is already fine.
          */
         for (const group of priorLearning ?? []) {
-          issues.push({
+          const issue: PlanIssue = {
             id: `ap-priorlearning-${term.id}-${courseId}-${group.any.join('-')}`,
             severity: 'warning',
             title: 'Only you can answer this one',
             message: `${code} takes ${group.priorLearning} or ${group.any.join(' or ')}. Nothing earlier on the board has the course, and no record here says what you did at school.`,
             termId: term.id,
             courseId,
-          });
+          };
+          issues.push(issue);
+          if (askOnce) placementAsked.push({ issue, code, at: plan.terms.indexOf(term), scores: placementScores(group.priorLearning ?? ''), term: term.label });
         }
         if (!spec.parsed && spec.text) {
           issues.push({
@@ -23599,7 +23613,56 @@ export function validatePlan(
     if (codes.some(finishesLanguage)) languageDone = true;
   }
 
-  return issues;
+  return askOnce ? placementOnce(issues, placementAsked) : issues;
+}
+
+/** A placement question on the board: the card's issue, its course, its term's index, and the scores its prerequisite names. */
+interface PlacementAsked { issue: PlanIssue; code: string; at: number; scores: Map<string, number> | null; term: string }
+
+/**
+ * The test scores a prerequisite's placement half names: "a qualifying high
+ * school/placement test score (MATH SECTION SCORE 660 / ACT Math 28)" reads
+ * as SAT Math 660 and ACT Math 28. Null when it names no score.
+ */
+function placementScores(text: string): Map<string, number> | null {
+  const out = new Map<string, number>();
+  for (const m of text.matchAll(/([A-Za-z][A-Za-z .]*?[A-Za-z])\s+(\d{2,4})\b/g)) out.set(m[1].trim().toUpperCase(), Number(m[2]));
+  return out.size > 0 ? out : null;
+}
+
+/**
+ * Each placement question asked once (school-config placementAskedOnce,
+ * Georgia Tech). A course whose placement bar is met by every score that
+ * places a student into another course the board holds in the same term or
+ * earlier asks nothing new: MATH 1554 takes SAT Math 620 / ACT 26, and the
+ * 660 / 28 that places a student into MATH 1551 beside it clears both. Both
+ * cards said "Only you can answer this one", and Linear Algebra read as a
+ * gamble in the very first fall Georgia Tech's own Computer Engineering sample
+ * schedule gives it (ECE BSCmpE degree planning sheet; 2026-11-10 browser
+ * test). The question stays on the course that asks it, which names the other.
+ */
+function placementOnce(issues: PlanIssue[], asked: PlacementAsked[]): PlanIssue[] {
+  const covered = new Map<PlanIssue, PlacementAsked>();
+  for (const x of asked) {
+    if (!x.scores) continue;
+    const by = asked.find((y) => y !== x && y.code !== x.code && y.at <= x.at && y.scores !== null && !covered.has(y.issue)
+      && [...y.scores].every(([test, score]) => (x.scores?.get(test) ?? Number.POSITIVE_INFINITY) <= score));
+    if (by) covered.set(x.issue, by);
+  }
+  if (covered.size === 0) return issues;
+  const also = new Map<PlanIssue, PlacementAsked[]>();
+  for (const [issue, by] of covered) {
+    const x = asked.find((a) => a.issue === issue);
+    if (x) also.set(by.issue, [...(also.get(by.issue) ?? []), x]);
+  }
+  return issues.flatMap((issue) => {
+    if (covered.has(issue)) return [];
+    const more = also.get(issue);
+    const kept = asked.find((a) => a.issue === issue);
+    if (!more || !kept) return [issue];
+    const names = more.map((m) => (m.at === kept.at ? m.code : `${m.code} in ${m.term}`));
+    return [{ ...issue, message: `${issue.message} The same score also meets ${names.join(' and ')}.` }];
+  });
 }
 
 

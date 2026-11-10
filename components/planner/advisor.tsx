@@ -185,11 +185,36 @@ function toolLabel(name: AdvisorToolName, input: Record<string, unknown>): strin
   }
 }
 
+/**
+ * A sentence a tool's refusal writes for the model, not the student: what to
+ * tell them, which tool to call next, when to call again. "NRE 4214 does not
+ * run in Spring 2027: ... Tell the student plainly ... Offer a term it runs
+ * in." showed whole on the step line (Georgia Tech browser test, 2026-11-10).
+ */
+const FOR_THE_MODEL = /^(?:tell|say|call|use|offer|ask|never|do not|don't|give|name|mention|weigh|put|lead|answer|apply|keep|only)\b|\b[a-z]+_[a-z]+(?:_[a-z]+)*\b|\bconfirmed true\b/i;
+
+/**
+ * A refusal's reason as the step line shows it: the facts it opens with, up
+ * to the first sentence written for the model, in the student's own person.
+ * The model still reads the whole reason in the tool result.
+ */
+export function studentReason(reason: string | undefined): string | undefined {
+  if (!reason) return undefined;
+  const sentences = reason.trim().split(/(?<=[.!?])\s+(?=["“A-Z0-9])/);
+  const kept: string[] = [];
+  for (const sentence of sentences) {
+    if (FOR_THE_MODEL.test(sentence)) break;
+    kept.push(sentence);
+  }
+  const text = kept.join(' ').replace(/\bthe student's\b/gi, 'your').replace(/\bthe student\b/gi, 'you').trim();
+  return text || 'not done';
+}
+
 /** What a finished tool did, in a few words, from what it returned. */
 function toolOutcome(result: unknown): { state: 'ok' | 'failed'; detail?: string } {
   if (!result || typeof result !== 'object') return { state: 'ok' };
   const r = result as { ok?: boolean; error?: string; reason?: string; summary?: string; needs_confirmation?: boolean };
-  if (r.ok === false) return { state: 'failed', detail: r.needs_confirmation ? 'needs your yes' : (r.reason ?? r.error) };
+  if (r.ok === false) return { state: 'failed', detail: r.needs_confirmation ? 'needs your yes' : studentReason(r.reason ?? r.error) };
   return { state: 'ok', detail: r.summary };
 }
 
