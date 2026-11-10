@@ -1979,6 +1979,8 @@ export function PlannerWorkspace({
         words: [answers?.studying ?? '', answers?.timeline ?? '', answers?.after ?? '', careerInterests].join(' '),
         examCodes: examCourses(exams, examCredit.entries, (code) => byCode.has(code)),
         transcriptCodes: transcriptCodes(answers?.transcript),
+        // Georgia Tech's own name; UGA's and Illinois's notes keep the words they had.
+        ...(leaf && !isIllinoisSchool ? { school: leaf.short } : {}),
       }),
     );
     /**
@@ -7144,7 +7146,7 @@ export function PlannerWorkspace({
         }
         if (typeof input.coming_from === 'string' && input.coming_from.trim() && answersNow.transcript && engineSchool) {
           const here = engineSchool;
-          next.transcript = await rematchForSchool({ ...answersNow.transcript, institution: input.coming_from.trim(), schoolId: here === 'uga' ? 'illinois' : 'uga', courses: answersNow.transcript.courses.map((c) => (isHomeTranscript(c.from ?? null, here) ? { ...c, from: null } : c)) }, here, catalogLiteOf(catalog));
+          next.transcript = await rematchForSchool({ ...answersNow.transcript, institution: input.coming_from.trim(), schoolId: here === 'uga' ? 'illinois' : 'uga', courses: answersNow.transcript.courses.map((c) => (isHomeTranscript(c.from ?? null, here) ? { ...c, from: null } : c)) }, here, catalogLiteOf(catalog), { forced: true });
         }
         if (majorIds) {
           setProgramIds(majorIds);
@@ -7229,6 +7231,8 @@ export function PlannerWorkspace({
             note: 'These checks describe the current board, including conditional in-progress credit. Do not claim official graduation clearance or a graduate waiver. For course details use the course tools; for university policy use university_answer.' }
             : { handled: false, note: 'Select a degree to check its requirements.' };
         }
+        // The router (ask-router.ts) is Illinois's own: its answers and sources name Illinois's pages. TOWER does not list this tool (advisor.ts GATECH_TOOL_NAMES).
+        if (!isIllinoisSchool) return { handled: false, note: 'Use course_details, review_board or term_summary for this university.' };
         const ask = await askContext();
         if (!ask) return { handled: false, note: 'The planner data is not loaded.' };
         const routed = routeQuestion(str('question'), ask);

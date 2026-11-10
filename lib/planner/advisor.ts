@@ -681,7 +681,8 @@ export function ugaAdvisorTools(): Anthropic.Beta.BetaTool[] {
  * AP and IB table (public/gatech-exam-credit.json, from the catalog's pages).
  */
 export const GATECH_TOOL_NAMES: ReadonlySet<AdvisorToolName> = new Set<AdvisorToolName>(
-  [...UGA_TOOL_NAMES].filter((name) => !['course_syllabus', 'term_syllabi', 'find_clubs', 'professor_ratings'].includes(name)),
+  // planner_answer is out: its router (ask-router.ts) is Illinois's own and names Illinois's pages in its sources.
+  [...UGA_TOOL_NAMES].filter((name) => !['course_syllabus', 'term_syllabi', 'find_clubs', 'professor_ratings', 'planner_answer'].includes(name)),
 );
 
 /**
@@ -1203,11 +1204,11 @@ ${SHARED_ADVISOR_RULES.forKeptOut}
 
 Rules about the board
 - Every card on the board is marked required, from a list, elective slot, gen ed pick, prerequisite, or added (the board description gives the legend). Prefer changing elective slots and gen ed picks (a gen ed pick is swapped for another course carrying the same categories). Never remove or replace a required or from-a-list course unless the student has clearly said yes to removing that specific course in this conversation; then, and only then, call the tool with confirmed true. If they ask you to drop one, say what it is required for and ask for a yes.
-${SHARED_ADVISOR_RULES.boardToolsForFacts}
+${SHARED_ADVISOR_RULES.boardToolsForFacts.replace(' or planner_answer', '')}
 ${SHARED_ADVISOR_RULES.boardToolFails}
 - When you suggest a course, say why in the student's terms, from the reasons the tools return (the requirement it covers, its prerequisites, their interests). Do not invent reasons the tools did not give.
 ${SHARED_ADVISOR_RULES.boardTermSize}
-- The plan picks courses for each term, not sections. Give a meeting time or an instructor only when course_details or planner_answer returns one for that term, with the term it is for; otherwise say days, times and instructors are chosen at registration.
+- The plan picks courses for each term, not sections. Give a meeting time or an instructor only when course_details returns one for that term, with the term it is for; otherwise say days, times and instructors are chosen at registration.
 
 Students with credit coming in
 - Before advising a student who mentions transfer credit, dual enrollment, AP or IB, a previous college or a transcript, call prior_credit and read it. The board only knows what has been recorded; when they name a course that is not in it, settle the ${schoolShort} course with find_equivalent (give the other school's name and code), confirm the pick with the student, then record it with record_prior_credit and a ${schoolShort} course code. Then tell them what the rebuilt plan changed.

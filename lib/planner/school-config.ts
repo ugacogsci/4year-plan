@@ -23,6 +23,8 @@ export type Engine = 'uga' | 'courseleaf';
 
 export interface CourseleafSchool {
   id: CourseleafId;
+  /** The school's short name in notes and warnings the engine writes: 'Illinois', 'Georgia Tech'. */
+  short: string;
   /** Where build-index writes the slim artifacts the browser loads, e.g. '/gatech'. */
   base: string;
   /** Prefix of the raw crawl files in public/, e.g. 'gatech' for public/gatech-catalog.json. */
@@ -344,6 +346,7 @@ export interface CourseleafSchool {
 const COURSELEAF: Record<CourseleafId, CourseleafSchool> = {
   illinois: {
     id: 'illinois',
+    short: 'Illinois',
     base: '/illinois',
     rawPrefix: 'illinois',
     numberDigits: 3,
@@ -397,6 +400,7 @@ const COURSELEAF: Record<CourseleafId, CourseleafSchool> = {
   },
   gatech: {
     id: 'gatech',
+    short: 'Georgia Tech',
     base: '/gatech',
     rawPrefix: 'gatech',
     numberDigits: 4,

@@ -12676,7 +12676,7 @@ function generatePlanInner(input: AutoplanInput): GeneratedPlan {
   const heldCredit = new Map(heldOnce.codes.map((code) => [code, byCode.get(code)?.credits ?? 0]));
   let priorCreditTotal = [...heldCredit.values()].reduce((sum, n) => sum + n, 0) + input.prior.unmatchedCredits;
   for (const d of heldOnce.dropped) {
-    notes.push(`The catalog says credit is not given for both ${d.kept} and ${d.dropped}, and you hold both. Only ${d.kept} is counted toward the total; your Transfer Evaluation Report or advisor says which one Illinois keeps.`);
+    notes.push(`The catalog says credit is not given for both ${d.kept} and ${d.dropped}, and you hold both. Only ${d.kept} is counted toward the total; your Transfer Evaluation Report or advisor says which one ${courseleafOfContext(ctx)?.short ?? 'Illinois'} keeps.`);
   }
 
   /**
@@ -23256,7 +23256,7 @@ export function validatePlan(
           id: `ap-seminar-late-${term.id}-${courseId}`,
           severity: 'warning',
           title: 'A first-term course after the first year',
-          message: `${normaliseCode(course.code)} is in ${term.label}. It is written for a student's first term at Illinois, and sections held for first-year students are closed to them after it; ${regularTerms[0].label} or ${regularTerms[1].label} keeps it in the first year.`,
+          message: `${normaliseCode(course.code)} is in ${term.label}. It is written for a student's first term at ${courseleafOfContext(ctx)?.short ?? 'Illinois'}, and sections held for first-year students are closed to them after it; ${regularTerms[0].label} or ${regularTerms[1].label} keeps it in the first year.`,
           termId: term.id,
           courseId,
         });

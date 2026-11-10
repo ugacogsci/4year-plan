@@ -20,7 +20,13 @@ import type { Course } from './types';
 import { loadUgaOfferings } from './uga-offerings';
 import { refineTransfers } from './transfer-ai-client';
 
-export async function rematchForSchool(record: TranscriptRecord, here: SchoolKey, catalog: CatalogLite[]): Promise<TranscriptRecord> {
+/**
+ * `forced`: the caller re-matched a record that was never read for another
+ * school (TOWER's update_setup coming_from, which flips schoolId to force the
+ * re-read), so "first read when you planned for X" would name a school the
+ * student never chose and is left out.
+ */
+export async function rematchForSchool(record: TranscriptRecord, here: SchoolKey, catalog: CatalogLite[], options?: { forced?: boolean }): Promise<TranscriptRecord> {
   const reading = readingOfRecord(record);
   // Illinois's gen-ed guide (Parkland, IAI) is Illinois's alone (school-config.ts transferGenEdGuide).
   const guide = courseleafOf(here)?.transferGenEdGuide ? await loadTransferGenEd().catch(() => null) : null;
@@ -34,7 +40,7 @@ export async function rematchForSchool(record: TranscriptRecord, here: SchoolKey
   return {
     ...fresh,
     readAt: record.readAt,
-    notes: [`Checked again for ${nameOf(here)}: this record was first read when you planned for ${was}.`, ...fresh.notes],
+    notes: options?.forced ? fresh.notes : [`Checked again for ${nameOf(here)}: this record was first read when you planned for ${was}.`, ...fresh.notes],
     ...(record.currentConfirmed ? { currentConfirmed: record.currentConfirmed } : {}),
   };
 }

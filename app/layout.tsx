@@ -15,7 +15,7 @@ import './redesign/gatech.css';
  */
 const title = 'ORION';
 const description =
-  'Explore courses. Shape your semesters. An independent, visual degree planner for UGA and Illinois.';
+  'Explore courses. Shape your semesters. An independent, visual degree planner for UGA, Illinois and Georgia Tech.';
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orion.cogsci.workers.dev';
 const preview = '/orion-social-preview.jpg';
 
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
         url: preview,
         width: 1200,
         height: 630,
-        alt: 'ORION - explore courses and shape your semesters at UGA and Illinois',
+        alt: 'ORION - explore courses and shape your semesters at UGA, Illinois and Georgia Tech',
       },
     ],
   },

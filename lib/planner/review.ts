@@ -30,6 +30,7 @@
  * review_board, move_course and what_if only format the result.
  */
 import {
+  courseleafOfContext,
   degreeMath,
   degreeSubjects,
   heldTowardDegree,
@@ -691,7 +692,7 @@ export function summerSuggestions(input: SummerInput): SummerSuggestion[] {
   };
   const ranNote = (picks: SummerPick[]) => {
     const runs = [...new Set(picks.flatMap((s) => s.courses.flatMap((p) => p.ran.slice(0, 1))))].sort().reverse();
-    return runs.length ? ` Each course named has run in summer at Illinois (most recently ${runs.join(' or ')}).` : '';
+    return runs.length ? ` Each course named has run in summer at ${courseleafOfContext(ctx)?.short ?? 'Illinois'} (most recently ${runs.join(' or ')}).` : '';
   };
 
   const regular = input.board.terms.filter((t) => t.season !== 'Summer');
