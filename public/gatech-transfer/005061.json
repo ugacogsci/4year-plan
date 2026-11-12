@@ -1,0 +1,12 @@
+{"code":"005061","name":"Bethune-Cookman University","state":"FL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":12,"rows":[
+{"id":"BI 131@202308","subj":"BI","num":"131","title":"General Biology","minGrade":"C","from":"202308","to":null,"gt":[{"code":"BIOS 1XXX","title":"Biological Sciences Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"CHS 220@202302","subj":"CHS","num":"220","title":"Medical Terminology","minGrade":"C","from":"202302","to":null,"gt":[{"code":"BIOS 2XXX","title":"Biological Sciences Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"EN 131@200508","subj":"EN","num":"131","title":"College English I","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"EN 132@200508","subj":"EN","num":"132","title":"College English II","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"ES 130@202308","subj":"ES","num":"130","title":"Environmental Science","minGrade":"C","from":"202308","to":null,"gt":[{"code":"EAS 1XXX","title":"Earth&Atmos Sci Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"HI 130@200408","subj":"HI","num":"130","title":"African American History","minGrade":"C","from":"200408","to":null,"gt":[{"code":"HTS 3024","title":"African-Amer His to 1865","hours":3}],"conn":null,"flags":[]},
+{"id":"MAT 095@202302","subj":"MAT","num":"095","title":"Begining Algebra","minGrade":"C","from":"202302","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":3}],"conn":null,"flags":["NOGT"]},
+{"id":"MAT 131@202305","subj":"MAT","num":"131","title":"Liberal Arts Mathematics","minGrade":"C","from":"202305","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PE 113@201602","subj":"PE","num":"113","title":"Health& Wellness/Personal Fitn","minGrade":"C","from":"201602","to":null,"gt":[{"code":"APPH 11XX","title":"Wellness Requirement","hours":1}],"conn":null,"flags":["XNUM","WELLNESS"]},
+{"id":"PEF 113@201602","subj":"PEF","num":"113","title":"Health& Wellness/Personal Fitn","minGrade":"C","from":"201602","to":null,"gt":[{"code":"APPH 11XX","title":"Wellness Requirement","hours":1}],"conn":null,"flags":["XNUM","WELLNESS"]}
+]}

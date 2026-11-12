@@ -1,0 +1,9 @@
+{"code":"005218","name":"Florida Southern College","state":"FL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":7,"rows":[
+{"id":"BIO 1500@200908","subj":"BIO","num":"1500","title":"Biological Essentials","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"CHE 1111@200905","subj":"CHE","num":"1111","title":"Principles of Chemistry I","minGrade":"C","from":"200905","to":null,"gt":[{"code":"CHEM 1211K","title":"Chemical Principles I","hours":4}],"conn":null,"flags":[]},
+{"id":"CHE 1112@200905","subj":"CHE","num":"1112","title":"Principles of Chemistry II","minGrade":"C","from":"200905","to":null,"gt":[{"code":"CHEM 1212K","title":"Chemical Principles II","hours":4}],"conn":null,"flags":[]},
+{"id":"CSC 2231@200808","subj":"CSC","num":"2231","title":"Programmg & Data Structures I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"CS 1301","title":"Intro to Computing","hours":3},{"code":"FREE 1XXX","title":"Free Elective","hours":1}],"conn":"and","flags":["FREE","SPLIT"]},
+{"id":"ENG 1005@200808","subj":"ENG","num":"1005","title":"Writing About Topics","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3},{"code":"FREE 1XXX","title":"Free Elective","hours":1}],"conn":"and","flags":["FREE","SPLIT"]},
+{"id":"MAT 2311@200908","subj":"MAT","num":"2311","title":"Calculus I-Plane Analys Geom","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MAT 2312@200908","subj":"MAT","num":"2312","title":"Calculus II-Plane Analys Geom","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

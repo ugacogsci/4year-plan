@@ -1,0 +1,12 @@
+{"code":"001345","name":"Johnson University","state":"TN","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":10,"rows":[
+{"id":"COMM 1013@201808","subj":"COMM","num":"1013","title":"Introduction to Speech","minGrade":"C","from":"201808","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]},
+{"id":"ENGL 1013@201808","subj":"ENGL","num":"1013","title":"English Composition I","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ENGL 1014@201808","subj":"ENGL","num":"1014","title":"English Composition II","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"HIST 2100@201808","subj":"HIST","num":"2100","title":"American History I","minGrade":"C","from":"201808","to":null,"gt":[{"code":"HIST 2111","title":"United States to 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"HIST 2200@201808","subj":"HIST","num":"2200","title":"American History II","minGrade":"C","from":"201808","to":null,"gt":[{"code":"HIST 2112","title":"United States since 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"MUSC 2100@201808","subj":"MUSC","num":"2100","title":"Music Appreciation","minGrade":"C","from":"201808","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"PSYC 2100@201808","subj":"PSYC","num":"2100","title":"Introduction to Psychology","minGrade":"C","from":"201808","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]},
+{"id":"SFIT 1091@201808","subj":"SFIT","num":"1091","title":"Soccer","minGrade":"C","from":"201808","to":null,"gt":[{"code":"APPH 1XXX","title":"Applied Physiology elective","hours":1}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"SPAN 1100@201808","subj":"SPAN","num":"1100","title":"Spanish I","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"SPAN 1200@201808","subj":"SPAN","num":"1200","title":"Spanish II","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

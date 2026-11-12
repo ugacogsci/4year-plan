@@ -1,0 +1,5 @@
+{"code":"002342","name":"Herzing University Atlanta","state":"GA","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":3,"rows":[
+{"id":"HU 240@202008","subj":"HU","num":"240","title":"Intro to Humanities","minGrade":"C","from":"202008","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"PS 101@202008","subj":"PS","num":"101","title":"Psychology","minGrade":"C","from":"202008","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]},
+{"id":"SS 122@202008","subj":"SS","num":"122","title":"Princ of Sociology","minGrade":"C","from":"202008","to":null,"gt":[{"code":"SOC 1101","title":"Intro to Sociology","hours":3}],"conn":null,"flags":[]}
+]}

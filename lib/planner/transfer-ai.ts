@@ -23,6 +23,7 @@
 import { z } from 'zod';
 import { levelOf, prefixOf, proposeEquivalents, SUBJECT_MAP, titleTokens, type CatalogLite } from './transfer-match';
 import { lineIsForeign, type TranscriptCourseRecord, type TranscriptRecord } from './transcript';
+import { stamp } from './transfer-sources';
 
 export type AiSchool = 'uga' | 'illinois';
 
@@ -132,13 +133,14 @@ export function applyDecisions(record: TranscriptRecord, lines: AiLine[], decisi
           proposals: [proposal, ...(c.proposals ?? []).filter((p) => p.code !== course.code)],
           illinoisCredits: course.credits,
           counts: 'course' as const,
-          basis: { from: 'none' as const, badge: 'course' as const, text: `Counted as ${course.code}, ${course.title}: the planner's estimate (${reason}). ${evaluation} decides.`, source: c.basis?.source ?? null },
+          basis: stamp({ from: 'none', badge: 'course', text: `Counted as ${course.code}, ${course.title}: the planner's estimate (${reason}). ${evaluation} decides.`, source: c.basis?.source ?? null }, 'ai', { answer: [course.code] }),
         };
       }
       return {
         ...c,
         proposals: [proposal, ...(c.proposals ?? []).filter((p) => p.code !== course.code)],
-        basis: { from: 'none' as const, badge: 'not-evaluated' as const, text: `May be ${course.code}, ${course.title} (${reason}). It counts as hours until you confirm it below; ${evaluation} decides.`, source: c.basis?.source ?? null },
+        // A "may be" is not an answer: no published one, hours for now (tier unknown).
+        basis: stamp({ from: 'none', badge: 'not-evaluated', text: `May be ${course.code}, ${course.title} (${reason}). It counts as hours until you confirm it below; ${evaluation} decides.`, source: c.basis?.source ?? null }, 'ai', { tier: 'unknown' }),
       };
     }
     // Whether a line earns credit at all is decided by the schools' published
@@ -146,7 +148,7 @@ export function applyDecisions(record: TranscriptRecord, lines: AiLine[], decisi
     // never by the model: its "no credit" only flags the line for a check,
     // and the hours keep counting (the owner, 2026-11-04: "no guessing").
     if (d.verdict === 'no_credit') {
-      return { ...c, basis: { from: 'none' as const, badge: 'not-evaluated' as const, text: `Check this one: it may not earn credit at ${here} (${reason}). Its hours count until ${evaluation} says otherwise.`, source: c.basis?.source ?? null } };
+      return { ...c, basis: stamp({ from: 'none', badge: 'not-evaluated', text: `Check this one: it may not earn credit at ${here} (${reason}). Its hours count until ${evaluation} says otherwise.`, source: c.basis?.source ?? null }, 'ai', { tier: 'unknown' }) };
     }
     if (d.verdict === 'elective') {
       const subject = catalogSubjects.has(d.subject) ? d.subject : null;
@@ -155,7 +157,7 @@ export function applyDecisions(record: TranscriptRecord, lines: AiLine[], decisi
       return {
         ...c,
         proposals: d.confidence === 'high' ? [] : c.proposals ?? [],
-        basis: { from: 'none' as const, badge: 'elective' as const, text: `Elective credit${subject ? ` in ${subject}` : ''}${level ? ` at the ${level} level` : ''}: no single ${here} course matches (${reason}). Its hours count toward your total; ${evaluation} decides.`, source: c.basis?.source ?? null },
+        basis: stamp({ from: 'none', badge: 'elective', text: `Elective credit${subject ? ` in ${subject}` : ''}${level ? ` at the ${level} level` : ''}: no single ${here} course matches (${reason}). Its hours count toward your total; ${evaluation} decides.`, source: c.basis?.source ?? null }, 'ai'),
       };
     }
     return c;

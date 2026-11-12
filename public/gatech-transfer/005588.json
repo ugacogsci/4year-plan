@@ -1,0 +1,4 @@
+{"code":"005588","name":"Richmond Community College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":3,"rows":[
+{"id":"ART 111@200808","subj":"ART","num":"111","title":"Art Appreciation","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"HIS 131@201105","subj":"HIS","num":"131","title":"American History I","minGrade":"C","from":"201105","to":null,"gt":[{"code":"HIST 2111","title":"United States to 1877","hours":3}],"conn":null,"flags":[]}
+]}

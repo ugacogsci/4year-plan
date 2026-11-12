@@ -1,0 +1,4 @@
+{"code":"005217","name":"Florida Memorial University","state":"FL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":2,"rows":[
+{"id":"AVT 201@201808","subj":"AVT","num":"201","title":"Priv Pilot Cert Grou","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"AVT 202@201808","subj":"AVT","num":"202","title":"Priv Pilot Cert Flig","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

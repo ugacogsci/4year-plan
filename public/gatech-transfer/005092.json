@@ -1,0 +1,9 @@
+{"code":"005092","name":"Carteret Community College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":7,"rows":[
+{"id":"CHM 151@202008","subj":"CHM","num":"151","title":"General Chemistry I","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"COM 231@201508","subj":"COM","num":"231","title":"Public Speaking","minGrade":"C","from":"201508","to":null,"gt":[{"code":"FREE 2XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]},
+{"id":"ECO 251@201508","subj":"ECO","num":"251","title":"Prin of Microeconomics","minGrade":"C","from":"201508","to":null,"gt":[{"code":"ECON 2106","title":"Prin of Microeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"HIS 111@201508","subj":"HIS","num":"111","title":"World Civilizations I","minGrade":"C","from":"201508","to":null,"gt":[{"code":"HTS 1XXX","title":"Hist,Tech & Soc Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"MUS 110@201508","subj":"MUS","num":"110","title":"Music Appreciation","minGrade":"C","from":"201508","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"PHY 251@202008","subj":"PHY","num":"251","title":"General Physics I","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PHY 252@202008","subj":"PHY","num":"252","title":"General Physics II","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

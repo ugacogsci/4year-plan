@@ -53,6 +53,8 @@ export function maybeLines(record: TranscriptRecord | null | undefined): MaybeLi
     // suggestion. Only a line still waiting on Illinois is a "may be".
     if (c.genEdTags?.length) return;
     if (c.basis && c.basis.badge !== 'not-evaluated') return;
+    // Georgia Tech's table answered the line: the other classes its row allows are choices, not a "may be" (transfer-gatech.ts tableChoices).
+    if (c.basis?.sourceKind === 'gatech-table' || c.basis?.sourceKind === 'dept-review') return;
     const best = c.proposals?.[0];
     if (!best || best.confidence === 'low') return;
     if (!lineIsForeign(record, c)) return;

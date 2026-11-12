@@ -1,0 +1,11 @@
+{"code":"001102","name":"Carson-Newman University","state":"TN","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":12,"rows":[
+{"id":"CSC 107@200808","subj":"CSC","num":"107","title":"Computer Programming I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"CS 1301","title":"Intro to Computing","hours":3}],"conn":null,"flags":[]},
+{"id":"CSC 207@200808","subj":"CSC","num":"207","title":"Computer Programming II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"CS 1XXX","title":"Computer Sci Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"ENG 101@200508","subj":"ENG","num":"101","title":"Writing & Literature Studies I","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 201@200508","subj":"ENG","num":"201","title":"Writing& Literature Studies II","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"MATH 152@200508","subj":"MATH","num":"152","title":"Calculus II","minGrade":"C","from":"200508","to":null,"gt":[{"code":"MATH 1XXX","title":"Mathematics Elective","hours":1}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"MATH 211@201505","subj":"MATH","num":"211","title":"Calculus III","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1552","title":"4 Hrs Awarded w/MATH 313","hours":0}],"conn":null,"flags":[]},
+{"id":"MATH 303@201508","subj":"MATH","num":"303","title":"Differential Equations","minGrade":"C","from":"201508","to":null,"gt":[{"code":"MATH 2X52","title":"Transfer Differential Equation","hours":3}],"conn":null,"flags":["TMATH"]},
+{"id":"MATH 313@201505","subj":"MATH","num":"313","title":"Calculus IV","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 2551","title":"4 Hrs Awarded w/MATH 152","hours":0}],"conn":null,"flags":[]},
+{"id":"PHYS 202@200808","subj":"PHYS","num":"202","title":"Principles of Physics II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"PHYS 2XXX","title":"Physics Elective","hours":4}],"conn":null,"flags":["ELECTIVE"]}
+]}

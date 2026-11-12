@@ -1,0 +1,18 @@
+{"code":"001224","name":"Fisk University","state":"TN","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":16,"rows":[
+{"id":"CORE 150@202008","subj":"CORE","num":"150","title":"Composition I","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"CORE 160@202008","subj":"CORE","num":"160","title":"Composition II","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"CSCI 110@202008","subj":"CSCI","num":"110","title":"Intro to Comp Science I","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"CSCI 120@202008","subj":"CSCI","num":"120","title":"Intro to Comp Science II","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ECON 230@202008","subj":"ECON","num":"230","title":"Princ of Microeconomics","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ECON 2106","title":"Prin of Microeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"ECON 240@202008","subj":"ECON","num":"240","title":"Princ of Macroeconomics","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ECON 2105","title":"Prin of Macroeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"HSS 180@202008","subj":"HSS","num":"180","title":"Public Speaking","minGrade":"C","from":"202008","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]},
+{"id":"MATH 101@201505","subj":"MATH","num":"101","title":"College Algebra","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"MATH 110@202005","subj":"MATH","num":"110","title":"Precalculus","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 120@201505","subj":"MATH","num":"120","title":"Calculus I","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 130@201505","subj":"MATH","num":"130","title":"Calculus II","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 210@201505","subj":"MATH","num":"210","title":"Calculus III","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 240@201505","subj":"MATH","num":"240","title":"Linear Algebra","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 270@201505","subj":"MATH","num":"270","title":"Ord Differential Equations","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PSY 180@202008","subj":"PSY","num":"180","title":"General Psychology","minGrade":"C","from":"202008","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]},
+{"id":"SOC 100@202008","subj":"SOC","num":"100","title":"Introduction to Sociology","minGrade":"C","from":"202008","to":null,"gt":[{"code":"SOC 1101","title":"Intro to Sociology","hours":3}],"conn":null,"flags":[]}
+]}

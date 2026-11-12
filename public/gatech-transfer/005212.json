@@ -1,0 +1,12 @@
+{"code":"005212","name":"Fayetteville State University","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":14,"rows":[
+{"id":"CHEM 141@201005","subj":"CHEM","num":"141","title":"General Chemistry I Lecture","minGrade":"C","from":"201005","to":null,"gt":[{"code":"ET LAB","title":"Credit Awarded w/CHEM 142","hours":0}],"conn":null,"lab":null,"flags":["LAB"]},
+{"id":"CHEM 142@201005","subj":"CHEM","num":"142","title":"General Chemistry I Lab","minGrade":"C","from":"201005","to":null,"gt":[{"code":"CHEM 1211K","title":"Chemical Principles I","hours":4}],"conn":null,"flags":[]},
+{"id":"MATH 142@201505","subj":"MATH","num":"142","title":"Calculus w/Analytic Geom I","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1551","title":"Differential Calculus","hours":2},{"code":"MATH 1XXX","title":"Mathematics Elective","hours":2}],"conn":"and","flags":["ELECTIVE","SPLIT"]},
+{"id":"MATH 241@201505","subj":"MATH","num":"241","title":"Calculus w/Analytic Geom II","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1552","title":"Integral Calculus","hours":4}],"conn":null,"flags":[]},
+{"id":"MATH 242@201808","subj":"MATH","num":"242","title":"Calculus w/Analytic Geom III","minGrade":"C","from":"201808","to":null,"gt":[{"code":"MATH 2551","title":"Multivariable Calculus","hours":4}],"conn":null,"flags":[]},
+{"id":"MATH 251@201505","subj":"MATH","num":"251","title":"Linear Algebra","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1553","title":"Intro to Linear Algebra","hours":2},{"code":"MATH 2XXX","title":"Mathematics Elective","hours":1}],"conn":"and","flags":["ELECTIVE","SPLIT"]},
+{"id":"PHYS 125@201008","subj":"PHYS","num":"125","title":"College Physics I Lecture","minGrade":"C","from":"201008","to":null,"gt":[{"code":"ET LAB","title":"Credit Awarded w/PHYS 125L","hours":0}],"conn":null,"lab":null,"flags":["LAB"]},
+{"id":"PHYS 125L@201008","subj":"PHYS","num":"125L","title":"College Physics I Lab","minGrade":"C","from":"201008","to":null,"gt":[{"code":"PHYS 2211","title":"Intro Physics I","hours":4}],"conn":null,"flags":[]},
+{"id":"PHYS 126@201008","subj":"PHYS","num":"126","title":"College Physics II Lecture","minGrade":"C","from":"201008","to":null,"gt":[{"code":"ET LAB","title":"Credit Awarded w/PHYS 126L","hours":0}],"conn":null,"lab":null,"flags":["LAB"]},
+{"id":"PHYS 126L@201008","subj":"PHYS","num":"126L","title":"College Physics Lab II","minGrade":"C","from":"201008","to":null,"gt":[{"code":"PHYS 2212","title":"Intro Physics II","hours":4}],"conn":null,"flags":[]}
+]}

@@ -1,0 +1,4 @@
+{"code":"005607","name":"Salem College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":2,"rows":[
+{"id":"ARTH 122@200808","subj":"ARTH","num":"122","title":"Survey of Western Art II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"COA 2242","title":"History of Art II","hours":3}],"conn":null,"flags":[]},
+{"id":"MATH 101@200808","subj":"MATH","num":"101","title":"Calculus II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

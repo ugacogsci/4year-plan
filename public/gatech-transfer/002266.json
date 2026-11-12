@@ -1,0 +1,13 @@
+{"code":"002266","name":"Jackson State Cmty Coll","state":"TN","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":11,"rows":[
+{"id":"CHEM 1110@201008","subj":"CHEM","num":"1110","title":"General Chemistry I","minGrade":"C","from":"201008","to":null,"gt":[{"code":"CHEM 1211K","title":"Chemical Principles I","hours":4}],"conn":null,"flags":[]},
+{"id":"CHEM 1120@201008","subj":"CHEM","num":"1120","title":"General Chemistry II","minGrade":"C","from":"201008","to":null,"gt":[{"code":"CHEM 1212K","title":"Chemical Principles II","hours":4}],"conn":null,"flags":[]},
+{"id":"ENGL 1010@202008","subj":"ENGL","num":"1010","title":"English Composition I","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ENGL 1020@202008","subj":"ENGL","num":"1020","title":"English Composition II","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"HIST 2020@201008","subj":"HIST","num":"2020","title":"Survey American History II","minGrade":"C","from":"201008","to":null,"gt":[{"code":"HIST 2112","title":"United States since 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"MATH 1720@201008","subj":"MATH","num":"1720","title":"Precalculus II (Trigonmetry)","minGrade":"C","from":"201008","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"MATH 1910@201008","subj":"MATH","num":"1910","title":"Calculus I","minGrade":"C","from":"201008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 1920@201008","subj":"MATH","num":"1920","title":"Calculus II","minGrade":"C","from":"201008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 2010@201008","subj":"MATH","num":"2010","title":"Linear Algebra","minGrade":"C","from":"201008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PHIL 1030@202008","subj":"PHIL","num":"1030","title":"Intro to Philosophy","minGrade":"C","from":"202008","to":null,"gt":[{"code":"PHIL 2010","title":"Intro Philosophy","hours":3}],"conn":null,"flags":[]},
+{"id":"SPAN 1010@202008","subj":"SPAN","num":"1010","title":"Spanish I","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

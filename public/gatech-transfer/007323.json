@@ -1,0 +1,7 @@
+{"code":"007323","name":"Dyersburg State Cmty College","state":"TN","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":6,"rows":[
+{"id":"COMM 2025@200808","subj":"COMM","num":"2025","title":"Fundamentals of Communication","minGrade":"C","from":"200808","to":null,"gt":[{"code":"FREE 2XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]},
+{"id":"HIST 2010@200808","subj":"HIST","num":"2010","title":"Early United States History","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HIST 2111","title":"United States to 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"HIST 2020@200808","subj":"HIST","num":"2020","title":"Modern United States History","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HIST 2112","title":"United States since 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"MATH 1910@201505","subj":"MATH","num":"1910","title":"Calculus I","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1551","title":"Differential Calculus","hours":2},{"code":"MATH 1XXX","title":"Mathematics Elective","hours":2}],"conn":"and","flags":["ELECTIVE","SPLIT"]},
+{"id":"PHIL 1030@201105","subj":"PHIL","num":"1030","title":"Introduction to Philosophy","minGrade":"C","from":"201105","to":null,"gt":[{"code":"PHIL 2025","title":"Philosophical Analysis","hours":3}],"conn":null,"flags":[]}
+]}

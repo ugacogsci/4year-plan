@@ -1,0 +1,16 @@
+{"code":"005638","name":"Saint Leo University","state":"FL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":16,"rows":[
+{"id":"ACC 303@200508","subj":"ACC","num":"303","title":"Acc. Information Systems","minGrade":"C","from":"200508","to":null,"gt":[{"code":"MGT 4045","title":"Sem-Advanced Accounting","hours":3}],"conn":null,"flags":[]},
+{"id":"ACC 421@200908","subj":"ACC","num":"421","title":"Individual Fed Income Taxes","minGrade":"C","from":"200908","to":null,"gt":[{"code":"MGT 4010","title":"Business Taxation","hours":3}],"conn":null,"flags":[]},
+{"id":"COM 312@202308","subj":"COM","num":"312","title":"Computer Architecture","minGrade":"C","from":"202308","to":null,"gt":[{"code":"CS 3XXX","title":"Computer Sci","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"ECO 202@200708","subj":"ECO","num":"202","title":"Prin of Microeconomics","minGrade":"C","from":"200708","to":null,"gt":[{"code":"ECON 2106","title":"Prin of Microeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 121@200508","subj":"ENG","num":"121","title":"Academic Writing I","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 122@200508","subj":"ENG","num":"122","title":"Academic Writing Ii","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"FAS 101@200508","subj":"FAS","num":"101","title":"Intergrated Arts","minGrade":"C","from":"200508","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"GBA 334@200508","subj":"GBA","num":"334","title":"Applied Dec. Methods for Busin","minGrade":"C","from":"200508","to":null,"gt":[{"code":"MGT 2106","title":"Legal Aspects-Business","hours":3}],"conn":null,"flags":[]},
+{"id":"HTY 331@200508","subj":"HTY","num":"331","title":"The American Civil War","minGrade":"C","from":"200508","to":null,"gt":[{"code":"HTS 2009","title":"The American Civil War","hours":3}],"conn":null,"flags":[]},
+{"id":"MAT 201@202202","subj":"MAT","num":"201","title":"Introduction to Statistics","minGrade":"C","from":"202202","to":null,"gt":[{"code":"MGT 2250","title":"Management Statistics","hours":3}],"conn":null,"flags":[]},
+{"id":"MGT 301@200508","subj":"MGT","num":"301","title":"Principles of Management","minGrade":"C","from":"200508","to":null,"gt":[{"code":"MGT 3150","title":"Prin of Management","hours":3}],"conn":null,"flags":[]},
+{"id":"PHI 101@201105","subj":"PHI","num":"101","title":"The Quest for Wisdom","minGrade":"C","from":"201105","to":null,"gt":[{"code":"PHIL 2010","title":"Intro Philosophy","hours":3}],"conn":null,"flags":[]},
+{"id":"PHI 121@201105","subj":"PHI","num":"121","title":"Transfer Course","minGrade":"C","from":"201105","to":null,"gt":[{"code":"PHIL 2010","title":"Intro Philosophy","hours":3}],"conn":null,"flags":[]},
+{"id":"REL 223@200508","subj":"REL","num":"223","title":"World Religions: East & West","minGrade":"C","from":"200508","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]}
+]}

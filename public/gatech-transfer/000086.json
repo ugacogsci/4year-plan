@@ -1,0 +1,5 @@
+{"code":"000086","name":"Southern Union St Comm College","state":"AL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":3,"rows":[
+{"id":"MTH 115@202008","subj":"MTH","num":"115","title":"Precalculus Algebra & Trig","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 125@202008","subj":"MTH","num":"125","title":"Calculus I","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 265@202008","subj":"MTH","num":"265","title":"Elementary Statistics","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

@@ -1,0 +1,5 @@
+{"code":"001371","name":"King College","state":"TN","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":3,"rows":[
+{"id":"CSCI 1010@200508","subj":"CSCI","num":"1010","title":"Basic Comp Tech & Appl","minGrade":"C","from":"200508","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":2}],"conn":null,"flags":["FREE"]},
+{"id":"MATH 2350@200508","subj":"MATH","num":"2350","title":"Calculus I","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 2360@200508","subj":"MATH","num":"2360","title":"Calculus II","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

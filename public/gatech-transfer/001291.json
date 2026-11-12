@@ -1,0 +1,4 @@
+{"code":"001291","name":"Emmanuel Coll-Sch Christ Min*","state":"GA","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":2,"rows":[
+{"id":"MA 175@202005","subj":"MA","num":"175","title":"Pre-Calculus","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MA 240@201505","subj":"MA","num":"240","title":"Calculus I","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

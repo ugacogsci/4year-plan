@@ -1,0 +1,7 @@
+{"code":"005423","name":"Montreat College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":5,"rows":[
+{"id":"EN 101@200808","subj":"EN","num":"101","title":"English Composition I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"EN 102@200808","subj":"EN","num":"102","title":"English Composition II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"EN 103@200808","subj":"EN","num":"103","title":"Honors English Composition","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"EN 201@200808","subj":"EN","num":"201","title":"English Literature I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"EN 202@200808","subj":"EN","num":"202","title":"English Literature II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]}
+]}

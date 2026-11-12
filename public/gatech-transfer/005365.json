@@ -1,0 +1,14 @@
+{"code":"005365","name":"Lenoir-Rhyne University","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":14,"rows":[
+{"id":"BIO 105@200808","subj":"BIO","num":"105","title":"Principles of Biology","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"BIO 121@202308","subj":"BIO","num":"121","title":"Prncpls of Biology I","minGrade":"C","from":"202308","to":null,"gt":[{"code":"ET LAB","title":"Verify BIO 121L","hours":0},{"code":"BIOS 1107","title":"Biological Principles","hours":3},{"code":"BIOS 1107L","title":"Biol Principles Lab","hours":1}],"conn":"mixed","opts":[[0],[1,2]],"lab":null,"flags":["LAB","SPLIT"]},
+{"id":"BIO 121L@202308","subj":"BIO","num":"121L","title":"Prin of Bio I Lab","minGrade":"NG","from":"202308","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"CSC 150@200808","subj":"CSC","num":"150","title":"Computer Science I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"CS 1301","title":"Intro to Computing","hours":3},{"code":"FREE 1XXX","title":"Free Elective","hours":1}],"conn":"and","flags":["FREE","SPLIT"]},
+{"id":"ECO 122@202308","subj":"ECO","num":"122","title":"Prin of Econ-Micro","minGrade":"C","from":"202308","to":null,"gt":[{"code":"ECON 2106","title":"Prin of Microeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 233@202308","subj":"ENG","num":"233","title":"Reading World Lit","minGrade":"C","from":"202308","to":null,"gt":[{"code":"LMC 3202","title":"Studies in Fiction","hours":3}],"conn":null,"flags":[]},
+{"id":"PHI 102@201105","subj":"PHI","num":"102","title":"Philosophy of Human Nature","minGrade":"C","from":"201105","to":null,"gt":[{"code":"PHIL 2010","title":"Intro Philosophy","hours":3}],"conn":null,"flags":[]},
+{"id":"PHI 116@201105","subj":"PHI","num":"116","title":"Ethics","minGrade":"C","from":"201105","to":null,"gt":[{"code":"PHIL 3105","title":"Ethical Theories","hours":3}],"conn":null,"flags":[]},
+{"id":"PHY 211@202308","subj":"PHY","num":"211","title":"Analytical Physics I","minGrade":"C","from":"202308","to":null,"gt":[{"code":"PHYS 2211","title":"Intro Physics I","hours":4}],"conn":null,"flags":[]},
+{"id":"PHY 330@202308","subj":"PHY","num":"330","title":"3D Printing","minGrade":"C","from":"202308","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"POL 140@202308","subj":"POL","num":"140","title":"Comparative Politics","minGrade":"C","from":"202308","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"SPA 110@202308","subj":"SPA","num":"110","title":"Spa Lang and Com I","minGrade":"C","from":"202308","to":null,"gt":[{"code":"SPAN 1001","title":"Elementary Spanish I","hours":3}],"conn":null,"flags":[]}
+]}

@@ -1,0 +1,12 @@
+{"code":"005886","name":"Warren Wilson College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":10,"rows":[
+{"id":"BIO 109@200808","subj":"BIO","num":"109","title":"Human Biology","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"EDU 116@200808","subj":"EDU","num":"116","title":"College Academic Strategies","minGrade":"C","from":"200808","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":2}],"conn":null,"flags":["FREE"]},
+{"id":"EDU 117@200808","subj":"EDU","num":"117","title":"College Academic Strategies","minGrade":"C","from":"200808","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":2}],"conn":null,"flags":["FREE"]},
+{"id":"FYS 120@200808","subj":"FYS","num":"120","title":"Money & the Meaning of Life","minGrade":"C","from":"200808","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":4}],"conn":null,"flags":["FREE"]},
+{"id":"MAT 141@200808","subj":"MAT","num":"141","title":"Statistics","minGrade":"C","from":"200808","to":null,"gt":[{"code":"MGT 2250","title":"Management Statistics","hours":3},{"code":"FREE 1XXX","title":"Free Elective","hours":1}],"conn":"and","flags":["FREE","SPLIT"]},
+{"id":"PSC 237@200808","subj":"PSC","num":"237","title":"Voting Campaign & Elections","minGrade":"C","from":"200808","to":null,"gt":[{"code":"SS 2XXX","title":"Social Science Elective","hours":4}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"THR 244@200808","subj":"THR","num":"244","title":"Improvisation for the Actor","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":2}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"THR 292@200808","subj":"THR","num":"292","title":"Spec Topics: Physical Comedy","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":2}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"WRI 105@200808","subj":"WRI","num":"105","title":"Weekly Writing Sessions","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":1}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"WRI 120@200808","subj":"WRI","num":"120","title":"College Composition","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3},{"code":"HUM 1XXX","title":"Humanities Elective","hours":1}],"conn":"and","flags":["ELECTIVE","SPLIT"]}
+]}

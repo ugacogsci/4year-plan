@@ -1,0 +1,15 @@
+{"code":"001262","name":"Gadsden St Cmty College","state":"AL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":16,"rows":[
+{"id":"CHM 111@201005","subj":"CHM","num":"111","title":"College Chemistry I","minGrade":"C","from":"201005","to":null,"gt":[{"code":"CHEM 1211K","title":"Chemical Principles I","hours":4}],"conn":null,"flags":[]},
+{"id":"CHM 112@201005","subj":"CHM","num":"112","title":"College Chemistry II","minGrade":"C","from":"201005","to":null,"gt":[{"code":"CHEM 1212K","title":"Chemical Principles II","hours":4}],"conn":null,"flags":[]},
+{"id":"CIS 146@201808","subj":"CIS","num":"146","title":"Microcomputer Applications","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"CIS 201@201008","subj":"CIS","num":"201","title":"Intro to Computer Programming","minGrade":"C","from":"201008","to":null,"gt":[{"code":"CS 1301","title":"Intro to Computing","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 251@201805","subj":"ENG","num":"251","title":"American Literature I","minGrade":"C","from":"201805","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 100@201505","subj":"MTH","num":"100","title":"College Algebra","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"MTH 113@202005","subj":"MTH","num":"113","title":"Precalculus Trigonometry","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 125@201505","subj":"MTH","num":"125","title":"Calculus I","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1551","title":"Differential Calculus","hours":2},{"code":"MATH 1XXX","title":"Mathematics Elective","hours":2}],"conn":"and","flags":["ELECTIVE","SPLIT"]},
+{"id":"MTH 126@201505","subj":"MTH","num":"126","title":"Calculus II","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1552","title":"Integral Calculus","hours":4}],"conn":null,"flags":[]},
+{"id":"MTH 227@201505","subj":"MTH","num":"227","title":"Calculus III","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 2551","title":"Multivariable Calculus","hours":4}],"conn":null,"flags":[]},
+{"id":"MTH 238@201602","subj":"MTH","num":"238","title":"Applied Differentl Equations I","minGrade":"C","from":"201602","to":null,"gt":[{"code":"MATH 2X52","title":"Transfer Differential Equation","hours":3}],"conn":null,"flags":["TMATH"]},
+{"id":"MTH 265@201505","subj":"MTH","num":"265","title":"Elementary Statistics","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PHL 206@201808","subj":"PHL","num":"206","title":"Ethics and Society","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

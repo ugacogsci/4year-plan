@@ -1,0 +1,4 @@
+{"code":"005527","name":"Orangeburg-Calhoun Tech Coll","state":"SC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":2,"rows":[
+{"id":"ECO 211@200808","subj":"ECO","num":"211","title":"Microeconomics","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ECON 2106","title":"Prin of Microeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"PSY 201@200808","subj":"PSY","num":"201","title":"General Psychology","minGrade":"C","from":"200808","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]}
+]}

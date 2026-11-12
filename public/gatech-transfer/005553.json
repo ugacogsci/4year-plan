@@ -1,0 +1,5 @@
+{"code":"005553","name":"Palm Beach Atlantic University","state":"FL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":3,"rows":[
+{"id":"APL 3373@202208","subj":"APL","num":"3373","title":"Evangelism and Apologetics","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"BIB 1003@202308","subj":"BIB","num":"1003","title":"Exploring the Bible","minGrade":"C","from":"202308","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PSY 2183@201808","subj":"PSY","num":"2183","title":"Life Span Development","minGrade":"C","from":"201808","to":null,"gt":[{"code":"PSYC 2103","title":"Human Development","hours":3}],"conn":null,"flags":[]}
+]}

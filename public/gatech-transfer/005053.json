@@ -1,0 +1,12 @@
+{"code":"005053","name":"Barry University","state":"FL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":12,"rows":[
+{"id":"CHE 111@201005","subj":"CHE","num":"111","title":"General Chem & Qual Analysis","minGrade":"C","from":"201005","to":null,"gt":[{"code":"ET LAB","title":"Credit Awarded w/CHE 111L","hours":0}],"conn":null,"lab":null,"flags":["LAB"]},
+{"id":"CHE 111L@201005","subj":"CHE","num":"111L","title":"General Chem/Qual Analys I Lab","minGrade":"C","from":"201005","to":null,"gt":[{"code":"CHEM 1211K","title":"Chemical Principles I","hours":4}],"conn":null,"flags":[]},
+{"id":"CS 231@200808","subj":"CS","num":"231","title":"Computer Science I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"CS 1301","title":"Intro to Computing","hours":3},{"code":"FREE 1XXX","title":"Free Elective","hours":1}],"conn":"and","flags":["FREE","SPLIT"]},
+{"id":"CS 232@200808","subj":"CS","num":"232","title":"Computer Science II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"CS 1331","title":"Intro-Object Orient Prog","hours":3},{"code":"FREE 1XXX","title":"Free Elective","hours":1}],"conn":"and","flags":["FREE","SPLIT"]},
+{"id":"MAT 211@201602","subj":"MAT","num":"211","title":"Calculus I","minGrade":"C","from":"201602","to":null,"gt":[{"code":"MATH 1551","title":"Differential Calculus","hours":2},{"code":"MATH 1XXX","title":"Mathematics Elective","hours":2}],"conn":"and","flags":["ELECTIVE","SPLIT"]},
+{"id":"MAT 212@201602","subj":"MAT","num":"212","title":"Calculus II","minGrade":"C","from":"201602","to":null,"gt":[{"code":"MATH 1552","title":"Integral Calculus","hours":4}],"conn":null,"flags":[]},
+{"id":"REL 2300@202208","subj":"REL","num":"2300","title":"Comparative Religions","minGrade":"C","from":"202208","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"REL 2770@202208","subj":"REL","num":"2770","title":"Sacraments","minGrade":"C","from":"202208","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"REL 3565@202208","subj":"REL","num":"3565","title":"ST Catholic Social Teaching","minGrade":"C","from":"202208","to":null,"gt":[{"code":"HUM 3XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"REL 3752@202208","subj":"REL","num":"3752","title":"Freedom and Virtue","minGrade":"C","from":"202208","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]}
+]}

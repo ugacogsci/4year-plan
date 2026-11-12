@@ -1,0 +1,5 @@
+{"code":"004249","name":"Ave Maria University","state":"FL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":3,"rows":[
+{"id":"ENGL 100@200908","subj":"ENGL","num":"100","title":"College Writing","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"HIST 203@200908","subj":"HIST","num":"203","title":"American Civilization","minGrade":"C","from":"200908","to":null,"gt":[{"code":"HTS 1XXX","title":"Hist,Tech & Soc Elective","hours":4}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"PHYS 105@200908","subj":"PHYS","num":"105","title":"Intro to Physical Sciences","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

@@ -1,0 +1,8 @@
+{"code":"005142","name":"Clearwater Christian College*","state":"FL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":6,"rows":[
+{"id":"ACC 202@200808","subj":"ACC","num":"202","title":"Managerial Accounting","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ACCT 2102","title":"Accounting II","hours":3}],"conn":null,"flags":[]},
+{"id":"COM 110@200808","subj":"COM","num":"110","title":"Fundamentals of Communication","minGrade":"C","from":"200808","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]},
+{"id":"ENG 101@200808","subj":"ENG","num":"101","title":"English Composition I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 102@200808","subj":"ENG","num":"102","title":"English Composition II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 490@200808","subj":"ENG","num":"490","title":"Literary Criticism","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MUS 123@200808","subj":"MUS","num":"123","title":"Music Theory I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"MUSI 2600","title":"Music Theory I","hours":2}],"conn":null,"flags":[]}
+]}

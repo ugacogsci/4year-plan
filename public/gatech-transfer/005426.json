@@ -1,0 +1,10 @@
+{"code":"005426","name":"Methodist University","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":8,"rows":[
+{"id":"ACC 2510@200808","subj":"ACC","num":"2510","title":"Financial Accounting","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ACCT 2101","title":"Accounting I","hours":3}],"conn":null,"flags":[]},
+{"id":"CHE 1510@202305","subj":"CHE","num":"1510","title":"General Chemistry I","minGrade":"C","from":"202305","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"CHE 1511@202305","subj":"CHE","num":"1511","title":"General Chemistry I Lab","minGrade":"C","from":"202305","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"ECO 2620@200908","subj":"ECO","num":"2620","title":"Principles of Microeconomics","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ECON 2106","title":"Prin of Microeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 101@200808","subj":"ENG","num":"101","title":"Composition","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"MAT 1130@202305","subj":"MAT","num":"1130","title":"Pre Calculus I","minGrade":"C","from":"202305","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MUJ 1100@202105","subj":"MUJ","num":"1100","title":"Methodist University Journe","minGrade":"C","from":"202105","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"THE 2000@202105","subj":"THE","num":"2000","title":"Praticing Creativity","minGrade":"C","from":"202105","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

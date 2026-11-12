@@ -24,6 +24,8 @@ import {
 } from '@/lib/planner/transcript';
 import { loadTransferGenEd, type CatalogLite } from '@/lib/planner/transfer-match';
 import { loadUgaTransfer } from '@/lib/planner/transfer-official';
+import { carryGatechLabHours, loadGatechTransfer } from '@/lib/planner/transfer-gatech';
+import { transferWording } from '@/lib/planner/transfer-wording';
 import { loadUgaOfferings } from '@/lib/planner/uga-offerings';
 import { declineMaybe, maybeLines } from '@/lib/planner/transfer-maybe';
 import { aiUnavailable } from '@/lib/planner/ai-unavailable';
@@ -158,6 +160,8 @@ export function TranscriptUpload({
       const ugaTable = school?.id === 'uga' ? await loadUgaTransfer([json.reading.institution, ...json.reading.courses.map((c) => c.from)]) : null;
       // UGA codes printed under another subject's listing of a catalog course (ATSC 1112 for GEOG 1112).
       const crossListed = school?.id === 'uga' ? (await loadUgaOfferings())?.crossListed ?? null : null;
+      // Georgia Tech's own transfer table (transfer-gatech.ts): nothing until its files and matcher exist.
+      const gatechTable = school?.id === 'gatech' ? await loadGatechTransfer([json.reading.institution, ...json.reading.courses.map((c) => c.from)]).catch(() => null) : null;
       const names = files.map((f) => f.fileName);
       // A score report: exams and no course lines. The exams go to the exam
       // list, priced by the registrar's table like the ones picked by hand,
@@ -175,7 +179,7 @@ export function TranscriptUpload({
       if (addTo) {
         // More pages of the same record: the lines already settled keep the
         // student's choices, and only the new lines are matched.
-        const fresh = matchTranscript(json.reading, names[0], lite, names, guide, school?.id, ugaTable, crossListed);
+        const fresh = matchTranscript(json.reading, names[0], lite, names, guide, school?.id, ugaTable, crossListed, gatechTable);
         const seen = new Set(addTo.courses.map((c) => `${c.code}|${c.term ?? ''}`));
         // A home record added to another school's record (a UGA history after a
         // Georgia State transcript): its own lines say so, or the merged record
@@ -183,12 +187,16 @@ export function TranscriptUpload({
         const added = fresh.courses
           .filter((c) => !seen.has(`${c.code}|${c.term ?? ''}`))
           .map((c) => (!c.from && fresh.home && addTo.home === false && fresh.institution ? { ...c, from: fresh.institution } : c));
+        // Georgia Tech's ET LAB over the whole record too: a lecture on one
+        // page and its lab on another (transfer-gatech.ts), with the table for
+        // the schools of both uploads.
+        const wholeTable = school?.id === 'gatech' ? await loadGatechTransfer([addTo.institution, ...addTo.courses.map((c) => c.from), json.reading.institution, ...json.reading.courses.map((c) => c.from)]).catch(() => null) : null;
         onChange({
           ...addTo,
           institution: addTo.institution ?? fresh.institution,
           files: [...(addTo.files ?? [addTo.fileName]), ...names],
           // UGA's one-hour cap on physical education runs over the whole record.
-          courses: applyTransferCaps([...addTo.courses, ...added.map((c) => ({ ...c }))], school?.id),
+          courses: carryGatechLabHours(applyTransferCaps([...addTo.courses.map((c) => ({ ...c })), ...added.map((c) => ({ ...c }))], school?.id), wholeTable),
           exams: [...addTo.exams, ...fresh.exams].filter((e, i, all) => all.findIndex((o) => o.kind === e.kind && o.exam === e.exam) === i),
           notes: [...addTo.notes, ...fresh.notes.filter((n) => !addTo.notes.includes(n))],
           // A completed GECC shown on either upload stays on the record.
@@ -197,7 +205,7 @@ export function TranscriptUpload({
           usgCore: addTo.usgCore ?? fresh.usgCore ?? null,
         });
       } else {
-        const matched = matchTranscript(json.reading, names[0], lite, names, guide, school?.id, ugaTable, crossListed);
+        const matched = matchTranscript(json.reading, names[0], lite, names, guide, school?.id, ugaTable, crossListed, gatechTable);
         onChange(matched);
         // The lines nothing settled: one more look, course by course (transfer-ai.ts),
         // for the schools that look is written for (UGA, and Illinois: school-config.ts transferAi).
@@ -323,6 +331,7 @@ export function TranscriptUpload({
                 const foreign = c.from ? !isHomeTranscript(c.from, school?.id) : record.home === false;
                 const options = countsOptions(c, foreign, known);
                 const value = c.counts === 'course' && c.matched ? `course:${c.matched}` : c.counts;
+                const wording = c.status === 'withdrawn' || c.status === 'failed' ? null : transferWording(c, { schoolId: record.schoolId ?? school?.id, catalog: known });
                 return (
                   <li key={`${c.code}-${c.term ?? ''}-${i}`} className={c.use ? undefined : 'off'}>
                     <span className="transcript-line">
@@ -333,17 +342,19 @@ export function TranscriptUpload({
                           .join(' · ')}
                       </span>
                     </span>
-                    {c.basis && c.status !== 'withdrawn' && c.status !== 'failed' && (
+                    {wording && c.basis && (
                       <span className="transcript-basis">
-                        <span className={`transcript-chip basis-${c.basis.badge}`}>{basisBadge(c)}</span>{' '}
-                        {basisChanged(c) ? 'You changed this line. ' : ''}
-                        {c.basis.text}
+                        {/* The tier's chip and the plain sentence for it (transfer-wording.ts), the same words as the board's. */}
+                        <span className={`transcript-chip basis-${wording.tone} tier-${wording.tier}`}>{wording.chip}</span>{' '}
+                        {wording.changed ? 'You changed this line. ' : ''}
+                        {wording.sentence}
+                        {wording.detail ? ` ${wording.detail}` : ''}
                         {c.gradeNote ? ` ${c.gradeNote}` : ''}
                         {c.basis.source ? (
                           <>
                             {' '}
                             <a href={c.basis.source} target="_blank" rel="noreferrer" title={c.basis.schools?.length ? `UGA's lists for: ${c.basis.schools.join(', ')}` : undefined}>
-                              {c.basis.from === 'official' ? `Source${c.basis.checked ? `, checked ${c.basis.checked}` : ''}` : c.basis.from === 'sisters' ? `One of those lists${c.basis.checked ? `, checked ${c.basis.checked}` : ''}` : 'Source'}
+                              {c.basis.from === 'sisters' ? `One of those lists${c.basis.checked ? `, read ${c.basis.checked}` : ''}` : `Source${(c.basis.readAt ?? c.basis.checked) && /^\d{4}-/.test(c.basis.readAt ?? c.basis.checked ?? '') ? `, read ${c.basis.readAt ?? c.basis.checked}` : ''}`}
                             </a>
                           </>
                         ) : null}
@@ -373,7 +384,7 @@ export function TranscriptUpload({
                       <select
                         className={`transcript-counts${c.matchedBy === 'proposal' ? ' is-likely' : ''}`}
                         aria-label={`What ${c.code} counts as`}
-                        title={c.matchedBy === 'proposal' ? c.proposals?.[0]?.why : c.matchedBy === 'printed' ? 'The document prints this equivalent.' : c.matchedBy === 'official' ? 'From UGA\'s own transfer equivalency list.' : c.matchedBy === 'sisters' ? 'From UGA\'s lists for the same course number at sister schools; UGA\'s evaluation decides.' : undefined}
+                        title={c.matchedBy === 'proposal' ? c.proposals?.[0]?.why : c.matchedBy === 'printed' ? 'The document prints this equivalent.' : c.matchedBy === 'official' ? (c.basis?.sourceKind === 'gatech-table' ? 'From Georgia Tech\'s own transfer articulation table.' : 'From UGA\'s own transfer equivalency list.') : c.matchedBy === 'sisters' ? 'From UGA\'s lists for the same course number at sister schools; UGA\'s evaluation decides.' : undefined}
                         value={value}
                         onChange={(e) => {
                           const v = e.target.value;
@@ -471,50 +482,21 @@ function countsOptions(
     const course = known.get(code);
     out.push({ value: `course:${code}`, label: `${code}${course ? ` ${course.title}` : ''}${note ? ` (${note})` : ''}` });
   };
+  /**
+   * Georgia Tech's table answered the line: its proposals are the classes the
+   * row allows (transfer-gatech.ts tableChoices), and a class that rides with
+   * another (pairedWith) comes with it rather than as a choice of its own.
+   */
+  const gtTable = c.basis?.sourceKind === 'gatech-table';
   if (c.matched && c.matchNote) push(c.matched, c.matchNote);
-  if (c.matched && c.matchedBy === 'official') push(c.matched, 'UGA\'s list');
+  if (c.matched && c.matchedBy === 'official') push(c.matched, gtTable ? 'Georgia Tech\'s table' : 'UGA\'s list');
   if (c.matched && c.matchedBy === 'sisters') push(c.matched, 'UGA\'s lists at sister schools');
+  if (gtTable) for (const p of c.proposals ?? []) if (!p.pairedWith) push(p.code, 'Georgia Tech\'s table');
   if (c.matched && (c.matchedBy === 'code' || c.matchedBy === 'student')) push(c.matched, c.basis?.from === 'document' ? 'on your record' : foreign ? 'your choice' : '');
   if (c.equivalent && known.has(c.equivalent)) push(c.equivalent, 'printed on the document');
-  for (const p of c.proposals ?? []) push(p.code, p.confidence === 'high' ? 'likely' : p.confidence === 'medium' ? 'possible' : 'a guess');
+  if (!gtTable) for (const p of c.proposals ?? []) push(p.code, p.confidence === 'high' ? 'likely' : p.confidence === 'medium' ? 'possible' : 'a guess');
   if (c.matched && !seen.has(c.matched)) push(c.matched, '');
   return out;
-}
-
-/** The badge over a transfer line: what it became, in two or three words. */
-function basisBadge(c: TranscriptCourseRecord): string {
-  // A sister-school answer is UGA's decision for the same course number at
-  // other schools, not at this student's, so its badge must not read like the
-  // school's own list: "Does not transfer" there would overstate a borrowed
-  // no-credit answer.
-  if (c.basis?.from === 'sisters') return c.basis.badge === 'none' ? 'No credit at sister schools' : `${ownBadge(c)} (sister schools)`;
-  return ownBadge(c);
-}
-
-function ownBadge(c: TranscriptCourseRecord): string {
-  switch (c.basis?.badge) {
-    case 'course':
-      return c.matched ? `Counts as ${[c.matched, ...(c.also ?? [])].join(' + ')}` : 'Counts as a course';
-    case 'core':
-      return c.designation ? `Core elective (${c.designation})` : 'Gen ed credit';
-    case 'elective':
-      return `Elective hours only${c.designation ? ` (${c.designation})` : ''}`;
-    case 'none':
-      // A second sitting of a course that already counts (an AP score and
-      // the course, a retake) transfers once; it is not refused.
-      return /^a repeat of /.test(c.matchNote ?? '') ? 'Counted once (repeat)' : 'Does not transfer';
-    default:
-      return 'Not yet evaluated';
-  }
-}
-
-/** Whether the student has set the line to something other than what the answer said. */
-function basisChanged(c: TranscriptCourseRecord): boolean {
-  const badge = c.basis?.badge;
-  if (!badge) return false;
-  if (badge === 'course') return !(c.use && c.counts === 'course');
-  if (badge === 'none') return c.use && c.counts !== 'none';
-  return !(c.use && c.counts === 'hours');
 }
 
 /** The chip on a line that cannot count. */

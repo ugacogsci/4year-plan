@@ -1,0 +1,2547 @@
+{
+ "readAt": "2026-11-10",
+ "source": "Georgia Tech OSCAR Transfer Articulation",
+ "sourceUrl": "https://oscar.gatech.edu/pls/bprod/wwsktrna.P_find_location",
+ "disclaimer": "Transfer Articulation is for reference only. Georgia Tech course equivalents are subject to change upon official evaluation by the Georgia Tech Office of the Registrar. The listing or exclusion of courses from this program does not reflect on the acceptability of the courses to Georgia Tech. If credit hours are listed, the credit hours reflect the maximum possible credits. Individually awarded credit may vary. If minimum grades are listed, they reflect the minimum grade generally allowed for the course. Please consult the catalog for additional information.",
+ "policyUrl": "https://registrar.gatech.edu/info/transfer-credit-policies",
+ "nowTerm": "202608",
+ "note": "Rows in force at nowTerm only (from/to kept). Undergraduate level. A class missing from a school's table is not a rejection: Georgia Tech decides on official evaluation.",
+ "states": {
+  "GA": {
+   "listed": 99,
+   "read": 99,
+   "withRows": 93,
+   "rows": 13698,
+   "rowsAllTerms": 15926,
+   "dept": 3091,
+   "nogt": 1542
+  },
+  "FL": {
+   "listed": 65,
+   "read": 65,
+   "withRows": 65,
+   "rows": 3972,
+   "rowsAllTerms": 4417,
+   "dept": 1282,
+   "nogt": 307
+  },
+  "AL": {
+   "listed": 44,
+   "read": 44,
+   "withRows": 44,
+   "rows": 1550,
+   "rowsAllTerms": 1752,
+   "dept": 426,
+   "nogt": 126
+  },
+  "SC": {
+   "listed": 35,
+   "read": 35,
+   "withRows": 35,
+   "rows": 1636,
+   "rowsAllTerms": 1807,
+   "dept": 455,
+   "nogt": 146
+  },
+  "NC": {
+   "listed": 75,
+   "read": 75,
+   "withRows": 75,
+   "rows": 2702,
+   "rowsAllTerms": 2974,
+   "dept": 800,
+   "nogt": 214
+  },
+  "TN": {
+   "listed": 42,
+   "read": 25,
+   "withRows": 25,
+   "rows": 680,
+   "rowsAllTerms": 768,
+   "dept": 234,
+   "nogt": 56
+  }
+ },
+ "schools": [
+  {
+   "code": "005001",
+   "name": "Abraham Baldwin Agriclt Coll",
+   "state": "GA",
+   "rows": 184,
+   "file": "005001.json"
+  },
+  {
+   "code": "005002",
+   "name": "Agnes Scott College",
+   "state": "GA",
+   "rows": 321,
+   "file": "005002.json"
+  },
+  {
+   "code": "Z85222",
+   "name": "Albany Area Voc-Techl School*",
+   "state": "GA",
+   "rows": 1,
+   "file": "Z85222.json"
+  },
+  {
+   "code": "005004",
+   "name": "Albany State University",
+   "state": "GA",
+   "rows": 230,
+   "file": "005004.json"
+  },
+  {
+   "code": "003921",
+   "name": "Albany Technical College",
+   "state": "GA",
+   "rows": 86,
+   "file": "003921.json"
+  },
+  {
+   "code": "000147",
+   "name": "Altamaha Technical College*",
+   "state": "GA",
+   "rows": 1,
+   "file": "000147.json",
+   "see": "004172"
+  },
+  {
+   "code": "005015",
+   "name": "American Intercontinental Uni*",
+   "state": "GA",
+   "rows": 4,
+   "file": "005015.json"
+  },
+  {
+   "code": "002486",
+   "name": "American Intercontinental Univ",
+   "state": "GA",
+   "rows": 21,
+   "file": "002486.json"
+  },
+  {
+   "code": "005009",
+   "name": "Andrew College",
+   "state": "GA",
+   "rows": 11,
+   "file": "005009.json"
+  },
+  {
+   "code": "005012",
+   "name": "Armstrong State University",
+   "state": "GA",
+   "rows": 0,
+   "file": null,
+   "note": "No Equivalent Course available for this school"
+  },
+  {
+   "code": "005429",
+   "name": "Art Institute Atlanta",
+   "state": "GA",
+   "rows": 6,
+   "file": "005429.json"
+  },
+  {
+   "code": "000462",
+   "name": "Athens Technical College",
+   "state": "GA",
+   "rows": 123,
+   "file": "000462.json"
+  },
+  {
+   "code": "005725",
+   "name": "Atlanta Metropolitan State Col",
+   "state": "GA",
+   "rows": 90,
+   "file": "005725.json",
+   "match": [
+    "atlanta metropolitan state col",
+    "atlanta metropolitan state college",
+    "atlanta metropolitan",
+    "atlanta metro"
+   ]
+  },
+  {
+   "code": "005030",
+   "name": "Atlanta Technical College",
+   "state": "GA",
+   "rows": 109,
+   "file": "005030.json"
+  },
+  {
+   "code": "002620",
+   "name": "Augusta Technical College",
+   "state": "GA",
+   "rows": 100,
+   "file": "002620.json"
+  },
+  {
+   "code": "005406",
+   "name": "Augusta University",
+   "state": "GA",
+   "rows": 226,
+   "file": "005406.json",
+   "match": [
+    "augusta university",
+    "augusta state university",
+    "georgia regents university"
+   ]
+  },
+  {
+   "code": "005062",
+   "name": "Bainbridge State College",
+   "state": "GA",
+   "rows": 0,
+   "file": null,
+   "note": "No Equivalent Course available for this school"
+  },
+  {
+   "code": "005059",
+   "name": "Berry College",
+   "state": "GA",
+   "rows": 221,
+   "file": "005059.json"
+  },
+  {
+   "code": "005066",
+   "name": "Brenau University",
+   "state": "GA",
+   "rows": 42,
+   "file": "005066.json"
+  },
+  {
+   "code": "005068",
+   "name": "Brewton-Parker College",
+   "state": "GA",
+   "rows": 31,
+   "file": "005068.json"
+  },
+  {
+   "code": "001709",
+   "name": "Centrl Georgia Tech College",
+   "state": "GA",
+   "rows": 115,
+   "file": "001709.json"
+  },
+  {
+   "code": "005441",
+   "name": "Chattahoochee Tech College",
+   "state": "GA",
+   "rows": 150,
+   "file": "005441.json"
+  },
+  {
+   "code": "005110",
+   "name": "Clark Atlanta University",
+   "state": "GA",
+   "rows": 152,
+   "file": "005110.json",
+   "match": [
+    "clark atlanta university",
+    "clark atlanta"
+   ]
+  },
+  {
+   "code": "005145",
+   "name": "Clayton State Univ",
+   "state": "GA",
+   "rows": 190,
+   "file": "005145.json"
+  },
+  {
+   "code": "004172",
+   "name": "Coastal Pines Technical Colg",
+   "state": "GA",
+   "rows": 99,
+   "file": "004172.json"
+  },
+  {
+   "code": "005078",
+   "name": "College Of Coastal Georgia",
+   "state": "GA",
+   "rows": 90,
+   "file": "005078.json"
+  },
+  {
+   "code": "005123",
+   "name": "Columbus State University",
+   "state": "GA",
+   "rows": 177,
+   "file": "005123.json"
+  },
+  {
+   "code": "005704",
+   "name": "Columbus Technical College",
+   "state": "GA",
+   "rows": 89,
+   "file": "005704.json"
+  },
+  {
+   "code": "Z85165",
+   "name": "Coosa Valley Voc-Techl School",
+   "state": "GA",
+   "rows": 3,
+   "file": "Z85165.json"
+  },
+  {
+   "code": "006124",
+   "name": "Covenant College",
+   "state": "GA",
+   "rows": 172,
+   "file": "006124.json"
+  },
+  {
+   "code": "005167",
+   "name": "Dalton College",
+   "state": "GA",
+   "rows": 149,
+   "file": "005167.json"
+  },
+  {
+   "code": "005026",
+   "name": "Darton College",
+   "state": "GA",
+   "rows": 0,
+   "file": null,
+   "note": "No Equivalent Course available for this school"
+  },
+  {
+   "code": "005715",
+   "name": "Devry University Decatur",
+   "state": "GA",
+   "rows": 23,
+   "file": "005715.json"
+  },
+  {
+   "code": "004447",
+   "name": "East Central Technical Coll*",
+   "state": "GA",
+   "rows": 5,
+   "file": "004447.json"
+  },
+  {
+   "code": "005200",
+   "name": "East Georgia State College",
+   "state": "GA",
+   "rows": 37,
+   "file": "005200.json"
+  },
+  {
+   "code": "001291",
+   "name": "Emmanuel Coll-Sch Christ Min*",
+   "state": "GA",
+   "rows": 2,
+   "file": "001291.json"
+  },
+  {
+   "code": "005184",
+   "name": "Emmanuel University",
+   "state": "GA",
+   "rows": 27,
+   "file": "005184.json"
+  },
+  {
+   "code": "005187",
+   "name": "Emory University",
+   "state": "GA",
+   "rows": 839,
+   "file": "005187.json",
+   "match": [
+    "emory university",
+    "emory college"
+   ]
+  },
+  {
+   "code": "005220",
+   "name": "Fort Valley State University",
+   "state": "GA",
+   "rows": 56,
+   "file": "005220.json"
+  },
+  {
+   "code": "003226",
+   "name": "Ga Piedmont Technical College",
+   "state": "GA",
+   "rows": 128,
+   "file": "003226.json"
+  },
+  {
+   "code": "005252",
+   "name": "Georgia Coll & State Univ",
+   "state": "GA",
+   "rows": 232,
+   "file": "005252.json",
+   "match": [
+    "georgia coll & state univ",
+    "georgia college and state university",
+    "gcsu"
+   ]
+  },
+  {
+   "code": "004796",
+   "name": "Georgia Gwinnett College",
+   "state": "GA",
+   "rows": 230,
+   "file": "004796.json",
+   "match": [
+    "georgia gwinnett college",
+    "ggc"
+   ]
+  },
+  {
+   "code": "005237",
+   "name": "Georgia Highlands College",
+   "state": "GA",
+   "rows": 110,
+   "file": "005237.json"
+  },
+  {
+   "code": "005249",
+   "name": "Georgia Military College",
+   "state": "GA",
+   "rows": 109,
+   "file": "005249.json"
+  },
+  {
+   "code": "002860",
+   "name": "Georgia Northwestern Tech Coll",
+   "state": "GA",
+   "rows": 115,
+   "file": "002860.json"
+  },
+  {
+   "code": "005711",
+   "name": "Georgia Perimeter College",
+   "state": "GA",
+   "rows": 1,
+   "file": "005711.json",
+   "see": "005251"
+  },
+  {
+   "code": "005253",
+   "name": "Georgia Southern University",
+   "state": "GA",
+   "rows": 542,
+   "file": "005253.json"
+  },
+  {
+   "code": "005250",
+   "name": "Georgia Southwestern St Univ",
+   "state": "GA",
+   "rows": 105,
+   "file": "005250.json"
+  },
+  {
+   "code": "005251",
+   "name": "Georgia State University",
+   "state": "GA",
+   "rows": 1067,
+   "file": "005251.json",
+   "match": [
+    "georgia state university",
+    "perimeter college",
+    "georgia perimeter"
+   ]
+  },
+  {
+   "code": "005256",
+   "name": "Gordon State College",
+   "state": "GA",
+   "rows": 132,
+   "file": "005256.json"
+  },
+  {
+   "code": "005168",
+   "name": "Gwinnett Technical College",
+   "state": "GA",
+   "rows": 199,
+   "file": "005168.json"
+  },
+  {
+   "code": "016070",
+   "name": "Heart of Georgia Tech College*",
+   "state": "GA",
+   "rows": 1,
+   "file": "016070.json"
+  },
+  {
+   "code": "002342",
+   "name": "Herzing University Atlanta",
+   "state": "GA",
+   "rows": 3,
+   "file": "002342.json"
+  },
+  {
+   "code": "005359",
+   "name": "Kennesaw State University",
+   "state": "GA",
+   "rows": 986,
+   "file": "005359.json"
+  },
+  {
+   "code": "005362",
+   "name": "Lagrange College",
+   "state": "GA",
+   "rows": 64,
+   "file": "005362.json"
+  },
+  {
+   "code": "007289",
+   "name": "Lanier Technical College",
+   "state": "GA",
+   "rows": 127,
+   "file": "007289.json",
+   "match": [
+    "lanier technical college",
+    "lanier technical",
+    "lanier tech"
+   ]
+  },
+  {
+   "code": "007006",
+   "name": "Life University",
+   "state": "GA",
+   "rows": 11,
+   "file": "007006.json"
+  },
+  {
+   "code": "005439",
+   "name": "Macon State College",
+   "state": "GA",
+   "rows": 0,
+   "file": null,
+   "note": "No Equivalent Course available for this school"
+  },
+  {
+   "code": "005409",
+   "name": "Mercer Univ Macon*",
+   "state": "GA",
+   "rows": 182,
+   "file": "005409.json"
+  },
+  {
+   "code": "005025",
+   "name": "Mercer University Atlanta",
+   "state": "GA",
+   "rows": 41,
+   "file": "005025.json"
+  },
+  {
+   "code": "005411",
+   "name": "Middle Georgia State Univ",
+   "state": "GA",
+   "rows": 340,
+   "file": "005411.json",
+   "match": [
+    "middle georgia state univ",
+    "middle georgia state university",
+    "middle georgia state",
+    "middle georgia college",
+    "mga"
+   ]
+  },
+  {
+   "code": "005035",
+   "name": "Middle Georgia Tech College",
+   "state": "GA",
+   "rows": 0,
+   "file": null,
+   "note": "No Equivalent Course available for this school"
+  },
+  {
+   "code": "005415",
+   "name": "Morehouse College",
+   "state": "GA",
+   "rows": 237,
+   "file": "005415.json"
+  },
+  {
+   "code": "005417",
+   "name": "Morris Brown College",
+   "state": "GA",
+   "rows": 19,
+   "file": "005417.json"
+  },
+  {
+   "code": "005507",
+   "name": "North Georgia Tech College",
+   "state": "GA",
+   "rows": 89,
+   "file": "005507.json"
+  },
+  {
+   "code": "Z97111",
+   "name": "North Metro Technical Inst",
+   "state": "GA",
+   "rows": 1,
+   "file": "Z97111.json",
+   "see": "005441"
+  },
+  {
+   "code": "005772",
+   "name": "Oconee Fall Line Tech College",
+   "state": "GA",
+   "rows": 45,
+   "file": "005772.json"
+  },
+  {
+   "code": "Z98573",
+   "name": "Oconee Fall Line Tech College",
+   "state": "GA",
+   "rows": 82,
+   "file": "Z98573.json"
+  },
+  {
+   "code": "000154",
+   "name": "Ogeechee Technical College",
+   "state": "GA",
+   "rows": 86,
+   "file": "000154.json"
+  },
+  {
+   "code": "005521",
+   "name": "Oglethorpe University",
+   "state": "GA",
+   "rows": 155,
+   "file": "005521.json"
+  },
+  {
+   "code": "005186",
+   "name": "Oxford College",
+   "state": "GA",
+   "rows": 37,
+   "file": "005186.json"
+  },
+  {
+   "code": "005530",
+   "name": "Paine College",
+   "state": "GA",
+   "rows": 14,
+   "file": "005530.json"
+  },
+  {
+   "code": "015979",
+   "name": "Phil Coll of Osteopathic Medic",
+   "state": "GA",
+   "rows": 0,
+   "file": null,
+   "note": "no undergraduate subjects listed"
+  },
+  {
+   "code": "005537",
+   "name": "Piedmont University",
+   "state": "GA",
+   "rows": 181,
+   "file": "005537.json"
+  },
+  {
+   "code": "005029",
+   "name": "Point University",
+   "state": "GA",
+   "rows": 44,
+   "file": "005029.json"
+  },
+  {
+   "code": "005568",
+   "name": "Reinhardt University",
+   "state": "GA",
+   "rows": 109,
+   "file": "005568.json"
+  },
+  {
+   "code": "005631",
+   "name": "Savannah C Art Desgn All Campu",
+   "state": "GA",
+   "rows": 41,
+   "file": "005631.json"
+  },
+  {
+   "code": "005609",
+   "name": "Savannah State University",
+   "state": "GA",
+   "rows": 119,
+   "file": "005609.json"
+  },
+  {
+   "code": "003741",
+   "name": "Savannah Tech College",
+   "state": "GA",
+   "rows": 84,
+   "file": "003741.json"
+  },
+  {
+   "code": "005616",
+   "name": "Shorter University",
+   "state": "GA",
+   "rows": 38,
+   "file": "005616.json"
+  },
+  {
+   "code": "005619",
+   "name": "South Georgia State College",
+   "state": "GA",
+   "rows": 66,
+   "file": "005619.json"
+  },
+  {
+   "code": "006555",
+   "name": "South Georgia Technical Colleg",
+   "state": "GA",
+   "rows": 87,
+   "file": "006555.json"
+  },
+  {
+   "code": "005157",
+   "name": "South University",
+   "state": "GA",
+   "rows": 6,
+   "file": "005157.json"
+  },
+  {
+   "code": "005670",
+   "name": "Southern Crescent Tech Coll",
+   "state": "GA",
+   "rows": 128,
+   "file": "005670.json"
+  },
+  {
+   "code": "007196",
+   "name": "Southern Regional Tech College",
+   "state": "GA",
+   "rows": 105,
+   "file": "007196.json",
+   "match": [
+    "southern regional tech college",
+    "southern regional technical college",
+    "southern regional technical",
+    "southern regional tech"
+   ]
+  },
+  {
+   "code": "005652",
+   "name": "Southestrn Technical College",
+   "state": "GA",
+   "rows": 90,
+   "file": "005652.json"
+  },
+  {
+   "code": "005628",
+   "name": "Spelman College",
+   "state": "GA",
+   "rows": 277,
+   "file": "005628.json"
+  },
+  {
+   "code": "005072",
+   "name": "Thomas University",
+   "state": "GA",
+   "rows": 26,
+   "file": "005072.json"
+  },
+  {
+   "code": "005799",
+   "name": "Toccoa Falls College",
+   "state": "GA",
+   "rows": 64,
+   "file": "005799.json"
+  },
+  {
+   "code": "005798",
+   "name": "Truett-McConnell University",
+   "state": "GA",
+   "rows": 64,
+   "file": "005798.json"
+  },
+  {
+   "code": "005273",
+   "name": "U Of North Georgia-Gainesville",
+   "state": "GA",
+   "rows": 1,
+   "file": "005273.json",
+   "see": "005497"
+  },
+  {
+   "code": "005497",
+   "name": "Univ North Georgia - Dahlonega",
+   "state": "GA",
+   "rows": 559,
+   "file": "005497.json",
+   "match": [
+    "univ north georgia - dahlonega",
+    "university of north georgia",
+    "ung"
+   ]
+  },
+  {
+   "code": "005813",
+   "name": "University of Georgia",
+   "state": "GA",
+   "rows": 1061,
+   "file": "005813.json",
+   "match": [
+    "university of georgia",
+    "uga"
+   ]
+  },
+  {
+   "code": "005900",
+   "name": "University Of West Georgia",
+   "state": "GA",
+   "rows": 221,
+   "file": "005900.json",
+   "match": [
+    "university of west georgia",
+    "uwg"
+   ]
+  },
+  {
+   "code": "005855",
+   "name": "Valdosta State University",
+   "state": "GA",
+   "rows": 223,
+   "file": "005855.json"
+  },
+  {
+   "code": "005895",
+   "name": "Wesleyan College",
+   "state": "GA",
+   "rows": 51,
+   "file": "005895.json"
+  },
+  {
+   "code": "006342",
+   "name": "West Georgia Technical College",
+   "state": "GA",
+   "rows": 103,
+   "file": "006342.json"
+  },
+  {
+   "code": "004557",
+   "name": "Wiregrass Georgia Tech Colg",
+   "state": "GA",
+   "rows": 88,
+   "file": "004557.json"
+  },
+  {
+   "code": "005990",
+   "name": "Young Harris College",
+   "state": "GA",
+   "rows": 190,
+   "file": "005990.json"
+  },
+  {
+   "code": "004249",
+   "name": "Ave Maria University",
+   "state": "FL",
+   "rows": 3,
+   "file": "004249.json"
+  },
+  {
+   "code": "005053",
+   "name": "Barry University",
+   "state": "FL",
+   "rows": 10,
+   "file": "005053.json"
+  },
+  {
+   "code": "005061",
+   "name": "Bethune-Cookman University",
+   "state": "FL",
+   "rows": 10,
+   "file": "005061.json"
+  },
+  {
+   "code": "005074",
+   "name": "Broward College",
+   "state": "FL",
+   "rows": 92,
+   "file": "005074.json"
+  },
+  {
+   "code": "005106",
+   "name": "Chipola College",
+   "state": "FL",
+   "rows": 23,
+   "file": "005106.json"
+  },
+  {
+   "code": "005142",
+   "name": "Clearwater Christian College*",
+   "state": "FL",
+   "rows": 6,
+   "file": "005142.json"
+  },
+  {
+   "code": "005127",
+   "name": "College Of Central Florida",
+   "state": "FL",
+   "rows": 57,
+   "file": "005127.json"
+  },
+  {
+   "code": "005159",
+   "name": "Daytona State College",
+   "state": "FL",
+   "rows": 42,
+   "file": "005159.json"
+  },
+  {
+   "code": "005073",
+   "name": "Eastern Florida State College*",
+   "state": "FL",
+   "rows": 50,
+   "file": "005073.json"
+  },
+  {
+   "code": "005223",
+   "name": "Eckerd College",
+   "state": "FL",
+   "rows": 22,
+   "file": "005223.json"
+  },
+  {
+   "code": "005182",
+   "name": "Edward Waters College",
+   "state": "FL",
+   "rows": 1,
+   "file": "005182.json"
+  },
+  {
+   "code": "005190",
+   "name": "Embry-Riddle Aeronautical Univ",
+   "state": "FL",
+   "rows": 113,
+   "file": "005190.json"
+  },
+  {
+   "code": "005235",
+   "name": "Flagler College",
+   "state": "FL",
+   "rows": 24,
+   "file": "005235.json"
+  },
+  {
+   "code": "005215",
+   "name": "Florida Agric Mech Univ",
+   "state": "FL",
+   "rows": 24,
+   "file": "005215.json"
+  },
+  {
+   "code": "005229",
+   "name": "Florida Atlantic University",
+   "state": "FL",
+   "rows": 170,
+   "file": "005229.json"
+  },
+  {
+   "code": "005216",
+   "name": "Florida College",
+   "state": "FL",
+   "rows": 4,
+   "file": "005216.json"
+  },
+  {
+   "code": "005377",
+   "name": "Florida Gateway College",
+   "state": "FL",
+   "rows": 2,
+   "file": "005377.json"
+  },
+  {
+   "code": "005221",
+   "name": "Florida Gulf Coast University",
+   "state": "FL",
+   "rows": 79,
+   "file": "005221.json"
+  },
+  {
+   "code": "005080",
+   "name": "Florida Inst of Technology",
+   "state": "FL",
+   "rows": 113,
+   "file": "005080.json"
+  },
+  {
+   "code": "005206",
+   "name": "Florida International Univ",
+   "state": "FL",
+   "rows": 253,
+   "file": "005206.json"
+  },
+  {
+   "code": "005217",
+   "name": "Florida Memorial University",
+   "state": "FL",
+   "rows": 2,
+   "file": "005217.json"
+  },
+  {
+   "code": "007303",
+   "name": "Florida Polytechnic University",
+   "state": "FL",
+   "rows": 37,
+   "file": "007303.json"
+  },
+  {
+   "code": "005218",
+   "name": "Florida Southern College",
+   "state": "FL",
+   "rows": 7,
+   "file": "005218.json"
+  },
+  {
+   "code": "005191",
+   "name": "Florida Southwestern St Colg",
+   "state": "FL",
+   "rows": 52,
+   "file": "005191.json"
+  },
+  {
+   "code": "005232",
+   "name": "Florida State Colg @ Jackson",
+   "state": "FL",
+   "rows": 40,
+   "file": "005232.json"
+  },
+  {
+   "code": "005219",
+   "name": "Florida State University",
+   "state": "FL",
+   "rows": 270,
+   "file": "005219.json"
+  },
+  {
+   "code": "005271",
+   "name": "Gulf Coast State College",
+   "state": "FL",
+   "rows": 34,
+   "file": "005271.json"
+  },
+  {
+   "code": "005304",
+   "name": "Hillsborough Comm College",
+   "state": "FL",
+   "rows": 136,
+   "file": "005304.json"
+  },
+  {
+   "code": "005322",
+   "name": "Indian River State College",
+   "state": "FL",
+   "rows": 69,
+   "file": "005322.json"
+  },
+  {
+   "code": "005331",
+   "name": "Jacksonville University",
+   "state": "FL",
+   "rows": 13,
+   "file": "005331.json"
+  },
+  {
+   "code": "003441",
+   "name": "Johnson Wales Univ Fl",
+   "state": "FL",
+   "rows": 1,
+   "file": "003441.json"
+  },
+  {
+   "code": "007004",
+   "name": "Keiser University",
+   "state": "FL",
+   "rows": 24,
+   "file": "007004.json"
+  },
+  {
+   "code": "005376",
+   "name": "Lake Sumter State College",
+   "state": "FL",
+   "rows": 38,
+   "file": "005376.json"
+  },
+  {
+   "code": "005160",
+   "name": "Miami-Dade College North",
+   "state": "FL",
+   "rows": 175,
+   "file": "005160.json",
+   "match": [
+    "miami-dade college north",
+    "miami dade college",
+    "miami dade community college"
+   ]
+  },
+  {
+   "code": "005503",
+   "name": "North Florida Community Coll",
+   "state": "FL",
+   "rows": 18,
+   "file": "005503.json"
+  },
+  {
+   "code": "005526",
+   "name": "Northwest Florida State Coll",
+   "state": "FL",
+   "rows": 60,
+   "file": "005526.json"
+  },
+  {
+   "code": "005514",
+   "name": "Nova Southeastern Univ",
+   "state": "FL",
+   "rows": 36,
+   "file": "005514.json"
+  },
+  {
+   "code": "005553",
+   "name": "Palm Beach Atlantic University",
+   "state": "FL",
+   "rows": 3,
+   "file": "005553.json"
+  },
+  {
+   "code": "005531",
+   "name": "Palm Beach State College",
+   "state": "FL",
+   "rows": 92,
+   "file": "005531.json"
+  },
+  {
+   "code": "005578",
+   "name": "Pasco-Hernando Community Colg",
+   "state": "FL",
+   "rows": 63,
+   "file": "005578.json"
+  },
+  {
+   "code": "005970",
+   "name": "Pensacola Christian College",
+   "state": "FL",
+   "rows": 1,
+   "file": "005970.json"
+  },
+  {
+   "code": "005535",
+   "name": "Pensacola State College*",
+   "state": "FL",
+   "rows": 29,
+   "file": "005535.json"
+  },
+  {
+   "code": "005548",
+   "name": "Polk State College",
+   "state": "FL",
+   "rows": 50,
+   "file": "005548.json"
+  },
+  {
+   "code": "006523",
+   "name": "Quality Leadership University",
+   "state": "FL",
+   "rows": 5,
+   "file": "006523.json"
+  },
+  {
+   "code": "005572",
+   "name": "Rollins College Winter Park",
+   "state": "FL",
+   "rows": 19,
+   "file": "005572.json"
+  },
+  {
+   "code": "005638",
+   "name": "Saint Leo University",
+   "state": "FL",
+   "rows": 14,
+   "file": "005638.json"
+  },
+  {
+   "code": "005653",
+   "name": "Santa Fe College Florida",
+   "state": "FL",
+   "rows": 92,
+   "file": "005653.json"
+  },
+  {
+   "code": "005662",
+   "name": "Seminole State College Of Fl",
+   "state": "FL",
+   "rows": 55,
+   "file": "005662.json"
+  },
+  {
+   "code": "005666",
+   "name": "South Florida Community Coll",
+   "state": "FL",
+   "rows": 18,
+   "file": "005666.json"
+  },
+  {
+   "code": "005621",
+   "name": "Southeastern University",
+   "state": "FL",
+   "rows": 25,
+   "file": "005621.json"
+  },
+  {
+   "code": "005641",
+   "name": "St Johns River State College",
+   "state": "FL",
+   "rows": 34,
+   "file": "005641.json"
+  },
+  {
+   "code": "005606",
+   "name": "St Petersburg College",
+   "state": "FL",
+   "rows": 54,
+   "file": "005606.json"
+  },
+  {
+   "code": "005076",
+   "name": "St Thomas University Fl",
+   "state": "FL",
+   "rows": 59,
+   "file": "005076.json"
+  },
+  {
+   "code": "005427",
+   "name": "State Col Fl Manatee-Sarasota",
+   "state": "FL",
+   "rows": 38,
+   "file": "005427.json"
+  },
+  {
+   "code": "005630",
+   "name": "Stetson University",
+   "state": "FL",
+   "rows": 27,
+   "file": "005630.json"
+  },
+  {
+   "code": "005794",
+   "name": "Tallahassee State College",
+   "state": "FL",
+   "rows": 59,
+   "file": "005794.json"
+  },
+  {
+   "code": "005236",
+   "name": "The Coll of the Florida Keys",
+   "state": "FL",
+   "rows": 11,
+   "file": "005236.json"
+  },
+  {
+   "code": "005233",
+   "name": "Univ Central Florida",
+   "state": "FL",
+   "rows": 216,
+   "file": "005233.json"
+  },
+  {
+   "code": "005812",
+   "name": "Univ Florida",
+   "state": "FL",
+   "rows": 277,
+   "file": "005812.json"
+  },
+  {
+   "code": "005490",
+   "name": "Univ North Florida",
+   "state": "FL",
+   "rows": 49,
+   "file": "005490.json"
+  },
+  {
+   "code": "005828",
+   "name": "Univ South Florida",
+   "state": "FL",
+   "rows": 167,
+   "file": "005828.json"
+  },
+  {
+   "code": "005833",
+   "name": "Univ West Florida",
+   "state": "FL",
+   "rows": 64,
+   "file": "005833.json"
+  },
+  {
+   "code": "005815",
+   "name": "University Of Miami",
+   "state": "FL",
+   "rows": 207,
+   "file": "005815.json"
+  },
+  {
+   "code": "005819",
+   "name": "University Of Tampa",
+   "state": "FL",
+   "rows": 16,
+   "file": "005819.json"
+  },
+  {
+   "code": "005869",
+   "name": "Valencia College",
+   "state": "FL",
+   "rows": 118,
+   "file": "005869.json"
+  },
+  {
+   "code": "001175",
+   "name": "Air University",
+   "state": "AL",
+   "rows": 45,
+   "file": "001175.json"
+  },
+  {
+   "code": "001003",
+   "name": "Alabama Agric Mech University",
+   "state": "AL",
+   "rows": 16,
+   "file": "001003.json"
+  },
+  {
+   "code": "001006",
+   "name": "Alabama State University",
+   "state": "AL",
+   "rows": 4,
+   "file": "001006.json"
+  },
+  {
+   "code": "001036",
+   "name": "Auburn Univ Montgomery",
+   "state": "AL",
+   "rows": 41,
+   "file": "001036.json"
+  },
+  {
+   "code": "001005",
+   "name": "Auburn University",
+   "state": "AL",
+   "rows": 238,
+   "file": "001005.json"
+  },
+  {
+   "code": "000723",
+   "name": "Bevill State Cmty Coll Brewer",
+   "state": "AL",
+   "rows": 24,
+   "file": "000723.json"
+  },
+  {
+   "code": "001064",
+   "name": "Birmingham Southern College",
+   "state": "AL",
+   "rows": 20,
+   "file": "001064.json"
+  },
+  {
+   "code": "001517",
+   "name": "Bishop State Cmty Coll",
+   "state": "AL",
+   "rows": 21,
+   "file": "001517.json"
+  },
+  {
+   "code": "001356",
+   "name": "Calhoun Community College",
+   "state": "AL",
+   "rows": 37,
+   "file": "001356.json"
+  },
+  {
+   "code": "000715",
+   "name": "Central Alabama Cmnty College",
+   "state": "AL",
+   "rows": 1,
+   "file": "000715.json"
+  },
+  {
+   "code": "000189",
+   "name": "Centrl Alabama C C Childsbrg",
+   "state": "AL",
+   "rows": 6,
+   "file": "000189.json"
+  },
+  {
+   "code": "001187",
+   "name": "Chattahoochee Valley Cmty Coll",
+   "state": "AL",
+   "rows": 13,
+   "file": "001187.json"
+  },
+  {
+   "code": "001939",
+   "name": "Coastal Alabama Comm College",
+   "state": "AL",
+   "rows": 17,
+   "file": "001939.json"
+  },
+  {
+   "code": "001213",
+   "name": "Enterprise State Comm College",
+   "state": "AL",
+   "rows": 13,
+   "file": "001213.json"
+  },
+  {
+   "code": "001262",
+   "name": "Gadsden St Cmty College",
+   "state": "AL",
+   "rows": 13,
+   "file": "001262.json"
+  },
+  {
+   "code": "001264",
+   "name": "Geo C Wallace Community Colg",
+   "state": "AL",
+   "rows": 24,
+   "file": "001264.json"
+  },
+  {
+   "code": "001303",
+   "name": "Huntingdon College Al",
+   "state": "AL",
+   "rows": 1,
+   "file": "001303.json"
+  },
+  {
+   "code": "002108",
+   "name": "J F Drake St Comm & Tech Coll",
+   "state": "AL",
+   "rows": 2,
+   "file": "002108.json"
+  },
+  {
+   "code": "001736",
+   "name": "Jacksonville St University",
+   "state": "AL",
+   "rows": 52,
+   "file": "001736.json"
+  },
+  {
+   "code": "001352",
+   "name": "Jefferson State Cmty Coll",
+   "state": "AL",
+   "rows": 52,
+   "file": "001352.json"
+  },
+  {
+   "code": "001933",
+   "name": "Lawson State Cmty College",
+   "state": "AL",
+   "rows": 9,
+   "file": "001933.json"
+  },
+  {
+   "code": "001429",
+   "name": "Lurleen B Wallace Cmnty Colg",
+   "state": "AL",
+   "rows": 6,
+   "file": "001429.json"
+  },
+  {
+   "code": "001447",
+   "name": "Marion Military Institute",
+   "state": "AL",
+   "rows": 8,
+   "file": "001447.json"
+  },
+  {
+   "code": "001576",
+   "name": "Northeast Alabama State Cc*",
+   "state": "AL",
+   "rows": 29,
+   "file": "001576.json"
+  },
+  {
+   "code": "001586",
+   "name": "Oakwood University",
+   "state": "AL",
+   "rows": 23,
+   "file": "001586.json"
+  },
+  {
+   "code": "001302",
+   "name": "Samford University",
+   "state": "AL",
+   "rows": 41,
+   "file": "001302.json"
+  },
+  {
+   "code": "003338",
+   "name": "Shelton State Cmnty College",
+   "state": "AL",
+   "rows": 10,
+   "file": "003338.json"
+  },
+  {
+   "code": "001721",
+   "name": "Snead State Community College",
+   "state": "AL",
+   "rows": 25,
+   "file": "001721.json"
+  },
+  {
+   "code": "000086",
+   "name": "Southern Union St Comm College",
+   "state": "AL",
+   "rows": 3,
+   "file": "000086.json"
+  },
+  {
+   "code": "001728",
+   "name": "Southrn Union St Comm Coll Wad",
+   "state": "AL",
+   "rows": 18,
+   "file": "001728.json"
+  },
+  {
+   "code": "001733",
+   "name": "Spring Hill College",
+   "state": "AL",
+   "rows": 1,
+   "file": "001733.json"
+  },
+  {
+   "code": "001800",
+   "name": "Talladega College",
+   "state": "AL",
+   "rows": 22,
+   "file": "001800.json"
+  },
+  {
+   "code": "000207",
+   "name": "Trenholm State Community Coll",
+   "state": "AL",
+   "rows": 16,
+   "file": "000207.json"
+  },
+  {
+   "code": "001738",
+   "name": "Troy University",
+   "state": "AL",
+   "rows": 66,
+   "file": "001738.json"
+  },
+  {
+   "code": "001813",
+   "name": "Tuskegee University",
+   "state": "AL",
+   "rows": 14,
+   "file": "001813.json"
+  },
+  {
+   "code": "001856",
+   "name": "Univ Alabama Birmingham",
+   "state": "AL",
+   "rows": 133,
+   "file": "001856.json"
+  },
+  {
+   "code": "001854",
+   "name": "Univ Alabama Huntsville",
+   "state": "AL",
+   "rows": 105,
+   "file": "001854.json"
+  },
+  {
+   "code": "001830",
+   "name": "Univ Alabama Tuscaloosa*",
+   "state": "AL",
+   "rows": 265,
+   "file": "001830.json"
+  },
+  {
+   "code": "001735",
+   "name": "Univ North Alabama",
+   "state": "AL",
+   "rows": 10,
+   "file": "001735.json"
+  },
+  {
+   "code": "001880",
+   "name": "Univ South Alabama",
+   "state": "AL",
+   "rows": 51,
+   "file": "001880.json"
+  },
+  {
+   "code": "001515",
+   "name": "University Of Mobile",
+   "state": "AL",
+   "rows": 25,
+   "file": "001515.json"
+  },
+  {
+   "code": "001004",
+   "name": "University Of Montevallo",
+   "state": "AL",
+   "rows": 1,
+   "file": "001004.json"
+  },
+  {
+   "code": "001737",
+   "name": "University Of West Alabama",
+   "state": "AL",
+   "rows": 26,
+   "file": "001737.json"
+  },
+  {
+   "code": "000528",
+   "name": "Wallace State Hanceville",
+   "state": "AL",
+   "rows": 3,
+   "file": "000528.json"
+  },
+  {
+   "code": "005037",
+   "name": "Aiken Technical College",
+   "state": "SC",
+   "rows": 25,
+   "file": "005037.json"
+  },
+  {
+   "code": "005008",
+   "name": "Anderson University",
+   "state": "SC",
+   "rows": 3,
+   "file": "005008.json"
+  },
+  {
+   "code": "005665",
+   "name": "Centrl Carolina Tech College",
+   "state": "SC",
+   "rows": 18,
+   "file": "005665.json"
+  },
+  {
+   "code": "005079",
+   "name": "Charleston Southern University",
+   "state": "SC",
+   "rows": 40,
+   "file": "005079.json"
+  },
+  {
+   "code": "005108",
+   "name": "Citadel The",
+   "state": "SC",
+   "rows": 37,
+   "file": "005108.json"
+  },
+  {
+   "code": "005109",
+   "name": "Claflin University",
+   "state": "SC",
+   "rows": 9,
+   "file": "005109.json"
+  },
+  {
+   "code": "005111",
+   "name": "Clemson University",
+   "state": "SC",
+   "rows": 419,
+   "file": "005111.json"
+  },
+  {
+   "code": "005837",
+   "name": "Coastal Carolina University",
+   "state": "SC",
+   "rows": 67,
+   "file": "005837.json"
+  },
+  {
+   "code": "005112",
+   "name": "Coker University",
+   "state": "SC",
+   "rows": 24,
+   "file": "005112.json"
+  },
+  {
+   "code": "005113",
+   "name": "Coll Charleston",
+   "state": "SC",
+   "rows": 79,
+   "file": "005113.json"
+  },
+  {
+   "code": "005744",
+   "name": "Denmark Tech College",
+   "state": "SC",
+   "rows": 7,
+   "file": "005744.json"
+  },
+  {
+   "code": "005442",
+   "name": "Francis Marion University",
+   "state": "SC",
+   "rows": 8,
+   "file": "005442.json"
+  },
+  {
+   "code": "005222",
+   "name": "Furman University",
+   "state": "SC",
+   "rows": 134,
+   "file": "005222.json"
+  },
+  {
+   "code": "005278",
+   "name": "Greenville Tech College",
+   "state": "SC",
+   "rows": 45,
+   "file": "005278.json"
+  },
+  {
+   "code": "005305",
+   "name": "Horry-Georgetown Tech Coll",
+   "state": "SC",
+   "rows": 15,
+   "file": "005305.json"
+  },
+  {
+   "code": "005363",
+   "name": "Lander University",
+   "state": "SC",
+   "rows": 24,
+   "file": "005363.json"
+  },
+  {
+   "code": "005584",
+   "name": "Midlands Tech College",
+   "state": "SC",
+   "rows": 29,
+   "file": "005584.json"
+  },
+  {
+   "code": "005498",
+   "name": "North Greenville University",
+   "state": "SC",
+   "rows": 1,
+   "file": "005498.json"
+  },
+  {
+   "code": "005527",
+   "name": "Orangeburg-Calhoun Tech Coll",
+   "state": "SC",
+   "rows": 2,
+   "file": "005527.json"
+  },
+  {
+   "code": "005550",
+   "name": "Piedmont Tech College Sc",
+   "state": "SC",
+   "rows": 12,
+   "file": "005550.json"
+  },
+  {
+   "code": "005540",
+   "name": "Presbyterian College",
+   "state": "SC",
+   "rows": 91,
+   "file": "005540.json"
+  },
+  {
+   "code": "005618",
+   "name": "Sc State University",
+   "state": "SC",
+   "rows": 21,
+   "file": "005618.json"
+  },
+  {
+   "code": "005896",
+   "name": "Southrn Wesleyan Univ",
+   "state": "SC",
+   "rows": 2,
+   "file": "005896.json"
+  },
+  {
+   "code": "005668",
+   "name": "Spartanburg Comm College",
+   "state": "SC",
+   "rows": 4,
+   "file": "005668.json"
+  },
+  {
+   "code": "005047",
+   "name": "Technical Coll of Lowcountry",
+   "state": "SC",
+   "rows": 26,
+   "file": "005047.json"
+  },
+  {
+   "code": "005789",
+   "name": "Tri-County Tech College Sc",
+   "state": "SC",
+   "rows": 12,
+   "file": "005789.json"
+  },
+  {
+   "code": "005049",
+   "name": "Trident Tech College North",
+   "state": "SC",
+   "rows": 37,
+   "file": "005049.json"
+  },
+  {
+   "code": "005840",
+   "name": "Univ South Carolina Aiken",
+   "state": "SC",
+   "rows": 29,
+   "file": "005840.json"
+  },
+  {
+   "code": "005845",
+   "name": "Univ South Carolina Beaufort",
+   "state": "SC",
+   "rows": 20,
+   "file": "005845.json"
+  },
+  {
+   "code": "005818",
+   "name": "Univ South Carolina Columbia*",
+   "state": "SC",
+   "rows": 258,
+   "file": "005818.json"
+  },
+  {
+   "code": "005849",
+   "name": "Univ South Carolina Lancaster",
+   "state": "SC",
+   "rows": 9,
+   "file": "005849.json"
+  },
+  {
+   "code": "005850",
+   "name": "Univ South Carolina Upstate",
+   "state": "SC",
+   "rows": 52,
+   "file": "005850.json"
+  },
+  {
+   "code": "005863",
+   "name": "Voorhees College",
+   "state": "SC",
+   "rows": 23,
+   "file": "005863.json"
+  },
+  {
+   "code": "005910",
+   "name": "Winthrop University",
+   "state": "SC",
+   "rows": 19,
+   "file": "005910.json"
+  },
+  {
+   "code": "005912",
+   "name": "Wofford College",
+   "state": "SC",
+   "rows": 35,
+   "file": "005912.json"
+  },
+  {
+   "code": "005790",
+   "name": "Alamance Cmty College",
+   "state": "NC",
+   "rows": 25,
+   "file": "005790.json"
+  },
+  {
+   "code": "005010",
+   "name": "Appalachian State University",
+   "state": "NC",
+   "rows": 64,
+   "file": "005010.json"
+  },
+  {
+   "code": "003834",
+   "name": "Art Institute Charlotte",
+   "state": "NC",
+   "rows": 6,
+   "file": "003834.json"
+  },
+  {
+   "code": "005033",
+   "name": "Asheville-Buncombe Tech Cmty C",
+   "state": "NC",
+   "rows": 55,
+   "file": "005033.json"
+  },
+  {
+   "code": "005016",
+   "name": "Barton College",
+   "state": "NC",
+   "rows": 9,
+   "file": "005016.json"
+  },
+  {
+   "code": "007307",
+   "name": "Beaufort Co Cmty College",
+   "state": "NC",
+   "rows": 1,
+   "file": "007307.json"
+  },
+  {
+   "code": "005055",
+   "name": "Belmont Abbey College",
+   "state": "NC",
+   "rows": 2,
+   "file": "005055.json"
+  },
+  {
+   "code": "005058",
+   "name": "Bennett College Nc",
+   "state": "NC",
+   "rows": 2,
+   "file": "005058.json"
+  },
+  {
+   "code": "005644",
+   "name": "Blue Ridge Comm Coll - NC",
+   "state": "NC",
+   "rows": 35,
+   "file": "005644.json"
+  },
+  {
+   "code": "007314",
+   "name": "Brunswick Cmty College",
+   "state": "NC",
+   "rows": 35,
+   "file": "007314.json"
+  },
+  {
+   "code": "005146",
+   "name": "Caldwell Cmty Coll Tech Inst",
+   "state": "NC",
+   "rows": 17,
+   "file": "005146.json"
+  },
+  {
+   "code": "005100",
+   "name": "Campbell University",
+   "state": "NC",
+   "rows": 8,
+   "file": "005100.json"
+  },
+  {
+   "code": "005094",
+   "name": "Cape Fear Community College",
+   "state": "NC",
+   "rows": 37,
+   "file": "005094.json"
+  },
+  {
+   "code": "006211",
+   "name": "Carolinas Coll Of Health Sci",
+   "state": "NC",
+   "rows": 1,
+   "file": "006211.json"
+  },
+  {
+   "code": "005092",
+   "name": "Carteret Community College",
+   "state": "NC",
+   "rows": 7,
+   "file": "005092.json"
+  },
+  {
+   "code": "005103",
+   "name": "Catawba College",
+   "state": "NC",
+   "rows": 33,
+   "file": "005103.json"
+  },
+  {
+   "code": "005098",
+   "name": "Catawba Valley Cmty College",
+   "state": "NC",
+   "rows": 53,
+   "file": "005098.json"
+  },
+  {
+   "code": "005102",
+   "name": "Central Piedmont Cmty Coll",
+   "state": "NC",
+   "rows": 94,
+   "file": "005102.json"
+  },
+  {
+   "code": "005147",
+   "name": "Centrl Carolina Cmty College",
+   "state": "NC",
+   "rows": 20,
+   "file": "005147.json"
+  },
+  {
+   "code": "005134",
+   "name": "Coastal Carolina Cmty College",
+   "state": "NC",
+   "rows": 33,
+   "file": "005134.json"
+  },
+  {
+   "code": "005133",
+   "name": "College Of The Albemarle",
+   "state": "NC",
+   "rows": 11,
+   "file": "005133.json"
+  },
+  {
+   "code": "005148",
+   "name": "Craven Cmty College",
+   "state": "NC",
+   "rows": 22,
+   "file": "005148.json"
+  },
+  {
+   "code": "005150",
+   "name": "Davidson College",
+   "state": "NC",
+   "rows": 21,
+   "file": "005150.json"
+  },
+  {
+   "code": "005170",
+   "name": "Davidson County Cmnty College",
+   "state": "NC",
+   "rows": 13,
+   "file": "005170.json"
+  },
+  {
+   "code": "005156",
+   "name": "Duke University",
+   "state": "NC",
+   "rows": 57,
+   "file": "005156.json"
+  },
+  {
+   "code": "005172",
+   "name": "Durham Tech Cmty College",
+   "state": "NC",
+   "rows": 18,
+   "file": "005172.json"
+  },
+  {
+   "code": "005180",
+   "name": "East Carolina University*",
+   "state": "NC",
+   "rows": 71,
+   "file": "005180.json"
+  },
+  {
+   "code": "005183",
+   "name": "Elon University",
+   "state": "NC",
+   "rows": 158,
+   "file": "005183.json"
+  },
+  {
+   "code": "005212",
+   "name": "Fayetteville State University",
+   "state": "NC",
+   "rows": 10,
+   "file": "005212.json"
+  },
+  {
+   "code": "005208",
+   "name": "Fayetteville Tech Comm College",
+   "state": "NC",
+   "rows": 36,
+   "file": "005208.json"
+  },
+  {
+   "code": "005234",
+   "name": "Forsyth Tech Cmty College",
+   "state": "NC",
+   "rows": 50,
+   "file": "005234.json"
+  },
+  {
+   "code": "005242",
+   "name": "Gardner-Webb University",
+   "state": "NC",
+   "rows": 60,
+   "file": "005242.json"
+  },
+  {
+   "code": "005261",
+   "name": "Guilford College",
+   "state": "NC",
+   "rows": 92,
+   "file": "005261.json"
+  },
+  {
+   "code": "005275",
+   "name": "Guilford Tech C C Jamestown",
+   "state": "NC",
+   "rows": 33,
+   "file": "005275.json"
+  },
+  {
+   "code": "005289",
+   "name": "Haywood Cmty College",
+   "state": "NC",
+   "rows": 29,
+   "file": "005289.json"
+  },
+  {
+   "code": "005293",
+   "name": "High Point University",
+   "state": "NC",
+   "rows": 38,
+   "file": "005293.json"
+  },
+  {
+   "code": "005319",
+   "name": "Isothermal Cmty College",
+   "state": "NC",
+   "rows": 9,
+   "file": "005319.json"
+  },
+  {
+   "code": "000727",
+   "name": "Johnston Cmty College",
+   "state": "NC",
+   "rows": 33,
+   "file": "000727.json"
+  },
+  {
+   "code": "005378",
+   "name": "Lenoir Cmty College",
+   "state": "NC",
+   "rows": 20,
+   "file": "005378.json"
+  },
+  {
+   "code": "005365",
+   "name": "Lenoir-Rhyne University",
+   "state": "NC",
+   "rows": 12,
+   "file": "005365.json"
+  },
+  {
+   "code": "005395",
+   "name": "Mars Hill University",
+   "state": "NC",
+   "rows": 11,
+   "file": "005395.json"
+  },
+  {
+   "code": "005410",
+   "name": "Meredith College",
+   "state": "NC",
+   "rows": 23,
+   "file": "005410.json"
+  },
+  {
+   "code": "005426",
+   "name": "Methodist University",
+   "state": "NC",
+   "rows": 8,
+   "file": "005426.json"
+  },
+  {
+   "code": "005412",
+   "name": "Mitchell Comm College",
+   "state": "NC",
+   "rows": 42,
+   "file": "005412.json"
+  },
+  {
+   "code": "005423",
+   "name": "Montreat College",
+   "state": "NC",
+   "rows": 5,
+   "file": "005423.json"
+  },
+  {
+   "code": "005881",
+   "name": "Nash Cmty College",
+   "state": "NC",
+   "rows": 10,
+   "file": "005881.json"
+  },
+  {
+   "code": "005003",
+   "name": "North Car Agr Tech State Univ",
+   "state": "NC",
+   "rows": 62,
+   "file": "005003.json"
+  },
+  {
+   "code": "005495",
+   "name": "North Car Central University",
+   "state": "NC",
+   "rows": 19,
+   "file": "005495.json"
+  },
+  {
+   "code": "005496",
+   "name": "North Carolina State Univ",
+   "state": "NC",
+   "rows": 230,
+   "file": "005496.json"
+  },
+  {
+   "code": "005556",
+   "name": "Pitt Community College",
+   "state": "NC",
+   "rows": 31,
+   "file": "005556.json"
+  },
+  {
+   "code": "005560",
+   "name": "Queens University Charlotte",
+   "state": "NC",
+   "rows": 14,
+   "file": "005560.json"
+  },
+  {
+   "code": "005588",
+   "name": "Richmond Community College",
+   "state": "NC",
+   "rows": 2,
+   "file": "005588.json"
+  },
+  {
+   "code": "005582",
+   "name": "Rockingham Cmty College",
+   "state": "NC",
+   "rows": 17,
+   "file": "005582.json"
+  },
+  {
+   "code": "005589",
+   "name": "Rowan-Cabbarus Cmty College",
+   "state": "NC",
+   "rows": 34,
+   "file": "005589.json"
+  },
+  {
+   "code": "005607",
+   "name": "Salem College",
+   "state": "NC",
+   "rows": 2,
+   "file": "005607.json"
+  },
+  {
+   "code": "000457",
+   "name": "South Piedmont Comm College",
+   "state": "NC",
+   "rows": 35,
+   "file": "000457.json"
+  },
+  {
+   "code": "007050",
+   "name": "Southestrn Baptist Theol Sem",
+   "state": "NC",
+   "rows": 37,
+   "file": "007050.json"
+  },
+  {
+   "code": "005667",
+   "name": "Southwestern Community College",
+   "state": "NC",
+   "rows": 24,
+   "file": "005667.json"
+  },
+  {
+   "code": "005596",
+   "name": "St Augustines College",
+   "state": "NC",
+   "rows": 3,
+   "file": "005596.json"
+  },
+  {
+   "code": "000496",
+   "name": "Stanly Cmty College",
+   "state": "NC",
+   "rows": 2,
+   "file": "000496.json"
+  },
+  {
+   "code": "005656",
+   "name": "Surry Community College",
+   "state": "NC",
+   "rows": 3,
+   "file": "005656.json"
+  },
+  {
+   "code": "005512",
+   "name": "Univ Nc Sch Of The Arts",
+   "state": "NC",
+   "rows": 11,
+   "file": "005512.json"
+  },
+  {
+   "code": "005013",
+   "name": "Univ North Carolina Asheville",
+   "state": "NC",
+   "rows": 37,
+   "file": "005013.json"
+  },
+  {
+   "code": "005816",
+   "name": "Univ North Carolina Chapel Hl",
+   "state": "NC",
+   "rows": 195,
+   "file": "005816.json"
+  },
+  {
+   "code": "005105",
+   "name": "Univ North Carolina Charlotte",
+   "state": "NC",
+   "rows": 132,
+   "file": "005105.json"
+  },
+  {
+   "code": "005913",
+   "name": "Univ North Carolina Greensboro",
+   "state": "NC",
+   "rows": 16,
+   "file": "005913.json"
+  },
+  {
+   "code": "005534",
+   "name": "Univ North Carolina Pembroke",
+   "state": "NC",
+   "rows": 1,
+   "file": "005534.json"
+  },
+  {
+   "code": "005907",
+   "name": "Univ North Carolina Wilmington",
+   "state": "NC",
+   "rows": 53,
+   "file": "005907.json"
+  },
+  {
+   "code": "000617",
+   "name": "Vance-Granville Comm College",
+   "state": "NC",
+   "rows": 6,
+   "file": "000617.json"
+  },
+  {
+   "code": "005885",
+   "name": "Wake Forest University",
+   "state": "NC",
+   "rows": 82,
+   "file": "005885.json"
+  },
+  {
+   "code": "005928",
+   "name": "Wake Technical College",
+   "state": "NC",
+   "rows": 126,
+   "file": "005928.json"
+  },
+  {
+   "code": "005886",
+   "name": "Warren Wilson College",
+   "state": "NC",
+   "rows": 10,
+   "file": "005886.json"
+  },
+  {
+   "code": "005926",
+   "name": "Wayne Community College",
+   "state": "NC",
+   "rows": 6,
+   "file": "005926.json"
+  },
+  {
+   "code": "005897",
+   "name": "Western Carolina University",
+   "state": "NC",
+   "rows": 53,
+   "file": "005897.json"
+  },
+  {
+   "code": "005922",
+   "name": "Western Piedmont Comm Coll",
+   "state": "NC",
+   "rows": 30,
+   "file": "005922.json"
+  },
+  {
+   "code": "001028",
+   "name": "Austin Peay State University",
+   "state": "TN",
+   "rows": 64,
+   "file": "001028.json"
+  },
+  {
+   "code": "001058",
+   "name": "Belmont University",
+   "state": "TN",
+   "rows": 55,
+   "file": "001058.json"
+  },
+  {
+   "code": "001063",
+   "name": "Bethel University",
+   "state": "TN",
+   "rows": 4,
+   "file": "001063.json"
+  },
+  {
+   "code": "001908",
+   "name": "Bryan College",
+   "state": "TN",
+   "rows": 14,
+   "file": "001908.json"
+  },
+  {
+   "code": "001102",
+   "name": "Carson-Newman University",
+   "state": "TN",
+   "rows": 9,
+   "file": "001102.json"
+  },
+  {
+   "code": "001084",
+   "name": "Chattanooga State Tech Cmty Cl",
+   "state": "TN",
+   "rows": 81,
+   "file": "001084.json"
+  },
+  {
+   "code": "001121",
+   "name": "Christian Brothers University",
+   "state": "TN",
+   "rows": 1,
+   "file": "001121.json"
+  },
+  {
+   "code": "002848",
+   "name": "Cleveland State Cmty College",
+   "state": "TN",
+   "rows": 4,
+   "file": "002848.json"
+  },
+  {
+   "code": "001081",
+   "name": "Columbia State Comm College",
+   "state": "TN",
+   "rows": 50,
+   "file": "001081.json"
+  },
+  {
+   "code": "007323",
+   "name": "Dyersburg State Cmty College",
+   "state": "TN",
+   "rows": 5,
+   "file": "007323.json"
+  },
+  {
+   "code": "001198",
+   "name": "East Tennessee State Univ",
+   "state": "TN",
+   "rows": 52,
+   "file": "001198.json"
+  },
+  {
+   "code": "001224",
+   "name": "Fisk University",
+   "state": "TN",
+   "rows": 16,
+   "file": "001224.json"
+  },
+  {
+   "code": "001230",
+   "name": "Freed-Hardeman University",
+   "state": "TN",
+   "rows": 39,
+   "file": "001230.json"
+  },
+  {
+   "code": "002266",
+   "name": "Jackson State Cmty Coll",
+   "state": "TN",
+   "rows": 11,
+   "file": "002266.json"
+  },
+  {
+   "code": "001345",
+   "name": "Johnson University",
+   "state": "TN",
+   "rows": 10,
+   "file": "001345.json"
+  },
+  {
+   "code": "001371",
+   "name": "King College",
+   "state": "TN",
+   "rows": 3,
+   "file": "001371.json"
+  },
+  {
+   "code": "001401",
+   "name": "Lee University",
+   "state": "TN",
+   "rows": 26,
+   "file": "001401.json"
+  },
+  {
+   "code": "001161",
+   "name": "Lipscomb University",
+   "state": "TN",
+   "rows": 16,
+   "file": "001161.json"
+  },
+  {
+   "code": "001454",
+   "name": "Maryville College",
+   "state": "TN",
+   "rows": 16,
+   "file": "001454.json"
+  },
+  {
+   "code": "001466",
+   "name": "Middle Tennessee State Univ",
+   "state": "TN",
+   "rows": 47,
+   "file": "001466.json"
+  },
+  {
+   "code": "001469",
+   "name": "Milligan University",
+   "state": "TN",
+   "rows": 19,
+   "file": "001469.json"
+  },
+  {
+   "code": "001543",
+   "name": "Motlow State Cmty College",
+   "state": "TN",
+   "rows": 26,
+   "file": "001543.json"
+  },
+  {
+   "code": "000850",
+   "name": "Nashville State Community Coll",
+   "state": "TN",
+   "rows": 44,
+   "file": "000850.json"
+  },
+  {
+   "code": "000453",
+   "name": "Northeast State Community Colg",
+   "state": "TN",
+   "rows": 7,
+   "file": "000453.json"
+  },
+  {
+   "code": "000319",
+   "name": "Pellissippi State Comm College",
+   "state": "TN",
+   "rows": 61,
+   "file": "000319.json"
+  }
+ ]
+}

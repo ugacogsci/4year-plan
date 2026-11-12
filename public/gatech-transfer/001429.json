@@ -1,0 +1,8 @@
+{"code":"001429","name":"Lurleen B Wallace Cmnty Colg","state":"AL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":6,"rows":[
+{"id":"BIO 103@202008","subj":"BIO","num":"103","title":"Principles of Biology","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"HIS 101@201808","subj":"HIS","num":"101","title":"Western Civilization I","minGrade":"C","from":"201808","to":null,"gt":[{"code":"SS 1XXX","title":"Social Science Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"HIS 102@201808","subj":"HIS","num":"102","title":"Western Civilization II","minGrade":"C","from":"201808","to":null,"gt":[{"code":"SS 1XXX","title":"Social Science Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"HIS 201@201808","subj":"HIS","num":"201","title":"U.S. History I","minGrade":"C","from":"201808","to":null,"gt":[{"code":"HIST 2111","title":"United States to 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"HIS 202@201808","subj":"HIS","num":"202","title":"U.S. History II","minGrade":"C","from":"201808","to":null,"gt":[{"code":"HIST 2112","title":"United States since 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"POL 211@201808","subj":"POL","num":"211","title":"American Nat'l Government","minGrade":"C","from":"201808","to":null,"gt":[{"code":"POL 1101","title":"Government of the U.S.","hours":3}],"conn":null,"flags":[]}
+]}

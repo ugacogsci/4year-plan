@@ -1,0 +1,11 @@
+{"code":"005109","name":"Claflin University","state":"SC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":9,"rows":[
+{"id":"CSCI 215@200508","subj":"CSCI","num":"215","title":"Basic Algorithmic Design","minGrade":"C","from":"200508","to":null,"gt":[{"code":"CS 1301","title":"Computer Science I","hours":3},{"code":"FREE 1XXX","title":"Free Elective","hours":1}],"conn":"and","flags":["FREE","SPLIT"]},
+{"id":"CSCI 225@200508","subj":"CSCI","num":"225","title":"Intro to Digital Logic Design","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"CSCI 227@200508","subj":"CSCI","num":"227","title":"Intro to Programming (C++)","minGrade":"C","from":"200508","to":null,"gt":[{"code":"CS 1301","title":"Computer Science I","hours":3}],"conn":null,"flags":[]},
+{"id":"MATH 112@202005","subj":"MATH","num":"112","title":"Pre-Calculus","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 201@201505","subj":"MATH","num":"201","title":"Calculus I","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 202@201505","subj":"MATH","num":"202","title":"Calculus II","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 212@201505","subj":"MATH","num":"212","title":"Linear Algebra","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 301@201505","subj":"MATH","num":"301","title":"Calculus III","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 302@201602","subj":"MATH","num":"302","title":"Differential Equations","minGrade":"C","from":"201602","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

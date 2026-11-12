@@ -1,0 +1,13 @@
+{"code":"005395","name":"Mars Hill University","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":11,"rows":[
+{"id":"CHM 113@201005","subj":"CHM","num":"113","title":"General Chemistry I","minGrade":"C","from":"201005","to":null,"gt":[{"code":"CHEM 1211K","title":"Chemical Principles I","hours":4}],"conn":null,"flags":[]},
+{"id":"CHM 114@201005","subj":"CHM","num":"114","title":"General Chemistry II","minGrade":"C","from":"201005","to":null,"gt":[{"code":"CHEM 1212K","title":"Chemical Principles II","hours":4}],"conn":null,"flags":[]},
+{"id":"ENG 111@200208","subj":"ENG","num":"111","title":"Expository Essay","minGrade":"C","from":"200208","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 112@200908","subj":"ENG","num":"112","title":"Documented Essay","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"LAA 231@200808","subj":"LAA","num":"231","title":"Critique, Faith, & Reason","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"MTH 115@200208","subj":"MTH","num":"115","title":"Calculus I","minGrade":"C","from":"200208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 120@200908","subj":"MTH","num":"120","title":"Calculus II","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 218@200808","subj":"MTH","num":"218","title":"Applied Linear Algebra","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PE 101@201102","subj":"PE","num":"101","title":"Foundations of Hlth & Wellness","minGrade":"C","from":"201102","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PHY 327@201008","subj":"PHY","num":"327","title":"Classical Mechanics","minGrade":"C","from":"201008","to":null,"gt":[{"code":"ET DEPT","title":"Dept Reviews Each Section","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PSY 111@200508","subj":"PSY","num":"111","title":"General Psychology","minGrade":"C","from":"200508","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]}
+]}

@@ -1,0 +1,9 @@
+{"code":"000453","name":"Northeast State Community Colg","state":"TN","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":9,"rows":[
+{"id":"HUM 2010@200808","subj":"HUM","num":"2010","title":"Introduction to Humanities I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"HUM 2350@200808","subj":"HUM","num":"2350","title":"Technology in Culture","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"MATH 1720@202005","subj":"MATH","num":"1720","title":"Pre-Calculus Trigonometry","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 1910@201505","subj":"MATH","num":"1910","title":"Calculus I","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1551","title":"Differential Calculus","hours":2},{"code":"MATH 1XXX","title":"Mathematics Elective","hours":2}],"conn":"and","flags":["ELECTIVE","SPLIT"]},
+{"id":"MATH 1920@201505","subj":"MATH","num":"1920","title":"Calculus II","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1552","title":"Integral Calculus","hours":4}],"conn":null,"flags":[]},
+{"id":"MATH 2010@201908","subj":"MATH","num":"2010","title":"Intro to Linear Algebra","minGrade":"C","from":"201908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 2110@200808","subj":"MATH","num":"2110","title":"Calculus III","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

@@ -1,0 +1,14 @@
+{"code":"005789","name":"Tri-County Tech College Sc","state":"SC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":12,"rows":[
+{"id":"CHM 110@201005","subj":"CHM","num":"110","title":"College Chemistry I","minGrade":"C","from":"201005","to":null,"gt":[{"code":"CHEM 1211K","title":"Chemical Principles I","hours":4}],"conn":null,"flags":[]},
+{"id":"CHM 111@201005","subj":"CHM","num":"111","title":"College Chemistry II","minGrade":"C","from":"201005","to":null,"gt":[{"code":"CHEM 1212K","title":"Chemical Principles II","hours":4}],"conn":null,"flags":[]},
+{"id":"ECO 211@202208","subj":"ECO","num":"211","title":"Microeconomics","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ECON 2106","title":"Prin of Microeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"EGR 270@201008","subj":"EGR","num":"270","title":"Introduction to Engineering","minGrade":"C","from":"201008","to":null,"gt":[{"code":"FREE 2XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]},
+{"id":"ENG 102@202208","subj":"ENG","num":"102","title":"English Composition II","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"GEO 102@201108","subj":"GEO","num":"102","title":"World Geography","minGrade":"C","from":"201108","to":null,"gt":[{"code":"SS 1XXX","title":"Social Science Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"HSS 205@201008","subj":"HSS","num":"205","title":"Technology and Society","minGrade":"C","from":"201008","to":null,"gt":[{"code":"SS 2XXX","title":"Social Science Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"MAT 240@201108","subj":"MAT","num":"240","title":"Analytical Geom & Calculus III","minGrade":"C","from":"201108","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MAT 242@201108","subj":"MAT","num":"242","title":"Differential Equations","minGrade":"C","from":"201108","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PSY 202@202208","subj":"PSY","num":"202","title":"Fundamentals of Psychological","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"SPA 101@202208","subj":"SPA","num":"101","title":"Elementary Spanish I","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"SPC 205@202208","subj":"SPC","num":"205","title":"Public Speaking","minGrade":"C","from":"202208","to":null,"gt":[{"code":"LMC 2XXX","title":"Lit,Media,&Comm Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]}
+]}

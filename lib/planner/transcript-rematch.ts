@@ -15,6 +15,7 @@ import { schoolById } from './onboarding';
 import { courseleafOf, isCourseleaf, type SchoolKey } from './school-config';
 import { loadTransferGenEd, type CatalogLite } from './transfer-match';
 import { loadUgaTransfer } from './transfer-official';
+import { loadGatechTransfer } from './transfer-gatech';
 import { matchTranscript, normalizeCourseCode, readingOfRecord, type TranscriptRecord } from './transcript';
 import type { Course } from './types';
 import { loadUgaOfferings } from './uga-offerings';
@@ -32,7 +33,9 @@ export async function rematchForSchool(record: TranscriptRecord, here: SchoolKey
   const guide = courseleafOf(here)?.transferGenEdGuide ? await loadTransferGenEd().catch(() => null) : null;
   const ugaTable = here === 'uga' ? await loadUgaTransfer([reading.institution, ...reading.courses.map((c) => c.from)]).catch(() => null) : null;
   const crossListed = here === 'uga' ? (await loadUgaOfferings().catch(() => null))?.crossListed ?? null : null;
-  const matched = matchTranscript(reading, record.fileName, catalog, record.files ?? [record.fileName], guide, here, ugaTable, crossListed);
+  // Georgia Tech's own transfer table (transfer-gatech.ts): nothing until its files and matcher exist.
+  const gatechTable = here === 'gatech' ? await loadGatechTransfer([reading.institution, ...reading.courses.map((c) => c.from)]).catch(() => null) : null;
+  const matched = matchTranscript(reading, record.fileName, catalog, record.files ?? [record.fileName], guide, here, ugaTable, crossListed, gatechTable);
   // Matched for this school, then the lines nothing settled decided (transfer-ai.ts), where the school has that step.
   const fresh = here === 'uga' || here === 'illinois' ? await refineTransfers(matched, catalog, here) : matched;
   const nameOf = (id: SchoolKey | undefined) => schoolById(id ?? 'illinois')?.short ?? 'another school';

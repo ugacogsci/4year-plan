@@ -1,0 +1,15 @@
+{"code":"001187","name":"Chattahoochee Valley Cmty Coll","state":"AL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":15,"rows":[
+{"id":"BIO 103@200908","subj":"BIO","num":"103","title":"Principles of Biology I","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"BIO 104@200908","subj":"BIO","num":"104","title":"Principles of Biology II","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ENG 101@200508","subj":"ENG","num":"101","title":"English Composition Skills I","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 102@200508","subj":"ENG","num":"102","title":"English Composition II","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 251@201805","subj":"ENG","num":"251","title":"American Lit I","minGrade":"C","from":"201805","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"HIS 201@201105","subj":"HIS","num":"201","title":"United States History I","minGrade":"C","from":"201105","to":null,"gt":[{"code":"HIST 2111","title":"United States to 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"HIS 202@201108","subj":"HIS","num":"202","title":"United States History II","minGrade":"C","from":"201108","to":null,"gt":[{"code":"HIST 2112","title":"United States since 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"MTH 112@202005","subj":"MTH","num":"112","title":"Precalculus Algebra","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 113@202005","subj":"MTH","num":"113","title":"Precalculus Trigonometry","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 115@202005","subj":"MTH","num":"115","title":"Precalculus Alg & Trig","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 125@201505","subj":"MTH","num":"125","title":"Calculus I","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1551","title":"Differential Calculus","hours":2},{"code":"MATH 1XXX","title":"Mathematics Elective","hours":2}],"conn":"and","flags":["ELECTIVE","SPLIT"]},
+{"id":"MTH 126@201505","subj":"MTH","num":"126","title":"Calculus II","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1552","title":"Integral Calculus","hours":4}],"conn":null,"flags":[]},
+{"id":"MTH 227@201505","subj":"MTH","num":"227","title":"Calculus III","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 2551","title":"Multivariable Calculus","hours":4}],"conn":null,"flags":[]}
+]}

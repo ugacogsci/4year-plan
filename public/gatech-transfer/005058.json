@@ -1,0 +1,4 @@
+{"code":"005058","name":"Bennett College Nc","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":2,"rows":[
+{"id":"BI 101@200808","subj":"BI","num":"101","title":"Principles of Biology","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"HE 101@200808","subj":"HE","num":"101","title":"Wellness for Life","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HPS 11XX","title":"Wellness Requirement","hours":2}],"conn":null,"flags":["XNUM","WELLNESS"]}
+]}

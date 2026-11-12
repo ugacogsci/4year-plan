@@ -1,0 +1,3 @@
+{"code":"Z85222","name":"Albany Area Voc-Techl School*","state":"GA","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":2,"rows":[
+{"id":"MATH 1131@201602","subj":"MATH","num":"1131","title":"Calculus I","minGrade":"C","from":"201602","to":null,"gt":[{"code":"MATH 1551","title":"Differential Calculus","hours":2},{"code":"MATH 1XXX","title":"Mathematics Elective","hours":2}],"conn":"and","flags":["ELECTIVE","SPLIT"]}
+]}

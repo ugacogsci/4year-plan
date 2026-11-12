@@ -1,0 +1,5 @@
+{"code":"005008","name":"Anderson University","state":"SC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":3,"rows":[
+{"id":"BIO 160@200808","subj":"BIO","num":"160","title":"Intro to Environmental Science","minGrade":"C","from":"200808","to":null,"gt":[{"code":"EAS 1XXX","title":"Earth&Atmos Sci Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"CHE 101@200808","subj":"CHE","num":"101","title":"Chemistry in Context","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"CHE 102@200808","subj":"CHE","num":"102","title":"Chemistry in Context Lab","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]}
+]}

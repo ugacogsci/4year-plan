@@ -1,0 +1,9 @@
+{"code":"005744","name":"Denmark Tech College","state":"SC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":7,"rows":[
+{"id":"CIM 131@201808","subj":"CIM","num":"131","title":"Computer Integrated Manufactrg","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"COL 103@201008","subj":"COL","num":"103","title":"College Skills","minGrade":"C","from":"201008","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"CPT 101@201808","subj":"CPT","num":"101","title":"Introduction to Computers","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"EET 145@201808","subj":"EET","num":"145","title":"Digital Circuits","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"EGR 130@201808","subj":"EGR","num":"130","title":"Engineering Tech","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"EGT 151@201808","subj":"EGT","num":"151","title":"Introduction to CAD","minGrade":"C","from":"201808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"SPC 205@201008","subj":"SPC","num":"205","title":"Public Speaking","minGrade":"C","from":"201008","to":null,"gt":[{"code":"FREE 2XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]}
+]}

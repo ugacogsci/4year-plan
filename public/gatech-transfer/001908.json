@@ -1,0 +1,16 @@
+{"code":"001908","name":"Bryan College","state":"TN","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":14,"rows":[
+{"id":"BIB 115@200508","subj":"BIB","num":"115","title":"Biblical Foundations","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"BIO 111@200808","subj":"BIO","num":"111","title":"Introduction to Biology","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"CT 190@200508","subj":"CT","num":"190","title":"History of Christian Thought","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"ENG 109@200808","subj":"ENG","num":"109","title":"College Writing I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 110@200808","subj":"ENG","num":"110","title":"College Writing II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 117@200808","subj":"ENG","num":"117","title":"CS Lewis and the Inklings","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"ENG 190@200508","subj":"ENG","num":"190","title":"Selected Topics","minGrade":"C","from":"200508","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"HUM 101@200808","subj":"HUM","num":"101","title":"Intro to Humanities","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"PHIL 112@200808","subj":"PHIL","num":"112","title":"Understanding the Times","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"PHIL 211@202008","subj":"PHIL","num":"211","title":"Introduction to Philosophy","minGrade":"C","from":"202008","to":null,"gt":[{"code":"PHIL 2010","title":"Intro Philosophy","hours":3}],"conn":null,"flags":[]},
+{"id":"PHYS 241@201508","subj":"PHYS","num":"241","title":"General Physics I","minGrade":"C","from":"201508","to":null,"gt":[{"code":"ET LAB","title":"Credit Awarded w/PHYS 241L","hours":0}],"conn":null,"lab":null,"flags":["LAB"]},
+{"id":"PHYS 241L@201508","subj":"PHYS","num":"241L","title":"General Physics I Lab","minGrade":"C","from":"201508","to":null,"gt":[{"code":"PHYS 2XXX","title":"Physics Elective","hours":4}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"PSGS 190@200508","subj":"PSGS","num":"190","title":"Politics and Religion","minGrade":"C","from":"200508","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"PSY 111@202008","subj":"PSY","num":"111","title":"General Psychology","minGrade":"C","from":"202008","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]}
+]}

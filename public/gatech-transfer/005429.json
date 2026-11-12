@@ -1,0 +1,8 @@
+{"code":"005429","name":"Art Institute Atlanta","state":"GA","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":6,"rows":[
+{"id":"ARHA 125@201808","subj":"ARHA","num":"125","title":"History of Western Art I","minGrade":"C","from":"201808","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":2}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"ARHA 126@201808","subj":"ARHA","num":"126","title":"History of Western Art II","minGrade":"C","from":"201808","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":2}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"CBFND 135@202002","subj":"CBFND","num":"135","title":"Image Manipulation (College Bo","minGrade":"C","from":"202002","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"COMA 112@201808","subj":"COMA","num":"112","title":"Princ of Communication","minGrade":"C","from":"201808","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":2}],"conn":null,"flags":["FREE"]},
+{"id":"HUMA 250@201808","subj":"HUMA","num":"250","title":"ST:Intro to Pop Culture","minGrade":"C","from":"201808","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":2}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"MATA 101@201505","subj":"MATA","num":"101","title":"College Algebra","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]}
+]}

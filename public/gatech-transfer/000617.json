@@ -1,0 +1,8 @@
+{"code":"000617","name":"Vance-Granville Comm College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":6,"rows":[
+{"id":"BIO 140@202408","subj":"BIO","num":"140","title":"Environmental Biology","minGrade":"C","from":"202408","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"BIO 140A@202408","subj":"BIO","num":"140A","title":"Environmental Biology lab","minGrade":"C","from":"202408","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"CHM 132@202408","subj":"CHM","num":"132","title":"Organic & Biochemistry","minGrade":"C","from":"202408","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ENG 112@202408","subj":"ENG","num":"112","title":"Writing/Research in the Discip","minGrade":"C","from":"202408","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3},{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":"or","opts":[[0],[1]],"flags":[]},
+{"id":"HEA 110@201808","subj":"HEA","num":"110","title":"Personal Health/Wellness","minGrade":"C","from":"201808","to":null,"gt":[{"code":"APPH 1040","title":"Sci Foundation of Health","hours":2},{"code":"APPH 1XXX","title":"Applied Physiology elective","hours":1}],"conn":"and","flags":["ELECTIVE","SPLIT"]},
+{"id":"PHY 252@202008","subj":"PHY","num":"252","title":"General Physics II","minGrade":"C","from":"202008","to":null,"gt":[{"code":"PHYS 2212","title":"Intro Physics II","hours":4}],"conn":null,"flags":[]}
+]}

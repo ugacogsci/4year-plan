@@ -1,0 +1,6 @@
+{"code":"005668","name":"Spartanburg Comm College","state":"SC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":4,"rows":[
+{"id":"BIO 102@200908","subj":"BIO","num":"102","title":"Biological Science II","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"CPT 1010@201508","subj":"CPT","num":"1010","title":"Introduction to Computers","minGrade":"C","from":"201508","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"CPT 168@201508","subj":"CPT","num":"168","title":"Prog Logic & Design","minGrade":"C","from":"201508","to":null,"gt":[{"code":"CS 1301","title":"Intro to Computing","hours":3}],"conn":null,"flags":[]},
+{"id":"MAT 141@200808","subj":"MAT","num":"141","title":"Analytic Geometry& Calculus II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

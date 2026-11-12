@@ -96,6 +96,7 @@ import { DoubleDawgsTiming } from './double-dawgs-timing';
 import { degreeTermOrder, doubleDawgsContext, doubleDawgsIssues, doubleDawgsLedger, doubleDawgsProgress, sharedUndergraduateRequirements, withDoubleDawgsGraduateRules } from '@/lib/planner/double-dawgs';
 import { pathwaysFor, sampleCoursesFor, samplePlansFor } from '@/lib/planner/uga-planning-guidance';
 import { maybeCodes, maybeIssues, maybeLines, openMaybeOnBoard, withoutMaybe } from '@/lib/planner/transfer-maybe';
+import { transferWording } from '@/lib/planner/transfer-wording';
 import { ProgramPicker } from './program-picker';
 import { UGA_COMING_SOON } from '@/lib/planner/uga-degree-fixes';
 import { EmphasisPicker, emphasisSelectionsComplete } from './emphasis-picker';
@@ -2531,12 +2532,12 @@ export function PlannerWorkspace({
         code: c.code,
         title: c.title,
         credits: c.credits,
-        countsAs: c.matched
-          ? `Counts as ${c.matched} here${c.matchedBy === 'proposal' ? ' (likely; your transfer evaluation decides)' : ''}`
-          : c.counts === 'hours' ? 'Counts as elective hours here until it is evaluated' : 'Does not count here',
+        // The line's tier, in the transcript list's own words (transfer-wording.ts).
+        countsAs: transferWording(c, { schoolId: record.schoolId ?? answers?.schoolId, catalog: byCode })?.short
+          ?? (c.matched ? `Counts as ${c.matched} at ${here}` : c.counts === 'hours' ? `Counts as hours toward your total at ${here}` : `Does not count at ${here}`),
       })),
     };
-  }, [answers, currentView, plan, school?.short]);
+  }, [answers, currentView, plan, school?.short, byCode]);
 
   /**
    * What the student says they hold against what the plan can see: hours on
@@ -6927,6 +6928,11 @@ export function PlannerWorkspace({
       case 'prior_credit': {
         const record = L.answers?.transcript ?? null;
         const exams = L.answers?.exams ?? [];
+        /** The line's tier and the sentence the transcript list shows for it (transfer-wording.ts), so the assistant uses the same words. */
+        const transferSaid = (c: NonNullable<typeof record>['courses'][number]) => {
+          const w = transferWording(c, { schoolId: record?.schoolId ?? L.answers?.schoolId });
+          return w ? { tier: w.tier, outcome: w.sentence } : {};
+        };
         const counted = (record?.courses ?? [])
           .filter((c) => c.use && c.counts === 'course' && c.matched)
           .map((c) => ({
@@ -6941,10 +6947,11 @@ export function PlannerWorkspace({
             from: c.from ?? (record?.home === false ? record.institution : null),
             how: c.matchedBy === 'code' ? `${school?.short ?? 'University'} code on the record` : c.matchedBy === 'printed' ? 'equivalent printed on the document (confirmed)' : c.matchedBy === 'official' ? "the university's own transfer equivalency list" : c.matchedBy === 'sisters' ? "UGA's lists for the same course number at sister schools in the same system (UGA's evaluation decides)" : c.matchedBy === 'proposal' ? 'likely equivalent from the catalog (not confirmed)' : 'entered by the student or in chat',
             ...(c.basis ? { why: c.basis.text, source: c.basis.source ?? null } : {}),
+            ...transferSaid(c),
           }));
         const hoursLines = (record?.courses ?? [])
           .filter((c) => c.use && c.counts === 'hours')
-          .map((c) => ({ as_printed: c.code, title: c.title, hours: c.equivalentCredits ?? c.credits, from: c.from ?? (record?.home === false ? record.institution : null), status: c.status, likely_equivalents: (c.proposals ?? []).map((p) => `${p.code} ${p.title} (${p.confidence})`), ...(c.designation ? { designation: c.designation, core_area: c.coreArea ?? null } : {}), ...(c.basis ? { why: c.basis.text, source: c.basis.source ?? null } : {}) }));
+          .map((c) => ({ as_printed: c.code, title: c.title, hours: c.equivalentCredits ?? c.credits, from: c.from ?? (record?.home === false ? record.institution : null), status: c.status, likely_equivalents: (c.proposals ?? []).map((p) => `${p.code} ${p.title} (${p.confidence})`), ...(c.designation ? { designation: c.designation, core_area: c.coreArea ?? null } : {}), ...(c.basis ? { why: c.basis.text, source: c.basis.source ?? null } : {}), ...transferSaid(c) }));
         const notCounted = (record?.courses ?? [])
           .filter((c) => !c.use)
           .map((c) => ({ as_printed: c.code, title: c.title, status: c.status, why: c.basis?.badge === 'none' ? c.basis.text : c.status === 'no_credit' ? 'the document says it earns no credit' : c.status === 'withdrawn' ? 'withdrawn' : c.status === 'failed' ? 'failed' : 'turned off by the student' }));

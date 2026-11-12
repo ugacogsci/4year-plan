@@ -1,0 +1,3 @@
+{"code":"001121","name":"Christian Brothers University","state":"TN","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":1,"rows":[
+{"id":"ECE 134@200808","subj":"ECE","num":"134","title":"Intro Computational Think/Prog","minGrade":"C","from":"200808","to":null,"gt":[{"code":"CS 1301","title":"Intro to Computing","hours":3}],"conn":null,"flags":[]}
+]}

@@ -13,12 +13,15 @@
  *   3. published "no credit" rules: remedial courses, technical-college
  *      courses that are not general education (UGA), vocational courses
  *      (Illinois), physical education past one hour (UGA);
- *   4. otherwise hours, labelled "not yet evaluated".
+ *   4. otherwise hours, labelled as having no published answer yet (they
+ *      still count toward the total).
  *
- * Every answer carries the page it came from, so the student can check it.
+ * Every answer carries the page it came from, so the student can check it,
+ * and a tier saying how sure it is (transfer-sources.ts).
  */
 
 import { loadUgaSisters, type UgaSisterTable } from './transfer-sisters';
+import type { TransferSourceKind, TransferTier } from './transfer-sources';
 
 export const UGA_TRANSFER_PORTAL = 'https://apply.uga.edu/portal/transfer-equivalency';
 export const UGA_TRANSFER_GUIDE = 'https://transfer.uga.edu/wp-content/uploads/Transfer-Planning-Guide.pdf';
@@ -151,6 +154,34 @@ export interface TransferBasis {
   checked?: string | null;
   /** The sister schools whose UGA lists gave a 'sisters' answer, every one of them (the text names a few). */
   schools?: string[];
+  /**
+   * How sure the answer is (transfer-sources.ts): confirmed, rule, likely,
+   * review or unknown. A label only: it never changes what the line counts
+   * as. Absent on records saved before 2026-11-10 (transfer-sources.ts tierOf
+   * reads those from the rest of the basis).
+   */
+  tier?: TransferTier;
+  /** The source, machine-readable: 'uga-list', 'gened-guide', 'remedial-rule', 'sister', 'title', 'ai', ... */
+  sourceKind?: TransferSourceKind;
+  /**
+   * For an answer read from a list this planner keeps a copy of: the public/
+   * file and the row in it ("uga-transfer/005251.json#ENGL1101"), so a repo
+   * check can prove the row exists.
+   */
+  row?: string | null;
+  /** When the source was read (a list) or the edition it is (a guide). */
+  readAt?: string | null;
+  /** The source in plain words, for the line's sentence: "UGA's equivalency list for Georgia State University". */
+  sourceLabel?: string | null;
+  /** Courses the source names that the planner's catalog does not list ("PHYS 1111L"), so the line counts as hours. */
+  named?: string[] | null;
+  /**
+   * The classes the answer itself booked (matched, then also), kept when the
+   * match finishes (transcript.ts finishTiers), so a line the student points
+   * at another class reads as changed and its sentence can still say what the
+   * source gave (transfer-wording.ts). Absent before 2026-11-12.
+   */
+  answer?: string[] | null;
 }
 
 export interface UgaTransferIndexEntry {

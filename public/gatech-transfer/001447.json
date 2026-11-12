@@ -1,0 +1,10 @@
+{"code":"001447","name":"Marion Military Institute","state":"AL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":10,"rows":[
+{"id":"CHM 111@201005","subj":"CHM","num":"111","title":"College Chemistry I","minGrade":"C","from":"201005","to":null,"gt":[{"code":"CHEM 1211K","title":"Chemical Principles I","hours":4}],"conn":null,"flags":[]},
+{"id":"CHM 112@201005","subj":"CHM","num":"112","title":"College Chemistry II","minGrade":"C","from":"201005","to":null,"gt":[{"code":"CHEM 1212K","title":"Chemical Principles II","hours":4}],"conn":null,"flags":[]},
+{"id":"ENG 101@200908","subj":"ENG","num":"101","title":"Freshman Composition I","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 102@200908","subj":"ENG","num":"102","title":"Freshman Composition II","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"HIS 201@201105","subj":"HIS","num":"201","title":"United States History I","minGrade":"C","from":"201105","to":null,"gt":[{"code":"HIST 2112","title":"United States since 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"HIS 202@201105","subj":"HIS","num":"202","title":"United States History II","minGrade":"C","from":"201105","to":null,"gt":[{"code":"HIST 2112","title":"United States since 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"MTH 125@200908","subj":"MTH","num":"125","title":"Calculus I","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 126@200908","subj":"MTH","num":"126","title":"Calculus II","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

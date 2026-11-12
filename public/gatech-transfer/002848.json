@@ -1,0 +1,6 @@
+{"code":"002848","name":"Cleveland State Cmty College","state":"TN","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":6,"rows":[
+{"id":"PHYS 2110@201308","subj":"PHYS","num":"2110","title":"Calculus Based Physics I","minGrade":"C","from":"201308","to":null,"gt":[{"code":"PHYS 2211","title":"Intro Physics I","hours":4}],"conn":null,"flags":[]},
+{"id":"PHYS 2111@200508","subj":"PHYS","num":"2111","title":"University Physics I Lab","minGrade":"C","from":"200508","to":null,"gt":[{"code":"PHYS 2211","title":"Intro Physics I","hours":4},{"code":"ET NOGT","title":"Verify PHYS 2110 credit","hours":0}],"conn":"or","opts":[[0],[1]],"flags":["NOGT"]},
+{"id":"PHYS 2120@201308","subj":"PHYS","num":"2120","title":"Calculus Based Physics II","minGrade":"C","from":"201308","to":null,"gt":[{"code":"PHYS 2212","title":"Intro Physics II","hours":4}],"conn":null,"flags":[]},
+{"id":"PHYS 2121@200508","subj":"PHYS","num":"2121","title":"University Physics II Lab","minGrade":"C","from":"200508","to":null,"gt":[{"code":"PHYS 2212","title":"Intro-Physics II","hours":4},{"code":"ET NOGT","title":"Verify PHYS 2120 credit","hours":0}],"conn":"or","opts":[[0],[1]],"flags":["NOGT"]}
+]}

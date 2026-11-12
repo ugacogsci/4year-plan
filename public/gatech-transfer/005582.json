@@ -1,0 +1,19 @@
+{"code":"005582","name":"Rockingham Cmty College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":17,"rows":[
+{"id":"ART 111@202008","subj":"ART","num":"111","title":"Art Appreciation","minGrade":"C","from":"202008","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"BIO 111@202008","subj":"BIO","num":"111","title":"General Biology I","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"BIO 112@202008","subj":"BIO","num":"112","title":"General Biology II","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"BIO 140@202008","subj":"BIO","num":"140","title":"Environmental Biology","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"COM 231@202208","subj":"COM","num":"231","title":"Public Speaking","minGrade":"C","from":"202208","to":null,"gt":[{"code":"FREE 2XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]},
+{"id":"ENG 111@202008","subj":"ENG","num":"111","title":"Writing and Inquiry","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ENG 112@202008","subj":"ENG","num":"112","title":"Writing/Research in the Discip","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"HIS 131@202008","subj":"HIS","num":"131","title":"American History I","minGrade":"C","from":"202008","to":null,"gt":[{"code":"HIST 2111","title":"United States to 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"HIS 132@202008","subj":"HIS","num":"132","title":"American History II","minGrade":"C","from":"202008","to":null,"gt":[{"code":"HIST 2112","title":"United States since 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"MAT 152@202008","subj":"MAT","num":"152","title":"Statistical Methods","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MAT 171@202008","subj":"MAT","num":"171","title":"Precalculus Algebra","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"MAT 172@202005","subj":"MAT","num":"172","title":"Precalculus Trigonometry","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MAT 271@202208","subj":"MAT","num":"271","title":"Calculus 1","minGrade":"C","from":"202208","to":null,"gt":[{"code":"MATH 1551","title":"Differential Calculus","hours":2},{"code":"MATH 1XXX","title":"Mathematics Elective","hours":2}],"conn":"and","flags":["ELECTIVE","SPLIT"]},
+{"id":"MAT 272@202208","subj":"MAT","num":"272","title":"Calculus 2","minGrade":"C","from":"202208","to":null,"gt":[{"code":"MATH 1552","title":"Integral Calculus","hours":4}],"conn":null,"flags":[]},
+{"id":"PSY 150@202008","subj":"PSY","num":"150","title":"General Psychology","minGrade":"C","from":"202008","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]},
+{"id":"SPA 111@202008","subj":"SPA","num":"111","title":"Elementary Spanish I","minGrade":"C","from":"202008","to":null,"gt":[{"code":"SPAN 1001","title":"Elementary Spanish I","hours":3}],"conn":null,"flags":[]},
+{"id":"SPA 112@202008","subj":"SPA","num":"112","title":"Elementary Spanish II","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

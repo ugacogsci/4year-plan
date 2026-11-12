@@ -1,0 +1,11 @@
+{"code":"005319","name":"Isothermal Cmty College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":9,"rows":[
+{"id":"CHM 151@201005","subj":"CHM","num":"151","title":"General Chemistry I","minGrade":"C","from":"201005","to":null,"gt":[{"code":"CHEM 1211K","title":"Chemical Principles I","hours":4}],"conn":null,"flags":[]},
+{"id":"CHM 152@201005","subj":"CHM","num":"152","title":"General Chemistry II","minGrade":"C","from":"201005","to":null,"gt":[{"code":"CHEM 1212K","title":"Chemical Principles II","hours":4}],"conn":null,"flags":[]},
+{"id":"ENG 111@200808","subj":"ENG","num":"111","title":"Expository Writing","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 112@200808","subj":"ENG","num":"112","title":"Argument Based Research","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"MAT 175@202005","subj":"MAT","num":"175","title":"Precalculus","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MAT 175A@202005","subj":"MAT","num":"175A","title":"Precalculus Lab","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MAT 271@200808","subj":"MAT","num":"271","title":"Calculus I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MAT 272@200808","subj":"MAT","num":"272","title":"Calculus II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MAT 273@200808","subj":"MAT","num":"273","title":"Calculus III","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

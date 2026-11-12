@@ -1,0 +1,8 @@
+{"code":"005157","name":"South University","state":"GA","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":6,"rows":[
+{"id":"BIO 1020@200808","subj":"BIO","num":"1020","title":"Biology I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"BUS 1101@200808","subj":"BUS","num":"1101","title":"Introduction to Business","minGrade":"C","from":"200808","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":2}],"conn":null,"flags":["FREE"]},
+{"id":"BUS 2023@200808","subj":"BUS","num":"2023","title":"Business Communication","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MAT 1001@200808","subj":"MAT","num":"1001","title":"Intermediate Algebra","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"SOC 1001@200808","subj":"SOC","num":"1001","title":"Intro to Sociology","minGrade":"C","from":"200808","to":null,"gt":[{"code":"SS 1XXX","title":"Social Science Elective","hours":2}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"SPC 1026@200808","subj":"SPC","num":"1026","title":"Public Speaking","minGrade":"C","from":"200808","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":2}],"conn":null,"flags":["FREE"]}
+]}

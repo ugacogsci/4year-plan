@@ -1,0 +1,4 @@
+{"code":"002108","name":"J F Drake St Comm & Tech Coll","state":"AL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":2,"rows":[
+{"id":"ADM 108@202208","subj":"ADM","num":"108","title":"Intro to 3D Modeling","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ADM 114@202208","subj":"ADM","num":"114","title":"Design Innovation","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

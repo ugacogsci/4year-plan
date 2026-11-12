@@ -1,0 +1,3 @@
+{"code":"000715","name":"Central Alabama Cmnty College","state":"AL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":1,"rows":[
+{"id":"MTH 113@202208","subj":"MTH","num":"113","title":"Precalculus Trigonometry","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

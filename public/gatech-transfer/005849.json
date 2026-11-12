@@ -1,0 +1,11 @@
+{"code":"005849","name":"Univ South Carolina Lancaster","state":"SC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":10,"rows":[
+{"id":"CRJU 101@202008","subj":"CRJU","num":"101","title":"The Amer Criminal Justice Syst","minGrade":"C","from":"202008","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]},
+{"id":"ENGL 101@202002","subj":"ENGL","num":"101","title":"Critical Reading & Comp","minGrade":"C","from":"202002","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"HIST 108@201808","subj":"HIST","num":"108","title":"Science & Tech in World Hist","minGrade":"C","from":"201808","to":null,"gt":[{"code":"HTS 1XXX","title":"Hist,Tech & Soc Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"PHYS 201@202008","subj":"PHYS","num":"201","title":"General Physics I","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET LAB","title":"Credit Awarded w/PHYS 201L","hours":0}],"conn":null,"lab":null,"flags":["LAB"]},
+{"id":"PHYS 201L@202008","subj":"PHYS","num":"201L","title":"General Physics I Lab","minGrade":"C","from":"202008","to":null,"gt":[{"code":"PHYS 2XXX","title":"Physics Elective","hours":4}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"POLI 201@201105","subj":"POLI","num":"201","title":"American National Government","minGrade":"C","from":"201105","to":null,"gt":[{"code":"POL 1101","title":"Government of the U.S.","hours":3}],"conn":null,"flags":[]},
+{"id":"SOCY 101@201008","subj":"SOCY","num":"101","title":"Introductory Sociology","minGrade":"C","from":"201008","to":null,"gt":[{"code":"SOC 1101","title":"Intro to Sociology","hours":3}],"conn":null,"flags":[]},
+{"id":"SPAN 121@202008","subj":"SPAN","num":"121","title":"Elementary Spanish","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"SPAN 122@202008","subj":"SPAN","num":"122","title":"Basic Proficiency in Spanish","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

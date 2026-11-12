@@ -1,0 +1,4 @@
+{"code":"000496","name":"Stanly Cmty College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":2,"rows":[
+{"id":"MUS 110@201808","subj":"MUS","num":"110","title":"Music Appreciation","minGrade":"C","from":"201808","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"PSY 150@201808","subj":"PSY","num":"150","title":"General Psychology","minGrade":"C","from":"201808","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]}
+]}

@@ -1,0 +1,5 @@
+{"code":"005656","name":"Surry Community College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":3,"rows":[
+{"id":"ENG 112@201008","subj":"ENG","num":"112","title":"Writing/Research in the Disc","minGrade":"C","from":"201008","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"MAT 271@202208","subj":"MAT","num":"271","title":"Calculus I","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET TRAN","title":"See Math Transfer Policy","hours":0}],"conn":null,"flags":["ET_OTHER"]},
+{"id":"MAT 272@202208","subj":"MAT","num":"272","title":"Calculus II","minGrade":"C","from":"202208","to":null,"gt":[{"code":"MATH 1552","title":"Integral Calculus","hours":4}],"conn":null,"flags":[]}
+]}

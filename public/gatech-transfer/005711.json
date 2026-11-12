@@ -1,0 +1,3 @@
+{"code":"005711","name":"Georgia Perimeter College","state":"GA","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":1,"rows":[
+{"id":"GPC 1000@201608","subj":"GPC","num":"1000","title":"See GA State Univ Course Evals","minGrade":"C","from":"201608","to":null,"gt":[{"code":"ET DEPT","title":"ALL COURSE EVALS UNDER GA ST U","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

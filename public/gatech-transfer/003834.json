@@ -1,0 +1,8 @@
+{"code":"003834","name":"Art Institute Charlotte","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":6,"rows":[
+{"id":"FND 105@201408","subj":"FND","num":"105","title":"Design Fundamentals","minGrade":"C","from":"201408","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"FND 110@201408","subj":"FND","num":"110","title":"Observational Drawing","minGrade":"C","from":"201408","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"FND 135@201408","subj":"FND","num":"135","title":"Image Manipulation","minGrade":"C","from":"201408","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"FND 150@201408","subj":"FND","num":"150","title":"Digital Color Theory","minGrade":"C","from":"201408","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"GEO 014@201408","subj":"GEO","num":"014","title":"College Math","minGrade":"C","from":"201408","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"GWDA 103@201408","subj":"GWDA","num":"103","title":"Digital Illustration","minGrade":"C","from":"201408","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

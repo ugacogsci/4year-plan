@@ -1,0 +1,14 @@
+{"code":"005550","name":"Piedmont Tech College Sc","state":"SC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":13,"rows":[
+{"id":"ECO 210@200808","subj":"ECO","num":"210","title":"Macroeconomics","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ECON 2105","title":"Prin of Macroeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"EEM 117@202208","subj":"EEM","num":"117","title":"Ac/Dc Circuits I","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ENG 101@200808","subj":"ENG","num":"101","title":"English Composition I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 102@200808","subj":"ENG","num":"102","title":"English Composition II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"IMT 131@202208","subj":"IMT","num":"131","title":"Hydraulics And Pneumatics","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"IMT 210@202208","subj":"IMT","num":"210","title":"Basic Industrial Skills I","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MAT 120@200808","subj":"MAT","num":"120","title":"Probability and Statistics","minGrade":"C","from":"200808","to":null,"gt":[{"code":"MGT 2250","title":"Management Statistics","hours":3}],"conn":null,"flags":[]},
+{"id":"MAT 140@202208","subj":"MAT","num":"140","title":"Analyt Geometry & Calculus I","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PSC 201@201105","subj":"PSC","num":"201","title":"American Government","minGrade":"C","from":"201105","to":null,"gt":[{"code":"POL 1101","title":"Government of the U.S.","hours":3}],"conn":null,"flags":[]},
+{"id":"SPA 101@202208","subj":"SPA","num":"101","title":"Elementary Spanish I","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"SPA 102@202208","subj":"SPA","num":"102","title":"Elementary Spanish II","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"SPC 205@202208","subj":"SPC","num":"205","title":"Public Speaking","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

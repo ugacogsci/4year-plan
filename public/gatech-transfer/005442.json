@@ -1,0 +1,10 @@
+{"code":"005442","name":"Francis Marion University","state":"SC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":10,"rows":[
+{"id":"ART 101@202108","subj":"ART","num":"101","title":"Intro to Art","minGrade":"C","from":"202108","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"ECON 204@202205","subj":"ECON","num":"204","title":"Intro to Macroeconomics","minGrade":"C","from":"202205","to":null,"gt":[{"code":"ECON 2105","title":"Prin of Macroeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"ENGL 101@202108","subj":"ENGL","num":"101","title":"Analysis and Argument","minGrade":"C","from":"202108","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ENGL 102@202108","subj":"ENGL","num":"102","title":"Rhetoric Genre Research","minGrade":"C","from":"202108","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PHYS 215@202405","subj":"PHYS","num":"215","title":"Gen Physics I","minGrade":"C","from":"202405","to":null,"gt":[{"code":"PHYS 1111K","title":"Introductory Physics I","hours":4}],"conn":null,"flags":[]},
+{"id":"PHYS 216@202408","subj":"PHYS","num":"216","title":"Gen Physics II","minGrade":"C","from":"202408","to":null,"gt":[{"code":"PHYS 2XXX","title":"Physics Elective","hours":4}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"POLI 101@202008","subj":"POLI","num":"101","title":"US Government","minGrade":"C","from":"202008","to":null,"gt":[{"code":"POL 1101","title":"Government of the U.S.","hours":3}],"conn":null,"flags":[]},
+{"id":"PSYC 206@202008","subj":"PSYC","num":"206","title":"Introductory Psychology","minGrade":"C","from":"202008","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]}
+]}

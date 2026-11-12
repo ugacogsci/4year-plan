@@ -1,0 +1,5 @@
+{"code":"000528","name":"Wallace State Hanceville","state":"AL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":3,"rows":[
+{"id":"MTH 113@202005","subj":"MTH","num":"113","title":"Precalculus Trigonometry","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 125@201505","subj":"MTH","num":"125","title":"Calculus I","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 126@201505","subj":"MTH","num":"126","title":"Calculus II","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

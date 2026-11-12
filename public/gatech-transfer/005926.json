@@ -1,0 +1,8 @@
+{"code":"005926","name":"Wayne Community College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":8,"rows":[
+{"id":"ATR 280@201508","subj":"ATR","num":"280","title":"Robotic Fundamentals","minGrade":"C","from":"201508","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"DFT 151@201508","subj":"DFT","num":"151","title":"CAD I","minGrade":"C","from":"201508","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"HEA 110@201602","subj":"HEA","num":"110","title":"Personal Health/Wellness","minGrade":"C","from":"201602","to":null,"gt":[{"code":"APPH 1040","title":"Sci Foundation of Health","hours":2},{"code":"APPH 11XX","title":"Wellness Requirement","hours":1}],"conn":"and","flags":["XNUM","WELLNESS","SPLIT"]},
+{"id":"HEA 120@201602","subj":"HEA","num":"120","title":"Walking for Fitness","minGrade":"C","from":"201602","to":null,"gt":[{"code":"APPH 1XXX","title":"Applied Physiology elective","hours":1}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"MAT 272@202208","subj":"MAT","num":"272","title":"Calculus II","minGrade":"C","from":"202208","to":null,"gt":[{"code":"ET TRAN","title":"See Math Transfer Policy","hours":0}],"conn":null,"flags":["ET_OTHER"]},
+{"id":"PSY 150@200508","subj":"PSY","num":"150","title":"General Psychology","minGrade":"C","from":"200508","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]}
+]}

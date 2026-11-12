@@ -1,0 +1,11 @@
+{"code":"005016","name":"Barton College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":9,"rows":[
+{"id":"ECO 102@201908","subj":"ECO","num":"102","title":"Principles of Macroeconomics","minGrade":"C","from":"201908","to":null,"gt":[{"code":"ECON 2105","title":"Prin of Macroeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"FYS 101@201908","subj":"FYS","num":"101","title":"First Year Seminar I","minGrade":"C","from":"201908","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"HIS 202@201908","subj":"HIS","num":"202","title":"United States Since 1877","minGrade":"C","from":"201908","to":null,"gt":[{"code":"HIST 2112","title":"United States since 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"HUM 150@201908","subj":"HUM","num":"150","title":"Stories that Matter","minGrade":"C","from":"201908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MKT 290@201908","subj":"MKT","num":"290","title":"Principles of Marketing","minGrade":"C","from":"201908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"POL 101@201908","subj":"POL","num":"101","title":"American Government & Politics","minGrade":"C","from":"201908","to":null,"gt":[{"code":"POL 1101","title":"Government of the U.S.","hours":3}],"conn":null,"flags":[]},
+{"id":"QRT 120@201908","subj":"QRT","num":"120","title":"Quantitative Reasoning/Thinkin","minGrade":"C","from":"201908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"SPS 140@201908","subj":"SPS","num":"140","title":"Intro to Sport Management","minGrade":"C","from":"201908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"WRT 112@201908","subj":"WRT","num":"112","title":"College Writing","minGrade":"C","from":"201908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

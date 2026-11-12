@@ -1,0 +1,3 @@
+{"code":"005498","name":"North Greenville University","state":"SC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":1,"rows":[
+{"id":"EDUC 1210@200808","subj":"EDUC","num":"1210","title":"Introduction to Education","minGrade":"C","from":"200808","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]}
+]}

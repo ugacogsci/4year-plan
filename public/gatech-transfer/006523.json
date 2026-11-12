@@ -1,0 +1,7 @@
+{"code":"006523","name":"Quality Leadership University","state":"FL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":5,"rows":[
+{"id":"ACCT 201E@201508","subj":"ACCT","num":"201E","title":"Financial Accounting","minGrade":"C","from":"201508","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"COSC 111E@201508","subj":"COSC","num":"111E","title":"Info & Technology for Business","minGrade":"C","from":"201508","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ECON 201E@201508","subj":"ECON","num":"201E","title":"Principles of Microeconomics","minGrade":"C","from":"201508","to":null,"gt":[{"code":"ECON 2106","title":"Prin of Microeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"ECON 202E@201508","subj":"ECON","num":"202E","title":"Principles of Macroeconomics","minGrade":"C","from":"201508","to":null,"gt":[{"code":"ECON 2105","title":"Prin of Macroeconomics","hours":3}],"conn":null,"flags":[]},
+{"id":"ECON 205E@201508","subj":"ECON","num":"205E","title":"Statistics for Business & Econ","minGrade":"C","from":"201508","to":null,"gt":[{"code":"ECON 2250","title":"Statistics for Economist","hours":3}],"conn":null,"flags":[]}
+]}

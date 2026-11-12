@@ -1,0 +1,5 @@
+{"code":"Z85165","name":"Coosa Valley Voc-Techl School","state":"GA","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":3,"rows":[
+{"id":"HUM 191@200808","subj":"HUM","num":"191","title":"Intro to Humanities","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"PSY 191@200808","subj":"PSY","num":"191","title":"Introductory Psychology","minGrade":"C","from":"200808","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]},
+{"id":"SPC 191@200808","subj":"SPC","num":"191","title":"Fundamentals of Speech","minGrade":"C","from":"200808","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]}
+]}

@@ -1,0 +1,6 @@
+{"code":"001063","name":"Bethel University","state":"TN","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":4,"rows":[
+{"id":"ENG 101@202005","subj":"ENG","num":"101","title":"Expository Writing","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 111@202005","subj":"ENG","num":"111","title":"Writing About Literature","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Eva for ENG","hours":0},{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":"or","opts":[[0],[1]],"flags":["DEPT","ELECTIVE"]},
+{"id":"POS 241L@201505","subj":"POS","num":"241L","title":"Revolution and Political Dev","minGrade":"C","from":"201505","to":null,"gt":[{"code":"SS 2XXX","title":"Social Science Elective","hours":3},{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":"or","opts":[[0],[1]],"flags":["ELECTIVE"]},
+{"id":"PSY 111@202005","subj":"PSY","num":"111","title":"Intro to Psychology","minGrade":"C","from":"202005","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]}
+]}

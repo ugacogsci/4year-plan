@@ -1,0 +1,12 @@
+{"code":"005881","name":"Nash Cmty College","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":10,"rows":[
+{"id":"BIO 110@201208","subj":"BIO","num":"110","title":"Principles of Biology","minGrade":"C","from":"201208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"BIO 111@201208","subj":"BIO","num":"111","title":"General Biology I","minGrade":"C","from":"201208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"BIO 112@201208","subj":"BIO","num":"112","title":"General Biology II","minGrade":"C","from":"201208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"BIO 140@201208","subj":"BIO","num":"140","title":"Environmental Biology","minGrade":"C","from":"201208","to":null,"gt":[{"code":"ET LAB","title":"Credit Awarded w/BIO 140A","hours":0}],"conn":null,"lab":null,"flags":["LAB"]},
+{"id":"BIO 140A@201208","subj":"BIO","num":"140A","title":"Environmental Biology Lab","minGrade":"C","from":"201208","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ENG 113@200608","subj":"ENG","num":"113","title":"Literature-Based Research","minGrade":"C","from":"200608","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"MAT 273@200608","subj":"MAT","num":"273","title":"Calculus III","minGrade":"C","from":"200608","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MAT 285@200608","subj":"MAT","num":"285","title":"Differential Equations","minGrade":"C","from":"200608","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PHY 110@200808","subj":"PHY","num":"110","title":"Conceptual Physics","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"PHY 110A@200808","subj":"PHY","num":"110A","title":"Conceptual Physics Lab","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]}
+]}

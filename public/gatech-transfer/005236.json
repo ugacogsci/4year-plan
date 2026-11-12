@@ -1,0 +1,13 @@
+{"code":"005236","name":"The Coll of the Florida Keys","state":"FL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":14,"rows":[
+{"id":"AMH 2030@200808","subj":"AMH","num":"2030","title":"Contemporary US History","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HTS 2XXX","title":"Hist,Tech & Soc Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"CGS 2091@200908","subj":"CGS","num":"2091","title":"Pro Ethics & Soc Iss in Comp","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"ENC 1101@200808","subj":"ENC","num":"1101","title":"English Composition I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENC 1102@200808","subj":"ENC","num":"1102","title":"English Composition II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"MAC 1105@200808","subj":"MAC","num":"1105","title":"College Algebra","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"MAC 1147@200808","subj":"MAC","num":"1147","title":"Precalculus Algebra/Trig","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"MAC 2311@201505","subj":"MAC","num":"2311","title":"Calculus/Analytic Geom I","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1551","title":"Differential Calculus","hours":2},{"code":"MATH 2XXX","title":"Mathematics Elective","hours":2}],"conn":"and","flags":["ELECTIVE","SPLIT"]},
+{"id":"MAC 2312@201505","subj":"MAC","num":"2312","title":"Calculus/Analytic Geom II","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 1552","title":"Integral Calculus","hours":4}],"conn":null,"flags":[]},
+{"id":"MAC 2313@201505","subj":"MAC","num":"2313","title":"Calculus/Analytic Geom III","minGrade":"C","from":"201505","to":null,"gt":[{"code":"MATH 2551","title":"Multivariable Calculus","hours":4}],"conn":null,"flags":[]},
+{"id":"POS 1041@201008","subj":"POS","num":"1041","title":"National Government","minGrade":"C","from":"201008","to":null,"gt":[{"code":"POL 1101","title":"Government of the U.S.","hours":3}],"conn":null,"flags":[]},
+{"id":"STA 2023@201008","subj":"STA","num":"2023","title":"Int Probability/Statistics I","minGrade":"C","from":"201008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

@@ -1,0 +1,4 @@
+{"code":"005896","name":"Southrn Wesleyan Univ","state":"SC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":2,"rows":[
+{"id":"ENGL 1003@201208","subj":"ENGL","num":"1003","title":"Research and Rhetoric","minGrade":"C","from":"201208","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENGL 1013@201208","subj":"ENGL","num":"1013","title":"Introduction to Literature","minGrade":"C","from":"201208","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]}
+]}

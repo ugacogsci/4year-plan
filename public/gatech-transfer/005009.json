@@ -1,0 +1,13 @@
+{"code":"005009","name":"Andrew College","state":"GA","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":11,"rows":[
+{"id":"HIST 105@202008","subj":"HIST","num":"105","title":"U.S. History to 1865","minGrade":"C","from":"202008","to":null,"gt":[{"code":"HIST 2111","title":"United States to 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"HIST 106@202008","subj":"HIST","num":"106","title":"U.S. History Since1865","minGrade":"C","from":"202008","to":null,"gt":[{"code":"HIST 2112","title":"United States since 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"ISM 111@202008","subj":"ISM","num":"111","title":"Public Speaking","minGrade":"C","from":"202008","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]},
+{"id":"MAT 113@202005","subj":"MAT","num":"113","title":"Precalculus Trigonometry","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MAT 202@201602","subj":"MAT","num":"202","title":"Calculus & Analytic Geo I","minGrade":"C","from":"201602","to":null,"gt":[{"code":"MATH 1551","title":"Differential Calculus","hours":2},{"code":"MATH 1XXX","title":"Mathematics Elective","hours":2}],"conn":"and","flags":["ELECTIVE","SPLIT"]},
+{"id":"MAT 203@201602","subj":"MAT","num":"203","title":"Calculus and Analytic Geo II","minGrade":"C","from":"201602","to":null,"gt":[{"code":"MATH 1552","title":"Integral Calculus","hours":4}],"conn":null,"flags":[]},
+{"id":"POS 111@202008","subj":"POS","num":"111","title":"Govt of the United States","minGrade":"C","from":"202008","to":null,"gt":[{"code":"POL 1101","title":"Government of the U.S.","hours":3}],"conn":null,"flags":[]},
+{"id":"PSY 121@202008","subj":"PSY","num":"121","title":"Introduction to Psychology","minGrade":"C","from":"202008","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]},
+{"id":"SOC 121@202008","subj":"SOC","num":"121","title":"Introduction to Sociology","minGrade":"C","from":"202008","to":null,"gt":[{"code":"SOC 1101","title":"Intro to Sociology","hours":3}],"conn":null,"flags":[]},
+{"id":"THE 123@202008","subj":"THE","num":"123","title":"Theatre Appreciation","minGrade":"C","from":"202008","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"THE 124@202008","subj":"THE","num":"124","title":"Introduction to Fillm","minGrade":"C","from":"202008","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]}
+]}

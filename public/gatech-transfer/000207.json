@@ -1,0 +1,18 @@
+{"code":"000207","name":"Trenholm State Community Coll","state":"AL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":16,"rows":[
+{"id":"CIS 146@200808","subj":"CIS","num":"146","title":"Microcomputer Applications","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ENG 092@200808","subj":"ENG","num":"092","title":"Basic English I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ENG 093@200808","subj":"ENG","num":"093","title":"Basic English II","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"ENG 101@200808","subj":"ENG","num":"101","title":"English Composition I","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ENGL 1101","title":"English Composition I","hours":3}],"conn":null,"flags":[]},
+{"id":"ENG 102@202008","subj":"ENG","num":"102","title":"English Composition II","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ENGL 1102","title":"English Composition II","hours":3}],"conn":null,"flags":[]},
+{"id":"HIS 202@202008","subj":"HIS","num":"202","title":"United States History II","minGrade":"C","from":"202008","to":null,"gt":[{"code":"HIST 2112","title":"United States since 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"MTH 090@200808","subj":"MTH","num":"090","title":"Basic Mathematics","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 104@200808","subj":"MTH","num":"104","title":"Plane Trigonometry","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"MTH 110@202508","subj":"MTH","num":"110","title":"Finite Mathematics","minGrade":"C","from":"202508","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MTH 116@200808","subj":"MTH","num":"116","title":"Mathematical Applications","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MUS 101@200808","subj":"MUS","num":"101","title":"Music Appreciation","minGrade":"C","from":"200808","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":3}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"ORI 101@200808","subj":"ORI","num":"101","title":"Orientation to College","minGrade":"C","from":"200808","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]},
+{"id":"PHS 112@202008","subj":"PHS","num":"112","title":"Physical Science II","minGrade":"C","from":"202008","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"POL 211@202008","subj":"POL","num":"211","title":"American National Government","minGrade":"C","from":"202008","to":null,"gt":[{"code":"POL 1101","title":"Government of the U.S.","hours":3}],"conn":null,"flags":[]},
+{"id":"PSY 200@200808","subj":"PSY","num":"200","title":"General Psychology","minGrade":"C","from":"200808","to":null,"gt":[{"code":"PSYC 1101","title":"General Psychology","hours":3}],"conn":null,"flags":[]},
+{"id":"SPH 106@200808","subj":"SPH","num":"106","title":"Fundamental Oral Communication","minGrade":"C","from":"200808","to":null,"gt":[{"code":"FREE 1XXX","title":"Free Elective","hours":3}],"conn":null,"flags":["FREE"]}
+]}

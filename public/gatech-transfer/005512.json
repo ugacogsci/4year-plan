@@ -1,0 +1,13 @@
+{"code":"005512","name":"Univ Nc Sch Of The Arts","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":17,"rows":[
+{"id":"FIM 131@201405","subj":"FIM","num":"131","title":"American Cinema","minGrade":"C","from":"201405","to":null,"gt":[{"code":"ET DEPT","title":"Credit Awarded w/FIM 132 & 133","hours":0}],"conn":null,"lab":null,"flags":["DEPT","LAB"]},
+{"id":"FIM 132@201405","subj":"FIM","num":"132","title":"American Cinema","minGrade":"C","from":"201405","to":null,"gt":[{"code":"LMC 2500","title":"3 Hrs Awarded w/FIM 131 & 133","hours":0}],"conn":null,"flags":[]},
+{"id":"FIM 133@201405","subj":"FIM","num":"133","title":"American Cinema","minGrade":"C","from":"201405","to":null,"gt":[{"code":"LMC 3258","title":"3 Hrs Awarded w/FIM 131 & 132","hours":0}],"conn":null,"flags":[]},
+{"id":"FIM 231@201405","subj":"FIM","num":"231","title":"Classics of World Cinema","minGrade":"C","from":"201405","to":null,"gt":[{"code":"ET DEPT","title":"Credit Awarded w/FIM 232 & 233","hours":0}],"conn":null,"lab":null,"flags":["DEPT","LAB"]},
+{"id":"FIM 232@201405","subj":"FIM","num":"232","title":"Classics of World Cinema","minGrade":"C","from":"201405","to":null,"gt":[{"code":"HUM 2XXX","title":"3 Hrs Awarded w/FIM 231 & 233","hours":0}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"FIM 233@201405","subj":"FIM","num":"233","title":"Classics of World Cinema","minGrade":"C","from":"201405","to":null,"gt":[{"code":"LMC 3257","title":"3 Hrs Awarded w/FIM 231 & 232","hours":0}],"conn":null,"flags":[]},
+{"id":"FIM 330@200708","subj":"FIM","num":"330","title":"Experimental Animation","minGrade":"C","from":"200708","to":null,"gt":[{"code":"FREE 3XXX","title":"Free Elective","hours":2}],"conn":null,"flags":["FREE"]},
+{"id":"GES 211@200708","subj":"GES","num":"211","title":"Foundations of Western Thought","minGrade":"C","from":"200708","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":2}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"GES 212@200708","subj":"GES","num":"212","title":"Foundations of Western Thought","minGrade":"C","from":"200708","to":null,"gt":[{"code":"HUM 2XXX","title":"Humanities Elective","hours":2}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"HUM 121@200708","subj":"HUM","num":"121","title":"Arts Context: Renaiss/Baroque","minGrade":"C","from":"200708","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":2}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"HUM 122@200708","subj":"HUM","num":"122","title":"Arts Context: Age Reason/Revol","minGrade":"C","from":"200708","to":null,"gt":[{"code":"HUM 1XXX","title":"Humanities Elective","hours":2}],"conn":null,"flags":["ELECTIVE"]}
+]}

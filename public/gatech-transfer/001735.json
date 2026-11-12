@@ -1,0 +1,12 @@
+{"code":"001735","name":"Univ North Alabama","state":"AL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":12,"rows":[
+{"id":"BI 312@200608","subj":"BI","num":"312","title":"Evolution","minGrade":"C","from":"200608","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"BI 421@200608","subj":"BI","num":"421","title":"Ecology","minGrade":"C","from":"200608","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"CS 155@200508","subj":"CS","num":"155","title":"Computer Science I","minGrade":"C","from":"200508","to":null,"gt":[{"code":"CS 1301","title":"Computer Science I","hours":3}],"conn":null,"flags":[]},
+{"id":"EN 111@200608","subj":"EN","num":"111","title":"First-Yr Composition I","minGrade":"C","from":"200608","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"EN 112@200608","subj":"EN","num":"112","title":"First-Yr Composition II","minGrade":"C","from":"200608","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"HI 201@201105","subj":"HI","num":"201","title":"United States History to 1877","minGrade":"C","from":"201105","to":null,"gt":[{"code":"HIST 2111","title":"United States to 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"HI 202@201105","subj":"HI","num":"202","title":"US History Since 1877","minGrade":"C","from":"201105","to":null,"gt":[{"code":"HIST 2112","title":"United States since 1877","hours":3}],"conn":null,"flags":[]},
+{"id":"MA 126@200608","subj":"MA","num":"126","title":"Calculus II","minGrade":"C","from":"200608","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PH 251@200608","subj":"PH","num":"251","title":"Technical Physics","minGrade":"C","from":"200608","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PH 252@200608","subj":"PH","num":"252","title":"Technical Physics II","minGrade":"C","from":"200608","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]}
+]}

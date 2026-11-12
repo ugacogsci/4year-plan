@@ -1,0 +1,10 @@
+{"code":"005100","name":"Campbell University","state":"NC","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":8,"rows":[
+{"id":"MATH 115@202005","subj":"MATH","num":"115","title":"Precalculus","minGrade":"C","from":"202005","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 122@201602","subj":"MATH","num":"122","title":"Analytic Geometry & Calc I","minGrade":"C","from":"201602","to":null,"gt":[{"code":"MATH 1551","title":"Differential Calculus","hours":2},{"code":"MATH 1XXX","title":"Mathematics Elective","hours":2}],"conn":"and","flags":["ELECTIVE","SPLIT"]},
+{"id":"MATH 223@201602","subj":"MATH","num":"223","title":"Analytic Geometry & Calc II","minGrade":"C","from":"201602","to":null,"gt":[{"code":"MATH 1552","title":"Integral Calculus","hours":4}],"conn":null,"flags":[]},
+{"id":"MATH 224@201505","subj":"MATH","num":"224","title":"Analytic Geometry & Calc III","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 333@201505","subj":"MATH","num":"333","title":"Linear Algebra","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"MATH 337@201505","subj":"MATH","num":"337","title":"Differential Equations","minGrade":"C","from":"201505","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"SPAN 201@201102","subj":"SPAN","num":"201","title":"Intermediate Span I","minGrade":"C","from":"201102","to":null,"gt":[{"code":"SPAN 2001","title":"Intermediate Spanish I","hours":3}],"conn":null,"flags":[]},
+{"id":"SPAN 202@201102","subj":"SPAN","num":"202","title":"Intermediate Span II","minGrade":"C","from":"201102","to":null,"gt":[{"code":"SPAN 2002","title":"Intermediate Spanish II","hours":3}],"conn":null,"flags":[]}
+]}

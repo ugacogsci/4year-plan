@@ -1,0 +1,6 @@
+{"code":"005216","name":"Florida College","state":"FL","readAt":"2026-11-10","nowTerm":"202608","rowsAllTerms":4,"rows":[
+{"id":"BSC 2010@200908","subj":"BSC","num":"2010","title":"Biol I: Biol Processes w/Lab","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"BSC 2010C@200908","subj":"BSC","num":"2010C","title":"Biol I: Biol Processes w/Lab","minGrade":"C","from":"200908","to":null,"gt":[{"code":"ET DEPT","title":"Approp. Dept. Must Evaluate","hours":0}],"conn":null,"flags":["DEPT"]},
+{"id":"PHY 2049@201208","subj":"PHY","num":"2049","title":"Gen Physics II w/Calc w/Lab","minGrade":"C","from":"201208","to":null,"gt":[{"code":"PHYS 2XXX","title":"Physics Elective","hours":4}],"conn":null,"flags":["ELECTIVE"]},
+{"id":"REL 2257@201408","subj":"REL","num":"2257","title":"NT Epistles: I Corinthians","minGrade":"C","from":"201408","to":null,"gt":[{"code":"ET NOGT","title":"No Georgia Tech Credit Awarded","hours":0}],"conn":null,"flags":["NOGT"]}
+]}
